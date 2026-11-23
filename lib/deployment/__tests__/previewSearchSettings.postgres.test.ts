@@ -10,6 +10,7 @@ import {
 	resolvePreviewSearchFacts,
 	unconfirmedSearchValues,
 } from "@/lib/preview/searchSettings";
+import { readPreviewSearchPage } from "../previewSearchPages";
 import {
 	readAuthorizedPreviewSearchCatalog,
 	recoverPreviewSearchSettings,
@@ -312,4 +313,82 @@ it("preserves an older search profile when the team confirms, corrects and clear
 		...confirmed,
 		caseListMap: null,
 	});
+});
+
+it("pages only its own Project's settings for the agent and MCP reader at a destination two Projects share", async () => {
+	for (const scope of [app, foreign]) await deploy(scope, eu.server);
+	const rule = (literal: string) => ({
+		caseType: "patient",
+		property: "code",
+		literal,
+	});
+	expect(
+		await setPreviewSearchSettings(foreign, "other", eu, "0", {
+			maximum: 500,
+			timeZone: "Europe/Paris",
+			propertyMatchers: {
+				fuzzyProperties: [
+					{
+						start: 0,
+						remove: 0,
+						insert: [{ caseType: "patient", property: "name", fuzzy: true }],
+					},
+				],
+				ignoredText: [
+					{
+						start: 0,
+						remove: 0,
+						insert: [rule("foreign-a"), rule("foreign-b")],
+					},
+				],
+			},
+		}),
+	).toMatchObject({ kind: "saved" });
+	const page = (input: Parameters<typeof readPreviewSearchPage>[3]) =>
+		readPreviewSearchPage(app.appId, app.projectId, "viewer", input);
+	// Before this Project records anything, the other Project's row stays out.
+	expect(await page({})).toEqual({
+		profiles: [
+			{
+				target: eu,
+				revision: "0",
+				maximum: null,
+				timeZone: null,
+				caseListMap: null,
+				matching: null,
+			},
+		],
+		nextCursor: null,
+	});
+	expect(await page({ target: eu })).toMatchObject({ rules: [] });
+	expect(
+		await setPreviewSearchSettings(app, "author", eu, "0", {
+			...confirmed,
+			propertyMatchers: {
+				ignoredText: [{ start: 0, remove: 0, insert: [rule("own")] }],
+			},
+		}),
+	).toMatchObject({ kind: "saved", savedRevision: "1" });
+	expect(await page({})).toMatchObject({
+		profiles: [
+			{
+				target: eu,
+				revision: "1",
+				maximum: 1500,
+				timeZone: "Asia/Kolkata",
+				matching: { fuzzyProperties: 0, ignoredText: 1 },
+			},
+		],
+	});
+	expect(await page({ target: eu })).toEqual({
+		profile: expect.objectContaining({ revision: "1" }),
+		rules: [{ list: "ignoredText", index: 0, ...rule("own") }],
+		nextCursor: null,
+	});
+	await expect(
+		readPreviewSearchPage(app.appId, foreign.projectId, "other", {}),
+	).rejects.toBeInstanceOf(AppAccessError);
+	await expect(
+		readPreviewSearchPage(app.appId, app.projectId, "other", { target: eu }),
+	).rejects.toBeInstanceOf(AppAccessError);
 });
