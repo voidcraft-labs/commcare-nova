@@ -40,6 +40,22 @@ export const CASE_LIST_MENU_ITEM_LINE =
 export const CASE_LIST_MENU_ITEM_BARE_LINE =
 	"This menu has no forms, so the case list is what it opens. Once it has a form, you can turn this off.";
 
+/**
+ * The entry with one slot changed and the others as stored. It starts from
+ * the stored entry, never the worker language's projection: the projection
+ * holds the files that language sees as the entry's own, and writing it back
+ * whole would make them the shared files. An empty slot is absent, never
+ * stored empty.
+ */
+export function caseListMenuItemWithSlot<K extends keyof CaseListMenuItem>(
+	stored: CaseListMenuItem | undefined,
+	key: K,
+	value: CaseListMenuItem[K] | undefined,
+): CaseListMenuItem {
+	const { [key]: _previous, ...rest } = stored ?? {};
+	return value === undefined ? rest : { ...rest, [key]: value };
+}
+
 /** The one mutation that sets or clears the entry. */
 export function caseListMenuItemMutation(
 	moduleUuid: Uuid,
@@ -63,9 +79,8 @@ export function CaseListMenuItemSection({
 		MENU_ITEM_NOTE_FEATURES,
 	);
 	const item = module?.caseListMenuItem;
-	const lens = useNavigationFileLens(
-		useStoredModule(moduleUuid)?.caseListMenuItem,
-	);
+	const stored = useStoredModule(moduleUuid)?.caseListMenuItem;
+	const lens = useNavigationFileLens(stored);
 	const on = item !== undefined;
 	const plan = useCallback(
 		(doc: BlueprintDoc) => ({
@@ -88,15 +103,12 @@ export function CaseListMenuItemSection({
 		on && bare ? CASE_LIST_MENU_ITEM_BARE_LINE : gate.toggle;
 	const setItem = (next: CaseListMenuItem | null) =>
 		commitMany([caseListMenuItemMutation(moduleUuid, next)]);
-	/* Each slot change writes the whole entry with the other slots as they
-	 * are; an empty slot is absent, never stored empty. */
+	/* Each slot change writes the whole entry with the other slots as
+	 * stored (`caseListMenuItemWithSlot`). */
 	const withSlot = <K extends keyof CaseListMenuItem>(
 		key: K,
 		value: CaseListMenuItem[K] | undefined,
-	): CaseListMenuItem => {
-		const { [key]: _previous, ...rest } = item ?? {};
-		return value === undefined ? rest : { ...rest, [key]: value };
-	};
+	): CaseListMenuItem => caseListMenuItemWithSlot(stored, key, value);
 
 	return (
 		<section
