@@ -1506,6 +1506,8 @@ export function readCaseDetails(
 	const longCursors = long.list("columns", "DetailColumn", D.longColumns);
 	const shared = {
 		selectProperty,
+		optimizationsOn:
+			module.json.peek("show_case_list_optimization_options") === true,
 		advanced: module.docType === "AdvancedModule",
 		offersSearch: menuOffersSearch(module),
 		relationVia: (steps: readonly string[]) =>
@@ -1700,6 +1702,10 @@ export function readCaseDetails(
 		}),
 		...(wording.select !== undefined && {
 			selectButtonText: sourceText(ctx, wording.select.texts),
+		}),
+		// Claimed by the menu's reading (`menus/modules.ts`), held here with the list it serves.
+		...(module.json.peek("show_case_list_optimization_options") === true && {
+			optimizations: true as const,
 		}),
 		...(tile.config !== undefined && {
 			tile: {

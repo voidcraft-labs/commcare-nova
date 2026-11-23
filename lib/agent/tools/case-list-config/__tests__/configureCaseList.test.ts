@@ -132,6 +132,38 @@ describe("configureCaseList", () => {
 		).toBe(false);
 	});
 
+	it("turns faster loading on for a calculation's choice, and off with every choice in one batch", async () => {
+		const h = makeCaseListFixture();
+		const list = () => h.currentDoc().modules[MOD_A].caseListConfig;
+		const added = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			optimizations: true,
+			columns: [
+				{
+					kind: "calculated",
+					header: "Visits",
+					expression: term(prop("patient", "case_name")),
+					loadBehavior: "cache",
+				},
+			],
+		});
+		if ("error" in added.result) throw new Error(added.result.error);
+		expect(list()?.optimizations).toBe(true);
+		expect(
+			list()?.columns.map((one) =>
+				"loadBehavior" in one ? one.loadBehavior : undefined,
+			),
+		).toEqual([undefined, "cache"]);
+
+		const off = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			optimizations: false,
+		});
+		if ("error" in off.result) throw new Error(off.result.error);
+		expect(list()?.optimizations).toBeUndefined();
+		expect(list()?.columns.some((one) => "loadBehavior" in one)).toBe(false);
+	});
+
 	it("lands one coherent configuration as granular mutations", async () => {
 		const h = makeCaseListFixture();
 		const result = await h.runTool(configureCaseListTool, {

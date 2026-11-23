@@ -65,6 +65,7 @@ export type HqPrivateFeatureFlagId =
 	| "detail-tab-rows"
 	| "case-form-context"
 	| "empty-case-list-text"
+	| "case-list-optimizations"
 	| "case-list-icon-actions"
 	| "custom-case-tiles"
 	| "calculated-case-order"
@@ -97,6 +98,7 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"detail-tab-rows": "DETAIL_LIST_TAB_NODESETS",
 	"case-form-context": "SHOW_PERSIST_CASE_CONTEXT_SETTING",
 	"empty-case-list-text": "USH_EMPTY_CASE_LIST_TEXT",
+	"case-list-optimizations": "CASE_LIST_OPTIMIZATIONS",
 	"case-list-icon-actions": "CASE_LIST_CLICKABLE_ICON",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
 	"calculated-case-order": "SORT_CALCULATION_IN_CASE_LIST",
@@ -499,6 +501,13 @@ export function projectSpaceCompatibilityProbePlan(
 				"empty-case-list-text",
 				`The ${module.name} case list has its own words for an empty list.`,
 			);
+		/* HQ writes a load behavior only where the project space holds the
+		 * flag (`feature_support.py::supports_case_list_optimizations`). */
+		if (module.caseListConfig?.optimizations === true)
+			addReason(
+				"case-list-optimizations",
+				`The ${module.name} case list loads some values faster on phones.`,
+			);
 		if (caseContextLine(module.caseListConfig?.contextAboveForm))
 			addReason(
 				"case-form-context",
@@ -604,6 +613,7 @@ export function projectSpaceCompatibilityProbePlan(
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
 		["case-form-context", ["case-form-context"]],
 		["empty-case-list-text", ["empty-case-list-text"]],
+		["case-list-optimizations", ["case-list-optimizations"]],
 		["case-list-icon-actions", ["case-list-icon-actions"]],
 		["detail-tab-rows", ["detail-tab-rows"]],
 		["commcare-connect", ["commcare-connect"]],

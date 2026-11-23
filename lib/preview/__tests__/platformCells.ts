@@ -289,6 +289,12 @@ export const PLATFORM_CELLS: Readonly<
 	"case-search/hint-lang@android": browser("search-screen-text-android"),
 	"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty@android":
 		model("case-list-own-wording"),
+	// How soon a value shows and whether it is kept between visits: Preview reads every value
+	// from the Project's cases as it draws the list, on either platform.
+	"menus-and-case-lists/module-show-case-list-optimization-options@web-apps":
+		outside("loading speed and caching on the device"),
+	"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load@web-apps":
+		outside("loading speed and caching on the device"),
 	"menus-and-case-lists/detail-select-text-non-default@web-apps": model(
 		"case-list-own-wording",
 	),

@@ -1051,7 +1051,6 @@ function checkModule(
 			"display_style",
 			"has_schedule",
 			"schedule_phases",
-			"show_case_list_optimization_options",
 		]) {
 			if (!Object.hasOwn(module, key)) continue;
 			errors.push(

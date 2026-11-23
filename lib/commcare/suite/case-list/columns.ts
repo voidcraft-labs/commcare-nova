@@ -4,6 +4,7 @@ import {
 	caseTextKeyPadding,
 	caseTextWireKey,
 } from "./calculationText";
+import { columnLoadBehavior, withFieldLoadBehavior } from "./optimizations";
 
 // lib/commcare/suite/case-list/columns.ts
 //
@@ -1569,6 +1570,28 @@ export function buildColumnField(args: {
 	/** The field is hidden from Results: HQ's `invisible` column. */
 	readonly hidden?: boolean;
 	/** The name the hidden field's rule gives it in Sort by. */
+	readonly sortLabel?: CaseListSortLabel;
+}): CaseListFieldEmission {
+	const emission = buildColumnFieldBody(args);
+	// A hidden field is HQ's `invisible` format, which keeps no load behavior.
+	if (args.hidden === true) return emission;
+	return {
+		...emission,
+		element: withFieldLoadBehavior(
+			emission.element,
+			columnLoadBehavior(
+				args.ctx.optimizations === true ? { optimizations: true } : undefined,
+				args.column,
+			),
+		),
+	};
+}
+
+function buildColumnFieldBody(args: {
+	readonly column: Column;
+	readonly position: number;
+	readonly ctx: CaseListEmitContext;
+	readonly hidden?: boolean;
 	readonly sortLabel?: CaseListSortLabel;
 }): CaseListFieldEmission {
 	const { column, position, ctx, hidden = false, sortLabel } = args;

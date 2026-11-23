@@ -122,6 +122,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
 	],
+	"case-list-faster-loading": [
+		"menus-and-case-lists/module-show-case-list-optimization-options",
+		"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load",
+	],
 	"case-list-empty-text": [
 		"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
 	],

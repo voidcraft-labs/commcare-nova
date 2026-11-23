@@ -2303,11 +2303,10 @@
 			"schema:Module.show_case_list_optimization_options",
 			"schema:ShadowModule.show_case_list_optimization_options"
 		],
-		"valueClass": "enabled",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.optimizations` (enables per-column cache/lazy, Detail columns)",
-		"subject": "case-list-optimizations",
-		"owner": "case-list-and-detail",
+		"valueClass": "enabled-on-a-menu-with-a-case-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.optimizations` (enables per-column cache/lazy, Detail columns)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (no cache; laziness whole-detail) / RUNS",
@@ -2324,6 +2323,29 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_LIST_OPTIMIZATIONS"]
+	},
+	{
+		"id": "menus-and-case-lists/module-show-case-list-optimization-options-on-a-menu-with-no-case-list",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`Module.show_case_list_optimization_options` on a menu with no case type",
+		"surfaceKeys": [
+			"schema:AdvancedModule.show_case_list_optimization_options",
+			"schema:Module.show_case_list_optimization_options",
+			"schema:ShadowModule.show_case_list_optimization_options"
+		],
+		"valueClass": "enabled-on-a-menu-with-no-case-list",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build reads it only as it builds a case list's details (`suite_xml/sections/details.py::DetailContributor`, `detail_screen.py`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/module-display-separately",
@@ -4943,10 +4965,10 @@
 			"parser:DetailFieldParser/field@lazy_loading",
 			"schema:DetailColumn.optimization"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `column.optimization` (calculated columns in address/date/markdown/phone/plain/enum formats)",
-		"subject": "case-list-optimizations",
-		"owner": "case-list-and-detail",
+		"valueClass": "on-a-column-that-can-use-it",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `column.loadBehavior` (calculated columns in address/date/markdown/phone/plain/enum formats)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (no cache; laziness applies to the whole detail) / RUNS",
@@ -4963,6 +4985,26 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_LIST_OPTIMIZATIONS"]
+	},
+	{
+		"id": "menus-and-case-lists/optimization-on-a-column-that-cannot-use-it",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "`optimization` on a column that is not an expression column of the address, date, markdown, phone, plain or enum format, or in a menu whose `show_case_list_optimization_options` is off",
+		"surfaceKeys": ["schema:DetailColumn.optimization"],
+		"valueClass": "on-a-column-that-cannot-use-it",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ discards it as it reads the column (`models/case_list.py::DetailColumn.wrap`, `supports_optimizations`), and its build writes none where the menu's setting is off (`detail_screen.py::FormattedDetailColumn.fields`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/filter-xpath",

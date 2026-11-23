@@ -1471,3 +1471,14 @@ def unreadable_form_context_line(authoring, app_id):
 def explicit_visit_rows_with_related_cases(authoring, app_id):
     _visit_rows_detail(authoring, app_id, {"nodeset": "instance('casedb')/casedb/case[@case_type = 'visit']",
                                           "nodeset_case_type": "contact"})
+
+
+def calculation_loading_faster(authoring, app_id):
+    """Patients' list with faster loading on and its ``visits + 1`` calculation kept and worked out later: the
+    menu's setting first, as the Case List page saves it, then the column's choice."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/show_case_list_optimization_options", True),
+        ("/modules/0/case_details/short/columns/4/optimization", "cache_and_lazy_load"),
+    )

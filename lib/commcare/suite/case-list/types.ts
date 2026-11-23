@@ -158,6 +158,9 @@ export type DetailTarget = "case" | "search";
  */
 export interface CaseListEmitContext {
 	readonly detailBindings?: WireTermBindings;
+	/** Whether the list's faster loading is on, which each field's load
+	 *  behavior reads (`optimizations.ts`). */
+	readonly optimizations?: boolean;
 	/** Prints contribute their reads to the detail's owning scope. */
 	readonly wire: WireElementContext;
 	readonly moduleIndex: number;

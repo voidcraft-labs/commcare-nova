@@ -25,6 +25,7 @@ export type ProjectSpaceCapabilityId =
 	| "detail-tab-rows"
 	| "case-form-context"
 	| "empty-case-list-text"
+	| "case-list-optimizations"
 	| "case-list-icon-actions"
 	| "save-only-edited-answers"
 	| "same-type-child-links";
@@ -104,6 +105,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Your own empty case list text",
 		description:
 			"Shows workers the case list's own words when it has no cases.",
+	},
+	"case-list-optimizations": {
+		id: "case-list-optimizations",
+		label: "Faster case list loading",
+		description:
+			"Lets a phone keep some case list values between visits or work them out after the list shows.",
 	},
 	"case-list-icon-actions": {
 		id: "case-list-icon-actions",
@@ -458,6 +465,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"detail-tab-rows",
 	"case-form-context",
 	"empty-case-list-text",
+	"case-list-optimizations",
 	"case-list-icon-actions",
 	"save-only-edited-answers",
 	"same-type-child-links",

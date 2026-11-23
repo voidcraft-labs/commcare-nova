@@ -87,7 +87,8 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 | `Module.display_style` (`list`/`grid`, read when `grid_form_menus == some`) on a basic module | **HELD-NEW**: `menuStyle.moduleGrid` | RUNS / RUNS | `display_style` |
 | `display_style` on an advanced or shadow module | **INERT**: only the basic `Module` defines and reads it (`models/modules.py`, `menus.py::MenuContributor.get_module_contributions` through `grid_display_style`); the menu page stores it as a dynamic key, and it reloads as `list` | n/a | omit |
 | `Module.lazy_load_case_list_fields: true` | **REFUSED**: retiring (CASE_LIST_LAZY) | — | — |
-| `Module.show_case_list_optimization_options` | **HELD-NEW**: `caseListConfig.optimizations` (enables per-column cache/lazy, Detail columns) | DIFFERENT (no cache; laziness whole-detail) / RUNS | `show_case_list_optimization_options: true`; CASE_LIST_OPTIMIZATIONS |
+| `Module.show_case_list_optimization_options` | **HELD**: `caseListConfig.optimizations` (enables per-column cache/lazy, Detail columns) | DIFFERENT (no cache; laziness whole-detail) / RUNS | `show_case_list_optimization_options: true`; CASE_LIST_OPTIMIZATIONS |
+| `Module.show_case_list_optimization_options` on a menu with no case type | **INERT**: HQ's build reads it only as it builds a case list's details (`suite_xml/sections/details.py::DetailContributor`, `detail_screen.py`) | n/a | omit |
 | `Module.display_separately` | **INERT**: written by `edit_module_attr`, read by nothing | n/a | omit |
 | legacy `Module.referral_label` and `case_label` keys | **INERT**: keys `Module` no longer declares, which HQ's agriculture template app still carries on every menu (`static/app_manager/template_apps/agriculture/app.json`) and nothing reads | n/a | omit |
 | `AdvancedModule.product_details` equal to the default single `name` column | **INERT**: created by `AdvancedModule.new_module`, not content, in a project space without CommTrack; where `Domain.commtrack_enabled` is on, HQ builds the product list (`AdvancedModule.get_details`) and gives the module's case list menu item a `product_id` datum (`entries.py::EntriesHelper.entry_for_module`), COMMTRACK content, which defect 20's confirmation covers | n/a | the default |
@@ -195,7 +196,8 @@ HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixi
 | `late_flag` | → Column formats, `late-flag` | — | — |
 | `time_ago_interval` | → Column formats, `time-ago` | — | — |
 | `date_format` | → Column formats, `date` | — | — |
-| `optimization` (`cache`/`lazy_load`/`cache_and_lazy_load`) | **HELD-NEW**: `column.optimization` (calculated columns in address/date/markdown/phone/plain/enum formats) | DIFFERENT (no cache; laziness applies to the whole detail) / RUNS | `optimization`; CASE_LIST_OPTIMIZATIONS + module option |
+| `optimization` (`cache`/`lazy_load`/`cache_and_lazy_load`) | **HELD**: `column.loadBehavior` (calculated columns in address/date/markdown/phone/plain/enum formats) | DIFFERENT (no cache; laziness applies to the whole detail) / RUNS | `optimization`; CASE_LIST_OPTIMIZATIONS + module option |
+| `optimization` on a column that is not an expression column of the address, date, markdown, phone, plain or enum format, or in a menu whose `show_case_list_optimization_options` is off | **INERT**: HQ discards it as it reads the column (`models/case_list.py::DetailColumn.wrap`, `supports_optimizations`), and its build writes none where the menu's setting is off (`detail_screen.py::FormattedDetailColumn.fields`) | n/a | omit |
 | `endpoint_action_id` | → Column formats, `clickable-icon` | — | — |
 | `filter_xpath` | **INERT**: legacy; no emitter reads it | n/a | `''` |
 | `advanced` | **INERT**: no reference anywhere | n/a | `''` |

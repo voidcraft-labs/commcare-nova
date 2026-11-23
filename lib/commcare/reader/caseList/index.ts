@@ -257,6 +257,16 @@ function fieldRead(column: JsonObject): {
 		: { property: attribute };
 }
 
+/** HQ's formats that keep a load behavior (`const.py::FORMATS_SUPPORTING_CASE_LIST_OPTIMIZATIONS`). */
+const OPTIMIZED: ReadonlySet<string> = new Set([
+	"address",
+	"date",
+	"markdown",
+	"phone",
+	"plain",
+	"enum",
+]);
+
 const CELL_KEYS = [
 	"grid_x",
 	"grid_y",
@@ -295,7 +305,16 @@ function columnDifference(
 	tile: boolean,
 	screen: "short" | "long",
 	fieldHandedOff: boolean,
+	optimizationsOn: boolean,
 ): string | undefined {
+	// A load behavior as HQ keeps it (`columns.ts::storedLoadBehavior`).
+	const behavior = (column: JsonObject) =>
+		column.useXpathExpression === true &&
+		OPTIMIZED.has(typeof column.format === "string" ? column.format : "plain")
+			? (column.optimization ?? null)
+			: null;
+	if (optimizationsOn && behavior(stored) !== behavior(ours))
+		return "schema:DetailColumn.optimization";
 	const format = columnFormatAsRead(stored.format, screen);
 	if (format !== columnFormatAsRead(ours.format, screen))
 		return "schema:DetailColumn.format";
@@ -834,6 +853,7 @@ function listDifference(
 			mod.caseListConfig?.detailTile !== undefined,
 			"long",
 			handed.long.has(index),
+			mod.caseListConfig?.optimizations === true,
 		);
 		if (key !== undefined) return key;
 	}
@@ -856,6 +876,7 @@ function listDifference(
 			tile && !mod.caseListConfig?.tile?.namedSlots,
 			"short",
 			handed.short.has(index),
+			mod.caseListConfig?.optimizations === true,
 		);
 		if (key !== undefined) return key;
 	}

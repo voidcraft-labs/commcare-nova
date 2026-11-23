@@ -139,6 +139,7 @@ import {
 	selectTextLocaleId,
 } from "./detailTexts";
 import { buildNamedTileFields } from "./namedTile";
+import { withDetailLoadBehavior } from "./optimizations";
 import { moduleCaseListOrderPlan } from "./orderPlanOptions";
 import { planSortNodes } from "./sortKeys";
 import { buildTileGroupElement } from "./tileGroup";
@@ -387,6 +388,7 @@ export function buildShortDetail(args: {
 		moduleIndex,
 		sortByUuid: new Map(),
 		detailKind: "short",
+		optimizations: mod.caseListConfig?.optimizations === true,
 		target,
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
@@ -499,19 +501,25 @@ export function buildShortDetail(args: {
 	}
 
 	return {
-		element: buildDetailShell(
-			detailId,
-			config.tile?.namedSlots
-				? buildNamedTileFields(config.tile.namedSlots, namedFields)
-				: fields,
-			searchAction,
-			register?.element,
-			config.tile?.grouping,
-			texts.elements,
-			moduleIndex,
-			expressions,
-			wire,
-			args.lookupNaming,
+		element: withDetailLoadBehavior(
+			buildDetailShell(
+				detailId,
+				config.tile?.namedSlots
+					? buildNamedTileFields(config.tile.namedSlots, namedFields)
+					: fields,
+				searchAction,
+				register?.element,
+				config.tile?.grouping,
+				texts.elements,
+				moduleIndex,
+				expressions,
+				wire,
+				args.lookupNaming,
+			),
+			config,
+			config.columns.filter(
+				(column) => column.visibleInList !== false && column.notOnList !== true,
+			),
 		),
 		strings,
 		translationUnits,

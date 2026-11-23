@@ -281,7 +281,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Module fields, Detail columns)",
+		"content": "HELD (Module fields, Detail columns)",
 		"contentEntries": [
 			"menus-and-case-lists/module-show-case-list-optimization-options",
 			"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load"
@@ -1900,7 +1900,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Detail screens `no_items_text`)",
+		"content": "HELD (Detail screens `no_items_text`)",
 		"contentEntries": [
 			"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
 			"menus-and-case-lists/detail-no-items-text-equal-to-hq-s-default"

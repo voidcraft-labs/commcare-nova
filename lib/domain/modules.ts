@@ -946,6 +946,24 @@ const intervalColumnSchema = columnBase.extend({
 });
 
 /**
+ * How a phone loads a column's value: kept between visits (`cache`), worked
+ * out after the list first shows (`defer`), or both. HQ writes each on the
+ * column's field and promotes it to the detail
+ * (`detail_screen.py::FormattedDetailColumn._set_case_list_optimizations`,
+ * `suite_xml/sections/details.py::_add_detail_optimizations`), only for a
+ * column HQ reads through an expression in the address, date, markdown,
+ * phone, plain or enum format (`models/case_list.py::DetailColumn.supports_optimizations`).
+ * Android keeps each per field (`AsyncNodeEntityFactory`); Web Apps loads the
+ * whole list later and keeps nothing.
+ */
+export const columnLoadBehaviorSchema = z
+	.enum(["cache", "defer", "cache-and-defer"])
+	.describe(
+		"How a phone loads this value: cache keeps it between visits, defer works it out after the list shows, cache-and-defer does both. Needs the case list's faster loading turned on.",
+	);
+export type ColumnLoadBehavior = z.infer<typeof columnLoadBehaviorSchema>;
+
+/**
  * Link column — renders the property's value as a tappable link
  * labelled with `linkText`, for a property holding an address rather
  * than a value a person reads (an attachment link, say).
@@ -977,6 +995,7 @@ const linkColumnSchema = columnBase.extend({
 			/^[^\[\]]+$/,
 			"Link text can't contain square brackets. The cell is rendered as markdown, where a bracket ends the link's label early and the row shows the raw text instead of a link.",
 		),
+	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 
 /**
@@ -1012,6 +1031,7 @@ const calculatedColumnSchema = columnBase.extend({
 			"Show this calculation as formatted text. Workers on Web Apps can follow Markdown links in a case result.",
 		),
 	expression: valueSchema,
+	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 
 export const columnSchema = z.discriminatedUnion("kind", [
@@ -2987,6 +3007,13 @@ export const caseListConfigSchema = z
 		 */
 		selectButtonText: caseListWordingSchema.optional(),
 		/**
+		 * Faster loading is on: a calculated or link column may say how a
+		 * phone loads its value (`loadBehavior`). HQ's
+		 * `Module.show_case_list_optimization_options`, which the project
+		 * space's `CASE_LIST_OPTIMIZATIONS` gates.
+		 */
+		optimizations: z.literal(true).optional(),
+		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.
 		 */
@@ -3003,6 +3030,23 @@ export const caseListConfigSchema = z
 				path: ["tile", "rawSlots"],
 				message: "Choose a raw value only once for a named tile position.",
 			});
+		for (const [index, column] of config.columns.entries())
+			if ("loadBehavior" in column && column.loadBehavior !== undefined) {
+				if (!columnSupportsLoadBehavior(column))
+					ctx.addIssue({
+						code: "custom",
+						path: ["columns", index, "loadBehavior"],
+						message:
+							"Only a calculated value or a link can choose how a phone loads it. Clear its loading choice first.",
+					});
+				else if (config.optimizations !== true)
+					ctx.addIssue({
+						code: "custom",
+						path: ["columns", index, "loadBehavior"],
+						message:
+							"Turn on faster loading for this case list before choosing how a phone loads a value.",
+					});
+			}
 		const columnUuids = config.columns.map((column) => column.uuid);
 		const columnSet = new Set(columnUuids);
 		if (columnSet.size !== columnUuids.length) {
@@ -3139,6 +3183,18 @@ export const caseListConfigSchema = z
 		}
 	});
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
+
+/** Whether HQ keeps a load behavior on this column: one it reads through an
+ *  expression as plain text or markdown (a calculation without translated
+ *  text, or a link), `DetailColumn.supports_optimizations`. */
+export function columnSupportsLoadBehavior(column: Column): boolean {
+	return (
+		(column.kind === "calculated" &&
+			column.texts === undefined &&
+			column.rowField !== true) ||
+		column.kind === "link"
+	);
+}
 
 /**
  * A case list with no columns and no search — the shape a config is BORN with.

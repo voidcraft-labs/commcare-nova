@@ -452,6 +452,14 @@ function moduleUses(
 		);
 	if (list?.detailTile && wanted("details-tile"))
 		own.push(slotUse("details-tile", owner, "caseListConfig.detailTile"));
+	if (list?.optimizations === true && wanted("case-list-faster-loading"))
+		own.push(
+			slotUse(
+				"case-list-faster-loading",
+				owner,
+				"caseListConfig.optimizations",
+			),
+		);
 	if (list?.emptyText !== undefined && wanted("case-list-empty-text"))
 		own.push(
 			slotUse("case-list-empty-text", owner, "caseListConfig.emptyText"),

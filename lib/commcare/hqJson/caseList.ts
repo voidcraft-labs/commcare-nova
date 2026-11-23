@@ -78,6 +78,7 @@ import {
 	casePropertyShowsOptionLabels,
 	columnFieldText,
 	columnPropertyCaseType,
+	columnSupportsLoadBehavior,
 	DATE_COUNT_DAYS,
 	declaresWebApps,
 	EMPTY_CASE_LIST_ORDER_PLAN,
@@ -241,7 +242,28 @@ interface ColumnProjectionContext {
  *     writes; CCHQ's stock `time-ago` cannot store Nova's threshold text and
  *     its `late-flag` hard-codes `*`.
  */
+/** HQ's spelling of each load behavior (`detail_screen.py::_set_case_list_optimizations`). */
+const HQ_OPTIMIZATION = {
+	cache: "cache",
+	defer: "lazy_load",
+	"cache-and-defer": "cache_and_lazy_load",
+} as const;
+
 function projectColumnToDetail(
+	column: Column,
+	ctx: ColumnProjectionContext,
+	screen: "results" | "details",
+): WireDetailColumn<HqXPath> {
+	const projected = projectColumnBody(column, ctx, screen);
+	const behavior = "loadBehavior" in column ? column.loadBehavior : undefined;
+	return behavior !== undefined &&
+		ctx.mod.caseListConfig?.optimizations === true &&
+		columnSupportsLoadBehavior(column)
+		? { ...projected, optimization: HQ_OPTIMIZATION[behavior] }
+		: projected;
+}
+
+function projectColumnBody(
 	column: Column,
 	ctx: ColumnProjectionContext,
 	screen: "results" | "details",

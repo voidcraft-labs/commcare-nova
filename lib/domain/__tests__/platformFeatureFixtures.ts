@@ -893,6 +893,20 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		without: () => caseApp({ list: tiled({ verticalAlign: "middle" }) }),
 		use: slotUse("tile-grouping", MODULE_OWNER, "caseListConfig.tile.grouping"),
 	},
+	"case-list-faster-loading": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.optimizations = true;
+				},
+			}),
+		without: () => caseApp({}),
+		use: slotUse(
+			"case-list-faster-loading",
+			MODULE_OWNER,
+			"caseListConfig.optimizations",
+		),
+	},
 	"case-list-empty-text": {
 		with: () =>
 			caseApp({

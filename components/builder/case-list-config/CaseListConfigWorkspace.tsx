@@ -107,6 +107,7 @@ import {
 	type Column,
 	caseListOrdersByMapping,
 	caseSearchConfigAfterFinalInputRemoval,
+	columnSupportsLoadBehavior,
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	type Field,
@@ -166,6 +167,7 @@ import {
 } from "./configValidity";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import type { SearchPanelInspectorBodyProps } from "./inspector/SearchPanelInspectorBody";
+import { LoadBehaviorSection } from "./LoadBehaviorSection";
 import { type MapLayerSetup, MapLayerSetupDialog } from "./MapLayerSetupDialog";
 import { withPreservedIdentity } from "./preserveIdentity";
 import {
@@ -1058,7 +1060,28 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		// the two config arrays.
 		const current = config.columns.find((column) => column.uuid === uuid);
 		if (current === undefined) return;
-		const replacement = withPreservedIdentity(current, next);
+		const preserved = withPreservedIdentity(current, next);
+		// A column that can no longer keep a load behavior drops it in the same
+		// save, and the list's faster loading follows whether any column holds one.
+		const replacement =
+			"loadBehavior" in preserved && !columnSupportsLoadBehavior(preserved)
+				? (({ loadBehavior: _dropped, ...rest }) => rest as Column)(preserved)
+				: preserved;
+		const holdsBehavior = (column: Column) =>
+			"loadBehavior" in column && column.loadBehavior !== undefined;
+		const anyAfter = config.columns.some((column) =>
+			holdsBehavior(column.uuid === uuid ? replacement : column),
+		);
+		const optimizations: Mutation[] =
+			anyAfter === (config.optimizations === true)
+				? []
+				: [
+						{
+							kind: "setCaseListMeta",
+							uuid: requireRetainedModuleUuid(moduleUuid),
+							patch: { optimizations: anyAfter ? true : null },
+						},
+					];
 		if (
 			replacement.kind === "map-layer" &&
 			(current.kind !== "map-layer" || current.layer !== replacement.layer)
@@ -1079,11 +1102,13 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		);
 		commitFieldChanges([
 			...carry.before,
+			...(anyAfter ? optimizations : []),
 			...columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
 				current,
 				replacement,
 			),
+			...(anyAfter ? [] : optimizations),
 			...carry.after,
 		]);
 	};
@@ -3098,6 +3123,19 @@ function ColumnInspectorBody({
 					caseListOrdersByMapping(orderPlan, column.uuid)
 				}
 			/>
+			{(column.kind === "calculated" || column.kind === "link") &&
+				columnSupportsLoadBehavior(column) && (
+					<LoadBehaviorSection
+						value={column.loadBehavior}
+						canEdit={canEdit}
+						onChange={(loadBehavior) => {
+							const { loadBehavior: _prior, ...rest } = column;
+							onChange(
+								loadBehavior === undefined ? rest : { ...rest, loadBehavior },
+							);
+						}}
+					/>
+				)}
 			<TileCellInspector
 				moduleUuid={moduleUuid}
 				column={column}

@@ -87,6 +87,7 @@ import { detailBindings } from "./detailBindings";
 import { detailTabConditionWire } from "./detailTabCondition";
 import { detailTabOrderPriorities } from "./detailTabOrder";
 import { detailTabRowNodes } from "./detailTabRows";
+import { withDetailLoadBehavior } from "./optimizations";
 import { columnProperty, columnStoredAsExpression } from "./orderPlanOptions";
 import { keyDirective, type ResolvedSortDirective } from "./sortKeys";
 import type {
@@ -183,6 +184,7 @@ export function buildLongDetail(args: {
 		moduleIndex,
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
+		optimizations: config.optimizations === true,
 		detailTile: config.detailTile,
 		target,
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
@@ -345,7 +347,11 @@ export function buildLongDetail(args: {
 		}
 	}
 	return {
-		element: buildDetailShell(detailId, children),
+		element: withDetailLoadBehavior(
+			buildDetailShell(detailId, children),
+			config,
+			config.columns.filter((column) => column.visibleInDetail !== false),
+		),
 		strings,
 		translationUnits,
 		instances: instances.declarations(),

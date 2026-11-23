@@ -22,6 +22,7 @@ import { COMMCARE_DATE_PATTERN_REGEX } from "@/lib/domain/commCareDatePattern";
 import type { ColumnRecordSource } from "@/lib/domain/modules";
 import {
 	CASE_MAP_LAYER_KINDS,
+	type ColumnLoadBehavior,
 	DATE_COUNT_DAYS,
 	DATE_COUNT_PERIODS,
 	INTERVAL_DISPLAYS,
@@ -429,8 +430,12 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}case-id-as-a-property-column-s-field`,
 		"detail-field-type:property",
 	),
-	optimization: refuse(
+	optimization: take(
 		`${A}optimization-cache-lazy-load-cache-and-lazy-load`,
+		"schema:DetailColumn.optimization",
+	),
+	optimizationUnread: drop(
+		`${A}optimization-on-a-column-that-cannot-use-it`,
 		"schema:DetailColumn.optimization",
 	),
 	endpointOnImage: drop(
@@ -1235,6 +1240,7 @@ function claimOtherKeys(
 	format: string,
 	screen: "short" | "long",
 	namedTile: boolean,
+	optimizationsOn: boolean,
 ): boolean {
 	let ok = true;
 	column.drop("filter_xpath", C.filterXpath);
@@ -1256,9 +1262,14 @@ function claimOtherKeys(
 	// The save writes the ID Mapping list too, which only the formats with a mapping read
 	// (`detail_screen.py::Enum` and its subclasses, `app_strings.py`).
 	if (!MAPPING_FORMATS.has(format)) column.drop("enum", C.enumElsewhere);
+	// HQ keeps a load behavior only on an expression column of a format that can use it, and
+	// discards any other as it reads the column (`models/case_list.py::DetailColumn.wrap`); its
+	// build writes one only where the menu's faster loading is on.
 	if (column.used("optimization")) {
-		column.refuse("optimization", C.optimization);
-		ok = false;
+		const behavior = optimizationsOn ? storedLoadBehavior(column) : undefined;
+		if (behavior !== undefined)
+			column.take("optimization", C.optimization, () => behavior).value;
+		else column.drop("optimization", C.optimizationUnread);
 	}
 	if (column.used("endpoint_action_id")) {
 		if (format === "enum-image")
@@ -1308,6 +1319,40 @@ function fieldOf(column: JsonCursor): { text: string; xpath: boolean } {
  *  inert one that changes no build, or `undefined` where its row raised a finding. */
 export type ColumnReading = ColumnProposal | "dropped" | undefined;
 
+/** HQ's formats that keep a load behavior (`const.py::FORMATS_SUPPORTING_CASE_LIST_OPTIMIZATIONS`). */
+const OPTIMIZED_FORMATS: ReadonlySet<string> = new Set([
+	"address",
+	"date",
+	"markdown",
+	"phone",
+	"plain",
+	"enum",
+]);
+
+const LOAD_BEHAVIORS = {
+	cache: "cache",
+	lazy_load: "defer",
+	cache_and_lazy_load: "cache-and-defer",
+} as const satisfies Record<string, ColumnLoadBehavior>;
+
+/** The load behavior a stored column keeps as HQ reads it: an expression column of a format
+ *  that can use one (`models/case_list.py::DetailColumn.supports_optimizations`), else none. */
+export function storedLoadBehavior(
+	column: JsonCursor,
+): ColumnLoadBehavior | undefined {
+	const stored = column.peek("optimization");
+	const format = column.peek("format") ?? "plain";
+	if (
+		column.peek("useXpathExpression") !== true ||
+		typeof format !== "string" ||
+		!OPTIMIZED_FORMATS.has(format) ||
+		typeof stored !== "string" ||
+		!Object.hasOwn(LOAD_BEHAVIORS, stored)
+	)
+		return undefined;
+	return LOAD_BEHAVIORS[stored as keyof typeof LOAD_BEHAVIORS];
+}
+
 /** What a column's reading needs of its detail and its menu. */
 export interface ColumnOptions {
 	/** Whether a property is one whose choices the reading's catalog keeps. */
@@ -1315,6 +1360,9 @@ export interface ColumnOptions {
 	/** Whether the short detail is a custom tile. */
 	readonly inTile: boolean;
 	readonly namedTile?: boolean;
+	/** Whether the menu's faster loading is on, without which HQ's build writes no column's
+	 *  load behavior (`detail_screen.py::FormattedDetailColumn.fields`). */
+	readonly optimizationsOn?: boolean;
 	readonly dataRows?: boolean;
 	readonly fixtureRow?: boolean;
 	/** How many columns of each format the detail holds. */
@@ -1690,13 +1738,20 @@ function readColumn(
 			? (column.peek("format") as string)
 			: "plain";
 	const others =
-		claimOtherKeys(column, format, screen, options.namedTile === true) &&
-		header !== undefined;
+		claimOtherKeys(
+			column,
+			format,
+			screen,
+			options.namedTile === true,
+			options.optimizationsOn === true,
+		) && header !== undefined;
 	const field = fieldOf(column);
 	const base = { header: sourceText(ctx, header ?? NO_ENTRIES) };
 	// The walk of a property column read through a relation, once its field is read.
 	let via: ColumnVia | undefined;
 	let recordSource: ColumnRecordSource = {};
+	const loadBehavior =
+		options.optimizationsOn === true ? storedLoadBehavior(column) : undefined;
 	const proposal = (
 		kind: ColumnProposal["column"],
 		extra: Partial<
@@ -1707,8 +1762,14 @@ function readColumn(
 			? {
 					column:
 						kind.kind === "calculated"
-							? kind
+							? {
+									...kind,
+									...(loadBehavior !== undefined &&
+										kind.texts === undefined && { loadBehavior }),
+								}
 							: ({
+									...(loadBehavior !== undefined &&
+										kind.kind === "link" && { loadBehavior }),
 									...kind,
 									...(via && { via }),
 									...recordSource,

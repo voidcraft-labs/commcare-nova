@@ -225,6 +225,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"tile-grouping",
 	"case-list-empty-text",
 	"case-list-continue-label",
+	"case-list-faster-loading",
 	"tile-alignment",
 	"tile-border-and-shading",
 	"column-hidden-from-results",
@@ -772,6 +773,15 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "ignored",
 			note: "the phone keeps its own wording for Continue",
 		},
+	},
+	"case-list-faster-loading": {
+		label: "Faster case list loading",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the whole list loads later and nothing is kept between visits",
+		},
+		android: { reading: "runs" },
 	},
 	"tile-grouping": {
 		label: "Grouped tiles",

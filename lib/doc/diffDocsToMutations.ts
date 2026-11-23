@@ -2583,7 +2583,10 @@ function diffCaseListMeta(
 		contextAboveForm?: CaseListConfig["contextAboveForm"] | null;
 		emptyText?: string | null;
 		selectButtonText?: string | null;
+		optimizations?: true | null;
 	} = {};
+	if (prev.optimizations !== next.optimizations)
+		patch.optimizations = next.optimizations ?? null;
 	for (const key of ["emptyText", "selectButtonText"] as const)
 		if (prev[key] !== next[key]) patch[key] = next[key] ?? null;
 	if (!deepEqual(prev.filter, next.filter)) {

@@ -11,10 +11,13 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
+	asUuid,
 	type BlueprintDoc,
+	calculatedColumn,
 	caseListWordingUnitId,
 	makeTranslationUnitId,
 } from "@/lib/domain";
+import { prop, term } from "@/lib/domain/expression";
 import { advancedFixture } from "../../../__tests__/advancedPlacementFixture";
 import { caseListLabelAsBuilt } from "../modules";
 import {
@@ -664,5 +667,76 @@ describe("caseListLabelAsBuilt", () => {
 	it("writes a lone null as None, and an empty map as Case List", () => {
 		expect(caseListLabelAsBuilt({ es: null }, ["en"])).toEqual({ en: "None" });
 		expect(caseListLabelAsBuilt({}, ["en"])).toEqual({ en: "Case List" });
+	});
+});
+
+describe("faster loading", () => {
+	/** `caseMenus` with Patients' faster loading on and a calculation kept and deferred. */
+	const optimized = (behavior: "cache" | "defer" | "cache-and-defer") =>
+		produce(caseMenus(), (draft) => {
+			const patients = Object.values(draft.modules).find(
+				(one) => one.name === "Patients",
+			);
+			if (patients === undefined)
+				throw new Error("The fixture holds no Patients menu.");
+			const base = caseListConfig([{ field: "case_name", header: "Name" }]);
+			const visits = {
+				...calculatedColumn(
+					asUuid("00000000-0000-4000-8000-0000000c5b01"),
+					"Visits",
+					term(prop("patient", "case_name")),
+				),
+				loadBehavior: behavior,
+			};
+			patients.caseListConfig = {
+				...base,
+				columns: [...base.columns, visits],
+				listColumnOrder: [...base.listColumnOrder, visits.uuid],
+				detailColumnOrder: [...base.detailColumnOrder, visits.uuid],
+				optimizations: true,
+			};
+		});
+
+	it.each([
+		["cache", "cache"],
+		["defer", "lazy_load"],
+		["cache-and-defer", "cache_and_lazy_load"],
+	] as const)(
+		"writes %s as HQ's %s and reads it back",
+		async (behavior, hq) => {
+			const reading = await readMenusOf(optimized(behavior));
+			expect(codesOf(reading)).toEqual([]);
+			const module = reading.app.modules[0] as JsonObject;
+			expect(module.show_case_list_optimization_options).toBe(true);
+			const details = module.case_details as JsonObject;
+			const short = details.short as JsonObject;
+			expect(
+				(short.columns as JsonObject[]).map((one) => one.optimization),
+			).toEqual([undefined, hq]);
+			const list = moduleNamed(
+				reading.doc as BlueprintDoc,
+				"Patients",
+			).caseListConfig;
+			expect(list?.optimizations).toBe(true);
+			expect(
+				list?.columns.map((one) =>
+					"loadBehavior" in one ? one.loadBehavior : undefined,
+				),
+			).toEqual([undefined, behavior]);
+		},
+	);
+
+	it("reads past a column's choice where the menu's faster loading is off, which HQ's build never writes", async () => {
+		const reading = await readMenusOf(optimized("cache"), (json) => {
+			const module = json.modules[0] as JsonObject;
+			module.show_case_list_optimization_options = false;
+		});
+		expect(codesOf(reading)).toEqual([]);
+		const list = moduleNamed(
+			reading.doc as BlueprintDoc,
+			"Patients",
+		).caseListConfig;
+		expect(list?.optimizations).toBeUndefined();
+		expect(list?.columns.some((one) => "loadBehavior" in one)).toBe(false);
 	});
 });

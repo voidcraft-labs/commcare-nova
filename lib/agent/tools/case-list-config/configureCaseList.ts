@@ -136,6 +136,12 @@ export const configureCaseListInputSchema = z
 			.describe(
 				"The label of Continue after a worker chooses several cases. null restores the ordinary “Continue”; omission keeps it. Web Apps shows it, Android keeps its own wording.",
 			),
+		optimizations: z
+			.boolean()
+			.optional()
+			.describe(
+				"Turn faster loading on phones on or off. On lets a calculated or link column choose its loadBehavior; off clears every column's choice. The project space needs CommCare HQ's case list optimizations setting.",
+			),
 		...configureSearchDisplaySchema.shape,
 		searchWorkflow: searchWorkflowInputSchema
 			.optional()
@@ -187,6 +193,7 @@ export const configureCaseListInputSchema = z
 			!("filter" in input) &&
 			input.emptyText === undefined &&
 			input.selectButtonText === undefined &&
+			input.optimizations === undefined &&
 			displaySlots.length === 0 &&
 			input.resultsColumnOrder === undefined &&
 			input.detailsColumnOrder === undefined &&
@@ -486,6 +493,48 @@ export const configureCaseListTool = {
 							),
 						));
 				wording[key] = ordinary ? null : value.trim();
+			}
+			if (input.optimizations === true)
+				append([
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { optimizations: true },
+					},
+				]);
+			if (input.optimizations === false) {
+				// Every column's choice goes in the same batch as the switch.
+				const columns = workingModule.caseListConfig?.columns ?? [];
+				const cleared: Mutation[] = columns.flatMap((column) => {
+					if (!("loadBehavior" in column) || column.loadBehavior === undefined)
+						return [];
+					const {
+						loadBehavior: _cleared,
+						uuid,
+						sort: _sort,
+						tile: _tile,
+						visibleInList: _list,
+						visibleInDetail: _detail,
+						notOnList: _notOnList,
+						...content
+					} = column;
+					return [
+						{
+							kind: "updateColumn" as const,
+							moduleUuid,
+							uuid,
+							column: content,
+						},
+					];
+				});
+				append([
+					...cleared,
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { optimizations: null },
+					},
+				]);
 			}
 			if (Object.keys(wording).length > 0)
 				append([{ kind: "setCaseListMeta", uuid: moduleUuid, patch: wording }]);

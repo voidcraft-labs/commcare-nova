@@ -10522,15 +10522,40 @@
 		]
 	},
 	{
-		"id": "hq-case-lists/optimized-column",
+		"id": "hq-case-lists/calculation-loading-faster",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
+		"change": {
+			"op": "named",
+			"name": "calculation_loading_faster"
 		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/optimizations",
+				"value": true
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/4/loadBehavior",
+				"value": "cache-and-defer"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/optimized-column",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/optimization-on-a-column-that-cannot-use-it",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -10692,7 +10717,19 @@
 					"optimization": "cache"
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/header",
+				"value": "Name"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/owner-name-column",
@@ -21993,20 +22030,48 @@
 		]
 	},
 	{
+		"id": "hq-menus/case-list-optimizations-on-a-menu-with-no-case-list",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/module-show-case-list-optimization-options-on-a-menu-with-no-case-list",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/3/show_case_list_optimization_options",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 3
+					}
+				],
+				"pointer": "/name",
+				"value": "Tools"
+			}
+		]
+	},
+	{
 		"id": "hq-menus/case-list-optimizations",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/module-show-case-list-optimization-options",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 2,
-			"name": "Follow-ups"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/show_case_list_optimization_options",
 			"value": true
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/optimizations",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-menus/child-menu-before-its-parent",

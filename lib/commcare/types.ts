@@ -222,6 +222,9 @@ interface DetailColumnBase<XPath> {
 	graph_configuration: null;
 	relevant: XPath | "";
 	case_tile_field: string | null;
+	/** How a phone loads the value (`DetailColumn.optimization`), written
+	 *  only on a column that holds a load behavior. */
+	optimization?: "cache" | "lazy_load" | "cache_and_lazy_load";
 	/**
 	 * Custom-tile placement, zero-based. CCHQ's own names are
 	 * `grid_x` / `grid_y` for the origin and the unprefixed
@@ -673,6 +676,9 @@ export interface HqAdvancedForm<XPath = string, LinkXPath = XPath>
 /** The keys a basic and an advanced module share (HQ's `ModuleBase` and its mixins). */
 interface HqModuleBase<XPath> {
 	session_endpoint_id?: string;
+	/** Faster loading is on (`show_case_list_optimization_options`, a field of
+	 *  `Module`, `AdvancedModule` and `ShadowModule`); written only where on. */
+	show_case_list_optimization_options?: true;
 	case_list_session_endpoint_id?: string;
 	unique_id: string;
 	name: LocalizedString;

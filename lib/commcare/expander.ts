@@ -586,6 +586,10 @@ export function* expandDocSteps(
 					localization.languages,
 					declaresWebApps(doc),
 				);
+		// Faster loading, which HQ's build reads only with a case list
+		// (`details.py::DetailContributor`, `detail_screen.py`).
+		if (hasCases && mod.caseListConfig?.optimizations === true)
+			shell.show_case_list_optimization_options = true;
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
 		const rootModuleUuid = moduleParent(doc, moduleUuid);
