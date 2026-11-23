@@ -2056,24 +2056,19 @@ async function resolveOperationProgram(
 			// `case/update` relevance compares the casedb value with the answer.
 			if (write.onlyIfChanged === true) {
 				const stored = await storedValuesOf(destinationCaseId);
-				// XPath compares two node sets. With no case leaf, no pair of
-				// values differs, even if the submitted answer has text.
-				if (!stored) continue;
-				// The location column is a restore's `location_id` element only
-				// where it holds text, so a blank column is no case leaf.
+				// CommCare Core unpacks each side of `!=` to one value, and an
+				// empty node set unpacks to "" (`XPathNodeset.unpack`). So a case
+				// the opening never held, or a leaf it never saved, compares as
+				// "", and a non-blank answer is saved, as on a device.
 				const before =
 					write.property === "case_name"
-						? stored.caseName
+						? (stored?.caseName ?? "")
 						: write.property === "external_id"
-							? stored.externalId
+							? (stored?.externalId ?? "")
 							: write.property === "location_id"
-								? stored.locationId === ""
-									? null
-									: stored.locationId
-								: Object.hasOwn(stored.properties, write.property)
-									? storedText(stored.properties[write.property])
-									: null;
-				if (before === null || before === storedText(value)) continue;
+								? (stored?.locationId ?? "")
+								: storedText(stored?.properties[write.property]);
+				if (before === storedText(value)) continue;
 			}
 			if (write.via !== undefined) {
 				viaWrites.push({

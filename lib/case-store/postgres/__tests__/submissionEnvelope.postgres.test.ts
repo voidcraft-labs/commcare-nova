@@ -3457,9 +3457,11 @@ describe("the form's own case", () => {
 		expect((await patientRow(store, second))?.properties.notes).toBe(
 			"neighbor",
 		);
+		// The case never saved `age`. A device compares the empty leaf as "",
+		// which differs from "42", so it saves the answer.
 		expect(
-			(await patientRow(store, SESSION_CASE_ID))?.properties,
-		).not.toHaveProperty("age");
+			String((await patientRow(store, SESSION_CASE_ID))?.properties.age),
+		).toBe("42");
 		expect(
 			(await rejection(visit("missing", missing))).rejection,
 		).toMatchObject({ kind: "target", reason: "missing-connection" });
