@@ -76,10 +76,14 @@ test(
 		const chip = '[data-ref-raw="#user/username"]';
 		await expect(draft).toContainText("Worker");
 		await expect(draft.locator(chip)).toBeVisible();
+		// Replace the word before the chip, keeping the chip itself.
 		await draft.click();
-		await replaceRichText(draft, "Trabajador ");
-		await draft.pressSequentially("#user/username");
-		await page.getByRole("option", { name: /#user\/username/ }).click();
+		await draft.press("ControlOrMeta+Home");
+		for (let step = 0; step < "Worker".length; step++)
+			await draft.press("Shift+ArrowRight");
+		await draft.pressSequentially("Trabajador");
+		await expect(draft).toContainText("Trabajador");
+		await expect(draft).not.toContainText("Worker");
 		await expect(draft.locator(chip)).toBeVisible();
 		const hintSaved = nextSave(page, appId);
 		await hint.getByRole("button", { name: "Save translation" }).click();
