@@ -3153,6 +3153,54 @@ def _search_and_menus():
                 f"{config}/default_properties/0/property",
             ),
         ),
+        "case-search/native-filter-value-outside-screen-scope": (
+            # a form's answer, which no search screen holds
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("status", "/data/name")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("status", "'active'")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("owner_id", "instance('commcaresession')/session/context/userid")]
+                    )
+                ),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            # an _xpath_query row is no native filter
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("_xpath_query", "concat(/data/p, ' = 1')")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            # a session datum: whether the search screen holds it is the menus' to say
+            unsettled(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("status", "instance('commcaresession')/session/data/case_id")]
+                    )
+                ),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+        ),
         "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": (
             # The class stands at the filter, which Nova's reader refuses whole, never at the list that holds it.
             refused(
@@ -6520,10 +6568,6 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts",
         "application-and-settings/non-empty-custom-assertions-app",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
-        # A native search filter's value read outside its search screen. Nova's checker refuses such a value at
-        # every editor (``search_filter_value``'s slot profile), so no export of Nova's holds one; no reader decides
-        # it from a stored app's ``defaultValue``.
-        "case-search/native-filter-value-outside-screen-scope",
         "expressions-and-data/commtrack-products-commtrack-programs",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",

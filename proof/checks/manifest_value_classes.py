@@ -4161,6 +4161,84 @@ def _literal(app, text):
     return parsed["expressions"] in (["XPathStringLiteral"], ["XPathNumericLiteral"]) and not parsed["functions"]
 
 
+# The tokens after which Core's lexer reads an operator (``Lexer.LEX_CONTEXT_OP``, ``proof/rules/_xpath.py``): a
+# ``/`` after any other begins an absolute path.
+_ENDS_A_VALUE = frozenset(
+    {"WILDCARD", "NSWILDCARD", "QNAME", "VAR", "NUM", "STR", "RBRACK", "RPAREN", "DOT", "DBL_DOT"}
+)
+
+
+def _reads_an_absolute_path(text):
+    """Whether an expression holds a path from the document's root (``/data/...``), read over Core's tokens: a ``/``
+    or ``//`` where Core's lexer reads a value; None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    previous = None
+    for token in found:
+        if token.kind in ("SLASH", "DBL_SLASH") and (previous is None or previous.kind not in _ENDS_A_VALUE):
+            return True
+        previous = token
+    return False
+
+
+def _reads_a_relative_path(text):
+    """Whether an expression holds a path from the context node (a name, ``.``, ``..`` or ``@name`` where Core's
+    lexer reads a value and no call follows); None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    for index, token in enumerate(found):
+        previous = found[index - 1] if index > 0 else None
+        if previous is not None and (previous.kind in _ENDS_A_VALUE or previous.kind in ("SLASH", "DBL_SLASH")):
+            continue
+        following = found[index + 1] if index + 1 < len(found) else None
+        if token.kind in ("DOT", "DBL_DOT", "AT", "WILDCARD", "NSWILDCARD"):
+            return True
+        if token.kind == "QNAME" and (following is None or following.kind != "LPAREN"):
+            return True
+    return False
+
+
+def native_filter_unbound_value(use, manifest):
+    """``case-search/native-filter-value-outside-screen-scope``: a default filter keyed by a native search key (any
+    key but ``_xpath_query``) whose value reads what its search screen holds no value of. A path from the document's
+    root (``/data/name``) names a form's answer, and the search screen is no form (Nova's ``search_filter_value``
+    slot holds the session, lookups and the worker alone): in the class. A value of literals and calls that read no
+    node, or that reads the session's context and its user alone, is outside it; any other read (a path from the
+    context node, ``current()``, a session datum, another instance) is not told (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    entry = at.nearest("DefaultCaseSearchProperty")
+    if entry is None:
+        return None
+    if entry.get("property") == "_xpath_query":
+        return False
+    value = entry.get("defaultValue")
+    if not isinstance(value, str):
+        return False
+    absolute = _reads_an_absolute_path(value)
+    if absolute is None:
+        return None
+    if absolute:
+        return True
+    parsed = at.app.parsed(value)
+    if parsed is None or "error" in parsed:
+        return None
+    if "XPathPathExpr" not in parsed["expressions"]:
+        return False
+    if parsed["roots"] != ["instance"] or _reads_a_relative_path(value) is not False:
+        return None
+    screen = all(
+        path["instance"] == "commcaresession"
+        and path["steps"][:1] == ["session"]
+        and path["steps"][1:2] in (["context"], ["user"])
+        for path in parsed["instancePaths"]
+    )
+    return False if parsed["instancePaths"] and screen else None
+
+
 def request_config_key_runtime_value(use, manifest):
     """``case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case``: a ``commcare_sort``,
     ``x_commcare_custom_related_case_property`` or ``case_type`` default filter whose value Core does not
@@ -9783,6 +9861,7 @@ VALUE_CLASSES = {
     "case-search/data-registry-data-registry-workflow-additional-registry-cases": registry_named,
     "case-search/default-properties-entry-keyed-x-commcare-endpoint-id": endpoint_id_key,
     "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": missing_default_value,
+    "case-search/native-filter-value-outside-screen-scope": native_filter_unbound_value,
     "case-search/that-entry-together-with-blacklisted-owner-ids-expression": blacklisted_owner_ids_twice,
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
