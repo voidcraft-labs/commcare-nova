@@ -160,6 +160,7 @@
 	],
 	"hq-languages": [],
 	"hq-lookup-aliases": [],
+	"hq-lookup-data": [],
 	"hq-lookup-names": [
 		"hq-lookup-names/dotted-field-in-form-condition",
 		"hq-lookup-names/dotted-table-in-form-condition"
