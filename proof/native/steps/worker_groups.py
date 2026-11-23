@@ -19,10 +19,12 @@ def restored_audiences(exports):
     from proof.hq import redis as hq_redis
 
     # Placing a worker saves the worker's user case through HQ's receiver, which takes its lock in Redis
-    # (``form_processor/interfaces/processor.py::acquire_lock_for_xform``): HQ's own Redis for the step.
+    # (``form_processor/interfaces/processor.py::acquire_lock_for_xform``) and writes the form's attachment when
+    # its transaction commits: HQ's own Redis for the step, and its commit callbacks run where production's would.
     with (
         native_check("worker-audiences", privileges={"LOOKUP_TABLES", "LOCATIONS", "CASE_SHARING_GROUPS"}) as (state, _),
         hq_redis.shared(None),
+        state.committing(),
     ):
         workers = {
             name: CommCareUser.wrap(operations.seed_mobile_worker(state, name, "mobile-" + name))
