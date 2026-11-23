@@ -58,6 +58,7 @@ import { menuScreenLayout } from "@/lib/domain/menuScreens";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
+import { ROUTE, SOURCE, twoMenus } from "./menuFormRoutesFixture";
 import { menuScreenDocArbitrary } from "./menuScreenDocArbitrary";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -349,6 +350,32 @@ describe("the HQ JSON of a menu that shows its forms in the menu above", () => {
 });
 
 describe("the layout of menus a worker opens", () => {
+	it("gives a menu listing another menu's forms only the app-wide grid, never a grid of its own", () => {
+		const menuWithId = (compiledSuite: Compiled, id: string) => {
+			const menus = elements(compiledSuite, "menu").filter(
+				(menu) => getAttributeValue(menu, "id") === id,
+			);
+			expect(menus).toHaveLength(1);
+			return menus[0] as Element;
+		};
+		const doc = twoMenus();
+		doc.appSettings.formMenuLayout = "individual";
+		// A grid the listing menu kept from before it listed another menu's
+		// forms, beside a grid its source chose.
+		doc.modules[ROUTE].menuLayout = "grid";
+		doc.modules[SOURCE].menuLayout = "grid";
+		const individual = compiled(admitted(doc));
+		expect(individual.hq.modules[0]?.doc_type).toBe("ShadowModule");
+		expect(individual.hq.modules[0]).not.toHaveProperty("display_style");
+		expect(individual.hq.modules[1]).toMatchObject({ display_style: "grid" });
+		expect(menuWithId(individual, "m0").attribs.style).toBeUndefined();
+		expect(menuWithId(individual, "m1").attribs.style).toBe("grid");
+		doc.appSettings.formMenuLayout = "grid";
+		const everyMenu = compiled(admitted(doc));
+		expect(menuWithId(everyMenu, "m0").attribs.style).toBe("grid");
+		expect(menuWithId(everyMenu, "m1").attribs.style).toBe("grid");
+	});
+
 	it("styles each individual contribution, then lets a parent share its child's grid", () => {
 		const doc = menuShapesDoc();
 		doc.appSettings.firstMenuLayout = "grid";

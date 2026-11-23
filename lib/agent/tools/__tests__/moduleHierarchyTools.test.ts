@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	ROUTE,
+	twoMenus,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { createModuleTool } from "../createModule";
@@ -54,6 +58,20 @@ describe("module hierarchy shared tools", () => {
 			menuLayout: "list",
 			formsMenuLayout: "list",
 		});
+	});
+
+	it("refuses a layout on a menu listing another menu's forms and changes nothing", async () => {
+		const doc = expectAdmittedDoc(twoMenus());
+		const harness = makeToolWorkspaceHarness(doc);
+		const refused = await harness.runTool(updateModuleTool, {
+			moduleUuid: ROUTE,
+			menu_layout: "grid",
+		});
+		expect(refused.result).toMatchObject({
+			error: expect.stringContaining("form_menu_layout on update_app"),
+		});
+		expect(harness.recordMutations).not.toHaveBeenCalled();
+		expect(harness.currentDoc().modules[ROUTE]?.menuLayout).toBeUndefined();
 	});
 
 	it("creates a child record viewer and reads back parent and child identities", async () => {
