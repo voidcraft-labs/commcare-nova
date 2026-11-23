@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { projectAuthoringRead } from "@/lib/agent/authoring/output";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -205,5 +206,56 @@ describe("a Details tab's records in the record dialect", () => {
 				lookup,
 			),
 		).toBeUndefined();
+	});
+
+	it("authors a records tab and its fields as text in one edit", async () => {
+		const doc = tabbedDoc();
+		const config = doc.modules[MOD_A]?.caseListConfig;
+		if (!config) throw new Error("The fixture menu has no case list.");
+		config.columns = config.columns.filter(
+			(column) => column.uuid === BASE_COLUMN,
+		);
+		config.listColumnOrder = [BASE_COLUMN];
+		config.detailColumnOrder = [BASE_COLUMN];
+		delete config.detailTabs;
+		const h = makeAuthoringHarness({}, doc);
+		const result = (await h.call("setCaseDetailTabs", {
+			moduleUuid: MOD_A,
+			tabs: [
+				{ title: "Patient", columnUuids: [BASE_COLUMN] },
+				{
+					title: "Due visits",
+					rowSource: {
+						kind: "records",
+						rows: "cases('visit', #row/notes = 'due')",
+					},
+					addFields: [{ header: "Visit", expression: "#row/case_name" }],
+					columnUuids: [],
+				},
+				{
+					title: "Open visits",
+					rowSource: {
+						kind: "children",
+						caseType: "visit",
+						condition: "#row/notes = 'due'",
+					},
+					addFields: [{ header: "Notes", expression: "#row/notes" }],
+					columnUuids: [],
+				},
+			],
+		})) as { error?: string };
+		expect(result.error).toBeUndefined();
+		const saved = h.currentDoc().modules[MOD_A]?.caseListConfig;
+		expect(saved?.detailTabs?.map((tab) => tab.rowSource)).toEqual([
+			undefined,
+			{ kind: "records", rows: visitRows },
+			{ kind: "children", caseType: "visit", condition: dueChildren },
+		]);
+		const added = saved?.columns.filter(
+			(column) => column.kind === "calculated",
+		);
+		expect(
+			added?.map((column) => column.kind === "calculated" && column.expression),
+		).toEqual([term(prop("visit", "case_name")), term(prop("visit", "notes"))]);
 	});
 });

@@ -11,6 +11,7 @@ export type AuthorableIdentityFamily =
 	| "select-option"
 	| "case-list-column"
 	| "case-list-sort"
+	| "case-detail-tab"
 	| "case-mapping-row"
 	| "search-input"
 	| "worker-property"
@@ -231,6 +232,9 @@ export function classifyIdentity(
 		property === "removeCalculatedSorts"
 	)
 		return "case-list-sort";
+	if (property === "tabUuid") return "case-detail-tab";
+	if (property === "orderFields" && tool === "set_case_detail_tabs")
+		return "case-list-column";
 	if (property === "userPropertyUuid" || property === "workerPropertyUuid")
 		return "worker-property";
 	if (property === "userTypeUuid") return "user-type";

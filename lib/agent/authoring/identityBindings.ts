@@ -156,6 +156,11 @@ export function bindNamedIdentity(args: {
 					: [];
 			break;
 		}
+		case "case-detail-tab":
+			candidates = named(module?.caseListConfig?.detailTabs ?? [], (item) => [
+				item.title,
+			]);
+			break;
 		case "case-list-sort":
 			candidates = named(
 				module?.caseListConfig?.calculatedSorts ?? [],

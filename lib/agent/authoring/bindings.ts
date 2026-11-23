@@ -41,7 +41,10 @@ import { isSearchOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { userPropertiesOf } from "@/lib/domain/users";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { AuthoringInputError } from "./errors";
-import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
+import {
+	parseAuthoringExpression,
+	quoteAuthoringLiteral as quote,
+} from "./expressionSyntax";
 import { fieldNameCandidates, fieldPathCandidates } from "./fieldNames";
 import { type QueryPrintContext, rowCaseType } from "./printQueryExpression";
 import type { QueryBindings } from "./queryExpressions";
@@ -96,6 +99,37 @@ function detailTabFieldRows(
 	return undefined;
 }
 
+/** The rows a field added with a tab in one edit reads: the tab's child
+ *  type, or the first argument of its authored `cases(…)` or `table-rows(…)`
+ *  collection, read by the dialect's own parser. */
+function authoredTabRows(
+	tab: object,
+): { caseType?: string; tableId?: string } | undefined {
+	if (!("rowSource" in tab)) return undefined;
+	const source = tab.rowSource as
+		| { kind?: unknown; caseType?: unknown; rows?: unknown }
+		| null
+		| undefined;
+	if (source?.kind === "children" && typeof source.caseType === "string")
+		return { caseType: source.caseType };
+	if (source?.kind !== "records" || typeof source.rows !== "string")
+		return undefined;
+	let rows: ReturnType<typeof parseAuthoringExpression>;
+	try {
+		rows = parseAuthoringExpression(source.rows);
+	} catch {
+		return undefined;
+	}
+	const first = rows.kind === "call" ? rows.args[0] : undefined;
+	if (first?.kind !== "literal" || typeof first.value !== "string")
+		return undefined;
+	if (rows.kind === "call" && rows.name === "cases")
+		return { caseType: first.value };
+	if (rows.kind === "call" && rows.name === "table-rows")
+		return { tableId: first.value };
+	return undefined;
+}
+
 export function authoringValueScope(
 	options: AuthoringScopeOptions,
 	input: unknown,
@@ -116,12 +150,16 @@ export function authoringValueScope(
 				typeof enclosing.caseType === "string"
 			)
 				candidateCaseType = enclosing.caseType;
-			// A field of a Details tab over other records reads one of them.
-			if (segment === "columns") {
-				const rows = detailTabFieldRows(enclosing, path[at + 1]);
-				if (rows?.caseType) candidateCaseType = rows.caseType;
-				if (rows?.tableId) rowTable = rows.tableId;
-			}
+			// A field of a Details tab over other records reads one of them,
+			// whether the tab is saved or authored in the same edit.
+			const rows =
+				segment === "columns"
+					? detailTabFieldRows(enclosing, path[at + 1])
+					: segment === "addFields"
+						? authoredTabRows(enclosing)
+						: undefined;
+			if (rows?.caseType) candidateCaseType = rows.caseType;
+			if (rows?.tableId) rowTable = rows.tableId;
 			enclosing = (enclosing as Record<string | number, unknown>)[segment];
 		}
 	}
