@@ -320,11 +320,20 @@ function readSlotMedia(
 		const defaultFile = assets.get(defaultLanguage);
 		if (missing.size || defaultFile === undefined) continue;
 		const shared = assets.get(source) ?? defaultFile;
+		// A language whose text holds no value of this kind keeps inheriting
+		// the form default's file (null), so a publish writes what HQ's source
+		// holds and a build that changes the default shows what HQ's would. A
+		// language the text is missing from shows the default too; it needs
+		// the mark only where the shared file is another.
 		const translated = new Map<LanguageTag, string | null>();
 		for (const language of languages) {
 			const own = assets.get(language);
 			if (own !== undefined && own !== shared) translated.set(language, own);
-			else if (own === undefined) translated.set(language, null);
+			else if (
+				own === undefined &&
+				(slot.forms.has(language) || shared !== defaultFile)
+			)
+				translated.set(language, null);
 		}
 		setMedia(
 			slot,

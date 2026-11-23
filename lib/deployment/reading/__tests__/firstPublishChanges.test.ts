@@ -2984,7 +2984,11 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	},
 	// A menu's name with spaces at its end, which no device shows.
 	"names-respelled": editedPair(followUpDoc, menuNamed({ en: "Patients  " })),
-	// A menu's icon stored under the language being edited alone.
+	// A menu's icon stored under one language and shown in every language by
+	// HQ's "use for all" switch, which Nova writes as the file under each
+	// language. A map stored under one language alone, with no switch, is
+	// read as that language's file and the other's fallback, and written back
+	// as it was stored.
 	"media-maps-respelled": {
 		on: async () =>
 			factsOf(
@@ -2992,6 +2996,7 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 					twoLanguageDoc(),
 					onMenu((menu) => {
 						menu.media_image = { en: MENU_ICON };
+						menu.use_default_image_for_all = true;
 					}),
 					MENU_ICON_INPUT,
 				),

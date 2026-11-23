@@ -1214,6 +1214,55 @@ def print_callout(use, manifest):
     return intent is not None and intent.get("class") == PRINT_ACTION
 
 
+# The itext forms that carry a file, as Core's Localizer keys them (``<id>;<form>``).
+MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video"})
+
+
+def _media_itext_group(use):
+    """The media value a use sits on and every value of the same text id and form across the form's
+    translations, as ``(form, values by translation, form name)``; None where the use sits on no media value."""
+    form, element = _form_element(use)
+    if form is None or _local(element) != "value":
+        return None
+    kind = element.get("form")
+    text = element.getparent()
+    if kind not in MEDIA_ITEXT_FORMS or text is None or _local(text) != "text" or not text.get("id"):
+        return None
+    text_id = text.get("id")
+    values = {}
+    for translation in form.translations:
+        for candidate in _children(translation):
+            if _local(candidate) != "text" or candidate.get("id") != text_id:
+                continue
+            for value in _children(candidate):
+                if _local(value) == "value" and value.get("form") == kind:
+                    values[translation] = value
+    return form, values
+
+
+def media_missing_in_default(use, manifest):
+    """``questions/media-form-missing-in-default-language``: an image, audio or video value whose text the
+    form's default translation holds without that form. Core keys each locale's forms over the default's
+    (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
+    group = _media_itext_group(use)
+    if group is None:
+        return None if _form_element(use)[0] is None else False
+    form, values = group
+    return form.default_translation is not None and form.default_translation not in values
+
+
+def media_blank_beside_file(use, manifest):
+    """``questions/empty-media-form-beside-a-translated-file``: an image, audio or video value of a text one
+    translation holds blank and another holds a file of. Vellum's save fills the blank one from the file
+    (``javaRosa/itext.js::getValueOrDefault``); Core keeps the empty string as that translation's own."""
+    group = _media_itext_group(use)
+    if group is None:
+        return None if _form_element(use)[0] is None else False
+    _, values = group
+    blank = [value for value in values.values() if not "".join(value.itertext()).strip()]
+    return bool(blank) and len(blank) < len(values)
+
+
 def readonly_input(use, manifest):
     """``questions/input-readonly-true-control-attribute``: an ``<input readonly="true()">``, which Vellum
     turns into a label (``parser.js::buildControlNodeAdaptorMap``: ``popAttr('readonly') === 'true()'`` takes the
@@ -9658,6 +9707,8 @@ VALUE_CLASSES = {
     "questions/an-input-whose-bind-has-no-type-with-numeric-or-numbers-ignoring": _untyped_numeric("input"),
     "questions/a-secret-whose-bind-has-no-type-with-numeric-or-numbers-ignoring": _untyped_numeric("secret"),
     "questions/long-xsd-long": long_input,
+    "questions/media-form-missing-in-default-language": media_missing_in_default,
+    "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
     "questions/upload-with-any-other-mediatype-or-none": other_upload_mediatype,

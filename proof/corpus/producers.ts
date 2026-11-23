@@ -376,11 +376,6 @@ function produced(): Produced[] {
 		);
 	}
 
-	{
-		const { doc, assets } = localizedMediaWireFixture();
-		add("media", "media-language-files", doc, { media: uploadedMedia(assets) });
-	}
-
 	for (const scenario of navigationScenarios) {
 		add("navigation", scenario, compilerNavigationFixture(scenario));
 	}
@@ -430,6 +425,14 @@ function produced(): Produced[] {
 
 	add("xml", "unicode", xmlUnicodeDoc());
 	add("xpath", "xpath-context", xpathContextDoc());
+
+	// The fixture builder mints each identity from one counter, so a document
+	// added here comes after every one whose identities a retained HQ source
+	// already holds.
+	{
+		const { doc, assets } = localizedMediaWireFixture();
+		add("media", "media-language-files", doc, { media: uploadedMedia(assets) });
+	}
 	return out;
 }
 

@@ -61,7 +61,11 @@ import { slotContext } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import { datumRefKey } from "@/lib/domain/expression/types";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
-import { navigationMediaProblem } from "@/lib/domain/navigationMedia";
+import {
+	menuMediaProblemDetails,
+	navigationMediaProblem,
+	navigationMediaProblemText,
+} from "@/lib/domain/navigationMedia";
 import { freeQuestionId } from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { type ValidationError, validationError } from "../errors";
@@ -1386,8 +1390,9 @@ export function runFormRules(
 			validationError(
 				"MENU_MEDIA_LANGUAGE",
 				"form",
-				mediaProblem,
+				navigationMediaProblemText(mediaProblem),
 				baseLocation(ctx),
+				menuMediaProblemDetails(mediaProblem),
 			),
 		);
 	errors.push(...emptyForm(doc, form, ctx));

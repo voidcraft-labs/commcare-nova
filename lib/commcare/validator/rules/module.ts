@@ -17,7 +17,11 @@ import {
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
-import { navigationMediaProblem } from "@/lib/domain/navigationMedia";
+import {
+	menuMediaProblemDetails,
+	navigationMediaProblem,
+	navigationMediaProblemText,
+} from "@/lib/domain/navigationMedia";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
@@ -83,10 +87,13 @@ function localizedMenuMedia(
 		const problem = navigationMediaProblem(carrier, app);
 		if (problem)
 			return [
-				validationError("MENU_MEDIA_LANGUAGE", "module", problem, {
-					moduleUuid,
-					moduleName: mod.name,
-				}),
+				validationError(
+					"MENU_MEDIA_LANGUAGE",
+					"module",
+					navigationMediaProblemText(problem),
+					{ moduleUuid, moduleName: mod.name },
+					menuMediaProblemDetails(problem),
+				),
 			];
 	}
 	return [];

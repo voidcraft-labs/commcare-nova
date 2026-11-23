@@ -145,22 +145,43 @@ export function editNavigationInLanguage<T extends IconRef>(
 	}
 }
 
+export type NavigationMediaProblem =
+	| { readonly kind: "language-outside-app" }
+	| { readonly kind: "needs-shared"; readonly role: "icon" | "audioLabel" };
+
 export function navigationMediaProblem(
 	carrier: NavigationMedia | undefined,
 	app: EffectiveAppLocalization,
-): string | undefined {
+): NavigationMediaProblem | undefined {
 	if (!carrier) return;
 	for (const [language, slots] of Object.entries(
 		carrier.mediaByLanguage ?? {},
 	)) {
 		if (!app.languageOrder.includes(language))
-			return "This menu file names a language outside the app. Choose a language the app includes.";
-		for (const key of ["icon", "audioLabel"] as const)
-			if (slots[key] !== undefined && !carrier[key]) {
-				return key === "icon"
-					? "Choose a shared icon before adding an icon in another language, or clear the translated icon."
-					: "Choose a shared spoken label before adding audio in another language, or clear its translated audio.";
-			}
+			return { kind: "language-outside-app" };
+		for (const role of ["icon", "audioLabel"] as const)
+			if (slots[role] !== undefined && !carrier[role])
+				return { kind: "needs-shared", role };
 	}
 	return undefined;
+}
+
+/** The author-facing sentence for a menu file problem. */
+export function navigationMediaProblemText(
+	problem: NavigationMediaProblem,
+): string {
+	if (problem.kind === "language-outside-app")
+		return "This menu file names a language outside the app. Choose a language the app includes.";
+	return problem.role === "icon"
+		? "Choose a shared icon before adding an icon in another language, or clear the translated icon."
+		: "Choose a shared spoken label before adding audio in another language, or clear its translated audio.";
+}
+
+/** The details a validator finding carries for a menu file problem. */
+export function menuMediaProblemDetails(
+	problem: NavigationMediaProblem,
+): Record<string, string> {
+	return problem.kind === "needs-shared"
+		? { mediaProblem: problem.kind, mediaRole: problem.role }
+		: { mediaProblem: problem.kind };
 }

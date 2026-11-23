@@ -623,14 +623,21 @@ function displayCombination(
 			: fieldDisplayProblem(field);
 	if (!problem) return [];
 	return [
-		validationError("QUESTION_DISPLAY_COMBINATION_INVALID", "field", problem, {
-			fieldUuid: field.uuid,
-			fieldId: field.id,
-			formName: ctx.formName,
-			formUuid: ctx.formUuid,
-			moduleName: ctx.moduleName,
-			moduleUuid: ctx.moduleUuid,
-		}),
+		validationError(
+			"QUESTION_DISPLAY_COMBINATION_INVALID",
+			"field",
+			problem,
+			{
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+				formName: ctx.formName,
+				formUuid: ctx.formUuid,
+				moduleName: ctx.moduleName,
+				moduleUuid: ctx.moduleUuid,
+			},
+			// The display checker's sentence is written for the author.
+			{ displayProblem: problem },
+		),
 	];
 }
 
@@ -646,31 +653,50 @@ function localizedMedia(field: Field, ctx: FieldContext): ValidationError[] {
 	).languageOrder;
 	for (const media of bundles) {
 		if (!media?.mediaByLanguage) continue;
-		let message: string | undefined;
+		let problem: { kind: string; role?: string; message: string } | undefined;
 		if (
 			media.formDefaultLanguage &&
 			!languages.includes(media.formDefaultLanguage)
 		)
-			message =
-				"The language this media inherits from is no longer in the app. Choose a shared file.";
+			problem = {
+				kind: "default-outside-app",
+				message:
+					"The language this media inherits from is no longer in the app. Choose a shared file.",
+			};
 		for (const [language, values] of Object.entries(media.mediaByLanguage)) {
 			if (!languages.includes(language))
-				message =
-					"This media names a language outside the app. Choose an app language for the file.";
+				problem = {
+					kind: "language-outside-app",
+					message:
+						"This media names a language outside the app. Choose an app language for the file.",
+				};
 			for (const role of MEDIA_KINDS)
 				if (values[role] !== undefined && !media[role])
-					message = `A translated ${role} needs a shared file. Choose the shared ${role} for this question or choice first, or remove its translated files.`;
+					problem = {
+						kind: "needs-shared",
+						role,
+						message: `A translated ${role} needs a shared file. Choose the shared ${role} for this question or choice first, or remove its translated files.`,
+					};
 		}
-		if (message)
+		if (problem)
 			return [
-				validationError("FORM_MEDIA_LANGUAGE", "field", message, {
-					moduleUuid: ctx.moduleUuid,
-					moduleName: ctx.moduleName,
-					formUuid: ctx.formUuid,
-					formName: ctx.formName,
-					fieldUuid: field.uuid,
-					fieldId: field.id,
-				}),
+				validationError(
+					"FORM_MEDIA_LANGUAGE",
+					"field",
+					problem.message,
+					{
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						formUuid: ctx.formUuid,
+						formName: ctx.formName,
+						fieldUuid: field.uuid,
+						fieldId: field.id,
+					},
+					{
+						mediaProblem: problem.kind,
+						...(problem.role && { mediaRole: problem.role }),
+					},
+				),
 			];
 	}
 	return [];
