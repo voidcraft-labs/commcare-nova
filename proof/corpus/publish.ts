@@ -187,6 +187,7 @@ import {
 	assignMediaPaths,
 	keyedCaseIdPrefixesFor,
 } from "@/lib/deployment/adoption";
+import { appRemoteChange } from "@/lib/deployment/appRemoteChange";
 import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
 import { requiredConfirmations } from "@/lib/deployment/confirmations";
 import { sourceFromBaseline } from "@/lib/deployment/hqChanges/baselineSource";
@@ -262,7 +263,6 @@ import {
 	readReadingProjectData,
 } from "@/lib/deployment/reading/projectData/read";
 import {
-	appRemoteChange,
 	decideRemoteChanges,
 	describeLookupChange,
 	driftReferenceOf,

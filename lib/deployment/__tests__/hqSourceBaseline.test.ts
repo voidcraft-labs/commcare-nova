@@ -16,13 +16,14 @@ import {
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { adoptedAppBaselineWrite, adoptedIdentityRows } from "../adoption";
+import { appRemoteChange } from "../appRemoteChange";
 import {
 	type AppChangePart,
 	diffHqAppSource,
 	normalizeHqAppSource,
 	removedHqFiles,
 } from "../hqSourceBaseline";
-import { appRemoteChange, decideRemoteChanges } from "../remoteChanges";
+import { decideRemoteChanges } from "../remoteChanges";
 import type { AppOwnership } from "../types";
 
 const READS = path.join(process.cwd(), "proof/hq-reads");

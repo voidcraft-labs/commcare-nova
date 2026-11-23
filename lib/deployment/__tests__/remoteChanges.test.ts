@@ -22,10 +22,11 @@ import {
 	type WebAppsChange,
 	webAppsChangeMessage,
 } from "@/lib/publish/webApps";
+import * as appRemoteChangeModule from "../appRemoteChange";
+import { appRemoteChange } from "../appRemoteChange";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import * as remoteChangesModule from "../remoteChanges";
 import {
-	appRemoteChange,
 	BASELINE_UNKNOWN_SENTENCE,
 	baselineUnknownSentence,
 	boundedParts,
@@ -676,6 +677,7 @@ describe("a removed-file change", () => {
 describe("the copy", () => {
 	const modules = {
 		remoteChanges: remoteChangesModule,
+		appRemoteChange: appRemoteChangeModule,
 		driftReference: driftReferenceModule,
 		stopPublishing: stopPublishingModule,
 		hqAppClaims: hqAppClaimsModule,

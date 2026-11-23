@@ -84,6 +84,7 @@ import {
 	webAppsCheckNoContentDetail,
 } from "@/lib/publish/webApps";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import { appRemoteChange } from "./appRemoteChange";
 import { attachmentUrlTarget } from "./attachmentTarget";
 import {
 	confirmationNeededMessage,
@@ -135,7 +136,6 @@ import {
 	reReadManagedTablesForPublish,
 } from "./managedData";
 import {
-	appRemoteChange,
 	boundedParts,
 	decideRemoteChanges,
 	describeLookupChange,
