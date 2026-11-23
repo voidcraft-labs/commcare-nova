@@ -93,14 +93,7 @@ a numbered code; where something still names it, the refresh names it in
 `remade` (`managedPlacesRemade`: CommCare HQ made it again as a new place, and a
 person can move what uses it, then refresh again), and
 re-coded rows pass through a `~<id>` placeholder so a swap never meets the
-unique site code midway. Past `MAX_LOCATIONS_PER_APP` (archived rows count,
-since every whole-tree read reads them) it deletes archived rows nothing
-names and no case is owned by (`service.ts::locationsOwningCases`, open and
-closed cases alike, since a case's `owner_id` is the row's id), longest
-archived first and each after the rows under it, and refuses
-`limit` only where the rows that must stay pass the bound: no author can shed
-an archived row of a managed copy, so without this a project space that keeps
-replacing places would refuse every refresh. It proves the LIVE result
+unique site code midway. A managed refresh retains archived identities, including those that own cases. It proves the LIVE result
 against the document as the place writers do, with sentences that name a step that works on a managed copy
 (`managedPlacesRefreshRefusal`; the reverse hop through
 `ownerTargetVerdicts.ts::reverseLocationOwnerVerdict`), and advances the
@@ -207,11 +200,7 @@ verdict and before the entity write.
 
 There is no hard delete, matching the platform: HQ exposes archive/unarchive
 only, and its v0.6 location API has no `delete` method at all. Deleting a row
-whose id is a live `owner_id` would strand cases irreversibly. The one delete
-is a managed copy's refresh past `MAX_LOCATIONS_PER_APP` (above): only rows
-already archived because CommCare HQ no longer lists them, which no author can
-bring back, that nothing names and that own no case, and only as many as the
-bound needs.
+whose id is a live `owner_id` would strand cases irreversibly. 
 
 Archiving is also where a published place parts company with Nova. The push
 sends live places only, so archiving stops Nova naming that place and the
@@ -447,3 +436,11 @@ Rows still come only from complete server reads, never an optimistic reducer.
 Keep pure schema/derivation/plan tests separate from Postgres integration
 tests, and bundle the Postgres-focused ones into one invocation so local and
 CI runs do not create unnecessary containers.
+
+## Reading large organizations
+
+`pages.ts` reads the app and Project under the same repeatable-read snapshot as its organization revision. A root or child page filters by parent and uses the indexed sibling order and UUID as its next key. Searching across the organization returns each result's ancestor path. A cursor belongs to one app, revision and set of filters. Authoring surfaces can request one active level, omit an edited subtree, or recover the currently selected place. Each row carries adjacent-sibling and child availability. Above 100 places the initial Builder catalog includes the named app references, their ancestors and one representative at each occupied level. The count comes from the store. Refusal previews for proposed assignments and owner rules run against the stored hierarchy.
+
+`workerFootprint.ts` applies the worker's address books across all their assigned places, matching HQ's physical depths, shared-branch starts, allowed levels and ancestor rules. It loads the worker's restored rows and their actual physical ancestor IDs for Preview. `workerPlaces.ts` pages case-owning places separately. The SQL owner checks query the matching targets for an assigned source and distinguish zero, one or multiple results. Routine edits load the affected branch and indexed adjacent siblings. Archive reads the affected subtree and computes the consequences for those references before a reversible write.
+
+A managed row's `hq_observation` is a nullable text-encoded JSON document. It holds JSON lexemes for every source metadata key, worker text where reproducible, the null-name observation and exact source coordinate strings. Text encoding also preserves unmodeled keys that PostgreSQL JSONB cannot represent. An older row with no receipt acquires one at its next successful paired source refresh. No reader infers an empty external ID from a missing API field. Only modeled properties are exposed as worker data. The paged authoring catalog omits the source observation.

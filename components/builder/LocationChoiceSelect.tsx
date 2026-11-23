@@ -13,11 +13,16 @@ import {
 } from "@/components/shadcn/select";
 import { locationChoiceLabel } from "@/lib/organization/locationLabels";
 import type { StoredLocation } from "@/lib/organization/types";
+import {
+	type PlacePageRow,
+	type PlaceSearch,
+	usePlacePage,
+} from "@/lib/organization/usePlacePage";
 
 const LOCATION_CHOICE_PAGE_SIZE = 50;
 const NO_AVAILABLE_LOCATION = "__no_available_location__";
 
-export function LocationChoiceSelect({
+function LocalPlaceChoice({
 	locations,
 	value,
 	onValueChange,
@@ -32,7 +37,8 @@ export function LocationChoiceSelect({
 	specialOptions = [],
 	id,
 }: {
-	readonly locations: readonly StoredLocation[];
+	readonly locations: readonly (StoredLocation &
+		Partial<Pick<PlacePageRow, "path">>)[];
 	readonly value: string;
 	readonly onValueChange: (locationId: string) => void;
 	readonly ariaLabel: string;
@@ -47,7 +53,9 @@ export function LocationChoiceSelect({
 		readonly label: string;
 	}[];
 	/** Exact cross-store preflight. It runs only for one bounded result page. */
-	readonly issueFor?: (location: StoredLocation) => string | undefined;
+	readonly issueFor?: (
+		location: StoredLocation & Partial<Pick<PlacePageRow, "path">>,
+	) => string | undefined;
 	readonly id?: string;
 }) {
 	const searchId = useId();
@@ -172,6 +180,13 @@ export function LocationChoiceSelect({
 										{optionPrefix}
 										{locationChoiceLabel(location)}
 									</span>
+									{location.path && location.path.length > 0 && (
+										<span className="whitespace-normal text-[11px] leading-snug text-nova-text-muted">
+											{location.path
+												.map((ancestor) => ancestor.name || ancestor.siteCode)
+												.join(" / ")}
+										</span>
+									)}
 									{issue !== undefined && (
 										<span className="whitespace-normal text-[11px] leading-snug text-nova-red">
 											{issue}
@@ -209,6 +224,109 @@ export function LocationChoiceSelect({
 						}
 					>
 						Next
+					</Button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+type PlaceChoiceProps = Parameters<typeof LocalPlaceChoice>[0];
+
+export function LocationChoiceSelect(
+	props: PlaceChoiceProps & {
+		remote?: PlaceSearch;
+		onSelectRow?: (row: PlacePageRow) => void;
+	},
+) {
+	return props.remote ? (
+		<SearchedPlaceChoice {...props} remote={props.remote} />
+	) : (
+		<LocalPlaceChoice {...props} />
+	);
+}
+
+function SearchedPlaceChoice({
+	remote,
+	onSelectRow,
+	...props
+}: PlaceChoiceProps & {
+	remote: PlaceSearch;
+	onSelectRow?: (row: PlacePageRow) => void;
+}) {
+	const [query, setQuery] = useState("");
+	const [selected, setSelected] = useState<StoredLocation>();
+	const id = useId();
+	const result = usePlacePage(remote, query.trim());
+	const choices = result.page?.locations ?? [];
+	const chosen =
+		(selected?.id === props.value ? selected : undefined) ??
+		props.locations.find((row) => row.id === props.value) ??
+		choices.find((row) => row.id === props.value);
+	return (
+		<div className="flex min-w-0 flex-col gap-1.5">
+			<label htmlFor={id} className="text-[12px] text-nova-text-muted">
+				Search {props.ariaLabel.toLocaleLowerCase()}
+			</label>
+			<Input
+				id={id}
+				value={query}
+				placeholder="Name or site code"
+				disabled={props.disabled}
+				onChange={(e) => setQuery(e.target.value)}
+			/>
+			<LocalPlaceChoice
+				{...props}
+				locations={choices}
+				disabled={props.disabled || result.loading || !!result.error}
+				triggerContent={
+					props.specialOptions?.find((item) => item.value === props.value)
+						?.label ??
+					(chosen
+						? props.optionPrefix
+							? props.optionPrefix + locationChoiceLabel(chosen)
+							: locationChoiceLabel(chosen)
+						: props.triggerContent)
+				}
+				onValueChange={(id) => {
+					const row = choices.find((place) => place.id === id);
+					if (row) {
+						setSelected(row);
+						onSelectRow?.(row);
+					}
+					props.onValueChange(id);
+				}}
+			/>
+			{result.loading && (
+				<span role="status" className="text-xs text-nova-text-muted">
+					Looking for places
+				</span>
+			)}
+			{result.error && (
+				<p role="alert" className="text-xs text-nova-red">
+					{result.error}{" "}
+					<Button type="button" variant="ghost" onClick={result.retry}>
+						Try again
+					</Button>
+				</p>
+			)}
+			{(result.previous || result.next) && (
+				<div className="flex gap-2">
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={!result.previous}
+						onClick={result.previous}
+					>
+						Previous places
+					</Button>
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={!result.next}
+						onClick={result.next}
+					>
+						Next places
 					</Button>
 				</div>
 			)}
