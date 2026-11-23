@@ -805,12 +805,12 @@ function queryRepeatModelIterationSentence(e: ValidationError): string {
 			return `${opening}, and inside ${outer} that would give its rows the wrong records. ${follow}, or keep it outside ${outer}.`;
 		}
 		case "query-reads-answers":
-			return `${opening}, so its query would run before any answer it reads is given. ${follow}, or have its query read no answers.`;
+			return `${opening}, before the answer its query matches a record ID against is given, so it would find no records. ${follow}, or give that answer a starting value.`;
 		case "row-condition":
 			return `${opening}, and a row made while its condition hides an earlier one would take that row's record. ${follow}, or show every row.`;
 		default: {
 			const group = q(det(e, "groupLabel", "the group around it"));
-			return `${opening}, and ${group} around it shows on a condition that can change while the form is filled in, so its rows could stay empty. ${follow}, or show ${group} on a condition that doesn't change.`;
+			return `${opening}, while a starting value hides ${group} around it, so its rows would stay empty. ${follow}, or show ${group} when the form opens.`;
 		}
 	}
 }
@@ -1782,7 +1782,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
-	HIDDEN_ANSWER_CALCULATION: (e) => e.message,
+	HIDDEN_ANSWER_CALCULATION: (e) =>
+		e.details?.problem === "empty-choice"
+			? `The calculation for ${q(fieldName(e))} in ${q(formName(e))} starts with an empty choice. You can start the list with its first choice.`
+			: `The calculation for ${q(fieldName(e))} in ${q(formName(e))} returns a date, which a yes or no answer can't hold. You can compare the date to get a yes or no answer, or choose a date answer type.`,
 	HIDDEN_BOOLEAN_STARTING_ANSWER: (e) =>
 		`CommCare sets the yes or no answer in ${q(fieldName(e))} through Calculation. You can move its starting value there or choose another answer type.`,
 	REQUIRED_ON_HIDDEN: (e) =>
@@ -1809,7 +1812,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen yet. Pick the records it should repeat over.`,
-	QUERY_REPEAT_TIMING_MOVE: (e) => e.message,
+	QUERY_REPEAT_TIMING_MOVE: (e) =>
+		`The timing for ${q(fieldName(e))} in ${q(formName(e))} changes where your published app keeps each row's record ID. You can review that change to use the new timing.`,
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: (e) =>
 		queryRepeatModelIterationSentence(e),
 	INVALID_FIELD_ID: (e) => {

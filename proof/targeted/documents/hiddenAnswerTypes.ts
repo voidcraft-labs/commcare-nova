@@ -12,6 +12,7 @@ export function hiddenAnswerTypes() {
 		appName: "Visit readings",
 		modules: [
 			{
+				uuid: targetedUuid(id, "module"),
 				name: "Visits",
 				forms: [
 					{
@@ -20,36 +21,46 @@ export function hiddenAnswerTypes() {
 						type: "survey",
 						fields: [
 							f({
+								uuid: targetedUuid(id, "opening_count"),
 								kind: "hidden",
 								id: "opening_count",
 								answerType: "int",
 								default_value: "'0003'",
 							}),
 							f({
+								uuid: targetedUuid(id, "source_code"),
 								kind: "hidden",
 								id: "source_code",
 								answerType: "int",
 								calculate: "'0003'",
 							}),
 							f({
+								uuid: targetedUuid(id, "whole_count"),
 								kind: "hidden",
 								id: "whole_count",
 								answerType: "int",
 								calculate: "2.75",
 							}),
 							f({
+								uuid: targetedUuid(id, "large_count"),
 								kind: "hidden",
 								id: "large_count",
 								answerType: "long",
 								calculate: "3000000000.75",
 							}),
 							f({
+								uuid: targetedUuid(id, "has_note"),
 								kind: "hidden",
 								id: "has_note",
 								answerType: "boolean",
 								calculate: "'false'",
 							}),
-							f({ kind: "text", id: "note", label: "Note" }),
+							f({
+								uuid: targetedUuid(id, "note"),
+								kind: "text",
+								id: "note",
+								label: "Note",
+							}),
 						],
 					},
 				],

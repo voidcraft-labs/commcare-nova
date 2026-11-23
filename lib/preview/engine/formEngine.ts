@@ -4721,9 +4721,9 @@ export class FormEngine {
 			if (
 				field.kind === "repeat" &&
 				field.repeat_mode === "query_bound" &&
-				(!healing ||
-					(this.pendingSectionRepeats.has(path) &&
-						this.queryPlacement(field) === "count"))
+				// Context recovery recaptures an unvisited section's membership,
+				// model iteration's among it (`healEntryContext`).
+				(!healing || this.pendingSectionRepeats.has(path))
 			) {
 				const ids = yield* this.readQueryIds(field, path);
 				const snapshot =

@@ -272,6 +272,9 @@ export function handDocument(): BlueprintDoc {
 								kind: "hidden",
 								uuid: uuid("membersPlusOne"),
 								id: "members_plus_one",
+								// The form builder binds a Hidden Value with no type, which
+								// Core holds as entered.
+								answerType: "untyped",
 								calculate: "#form/members + 1",
 							}),
 						],

@@ -78,7 +78,7 @@ const ROWS: readonly Row[] = [
 		name: "an answer added to its query",
 		edit: [setQuery(PATIENTS_BY_ENTERED_ID)],
 		need: { kind: "query-reads-answers" },
-		message: `"Visits" takes its rows once, when the form opens, as your published app does, so its query would run before any answer it reads is given. ${FOLLOW}, or have its query read no answers.`,
+		message: `"Visits" takes its rows once, when the form opens, as your published app does, before the answer its query matches a record ID against is given, so it would find no records. ${FOLLOW}, or give that answer a starting value.`,
 	},
 ];
 

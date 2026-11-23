@@ -554,6 +554,7 @@ export function openingQueryChoices() {
 		appName: "Visit list",
 		modules: [
 			{
+				uuid: targetedUuid(id, "module"),
 				name: "Visits",
 				forms: [
 					{
@@ -562,6 +563,7 @@ export function openingQueryChoices() {
 						type: "survey",
 						fields: [
 							f({
+								uuid: targetedUuid(id, "site"),
 								kind: "text",
 								id: "site",
 								label: "Site",
@@ -569,11 +571,13 @@ export function openingQueryChoices() {
 									"if(contains(#user/username, 'east'), 'east', 'west')",
 							}),
 							f({
+								uuid: targetedUuid(id, "before"),
 								kind: "hidden",
 								id: "before",
 								default_value: "string(current()/../visits/@ids)",
 							}),
 							f({
+								uuid: targetedUuid(id, "visits"),
 								kind: "repeat",
 								id: "visits",
 								rowTiming: "on-open",
@@ -581,20 +585,32 @@ export function openingQueryChoices() {
 								data_source: { ids_query: query },
 								children: [
 									f({
+										uuid: targetedUuid(id, "record"),
 										kind: "hidden",
 										id: "record",
 										calculate: "current()/../@id",
 									}),
-									f({ kind: "text", id: "note", label: "Visit note" }),
+									f({
+										uuid: targetedUuid(id, "note"),
+										kind: "text",
+										id: "note",
+										label: "Visit note",
+									}),
 								],
 							}),
 							f({
+								uuid: targetedUuid(id, "after"),
 								kind: "hidden",
 								id: "after",
 								default_value:
 									"concat(current()/../visits/@count, ':', current()/../visits/@ids)",
 							}),
-							f({ kind: "text", id: "finish", label: "Finish" }),
+							f({
+								uuid: targetedUuid(id, "finish"),
+								kind: "text",
+								id: "finish",
+								label: "Finish",
+							}),
 						],
 					},
 				],

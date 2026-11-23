@@ -773,6 +773,20 @@ function profileWithout(files: Map<string, string>, key: string): unknown[] {
 
 const PAIRS: readonly Pair[] = [
 	{
+		id: "hidden-answer-type-as-automatic",
+		name: "a hidden value whose chosen answer type is the text its automatic type writes",
+		other: () =>
+			survey([
+				f({ kind: "text", id: "code_entry", label: "Code" }),
+				f({
+					kind: "hidden",
+					id: "code",
+					answerType: "text",
+					calculate: "#form/code_entry",
+				}),
+			]),
+	},
+	{
 		id: "root-question-lists-are-sections",
 		name: "a root of one question list with no condition",
 		other: () =>

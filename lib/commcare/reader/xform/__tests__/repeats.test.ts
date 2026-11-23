@@ -562,7 +562,7 @@ describe("a query repeat's wrapper holding a node the emitter never writes there
 			);
 	}
 
-	it("is no count placement: the node stays outside every row, and the reading names what keeps it out", async () => {
+	it("is no count placement: the node stays outside every row, and the row's id reads as a hidden value keeping both its values", async () => {
 		const source = withTotal(queryDoc({ nested: true }), "/data/outer/visits");
 		const reading = await readForm(source);
 		const fields = readFields(reading.xform ?? ({} as never));
@@ -575,14 +575,19 @@ describe("a query repeat's wrapper holding a node the emitter never writes there
 				Q("count-repeat-whose-count-and-row-ids-come-from-one-query-a")
 			],
 		).toBeUndefined();
+		// The row's id holds the query's starting value beside its calculation,
+		// which a Hidden Value now keeps whole, so nothing refuses the form.
+		const rowId = fields.find((field) => field.id === "nova_query_id_visits");
+		expect(rowId?.kind).toBe("hidden");
+		expect(rowId?.expressions.map((expression) => expression.slot)).toEqual(
+			expect.arrayContaining(["default_value", "calculate"]),
+		);
 		expect(
 			await codesThroughEveryStage(
 				source,
 				"outer/visits/item/nova_query_id_visits",
 			),
-		).toContain(
-			Q("hidden-value-with-both-calculate-and-a-default-by-any-expression"),
-		);
+		).toEqual([]);
 	});
 
 	it("is no model iteration: the wrapper is left unclaimed", async () => {

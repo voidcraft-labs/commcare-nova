@@ -1525,6 +1525,10 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	repeat_mode: "discriminator",
 	// A query repeat's held placement: a closed enum, naming nothing.
 	placement: "config",
+	// A query repeat's chosen row timing and a Hidden Value's chosen answer
+	// type: closed enums, naming nothing.
+	rowTiming: "config",
+	answerType: "config",
 	// Display flags: a group shown on one screen, a label (a field's or a
 	// choice's) or a help text written with no markdown form, and a Text
 	// question's number keypad. Literals, naming nothing.

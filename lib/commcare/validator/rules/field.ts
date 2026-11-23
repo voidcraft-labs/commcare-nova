@@ -188,6 +188,7 @@ function hiddenAnswerAssignments(
 					"field",
 					`The calculation for “${field.id}” returns a date. You can compare the date to get a yes or no answer, or choose a date answer type.`,
 					at,
+					{ problem: "date-as-boolean" },
 				),
 			];
 		}
@@ -204,6 +205,7 @@ function hiddenAnswerAssignments(
 					"field",
 					`The calculation for “${field.id}” starts with an empty choice. You can start the list with its first choice.`,
 					at,
+					{ problem: "empty-choice" },
 				),
 			];
 		}
@@ -565,11 +567,11 @@ export function queryRepeatModelIterationMessage(
 		case "nested":
 			return `${opening}, and inside "${words.outer}" that would give its rows the wrong records. ${follow}, or keep it outside "${words.outer}".`;
 		case "query-reads-answers":
-			return `${opening}, so its query would run before any answer it reads is given. ${follow}, or have its query read no answers.`;
+			return `${opening}, before the answer its query matches a record ID against is given, so it would find no records. ${follow}, or give that answer a starting value.`;
 		case "row-condition":
 			return `${opening}, and a row made while its condition hides an earlier one would take that row's record. ${follow}, or show every row.`;
 		case "ancestor-condition-changes":
-			return `${opening}, and "${words.group}" around it shows on a condition that can change while the form is filled in, so its rows could stay empty. ${follow}, or show "${words.group}" on a condition that doesn't change.`;
+			return `${opening}, while a starting value hides "${words.group}" around it, so its rows would stay empty. ${follow}, or show "${words.group}" when the form opens.`;
 		default: {
 			const _exhaustive: never = reason;
 			return _exhaustive;
@@ -609,7 +611,7 @@ function queryRepeatModelIterationShape(
 				validationError(
 					"QUERY_REPEAT_TIMING_MOVE",
 					"field",
-					`The timing for “${field.id}” changes where published row identifiers are saved. You can review the change to use the new timing.`,
+					`The timing for “${field.id}” in “${ctx.formName}” changes where your published app keeps each row's record ID. You can review that change to use the new timing.`,
 					{
 						formUuid: ctx.formUuid,
 						formName: ctx.formName,

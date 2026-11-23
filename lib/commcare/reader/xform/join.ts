@@ -561,8 +561,15 @@ export function joinForm(input: JoinInput): JoinedForm {
 			stood,
 			row.slots ?? NO_ENTRIES,
 		);
-		if (row.kind === "hidden")
-			field.field.answerType = hiddenAnswerTypeOf(bind?.type);
+		// A text or date-and-time class is one Nova's automatic type can write;
+		// whether it does here needs the bound document's writes and calculate,
+		// so `afterBinding.ts::settleHiddenAnswerTypes` decides it. Every other
+		// class, an absent type among them, is the author's choice.
+		if (row.kind === "hidden") {
+			const answerType = hiddenAnswerTypeOf(bind?.type);
+			if (answerType !== "text" && answerType !== "datetime")
+				field.field.answerType = answerType;
+		}
 		if (bothSources)
 			field.bothSources = {
 				typeDeferred: bind?.type !== undefined && typeClaim === sites.type,

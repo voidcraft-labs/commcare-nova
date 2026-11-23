@@ -6,23 +6,25 @@ import { attributeNameIn } from "./model";
  * count that reads the rows it creates; a model-iteration repeat held
  * to where Nova's own rule runs model iteration; a pair of load-time
  * values whose order a save in HQ's form builder changes, where one reads the
- * node the other sets; and the spellings of hidden answer types; and a protected validation message's composed
+ * node the other sets; a hidden answer type Nova's automatic type writes, and
+ * the spellings of hidden answer types; and a protected validation message's composed
  * expression and its text's own forms; and a Connect slot that holds the default the
  * emitter writes for an unset one, read as unset. Each is compared with the production rule
  * over the document as the expression stage bound it. A check whose inputs a
  * finding withheld is skipped: that finding already sends the person to the
  * question or the form. A Hidden Value holding both a calculate and a
- * default outside every repeat is the calculate alone where no runtime reads
- * the default, and refused where one can.
+ * default keeps both, claimed by whether a runtime can read the default.
  */
 
 import { type Element, isTag } from "domhandler";
-import type {
-	BlueprintDoc,
-	Field,
-	ProseAtomPart,
-	ProseTemplate,
-	Uuid,
+import {
+	type BlueprintDoc,
+	effectiveCaseTypes,
+	type Field,
+	fieldCaseWriteViews,
+	type ProseAtomPart,
+	type ProseTemplate,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	type LookupTypeIndex,
@@ -49,7 +51,7 @@ import { commCareLocalization } from "../../localization";
 import { inertLookupWireNaming } from "../../lookup/naming";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { rethrowWorkStop } from "../../workMeter";
-import { fieldBindType } from "../../xform/bindType";
+import { fieldBindType, hiddenAnswerTypeOf } from "../../xform/bindType";
 import { protectConstraintMessage } from "../../xform/constraintMessage";
 import { questionDatetimeCaseValue } from "../../xform/datetimeCaseValue";
 import { formNodeProjection } from "../../xpath/formNodeProjection";
@@ -1130,6 +1132,52 @@ export function connectDefaultsUnset(doc: BlueprintDoc): BlueprintDoc {
 	});
 }
 
+/** The bind type a Hidden Value's export writes, with the bound document's
+ * writes: its chosen type's, or its automatic one. */
+function emittedHiddenBind(
+	doc: BlueprintDoc,
+	field: Field,
+): string | undefined {
+	return (
+		fieldBindType(
+			field,
+			effectiveCaseTypes(doc),
+			fieldCaseWriteViews(doc, field.uuid),
+		) ?? undefined
+	);
+}
+
+/** A Hidden Value whose source binds the text or date-and-time class, which
+ * the join left automatic: where Nova's automatic type, over the bound
+ * document's writes and calculate, writes another class, the source's class
+ * becomes the chosen answer type, so the export binds what the source binds.
+ * Where it writes the same class the value stays automatic, which is how
+ * Nova's own export of an automatic Hidden Value reads back. */
+function settleHiddenAnswerTypes(
+	ctx: ReadContext,
+	xform: ReadXForm,
+	doc: BlueprintDoc,
+): void {
+	const chosen = new Map<Uuid, "text" | "datetime">();
+	for (const field of fieldsOf(xform)) {
+		if (field.kind !== "hidden" || field.standIn || field.uuid === undefined)
+			continue;
+		const source = hiddenAnswerTypeOf(xform.binds.get(field.node)?.type);
+		if (source !== "text" && source !== "datetime") continue;
+		const stored = doc.fields[field.uuid];
+		if (stored?.kind !== "hidden" || stored.answerType !== undefined) continue;
+		if (hiddenAnswerTypeOf(emittedHiddenBind(doc, stored)) !== source)
+			chosen.set(field.uuid, source);
+	}
+	if (chosen.size === 0) return;
+	ctx.doc = withCandidate(doc, (draft) => {
+		for (const [uuid, answerType] of chosen) {
+			const held = draft.fields[uuid];
+			if (held?.kind === "hidden") held.answerType = answerType;
+		}
+	});
+}
+
 /** A hidden answer's spelling can name the same answer class as the emitted
  * type. An unknown type and an absent type both hold UncastData. Record only
  * a source with an actual attribute whose next spelling changes. */
@@ -1149,8 +1197,7 @@ function recordHiddenAnswerSpellings(
 		const stored = doc.fields[field.uuid];
 		if (
 			stored?.kind !== "hidden" ||
-			stored.answerType === undefined ||
-			fieldBindType(stored, [], []) === spelling
+			emittedHiddenBind(doc, stored) === spelling
 		)
 			continue;
 		const steps = [
@@ -1180,13 +1227,15 @@ export function finishForms(ctx: ReadContext): void {
 			const doc = ctx.doc;
 			if (doc === undefined || xform === null) continue;
 			if (doc.forms[form.uuid] === undefined) continue;
-			recordHiddenAnswerSpellings(ctx, form, xform, doc);
-			settleChoices(ctx, doc, xform, types);
+			settleHiddenAnswerTypes(ctx, xform, doc);
+			const bound = ctx.doc ?? doc;
+			recordHiddenAnswerSpellings(ctx, form, xform, bound);
+			settleChoices(ctx, bound, xform, types);
 			for (const message of formText(xform)?.protectedMessages ?? [])
-				settleProtectedMessage(ctx, doc, xform, message);
-			checkCountFeedback(ctx, doc, form.uuid, xform);
-			checkModelIterations(ctx, doc, form.uuid, xform);
-			checkLoadOrder(ctx, doc, form.uuid, form.place, xform);
-			checkDatetimeSiblings(ctx, doc, xform, types);
+				settleProtectedMessage(ctx, bound, xform, message);
+			checkCountFeedback(ctx, bound, form.uuid, xform);
+			checkModelIterations(ctx, bound, form.uuid, xform);
+			checkLoadOrder(ctx, bound, form.uuid, form.place, xform);
+			checkDatetimeSiblings(ctx, bound, xform, types);
 		}
 }

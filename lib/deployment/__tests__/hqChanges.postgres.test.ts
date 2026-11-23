@@ -733,25 +733,36 @@ describe("recordHqChangesTaken", () => {
 						},
 					}),
 				);
-				expect((await baselineRow()).first_publish_changes).toEqual(original);
-				await recordRefreshedAppBaseline(birth.scope, TARGET, {
-					expectedEndings: 0,
-					remoteAppId: HQ_APP,
-					comparedPushToken: appMappingToken(
-						await readDeployment(birth.scope, TARGET),
-					),
-					comparedDigest: digestOf(CHANGED_SOURCE),
-					read: stored(
-						{ ...CHANGED_SOURCE, name: "Changed again" },
-						CHANGED_AT,
-					),
-					nextPublish: {
-						...firstPublish,
-						stillOmitsHiddenStartingAnswer: false,
-					},
-				});
+				// A take reviews the first publish's list as it writes it.
+				const reviewed = of === "first-publish" ? { reviewed: 1 as const } : {};
 				expect((await baselineRow()).first_publish_changes).toEqual({
 					...original,
+					...reviewed,
+				});
+				const refreshed = await recordRefreshedAppBaseline(
+					birth.scope,
+					TARGET,
+					{
+						expectedEndings: 0,
+						remoteAppId: HQ_APP,
+						comparedPushToken: appMappingToken(
+							await readDeployment(birth.scope, TARGET),
+						),
+						comparedDigest: digestOf(CHANGED_SOURCE),
+						read: stored(
+							{ ...CHANGED_SOURCE, name: "Changed again" },
+							"2026-11-14T09:00:00.000Z",
+						),
+						nextPublish: {
+							...firstPublish,
+							stillOmitsHiddenStartingAnswer: false,
+						},
+					},
+				);
+				expect(refreshed.outcome).toBe("current");
+				expect((await baselineRow()).first_publish_changes).toEqual({
+					...original,
+					...reviewed,
 					ids: ["forms-and-settings-rewritten"],
 				});
 			},

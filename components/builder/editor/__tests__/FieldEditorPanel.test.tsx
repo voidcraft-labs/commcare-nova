@@ -209,7 +209,7 @@ it.each([
 );
 
 describe("the hidden field's Logic section", () => {
-	it("is exactly the Value control and Show when", () => {
+	it("shows the starting value, the calculation and the answer type together, with Show when to add", () => {
 		const hidden: HiddenField = {
 			kind: "hidden",
 			uuid: FIELD_UUID,
@@ -217,16 +217,22 @@ describe("the hidden field's Logic section", () => {
 			calculate: arith("+", term(literal(1)), term(literal(1))),
 		};
 		expect(schemaOf(hidden).logic.map((entry) => entry.key)).toEqual([
+			"default_value",
 			"calculate",
+			"answerType",
 			"relevant",
 		]);
-		// The Value control remains an active row so its calculation can be edited.
+		// Each value slot keeps its own active row, so setting one never hides the other.
 		const { visible, pills } = partitionEditorEntries(
 			hidden,
 			schemaOf(hidden).logic,
 			ONE_CASE_FOLLOWUP,
 		);
-		expect(visible.map(({ entry }) => entry?.key)).toEqual(["calculate"]);
+		expect(visible.map(({ entry }) => entry?.key)).toEqual([
+			"default_value",
+			"calculate",
+			"answerType",
+		]);
 		expect(pills.map((entry) => entry?.key)).toEqual(["relevant"]);
 	});
 });

@@ -265,25 +265,33 @@ function flagPrintsNothing(
 
 export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 	{
-		id: "hidden-answer-bind-type",
+		/** A Hidden Value whose chosen answer type is the class Nova's automatic
+		 *  type already writes (`xsd:string`, or `xsd:dateTime` where its write or
+		 *  its calculate keeps a clock): both print one bind, and the reader
+		 *  returns the automatic type (`xform/afterBinding.ts::settleHiddenAnswerTypes`). */
+		id: "hidden-answer-type-as-automatic",
 		kind: "one-wire",
 		apply: (doc) => {
-			const automatic = Object.values(doc.fields).filter(
-				(field) => field.kind === "hidden" && field.answerType === undefined,
+			const chosen = Object.values(doc.fields).filter(
+				(field) => field.kind === "hidden" && field.answerType !== undefined,
 			);
-			if (automatic.length === 0) return doc;
+			if (chosen.length === 0) return doc;
 			const types = effectiveCaseTypes(doc);
+			const automatic = chosen.filter((field) => {
+				if (field.kind !== "hidden") return false;
+				const { answerType, ...rest } = field;
+				return (
+					hiddenAnswerTypeOf(
+						fieldBindType(rest, types, fieldCaseWriteViews(doc, field.uuid)) ??
+							undefined,
+					) === answerType
+				);
+			});
+			if (automatic.length === 0) return doc;
 			return withCandidate(doc, (draft) => {
-				for (const field of automatic) {
-					const bind = fieldBindType(
-						field,
-						types,
-						fieldCaseWriteViews(doc, field.uuid),
-					);
-					const held = draft.fields[field.uuid];
-					if (held?.kind === "hidden")
-						held.answerType = hiddenAnswerTypeOf(bind ?? undefined);
-				}
+				for (const field of automatic)
+					delete (draft.fields[field.uuid] as { answerType?: unknown })
+						.answerType;
 			});
 		},
 	},

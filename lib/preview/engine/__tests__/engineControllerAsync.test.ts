@@ -243,7 +243,9 @@ describe("EngineController async runtime", () => {
 		await ctrl.activateFormAsync(FORM_UUID);
 
 		expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe("0");
-		expect(ctrl.store.getState()[RESULT_FIELD_UUID]?.value).toBe("false");
+		// Recalculate.wrapData holds a boolean result as BooleanData under any
+		// bind, and XFormAnswerDataSerializer submits it as 0 or 1.
+		expect(ctrl.store.getState()[RESULT_FIELD_UUID]?.value).toBe("0");
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 		ctrl.dispose();
 	});

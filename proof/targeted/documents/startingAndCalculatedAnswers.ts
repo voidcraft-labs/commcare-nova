@@ -9,6 +9,7 @@ export function startingAndCalculatedAnswers() {
 		appName: "Visit readings",
 		modules: [
 			{
+				uuid: targetedUuid(id, "module"),
 				name: "Visits",
 				forms: [
 					{
@@ -16,26 +17,35 @@ export function startingAndCalculatedAnswers() {
 						name: "Visit",
 						type: "survey",
 						fields: [
-							f({ kind: "text", id: "show_details", label: "Show details" }),
 							f({
+								uuid: targetedUuid(id, "show_details"),
+								kind: "text",
+								id: "show_details",
+								label: "Show details",
+							}),
+							f({
+								uuid: targetedUuid(id, "stage"),
 								kind: "hidden",
 								id: "stage",
 								default_value: "'first'",
 								calculate: "'current'",
 							}),
 							f({
+								uuid: targetedUuid(id, "captured"),
 								kind: "text",
 								id: "captured",
 								label: "Stage at opening",
 								default_value: "#form/stage",
 							}),
 							f({
+								uuid: targetedUuid(id, "later"),
 								kind: "group",
 								id: "later",
 								label: "Details",
 								relevant: "#form/show_details = 'yes'",
 								children: [
 									f({
+										uuid: targetedUuid(id, "detail_level"),
 										kind: "hidden",
 										id: "detail_level",
 										default_value: "'three'",
@@ -44,12 +54,14 @@ export function startingAndCalculatedAnswers() {
 								],
 							}),
 							f({
+								uuid: targetedUuid(id, "never"),
 								kind: "group",
 								id: "never",
 								label: "Archived details",
 								relevant: "false()",
 								children: [
 									f({
+										uuid: targetedUuid(id, "archived_level"),
 										kind: "hidden",
 										id: "archived_level",
 										default_value: "'three'",
@@ -58,12 +70,14 @@ export function startingAndCalculatedAnswers() {
 								],
 							}),
 							f({
+								uuid: targetedUuid(id, "before_check"),
 								kind: "text",
 								id: "before_check",
 								label: "Opening reading",
 								default_value: "#form/later/detail_level",
 							}),
 							f({
+								uuid: targetedUuid(id, "absent"),
 								kind: "text",
 								id: "absent",
 								label: "Archived reading",
