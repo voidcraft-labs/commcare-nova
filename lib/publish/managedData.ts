@@ -193,6 +193,136 @@ export function columnsBecomeText(columns: readonly string[]): string | null {
 export const LET_HQ_MANAGE_CONFIRM = "Let CommCare HQ manage it";
 export const KEEP_MANAGING_IN_NOVA = "Keep managing it in Nova";
 
+// ---------------------------------------------------------------------------
+// Use the table from CommCare HQ, and Create a separate table
+// ---------------------------------------------------------------------------
+
+/** The action on a Nova table a publish put in a project space, and its confirmation's title. */
+export const USE_HQ_TABLE = "Use the table from CommCare HQ";
+export function takeHqTableTitle(name: string, domain: string): string {
+	return `Use the table in ${domain} for ${name}?`;
+}
+
+/** Its first line. */
+export function takeHqTableBody(domain: string): string {
+	return `Nova takes the columns and rows of the table in ${domain} as they are right now, and CommCare HQ manages it from then on. Nova never changes that table there, and you refresh Nova's copy from it.`;
+}
+
+/**
+ * What taking CommCare HQ's table does to Nova's, one line each, in the order
+ * a person reads them; a change that does not happen has no line.
+ */
+export function takeHqTableChanges(input: {
+	readonly domain: string;
+	readonly rowsBefore: number;
+	readonly rowsAfter: number;
+	readonly addedColumns: readonly string[];
+	readonly removedColumns: readonly string[];
+	readonly keptColumns: readonly string[];
+	readonly typedColumns: readonly string[];
+	readonly assignmentsRemoved: boolean;
+	readonly assignedInHq: boolean;
+	readonly otherDomains: readonly string[];
+}): readonly string[] {
+	const lines: string[] = [];
+	if (input.rowsBefore !== input.rowsAfter)
+		lines.push(
+			`The table there has ${count(input.rowsAfter)} ${input.rowsAfter === 1 ? "row" : "rows"}, and Nova's has ${count(input.rowsBefore)}.`,
+		);
+	if (input.addedColumns.length > 0)
+		lines.push(
+			`${namesInWords(input.addedColumns)} ${input.addedColumns.length === 1 ? "comes" : "come"} in from CommCare HQ.`,
+		);
+	if (input.removedColumns.length > 0)
+		lines.push(
+			`${namesInWords(input.removedColumns)} ${input.removedColumns.length === 1 ? "is" : "are"} removed, since the table there doesn't have ${input.removedColumns.length === 1 ? "it" : "them"}.`,
+		);
+	if (input.keptColumns.length > 0)
+		lines.push(
+			`${namesInWords(input.keptColumns)} ${input.keptColumns.length === 1 ? "stays" : "stay"} with no values, because apps read ${input.keptColumns.length === 1 ? "it" : "them"}. Their next publish to ${input.domain} stops until the table there has ${input.keptColumns.length === 1 ? "it" : "them"} or they stop reading ${input.keptColumns.length === 1 ? "it" : "them"}.`,
+		);
+	const becomeText = columnsBecomeText(input.typedColumns);
+	if (becomeText !== null) lines.push(becomeText);
+	if (input.assignmentsRemoved)
+		lines.push(
+			"The worker assignments of its rows in Nova are removed, and CommCare HQ decides who receives each row.",
+		);
+	else if (input.assignedInHq)
+		lines.push(
+			"CommCare HQ sends its rows only to the workers it assigns them to.",
+		);
+	if (input.otherDomains.length > 0)
+		lines.push(
+			`A publish also put this table in ${namesInWords(input.otherDomains)}. Publishing there afterwards needs the table prepared in that project space, since CommCare HQ doesn't tell Nova which of its columns are indexed.`,
+		);
+	return lines;
+}
+
+/** Its two buttons. */
+export const USE_HQ_TABLE_CONFIRM = "Use the table from CommCare HQ";
+export const KEEP_NOVA_TABLE = "Keep Nova's table";
+
+/** The last sentence of a drift item on a Nova table a publish put in that project space. */
+export const USE_HQ_TABLE_OFFERED =
+	"You can also choose Use the table from CommCare HQ on the table's page to take CommCare HQ's version.";
+
+/** Use the table from CommCare HQ on a table that came from there: its banner offers who manages it. */
+export const TABLE_HAS_HQ_ORIGIN =
+	"This table came from CommCare HQ, so its page offers who manages it instead.";
+
+/** The action offered where no publish holds the table in any project space. */
+export const USE_HQ_TABLE_NO_SOURCE =
+	"No publish of this Project's apps holds this table in a project space under its export name, so there is no table in CommCare HQ to take. You can publish an app that reads it first.";
+
+/** The answer where the chosen project space holds the table no longer. */
+export function takeHqTableSourceMoved(domain: string): string {
+	return `A publish no longer holds this table in ${domain}, so Nova changed nothing. You can choose another project space.`;
+}
+
+/** The action on any table every worker receives, and its confirmation's title. */
+export const SEPARATE_TABLE = "Create a separate table";
+export function separateTableTitle(name: string): string {
+	return `Create a separate table from ${name}?`;
+}
+
+/** Its first line. */
+export function separateTableBody(name: string): string {
+	return `Nova makes a new Project table with the columns and rows ${name} has now, and the apps you choose read the new table instead. ${name} and every other app stay as they are.`;
+}
+
+/** Its line for a table whose indexes CommCare HQ never showed Nova. */
+export const SEPARATE_TABLE_INDEXES =
+	"CommCare HQ didn't tell Nova which of its columns are indexed, so the new table indexes none. You can choose indexes on the new table's page.";
+
+/** Its line about who manages the new table. */
+export const SEPARATE_TABLE_OWNED =
+	"Nova manages the new table, and each publish of those apps sends it under its own export name.";
+
+/** Its two buttons. */
+export const SEPARATE_TABLE_CONFIRM = "Create the table";
+export const KEEP_ONE_TABLE = "Keep one table";
+
+/** A separate table asked for with no app to read it. */
+export const SEPARATE_TABLE_NO_APPS =
+	"Choose at least one app to read the new table.";
+
+/** A separate table of a table no app reads. */
+export const SEPARATE_TABLE_NO_READERS =
+	"No app reads this table, so there is no app to point at a separate one. You can create a new table instead.";
+
+/** A separate table of a table whose rows go to certain workers. */
+export const SEPARATE_TABLE_ASSIGNED =
+	"Nova can make a separate table only from a table every worker receives, since it can't carry who receives each row. You can create a new table instead.";
+
+/** A separate table of a table larger than one change copies. */
+export const SEPARATE_TABLE_TOO_LARGE =
+	"This table is larger than one change can copy. You can create a new table and import its rows in parts.";
+
+/** A separate table where an app it rebinds changed meanwhile. */
+export function separateTableAppChanged(appName: string): string {
+	return `${appName} changed while the table was being made, so Nova changed nothing. You can try again.`;
+}
+
 /** The header badge of a column CommCare HQ's table no longer has. */
 export const COLUMN_GONE_IN_HQ = "Gone in CommCare HQ";
 

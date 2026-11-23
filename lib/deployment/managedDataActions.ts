@@ -19,12 +19,20 @@ import {
 	type ManagedPlacesOutcome,
 	type ManagedTableOutcome,
 	manageLookupTableInNova,
+	readHqTableSourcesView,
 	readManagedLookupTableView,
 	readManagedPlacesView,
 	refreshManagedLookupTable,
 	refreshManagedPlaces,
+	reviewUseHqTable,
+	takeHqTableForLookupTable,
 } from "./managedData";
 import { sourceWorkbookBytes } from "./managedLookupObservation";
+import {
+	reviewSeparateTable,
+	type SeparateTableOutcome,
+	separateLookupTable,
+} from "./separateTable";
 
 /**
  * The browser boundary for data CommCare HQ manages: a lookup table's
@@ -254,6 +262,120 @@ export async function readManagedPlacesViewAction(
 		if (error instanceof OrganizationError && error.code === "not_found") {
 			return null;
 		}
+		throw error;
+	}
+}
+
+const domainSchema = z.string().trim().min(1).max(255);
+const serverSchema = z.string().trim().min(1).max(64);
+
+/** The project space a person chose, or null where the input names none. */
+function parsedChoice(
+	server: unknown,
+	domain: unknown,
+): { readonly server: string; readonly domain: string } | null {
+	const parsedServer = serverSchema.safeParse(server);
+	const parsedDomain = domainSchema.safeParse(domain);
+	return parsedServer.success && parsedDomain.success
+		? { server: parsedServer.data, domain: parsedDomain.data }
+		: null;
+}
+
+/** The project spaces a publish put a Nova table in, for its page's Use the table from CommCare HQ. */
+export async function readHqTableSourcesViewAction(
+	projectId: string,
+	tableId: string,
+): Promise<Awaited<ReturnType<typeof readHqTableSourcesView>>> {
+	const resolved = await lookupScopeFor(projectId, tableId);
+	if (resolved === null) return null;
+	return readHqTableSourcesView(resolved.scope, resolved.tableId);
+}
+
+/** What Use the table from CommCare HQ would do with the table in one project space. */
+export async function reviewUseHqTableAction(
+	projectId: string,
+	tableId: string,
+	server: string,
+	domain: string,
+): Promise<Awaited<ReturnType<typeof reviewUseHqTable>>> {
+	const resolved = await lookupScopeFor(projectId, tableId);
+	const choice = parsedChoice(server, domain);
+	if (resolved === null || choice === null)
+		return { ok: false, reason: "not-found", message: LOOKUP_TABLE_NOT_FOUND };
+	return reviewUseHqTable(resolved.scope, resolved.tableId, choice);
+}
+
+export async function takeHqTableAction(
+	projectId: string,
+	tableId: string,
+	server: string,
+	domain: string,
+	reviewDigest: string,
+): Promise<ManagedTableOutcome> {
+	const digest = parsedReviewDigest(reviewDigest);
+	const choice = parsedChoice(server, domain);
+	if (digest === null || choice === null) return REVIEW_NOT_READ;
+	return tableAction(
+		"use the table from CommCare HQ",
+		projectId,
+		tableId,
+		(scope, id) => takeHqTableForLookupTable(scope, id, choice, digest),
+	);
+}
+
+const SEPARATE_NOT_FOUND = {
+	ok: false,
+	reason: "not-found",
+	message: LOOKUP_TABLE_NOT_FOUND,
+} as const satisfies SeparateTableOutcome;
+
+/** What Create a separate table would do with the table. */
+export async function reviewSeparateTableAction(
+	projectId: string,
+	tableId: string,
+): Promise<Awaited<ReturnType<typeof reviewSeparateTable>>> {
+	const resolved = await lookupScopeFor(projectId, tableId);
+	if (resolved === null) return SEPARATE_NOT_FOUND;
+	return reviewSeparateTable(resolved.scope, resolved.tableId);
+}
+
+const separateInputSchema = z.strictObject({
+	name: z.string().max(500),
+	tag: z.string().max(500),
+	appIds: z.array(appIdSchema).max(500),
+	reviewDigest: reviewDigestSchema,
+});
+
+export async function separateTableAction(
+	projectId: string,
+	tableId: string,
+	input: {
+		readonly name: string;
+		readonly tag: string;
+		readonly appIds: readonly string[];
+		readonly reviewDigest: string;
+	},
+): Promise<SeparateTableOutcome> {
+	const parsed = separateInputSchema.safeParse(input);
+	if (!parsed.success)
+		return {
+			ok: false,
+			reason: "review-moved",
+			message: MANAGEMENT_REVIEW_MOVED,
+		};
+	const resolved = await lookupScopeFor(projectId, tableId);
+	if (resolved === null) return SEPARATE_NOT_FOUND;
+	try {
+		return await separateLookupTable(
+			resolved.scope,
+			resolved.tableId,
+			parsed.data,
+		);
+	} catch (error) {
+		log.error("[deployment/managed-data] separate table failed", error, {
+			projectId: resolved.scope.projectId,
+			tableId: resolved.tableId,
+		});
 		throw error;
 	}
 }

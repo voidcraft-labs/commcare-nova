@@ -24,6 +24,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import {
 	inspectManagedLookupWorker,
@@ -31,9 +32,12 @@ import {
 	letHqManageLookupTable,
 	type ManagedTableOutcome,
 	manageLookupTableInNova,
+	readHqTableSourcesView,
 	readManagedLookupTableView,
 	refreshManagedLookupTable,
 	refreshManagedPlaces,
+	reviewUseHqTable,
+	takeHqTableForLookupTable,
 } from "@/lib/deployment/managedData";
 import {
 	attestSourceWorkbook,
@@ -41,6 +45,10 @@ import {
 	inspectInlineSourceRow,
 	sourceWorkbookBytes,
 } from "@/lib/deployment/managedLookupObservation";
+import {
+	reviewSeparateTable,
+	separateLookupTable,
+} from "@/lib/deployment/separateTable";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import type {
@@ -61,6 +69,7 @@ import {
 	managedTableOutcomeLines,
 	manageInNovaBody,
 	manageInNovaTitle,
+	USE_HQ_TABLE_NO_SOURCE,
 } from "@/lib/publish/managedData";
 import {
 	McpInvalidInputError,
@@ -375,7 +384,7 @@ export function registerSetLookupTableManagement(
 		"set_lookup_table_management",
 		{
 			description:
-				'Change who manages a lookup table that came from CommCare HQ. Without `review_digest` this changes nothing: it returns what the change does, the apps that read the table and a `review_digest`. Show the user that answer and ask. Only after they agree, send the same call again with that `review_digest`. The change is made only while the table and the apps that read it are still what that answer showed; otherwise nothing changes, the answer\'s `reason` is `review-moved`, and it holds the change as it stands now with a new `review_digest`: show it and ask again. `managed_by: "nova"` means the table is edited in Nova from then on and each publish replaces it in CommCare HQ, and a later change there stops the next publish. `managed_by: "commcare-hq"` hands it back: Nova takes CommCare HQ\'s columns and rows and stops changing the table there. Never decide this for the user.',
+				'Change who manages a lookup table that came from CommCare HQ, or take the table a publish put in a project space for a table made in Nova. Without `review_digest` this changes nothing: it returns what the change does, the apps that read the table and a `review_digest`. Show the user that answer and ask. Only after they agree, send the same call again with that `review_digest`. The change is made only while the table and the apps that read it are still what that answer showed; otherwise nothing changes, the answer\'s `reason` is `review-moved`, and it holds the change as it stands now with a new `review_digest`: show it and ask again. `managed_by: "nova"` means the table is edited in Nova from then on and each publish replaces it in CommCare HQ, and a later change there stops the next publish. `managed_by: "commcare-hq"` hands it back: Nova takes CommCare HQ\'s columns and rows and stops changing the table there. For a table made in Nova, `managed_by: "commcare-hq"` with `source_domain` (and `source_server` where two servers hold that name) is Use the table from CommCare HQ: Nova takes the columns and rows of the table a publish put in that project space, and CommCare HQ manages it from then on; without `source_domain` the answer lists the project spaces in `sources`. Never decide this for the user.',
 			inputSchema: z.strictObject({
 				current_workbook_base64: z
 					.string()
@@ -398,6 +407,21 @@ export function registerSetLookupTableManagement(
 					.describe(
 						"Leave this out to read what the change does without changing anything. Send the `review_digest` that answer returned only after the user agreed to it.",
 					),
+				source_domain: z
+					.string()
+					.trim()
+					.min(1)
+					.max(255)
+					.optional()
+					.describe(
+						"For a table made in Nova only: the project space whose table to take, from the answer's `sources`.",
+					),
+				source_server: z
+					.enum(COMMCARE_SERVER_IDS)
+					.optional()
+					.describe(
+						"For a table made in Nova only: the server of `source_domain`, where `sources` lists that name on two servers.",
+					),
 			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
@@ -414,6 +438,19 @@ export function registerSetLookupTableManagement(
 						),
 					);
 				}
+				const plain = await readHqTableSourcesView(scope, tableId);
+				if (plain !== null) {
+					return jsonResult(
+						await takeHqTableAnswer(scope, tableId, plain, args),
+					);
+				}
+				if (
+					args.source_domain !== undefined ||
+					args.source_server !== undefined
+				)
+					throw new McpInvalidInputError(
+						"`source_domain` names where to take a table made in Nova from. This table came from CommCare HQ, so leave it out.",
+					);
 				if (args.review_digest !== undefined) {
 					let workbook: Buffer | undefined;
 					if (args.current_workbook_base64 !== undefined) {
@@ -537,4 +574,231 @@ async function managementPreview(
 
 function appOf(app: LookupReferencingAppSummary) {
 	return { app_id: app.appId, app_name: app.appName, deleted: app.deleted };
+}
+
+/**
+ * Use the table from CommCare HQ, as `set_lookup_table_management` answers
+ * it for a table made in Nova: the project spaces to choose from, the
+ * change's preview for the one chosen, or the change itself once the user
+ * agreed to that preview's `review_digest`.
+ */
+async function takeHqTableAnswer(
+	scope: LookupScope,
+	tableId: LookupTableId,
+	view: NonNullable<Awaited<ReturnType<typeof readHqTableSourcesView>>>,
+	args: {
+		readonly project_id: string;
+		readonly table_id: string;
+		readonly managed_by: "nova" | "commcare-hq";
+		readonly review_digest?: string;
+		readonly source_domain?: string;
+		readonly source_server?: string;
+	},
+) {
+	const ids = { project_id: args.project_id, table_id: args.table_id };
+	const sources = view.sources.map((source) => ({
+		server: source.server,
+		domain: source.domain,
+		app_ids: source.appIds,
+	}));
+	if (args.managed_by === "nova")
+		return {
+			...ids,
+			ok: true,
+			reason: null,
+			managed_by: "nova",
+			title: null,
+			lines: [],
+			apps: view.apps.map(appOf),
+			sources,
+		};
+	if (view.sources.length === 0)
+		return refusedTable(
+			args.project_id,
+			args.table_id,
+			"not-found",
+			USE_HQ_TABLE_NO_SOURCE,
+		);
+	if (args.source_domain === undefined) {
+		if (args.review_digest !== undefined)
+			throw new McpInvalidInputError(
+				"Send `source_domain` with the `review_digest` its preview returned.",
+			);
+		return {
+			...ids,
+			ok: true,
+			reason: null,
+			managed_by: "nova",
+			title: null,
+			lines: [],
+			apps: view.apps.map(appOf),
+			sources,
+		};
+	}
+	const named = view.sources.filter(
+		(source) =>
+			source.domain === args.source_domain &&
+			(args.source_server === undefined ||
+				source.server === args.source_server),
+	);
+	const [chosen] = named;
+	if (chosen === undefined || named.length !== 1)
+		throw new McpInvalidInputError(
+			named.length > 1
+				? "Two servers hold a project space of that name. Send `source_server` too."
+				: "Choose `source_domain` from the answer's `sources`.",
+		);
+	const choice = { server: chosen.server, domain: chosen.domain };
+	const preview = async () => {
+		const reviewed = await reviewUseHqTable(scope, tableId, choice);
+		if (!reviewed.ok)
+			return refusedTable(
+				args.project_id,
+				args.table_id,
+				reviewed.reason,
+				reviewed.message,
+			);
+		return {
+			...ids,
+			ok: true,
+			reason: null,
+			managed_by: "nova",
+			title: reviewed.review.title,
+			lines: reviewed.review.lines,
+			apps: reviewed.review.apps.map(appOf),
+			review_digest: reviewed.review.reviewDigest,
+		};
+	};
+	if (args.review_digest === undefined) return preview();
+	const outcome = await takeHqTableForLookupTable(
+		scope,
+		tableId,
+		choice,
+		args.review_digest,
+	);
+	if (!outcome.ok && outcome.reason === "review-moved")
+		return {
+			...(await preview()),
+			ok: false,
+			reason: outcome.reason,
+			message: outcome.message,
+		};
+	return tableAnswer(args.project_id, args.table_id, outcome);
+}
+
+/** Make a separate table from a lookup table, and point the chosen apps at it. */
+export function registerSeparateLookupTable(
+	server: McpServer,
+	ctx: ToolContext,
+): void {
+	server.registerTool(
+		"separate_lookup_table",
+		{
+			description:
+				"Make a new Project lookup table from the columns and rows a table has now, and point the apps the user chooses at it instead. The old table and every other app stay as they are, and the new table is Nova's, published under its own export name. Use it where a publish says a table needs a verified table in its destination, or where one app needs a different table than the others share. Only for a table every worker receives. Without `review_digest` this changes nothing: it returns what it does, the apps that read the table, a vacant `suggested` name and export name, and a `review_digest`. Show the user that answer, ask which apps and which names, and only after they agree send the same call again with `name`, `tag`, `app_ids` and that `review_digest`. If the table or its readers changed meanwhile, nothing changes and `reason` is `review-moved`: read it again and ask again.",
+			inputSchema: z.strictObject({
+				project_id: projectIdSchema,
+				table_id: z
+					.string()
+					.trim()
+					.min(1)
+					.describe("The lookup table's id, as get_lookup_tables lists it."),
+				name: z
+					.string()
+					.max(500)
+					.optional()
+					.describe("The new table's name. Send with `review_digest`."),
+				tag: z
+					.string()
+					.max(500)
+					.optional()
+					.describe(
+						"The new table's export name, which no table of the Project has. Send with `review_digest`.",
+					),
+				app_ids: z
+					.array(z.string().trim().min(1).max(255))
+					.max(500)
+					.optional()
+					.describe(
+						"The apps, among those the preview lists, that read the new table instead. Send with `review_digest`.",
+					),
+				review_digest: z
+					.string()
+					.regex(/^[0-9a-f]{64}$/)
+					.optional()
+					.describe(
+						"Leave this out to read what the change does. Send the `review_digest` that answer returned only after the user agreed.",
+					),
+			}),
+		},
+		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
+			try {
+				const scope = await lookupScope(ctx, args.project_id);
+				const tableId = parsedTableId(args.table_id);
+				const ids = { project_id: args.project_id, table_id: args.table_id };
+				if (tableId === null)
+					return jsonResult({
+						...ids,
+						ok: false,
+						reason: "not-found",
+						message: LOOKUP_TABLE_NOT_FOUND,
+					});
+				if (args.review_digest === undefined) {
+					if (
+						args.name !== undefined ||
+						args.tag !== undefined ||
+						args.app_ids !== undefined
+					)
+						throw new McpInvalidInputError(
+							"Read the preview first: send `name`, `tag` and `app_ids` with the `review_digest` it returns.",
+						);
+					const reviewed = await reviewSeparateTable(scope, tableId);
+					return jsonResult(
+						reviewed.ok
+							? {
+									...ids,
+									ok: true,
+									reason: null,
+									title: reviewed.review.title,
+									lines: reviewed.review.lines,
+									apps: reviewed.review.apps.map(appOf),
+									suggested: reviewed.review.suggested,
+									review_digest: reviewed.review.reviewDigest,
+								}
+							: { ...ids, ...reviewed },
+					);
+				}
+				if (
+					args.name === undefined ||
+					args.tag === undefined ||
+					args.app_ids === undefined
+				)
+					throw new McpInvalidInputError(
+						"Send `name`, `tag` and `app_ids` with the `review_digest`.",
+					);
+				const outcome = await separateLookupTable(scope, tableId, {
+					name: args.name,
+					tag: args.tag,
+					appIds: args.app_ids,
+					reviewDigest: args.review_digest,
+				});
+				return jsonResult(
+					outcome.ok
+						? {
+								...ids,
+								ok: true,
+								reason: null,
+								new_table_id: outcome.table.id,
+								app_ids: outcome.appIds,
+							}
+						: { ...ids, ...outcome },
+				);
+			} catch (err) {
+				return toMcpErrorResult(err, {
+					projectId: args.project_id,
+					userId: ctx.userId,
+				});
+			}
+		},
+	);
 }

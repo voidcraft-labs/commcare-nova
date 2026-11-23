@@ -20,7 +20,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { readManagedLookupTableViewAction } from "@/lib/deployment/managedDataActions";
+import {
+	readHqTableSourcesViewAction,
+	readManagedLookupTableViewAction,
+} from "@/lib/deployment/managedDataActions";
 import type { LookupRowId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	getLookupDefinitionAction,
@@ -550,6 +553,81 @@ export function useManagedLookupTableView(
 		reloadToken,
 	});
 	const shown: ManagedTableViewRead =
+		state.resourceIdentity === resourceIdentity
+			? state
+			: ready
+				? { kind: "loading" }
+				: { kind: "idle" };
+	return { state: shown, reload };
+}
+
+/** The project spaces a publish put a Nova table in, and the apps that read it. */
+export type HqTableSourcesView = NonNullable<
+	Awaited<ReturnType<typeof readHqTableSourcesViewAction>>
+>;
+
+export type HqTableSourcesRead =
+	| { readonly kind: "idle" }
+	| { readonly kind: "loading" }
+	| { readonly kind: "data"; readonly value: HqTableSourcesView }
+	| { readonly kind: "failed" };
+
+type ScopedHqTableSourcesRead = HqTableSourcesRead & {
+	readonly resourceIdentity: string;
+};
+
+/**
+ * For a table made in Nova: the project spaces a publish of the Project's
+ * apps put it in, which Use the table from CommCare HQ chooses among, and
+ * the apps that read it. Read again whenever the table's revision moves.
+ * Idle for a table that came from CommCare HQ, whose banner offers who
+ * manages it instead.
+ */
+export function useHqTableSourcesView(
+	table:
+		| Pick<LookupTableSnapshot, "id" | "projectId" | "tableRevision" | "hq">
+		| undefined,
+): {
+	readonly state: HqTableSourcesRead;
+	readonly reload: () => Promise<void>;
+} {
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const runtimeScopeId = useRuntimeScopeId();
+	const plain = table !== undefined && table.hq === undefined;
+	const resourceIdentity = [
+		runtimeScopeId,
+		String(scopeEpoch),
+		table?.projectId ?? "",
+		accessPhase,
+		table?.id ?? "",
+		plain ? "plain" : "from-hq",
+	].join(" ");
+	const reloadToken = [resourceIdentity, table?.tableRevision ?? ""].join(" ");
+	const ready = plain && accessPhase === "authorized";
+	const { state, reload } = useReloadableResource<ScopedHqTableSourcesRead>({
+		prepare: () => {
+			if (!ready || table === undefined) {
+				return { notReady: { kind: "idle", resourceIdentity } };
+			}
+			const { projectId, id } = table;
+			const owner = resourceIdentity;
+			return {
+				fetch: async (): Promise<ScopedHqTableSourcesRead> => {
+					const view = await readHqTableSourcesViewAction(projectId, id);
+					return view === null
+						? { kind: "failed", resourceIdentity: owner }
+						: { kind: "data", value: view, resourceIdentity: owner };
+				},
+			};
+		},
+		loading: { kind: "loading", resourceIdentity },
+		toError: () => ({ kind: "failed", resourceIdentity }),
+		keepStale: (prev) =>
+			prev.resourceIdentity === resourceIdentity && prev.kind === "data",
+		reloadToken,
+	});
+	const shown: HqTableSourcesRead =
 		state.resourceIdentity === resourceIdentity
 			? state
 			: ready

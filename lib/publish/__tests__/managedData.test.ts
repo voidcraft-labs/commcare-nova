@@ -509,6 +509,101 @@ const READINGS: Record<
 		],
 	},
 	HAND_BACK_OFFERED: { kind: "sentence", texts: [copy.HAND_BACK_OFFERED] },
+	USE_HQ_TABLE: { kind: "label", texts: [copy.USE_HQ_TABLE] },
+	takeHqTableTitle: {
+		kind: "label",
+		texts: [copy.takeHqTableTitle("Districts", "acme-health")],
+	},
+	takeHqTableBody: {
+		kind: "sentence",
+		texts: [copy.takeHqTableBody("acme-health")],
+	},
+	takeHqTableChanges: {
+		kind: "sentence",
+		texts: [
+			...copy.takeHqTableChanges({
+				domain: "acme-health",
+				rowsBefore: 2,
+				rowsAfter: 1,
+				addedColumns: ["region"],
+				removedColumns: ["Notes"],
+				keptColumns: ["Zone"],
+				typedColumns: ["Population"],
+				assignmentsRemoved: true,
+				assignedInHq: false,
+				otherDomains: ["acme-west"],
+			}),
+			...copy.takeHqTableChanges({
+				domain: "acme-health",
+				rowsBefore: 1,
+				rowsAfter: 3,
+				addedColumns: ["region", "zone"],
+				removedColumns: ["Notes", "Code"],
+				keptColumns: ["Zone", "Ward"],
+				typedColumns: [],
+				assignmentsRemoved: false,
+				assignedInHq: true,
+				otherDomains: ["acme-west", "acme-east"],
+			}),
+		],
+	},
+	USE_HQ_TABLE_CONFIRM: { kind: "label", texts: [copy.USE_HQ_TABLE_CONFIRM] },
+	KEEP_NOVA_TABLE: { kind: "label", texts: [copy.KEEP_NOVA_TABLE] },
+	USE_HQ_TABLE_OFFERED: {
+		kind: "sentence",
+		texts: [copy.USE_HQ_TABLE_OFFERED],
+	},
+	TABLE_HAS_HQ_ORIGIN: { kind: "sentence", texts: [copy.TABLE_HAS_HQ_ORIGIN] },
+	USE_HQ_TABLE_NO_SOURCE: {
+		kind: "sentence",
+		texts: [copy.USE_HQ_TABLE_NO_SOURCE],
+	},
+	takeHqTableSourceMoved: {
+		kind: "sentence",
+		texts: [copy.takeHqTableSourceMoved("acme-health")],
+	},
+	SEPARATE_TABLE: { kind: "label", texts: [copy.SEPARATE_TABLE] },
+	separateTableTitle: {
+		kind: "label",
+		texts: [copy.separateTableTitle("Districts")],
+	},
+	separateTableBody: {
+		kind: "sentence",
+		texts: [copy.separateTableBody("Districts")],
+	},
+	SEPARATE_TABLE_INDEXES: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_INDEXES],
+	},
+	SEPARATE_TABLE_OWNED: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_OWNED],
+	},
+	SEPARATE_TABLE_CONFIRM: {
+		kind: "label",
+		texts: [copy.SEPARATE_TABLE_CONFIRM],
+	},
+	KEEP_ONE_TABLE: { kind: "label", texts: [copy.KEEP_ONE_TABLE] },
+	SEPARATE_TABLE_NO_APPS: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_NO_APPS],
+	},
+	SEPARATE_TABLE_NO_READERS: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_NO_READERS],
+	},
+	SEPARATE_TABLE_ASSIGNED: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_ASSIGNED],
+	},
+	SEPARATE_TABLE_TOO_LARGE: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_TOO_LARGE],
+	},
+	separateTableAppChanged: {
+		kind: "sentence",
+		texts: [copy.separateTableAppChanged("Facility visits")],
+	},
 	managedPlacesPassed: {
 		kind: "sentence",
 		texts: [

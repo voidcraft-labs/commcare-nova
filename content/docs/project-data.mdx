@@ -345,6 +345,31 @@ copy, with no values, so those apps keep opening. Their next publish to that
 project space stops until the column is back in CommCare HQ or the apps stop
 reading it.
 
+## Take the table from CommCare HQ, or make a separate one
+
+A table you made in Nova and published lives in that project space too. If
+someone changed it there, your next publish stops and shows you what changed.
+You can publish over the change, or choose **Use the table from CommCare HQ** on
+the table's page. Choose the project space whose table to take. Nova reads that
+table and shows what taking it does: the rows it has, the columns that come in
+or go, the columns that become text, and the apps that read the table. Once a
+Project admin confirms, Nova's table holds that table's columns and rows, and
+CommCare HQ manages it from then on, as a table brought in from there is. Its
+id stays the same, so no app changes, and the next publish to that project
+space leaves the table there as it is. Nova changes nothing if the table, the
+apps that read it, CommCare HQ's table or the publish that put it there moved
+while you were deciding.
+
+A table someone else's project space manages can't always travel to yours: if
+CommCare HQ never told Nova which of its columns are indexed, a publish to
+another project space stops and says the table needs a verified table there.
+**Create a separate table** makes a new Project table from the columns and
+rows a table has now, under its own name and export name, and points the apps
+you choose at it instead. The old table and every other app stay as they are.
+The new table is Nova's: it indexes only the columns you choose on its page,
+and each publish of those apps sends it. A Project editor can choose this for a
+table every worker receives.
+
 ## Choosing who receives rows
 
 In Project data, **Who receives this table** shows how the app shares the table. **Use row assignments** starts with every row hidden from workers. An editor can open **Who receives this row** and choose people, groups and places. A worker receives a row once if any of its assignments match. Assigning a place includes workers whose primary place is there or below it. Their additional places do not extend this access.

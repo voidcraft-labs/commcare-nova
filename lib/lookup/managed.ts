@@ -261,14 +261,26 @@ export function managedTableReviewDigest(review: {
 }
 
 /**
- * The review of a table that came from CommCare HQ as it stands now, from one
- * read-only `REPEATABLE READ` snapshot, so the revisions and the readers are
- * of one moment. Null where the Project holds no such table.
+ * What a change of a Project table's origin is decided over, for any table
+ * of the Project: its revisions, the apps that read it, its definition and
+ * whether it came from CommCare HQ, from one read-only `REPEATABLE READ`
+ * snapshot, so the revisions and the readers are of one moment. Null where
+ * the Project holds no such table.
  */
-export async function readManagedTableReview(
+export interface LookupTableReviewSnapshot extends ManagedTableReviewed {
+	readonly tableId: LookupTableId;
+	/** Null for a table made in Nova (every origin column null). */
+	readonly managedBy: "commcare-hq" | "nova" | null;
+	readonly definition: LookupTableDefinition;
+	readonly readers: readonly LookupReferencingAppSummary[];
+	/** How many rows the table holds now. */
+	readonly rowCount: number;
+}
+
+export async function readLookupTableReviewSnapshot(
 	projectId: string,
 	tableIdInput: LookupTableId,
-): Promise<ManagedTableReview | null> {
+): Promise<LookupTableReviewSnapshot | null> {
 	const tableId = lookupTableIdSchema.parse(tableIdInput);
 	const db = await getAppDb();
 	return db
@@ -282,7 +294,7 @@ export async function readManagedTableReview(
 				.where("project_id", "=", projectId)
 				.where("id", "=", tableId)
 				.executeTakeFirst();
-			if (table === undefined || table.hq_server === null) return null;
+			if (table === undefined) return null;
 			const { definitionRevision, rowsRevision } = lookupTableRevisions(table);
 			const [definition] = (
 				await readLookupDefinitionsInTransaction(tx, projectId, [tableId])
@@ -296,28 +308,60 @@ export async function readManagedTableReview(
 				projectId,
 				tableId,
 			});
-			const readerAppIds = readers.map((app) => app.appId).sort();
-			const managedBy =
-				table.hq_taken_over_at === null
-					? ("commcare-hq" as const)
-					: ("nova" as const);
 			return {
 				tableId,
-				managedBy,
+				managedBy:
+					table.hq_server === null
+						? null
+						: table.hq_taken_over_at === null
+							? ("commcare-hq" as const)
+							: ("nova" as const),
 				definitionRevision,
 				rowsRevision,
-				readerAppIds,
-				reviewDigest: managedTableReviewDigest({
-					tableId,
-					managedBy,
-					definitionRevision,
-					rowsRevision,
-					readerAppIds,
-				}),
+				readerAppIds: readers.map((app) => app.appId).sort(),
 				definition,
 				readers,
+				rowCount: table.row_count,
 			};
 		});
+}
+
+/**
+ * The review of a table that came from CommCare HQ as it stands now, from one
+ * read-only `REPEATABLE READ` snapshot, so the revisions and the readers are
+ * of one moment. Null where the Project holds no such table.
+ */
+export async function readManagedTableReview(
+	projectId: string,
+	tableIdInput: LookupTableId,
+): Promise<ManagedTableReview | null> {
+	const snapshot = await readLookupTableReviewSnapshot(projectId, tableIdInput);
+	if (snapshot === null || snapshot.managedBy === null) return null;
+	const {
+		tableId,
+		managedBy,
+		definitionRevision,
+		rowsRevision,
+		readerAppIds,
+		definition,
+		readers,
+	} = snapshot;
+	return {
+		tableId,
+		managedBy,
+		definitionRevision,
+		rowsRevision,
+		readerAppIds,
+		reviewDigest: managedTableReviewDigest({
+			tableId,
+			managedBy,
+			definitionRevision,
+			rowsRevision,
+			readerAppIds,
+		}),
+		definition,
+		readers,
+	};
 }
 
 /** The content's fields, each a wire name Nova takes, none repeated. */

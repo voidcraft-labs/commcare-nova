@@ -30,6 +30,7 @@ import { registerListMembers } from "./tools/listMembers";
 import { registerListProjects } from "./tools/listProjects";
 import {
 	registerRefreshManagedData,
+	registerSeparateLookupTable,
 	registerSetLookupTableManagement,
 } from "./tools/managedData";
 import { registerMoveApp } from "./tools/moveApp";
@@ -66,6 +67,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerStopPublishing(server, ctx);
 	registerRefreshManagedData(server, ctx);
 	registerSetLookupTableManagement(server, ctx);
+	registerSeparateLookupTable(server, ctx);
 	registerReadHqChanges(server, ctx);
 	registerBringInHqChanges(server, ctx);
 	registerUploadAppToHq(server, ctx);

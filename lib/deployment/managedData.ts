@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Transaction } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 import { z } from "zod";
 import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
@@ -69,6 +69,8 @@ import {
 	type ManagedTableReview,
 	type ManagedTableReviewed,
 	measureLookupRows,
+	readKeptLookupColumnIds,
+	readLookupTableReviewSnapshot,
 	readManagedTableReview,
 	refreshManagedLookupTableInTransaction,
 	takeOverManagedLookupTableInTransaction,
@@ -102,6 +104,7 @@ import {
 import { readPlaceState } from "@/lib/organization/pages";
 import type { OrganizationScope } from "@/lib/organization/types";
 import {
+	appsThatReadIt,
 	CONNECT_TO_REFRESH_PLACES,
 	CONNECT_TO_REFRESH_TABLE,
 	cannotReadManagedPlaces,
@@ -127,7 +130,13 @@ import {
 	managedTableUnsupported,
 	managedTableUnsupportedItem,
 	REFRESH_NEEDS_EDITOR,
+	TABLE_HAS_HQ_ORIGIN,
 	TABLE_TAKEN_OVER_MEANWHILE,
+	takeHqTableBody,
+	takeHqTableChanges,
+	takeHqTableSourceMoved,
+	takeHqTableTitle,
+	USE_HQ_TABLE_NO_SOURCE,
 } from "@/lib/publish/managedData";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
@@ -1661,6 +1670,377 @@ export async function letHqManageLookupTable(
 			at,
 		);
 		return landed(scope, stored.id, receipt);
+	} catch (error) {
+		const refused = refusedWrite(
+			error,
+			error instanceof Error ? error.message : "",
+		);
+		if (refused !== null) return refused;
+		throw error;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Use the table from CommCare HQ
+// ---------------------------------------------------------------------------
+
+/**
+ * A project space where a publish of one of the Project's apps holds a live
+ * mapping of a Nova table, under the tag the table has now: the HQ table
+ * there that the Project accounts for (`store.ts::readSiblingLookupMappings`
+ * reads the same rows for a push). `pushTokens` are the mappings' own tokens,
+ * which every change of a mapping moves, so a confirmation is held to the
+ * mappings it showed.
+ */
+export interface HqTableSource {
+	readonly server: string;
+	readonly serverLabel: string;
+	readonly domain: string;
+	readonly remoteId: string;
+	readonly appIds: readonly string[];
+	readonly pushTokens: readonly string[];
+}
+
+/** The live mappings of a table under `tag`, each HQ table once, in a stable order. */
+async function readHqTableSources(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	projectId: string,
+	tableId: LookupTableId,
+	tag: string,
+	lock = false,
+): Promise<readonly HqTableSource[]> {
+	let query = db
+		.selectFrom("app_deployment_resources as r")
+		.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+		.select(["d.server", "d.domain", "d.app_id", "r.remote_id", "r.push_token"])
+		.where("d.project_id", "=", projectId)
+		.where("r.kind", "=", "lookup-table")
+		.where("r.nova_resource_id", "=", tableId)
+		.where("r.superseded_at", "is", null)
+		.where("r.pushed_identity", "=", tag)
+		.orderBy("d.server")
+		.orderBy("d.domain")
+		.orderBy("r.remote_id")
+		.orderBy("d.app_id")
+		.orderBy("r.push_token");
+	if (lock) query = query.forShare("r");
+	const rows = await query.execute();
+	const sources = new Map<string, HqTableSource>();
+	for (const row of rows) {
+		if (!isCommCareServer(row.server)) continue;
+		const key = JSON.stringify([row.server, row.domain, row.remote_id]);
+		const known = sources.get(key);
+		sources.set(key, {
+			server: row.server,
+			serverLabel: COMMCARE_SERVERS[row.server].label,
+			domain: row.domain,
+			remoteId: row.remote_id,
+			appIds: [...(known?.appIds ?? []), row.app_id],
+			pushTokens: [...(known?.pushTokens ?? []), row.push_token],
+		});
+	}
+	return [...sources.values()];
+}
+
+/** The project space a person chose to take a table from. */
+export interface HqTableSourceChoice {
+	readonly server: string;
+	readonly domain: string;
+}
+
+/**
+ * What the table page offers a Nova table that a publish put in one or more
+ * project spaces: those project spaces, and the apps that read the table.
+ * Null where the Project holds no such table, or the table came from
+ * CommCare HQ (its own banner offers the change of who manages it).
+ */
+export interface HqTableSourcesView {
+	readonly name: string;
+	readonly sources: readonly (HqTableSource & {
+		/** Whether the viewer's CommCare HQ connection is on that server. */
+		readonly connected: boolean;
+	})[];
+	readonly apps: readonly LookupReferencingAppSummary[];
+}
+
+export async function readHqTableSourcesView(
+	scope: LookupScope,
+	tableIdInput: LookupTableId,
+): Promise<HqTableSourcesView | null> {
+	const parsed = lookupTableIdSchema.safeParse(tableIdInput);
+	if (!parsed.success) return null;
+	const snapshot = await readLookupTableReviewSnapshot(
+		scope.projectId,
+		parsed.data,
+	);
+	if (snapshot === null || snapshot.managedBy !== null) return null;
+	const sources = await readHqTableSources(
+		await getAppDb(),
+		scope.projectId,
+		snapshot.tableId,
+		snapshot.definition.tag,
+	);
+	const settings = await getCommCareSettings(scope.actorId);
+	return {
+		name: snapshot.definition.name,
+		sources: sources.map((source) => ({
+			...source,
+			connected: settings.configured && settings.server === source.server,
+		})),
+		apps: snapshot.readers,
+	};
+}
+
+/**
+ * The confirmation of Use the table from CommCare HQ for one chosen project
+ * space, read just now: what the table there does to Nova's, the apps that
+ * read it, and the digest the confirmation carries back. It binds the
+ * table's two revisions, the apps that read it, every live mapping of the
+ * table and the read of CommCare HQ's table, so a change to any of them
+ * after the person read this stops the change.
+ */
+export interface UseHqTableReview {
+	readonly title: string;
+	readonly lines: readonly string[];
+	readonly apps: readonly LookupReferencingAppSummary[];
+	readonly reviewDigest: string;
+}
+
+type UseHqTableRead =
+	| {
+			readonly ok: true;
+			readonly review: UseHqTableReview;
+			readonly reviewed: ManagedTableReviewed;
+			readonly source: HqTableSource;
+			readonly stored: StoredManagedTable;
+			readonly table: HqLookupTable;
+			readonly rows: readonly HqFixtureRow[];
+	  }
+	| Refused;
+
+async function readUseHqTable(
+	scope: LookupScope,
+	tableIdInput: LookupTableId,
+	choice: HqTableSourceChoice,
+): Promise<UseHqTableRead> {
+	const parsed = lookupTableIdSchema.safeParse(tableIdInput);
+	if (!parsed.success) return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
+	if (!roleAllowsApp(scope.role, "delete"))
+		return refusedTable("not-permitted", MANAGEMENT_NEEDS_ADMIN);
+	const snapshot = await readLookupTableReviewSnapshot(
+		scope.projectId,
+		parsed.data,
+	);
+	if (snapshot === null)
+		return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
+	const { definition } = snapshot;
+	if (snapshot.managedBy !== null)
+		return refusedTable("state-changed", TABLE_HAS_HQ_ORIGIN);
+	const sources = await readHqTableSources(
+		await getAppDb(),
+		scope.projectId,
+		snapshot.tableId,
+		definition.tag,
+	);
+	if (sources.length === 0)
+		return refusedTable("not-found", USE_HQ_TABLE_NO_SOURCE);
+	const matching = sources.filter(
+		(source) =>
+			source.server === choice.server && source.domain === choice.domain,
+	);
+	const [source] = matching;
+	if (source === undefined || matching.length !== 1)
+		return refusedTable("review-moved", takeHqTableSourceMoved(choice.domain));
+	const stored: StoredManagedTable = {
+		sourceInventory: false,
+		projectId: scope.projectId,
+		id: snapshot.tableId,
+		name: definition.name,
+		tag: definition.tag,
+		server: source.server,
+		domain: source.domain,
+		remoteId: source.remoteId,
+		digest: "",
+		refreshedAt: new Date(0).toISOString(),
+		managedBy: "commcare-hq",
+		columns: [],
+	};
+	const read = await readForCopy(scope, stored);
+	if (!read.ok) return read;
+	const fields = new Set(read.table.fields);
+	const kept = new Set(
+		(
+			await readKeptLookupColumnIds(await getAppDb(), scope.projectId, [
+				snapshot.tableId,
+			])
+		)[snapshot.tableId] ?? [],
+	);
+	const columnsByWire = new Set(
+		definition.columns.map((column) => column.wireName),
+	);
+	const otherDomains = [
+		...new Set(
+			sources.filter((other) => other !== source).map((other) => other.domain),
+		),
+	];
+	const reviewed: ManagedTableReviewed = {
+		definitionRevision: snapshot.definitionRevision,
+		rowsRevision: snapshot.rowsRevision,
+		readerAppIds: snapshot.readerAppIds,
+	};
+	const lines = [
+		takeHqTableBody(source.domain),
+		...takeHqTableChanges({
+			domain: source.domain,
+			rowsBefore: snapshot.rowCount,
+			rowsAfter: read.rows.length,
+			addedColumns: read.table.fields.filter(
+				(field) => !columnsByWire.has(field),
+			),
+			removedColumns: definition.columns
+				.filter(
+					(column) => !fields.has(column.wireName) && !kept.has(column.id),
+				)
+				.map((column) => column.label),
+			keptColumns: definition.columns
+				.filter((column) => !fields.has(column.wireName) && kept.has(column.id))
+				.map((column) => column.label),
+			typedColumns: definition.columns
+				.filter(
+					(column) => column.dataType !== "text" && fields.has(column.wireName),
+				)
+				.map((column) => column.label),
+			assignmentsRemoved: definition.workerAccess === "assigned",
+			assignedInHq: !read.table.isGlobal,
+			otherDomains,
+		}),
+	];
+	const readers = appsThatReadIt(snapshot.readers);
+	if (readers !== null) lines.push(readers);
+	const reviewDigest = canonicalJsonDigest({
+		v: 1,
+		action: "use-hq-table",
+		tableId: snapshot.tableId,
+		definitionRevision: snapshot.definitionRevision,
+		rowsRevision: snapshot.rowsRevision,
+		readerAppIds: snapshot.readerAppIds,
+		mappings: sources.map((one) => [
+			one.server,
+			one.domain,
+			one.remoteId,
+			one.pushTokens,
+		]),
+		source: [source.server, source.domain, source.remoteId],
+		hq: canonicalLookupTable(read.table, read.rows).digest,
+	});
+	return {
+		ok: true,
+		review: {
+			title: takeHqTableTitle(definition.name, source.domain),
+			lines,
+			apps: snapshot.readers,
+			reviewDigest,
+		},
+		reviewed,
+		source,
+		stored,
+		table: read.table,
+		rows: read.rows,
+	};
+}
+
+/**
+ * Read what Use the table from CommCare HQ would do with the table in
+ * `choice`, writing nothing: the confirmation's title and lines and the
+ * digest it carries back. Refuses as the change itself does.
+ */
+export async function reviewUseHqTable(
+	scope: LookupScope,
+	tableId: LookupTableId,
+	choice: HqTableSourceChoice,
+): Promise<{ readonly ok: true; readonly review: UseHqTableReview } | Refused> {
+	const read = await readUseHqTable(scope, tableId, choice);
+	return read.ok ? { ok: true, review: read.review } : read;
+}
+
+/**
+ * Use the table from CommCare HQ: a Nova table a publish put in `choice`
+ * becomes Nova's copy of the table there, managed in CommCare HQ from then
+ * on, as a table brought in from there is. Needs the Project's `delete`,
+ * read again on the write's transaction, and the actor's connection on that
+ * server. Acts only where `reviewDigest` is the review read again now: the
+ * table's revisions, its readers, every live mapping of it and CommCare HQ's
+ * table there. Under the Project state and the table's lock it reads the
+ * mappings again `FOR SHARE`, so a publish cannot supersede or repoint the
+ * chosen one before this commits, and takes CommCare HQ's columns and rows
+ * through the copy's own `adopt` arm, which compares the table's revisions
+ * and readers under that lock and waits for an open workbook carrying it.
+ * The table keeps its id, so no app changes; the next publish to `choice`
+ * leaves the table there as it is and supersedes the mapping.
+ */
+export async function takeHqTableForLookupTable(
+	scope: LookupScope,
+	tableId: LookupTableId,
+	choice: HqTableSourceChoice,
+	reviewDigest: string,
+): Promise<ManagedTableOutcome> {
+	const at = new Date();
+	const read = await readUseHqTable(scope, tableId, choice);
+	if (!read.ok) return read;
+	if (read.review.reviewDigest !== reviewDigest)
+		return refusedTable("review-moved", MANAGEMENT_REVIEW_MOVED);
+	const canonical = canonicalLookupTable(read.table, read.rows);
+	try {
+		const receipt = await withAppTx(async (tx) => {
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"delete",
+			);
+			await lockLookupProjectState(tx, authority);
+			const locked = await lockLookupTableForUpdate(
+				tx,
+				authority,
+				read.stored.id,
+				null,
+				"hq-management",
+			);
+			if (locked.hq_server !== null || locked.tag !== read.stored.tag)
+				throw new LookupReviewMovedError();
+			const now = await readHqTableSources(
+				tx,
+				scope.projectId,
+				read.stored.id,
+				read.stored.tag,
+				true,
+			);
+			const same = now.find(
+				(source) =>
+					source.server === read.source.server &&
+					source.domain === read.source.domain &&
+					source.remoteId === read.source.remoteId,
+			);
+			if (
+				same === undefined ||
+				same.pushTokens.join() !== read.source.pushTokens.join()
+			)
+				throw new LookupReviewMovedError();
+			return refreshManagedLookupTableInTransaction(tx, authority, {
+				tableId: read.stored.id,
+				content: managedLookupContentOf(read.table, read.rows),
+				origin: {
+					server: read.source.server,
+					domain: read.source.domain,
+					remoteId: read.table.id,
+					canonical: { ...canonical },
+				},
+				at,
+				olderReadYields: true,
+				mode: "adopt",
+				reviewed: read.reviewed,
+			});
+		});
+		return landed(scope, read.stored.id, receipt);
 	} catch (error) {
 		const refused = refusedWrite(
 			error,

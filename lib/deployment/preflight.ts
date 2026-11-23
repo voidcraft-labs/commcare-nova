@@ -94,6 +94,7 @@ import {
 	managedTableFromElsewhereItem,
 	managedTableRowsUnreadable,
 	managedTablesLeftOut,
+	USE_HQ_TABLE_OFFERED,
 } from "@/lib/publish/managedData";
 import type { PlatformNarrowing } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
@@ -1243,10 +1244,7 @@ export async function runDeploymentPreflight(
 						 * handed back on its page, which takes the version CommCare HQ
 						 * holds here. One that came from another project space would
 						 * take that one's, not this change. */
-						handBackOffered: handBackTakesThisVersion(
-							originByTableId.get(push.tableId),
-							input,
-						),
+						takeOffer: takeOfferFor(originByTableId.get(push.tableId), input),
 					}),
 			);
 			const unreadable = comparedTables.find(
@@ -2221,16 +2219,18 @@ export async function runDeploymentPreflight(
  * project space the table came from, so for a table taken over from another
  * one it would take that space's version, not this one's.
  */
-function handBackTakesThisVersion(
+function takeOfferFor(
 	origin: LookupTableOriginRead | undefined,
 	target: { readonly server: string; readonly domain: string },
-): boolean {
-	return (
-		origin !== undefined &&
-		origin.managedBy === "nova" &&
+): string | null {
+	/* A Nova table a publish put here is mapped to the table here, so Use
+	 * the table from CommCare HQ on its page takes this version. */
+	if (origin === undefined) return USE_HQ_TABLE_OFFERED;
+	return origin.managedBy === "nova" &&
 		origin.server === target.server &&
 		origin.domain === target.domain
-	);
+		? HAND_BACK_OFFERED
+		: null;
 }
 
 /**
@@ -2387,19 +2387,21 @@ async function lookupRemoteChange(input: {
 	readonly hqTables: readonly HqLookupTable[];
 	readonly baseline: ResourceBaseline | undefined;
 	/**
-	 * The table is managed in Nova and came from this project space, so its
-	 * page offers Let CommCare HQ manage it again, which takes the table
-	 * CommCare HQ holds here under the tag: a change to that table says so
-	 * last. A deleted or renamed table leaves nothing under the tag to take,
-	 * so neither says it.
+	 * The sentence naming the action on the table's page that takes the
+	 * table CommCare HQ holds here under the tag, said last on a change to
+	 * that table: Let CommCare HQ manage it again, for a table managed in
+	 * Nova that came from this project space, and Use the table from
+	 * CommCare HQ, for a table made in Nova. Null where neither takes this
+	 * version. A deleted or renamed table leaves nothing under the tag to
+	 * take, so neither says it.
 	 */
-	readonly handBackOffered: boolean;
+	readonly takeOffer: string | null;
 }): Promise<DeploymentRemoteChange | null | "unreadable"> {
 	/* A discard of a change to the table HQ still holds under this tag and
 	 * id replaces that table, so it carries the note; a deleted table is gone
 	 * and a renamed one is left alone, so theirs carry none. */
 	const withHandBack = (parts: readonly string[]): readonly string[] =>
-		input.handBackOffered ? [...parts, HAND_BACK_OFFERED] : parts;
+		input.takeOffer === null ? parts : [...parts, input.takeOffer];
 	const change = (
 		parts: readonly string[],
 		observedDigest: string,

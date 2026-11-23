@@ -625,11 +625,44 @@ it("serves the four other bring-in tools as closed objects", () => {
 			"managed_by",
 			"project_id",
 			"review_digest",
+			"source_domain",
+			"source_server",
 			"table_id",
 		],
 		required: ["managed_by", "project_id", "table_id"],
 		additionalProperties: false,
 	});
+	expect(inputShape("separate_lookup_table")).toEqual({
+		properties: [
+			"app_ids",
+			"name",
+			"project_id",
+			"review_digest",
+			"table_id",
+			"tag",
+		],
+		required: ["project_id", "table_id"],
+		additionalProperties: false,
+	});
+	/* A separate table is made only under the digest of the preview the
+	 * user read, and never for an app named some other way. */
+	expect(
+		takes("separate_lookup_table", {
+			project_id: "program",
+			table_id: "table",
+			confirmed: true,
+		}),
+	).not.toBe(true);
+	expect(
+		takes("separate_lookup_table", {
+			project_id: "program",
+			table_id: "table",
+			name: "Facilities 2",
+			tag: "facilities_2",
+			app_ids: ["app"],
+			review_digest: "a".repeat(64),
+		}),
+	).toBe(true);
 	/* A change of who manages a table is made only under the digest of the
 	 * preview the user read: there is no bare yes. */
 	expect(

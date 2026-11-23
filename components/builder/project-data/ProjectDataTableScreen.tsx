@@ -40,6 +40,7 @@ import {
 	formatLookupCount,
 } from "./projectDataModel";
 import { TableActions } from "./TableActions";
+import { TableSourceActions } from "./TableSourceActions";
 import type { ProjectRowsWindow, ProjectTableWindow } from "./useProjectData";
 
 export function ProjectDataTableScreen() {
@@ -163,6 +164,9 @@ export function ProjectDataTableScreen() {
 
 			{workspace !== null && (
 				<ManagedTableBanner table={table} workspace={workspace} />
+			)}
+			{workspace !== null && (
+				<TableSourceActions table={table} workspace={workspace} />
 			)}
 			{workspace !== null && (
 				<TableActions table={table} workspace={workspace} />
