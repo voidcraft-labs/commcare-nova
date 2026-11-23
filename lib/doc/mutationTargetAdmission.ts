@@ -849,9 +849,12 @@ export function mutationTargetsInvalid(
 						m.media?.formDefaultLanguage)
 				)
 					return true;
+				/* A choice's files are set through a language, or, for the
+				 * shared files alone, `sharedOnly` (what a document diff
+				 * emits when only a choice's shared files changed). */
 				if (
 					m.optionUuid !== undefined &&
-					(m.language === undefined ||
+					((m.language === undefined && m.sharedOnly !== true) ||
 						m.slot !== "label" ||
 						optionOwners.get(m.optionUuid) !== m.fieldUuid)
 				)

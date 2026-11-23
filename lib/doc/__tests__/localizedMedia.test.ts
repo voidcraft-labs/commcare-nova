@@ -2,7 +2,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { proseText } from "@/lib/domain";
+import { proseText, type SelectOption } from "@/lib/domain";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import {
 	asWalkableDoc,
@@ -55,6 +55,69 @@ function fixture() {
 		};
 		draft.modules[MODULE].icon = first;
 	});
+}
+const CHOICE_FIELD = testUuid("medicine");
+const CHOICE = testUuid("pill");
+/** A choice with a shared image and a Spanish one, in an app with three languages. */
+function choiceFixture() {
+	const doc = buildDoc({
+		modules: [
+			{
+				uuid: MODULE,
+				name: "Visits",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								uuid: CHOICE_FIELD,
+								id: "medicine",
+								kind: "single_select",
+								label: proseText("Medicine"),
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: CHOICE,
+											value: "pill",
+											label: proseText("Pill"),
+											media: {
+												image: first,
+												mediaByLanguage: { spa: { image: second } },
+											},
+										},
+										{
+											uuid: testUuid("syrup"),
+											value: "syrup",
+											label: proseText("Syrup"),
+										},
+									],
+								},
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return produce(doc, (draft) => {
+		draft.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa", "fra"],
+			wireCodes: { eng: "en", spa: "es", fra: "fr" },
+			translations: { fra: {}, spa: {} },
+		};
+	});
+}
+function inlineChoice(doc: BlueprintDoc, uuid: string): SelectOption {
+	const field = doc.fields[CHOICE_FIELD];
+	if (!("optionsSource" in field) || field.optionsSource.kind !== "inline")
+		throw Error("The question lost its own choices.");
+	const option = field.optionsSource.options.find((o) => o.uuid === uuid);
+	if (option === undefined) throw Error("The choice is gone.");
+	return option;
 }
 function apply(doc: BlueprintDoc, mutations: Mutation[]) {
 	const parsed = mutations.map((value) =>
@@ -151,6 +214,31 @@ describe("language-scoped media across editors", () => {
 				(ref) => ref.assetId === third,
 			),
 		).toBe(false);
+	});
+	it("replays a change to a choice's shared files alone, keeping its languages' own", () => {
+		const base = choiceFixture();
+		const replacement = testMediaAssetId("replacement");
+		const changed = produce(base, (draft) => {
+			const option = inlineChoice(draft, CHOICE);
+			option.media = { ...option.media, image: replacement };
+		});
+		const forward = diffDocsToMutations(base, changed);
+		expect(forward).toContainEqual(
+			expect.objectContaining({
+				kind: "setFieldMedia",
+				optionUuid: CHOICE,
+				sharedOnly: true,
+			}),
+		);
+		expect(inlineChoice(apply(base, forward), CHOICE).media).toEqual({
+			image: replacement,
+			mediaByLanguage: { spa: { image: second } },
+		});
+		/* The way back, as undo builds it. */
+		expect(
+			inlineChoice(apply(changed, diffDocsToMutations(changed, base)), CHOICE)
+				.media,
+		).toEqual(inlineChoice(base, CHOICE).media);
 	});
 	it("distinguishes a full form, a selected installation with no image, and an invalid installation default", () => {
 		const media = {
