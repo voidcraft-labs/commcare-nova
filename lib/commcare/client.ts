@@ -71,13 +71,15 @@ import { isHqObject, readHqCollection } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
 import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
 /** Private compatibility inputs stay behind the CommCare boundary: the probe
- * takes its plan as data, and the one flag this client reads by name comes
- * from `hqPrivateFeatureFlag`, so its slug is the probe's own. */
-import type {
-	HqPrivateFeatureFlagRequirement,
-	HqProjectSpaceAdvisoryProbePlan,
-	HqProjectSpaceCapabilityProbePlan,
-	HqProjectSpaceCompatibilityProbePlan,
+ * takes its plan as data, and the flags a source reading asks for by name
+ * come from `hqPrivateFeatureFlag`, so each slug is the probe's own. */
+import {
+	type HqPrivateFeatureFlagId,
+	type HqPrivateFeatureFlagRequirement,
+	type HqProjectSpaceAdvisoryProbePlan,
+	type HqProjectSpaceCapabilityProbePlan,
+	type HqProjectSpaceCompatibilityProbePlan,
+	hqPrivateFeatureFlag,
 } from "./projectSpaceCompatibility";
 import { domainFeatureFlag } from "./surface/gates";
 
@@ -588,9 +590,9 @@ function notAMemberProjectSpaceResult(
 
 /** Whether CommCare HQ applies the named feature to this source project. */
 export type HqSourceProjectFlag =
-	/** The project space holds the flag: CommCare HQ's build compares before it saves. */
+	/** The project space holds the flag, so CommCare HQ's build applies its feature. */
 	| { readonly kind: "applied" }
-	/** The project space does not hold it: CommCare HQ's build saves every time. */
+	/** The project space does not hold it, so CommCare HQ's build leaves the feature out. */
 	| { readonly kind: "not-applied" }
 	/** The key's own list of project spaces answered and does not hold this one. */
 	| { readonly kind: "not-a-member" }
@@ -619,10 +621,18 @@ export async function readHqSaveOnlyEditedAnswers(
 		creds,
 		domain,
 		options,
-	)("SAVE_ONLY_EDITED_FORM_FIELDS");
+	)("save-only-edited-answers");
 }
 
-/** A reading proves membership once when its first source setting needs it. */
+/**
+ * One source reading's flag reads: the key's list of project spaces, read once
+ * for the first flag the source needs, then each flag's own filtered list.
+ * `no-matches-registration` is `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`, which
+ * CommCare HQ's build reads before it writes a case-list action's condition
+ * or offers a parent's follow-up form from a case list
+ * (`suite_xml/sections/details.py::DetailContributor.add_register_action`,
+ * `get_case_list_form_action`).
+ */
 export function createHqSourceFlagReader(
 	creds: CommCareCredentials,
 	domain: string,
@@ -641,14 +651,17 @@ export function createHqSourceFlagReader(
 		);
 	let membership: ReturnType<typeof list> | undefined;
 	return async (
-		symbol: "SAVE_ONLY_EDITED_FORM_FIELDS" | "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+		id: Extract<
+			HqPrivateFeatureFlagId,
+			"save-only-edited-answers" | "no-matches-registration"
+		>,
 	): Promise<HqSourceProjectFlag> => {
 		membership ??= list(undefined);
 		const visible = await membership;
 		if (!Array.isArray(visible)) return failed(visible);
 		if (!visible.some((candidate) => candidate.name === domain))
 			return { kind: "not-a-member" };
-		const flag = domainFeatureFlag(symbol);
+		const flag = hqPrivateFeatureFlag(id);
 		const flagged = await list(flag.slug);
 		if (!Array.isArray(flagged)) {
 			/* A slug HQ no longer knows answers 400, which is Nova's to fix. */

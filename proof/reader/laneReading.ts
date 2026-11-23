@@ -884,7 +884,7 @@ async function readBack(
 	const readFlag = createHqSourceFlagReader(creds, LANE_TARGET.domain);
 	let caseListActionsApplied: boolean | undefined;
 	if (sourceUsesCaseListActionSetting(source.raw)) {
-		const flag = await readFlag("FOLLOWUP_FORMS_AS_CASE_LIST_FORM");
+		const flag = await readFlag("no-matches-registration");
 		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
 		if (flag.kind === "failed")
 			return account(atApp(hqReadCircumstance(flag.failure)));
@@ -892,7 +892,7 @@ async function readBack(
 	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	if (sourceHoldsEditMode(publishedCaseBlocks(source.raw))) {
-		const flag = await readFlag("SAVE_ONLY_EDITED_FORM_FIELDS");
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
 		if (flag.kind === "failed")
 			return account(atApp(hqReadCircumstance(flag.failure)));

@@ -1334,7 +1334,7 @@ async function gatherFromHqWith(
 	const readFlag = createHqSourceFlagReader(creds, key.domain, { cancel });
 	let caseListActionsApplied: boolean | undefined;
 	if (sourceUsesCaseListActionSetting(source.raw)) {
-		const flag = await readFlag("FOLLOWUP_FORMS_AS_CASE_LIST_FORM");
+		const flag = await readFlag("no-matches-registration");
 		if (flag.kind === "not-a-member")
 			return answer(stopOf(atApp("not-a-member")));
 		if (flag.kind === "failed") return answer(failedRead(flag.failure));
@@ -1349,7 +1349,7 @@ async function gatherFromHqWith(
 			}),
 		);
 	if (holdsEditMode) {
-		const flag = await readFlag("SAVE_ONLY_EDITED_FORM_FIELDS");
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member")
 			return answer(stopOf(atApp("not-a-member")));
 		if (flag.kind === "failed") return answer(failedRead(flag.failure));

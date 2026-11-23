@@ -1314,7 +1314,7 @@ async function computeWith(
 		sourceUsesCaseListActionSetting(source.raw) ||
 		sourceUsesCaseListActionSetting(baseSource.raw)
 	) {
-		const flag = await readFlag("FOLLOWUP_FORMS_AS_CASE_LIST_FORM");
+		const flag = await readFlag("no-matches-registration");
 		if (flag.kind === "not-a-member")
 			return answer({ kind: "stop", finding: atApp("not-a-member") });
 		if (flag.kind === "failed") return answer(failedRead(flag.failure));
@@ -1330,7 +1330,7 @@ async function computeWith(
 		return answer(unavailable("nova-defect", since));
 	}
 	if (holdsEditMode) {
-		const flag = await readFlag("SAVE_ONLY_EDITED_FORM_FIELDS");
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member")
 			return answer({ kind: "stop", finding: atApp("not-a-member") });
 		if (flag.kind === "failed") return answer(failedRead(flag.failure));

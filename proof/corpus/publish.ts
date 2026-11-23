@@ -2974,7 +2974,7 @@ async function reviewOverPeer(input: {
 		const flag = await createHqSourceFlagReader(
 			CREDENTIALS,
 			domain,
-		)("FOLLOWUP_FORMS_AS_CASE_LIST_FORM");
+		)("no-matches-registration");
 		if (flag.kind === "not-a-member")
 			throw new Error(
 				"The project space was inaccessible for the case-list action check.",
