@@ -1368,9 +1368,9 @@ export async function runDeploymentPreflight(
 	// journaled on its own (`lookupJsonExecutor.ts`). What preflight can
 	// already tell stops here, before anything is sent: a tag held by a table
 	// Nova did not make there, a table it made that is gone or restricted to
-	// some workers, a definition Nova changed since, and a request an earlier
-	// publish left for a person to look at. Rows changed in CommCare HQ are
-	// read by the push itself, which stops before the app's content.
+	// some workers, and a definition Nova changed since. Rows changed in
+	// CommCare HQ, and a request an earlier publish left open, are read by the
+	// push itself, which stops before the app's content.
 	let lookupJsonPush: LookupJsonPushPlan | null = null;
 	const jsonTables = boundary.prepared.jsonLookupTables ?? [];
 	if (jsonTables.length > 0) {
@@ -1422,11 +1422,18 @@ export async function runDeploymentPreflight(
 				ledger === null
 					? listed.find((candidate) => candidate.tag === table.tag)
 					: listed.find((candidate) => candidate.id === ledger.remoteTableId);
-			if (destination.open?.state === "review")
-				changed.push(
-					`An earlier publish of “${name}” found CommCare HQ's table holding something Nova did not expect, and nothing was sent after it.`,
-				);
-			else if (
+			/* A table create an earlier publish sent under this tag whose answer
+			 * never came back: the table under the tag may be the one it made,
+			 * which the push settles by the tag before it sends anything. */
+			const pendingCreate =
+				destination.open?.kind === "create-table" &&
+				destination.open.tag === table.tag;
+			/* An operation an earlier publish left open, waiting for its outcome
+			 * or for a person, is not decided here: the push settles it first by
+			 * reading what it named (`lookupJsonExecutor.ts::settleOpen`), which
+			 * releases it once CommCare HQ holds what Nova intended or what was
+			 * there before, and otherwise stops before anything is sent. */
+			if (
 				ledger === null &&
 				there !== undefined &&
 				input.mappings.some(
@@ -1442,7 +1449,7 @@ export async function runDeploymentPreflight(
 				unsupported.push(
 					`Nova put “${name}” on “${domain}” in a workbook, which can't carry its rows exactly any more.`,
 				);
-			else if (ledger === null && there !== undefined)
+			else if (ledger === null && there !== undefined && !pendingCreate)
 				held.push(
 					`“${domain}” already has a lookup table named ${table.tag}, and Nova didn't put its rows there.`,
 				);

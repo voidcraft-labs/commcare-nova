@@ -3604,9 +3604,16 @@ describe("the save counter a publish's reads are bound to", () => {
  * no body, a row create appended at the largest rank plus one and answered
  * with the saved row, `FixtureResource`'s rows in rank order (one value per
  * field as a string where every field holds one, else `field_list`), and
- * each row's detail.
+ * each row's detail. `answer` lets a case lose an answer: a write it names
+ * still lands, and is answered 500, which says nothing of whether it did; a
+ * read it names is answered 500 and read nothing.
  */
-function jsonLookupPeer(peer: MockAgent) {
+function jsonLookupPeer(
+	peer: MockAgent,
+	answer: {
+		lose?: (method: string, path: string) => boolean;
+	} = {},
+) {
 	type Row = {
 		id: string;
 		table: string;
@@ -3641,103 +3648,131 @@ function jsonLookupPeer(peer: MockAgent) {
 			const sent = await readHttpRequestBody(opts);
 			const body = sent.length === 0 ? undefined : JSON.parse(sent.toString());
 			if (opts.method !== "GET") writes.push(`${opts.method} ${path}`);
-			if (path === `${api}lookup_table/v1/` && opts.method === "GET")
-				return {
-					statusCode: 200,
-					data: { objects: [...tables.values()], meta: { next: null } },
-				};
-			if (path === `${api}lookup_table/v1/` && opts.method === "POST") {
-				if ([...tables.values()].some((t) => t.tag === body.tag))
-					return { statusCode: 400, data: "" };
-				const id = mint();
-				tables.set(id, { id, ...body });
-				return { statusCode: 201, data: "" };
-			}
-			const tableDetail = path.match(/lookup_table\/v1\/([a-f0-9]{32})\/$/);
-			if (tableDetail && opts.method === "GET") {
-				const table = tables.get(tableDetail[1] ?? "");
-				return table
-					? { statusCode: 200, data: table }
-					: { statusCode: 404, data: "" };
-			}
-			if (path === `${api}lookup_table_item/v2/` && opts.method === "POST") {
-				const ranks = ordered(body.data_type_id).map((row) => row.sortKey);
-				const row: Row = {
-					id: mint(),
-					table: body.data_type_id,
-					sortKey: ranks.length === 0 ? 0 : Math.max(...ranks) + 1,
-					fields: Object.fromEntries(
-						Object.entries(
-							body.fields as Record<
-								string,
-								{ field_list: Row["fields"][string] }
-							>,
-						).map(([name, value]) => [name, value.field_list]),
-					),
-					attributes: body.item_attributes,
-				};
-				rows.set(row.id, row);
-				return {
-					statusCode: 201,
-					data: {
-						id: row.id,
-						data_type_id: row.table,
-						sort_key: row.sortKey,
-						fields: body.fields,
-						item_attributes: row.attributes,
-					},
-				};
-			}
-			const rowDetail = path.match(
-				/lookup_table_item\/v[12]\/([a-f0-9]{32})\/$/,
-			);
-			if (rowDetail && opts.method === "GET") {
-				const row = rows.get(rowDetail[1] ?? "");
-				if (!row) return { statusCode: 404, data: "" };
-				return {
-					statusCode: 200,
-					data: {
-						id: row.id,
-						data_type_id: row.table,
-						sort_key: row.sortKey,
-						item_attributes: row.attributes,
-						fields: Object.fromEntries(
-							Object.entries(row.fields).map(([name, list]) => [
-								name,
-								{ field_list: list },
-							]),
-						),
-					},
-				};
-			}
-			if (path === `${api}fixture/v1/` && opts.method === "GET") {
-				const table = tables.get(url.searchParams.get("fixture_type_id") ?? "");
-				const held = table ? ordered(table.id as string) : [];
-				return {
-					statusCode: 200,
-					data: {
-						meta: { next: null, total_count: held.length },
-						objects: held.map((row) => {
-							const scalar = Object.values(row.fields).every(
-								(list) => list.length === 1,
-							);
-							return {
-								id: row.id,
-								fixture_type: table?.tag,
-								fields: Object.fromEntries(
-									Object.entries(row.fields).map(([name, list]) => [
-										name,
-										scalar ? list[0]?.field_value : { field_list: list },
-									]),
-								),
-							};
-						}),
-					},
-				};
-			}
-			return { statusCode: 404, data: "" };
+			const answered = handle(opts.method, url, path, body);
+			return answer.lose?.(opts.method, path)
+				? { statusCode: 500, data: "" }
+				: answered;
 		})
 		.persist();
+	function handle(
+		method: string,
+		url: URL,
+		path: string,
+		// biome-ignore lint/suspicious/noExplicitAny: a parsed request body
+		body: any,
+	): { statusCode: number; data: unknown } {
+		if (path === `${api}lookup_table/v1/` && method === "GET")
+			return {
+				statusCode: 200,
+				data: { objects: [...tables.values()], meta: { next: null } },
+			};
+		if (path === `${api}lookup_table/v1/` && method === "POST") {
+			if ([...tables.values()].some((t) => t.tag === body.tag))
+				return { statusCode: 400, data: "" };
+			const id = mint();
+			tables.set(id, { id, ...body });
+			return { statusCode: 201, data: "" };
+		}
+		const tableDetail = path.match(/lookup_table\/v1\/([a-f0-9]{32})\/$/);
+		if (tableDetail && method === "GET") {
+			const table = tables.get(tableDetail[1] ?? "");
+			return table
+				? { statusCode: 200, data: table }
+				: { statusCode: 404, data: "" };
+		}
+		if (path === `${api}lookup_table_item/v2/` && method === "POST") {
+			const ranks = ordered(body.data_type_id).map((row) => row.sortKey);
+			const row: Row = {
+				id: mint(),
+				table: body.data_type_id,
+				sortKey: ranks.length === 0 ? 0 : Math.max(...ranks) + 1,
+				fields: Object.fromEntries(
+					Object.entries(
+						body.fields as Record<
+							string,
+							{ field_list: Row["fields"][string] }
+						>,
+					).map(([name, value]) => [name, value.field_list]),
+				),
+				attributes: body.item_attributes,
+			};
+			rows.set(row.id, row);
+			return {
+				statusCode: 201,
+				data: {
+					id: row.id,
+					data_type_id: row.table,
+					sort_key: row.sortKey,
+					fields: body.fields,
+					item_attributes: row.attributes,
+				},
+			};
+		}
+		const rowDetail = path.match(/lookup_table_item\/v[12]\/([a-f0-9]{32})\/$/);
+		if (rowDetail && method === "GET") {
+			const row = rows.get(rowDetail[1] ?? "");
+			if (!row) return { statusCode: 404, data: "" };
+			return {
+				statusCode: 200,
+				data: {
+					id: row.id,
+					data_type_id: row.table,
+					sort_key: row.sortKey,
+					item_attributes: row.attributes,
+					fields: Object.fromEntries(
+						Object.entries(row.fields).map(([name, list]) => [
+							name,
+							{ field_list: list },
+						]),
+					),
+				},
+			};
+		}
+		if (path === `${api}fixture/v1/` && method === "GET") {
+			const table = tables.get(url.searchParams.get("fixture_type_id") ?? "");
+			const held = table ? ordered(table.id as string) : [];
+			return {
+				statusCode: 200,
+				data: {
+					meta: { next: null, total_count: held.length },
+					objects: held.map((row) => {
+						const scalar = Object.values(row.fields).every(
+							(list) => list.length === 1,
+						);
+						return {
+							id: row.id,
+							fixture_type: table?.tag,
+							fields: Object.fromEntries(
+								Object.entries(row.fields).map(([name, list]) => [
+									name,
+									scalar ? list[0]?.field_value : { field_list: list },
+								]),
+							),
+						};
+					}),
+				},
+			};
+		}
+		const putRow = path.match(/lookup_table_item\/v2\/([a-f0-9]{32})\/$/);
+		if (putRow && method === "PUT") {
+			const row = rows.get(putRow[1] ?? "");
+			if (!row || row.table !== body.data_type_id)
+				return { statusCode: 404, data: "" };
+			row.sortKey = body.sort_key;
+			row.fields = Object.fromEntries(
+				Object.entries(
+					body.fields as Record<string, { field_list: Row["fields"][string] }>,
+				).map(([name, value]) => [name, value.field_list]),
+			);
+			row.attributes = body.item_attributes;
+			return { statusCode: 204, data: "" };
+		}
+		if (putRow && method === "DELETE") {
+			if (!rows.delete(putRow[1] ?? "")) return { statusCode: 404, data: "" };
+			return { statusCode: 204, data: "" };
+		}
+		return { statusCode: 404, data: "" };
+	}
 	return { tables, rows, writes };
 }
 
@@ -3851,6 +3886,123 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 					(resource) => resource.kind === "lookup-table",
 				),
 			).toHaveLength(1);
+		});
+	});
+
+	it("settles a table create whose answer was lost by its tag on the next publish, and carries on from there", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const tablesPath = "/a/clinic/api/lookup_table/v1/";
+			let createLost = false;
+			let listLost = false;
+			const hq = jsonLookupPeer(peer, {
+				/* The create lands and its answer is lost, and so is the list
+				 * read that would have found it. */
+				lose: (method, path) => {
+					if (path !== tablesPath) return false;
+					if (method === "POST" && !createLost) {
+						createLost = true;
+						return true;
+					}
+					if (method === "GET" && createLost && !listLost) {
+						listLost = true;
+						return true;
+					}
+					return false;
+				},
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				failure: { code: "hq_resource_state_unknown" },
+			});
+			expect(hq.writes).toEqual([`POST ${tablesPath}`]);
+			expect(hq.tables.size).toBe(1);
+
+			/* The table under the tag is the one Nova's create made, so the
+			 * next publish finds it there, records it, and sends the rows. */
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const again = await publish(doc);
+			expect(again.landed ? null : again.refusal).toBeNull();
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table_item/v2/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+			]);
+			const [table] = hq.tables.values();
+			expect(
+				((await state()) ?? fail()).active.filter(
+					(resource) => resource.kind === "lookup-table",
+				),
+			).toEqual([
+				expect.objectContaining({
+					remoteId: table?.id,
+					ownership: "nova-created",
+					pushedIdentity: "types",
+				}),
+			]);
+		});
+	});
+
+	it("reads a row create left for a person again on the next publish, and sends it once the row it left is gone", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
+			let rowCreates = 0;
+			const hq = jsonLookupPeer(peer, {
+				/* The second row lands and its answer is lost. */
+				lose: (method, path) =>
+					method === "POST" && path === rowsPath && ++rowCreates === 2,
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				failure: { code: "hq_resource_state_unknown" },
+			});
+			expect(hq.rows.size).toBe(2);
+			const open = await h
+				.db()
+				.selectFrom("lookup_json_operations")
+				.select(["id", "state"])
+				.where("settled_at", "is", null)
+				.execute();
+			expect(open).toEqual([expect.objectContaining({ state: "review" })]);
+
+			/* A person removes the row Nova could not name, and the request's
+			 * hold passes. */
+			const stranger = [...hq.rows.values()].at(-1) ?? fail();
+			hq.rows.delete(stranger.id);
+			await h
+				.db()
+				.updateTable("lookup_json_operations")
+				.set({ admitted_at: sql`now() - interval '1 hour'` })
+				.where("id", "=", open[0]?.id ?? fail())
+				.execute();
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const again = await publish(doc);
+			expect(again.landed ? null : again.refusal).toBeNull();
+			expect(hq.writes).toEqual([`POST ${rowsPath}`]);
+			expect(
+				[...hq.rows.values()].map((row) => row.fields.name?.[0]?.field_value),
+			).toEqual([" Clinic ", "Hospital"]);
+			expect(
+				await h
+					.db()
+					.selectFrom("lookup_json_operations")
+					.select("state")
+					.where("id", "=", open[0]?.id ?? fail())
+					.executeTakeFirst(),
+			).toEqual({ state: "not-applied" });
 		});
 	});
 
