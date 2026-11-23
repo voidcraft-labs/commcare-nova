@@ -1432,7 +1432,12 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a Hidden Value with an explicit answer type, including a type different from the automatic type Nova would choose",
-		"surfaceKeys": ["xform:model/bind@type"],
+		"surfaceKeys": [
+			"jr-type:boolean",
+			"jr-type:decimal",
+			"jr-type:long",
+			"xform:model/bind@type"
+		],
 		"valueClass": "hidden-value-other-bind-type",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: a hidden value’s answer type determines the data class used by opening assignments and calculations. Core treats an unrecognized name as text without conversion.",
