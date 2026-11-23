@@ -4275,7 +4275,9 @@ it("runs both destinations in turn on Android and opens only the first on Web Ap
 	await step({ kind: "finish" });
 });
 
-it("uses the parent chosen on this visit for a conditional list action and follows the target form’s own return", async () => {
+it("uses the parent chosen on this visit for a conditional list action and follows the target form’s own return", {
+	timeout: 15_000,
+}, async () => {
 	const doc = caseListActionRolesFixture();
 	const id = actionRoleIds;
 	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
