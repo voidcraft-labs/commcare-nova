@@ -131,6 +131,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"case-search/required-test-text",
 		"case-search/validations-0-test-text",
 	],
+	"search-starting-dates": ["case-search/default-value-on-a-date-range-input"],
 	"barcode-search-field": ["case-search/appearance-barcode-scan"],
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",

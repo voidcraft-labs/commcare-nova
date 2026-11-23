@@ -315,3 +315,43 @@ declare global {
 		};
 	}
 }
+
+test("workers can replace a readable three-date starting value on the search screen", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.clock.setFixedTime(new Date(2024, 0, 15, 12));
+		await page.goto(
+			`${peer.origin}/?platform=web-apps&range=2024-01-02__2024-02-12__2024-05-21`,
+		);
+		await expect(
+			page.getByText("1/2/2024 to 2/12/2024 to 5/21/2024", { exact: true }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect(
+			page.getByText("Choose valid start and end dates", { exact: true }),
+		).toBeVisible();
+		await page.getByLabel("Registered from").click();
+		await page.getByRole("button", { name: /January 2nd, 2024/ }).click();
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect(
+			page.getByText("Choose both a start date and an end date", {
+				exact: true,
+			}),
+		).toBeVisible();
+		await page.getByLabel("Registered to").click();
+		await page.getByRole("button", { name: /January 15th, 2024/ }).click();
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({
+				"registered:from": "2024-01-02",
+				"registered:to": "2024-01-15",
+			});
+	} finally {
+		await peer.close();
+	}
+});

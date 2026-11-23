@@ -15,6 +15,9 @@ import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "prompt-periods",
+    "prompt-period-spellings",
+    "prompt-period-held",
     "case-capture-multiple",
     "case-capture-repeat",
     "case-list-browse",

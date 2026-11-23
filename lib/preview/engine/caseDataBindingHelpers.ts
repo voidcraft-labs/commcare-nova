@@ -28,6 +28,7 @@ import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
 } from "./lookupTableReferences";
+import { readPreviewLookup } from "./workerLookupScope";
 
 export {
 	caseOperationProgramLookupTableIds,
@@ -148,10 +149,7 @@ import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
 import { log } from "@/lib/logger";
-import {
-	getLookupDefinitions,
-	getLookupFixtureData,
-} from "@/lib/lookup/service";
+import { getLookupDefinitions } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
 import type { CaseListSortChoice } from "../caseListSortMenu";
 import { javaTrim } from "../xpath/javaString";
@@ -2702,19 +2700,23 @@ export async function gatedCaseStoreWithScope(
  */
 /**
  * Fixture data (definitions + complete ordered rows) for the lookup
- * tables ONE scalar-evaluated expression references — the fold input
+ * tables the scalar-evaluated expressions reference in one revision — the fold input
  * for the excluded-owner value, which resolves server-side rather
  * than compiling to SQL. `undefined` when the expression is absent or
  * carrier-free, so the common path loads nothing.
  */
 export async function loadExpressionLookupData(
 	scope: LookupScope,
-	expression: Expression | undefined,
+	expressions: readonly (Expression | undefined)[],
 ): Promise<PreviewLookupData | undefined> {
-	if (expression === undefined) return undefined;
-	const tableIds = collectConfigLookupTableIds(undefined, [expression]);
+	const tableIds = collectConfigLookupTableIds(
+		undefined,
+		expressions.filter(
+			(expression): expression is Expression => expression !== undefined,
+		),
+	);
 	if (tableIds.length === 0) return undefined;
-	return previewLookupData(await getLookupFixtureData(scope, tableIds));
+	return previewLookupData(await readPreviewLookup(scope, tableIds));
 }
 
 export async function loadLookupTableSchemas(

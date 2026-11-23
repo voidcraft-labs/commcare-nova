@@ -376,7 +376,7 @@ describe("case-list author command boundaries", () => {
 			moduleUuid: MODULE_UUID,
 			searchInputUuid: "11111111-1111-4111-8111-111111111111",
 		};
-		const scalarDefault = updateSearchInputTool.inputSchema.safeParse({
+		const rangeDefault = updateSearchInputTool.inputSchema.safeParse({
 			...base,
 			searchInput: {
 				kind: "simple",
@@ -385,7 +385,7 @@ describe("case-list author command boundaries", () => {
 				type: "date-range",
 				property: "visit_date",
 				mode: { kind: "range" },
-				default: { kind: "today" },
+				default: { from: "2024-03-01", to: "2024-04-01" },
 			},
 		});
 		const missingMode = updateSearchInputTool.inputSchema.safeParse({
@@ -421,7 +421,10 @@ describe("case-list author command boundaries", () => {
 			},
 		});
 
-		expect(scalarDefault.success).toBe(false);
+		expect(rangeDefault.data?.searchInput).toHaveProperty("default", {
+			kind: "term",
+			term: { kind: "literal", value: "__range__2024-03-01__2024-04-01" },
+		});
 		expect(missingMode.success).toBe(false);
 		expect(wrongWidget.success).toBe(false);
 		expect(validRange.success).toBe(true);

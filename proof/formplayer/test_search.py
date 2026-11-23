@@ -62,6 +62,8 @@ sort, whose choices Formplayer hands in row order.
 
 from __future__ import annotations
 
+import pytest
+
 import dataclasses
 
 from proof.formplayer import apps
@@ -190,6 +192,34 @@ def test_formplayer_hands_a_non_breaking_space_for_the_empty_description_on_ever
     # The Case List save writes nothing new into either map.
     assert saved_stored == nova_stored
     assert handed == {"build": NBSP, "local": NBSP, "saved": NBSP}
+
+
+@pytest.mark.parametrize(("document_id", "period", "visit"), [
+    ("prompt-periods", "__range__2024-01-01__2024-12-31", "__range__2024-03-10__2024-03-11"),
+    ("prompt-period-fallback", "awaiting dates", "__range__2024-12-31__2024-01-01"),
+    ("prompt-period-spellings", "2024-01-02__2024-02-12__2024-05-21", "2024-03-10"),
+])
+def test_formplayer_carries_both_starting_dates_and_the_worker_replacement(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence, document_id, period, visit
+):
+    document = formplayer_documents[document_id]
+    with apps.published(document, core_runner) as published:
+        with apps.served(published, formplayer_runner) as served, served.run("starting-dates"):
+            web = apps.web(formplayer_runner, served)
+            screen = web.navigate(SEARCH)
+            assert screen_kind(screen) == "query", screen
+            answers = {display["id"]: display["value"] for display in screen["displays"]}
+            assert answers == {
+                "period": period,
+                "visit_date": visit,
+            }
+            replacement = "__range__2025-05-01__2025-05-15"
+            result = web.navigate(SEARCH, query_data=_query_data(screen["queryKey"], {**answers, "period": replacement}))
+            [request] = served.hq.searches
+            evidence("starting-date-search", {"opening": answers, "request": list(request.params)})
+            assert screen_kind(result) != "query", result
+            assert request.values("period") == (replacement,)
+            assert request.values("visit_date") == (answers["visit_date"],)
 
 
 def test_formplayer_hands_a_lookup_prompts_choices_in_label_order(

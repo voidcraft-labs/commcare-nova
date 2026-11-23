@@ -1460,10 +1460,20 @@ export const simpleScalarSearchInputSchema = visibleSearchInputBase
 	})
 	.strict();
 
+/** Fixed inclusive dates chosen together by a person in any editor. */
+export const searchStartingDatesSchema = z
+	.object({ from: z.iso.date(), to: z.iso.date() })
+	.strict()
+	.refine(
+		(dates) => dates.from <= dates.to,
+		"The end date comes before the start date.",
+	);
+
 export const simpleDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.literal("date-range"),
+		default: valueSchema.optional(),
 		mode: rangeSearchInputModeSchema,
 	})
 	.strict();
@@ -1552,6 +1562,7 @@ export const advancedDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.literal("date-range"),
+		default: valueSchema.optional(),
 		predicate: conditionSchema,
 	})
 	.strict();
@@ -1594,7 +1605,7 @@ export const hiddenSearchInputSchema = searchInputBase
  *
  * This cannot be a Zod `discriminatedUnion("kind", ...)`: simple and advanced
  * each appear in three arms. Keeping the widget split structural is what makes
- * a range default, a scalar range mode, a choice input without a table, or a
+ * a scalar range mode, a choice input without a table, or a
  * required hidden value unrepresentable.
  */
 export const searchInputDefSchema = z.union([
@@ -1668,7 +1679,7 @@ export function visibleSearchInputs(
 	return inputs.filter(isVisibleSearchInput);
 }
 
-/** Scalar prompt seed, absent by construction on the date-range and hidden arms. */
+/** The device expression that supplies a visible prompt’s starting value. */
 export function searchInputDefault(
 	input: SearchInputDef,
 ): Expression | undefined {
@@ -1837,7 +1848,7 @@ interface SearchInputVisibleSlots {
 	readonly validation?: SearchInputValidation;
 }
 
-/** Scalar-widget slot that seeds the input's initial state. */
+/** The slot that seeds a visible input's initial state. */
 interface SearchInputCommonSlots extends SearchInputVisibleSlots {
 	readonly default?: Expression;
 }
@@ -1852,7 +1863,7 @@ interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
 	readonly mode?: ScalarSearchInputMode;
 }
 
-interface SimpleDateRangeSearchInputSlots extends SearchInputVisibleSlots {
+interface SimpleDateRangeSearchInputSlots extends SearchInputCommonSlots {
 	readonly matching?: "project-space";
 	readonly via?: RelationPath;
 	/** The builder writes the sole valid stored mode when omitted. */
@@ -1995,7 +2006,7 @@ export function advancedSearchInputDef(
 	label: string,
 	type: "date-range",
 	predicate: Expression,
-	slots?: SearchInputVisibleSlots,
+	slots?: SearchInputCommonSlots,
 ): AdvancedDateRangeSearchInputDef;
 export function advancedSearchInputDef(
 	uuid: Uuid,
@@ -2194,10 +2205,11 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
  * read from this table.
  */
 export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
-	Record<Exclude<SearchInputType, "date-range">, CasePropertyDataType>
+	Record<SearchInputType, CasePropertyDataType>
 > = {
 	text: "text",
 	date: "date",
+	"date-range": "text",
 	barcode: "text",
 	select: "text",
 	"multi-select": "text",

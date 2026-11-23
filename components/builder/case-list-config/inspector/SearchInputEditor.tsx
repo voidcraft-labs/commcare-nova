@@ -86,6 +86,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { fixedSearchRangeDates } from "@/lib/doc/expressionText";
 import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import {
@@ -167,7 +168,6 @@ import {
 	resolveDestinationCaseType,
 	resolveProperty,
 	resolveRows,
-	type ScalarDefaultSearchInputType,
 	SEARCH_INPUT_TYPE_DESCRIPTIONS,
 	SEARCH_INPUT_TYPE_ICONS,
 	SEARCH_INPUT_TYPE_LABELS,
@@ -187,6 +187,7 @@ import {
 import type { SearchConditionSlot } from "../workspaceSelection";
 import { HiddenSearchValueEditor } from "./HiddenSearchValueEditor";
 import { SearchChoiceSourceEditor } from "./SearchChoiceSourceEditor";
+import { SearchRangeStartingDates } from "./SearchRangeStartingDates";
 import { FieldRow } from "./searchInputFieldRow";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -232,6 +233,7 @@ function freeTextQuoteMarksHint(
 const SEARCH_INPUT_NOTE_FEATURES: readonly PlatformFeatureId[] = [
 	"search-screen-text",
 	"search-field-checks",
+	"search-starting-dates",
 	"barcode-search-field",
 	"hidden-search-field",
 	...EXPRESSION_PLATFORM_FEATURES,
@@ -521,12 +523,13 @@ function VisibleSearchInputEditor({
 		const currentDefault = searchInputDefault(value);
 		const keepDefault =
 			currentDefault === undefined ||
-			defaultFits(
-				rebuildRow(value, {
-					type,
-					...(options === undefined ? {} : { options }),
-				}),
-			);
+			((type === "date-range") === (value.type === "date-range") &&
+				defaultFits(
+					rebuildRow(value, {
+						type,
+						...(options === undefined ? {} : { options }),
+					}),
+				));
 		const next = rebuildRow(value, {
 			type,
 			...(options === undefined ? {} : { options }),
@@ -795,7 +798,11 @@ function VisibleSearchInputEditor({
 						value.label,
 						type,
 						propertyDef.name,
-						{ ...visible, mode: { kind: "range" } },
+						{
+							...visible,
+							default: value.type === "date-range" ? currentDefault : undefined,
+							mode: { kind: "range" },
+						},
 					)
 				: isSelectSearchInputType(type) && currentOptions !== undefined
 					? simpleSearchInputDef(
@@ -1040,19 +1047,17 @@ function VisibleSearchInputEditor({
 
 				<InlineError errors={resolved.typeCouplingErrors} />
 
-				{value.type === "date-range" ? null : (
-					<DefaultValueSlot
-						slot={inputSlot("search_input_default")}
-						candidate={value}
-						value={searchInputDefault(value)}
-						inputType={value.type}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						userProperties={userProperties}
-						rowIndex={index}
-						onChange={setDefault}
-					/>
-				)}
+				<DefaultValueSlot
+					slot={inputSlot("search_input_default")}
+					candidate={value}
+					value={searchInputDefault(value)}
+					inputType={value.type}
+					caseTypes={caseTypes}
+					currentCaseType={currentCaseType}
+					userProperties={userProperties}
+					rowIndex={index}
+					onChange={setDefault}
+				/>
 
 				<RequiredSlot
 					expressionContext={requiredContext}
@@ -1926,6 +1931,7 @@ function rebuildRow(
 			return simpleSearchInputDef(value.uuid, name, label, type, property, {
 				...visible,
 				...native,
+				default: dflt,
 				via,
 				mode: { kind: "range" },
 			});
@@ -1954,7 +1960,7 @@ function rebuildRow(
 			label,
 			type,
 			value.predicate,
-			visible,
+			{ ...visible, default: dflt },
 		);
 	}
 	return advancedSearchInputDef(
@@ -2240,7 +2246,7 @@ interface DefaultValueSlotProps {
 	readonly slot: ExpressionSlotRef | undefined;
 	readonly candidate: SearchInputDef;
 	readonly value: Expression | undefined;
-	readonly inputType: ScalarDefaultSearchInputType;
+	readonly inputType: SearchInputType;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly userProperties: readonly UserProperty[];
@@ -2260,6 +2266,66 @@ function DefaultValueSlot({
 	onChange,
 }: DefaultValueSlotProps) {
 	const constraint = constraintForDefault(inputType);
+	const [editingDates, setEditingDates] = useState(false);
+	const [editingCalculation, setEditingCalculation] = useState(false);
+	const fixed =
+		inputType === "date-range" ? fixedSearchRangeDates(value) : undefined;
+	if (
+		inputType === "date-range" &&
+		(editingDates || (!editingCalculation && (value === undefined || fixed)))
+	) {
+		return (
+			<FieldRow
+				label="Starting dates"
+				hint="People can change these dates before searching"
+			>
+				{editingDates ? (
+					<SearchRangeStartingDates
+						initial={fixed}
+						onChange={onChange}
+						onClose={() => setEditingDates(false)}
+					/>
+				) : (
+					<div className="space-y-2">
+						{fixed && (
+							<p>
+								{fixed.from} to {fixed.to}
+							</p>
+						)}
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setEditingDates(true)}
+						>
+							{fixed ? "Change dates" : "Choose dates"}
+						</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => {
+								setEditingCalculation(true);
+								if (!value) onChange(seedDefaultExpression(inputType));
+							}}
+						>
+							Use a calculation
+						</Button>
+						{value && (
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setEditingCalculation(false);
+									onChange(undefined);
+								}}
+							>
+								Remove starting dates
+							</Button>
+						)}
+					</div>
+				)}
+			</FieldRow>
+		);
+	}
 	return (
 		<FieldRow
 			label="Starting value"
@@ -2278,6 +2344,18 @@ function DefaultValueSlot({
 				</Button>
 			) : (
 				<div className="space-y-3 rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
+					{inputType === "date-range" && (
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => {
+								setEditingCalculation(false);
+								setEditingDates(true);
+							}}
+						>
+							Choose dates
+						</Button>
+					)}
 					{/* Forbids input refs: the default fills the field before
 				    the search screen opens. See NO_SEARCH_INPUTS. */}
 					{slot === undefined ? (
@@ -2297,7 +2375,10 @@ function DefaultValueSlot({
 					)}
 					<Button
 						type="button"
-						onClick={() => onChange(undefined)}
+						onClick={() => {
+							setEditingCalculation(false);
+							onChange(undefined);
+						}}
 						variant="destructive"
 						className="w-full px-3 text-[14px]"
 						aria-label={`Remove the starting value for search field ${rowIndex + 1}`}

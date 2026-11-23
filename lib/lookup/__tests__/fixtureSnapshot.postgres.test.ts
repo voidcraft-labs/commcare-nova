@@ -9,6 +9,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
+	DEVICE_FIXTURE_BYTES,
+	DEVICE_FIXTURE_MAX_TABLES,
+	LOOKUP_MAX_TABLE_BYTES,
+} from "../constants";
+import {
 	createLookupRow,
 	createLookupTable,
 	getLookupFixtureData,
@@ -139,6 +144,54 @@ describe("getLookupFixtureData", () => {
 		expect([...snapshot.rowsByTable.keys()]).toEqual([local.id]);
 		expect(snapshot.rowsByTable.get(foreign.id)).toBeUndefined();
 		expect(snapshot.rowsByTable.get(MISSING_TABLE_ID)).toBeUndefined();
+	});
+
+	it("charges only admitted tables against the device limit in the fixture snapshot", async () => {
+		const ids = [];
+		for (const [index, size] of [
+			LOOKUP_MAX_TABLE_BYTES,
+			LOOKUP_MAX_TABLE_BYTES,
+			LOOKUP_MAX_TABLE_BYTES,
+			LOOKUP_MAX_TABLE_BYTES,
+			1,
+		].entries()) {
+			const table = await createLookupTable(OWNER_A, {
+				name: "Visits " + index,
+				tag: "visits_" + index,
+				columns: [{ wireName: "date", label: "Date", dataType: "text" }],
+			});
+			// Exact persisted byte counters exercise the 32 MiB limit without
+			// constructing a second copy of 32 MiB of test data in every CI job.
+			await h
+				.db()
+				.updateTable("lookup_tables")
+				.set({ data_bytes: size })
+				.where("id", "=", table.id)
+				.execute();
+			ids.push(table.id);
+		}
+		expect(4 * LOOKUP_MAX_TABLE_BYTES).toBe(DEVICE_FIXTURE_BYTES);
+		const admitted = await getLookupFixtureData(
+			OWNER_A,
+			ids.slice(0, 4),
+			"device",
+		);
+		expect(admitted.definitions).toHaveLength(4);
+		await expect(getLookupFixtureData(OWNER_A, ids, "device")).rejects.toThrow(
+			"more lookup data",
+		);
+		await expect(
+			getLookupFixtureData(OWNER_B, ids, "device"),
+		).resolves.toMatchObject({ definitions: [] });
+		await expect(
+			getLookupFixtureData(
+				OWNER_A,
+				Array(DEVICE_FIXTURE_MAX_TABLES + 1).fill(MISSING_TABLE_ID),
+				"device",
+			),
+		).rejects.toThrow("more lookup tables");
+		const archive = await getLookupFixtureData(OWNER_A, ids);
+		expect(archive.definitions).toHaveLength(5);
 	});
 
 	it("reads the Project clock even for the empty request", async () => {

@@ -61,6 +61,7 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
+import { loadCasesAction as readCasesForSavedRange } from "../caseDataBinding";
 import {
 	buildSubmissionOperationProgram,
 	buildSubmissionReceiptIdentity,
@@ -73,6 +74,7 @@ import type {
 	SubmissionWireMutation,
 } from "../caseDataBindingTypes";
 import { previewAsMe } from "../identity";
+import { openSearchRangesAction } from "../openSearchRangesAction";
 
 type CaseQuery = CaseStore["query"];
 
@@ -162,12 +164,14 @@ vi.mock("@/lib/db/formAttachments", async () => {
 });
 
 const {
+	getLookupFixtureDataMock,
 	getLookupDefinitionsMock,
 	loadAppMock,
 	materializeMock,
 	resolveAppScopeMock,
 	resolveAuthorizedAppSnapshotMock,
 } = vi.hoisted(() => ({
+	getLookupFixtureDataMock: vi.fn(),
 	getLookupDefinitionsMock: vi.fn(),
 	loadAppMock: vi.fn(),
 	materializeMock: vi.fn(),
@@ -185,7 +189,11 @@ vi.mock("@/lib/lookup/service", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/lookup/service")>(
 		"@/lib/lookup/service",
 	);
-	return { ...actual, getLookupDefinitions: getLookupDefinitionsMock };
+	return {
+		...actual,
+		getLookupDefinitions: getLookupDefinitionsMock,
+		getLookupFixtureData: getLookupFixtureDataMock,
+	};
 });
 
 vi.mock("@/lib/db/appAccess", async () => {
@@ -461,6 +469,7 @@ function caseListCandidate(
 	config: CaseListConfig,
 	blueprint: BlueprintDoc = buildBlueprint([PATIENT_CASE_TYPE]),
 	excludedOwnerIdsExpression?: Expression,
+	lookup?: Parameters<typeof assertAdmittedPreviewDoc>[1],
 ) {
 	const module = Object.values(blueprint.modules).find(
 		(candidate) => candidate.caseType === "patient",
@@ -477,10 +486,13 @@ function caseListCandidate(
 		}),
 	};
 	return {
-		blueprint: assertAdmittedPreviewDoc({
-			...blueprint,
-			modules: { ...blueprint.modules, [module.uuid]: candidateModule },
-		}),
+		blueprint: assertAdmittedPreviewDoc(
+			{
+				...blueprint,
+				modules: { ...blueprint.modules, [module.uuid]: candidateModule },
+			},
+			lookup,
+		),
 		moduleUuid: module.uuid,
 		caseListConfig: config,
 		...(excludedOwnerIdsExpression !== undefined && {
@@ -2913,6 +2925,363 @@ describe("loadCasesAction", () => {
 		expect(stubStore.query).not.toHaveBeenCalledWith(
 			expect.objectContaining({ caseType: "patient" }),
 		);
+	});
+
+	it.each([
+		{
+			savedValue: "saved value",
+			candidateValue: "saved value",
+			submitted: "another value",
+			admitted: false,
+		},
+		{
+			savedValue: "saved value",
+			candidateValue: "saved value",
+			submitted: "__range__2025-02-01__2025-01-01",
+			admitted: false,
+		},
+		{
+			savedValue: "saved value",
+			candidateValue: "another value",
+			submitted: "another value",
+			admitted: false,
+		},
+		{
+			savedValue: "saved value",
+			candidateValue: "saved value",
+			submitted: "saved value",
+			admitted: true,
+		},
+		{
+			savedValue: "2024-01-01__2024-02-01__2024-03-01",
+			candidateValue: "2024-01-01__2024-02-01__2024-03-01",
+			submitted: "2024-01-01__2024-02-01__2024-03-01",
+			admitted: true,
+		},
+		{
+			savedValue: "2024-01-01__2024-02-01__2024-03-01",
+			candidateValue: "2024-01-01__2024-02-01__2024-03-01",
+			submitted: "__range__2024-01-01__2024-02-01__2024-03-01",
+			admitted: false,
+			expectedMessage: "Choose valid start and end dates",
+		},
+		{
+			savedValue: "2024-01-01",
+			candidateValue: "2024-01-01",
+			submitted: "__range__2024-01-01",
+			admitted: false,
+			expectedMessage: "Choose valid start and end dates",
+		},
+		{
+			savedValue: "2024-01-01T00:00:00+00:00",
+			candidateValue: "2024-01-01T00:00:00+00:00",
+			submitted: "__range__2023-12-31",
+			viewerTimeZone: "America/Los_Angeles",
+			admitted: false,
+			expectedMessage: "Choose valid start and end dates",
+		},
+		{
+			savedValue: "2024-01-01",
+			candidateValue: "2024-01-01",
+			submitted: "__range__2024-03-01",
+			admitted: false,
+			expectedMessage:
+				"The starting dates changed. You can reopen Search or choose both dates.",
+		},
+	])(
+		"reads matching cases only for the committed starting answer $savedValue and its submitted value $submitted",
+		async ({
+			savedValue,
+			candidateValue,
+			submitted,
+			admitted,
+			expectedMessage,
+			viewerTimeZone,
+		}) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { withProjectContext } = await import("@/lib/case-store");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+			} as Awaited<ReturnType<typeof getSession>>);
+			const store = {
+				...actionStore(),
+				query: appCaseQuery([buildSyntheticRow({ dob: "2024-01-01" })]),
+			} satisfies CaseStore;
+			vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+			const blueprint = buildBlueprint([FORMATTED_PROPS_CASE_TYPE]);
+			const appWithDefault = (value: string) => {
+				const range = simpleSearchInputDef(
+					testUuid("range-action"),
+					"dob",
+					"Visit dates",
+					"date-range",
+					"dob",
+					{ default: term(literal(value)) },
+				);
+				return caseListCandidate(
+					resolveCaseListConfig({
+						columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+						searchInputs: [range],
+					}),
+					blueprint,
+				);
+			};
+			const candidate = appWithDefault(candidateValue);
+			const saved = appWithDefault(savedValue);
+			loadAppMock.mockResolvedValueOnce({
+				blueprint: saved.blueprint,
+				mutation_seq: 1,
+				project_id: PROJECT_A,
+			});
+			const result = await readCasesForSavedRange({
+				viewerTimeZone,
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypes: [FORMATTED_PROPS_CASE_TYPE],
+				...candidate,
+				inputValues: { "dob:starting": submitted },
+			});
+			if (admitted) {
+				expect(result.kind).toBe("rows");
+				expect(store.query).toHaveBeenCalledWith(
+					expect.objectContaining({ caseType: "patient" }),
+				);
+			} else {
+				expect(result).toMatchObject({
+					kind: "invalid-search",
+					repair: "inputs",
+					...(expectedMessage && { message: expectedMessage }),
+				});
+				expect(store.query).not.toHaveBeenCalledWith(
+					expect.objectContaining({ caseType: "patient" }),
+				);
+			}
+		},
+	);
+
+	it("holds one opening revision for two tables and the clock across Search and paging", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValue({
+			user: { id: OWNER_A },
+		} as Awaited<ReturnType<typeof getSession>>);
+		const first = { ...buildSyntheticRow({}), case_id: "first-page" };
+		const second = { ...buildSyntheticRow({}), case_id: "second-page" };
+		const store = {
+			...actionStore(),
+			count: vi.fn<CaseStore["count"]>().mockResolvedValue(51),
+			query: appCaseQuery([first], [second]),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValue(store);
+		const tables = [
+			OPERATION_LOOKUP_TABLE,
+			"00000000-0000-7000-8000-000000000099" as LookupTableId,
+		];
+		const column = OPERATION_LOOKUP_COLUMN;
+		const definitions = tables.map((id, index) => ({
+			id,
+			name: `Dates ${index}`,
+			tag: `dates_${index}`,
+			definitionRevision: parseLookupRevision("1"),
+			columns: [
+				{
+					id: column,
+					wireName: "dates",
+					label: "Dates",
+					dataType: "text" as const,
+				},
+			],
+		}));
+		const where = (table: LookupTableId) =>
+			eq(tableColumn(table, column), tableColumn(table, column));
+		const fromTable = (table: LookupTableId) =>
+			tableLookup(table, column, where(table));
+		const fields = [
+			simpleSearchInputDef(
+				testUuid("range-opening-one"),
+				"dob",
+				"Birth dates",
+				"date-range",
+				"dob",
+				{ default: fromTable(tables[0]) },
+			),
+			simpleSearchInputDef(
+				testUuid("range-opening-two"),
+				"last_seen",
+				"Visit dates",
+				"date-range",
+				"last_seen",
+				{
+					default: ifExpr(
+						eq(today(), dateLiteral("2024-05-03")),
+						fromTable(tables[1]),
+						term(literal("later date")),
+					),
+				},
+			),
+		];
+		const candidate = caseListCandidate(
+			resolveCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+				searchInputs: fields,
+			}),
+			{
+				...buildBlueprint([FORMATTED_PROPS_CASE_TYPE]),
+				localization: {
+					sourceLanguage: "eng",
+					defaultLanguage: "eng",
+					languageOrder: ["eng", "fra"],
+					translations: {},
+					wireCodes: { eng: "en", fra: "fr" },
+				},
+			},
+			undefined,
+			{
+				kind: "available",
+				projectId: PROJECT_A,
+				projectRevision: parseLookupRevision("1"),
+				definitions,
+			},
+		);
+		loadAppMock.mockResolvedValue({
+			blueprint: candidate.blueprint,
+			mutation_seq: 1,
+			project_id: PROJECT_A,
+		});
+		let revision = 1;
+		getLookupFixtureDataMock.mockImplementation(
+			async (_scope, ids: LookupTableId[]) => ({
+				projectRevision: String(revision),
+				definitions: definitions.filter((table) => ids.includes(table.id)),
+				rowsByTable: new Map(
+					ids.map((id) => [
+						id,
+						[
+							{
+								id: testUuid("range-opening-row"),
+								values: {
+									[column]: `opening ${revision} ${tables.indexOf(id)}`,
+								},
+							},
+						],
+					]),
+				),
+			}),
+		);
+		vi.stubEnv("BETTER_AUTH_SECRET", "synthetic-range-opening-test");
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(new Date("2024-05-02T12:00:00Z"));
+			const target = {
+				appId: APP_ID,
+				moduleUuid: candidate.moduleUuid,
+				device: webAppsDevice(),
+				viewerTimeZone: "Pacific/Kiritimati",
+			};
+			const opened = await openSearchRangesAction(target);
+			expect(opened.kind).toBe("opened");
+			if (opened.kind !== "opened") throw new Error("Search did not open");
+			const held = Object.assign(
+				{},
+				...opened.fields.map((field) => field.answers),
+			) as Record<string, string>;
+			expect(held).toMatchObject({
+				"dob:starting": "opening 1 0",
+				"last_seen:starting": "opening 1 1",
+			});
+			expect(getLookupFixtureDataMock).toHaveBeenCalledExactlyOnceWith(
+				{ projectId: PROJECT_A, actorId: OWNER_A, role: "owner" },
+				tables,
+				"device",
+			);
+			revision = 2;
+			vi.setSystemTime(new Date("2024-05-03T12:00:00Z"));
+			const request = {
+				...candidate,
+				...target,
+				caseType: "patient",
+				caseTypes: [FORMATTED_PROPS_CASE_TYPE],
+				inputValues: held,
+			};
+			expect(await readCasesForSavedRange(request)).toMatchObject({
+				kind: "rows",
+				rows: [first],
+			});
+			expect(
+				await readCasesForSavedRange({
+					...request,
+					device: { ...target.device, windowWidth: 912 },
+					page: { offset: 50, limit: 50 },
+				}),
+			).toMatchObject({ kind: "rows", rows: [second], pageOffset: 50 });
+			expect(
+				await readCasesForSavedRange({
+					...request,
+					inputValues: { ...held, "last_seen:starting": "later date" },
+				}),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			expect(
+				await readCasesForSavedRange({
+					...request,
+					inputValues: { ...held, "last_seen:opening": held["dob:opening"] },
+				}),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			expect(
+				await readCasesForSavedRange({
+					...request,
+					inputValues: { ...held, "dob:from": "2024-05-01" },
+				}),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			expect(
+				await readCasesForSavedRange({ ...request, appId: "another-app" }),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+
+			expect(getLookupFixtureDataMock).toHaveBeenCalledTimes(1);
+			const again = await openSearchRangesAction(target);
+			expect(
+				again.kind === "opened" &&
+					again.fields.map(
+						({ field, answers }) => answers[field.name + ":starting"],
+					),
+			).toEqual(["opening 2 0", "later date"]);
+			if (again.kind !== "opened")
+				throw new Error("The next Search did not open.");
+			expect(
+				await readCasesForSavedRange({ ...request, viewerTimeZone: "UTC" }),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			const frenchDevice = webAppsDevice("fr");
+			expect(
+				await openSearchRangesAction({ ...target, device: frenchDevice }),
+			).toMatchObject({ kind: "opened" });
+			expect(
+				await readCasesForSavedRange({ ...request, device: frenchDevice }),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			const utc = await openSearchRangesAction({
+				...target,
+				viewerTimeZone: "UTC",
+			});
+			expect(
+				utc.kind === "opened" && utc.fields[1].answers["last_seen:starting"],
+			).toBe("opening 2 1");
+			const { LookupError } = await import("@/lib/lookup/errors");
+			getLookupFixtureDataMock.mockRejectedValueOnce(
+				new LookupError(
+					"storage_limit",
+					"This app references more lookup data than Preview can load at once.",
+				),
+			);
+			expect(await openSearchRangesAction(target)).toMatchObject({
+				kind: "unavailable",
+				message: expect.stringContaining("more lookup data"),
+			});
+			const mixed = { ...held, ...again.fields[1].answers };
+			expect(
+				await readCasesForSavedRange({ ...request, inputValues: mixed }),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+		} finally {
+			vi.useRealTimers();
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("collapses a Project-membership denial to the not-found arm without binding a store", async () => {

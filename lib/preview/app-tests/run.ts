@@ -385,7 +385,7 @@ async function observeScreen(
 											type: input.type,
 											hint: input.hint,
 										})),
-									answers: search.draft,
+									answers: search.displayedAnswers,
 									errors: search.errors,
 								},
 					results: read.result,

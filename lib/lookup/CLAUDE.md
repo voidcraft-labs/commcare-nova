@@ -379,7 +379,11 @@ that manages a table (`lookup-tables-managed-in-<domain>.xlsx`) — so the
 generation Nova pushes is provably the generation it validated), and the
 preview's builder-session cache
 (`lib/preview/engine/lookupDataBinding.ts`) evaluates carriers over one.
-Missing and foreign ids are absent from both the definitions and the rows map.
+Missing and foreign ids are absent from both the definitions and the rows map. Device reads by Preview and form checks use
+`readPreviewLookup`. They admit at most 500 table references and 32 MiB
+of worker lookup data. The repeatable-read transaction measures the requested
+tables before materializing their rows, so an edit between the two reads
+cannot increase the admitted snapshot.
 
 `nova_lookup_stream` carries lookup invalidation. The one shared dedicated listener
 fans exact decimal revisions only to subscribers for that Project, and the app

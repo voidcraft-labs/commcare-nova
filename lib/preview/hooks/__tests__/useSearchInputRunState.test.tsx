@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { act, renderHook } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
@@ -18,7 +18,13 @@ import {
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
 import { previewLookupData } from "@/lib/preview/engine/lookupEvaluation";
+import { openSearchRangesAction } from "@/lib/preview/engine/openSearchRangesAction";
+import { isRangeWithDefault } from "@/lib/preview/engine/searchRangeOpening";
 import { useSearchInputRunState } from "../useSearchInputRunState";
+
+vi.mock("@/lib/preview/engine/openSearchRangesAction", () => ({
+	openSearchRangesAction: vi.fn(),
+}));
 
 const searchInputs = [
 	simpleSearchInputDef(
@@ -211,3 +217,79 @@ function runEnvironment(inputs: readonly SearchInputDef[]) {
 	});
 	return { doc, moduleUuid: doc.moduleOrder[0] };
 }
+
+it("keeps opening dates and their receipt through an unrelated refresh and reads a new menu opening", async () => {
+	const source = term(sessionContext("userid"));
+	const uuid = testUuid("held-range");
+	const fields = [
+		simpleSearchInputDef(uuid, "period", "Dates", "date-range", "period", {
+			default: source,
+		}),
+	];
+	const environment = runEnvironment(fields);
+	const field =
+		environment.doc.modules[environment.moduleUuid].caseListConfig
+			?.searchInputs[0];
+	if (!field || !isRangeWithDefault(field))
+		throw new Error("Expected a range with a default.");
+	let week = "first week";
+	vi.mocked(openSearchRangesAction)
+		.mockImplementation(async () => ({
+			kind: "opened",
+			fields: [
+				{
+					field,
+					answers: {
+						"period:starting": week,
+						"period:opening": week + " proof",
+					},
+				},
+			],
+		}))
+		.mockResolvedValueOnce({
+			kind: "opened",
+			fields: [
+				{
+					field: { ...field, label: "Previous label" },
+					answers: { "period:starting": "obsolete dates" },
+				},
+			],
+		});
+	const { result, rerender, unmount } = renderHook(
+		({ scope, active }) =>
+			useSearchInputRunState({
+				scopeKey: scope,
+				searchInputs: fields,
+				session,
+				environment: { ...environment },
+				rangeTarget: active
+					? { appId: "demo", device: webAppsDevice() }
+					: undefined,
+			}),
+		{ initialProps: { scope: "menu one", active: true } },
+	);
+	try {
+		await waitFor(() => expect(result.current.retryOpening).toBeDefined());
+		expect(result.current.pending).toBe(true);
+		act(() => result.current.retryOpening?.());
+		await waitFor(() =>
+			expect(result.current.draft.get("period:starting")).toBe("first week"),
+		);
+		act(() => result.current.submit(result.current.draft));
+		week = "second week";
+		rerender({ scope: "menu one", active: true });
+		expect(result.current.submitted.get("period:opening")).toBe(
+			"first week proof",
+		);
+		expect(openSearchRangesAction).toHaveBeenCalledTimes(2);
+		rerender({ scope: "menu two", active: false });
+		rerender({ scope: "menu one again", active: true });
+		await waitFor(() =>
+			expect(result.current.draft.get("period:starting")).toBe("second week"),
+		);
+		expect(openSearchRangesAction).toHaveBeenCalledTimes(3);
+	} finally {
+		unmount();
+		vi.mocked(openSearchRangesAction).mockReset();
+	}
+});

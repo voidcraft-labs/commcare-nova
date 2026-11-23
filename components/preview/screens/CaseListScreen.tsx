@@ -741,6 +741,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			moduleUuid,
 			device.searchConfiguration?.revision,
 		]),
+		rangeTarget:
+			current && appId && accessPhase === "authorized"
+				? { appId, device, personaUuid: identity?.personaUuid }
+				: undefined,
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
 		environment: searchEnvironment,
@@ -851,7 +855,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * again. The answers a Search press sends, the hidden values among them,
 	 * are the ones Web Apps keeps for the query (`query.js::getAnswers` into
 	 * `utils.js::CloudcareUrl.setQueryData`); the menu's default search
-	 * (`automatic`) gives none. */
+	 * (`automatic`) uses the original answers of Core’s query manager. */
 	const submitSearch = useCallback(
 		(next: ReadonlyMap<string, string>, automatic = false) => {
 			if (!currentSearchScreen.current) return;
@@ -2377,8 +2381,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			automaticSearchToken,
 		);
 		launchedAutomaticSearchRef.current = pass.launched;
-		if (pass.launch) submitSearch(EMPTY_SEARCH_INPUT_VALUES, true);
-	}, [automaticSearchToken, current, submitSearch]);
+		if (pass.launch) submitSearch(searchRun.defaults, true);
+	}, [automaticSearchToken, current, searchRun.defaults, submitSearch]);
 	/* A case the list's address names on a parent's list whose datum names
 	 * no details screen goes on once it has loaded, as its row would
 	 * (`routeCaseAction`). The row's handler is the screen's own, which the
@@ -2942,7 +2946,20 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						data-search-waiting
 						className="text-sm text-nova-text-muted"
 					>
-						{message("searchGettingReady")}
+						{searchRun.openingMessage && (
+							<span className="block">{searchRun.openingMessage}</span>
+						)}
+						{searchRun.retryOpening ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={searchRun.retryOpening}
+							>
+								{message("retrySearchStartingDates")}
+							</Button>
+						) : (
+							message("searchGettingReady")
+						)}
 					</p>
 				)}
 				{accessPhase === "authorized" &&
@@ -2987,6 +3004,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							onSubmit={submitSearch}
 							submitLabel={CASE_SEARCH_BUTTON_LABEL}
 							localizeValidationMessage={localizeSearchValidationMessage}
+							platform={platform}
 							platformRules={platformRules}
 							renderRefusal={(reason) => (
 								<PreviewDataRefusalPanel
@@ -3420,7 +3438,20 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						data-search-waiting
 						className="mb-4 text-sm text-nova-text-muted"
 					>
-						{message("searchGettingReady")}
+						{searchRun.openingMessage && (
+							<span className="block">{searchRun.openingMessage}</span>
+						)}
+						{searchRun.retryOpening ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={searchRun.retryOpening}
+							>
+								{message("retrySearchStartingDates")}
+							</Button>
+						) : (
+							message("searchGettingReady")
+						)}
 					</p>
 				)}
 			{alwaysRegisterAction !== undefined &&

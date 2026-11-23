@@ -72,6 +72,7 @@ DOCUMENTS = (
     "targeted-label-sort",
     "prompt-checkboxes",
     "prompt-widgets",
+    "prompt-periods",
     "case-capture-query",
     "form-link-unconditional",
     "case-operation-query",

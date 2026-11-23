@@ -212,10 +212,6 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
 		"schema:Itemset.label",
 	),
-	defaultOnRange: refuse(
-		`${S}default-value-on-a-date-range-input`,
-		"schema:CaseSearchProperty.default_value",
-	),
 	required: take(
 		`${S}required-test-text`,
 		"schema:CaseSearchProperty.required",
@@ -931,8 +927,6 @@ function readPrompt(
 				refuseWith("name", P.nameOutside);
 		}
 	}
-	if (type === "date-range" && holds("default_value"))
-		refuseWith("default_value", P.defaultOnRange);
 
 	const uuid = ctx.accounting.identity(
 		ctx.identities.claim(
@@ -1197,8 +1191,9 @@ function readPrompt(
 			...common,
 			type,
 			...(options !== undefined && { options }),
-			...(defaultIndex !== undefined &&
-				type !== "date-range" && { default: pendingPlaceholder("value") }),
+			...(defaultIndex !== undefined && {
+				default: pendingPlaceholder("value"),
+			}),
 		};
 		// A refused field reads no property: it stands in the provisional document only so the
 		// expressions that read it bind.

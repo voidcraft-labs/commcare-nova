@@ -1161,17 +1161,7 @@ export function slotContext(
 				input.kind === "hidden"
 			)
 				return undefined;
-			if (
-				slot.slot === "search_input_default" &&
-				"type" in input &&
-				input.type === "date-range"
-			)
-				return undefined;
-			if (
-				slot.slot === "search_input_default" &&
-				"type" in input &&
-				input.type !== "date-range"
-			)
+			if (slot.slot === "search_input_default" && "type" in input)
 				profile = {
 					...profile,
 					expectation: {

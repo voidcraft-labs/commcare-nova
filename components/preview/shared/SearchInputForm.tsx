@@ -79,7 +79,7 @@ import {
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
-import { PLATFORMS } from "@/lib/domain/platforms";
+import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import {
 	PreviewDataRefusal,
 	type PreviewDataRefusalReason,
@@ -106,6 +106,11 @@ import {
 	searchInputRequiredMarks,
 	searchInputRequiredMarksOnDevice,
 } from "@/lib/preview/engine/searchInputConstraints";
+import {
+	androidSelectedRangeDay,
+	androidStartingRangeLabel,
+	webSearchRangeDraft,
+} from "@/lib/preview/engine/searchRangeAnswer";
 import {
 	effectivePreviewPlatform,
 	type PreviewPlatformRules,
@@ -147,6 +152,7 @@ export interface SearchFormClear {
 
 interface SearchInputFormProps {
 	readonly clearRef?: Ref<SearchFormClear>;
+	readonly platform?: Platform;
 	/** Accessible name for the search landmark. The running case list passes
 	 * the same authored title its visible heading shows. */
 	readonly landmarkLabel?: string;
@@ -233,6 +239,7 @@ export function SearchInputForm({
 	onSubmit,
 	submitLabel = "Search",
 	localizeValidationMessage = (source) => source,
+	platform = "web-apps",
 	platformRules = DEFAULT_SEARCH_RULES,
 	renderRefusal,
 }: SearchInputFormProps) {
@@ -284,7 +291,15 @@ export function SearchInputForm({
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
 	// responsive; one debounced effect emits upward.
-	const [draft, setDraft] = useState<SearchInputValues>(value);
+	const [sourceDraft, setDraft] = useState<SearchInputValues>(value);
+	const displayed = useMemo<ReturnType<typeof webSearchRangeDraft>>(
+		() =>
+			platform === "web-apps"
+				? webSearchRangeDraft(searchInputs, sourceDraft)
+				: { draft: sourceDraft },
+		[platform, searchInputs, sourceDraft],
+	);
+	const draft = displayed.draft;
 	const validateSubmission = useCallback(
 		async (candidate: SearchInputValues, quiet = false) => {
 			const request = ++validationRequestRef.current;
@@ -543,22 +558,30 @@ export function SearchInputForm({
 		// Skip when `draft` is the same reference as the last upward
 		// emission OR the most recent external value. Either way, no
 		// real user change occurred: emitting again would loop.
-		if (draft === lastEmittedRef.current) return;
+		if (sourceDraft === lastEmittedRef.current) return;
 		const handle = setTimeout(() => {
-			lastEmittedRef.current = draft;
-			onChangeRef.current(draft);
+			lastEmittedRef.current = sourceDraft;
+			onChangeRef.current(sourceDraft);
 		}, DEBOUNCE_MS);
 		return () => clearTimeout(handle);
-	}, [draft]);
+	}, [sourceDraft]);
 
 	// One mutator routed through every per-input change handler.
 	// Empty values delete the key: the runtime-bindings layer
 	// short-circuits absent and empty alike, so dropping the key
 	// keeps the emitted map tight + avoids spurious entries that
 	// would only ever evaluate to "no clause" downstream.
-	const setKey = (key: string, next: string) => {
+	const setKey = (key: string, next: string, discard?: string) => {
 		setDraft((prev) => {
-			const updated = new Map(prev);
+			const updated = new Map(
+				platform === "web-apps"
+					? webSearchRangeDraft(searchInputs, prev).draft
+					: prev,
+			);
+			if (discard !== undefined) {
+				updated.delete(discard);
+				updated.delete(discard.slice(0, discard.lastIndexOf(":")) + ":opening");
+			}
 			if (next === "") {
 				updated.delete(key);
 			} else {
@@ -611,8 +634,9 @@ export function SearchInputForm({
 	// labelled-but-empty `<search>` landmark to assistive tech.
 	if (visibleInputs.length === 0) return null;
 
-	const refusalReason =
-		requiredRead.kind === "refused"
+	const refusalReason = displayed.unavailable
+		? { kind: "unreadable-starting-range" as const, ...displayed.unavailable }
+		: requiredRead.kind === "refused"
 			? requiredRead.refusal.reason
 			: choicesRead.kind === "refused"
 				? choicesRead.refusal.reason
@@ -642,7 +666,9 @@ export function SearchInputForm({
 								key={input.uuid}
 								input={input}
 								draft={draft}
+								startingLabel={displayed.labels?.get(input.name)}
 								setKey={setKey}
+								platform={platform}
 								showHint={platformRules.searchScreenText}
 								choiceOrder={platformRules.searchChoiceOrder}
 								scanBarcode={
@@ -718,9 +744,11 @@ interface SearchInputRowProps {
 	readonly choiceOrder: PreviewPlatformRules["searchChoiceOrder"];
 	readonly input: VisibleSearchInputDef;
 	readonly draft: SearchInputValues;
-	readonly setKey: (key: string, next: string) => void;
+	readonly startingLabel?: string;
+	readonly setKey: (key: string, next: string, discard?: string) => void;
 	/** Android shows no Search field hints (`searchScreenText`). */
 	readonly showHint: boolean;
+	readonly platform: Platform;
 	/** Android scans a barcode Search field; Web Apps draws a text box. */
 	readonly scanBarcode: boolean;
 	/** Required right now; the label carries the mark. */
@@ -740,8 +768,10 @@ interface SearchInputRowProps {
 function SearchInputRow({
 	input,
 	draft,
+	startingLabel,
 	setKey,
 	showHint,
+	platform,
 	scanBarcode,
 	required,
 	choiceOrder,
@@ -801,8 +831,26 @@ function SearchInputRow({
 					{...chrome}
 					fromValue={draft.get(`${input.name}:from`) ?? ""}
 					toValue={draft.get(`${input.name}:to`) ?? ""}
-					onChangeFrom={(next) => setKey(`${input.name}:from`, next)}
-					onChangeTo={(next) => setKey(`${input.name}:to`, next)}
+					startingText={
+						startingLabel ??
+						(!draft.has(`${input.name}:from`)
+							? androidStartingRangeLabel(draft.get(`${input.name}:starting`))
+							: undefined)
+					}
+					onChangeFrom={(next) =>
+						setKey(
+							`${input.name}:from`,
+							platform === "android" ? androidSelectedRangeDay(next) : next,
+							`${input.name}:starting`,
+						)
+					}
+					onChangeTo={(next) =>
+						setKey(
+							`${input.name}:to`,
+							platform === "android" ? androidSelectedRangeDay(next) : next,
+							`${input.name}:starting`,
+						)
+					}
 					error={error}
 				/>
 			);
@@ -1323,6 +1371,7 @@ function DatePopoverField({
 }
 
 interface DateRangeRowProps extends PromptChrome {
+	readonly startingText?: string;
 	readonly fromValue: string;
 	readonly toValue: string;
 	readonly onChangeFrom: (next: string) => void;
@@ -1347,6 +1396,7 @@ interface DateRangeRowProps extends PromptChrome {
  * shape rather than a runtime invariant.
  */
 function DateRangeRow({
+	startingText,
 	label,
 	hint,
 	required,
@@ -1376,6 +1426,9 @@ function DateRangeRow({
 				<PromptLabelText label={label} required={required} />
 			</legend>
 			<PromptHint id={hintId} hint={hint} />
+			{startingText !== undefined && (
+				<p className="text-sm text-muted-foreground">{startingText}</p>
+			)}
 			<div
 				data-date-range-fields
 				className="grid min-w-0 grid-cols-1 gap-2 @sm/date-range:grid-cols-2"

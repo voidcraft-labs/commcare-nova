@@ -46,8 +46,10 @@ import {
 } from "@/lib/domain";
 import {
 	compatibleTypesFor,
+	concat,
 	type Expression,
 	eq,
+	formatDate,
 	input,
 	literal,
 	match,
@@ -446,7 +448,7 @@ export function expectedTypeForDefault(
 		case "multi-select":
 			return "text";
 		case "date-range":
-			return undefined;
+			return "text";
 	}
 }
 
@@ -458,35 +460,29 @@ export function expectedTypeForDefault(
  * slot context. Frozen module-level entries keep the constraint
  * identity stable across renders (the editor memoizes on it).
  */
-export type ScalarDefaultSearchInputType = Exclude<
-	SearchInputType,
-	"date-range"
->;
 
-const CONSTRAINT_FOR_DEFAULT: Record<
-	ScalarDefaultSearchInputType,
-	SlotConstraint
-> = {
+const CONSTRAINT_FOR_DEFAULT: Record<SearchInputType, SlotConstraint> = {
 	text: { accepts: compatibleTypesFor("text") },
 	barcode: { accepts: compatibleTypesFor("text") },
 	date: { accepts: compatibleTypesFor("date") },
+	"date-range": { accepts: compatibleTypesFor("text") },
 	select: { accepts: compatibleTypesFor("text") },
 	"multi-select": { accepts: compatibleTypesFor("text") },
 	checkboxes: { accepts: compatibleTypesFor("text") },
 };
 
-export function constraintForDefault(
-	type: ScalarDefaultSearchInputType,
-): SlotConstraint {
+export function constraintForDefault(type: SearchInputType): SlotConstraint {
 	return CONSTRAINT_FOR_DEFAULT[type];
 }
 
-export function seedDefaultExpression(
-	type: ScalarDefaultSearchInputType,
-): Expression {
+export function seedDefaultExpression(type: SearchInputType): Expression {
 	switch (type) {
 		case "date":
 			return today();
+		case "date-range": {
+			const day = formatDate(today(), "%Y-%m-%d");
+			return concat(day, term(literal(" to ")), day);
+		}
 		case "text":
 		case "barcode":
 		case "select":

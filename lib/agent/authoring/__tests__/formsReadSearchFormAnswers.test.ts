@@ -21,6 +21,7 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { eq, literal, sessionUser, term } from "@/lib/domain/expression";
+import { proseText } from "@/lib/domain/prose";
 import { readFormSearchAnswers } from "@/lib/preview/caseListRegistration";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { WORKER_INFORMATION_REFUSAL } from "@/lib/preview/engine/dataRefusal";
@@ -50,7 +51,14 @@ function searchStartingOn(key: "commcare_first_name" | "commcare_location_id") {
 
 function searchApp(searchInputs: SearchInputDef[]) {
 	return buildDoc({
-		caseTypes: [{ name: "patient", properties: [] }],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "period", label: proseText("Period"), data_type: "date" },
+				],
+			},
+		],
 		modules: [
 			{
 				uuid: MODULE,
@@ -109,6 +117,28 @@ function answers(
 it("reads each Search field's starting value from the worker's session", () => {
 	expect(answers(searchStartingOn("commcare_first_name"))).toEqual([
 		{ name: "patient_name", value: "Amina" },
+	]);
+});
+
+it("carries raw endpoints to the form’s single instance projection", () => {
+	const doc = searchApp([
+		simpleSearchInputDef(
+			testUuid("form-search-period"),
+			"period",
+			"Period",
+			"date-range",
+			"period",
+			{
+				default: {
+					kind: "term",
+					term: { kind: "literal", value: "2024-01-01 to 2024-12-31" },
+				},
+			},
+		),
+	]);
+	expect(answers(doc)).toEqual([
+		{ name: "period:from", value: "2024-01-01" },
+		{ name: "period:to", value: "2024-12-31" },
 	]);
 });
 

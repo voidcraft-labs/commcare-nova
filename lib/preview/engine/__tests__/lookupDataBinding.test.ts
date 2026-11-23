@@ -5,12 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
 	resolvePreviewIdentityMock,
 	resolveAppScopeMock,
-	getLookupManifestMock,
 	getLookupFixtureDataMock,
 } = vi.hoisted(() => ({
 	resolvePreviewIdentityMock: vi.fn(),
 	resolveAppScopeMock: vi.fn(),
-	getLookupManifestMock: vi.fn(),
 	getLookupFixtureDataMock: vi.fn(),
 }));
 
@@ -22,7 +20,6 @@ vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
 	resolveAppScope: resolveAppScopeMock,
 }));
 vi.mock("@/lib/lookup/service", () => ({
-	getLookupManifest: getLookupManifestMock,
 	getLookupFixtureData: getLookupFixtureDataMock,
 }));
 
@@ -31,6 +28,7 @@ vi.mock("../caseDataBindingTelemetry", () => ({
 }));
 
 import { AppAccessError } from "@/lib/db/appAccess";
+import { LookupError } from "@/lib/lookup/errors";
 import { loadLookupFixtureDataAction } from "../lookupDataBinding";
 
 describe("lookup preview authorization identity", () => {
@@ -47,10 +45,6 @@ describe("lookup preview authorization identity", () => {
 			projectId: "project",
 			role: "editor",
 			actorUserId: "member",
-		});
-		getLookupManifestMock.mockResolvedValue({
-			projectRevision: "1",
-			tables: [],
 		});
 		getLookupFixtureDataMock.mockResolvedValue({
 			projectRevision: "1",
@@ -71,11 +65,6 @@ describe("lookup preview authorization identity", () => {
 			},
 		});
 		expect(resolveAppScopeMock).toHaveBeenCalledWith("app", "member", "view");
-		expect(getLookupManifestMock).toHaveBeenCalledWith({
-			projectId: "project",
-			actorId: "member",
-			role: "editor",
-		});
 		expect(getLookupFixtureDataMock).toHaveBeenCalledWith(
 			{
 				projectId: "project",
@@ -83,6 +72,7 @@ describe("lookup preview authorization identity", () => {
 				role: "editor",
 			},
 			[],
+			"device",
 		);
 	});
 	it("stops before access and data reads when unauthenticated", async () => {
@@ -91,7 +81,7 @@ describe("lookup preview authorization identity", () => {
 			kind: "unauthenticated",
 		});
 		expect(resolveAppScopeMock).not.toHaveBeenCalled();
-		expect(getLookupManifestMock).not.toHaveBeenCalled();
+		expect(getLookupFixtureDataMock).not.toHaveBeenCalled();
 	});
 	it.each([
 		["", []],
@@ -110,7 +100,7 @@ describe("lookup preview authorization identity", () => {
 				message: expect.stringContaining("malformed"),
 			});
 			expect(resolveAppScopeMock).not.toHaveBeenCalled();
-			expect(getLookupManifestMock).not.toHaveBeenCalled();
+			expect(getLookupFixtureDataMock).not.toHaveBeenCalled();
 		},
 	);
 	it("conceals denied app access before materializing fixture rows", async () => {
@@ -119,19 +109,11 @@ describe("lookup preview authorization identity", () => {
 			kind: "error",
 			message: "App not found.",
 		});
-		expect(getLookupManifestMock).not.toHaveBeenCalled();
 		expect(getLookupFixtureDataMock).not.toHaveBeenCalled();
 	});
-	it("allows the exact byte ceiling, ignores unrequested tables and preserves map rows on the wire", async () => {
+	it("preserves map rows and reports an admitted fixture limit on the wire", async () => {
 		const table = "018f0000-0000-7000-8000-000000000001";
 		const rows = [{ id: "018f0000-0000-7000-8000-000000000002", values: {} }];
-		getLookupManifestMock.mockResolvedValue({
-			projectRevision: "1",
-			tables: [
-				{ id: table, dataBytes: 32 * 1024 * 1024 },
-				{ id: "other", dataBytes: 999999999 },
-			],
-		});
 		getLookupFixtureDataMock.mockResolvedValue({
 			projectRevision: "2",
 			definitions: [],
@@ -145,19 +127,19 @@ describe("lookup preview authorization identity", () => {
 				rowsByTable: { [table]: rows },
 			},
 		});
-		getLookupManifestMock.mockResolvedValue({
-			projectRevision: "1",
-			tables: [{ id: table, dataBytes: 32 * 1024 * 1024 + 1 }],
-		});
-		getLookupFixtureDataMock.mockClear();
+		getLookupFixtureDataMock.mockRejectedValueOnce(
+			new LookupError(
+				"storage_limit",
+				"This app references more lookup data than Preview can load at once.",
+			),
+		);
 		expect(await loadLookupFixtureDataAction("app", [table])).toMatchObject({
 			kind: "error",
 			message: expect.stringContaining("more lookup data"),
 		});
-		expect(getLookupFixtureDataMock).not.toHaveBeenCalled();
 	});
 	it("keeps internal lookup errors out of the client result", async () => {
-		getLookupManifestMock.mockRejectedValue(
+		getLookupFixtureDataMock.mockRejectedValue(
 			new Error("private database connection detail"),
 		);
 		expect(await loadLookupFixtureDataAction("app", [])).toEqual({

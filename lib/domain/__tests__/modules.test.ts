@@ -900,7 +900,7 @@ describe("searchInputDefSchema — authored prompt shapes", () => {
 		},
 	);
 
-	it("rejects a scalar default on either date-range arm", () => {
+	it("holds a starting expression on either date-range arm", () => {
 		const simple = searchInputDefSchema.safeParse({
 			uuid: u(1),
 			kind: "simple",
@@ -909,7 +909,10 @@ describe("searchInputDefSchema — authored prompt shapes", () => {
 			type: "date-range",
 			property: "visit_date",
 			mode: { kind: "range" },
-			default: { kind: "today" },
+			default: {
+				kind: "term",
+				term: { kind: "literal", value: "2024-03-01 to 2024-04-01" },
+			},
 		});
 		const advanced = searchInputDefSchema.safeParse({
 			uuid: u(2),
@@ -918,10 +921,13 @@ describe("searchInputDefSchema — authored prompt shapes", () => {
 			label: "Window",
 			type: "date-range",
 			predicate: { kind: "match-all" },
-			default: { kind: "today" },
+			default: {
+				kind: "term",
+				term: { kind: "literal", value: "2024-03-01 to 2024-04-01" },
+			},
 		});
-		expect(simple.success).toBe(false);
-		expect(advanced.success).toBe(false);
+		expect(simple.success).toBe(true);
+		expect(advanced.success).toBe(true);
 	});
 });
 

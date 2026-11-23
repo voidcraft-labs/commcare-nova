@@ -16,7 +16,7 @@ import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
-import { readPreviewScreen } from "./dataRefusal";
+import { PreviewDataRefusal, readPreviewScreen } from "./dataRefusal";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import { previewSessionValues } from "./identity";
@@ -30,15 +30,27 @@ import {
 } from "./searchExpressionEvaluation";
 import { searchInputSubmissionErrorsOnDevice } from "./searchInputValidation";
 import {
+	androidSelectedRangeDay,
+	androidStartingRangeLabel,
+	webSearchRangeDraft,
+} from "./searchRangeAnswer";
+import {
+	isRangeWithDefault,
+	RANGE_ANSWER_SUFFIXES,
+} from "./searchRangeOpening";
+import {
 	buildSearchRunState,
 	changeSearchRunDraft,
 	openSearchRunState,
 	restoreSearchRun,
+	searchInputAnswerKeys,
 	withHiddenValues,
 } from "./searchRunState";
 import { readingSurfaceNow, surfacedRefusal } from "./surfacedDataRefusal";
 
 export interface SearchEvaluationInput {
+	/** Complete the preceding Search when a form reads its Results. */
+	completeForForm?: boolean;
 	language?: LanguageTag;
 	moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
@@ -122,20 +134,63 @@ async function searchSnapshot(
 	 * refusal, so the worker's Search is refused as the device refuses it
 	 * when the press builds the query screen (`CaseListScreen`'s
 	 * `screenRefusal` and its refused pane). */
-	const opened = readPreviewScreen(() =>
-		openSearchRunState(input.moduleUuid, inputs, session, environment),
-	);
-	if (opened.kind === "refused") {
-		const step = caseListStep({
-			workflow,
-			formsReadSearch,
-			searchRelevant: relevant,
-			hasSubmitted: false,
-			rules,
-		});
-		if (step !== "browse" || (relevant && input.answers !== undefined))
-			throw opened.refusal;
+	const initialStep = caseListStep({
+		workflow,
+		formsReadSearch,
+		searchRelevant: relevant,
+		hasSubmitted: false,
+		rules,
+	});
+	let answers = input.answers;
+	if (input.completeForForm) {
+		if (!relevant) answers = undefined;
+		else if (initialStep !== "results") answers ??= [];
 	}
+	// App Test resumes this manager across tool calls. Its held answer can be
+	// blank or a partial replacement, even when today's default cannot open.
+	const continuation = input.entry?.draft ?? input.submitted;
+	let heldRanges: Map<Uuid, Record<string, string>> | undefined;
+	if (continuation) {
+		const held = new Map(continuation.map(({ name, value }) => [name, value]));
+		heldRanges = new Map();
+		for (const field of inputs.filter(isRangeWithDefault)) {
+			const answer: Record<string, string> = {};
+			for (const suffix of RANGE_ANSWER_SUFFIXES) {
+				const key = field.name + suffix;
+				const value = held.get(key);
+				if (value !== undefined) answer[key] = value;
+			}
+			heldRanges.set(field.uuid, answer);
+		}
+	}
+	const opened = readPreviewScreen(() => {
+		const initial = openSearchRunState(
+			input.moduleUuid,
+			inputs,
+			session,
+			environment,
+			heldRanges,
+		);
+		if (
+			!relevant ||
+			context.device.platform !== "web-apps" ||
+			(initialStep === "results" && answers === undefined)
+		)
+			return initial;
+		const shown = webSearchRangeDraft(inputs, initial.draft);
+		if (shown.unavailable)
+			throw new PreviewDataRefusal({
+				kind: "unreadable-starting-range",
+				...shown.unavailable,
+			});
+		return { ...initial, draft: shown.draft };
+	});
+	if (
+		opened.kind === "refused" &&
+		(initialStep !== "browse" || (relevant && answers !== undefined))
+	)
+		throw opened.refusal;
+
 	const paneRefusal =
 		opened.kind === "refused" && relevant ? opened.refusal.reason : undefined;
 	let run =
@@ -158,21 +213,44 @@ async function searchSnapshot(
 	const errors = new Map<string, string>(
 		Object.entries(input.entry?.errors ?? {}),
 	);
-	if (input.answers !== undefined) {
+	if (answers !== undefined) {
 		errors.clear();
 		if (!relevant || !config)
 			throw new FormEvaluationInputError(
 				"Search is not available on this screen.",
 			);
-		const values = new Map(run.draft);
+		const projected =
+			context.device.platform === "web-apps"
+				? webSearchRangeDraft(inputs, run.draft)
+				: { draft: run.draft };
+		if (projected.unavailable)
+			throw new PreviewDataRefusal({
+				kind: "unreadable-starting-range",
+				...projected.unavailable,
+			});
+		const values = new Map(projected.draft);
+		const answerKeys = searchInputAnswerKeys(inputs);
 		const seen = new Set<string>();
-		for (const { name, value } of input.answers) {
-			if (!run.allowedKeys.has(name) || seen.has(name))
+		for (const { name, value } of answers) {
+			if (!answerKeys.has(name) || seen.has(name))
 				throw new FormEvaluationInputError(
 					`Search answer ${name} is unavailable or repeated.`,
 				);
 			seen.add(name);
-			values.set(name, value);
+			const rangeEnd = name.endsWith(":from") || name.endsWith(":to");
+			if (rangeEnd) {
+				const field = name.slice(0, name.lastIndexOf(":"));
+				values.delete(field + ":starting");
+				values.delete(field + ":opening");
+			}
+			if (value === "") values.delete(name);
+			else
+				values.set(
+					name,
+					rangeEnd && context.device.platform === "android"
+						? androidSelectedRangeDay(value)
+						: value,
+				);
 		}
 		const runtime = new XPathRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
@@ -219,15 +297,11 @@ async function searchSnapshot(
 	if (
 		input.entry?.cleared !== true &&
 		!run.hasSubmitted &&
-		caseListStep({
-			workflow,
-			formsReadSearch,
-			searchRelevant: relevant,
-			hasSubmitted: false,
-			rules,
-		}) === "results"
+		answers === undefined &&
+		initialStep === "results"
 	)
-		run = changeSearchRunDraft(run, run, new Map(), true);
+		run = changeSearchRunDraft(run, run, run.defaults, true);
+
 	const values = relevant
 		? withHiddenValues(run.submitted, run.submittedHidden)
 		: new Map<string, string>();
@@ -258,6 +332,26 @@ async function searchSnapshot(
 			withSearchInputExpressionValues(inputs, new Map()),
 		),
 	}));
+	// The journey's private continuation keeps the original answer keys. Its
+	// public observation shows the same field text as the worker's screen.
+	const display =
+		context.device.platform === "web-apps"
+			? webSearchRangeDraft(inputs, run.draft)
+			: undefined;
+	const visible = new Map(display?.draft ?? run.draft);
+	for (const field of inputs) {
+		if (field.kind === "hidden" || field.type !== "date-range") continue;
+		const starting = visible.get(field.name + ":starting");
+		visible.delete(field.name + ":starting");
+		visible.delete(field.name + ":opening");
+		if (starting !== undefined && !visible.has(field.name + ":from"))
+			visible.set(
+				field.name,
+				display?.labels?.get(field.name) ??
+					androidStartingRangeLabel(starting) ??
+					starting,
+			);
+	}
 	return {
 		relevant,
 		/** The Search pane's refusal on a list that opens first: the screen
@@ -270,6 +364,7 @@ async function searchSnapshot(
 		/** The menu's forms read the search (`moduleFormsReadSearch`). */
 		formsReadSearch,
 		hasSubmitted: run.hasSubmitted,
+		displayedAnswers: [...visible].map(([name, value]) => ({ name, value })),
 		draft: [...run.draft].map(([name, value]) => ({ name, value })),
 		submitted: run.hasSubmitted
 			? [...withHiddenValues(run.submitted, run.submittedHidden)].map(

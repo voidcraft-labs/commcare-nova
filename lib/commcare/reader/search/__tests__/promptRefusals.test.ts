@@ -287,17 +287,6 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a starting value on a date range",
-		edit: (body) => {
-			const prompt = first(body);
-			prompt.input_ = "daterange";
-			prompt.default_value = "'2020-01-01'";
-		},
-		findings: [
-			[`${S}default-value-on-a-date-range-input`, "search", "case_name"],
-		],
-	},
-	{
 		title: "a field whose choices name no instance",
 		edit: (body) => {
 			const prompt = first(body);

@@ -658,8 +658,16 @@ manage.
 For dates, **Exact value** means the complete selected calendar day, including
 datetime values later that day. Choose **Between dates** when people should
 enter both a start and an end; Nova changes the field to one paired **Date
-range** control automatically. Date ranges do not offer a one-date starting
-value, because that would leave the other end undefined.
+range** control automatically. Under **Starting dates**, **Choose dates**
+sets the first and last days together. Both dates stay the same when the app
+runs in another time zone. **Use a calculation** can fill the dates from
+worker information. Preview shows the dates the selected worker will see.
+A date calculation brought in from CommCare HQ can start a day earlier on
+an Android device west of UTC. Choosing fixed dates avoids this shift.
+An imported starting value can show a single date or more than two dates on
+Web Apps. If Search asks for a valid range, pick a start and an end and search
+again. You can also change the field’s starting dates in the Builder.
+The running search keeps the dates it opened with while the worker checks the results.
 
 A date can be compared with before or after, or searched between two dates. A
 time of day can't: CommCare compares these as numbers and a time is not one, so

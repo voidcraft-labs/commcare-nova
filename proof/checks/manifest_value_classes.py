@@ -9428,7 +9428,7 @@ def custom_sort_on_an_offered_search(use, manifest):
 
 def default_on_date_range(use, manifest):
     """``case-search/default-value-on-a-date-range-input``: a ``default_value`` that holds text on a prompt shown as
-    a date range (``input_: daterange`` on a prompt that is not hidden; ``prompts.ts``, ``defaultOnRange``). A blank
+    a date range (``input_: daterange`` on a prompt that is not hidden). A blank
     default is no default: HQ's build and Web Apps read one only where it holds text."""
     prompt = _prompt_slot(use, "default_value")
     if prompt is None:

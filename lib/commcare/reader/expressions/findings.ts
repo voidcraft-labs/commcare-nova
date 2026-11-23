@@ -99,6 +99,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"case-search/itemset-nodeset-filter-predicate-outside-predicate",
 		"schema:Itemset.nodeset",
 	),
+	"default-value-on-a-date-range-input": take(
+		"case-search/default-value-on-a-date-range-input",
+		"schema:CaseSearchProperty.default_value",
+	),
 	"default-value-lifting-into-valueexpression": take(
 		"case-search/default-value-lifting-into-valueexpression",
 		"schema:CaseSearchProperty.default_value",
@@ -1750,10 +1754,19 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		},
 		refused: () => "case-search/native-filter-value-outside-screen-scope",
 	},
-	search_input_default: fixed(
-		C["default-value-lifting-into-valueexpression"].entry,
-		C["default-value-outside-valueexpression"].entry,
-	),
+	search_input_default: {
+		held(doc, ref) {
+			if (ref.entity === "module" && ref.slot === "search_input_default") {
+				const input = doc.modules[ref.uuid]?.caseListConfig?.searchInputs.find(
+					(candidate) => candidate.uuid === ref.member.searchInputUuid,
+				);
+				if (input?.kind !== "hidden" && input?.type === "date-range")
+					return C["default-value-on-a-date-range-input"].entry;
+			}
+			return C["default-value-lifting-into-valueexpression"].entry;
+		},
+		refused: () => C["default-value-outside-valueexpression"].entry,
+	},
 	search_input_hidden_value: fixed(
 		C["default-value-lifting-into-valueexpression"].entry,
 		C["default-value-outside-valueexpression"].entry,

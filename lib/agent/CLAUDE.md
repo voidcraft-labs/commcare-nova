@@ -343,3 +343,5 @@ An architect that consumes its durable request allowance pauses through the same
 message continuation contract as an ordinary pause. Completed tool effects remain
 acknowledged, reconnect spends no new request, and a new user turn may continue.
 A final accepted response may complete at the exact allowance.
+
+A date-range Search field accepts an inclusive `{from, to}` calendar pair or a text-valued calculation in its `default` argument. The case-list tools turn the pair into a single fixed expression. The app document keeps that expression. The ordinary `getModule` shared read returns an encoded fixed pair as `{from, to}` and any other calculation in its ordinary expression vocabulary, so writing back a human-readable date calculation preserves its worker-zone behavior. A form check that reads search results uses the answers actually submitted by that search, including Web Apps’ formatting of its displayed dates. A form reached separately keeps the original starting answer. Public date overrides use both endpoint keys and reject invalid or reversed dates.

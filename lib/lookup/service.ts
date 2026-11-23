@@ -576,6 +576,7 @@ export async function getAllLookupDefinitions(
 export async function getLookupFixtureData(
 	scope: LookupScope,
 	tableIds: readonly LookupTableId[],
+	purpose: "export" | "device" = "export",
 ): Promise<LookupFixtureDataSnapshot> {
 	assertScope(scope);
 	const db = await getAppDb();
@@ -584,7 +585,12 @@ export async function getLookupFixtureData(
 		.setIsolationLevel("repeatable read")
 		.setAccessMode("read only")
 		.execute((tx) =>
-			readLookupFixtureDataInTransaction(tx, scope.projectId, tableIds),
+			readLookupFixtureDataInTransaction(
+				tx,
+				scope.projectId,
+				tableIds,
+				purpose === "device",
+			),
 		);
 }
 

@@ -150,6 +150,7 @@ import {
 	searchInputValuesFromWire,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import { matchesSavedSearchRanges } from "./savedSearchRanges";
 import {
 	parseChosenCaseIds,
 	parseSearchCsqlRuntimeWire,
@@ -511,6 +512,20 @@ async function prepareRunningCaseRead(
 						userPropertySlugsByUuid(environment.doc),
 					),
 				};
+	if (
+		!matchesSavedSearchRanges(
+			args,
+			context,
+			args.caseListConfig?.searchInputs ?? [],
+			inputValues,
+		)
+	)
+		return {
+			kind: "invalid-search",
+			repair: "inputs",
+			message:
+				"The starting dates changed. You can reopen Search or choose both dates.",
+		};
 	const csqlRuntime = parseSearchCsqlRuntimeWire(args.csqlRuntime);
 	const searched = readsSearchPopulation(
 		environment?.doc ?? context.blueprint,
@@ -639,10 +654,9 @@ async function prepareRunningCaseRead(
 		collectConfigLookupTableIds(args.caseListConfig),
 	);
 	const lookupTableSchemas = lookupDefinitions?.schemas;
-	const excludedLookupData = await loadExpressionLookupData(
-		scope,
+	const excludedLookupData = await loadExpressionLookupData(scope, [
 		args.excludedOwnerIdsExpression,
-	);
+	]);
 	const excludedTypes =
 		args.excludedOwnerIdsExpression === undefined
 			? undefined
@@ -1759,10 +1773,9 @@ export async function loadFilterPreviewAction(args: {
 			scope,
 			collectConfigLookupTableIds(parsedConfig.data),
 		);
-		const excludedLookupData = await loadExpressionLookupData(
-			scope,
+		const excludedLookupData = await loadExpressionLookupData(scope, [
 			args.excludedOwnerIdsExpression,
-		);
+		]);
 		/* The builder's sample is the author's view of stored data, read with
 		 * the session values of the platform the app previews on by default. */
 		const sampleDevice = defaultPreviewDevice(parsedBlueprint.data, undefined);

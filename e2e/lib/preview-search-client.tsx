@@ -41,6 +41,7 @@ const platform =
 const platformRules =
 	platform === undefined ? undefined : previewPlatformRules(platform);
 
+const rangeSpelling = new URLSearchParams(window.location.search).get("range");
 const inputs = [
 	simpleSearchInputDef(
 		testUuid("search-barcode"),
@@ -63,6 +64,14 @@ const inputs = [
 		"Registered",
 		"date-range",
 		"registered",
+		rangeSpelling
+			? {
+					default: {
+						kind: "term",
+						term: { kind: "literal", value: rangeSpelling },
+					},
+				}
+			: undefined,
 	),
 ];
 const caseType = {
@@ -176,6 +185,7 @@ function Surface({ revision }: { revision: number }) {
 			)}
 			{platformRules !== undefined && <SearchHeading rules={platformRules} />}
 			<SearchInputForm
+				platform={platform}
 				platformRules={platformRules}
 				caseType={caseType}
 				searchInputs={inputs}

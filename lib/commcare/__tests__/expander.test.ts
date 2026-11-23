@@ -5210,19 +5210,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(properties[2].appearance).toBe("barcode_scan");
 	});
 
-	it("refuses a scalar default on a paired date-range property", () => {
-		expect(() =>
-			simpleSearchInputDef(
-				testUuid("00000000-0000-4000-8000-000000040015"),
-				"last_visit",
-				"Visit window",
-				"date-range",
-				"last_visit",
-				{ default: today() },
-			),
-		).toThrow();
-	});
-
 	it("keeps mixed simple and advanced prompt bindings with shared widget/default metadata", () => {
 		const doc = buildHqProjectionDoc(
 			{

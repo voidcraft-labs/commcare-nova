@@ -368,3 +368,5 @@ performs a fresh evaluation; no result is cached across actions or sessions.
 
 
 The records screen's `clearSearch` action clears every visible search answer and retires the previous result. A desktop Web Apps journey with `caseSearchConfig.searchOnClear` submits the cleared values through prompt validation. Android has no Clear action.
+
+A date range on a visible Web Apps Search screen displays the dates its client can read. Pressing Search submits the encoded field text, while an automatic search uses Core’s opening answers. On Android the worker sees the native raw fallback. A journey supplies the two editable date ends by name. A continued journey holds its system-generated open answer privately.

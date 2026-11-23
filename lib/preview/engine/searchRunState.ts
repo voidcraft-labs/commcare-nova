@@ -5,6 +5,7 @@ import {
 	type SearchInputDef,
 	searchInputDefault,
 	searchInputLookupSortColumnId,
+	type Uuid,
 } from "@/lib/domain";
 import { PreviewDataRefusal } from "@/lib/preview/engine/dataRefusal";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
@@ -63,7 +64,7 @@ export function changeSearchRunDraft(
 		submitted: submit ? draft : base.submitted,
 		submittedHidden: submit ? desired.resolveHidden() : base.submittedHidden,
 		hasSubmitted: submit ? true : base.hasSubmitted,
-		touched: changedKeys(base.draft, draft, base.touched, base.allowedKeys),
+		touched: changedKeys(base.draft, draft, base.touched, base.keyShapes),
 	};
 }
 
@@ -82,7 +83,7 @@ export function restoreSearchRun(
 			[...values].filter(([key]) => !base.allowedKeys.has(key)),
 		),
 		hasSubmitted: true,
-		touched: changedKeys(base.draft, draft, base.touched, base.allowedKeys),
+		touched: changedKeys(base.draft, draft, base.touched, base.keyShapes),
 	};
 }
 
@@ -110,7 +111,6 @@ export function buildSearchRunState(
 	 *  read them (`openSearchRunState`); otherwise each is read here. */
 	startingValues?: SearchInputValues,
 ): SearchRunState {
-	const allowedKeys = searchInputAnswerKeys(searchInputs);
 	const keyShapes = new Map<string, string>();
 	for (const input of searchInputs) {
 		// A hidden input has no draft key: the worker never answers it. Its
@@ -121,10 +121,13 @@ export function buildSearchRunState(
 		if (input.type === "date-range") {
 			keyShapes.set(`${input.name}:from`, shape);
 			keyShapes.set(`${input.name}:to`, shape);
+			keyShapes.set(`${input.name}:starting`, shape);
+			keyShapes.set(`${input.name}:opening`, shape);
 		} else {
 			keyShapes.set(input.name, shape);
 		}
 	}
+	const allowedKeys = new Set(keyShapes.keys());
 	const defaults =
 		startingValues ??
 		resolveSearchInputDefaults(searchInputs, session, environment);
@@ -184,8 +187,13 @@ export function searchPromptKeys(
 	searchInputs: readonly SearchInputDef[],
 ): Set<string> {
 	const keys = searchInputAnswerKeys(searchInputs);
-	for (const input of searchInputs)
+	for (const input of searchInputs) {
 		if (input.kind === "hidden") keys.add(input.name);
+		else if (input.type === "date-range") {
+			keys.add(input.name + ":starting");
+			keys.add(input.name + ":opening");
+		}
+	}
 	return keys;
 }
 
@@ -216,8 +224,15 @@ export function openSearchRunState(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
+	openedRanges?: ReadonlyMap<Uuid, Readonly<Record<string, string>>>,
 ): SearchRunState {
-	const read = resolveSearchInputDefaults(searchInputs, session, environment);
+	const read = resolveSearchInputDefaults(
+		searchInputs,
+		session,
+		environment,
+		undefined,
+		openedRanges,
+	);
 	resolveSearchHiddenValues(searchInputs, session, environment);
 	const choices = new Map<string, readonly LookupChoice[]>();
 	for (const input of searchInputs) {
@@ -336,6 +351,7 @@ function javaSplit(value: string, separator: string): string[] {
 export function searchScreenOpeningCovered(
 	searchInputs: readonly SearchInputDef[],
 	environment: Pick<PreviewSearchEnvironment, "lookup">,
+	openedRanges?: ReadonlyMap<Uuid, Readonly<Record<string, string>>>,
 ): boolean {
 	const lookup = environment.lookup;
 	for (const input of searchInputs) {
@@ -344,7 +360,11 @@ export function searchScreenOpeningCovered(
 			continue;
 		}
 		const start = searchInputDefault(input);
-		if (start !== undefined && !expressionLookupsCovered(start, lookup))
+		if (
+			start !== undefined &&
+			!openedRanges?.has(input.uuid) &&
+			!expressionLookupsCovered(start, lookup)
+		)
 			return false;
 		if (
 			"options" in input &&
@@ -439,15 +459,21 @@ function changedKeys(
 	previous: SearchInputValues,
 	next: SearchInputValues,
 	priorTouched: ReadonlySet<string>,
-	allowedKeys: ReadonlySet<string>,
+	keyShapes: ReadonlyMap<string, string>,
 ): ReadonlySet<string> {
+	const changed = new Set<string>();
+	for (const [key, shape] of keyShapes)
+		if (previous.get(key) !== next.get(key)) changed.add(shape);
+	// Both ends belong to the same answer. Refreshing the worker's untouched
+	// end from a different starting expression would construct a new range.
 	const touched = new Set(priorTouched);
-	for (const key of allowedKeys) {
-		if ((previous.get(key) ?? "") !== (next.get(key) ?? "")) touched.add(key);
-	}
+	for (const [key, shape] of keyShapes)
+		if (changed.has(shape)) touched.add(key);
 	return touched;
 }
 
 export function hasNonEmptyValue(values: SearchInputValues): boolean {
-	return [...values.values()].some((value) => value !== "");
+	return [...values].some(
+		([key, value]) => !key.endsWith(":opening") && value !== "",
+	);
 }

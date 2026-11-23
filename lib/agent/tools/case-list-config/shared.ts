@@ -42,6 +42,7 @@
  */
 
 import { z } from "zod";
+import { fixedSearchRangeExpression } from "@/lib/commcare/searchRangeStartingValue";
 import { RESERVED_SEARCH_INPUT_NAMES } from "@/lib/commcare/suite/case-search/reservedInputNames";
 import { columnNotOnListMessage } from "@/lib/commcare/validator/rules/case-list/columnNotOnList";
 import {
@@ -61,6 +62,7 @@ import {
 	type SearchInputType,
 	searchInputRequiredSchema,
 	searchInputValidationSchema,
+	searchStartingDatesSchema,
 	simpleDateRangeSearchInputSchema,
 	simpleScalarSearchInputSchema,
 	simpleSelectSearchInputSchema,
@@ -572,6 +574,15 @@ const searchInputUuidSlot = {
  * exact seven final arms to both the SA and MCP surfaces.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
+/** An author can give the two dates directly. A computed or brought-in
+ * starting value keeps its full device expression. Both write one slot. */
+const startingRangeSchema = z.union([
+	valueExpressionInputSchema,
+	searchStartingDatesSchema.transform((dates) =>
+		fixedSearchRangeExpression(dates.from, dates.to),
+	),
+]);
+
 export const searchInputDefInputSchema = z
 	.union([
 		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
@@ -580,6 +591,7 @@ export const searchInputDefInputSchema = z
 			default: valueExpressionInputSchema.optional(),
 		}),
 		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 		}),
@@ -595,6 +607,7 @@ export const searchInputDefInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			predicate: predicateInputSchema,
@@ -625,6 +638,7 @@ export const searchInputUpdateInputSchema = z
 			default: valueExpressionInputSchema.optional(),
 		}),
 		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...visibleSearchInputSlots,
 		}),
 		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
@@ -637,6 +651,7 @@ export const searchInputUpdateInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...visibleSearchInputSlots,
 			predicate: predicateInputSchema,
 		}),

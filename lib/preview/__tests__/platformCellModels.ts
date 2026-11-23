@@ -62,6 +62,10 @@ import {
 	searchInputConstraintErrors,
 	searchInputRequiredMarks,
 } from "../engine/searchInputConstraints";
+import {
+	startingSearchRange,
+	webSearchRangeDraft,
+} from "../engine/searchRangeAnswer";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
 import { drawnSearchInputs } from "../hooks/useSearchInputRunState";
 import {
@@ -604,6 +608,36 @@ export const PLATFORM_MODEL_CHECKS = {
 	},
 
 	/* Android searches whatever the answers: no checks, no required marks. */
+	"starting-dates-android": () => {
+		expect(
+			startingSearchRange(
+				"2024-03-10 to 2024-03-11",
+				"device-zone",
+				"America/New_York",
+			),
+		).toEqual({ kind: "pair", from: "2024-03-09", to: "2024-03-10" });
+		expect(
+			startingSearchRange("unfinished", "device-zone", "America/New_York"),
+		).toEqual({ kind: "unparsed", text: "unfinished" });
+	},
+	"starting-dates-web-apps": () => {
+		const range = simpleSearchInputDef(
+			testUuid("platform-range"),
+			"dates",
+			"Dates",
+			"date-range",
+			"dob",
+		);
+		expect(startingSearchRange("2024-03-10 to 2024-03-11", "utc")).toEqual({
+			kind: "pair",
+			from: "2024-03-10",
+			to: "2024-03-11",
+		});
+		expect(
+			webSearchRangeDraft([range], new Map([["dates:starting", "unfinished"]]))
+				.unavailable?.inputUuid,
+		).toBe(range.uuid);
+	},
 	"search-field-checks-android": () => {
 		const { inputs, session, environment } = searchFixture();
 		expect(

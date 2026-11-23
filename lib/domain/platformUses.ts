@@ -614,6 +614,13 @@ function searchInputUses(
 					: `${path}.validation`,
 			),
 		);
+	if (
+		type === "date-range" &&
+		"default" in input &&
+		input.default !== undefined &&
+		wanted("search-starting-dates")
+	)
+		uses.push(slotUse("search-starting-dates", owner, `${path}.default`));
 	if (type === "barcode" && wanted("barcode-search-field"))
 		uses.push(slotUse("barcode-search-field", owner, `${path}.type`));
 	return uses;

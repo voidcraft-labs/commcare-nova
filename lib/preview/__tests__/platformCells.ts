@@ -205,6 +205,12 @@ export const PLATFORM_CELLS: Readonly<
 		"link-column-raw-android",
 	),
 	"case-search/search-on-clear@android": model("desktop-search-on-clear"),
+	"case-search/default-value-on-a-date-range-input@android": model(
+		"starting-dates-android",
+	),
+	"case-search/default-value-on-a-date-range-input@web-apps": model(
+		"starting-dates-web-apps",
+	),
 	"case-search/required-test-text@android": model(
 		"search-field-checks-android",
 	),

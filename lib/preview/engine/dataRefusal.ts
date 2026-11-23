@@ -58,7 +58,7 @@ export type PreviewDataRefusalReason =
 	 * `RemoteQuerySessionManager.refreshItemSetChoices`). `input` is the
 	 * field's label, or its name where it has none. */
 	| {
-			readonly kind: "unoffered-starting-choice";
+			readonly kind: "unoffered-starting-choice" | "unreadable-starting-range";
 			readonly inputUuid: Uuid;
 			readonly input: string;
 	  };
@@ -87,9 +87,11 @@ export class PreviewDataRefusal extends Error {
 				? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
 				: reason.kind === "owner-without-place"
 					? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
-					: reason.kind === "unoffered-starting-choice"
-						? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
-						: "CommCare refuses this choice list: its table has no rows.",
+					: reason.kind === "unreadable-starting-range"
+						? "Web Apps could not open the starting dates for this search."
+						: reason.kind === "unoffered-starting-choice"
+							? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
+							: "CommCare refuses this choice list: its table has no rows.",
 		);
 		this.name = "PreviewDataRefusal";
 		this.reason = reason;
@@ -161,7 +163,10 @@ export type PreviewDataRefusalSubject =
 	| { readonly kind: "search-answers" }
 	/** A Search field of a one-field screen that starts on a choice its list
 	 *  does not offer, by its label. */
-	| { readonly kind: "starting-choice"; readonly input: string }
+	| {
+			readonly kind: "starting-choice" | "starting-range";
+			readonly input: string;
+	  }
 	/** A key of the worker's data the device holds none of: a place key of
 	 *  a worker assigned nowhere, or a field no one defined. */
 	| { readonly kind: "worker-information" }
@@ -192,6 +197,8 @@ export function previewDataRefusalSubject(
 		};
 	}
 	if (reason.kind === "owner-without-place") return { kind: "owner-place" };
+	if (reason.kind === "unreadable-starting-range")
+		return { kind: "starting-range", input: reason.input };
 	if (reason.kind === "unoffered-starting-choice")
 		return { kind: "starting-choice", input: reason.input };
 	const { instanceId } = reason;

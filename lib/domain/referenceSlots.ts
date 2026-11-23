@@ -138,11 +138,9 @@ type SearchInputArmKind = SearchInputDef["kind"];
 /**
  * The search-input union's second axis. `searchInputDefSchema` is seven arms over
  * TWO independent dimensions — `kind` (simple | advanced | hidden) and widget
- * shape (scalar | date-range | select; the hidden arm has no widget) — because a
- * range default, a scalar range mode, and a choice widget without its table all
- * have to be unrepresentable. Applicability has to name both: `default` lives on
- * the scalar and select arms regardless of kind, so no set of `kind` values alone
- * can describe it.
+ * shape (scalar | date-range | select; the hidden arm has no widget).
+ * Options live only on choice widgets. Starting values live on every
+ * visible widget, including both date-range arms.
  */
 type SearchInputWidget = "scalar" | "date-range" | "select";
 
@@ -750,9 +748,6 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.searchInputs[].default",
 		kind: "expression",
 		searchInputKinds: ["simple", "advanced"],
-		// Scalar and choice widgets. A date-range input owns its range mode and
-		// never carries a scalar default, so the two date-range arms declare no key.
-		searchInputWidgets: ["scalar", "select"],
 	},
 	{
 		entity: "module",

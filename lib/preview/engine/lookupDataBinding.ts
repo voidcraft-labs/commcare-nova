@@ -19,13 +19,15 @@
 import { z } from "zod";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
-import { getLookupFixtureData, getLookupManifest } from "@/lib/lookup/service";
+import { DEVICE_FIXTURE_MAX_TABLES } from "@/lib/lookup/constants";
+import { LookupError } from "@/lib/lookup/errors";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import { resolvePreviewIdentity } from "./previewAuthorization";
+import { readPreviewLookup } from "./workerLookupScope";
 
 export interface LookupFixtureDataWire {
 	readonly projectRevision: string;
@@ -38,15 +40,11 @@ export type LoadLookupFixtureDataResult =
 	| { kind: "data"; data: LookupFixtureDataWire }
 	| { kind: "error"; message: string };
 
-/** Aggregate stored-row-bytes ceiling per fixture request — 2x the
- *  16 MiB CCZ export budget, far under instance memory. */
-const PREVIEW_FIXTURE_BYTE_CEILING = 32 * 1024 * 1024;
-
 const argsSchema = z.object({
 	appId: z.string().min(1),
 	// The doc-derived referenced set — bounded far above any real doc;
 	// the byte ceiling below is the real resource bound.
-	tableIds: z.array(lookupTableIdSchema).max(500),
+	tableIds: z.array(lookupTableIdSchema).max(DEVICE_FIXTURE_MAX_TABLES),
 });
 
 export async function loadLookupFixtureDataAction(
@@ -74,24 +72,7 @@ export async function loadLookupFixtureDataAction(
 			"view",
 		);
 		const scope = { projectId, actorId: identity.actorUserId, role };
-		/* Bound the MATERIALIZED bytes, not just the id count: per-table
-		 * caps allow 8 MiB of rows each, so an id list alone doesn't bound
-		 * the response. Any exportable doc fits the 16 MiB CCZ fixture
-		 * budget with room to spare; a request past the ceiling is either
-		 * abuse or a doc no export could ever accept. */
-		const manifest = await getLookupManifest(scope);
-		const requested = new Set<string>(parsed.data.tableIds);
-		const requestedBytes = manifest.tables
-			.filter((table) => requested.has(table.id as string))
-			.reduce((sum, table) => sum + table.dataBytes, 0);
-		if (requestedBytes > PREVIEW_FIXTURE_BYTE_CEILING) {
-			return {
-				kind: "error",
-				message:
-					"This app references more lookup data than the preview can load at once. Reduce the referenced tables' stored size and try again.",
-			};
-		}
-		const snapshot = await getLookupFixtureData(scope, parsed.data.tableIds);
+		const snapshot = await readPreviewLookup(scope, parsed.data.tableIds);
 		return {
 			kind: "data",
 			data: {
@@ -101,6 +82,8 @@ export async function loadLookupFixtureDataAction(
 			},
 		};
 	} catch (err) {
+		if (err instanceof LookupError && err.code === "storage_limit")
+			return { kind: "error", message: err.message };
 		if (err instanceof AppAccessError) {
 			return { kind: "error", message: "App not found." };
 		}

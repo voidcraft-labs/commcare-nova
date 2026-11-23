@@ -226,6 +226,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"link-column",
 	"search-screen-text",
 	"search-field-checks",
+	"search-starting-dates",
 	"barcode-search-field",
 	"hidden-search-field",
 	"search-first",
@@ -768,6 +769,18 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "ignored",
 			note: "the search runs without checking the answer",
+		},
+	},
+	"search-starting-dates": {
+		label: "Starting dates for Search",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "a calculation uses the server's calendar, and the Search screen needs readable dates",
+		},
+		android: {
+			reading: "different",
+			note: "a calculation uses the worker’s time zone, and the Search screen keeps a value it cannot turn into dates",
 		},
 	},
 	"barcode-search-field": {

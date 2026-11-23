@@ -123,6 +123,10 @@ describe("Search fields Nova emits", () => {
 				label: "Born",
 				kind: "simple",
 				type: "date-range",
+				default: {
+					kind: "term",
+					term: { kind: "literal", value: "2024-01-01 to 2024-12-31" },
+				},
 				property: "dob",
 				mode: { kind: "range" },
 			},

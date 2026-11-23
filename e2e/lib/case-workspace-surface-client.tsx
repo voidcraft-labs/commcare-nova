@@ -99,6 +99,12 @@ if (scenario === "search-date")
 			default: today(),
 		}),
 	];
+if (scenario === "search-calendar-calculation")
+	config.searchInputs = [
+		simpleSearchInputDef(searchId, "dob", "Birth dates", "date-range", "dob", {
+			default: term(literal("2024-03-01 to 2024-03-31")),
+		}),
+	];
 if (scenario === "search-text")
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "name", "Name", "text", "case_name", {

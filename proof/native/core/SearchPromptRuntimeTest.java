@@ -108,6 +108,45 @@ public class SearchPromptRuntimeTest {
         manager.answerUserPrompt(key, value);
         manager.refreshInputDependentState();
     }
+    @Test public void aRangeDefaultsToTheWorkerValueAtOpeningUntilTheNextManager() throws Exception {
+        for (boolean hq : new boolean[]{false, true}) {
+            Data data = new Data("2024-03-10", "regions.fixture.xml");
+            RemoteQuerySessionManager running = manager("prompt-period-held", hq, data);
+            assertEquals("2024-03-10", running.getUserAnswers().get("period"));
+            data.regionGroup.setValue(new StringData("2024-03-11"));
+            running.refreshInputDependentState();
+            assertEquals(Collections.singletonList("2024-03-10"), new ArrayList<>(running.getRawQueryParams(false).get("period")));
+            RemoteQuerySessionManager opened = manager("prompt-period-held", hq, new Data("2024-03-11", "regions.fixture.xml"));
+            assertEquals("2024-03-11", opened.getUserAnswers().get("period"));
+        }
+    }
+    @Test public void rangeDefaultsReachTheFirstRequestAndWorkersCanReplaceThePair() throws Exception {
+        TimeZone original = TimeZone.getDefault();
+        try {
+            for (String zone : Arrays.asList("UTC", "America/New_York")) {
+                TimeZone.setDefault(TimeZone.getTimeZone(zone));
+                for (boolean hq : new boolean[]{false, true}) {
+                    RemoteQuerySessionManager query = manager("prompt-periods", hq, new Data());
+                    String expected = zone.equals("UTC") ? "__range__2024-03-10__2024-03-11" : "__range__2024-03-09__2024-03-10";
+                    assertEquals(expected, query.getUserAnswers().get("visit_date"));
+                    assertEquals(expected, query.getRawQueryParams(false).get("visit_date").iterator().next());
+                    assertEquals("__range__2024-01-01__2024-12-31", query.getUserAnswers().get("period"));
+                    answer(query, "period", "__range__2025-02-01__2025-02-28");
+                    assertEquals("__range__2025-02-01__2025-02-28", query.getRawQueryParams(false).get("period").iterator().next());
+                    RemoteQuerySessionManager spellings = manager("prompt-period-spellings", hq, new Data());
+                    assertEquals("2024-01-02__2024-02-12__2024-05-21", spellings.getRawQueryParams(false).get("period").iterator().next());
+                    assertEquals("2024-03-10", spellings.getRawQueryParams(false).get("visit_date").iterator().next());
+                    RemoteQuerySessionManager initial = manager("prompt-period-fallback", hq, new Data());
+                    assertEquals("awaiting dates", initial.getUserAnswers().get("period"));
+                    assertEquals("awaiting dates", initial.getRawQueryParams(false).get("period").iterator().next());
+                    assertEquals("__range__2024-12-31__2024-01-01", initial.getUserAnswers().get("visit_date"));
+                }
+            }
+        } finally {
+            TimeZone.setDefault(original);
+        }
+    }
+
     @Test public void requiredAndCombinedValidationFollowActualAnswers() throws Exception {
         for (boolean hq : new boolean[]{false, true}) {
             RemoteQuerySessionManager manager = manager("prompt-widgets", hq, new Data());

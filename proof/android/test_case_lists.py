@@ -176,6 +176,31 @@ def test_checkbox_search_sends_each_checked_value_on_both_archives(android_docum
             assert typed["RemoteQuerySessionManager.getRawQueryParams"]["regions"] == ["east", "north"]
 
 
+@pytest.mark.parametrize(("document_id","period","screen_text"), [
+    ("prompt-periods","__range__2024-01-01__2024-12-31","2024-01-01 to 2024-12-31"),
+    ("prompt-period-fallback","awaiting dates","awaiting dates"),
+    ("prompt-period-spellings","2024-01-02__2024-02-12__2024-05-21","2024-01-02__2024-02-12__2024-05-21"),
+])
+def test_installed_app_sends_fixed_starting_dates_on_both_archives(android_documents, hq, document_id, period, screen_text):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents[document_id]
+    command = "search_command.m0"
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command])
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", (label, answer)
+            [opened] = [step["query"] for step in answer["walks"][command]["steps"]
+                        if "RemoteQuerySessionManager.getRawQueryParams" in step.get("query", {})]
+            params = opened["RemoteQuerySessionManager.getRawQueryParams"]
+            assert params["period"] == [period], (label, opened)
+            assert opened["pickerText"]["period"] == screen_text, (label, opened)
+            assert set(opened["prompts"]) >= {"period", "visit_date"}, (label, opened)
+
+
 def _ranked(database):
     return replace(
         database,

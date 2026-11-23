@@ -1911,7 +1911,10 @@ describe("readCases — running-app search-input composition", () => {
 			["window:from", "2025-06-01"],
 			["window:to", "2025-06-30"],
 		]);
-		const query = async (property: "dob" | "last_seen") =>
+		const query = async (
+			property: "dob" | "last_seen",
+			answers = inputValues,
+		) =>
 			readCases(store, {
 				tileGrouping: "grouped",
 				reading: SEARCH_READING,
@@ -1927,10 +1930,11 @@ describe("readCases — running-app search-input composition", () => {
 							"Date window",
 							"date-range",
 							property,
+							{ default: term(literal("2025-06-30")) },
 						),
 					],
 				}),
-				inputValues,
+				inputValues: answers,
 			});
 
 		for (const property of ["dob", "last_seen"] as const) {
@@ -1939,6 +1943,18 @@ describe("readCases — running-app search-input composition", () => {
 			if (result.kind !== "rows") continue;
 			expect(result.rows.map((row) => row.case_id)).toEqual([finalDayId]);
 		}
+		const single = await query(
+			"dob",
+			new Map([["window:starting", "2025-06-30"]]),
+		);
+		expect(single.kind).toBe("rows");
+		if (single.kind === "rows")
+			expect(single.rows.map((row) => row.case_id)).toEqual([finalDayId]);
+		const three = await query(
+			"dob",
+			new Map([["window:starting", "2025-05-31__2025-06-30__2025-07-01"]]),
+		);
+		expect(three.kind).toBe("empty");
 	});
 });
 

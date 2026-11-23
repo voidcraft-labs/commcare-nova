@@ -134,6 +134,20 @@ def test_case_list_save_preserves_checkbox_options_and_starting_value(hq, core_r
         assert after == before
 
 
+def test_case_list_page_keeps_fixed_and_calculated_starting_dates(hq, core_runner, editor_driver):
+    document = corpus_document("prompt-periods")
+    with _published(document, document.exports["minimum"].configuration.hq()) as (state, app_id):
+        module = _searching_module(state, app_id)
+        def ranges(current):
+            return [(field.name, field.default_value) for field in current.search_config.properties if field.input_ == "daterange"]
+        before = ranges(module)
+        assert [name for name, _ in before] == ["period", "visit_date"]
+        assert "__range__2024-01-01__2024-12-31" in before[0][1] and "2024-03-10" in before[1][1]
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        assert ranges(operations.held_app(state, app_id).get_module_by_unique_id(module.unique_id)) == before
+
+
 def test_the_case_list_page_offers_related_cases_only_under_related_lookups(hq, core_runner, editor_driver):
     document = corpus_document("search-multiple")
     minimum = document.exports["minimum"].configuration.hq()

@@ -277,6 +277,77 @@ def test_web_apps_submits_the_checked_regions_in_their_displayed_order(
     assert submitted == ["east#,#north"], requests
 
 
+def test_search_shows_both_starting_ranges_and_sends_the_dates(hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence):
+    document = webapps_documents["prompt-periods"]
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    observe = {"eval": "() => [...document.querySelectorAll('input.daterange')].map(field => field.value)"}
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=casedata.document_case_database(document)) as release:
+            run = Session(release, editor_driver).run([*opening, observe, *steps.run_search(), steps.SCREEN])
+    displayed = run.value(len(opening))
+    submitted = [entry["inputs"] for request in _menu_requests(run) if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("starting-search-ranges", {"displayed": displayed, "submitted": submitted})
+    assert run.page_errors == []
+    assert displayed == ["1/1/2024 to 12/31/2024", "3/10/2024 to 3/11/2024"]
+    assert [(input["period"], input["visit_date"]) for input in submitted] == [
+        ("__range__2024-01-01__2024-12-31", "__range__2024-03-10__2024-03-11")
+    ]
+
+
+def test_web_apps_shows_each_readable_date_before_the_worker_replaces_the_range(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["prompt-period-spellings"]
+    fields = "document.querySelectorAll('input.daterange')"
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    read = {"eval": f"() => [...{fields}].map(field => field.value)"}
+    # Setting a new pair and firing change runs the page's own date formatter
+    # and query model handlers before its real Search button gathers the fields.
+    replace = {"eval": f"""() => {{
+        for (const input of {fields}) {{
+            input.value = '6/1/2024 to 6/30/2024';
+            input.dispatchEvent(new Event('change', {{bubbles: true}}));
+        }}
+    }}"""}
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=casedata.document_case_database(document)) as release:
+            run = Session(release, editor_driver).run([*opening, read, replace, *steps.run_search(), steps.SCREEN])
+    displayed = run.value(len(opening))
+    submitted = [entry["inputs"] for request in _menu_requests(run) if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("readable-search-dates", {"displayed": displayed, "submitted": submitted})
+    assert run.page_errors == []
+    assert displayed == ["1/2/2024 to 2/12/2024 to 5/21/2024", "3/10/2024"]
+    assert [(item["period"], item["visit_date"]) for item in submitted] == [
+        ("__range__2024-06-01__2024-06-30", "__range__2024-06-01__2024-06-30")
+    ]
+
+
+def test_web_apps_submits_a_workers_range_with_midnight_rollover_and_hour_offset(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["prompt-period-held"]
+    database = casedata.document_case_database(document)
+    raw = "__range__2024-01-02T24:00:00Z__2024-01-04T00:00:00+00"
+    database = dataclasses.replace(database, user_data=(
+        *((key, value) for key, value in database.user_data if key != "region_group"),
+        ("region_group", raw),
+    ))
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    observe = {"eval": "() => document.querySelector('input.daterange').value"}
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([*opening, observe, *steps.run_search(), steps.SCREEN])
+    shown = run.value(len(opening))
+    submitted = [entry["inputs"]["period"] for request in _menu_requests(run) if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("midnight-starting-dates", {"raw": raw, "displayed": shown, "submitted": submitted})
+    assert run.page_errors == []
+    assert shown == "1/3/2024 to 1/4/2024"
+    assert submitted == ["__range__2024-01-03__2024-01-04"]
+
+
 DEFAULT_SEARCH = "targeted-search-workflow"
 TO_RECENT = steps.path(steps.open_app("Search workflows"), steps.choose("Recent patients"))
 TYPED = "Amina"

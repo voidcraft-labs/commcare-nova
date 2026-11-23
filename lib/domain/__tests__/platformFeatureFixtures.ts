@@ -896,6 +896,38 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.searchInputs[0].required",
 		),
 	},
+	"search-starting-dates": {
+		with: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Review dates",
+						"date-range",
+						"dob",
+						{ default: term(literal("2024-03-10 to 2024-03-11")) },
+					),
+				],
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Review dates",
+						"date-range",
+						"dob",
+					),
+				],
+			}),
+		use: slotUse(
+			"search-starting-dates",
+			INPUT_OWNER,
+			"caseListConfig.searchInputs[0].default",
+		),
+	},
 	"barcode-search-field": {
 		with: () => caseApp({ searchInputs: [input("barcode")] }),
 		without: () => caseApp({ searchInputs: [input("text")] }),

@@ -16,6 +16,7 @@ const english = {
 	pageNavigation: "Page navigation",
 	formGettingReady: "This form is getting ready.",
 	searchGettingReady: "This search is getting ready.",
+	retrySearchStartingDates: "Try loading starting dates again",
 	answersLocked: "Answers are locked while this submission finishes.",
 	freshFormStarting: "A fresh form entry is opening.",
 	caseDataRefreshing: "Case data is refreshing. Your answers are still here.",
@@ -264,6 +265,8 @@ const english = {
 		"Search field “{input}” gets its choices from “{table}”, which has no rows, so a phone won't open this search. You can add rows to “{table}” in Project data.",
 	dataRefusalSearchAnswers:
 		"{subject} a search answer that was left blank, so a phone stops here. You can search again with that answer filled in.",
+	dataRefusalStartingRange:
+		"Web Apps couldn’t open the starting dates for “{input}”. You can choose two dates or change its calculation in Search fields.",
 	dataRefusalStartingChoice:
 		"Search field “{input}” starts on a choice its list doesn't offer. CommCare sets such a choice aside only on a search with more than one field, so a phone won't open this search. You can give “{input}” a starting value its list offers.",
 	dataRefusalWorkerPersona:
@@ -335,6 +338,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	pageNavigation: "Navegación de páginas",
 	formGettingReady: "El formulario se está preparando.",
 	searchGettingReady: "La búsqueda se está preparando.",
+	retrySearchStartingDates: "Volver a cargar las fechas iniciales",
 	answersLocked: "Las respuestas están bloqueadas mientras termina el envío.",
 	freshFormStarting: "Se está abriendo una nueva entrada del formulario.",
 	caseDataRefreshing:
@@ -598,6 +602,8 @@ const spanish: Record<RuntimeMessage, string> = {
 		"El campo de búsqueda «{input}» toma sus opciones de «{table}», que no tiene filas, así que un teléfono no abrirá esta búsqueda. Puede añadir filas a «{table}» en los datos del proyecto.",
 	dataRefusalSearchAnswers:
 		"{subject} una respuesta de búsqueda que quedó en blanco, así que un teléfono se detiene aquí. Puede buscar de nuevo con esa respuesta.",
+	dataRefusalStartingRange:
+		"Web Apps no pudo abrir las fechas iniciales de «{input}». Puede elegir dos fechas o cambiar el cálculo en los campos de búsqueda.",
 	dataRefusalStartingChoice:
 		"El campo de búsqueda «{input}» empieza con una opción que su lista no ofrece. CommCare deja de lado esa opción solo en una búsqueda de más de un campo, así que un teléfono no abrirá esta búsqueda. Puede darle a «{input}» un valor inicial que su lista ofrezca.",
 	dataRefusalWorkerPersona:
@@ -829,6 +835,11 @@ export function dataRefusalCopy(
 			};
 		case "search-answers":
 			return { title, body: body("dataRefusalSearchAnswers") };
+		case "starting-range":
+			return {
+				title,
+				body: body("dataRefusalStartingRange", { input: subject.input }),
+			};
 		case "starting-choice":
 			return {
 				title,

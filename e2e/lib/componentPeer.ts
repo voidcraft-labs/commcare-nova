@@ -41,15 +41,23 @@ export async function componentPeer(
 			JSON.parse(readFileSync(".next/required-server-files.json", "utf8")),
 		);
 	const outputDirectory = resolve(".component-peer-assets");
+	// An ordinary browser peer cannot authenticate a server-side Search opening.
+	// A date-range peer that needs one supplies its own service boundary.
+	const moduleAliases = {
+		"@/lib/preview/engine/openSearchRangesAction": resolve(
+			"e2e/lib/search-range-opening-boundary.ts",
+		),
+		...aliases,
+	};
 	const relativeAliases = new Map(
-		Object.entries(aliases).map(([source, target]) => [
+		Object.entries(moduleAliases).map(([source, target]) => [
 			resolve(source.replace(/^@\//, "")),
 			target,
 		]),
 	);
 	const bundle = await build({
 		entryPoints: [entryPoint],
-		alias: { ...aliases },
+		alias: moduleAliases,
 		plugins: [
 			{
 				name: "component-boundary-aliases",

@@ -18,7 +18,9 @@ import {
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { DEVICE_FIXTURE_BYTES, DEVICE_FIXTURE_MAX_TABLES } from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
+import { LookupError } from "./errors";
 import { lookupRowValuesSchema } from "./schema";
 import type { LookupFixtureDataSnapshot, LookupFixtureRow } from "./types";
 
@@ -39,7 +41,13 @@ export async function readLookupFixtureDataInTransaction(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
 	tableIdsInput: readonly LookupTableId[],
+	device = false,
 ): Promise<LookupFixtureDataSnapshot> {
+	if (device && tableIdsInput.length > DEVICE_FIXTURE_MAX_TABLES)
+		throw new LookupError(
+			"storage_limit",
+			"This app uses more lookup tables than Preview can load at once. You can remove a table reference and try again.",
+		);
 	const definitions = await readLookupDefinitionsInTransaction(
 		tx,
 		projectId,
@@ -50,6 +58,21 @@ export async function readLookupFixtureDataInTransaction(
 		presentIds.map((tableId) => [tableId, []]),
 	);
 	if (presentIds.length > 0) {
+		if (device) {
+			// Charge only these admitted Project tables in the same snapshot as
+			// the rows, before the driver or the JS process receives their values.
+			const count = await sql<{
+				bytes: string;
+			}>`SELECT COALESCE(sum(data_bytes), 0)::text AS bytes
+				FROM lookup_tables WHERE project_id = ${projectId} AND id = ANY(${presentIds}::uuid[])`.execute(
+				tx,
+			);
+			if (Number(count.rows[0]?.bytes) > DEVICE_FIXTURE_BYTES)
+				throw new LookupError(
+					"storage_limit",
+					"This app references more lookup data than Preview can load at once. You can reduce the referenced tables' stored size and try again.",
+				);
+		}
 		const result = await sql<StoredFixtureRow>`
 			SELECT
 				table_id::text AS table_id,

@@ -38,6 +38,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
+import { evaluateTextInDeviceZone } from "@/lib/preview/xpath/coreDays";
 import { evaluate, evaluateRuntime } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
@@ -57,6 +58,7 @@ import {
 } from "./lookupEvaluation";
 import type { SearchInputValues } from "./runtimeBindings";
 import { searchInputInstanceValues } from "./runtimeBindings";
+import { setStartingRangeValues } from "./searchRangeAnswer";
 import {
 	type CaseDatabaseSnapshot,
 	SEARCH_INPUT_INSTANCE_ID,
@@ -140,13 +142,14 @@ function searchScreenTree(
 	types: ExpressionContext,
 	session: PreviewSearchSessionValues,
 	lookupData: PreviewLookupData | undefined,
+	userPropertySlugs = previewUserPropertySlugMap(session),
 ): WireExpr {
 	return toWire(expression, {
 		target: "preview",
 		types,
 		bindings: {
 			searchInputInstanceId: SEARCH_INPUT_INSTANCE_ID,
-			userPropertySlugs: previewUserPropertySlugMap(session),
+			userPropertySlugs,
 			...(lookupData === undefined
 				? {}
 				: {
@@ -327,18 +330,30 @@ export function sessionInstancePathValue(
  * default against the session context before it constructs the search-input
  * instance, so sibling defaults do not feed one another. Preview mirrors that
  * lifecycle by evaluating each expression with an empty input bag.
- *
- * Date-range inputs stay empty because their final schema has no scalar
- * default slot.
  */
 export function resolveSearchInputDefaults(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
+	deviceTimeZone?: string,
+	openedRanges?: ReadonlyMap<Uuid, Readonly<Record<string, string>>>,
 ): SearchInputValues {
 	const lookupData = environment.lookup;
 	const values = new Map<string, string>();
-	for (const input of [...searchInputs]) {
+	let evaluation: EvalContext | undefined;
+	let propertySlugs: ReturnType<typeof previewUserPropertySlugMap> | undefined;
+	// Within one module all date-range defaults share the same slot profile.
+	// Reuse its checked context and the manager's instance tree for the opening.
+	let rangeContext: ExpressionContext | undefined;
+	let ownedRanges: Set<Uuid> | undefined;
+
+	for (const input of searchInputs) {
+		const opening = openedRanges?.get(input.uuid);
+		if (opening) {
+			for (const [key, value] of Object.entries(opening))
+				values.set(key, value);
+			continue;
+		}
 		const inputDefault = searchInputDefault(input);
 		if (inputDefault === undefined) continue;
 		/* A default whose carriers the held snapshot doesn't COVER (not
@@ -349,17 +364,59 @@ export function resolveSearchInputDefaults(
 		if (!expressionLookupsCovered(inputDefault, lookupData)) {
 			continue;
 		}
-		const value = evaluatePreviewSearchExpression(
-			inputDefault,
-			searchInputContext(environment, input.uuid, "search_input_default"),
+		const isRange = input.kind !== "hidden" && input.type === "date-range";
+		if (isRange && !ownedRanges) {
+			ownedRanges = new Set(
+				environment.doc.modules[
+					environment.moduleUuid
+				]?.caseListConfig?.searchInputs
+					.filter(
+						(field) => field.kind !== "hidden" && field.type === "date-range",
+					)
+					.map((field) => field.uuid),
+			);
+		}
+		const types: ExpressionContext =
+			isRange && rangeContext && ownedRanges?.has(input.uuid)
+				? {
+						...rangeContext,
+						slot: {
+							entity: "module" as const,
+							uuid: environment.moduleUuid,
+							slot: "search_input_default" as const,
+							member: { searchInputUuid: input.uuid },
+						},
+					}
+				: searchInputContext(environment, input.uuid, "search_input_default");
+		if (isRange && ownedRanges?.has(input.uuid)) rangeContext = types;
+		evaluation ??= searchScreenEvalContext(
+			searchScreenXPathInstances({
+				session,
+				answers: new Map(),
+				lookupData,
+				sessionData: environment.sessionData,
+			}),
 			session,
-			undefined,
-			undefined,
-			lookupData,
-			environment.sessionData,
-		).trim();
-		if (value === "") continue;
-		values.set(input.name, value);
+		);
+		propertySlugs ??= previewUserPropertySlugMap(session);
+		const xpath = printSearchScreenTree(
+			searchScreenTree(inputDefault, types, session, lookupData, propertySlugs),
+		);
+		const context = evaluation;
+		const value = evaluateTextInDeviceZone(deviceTimeZone, () =>
+			xpathToString(evaluate(xpath, context)),
+		);
+		if (input.kind !== "hidden" && input.type === "date-range") {
+			setStartingRangeValues(
+				values,
+				input.name,
+				value,
+				dayNumberEpochOf(session),
+				deviceTimeZone,
+			);
+		} else if (value.trim() !== "") {
+			values.set(input.name, value.trim());
+		}
 	}
 	return values;
 }

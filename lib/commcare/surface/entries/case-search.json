@@ -2784,19 +2784,19 @@
 			"parser:QueryPromptParser/prompt@default"
 		],
 		"valueClass": "default-on-date-range",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a default on a date-range Search field, which HQ's editor offers and Core seeds (`RemoteQuerySessionManager.initUserAnswers`)",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the date range's starting expression in `searchInputs[].default`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "RUNS / RUNS (supported input types only)",
+			"cell": "DIFFERENT (the server calendar and dates the Search screen can read) / DIFFERENT (the worker's time zone and the original text when parsing fails)",
 			"webApps": {
-				"reading": "runs"
+				"reading": "different",
+				"note": "the server calendar and dates the Search screen can read"
 			},
 			"android": {
-				"reading": "runs",
-				"note": "supported input types only"
+				"reading": "different",
+				"note": "the worker's time zone and the original text when parsing fails"
 			}
 		},
 		"emission": {

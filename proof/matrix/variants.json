@@ -34181,12 +34181,16 @@
 		"id": "hq-search/date-range-starting-value",
 		"base": "hq-search",
 		"entry": "case-search/default-value-on-a-date-range-input",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/4/default",
+				"value": {
+					"kind": "term",
+					"term": { "kind": "literal", "value": "2024-01-01 to 2024-12-31" }
+				}
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/4",

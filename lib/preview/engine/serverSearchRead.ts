@@ -65,6 +65,7 @@ export interface ServerSearchWorld {
 
 /** What the worker did on the records screen. */
 export interface ServerSearchRequest {
+	readonly completeForForm?: boolean;
 	readonly moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
 	readonly submitted?: readonly { name: string; value: string }[];
@@ -131,6 +132,7 @@ export async function serverRecordsRead(
 			submitted: request.submitted,
 			entry: request.entry,
 			answers: request.answers,
+			completeForForm: request.completeForForm,
 		},
 		{
 			identity: world.identity,
