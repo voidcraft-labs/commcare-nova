@@ -149,7 +149,9 @@ public class WorkerIdentityRuntimeTest {
                     assertEquals(label, 0, sandbox.getCaseStorage().getNumRecords());
                     continue;
                 }
-                assertEquals(label, " Friday ", org.javarosa.test_utils.ExprEvalUtils.xpathEval(context,
+                // HQ serves the detail as " Friday " (the HQ step holds it); Core reads every fixture text trimmed
+                // (TreeElementParser.parse), as Preview's groups instance does.
+                assertEquals(label, "Friday", org.javarosa.test_utils.ExprEvalUtils.xpathEval(context,
                     "string(instance('groups')/groups/group/group_data/data[@key='meeting'])"));
                 FormParseInit parsed = new FormParseInit("/worker/worker-shared-case" + (hq ? ".hq.xml" : ".xml"));
                 parsed.getFormDef().initialize(true, runtime);

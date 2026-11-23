@@ -1,10 +1,17 @@
 """Generate genuine per-worker fixture bytes, then change membership and restore again."""
 
 from types import SimpleNamespace
-from xml.etree import ElementTree as ET
+from lxml import etree as ET
 
 from proof.hq import operations
 from proof.native.hq_support import native_check
+
+
+def _lxml(node):
+    """An lxml copy of a fixture element, whichever XML library HQ's provider built it with."""
+    from xml.etree import ElementTree
+
+    return ET.fromstring(ElementTree.tostring(node) if isinstance(node, ElementTree.Element) else ET.tostring(node))
 
 
 def restored_audiences(exports):
@@ -15,6 +22,7 @@ def restored_audiences(exports):
     from corehq.apps.locations.models import LocationType, SQLLocation
     from corehq.apps.users.fixturegenerators import UserGroupsFixtureProvider
     from corehq.apps.users.models import CommCareUser
+    from corehq.apps.users.util import format_username
 
     from proof.hq import redis as hq_redis
 
@@ -26,8 +34,17 @@ def restored_audiences(exports):
         hq_redis.shared(None),
         state.committing(),
     ):
+        # Workers made as HQ's mobile worker pages make them, so placing one saves it as HQ saves a worker (a
+        # seeded document has no Django user, whose insert then reads its empty date_joined as a datetime).
         workers = {
-            name: CommCareUser.wrap(operations.seed_mobile_worker(state, name, "mobile-" + name))
+            name: CommCareUser.create(
+                state.domain,
+                format_username(name, state.domain),
+                "worker-groups",
+                created_by=None,
+                created_via=None,
+                uuid="mobile-" + name,
+            )
             for name in ("ada", "bea", "cal")
         }
         root_type = LocationType.objects.create(domain=state.domain, name="District", code="district", shares_cases=False)
@@ -69,8 +86,9 @@ def restored_audiences(exports):
             assert sorted(node.get("id") for node in groups.findall("./groups/group")) == group_ids[name]
             if name == "bea":
                 assert groups.findtext("./groups/group/group_data/data[@key='meeting']") == " Friday "
-            envelope = ET.Element("OpenRosaResponse", xmlns="http://openrosa.org/http/response")
-            envelope.extend([data, groups])
+            # HQ's two fixture providers answer elements of two XML libraries; each is copied in by its bytes.
+            envelope = ET.Element("OpenRosaResponse", nsmap={None: "http://openrosa.org/http/response"})
+            envelope.extend([_lxml(data), _lxml(groups)])
             (exports / f"worker-groups-{name}.restore.xml").write_bytes(ET.tostring(envelope))
         # A new full restore after explicit revocation must omit the worker's
         # own copy of Twin, though another worker still owns an equal-looking row.

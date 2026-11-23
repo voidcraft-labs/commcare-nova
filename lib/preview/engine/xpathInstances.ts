@@ -24,6 +24,7 @@ import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17Double
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
 import type { LocationFixtureRow } from "@/lib/organization/footprint";
+import { javaTrim } from "@/lib/preview/xpath/javaString";
 import type {
 	XPathInstance,
 	XPathNode,
@@ -571,6 +572,21 @@ export function commcareSessionXPathInstance(
 	});
 }
 
+/** A fixture row as a device holds it: Core's `TreeElementParser.parse`
+ * keeps each attribute as written and each element's text trimmed as Java's
+ * `String.trim` trims it, so a cell HQ serves as ` 007 ` reads `007`. */
+function deviceFixtureRow(
+	row: ReturnType<typeof workerFixtureRow>,
+): ReturnType<typeof workerFixtureRow> {
+	return {
+		...row,
+		children: row.children.map((child) => ({
+			...child,
+			value: javaTrim(child.value),
+		})),
+	};
+}
+
 /** Build every XForm-local lookup instance from the
  * exact lookup snapshot the engine captured at activation.
  *
@@ -591,7 +607,9 @@ export function lookupXPathInstances(
 			const create = (instanceId: string) =>
 				new StaticXPathInstance(instanceId, {
 					name: table.listElementName,
-					children: rows.map((row) => workerFixtureRow(table, row)),
+					children: rows.map((row) =>
+						deviceFixtureRow(workerFixtureRow(table, row)),
+					),
 				});
 			return [
 				[table.xformInstanceId, create(table.xformInstanceId)] as const,
@@ -1066,8 +1084,9 @@ export function workerGroupsXPathInstance(
 		children: groups.map((group) => ({
 			name: "group",
 			attributes: { id: group.id },
+			// A device reads each text trimmed (Core's `TreeElementParser.parse`).
 			children: [
-				{ name: "name", value: group.name },
+				{ name: "name", value: javaTrim(group.name) },
 				...(group.details.length
 					? [
 							{
@@ -1075,7 +1094,7 @@ export function workerGroupsXPathInstance(
 								children: group.details.map((detail) => ({
 									name: "data",
 									attributes: { key: detail.key },
-									value: detail.value,
+									value: javaTrim(detail.value),
 								})),
 							},
 						]
