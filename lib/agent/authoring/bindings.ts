@@ -36,6 +36,7 @@ import {
 	HASHTAG_SEGMENT_SOURCE,
 	readCaseReference,
 } from "@/lib/domain/hashtagSegments";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { isSearchOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { userPropertiesOf } from "@/lib/domain/users";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
@@ -55,21 +56,31 @@ export interface NamedAuthoringField {
 
 /** A nested value inherits its enclosing table and the Search validation slot.
  * Reads and writes use this same scope selection. */
+export function enclosingLookupIdentity(
+	input: unknown,
+	path: readonly (string | number)[],
+	key: "tableId" | "columnId",
+	initial?: string,
+) {
+	let enclosing = input,
+		id = initial;
+	for (const segment of path) {
+		if (enclosing !== null && typeof enclosing === "object") {
+			const object = enclosing as Record<string | number, unknown>;
+			const value = object[key];
+			if (typeof value === "string") id = value;
+			enclosing = object[segment];
+		}
+	}
+	return id;
+}
+
 export function enclosingAuthoringTable(
 	input: unknown,
 	path: readonly (string | number)[],
 	initial?: string,
 ) {
-	let enclosing = input;
-	let tableId = initial;
-	for (const segment of path) {
-		if (enclosing !== null && typeof enclosing === "object") {
-			if ("tableId" in enclosing && typeof enclosing.tableId === "string")
-				tableId = enclosing.tableId;
-			enclosing = (enclosing as Record<string | number, unknown>)[segment];
-		}
-	}
-	return tableId;
+	return enclosingLookupIdentity(input, path, "tableId", initial);
 }
 
 export function authoringValueScope(
@@ -214,10 +225,7 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			}));
 		this.tables = options.tables ?? [];
 		const lookupTables = new Map(
-			this.tables.map((table) => [
-				table.id,
-				new Map(table.columns.map((column) => [column.id, column.dataType])),
-			]),
+			this.tables.map((table) => [table.id, lookupReadTypes(table)]),
 		);
 		const table = options.tableId ? this.table(options.tableId) : undefined;
 		this.formCaseTypes =
@@ -454,6 +462,38 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 				column.id === name || column.wireName === name || column.label === name,
 			`Column ${name} in ${table.name}`,
 		);
+	}
+	memberIdentity(tableId: string, columnId: string | undefined, name: string) {
+		const table = this.table(tableId);
+		const members =
+			columnId === undefined
+				? table.attributes
+				: this.column(table, columnId).properties;
+		const identity = members?.find((member) => member.id === name);
+		return (
+			identity ??
+			one(
+				members ?? [],
+				(member) => member.wireName === name || member.label === name,
+				`Detail ${name} in ${table.name}`,
+			)
+		).id;
+	}
+	memberName(tableId: string, columnId: string | undefined, id: string) {
+		const table = this.table(tableId);
+		const members =
+			columnId === undefined
+				? table.attributes
+				: this.column(table, columnId).properties;
+		const member = members?.find((value) => value.id === id);
+		if (!member) return id;
+		try {
+			return this.memberIdentity(tableId, columnId, member.wireName) === id
+				? member.wireName
+				: id;
+		} catch {
+			return id;
+		}
 	}
 	/** The app's menus, in menu order. */
 	private modules(): Module[] {

@@ -18,6 +18,7 @@ import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
+import { LookupValuePicker } from "@/components/builder/shared/LookupValuePicker";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
@@ -334,120 +335,26 @@ export function OptionsSourceEditor<
 				) : null
 			) : (
 				<>
-					<div>
-						<Label htmlFor={valueColumnSelectId} className="text-[13px]">
-							Value that gets saved
-						</Label>
-						<Select
-							value={active.valueColumnId ?? null}
-							disabled={!canEdit}
-							onValueChange={(next) => {
-								const column = table.columns.find(
-									(candidate) => candidate.id === next,
-								);
-								if (column === undefined) {
-									setRejection(
-										"That column is no longer available. Choose another column.",
-									);
-									return;
-								}
-								writeLookup({
-									...active,
-									valueColumnId: column.id,
-								});
-							}}
-						>
-							<SelectTrigger
-								id={valueColumnSelectId}
-								wrapValue
-								className="mt-1 min-h-11 w-full"
-							>
-								<SelectValue placeholder="Choose a column">
-									{(selected) =>
-										/* A render function replaces the placeholder entirely, so
-										 * the unchosen case has to be handled here: a column
-										 * nobody has picked yet is not a column that went
-										 * missing. */
-										selected === null || selected === undefined
-											? "Choose a column"
-											: (table.columns.find((column) => column.id === selected)
-													?.label ?? "A column that is no longer available")
-									}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{table.columns.map((column) => (
-									<LookupChoiceNameOption
-										key={column.id}
-										value={column.id}
-										name={column.wireName}
-										label={column.label}
-										part="column"
-										slot="lookup_options_source"
-										platforms={platforms}
-									/>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-
-					<div>
-						<Label htmlFor={labelColumnSelectId} className="text-[13px]">
-							Value people see
-						</Label>
-						<Select
-							value={active.labelColumnId ?? null}
-							disabled={!canEdit}
-							onValueChange={(next) => {
-								const column = table.columns.find(
-									(candidate) => candidate.id === next,
-								);
-								if (column === undefined) {
-									setRejection(
-										"That column is no longer available. Choose another column.",
-									);
-									return;
-								}
-								writeLookup({
-									...active,
-									labelColumnId: column.id,
-								});
-							}}
-						>
-							<SelectTrigger
-								id={labelColumnSelectId}
-								wrapValue
-								className="mt-1 min-h-11 w-full"
-							>
-								<SelectValue placeholder="Choose a column">
-									{(selected) =>
-										/* A render function replaces the placeholder entirely, so
-										 * the unchosen case has to be handled here: a column
-										 * nobody has picked yet is not a column that went
-										 * missing. */
-										selected === null || selected === undefined
-											? "Choose a column"
-											: (table.columns.find((column) => column.id === selected)
-													?.label ?? "A column that is no longer available")
-									}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{table.columns.map((column) => (
-									<LookupChoiceNameOption
-										key={column.id}
-										value={column.id}
-										name={column.wireName}
-										label={column.label}
-										part="column"
-										slot="lookup_options_source"
-										platforms={platforms}
-									/>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-
+					<LookupValuePicker
+						questionChoice
+						id={valueColumnSelectId}
+						label="Value that gets saved"
+						table={table}
+						value={active.valueColumnId}
+						disabled={!canEdit}
+						names={{ slot: "lookup_options_source", platforms }}
+						onChange={(read) => writeLookup({ ...active, valueColumnId: read })}
+					/>
+					<LookupValuePicker
+						questionChoice
+						id={labelColumnSelectId}
+						label="Value people see"
+						table={table}
+						value={active.labelColumnId}
+						disabled={!canEdit}
+						names={{ slot: "lookup_options_source", platforms }}
+						onChange={(read) => writeLookup({ ...active, labelColumnId: read })}
+					/>
 					<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
 						<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">
 							<Icon

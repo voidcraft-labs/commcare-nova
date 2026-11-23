@@ -2,8 +2,8 @@ import "server-only";
 
 import { type Kysely, sql, type Transaction } from "kysely";
 import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
-import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import { type AppDatabase, getAppDb } from "@/lib/db/pg";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type LookupColumnId,
 	type LookupTableId,
@@ -15,7 +15,11 @@ import {
 	handBackWhilePublishing,
 } from "@/lib/publish/managedData";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import { createTable, type LookupTableOriginColumns } from "./authoringBatch";
+import {
+	createTable,
+	type LookupTableOriginColumns,
+	type ManagedLookupMemberIds,
+} from "./authoringBatch";
 import { validateLookupRowValues } from "./coercion";
 import {
 	LOOKUP_MAX_COLUMNS,
@@ -25,6 +29,14 @@ import {
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError } from "./errors";
 import { formatLookupBytes, formatLookupBytesOverCap } from "./format";
+import { availableBulkSlot, lockLookupBudget } from "./generations/budget";
+import { materializeGeneration } from "./generations/materialize";
+import type { InventoryAccess } from "./generations/scope";
+import {
+	type TransferGenerationEvidence,
+	transferGeneration,
+} from "./generations/transfer";
+import { bindManagedMembers } from "./managedMembers";
 import {
 	columnLabelFor,
 	type LookupRowsMeasure,
@@ -33,24 +45,35 @@ import {
 	managedCanonicalSchema,
 	managedLookupCapRefusal,
 } from "./managedRules";
+import { readTableMembers, updateLookupMembers } from "./members";
 import { balancedKeysBetween } from "./orderKeys";
+import { resolveNamedRowContent } from "./rowContent";
 import {
 	hasUnpairedUtf16Surrogate,
-	lookupRowValuesSchema,
 	lookupTableNameSchema,
 	lookupTagSchema,
 	lookupWireNameSchema,
 	parseLookupRevision,
+	storedLookupRowValuesSchema,
 } from "./schema";
+import {
+	installSourceAssignments,
+	type SourceRowAssignment,
+} from "./sourceAssignments";
 import type {
 	LookupAuthoringBatchReceipt,
 	LookupColumn,
 	LookupReferencingAppSummary,
 	LookupRevision,
+	LookupRowContent,
 	LookupRowValues,
 	LookupTableDefinition,
 	LookupTableRevisions,
 } from "./types";
+import {
+	assertWorkbookEditAvailable,
+	openWorkbookDomain,
+} from "./workbookHold";
 import {
 	advanceLookupProjectRevision,
 	authorizeLookupWriteInTransaction,
@@ -97,6 +120,7 @@ export interface ManagedLookupTableBinding {
 	readonly tableId: LookupTableId;
 	/** Field name to the column that holds it. */
 	readonly columns: Readonly<Record<string, LookupColumnId>>;
+	readonly memberIds?: ManagedLookupMemberIds;
 }
 
 export interface ManagedRefreshReceipt extends LookupTableRevisions {
@@ -302,9 +326,29 @@ export async function readManagedTableReview(
 
 /** The content's fields, each a wire name Nova takes, none repeated. */
 function checkContent(tag: string, content: ManagedLookupContent): void {
-	if (content.fields.length === 0) {
-		invalid(`The lookup table ${tag} has no fields, so Nova can't hold it.`);
+	if (content.fields.length === 0 && !content.attributes?.length) {
+		invalid(
+			`The lookup table ${tag} has no fields or row details, so Nova can't hold it.`,
+		);
 	}
+	if (
+		content.rowDetails &&
+		(content.rows.length !== content.rowDetails.length ||
+			content.rowDetails.some((row) => !row.remoteId) ||
+			new Set(content.rowDetails.map((row) => row.remoteId)).size !==
+				content.rows.length)
+	)
+		invalid(
+			"The source row identities do not match this table. You can refresh the table.",
+		);
+	if (
+		Object.keys(content.fieldDetails ?? {}).some(
+			(name) => !content.fields.includes(name),
+		)
+	)
+		invalid(
+			"A field detail does not belong to this source table. You can refresh the table.",
+		);
 	const seen = new Set<string>();
 	for (const field of content.fields) {
 		const parsed = lookupWireNameSchema.safeParse(field);
@@ -376,6 +420,7 @@ function checkCells(
 async function measureWith(
 	db: Kysely<AppDatabase>,
 	rows: readonly LookupRowValues[],
+	contents?: readonly LookupRowContent[],
 ): Promise<LookupRowsMeasure> {
 	if (rows.length === 0) return { dataBytes: 0, largestRowBytes: 0 };
 	for (const row of rows) {
@@ -391,9 +436,12 @@ async function measureWith(
 		}
 	}
 	const result = await sql<{ largest_row_bytes: string; data_bytes: string }>`
-		SELECT coalesce(max(octet_length(v::jsonb::text)), 0)::bigint::text AS largest_row_bytes,
-			coalesce(sum(octet_length(v::jsonb::text)), 0)::bigint::text AS data_bytes
-		FROM unnest(${rows.map((row) => JSON.stringify(row))}::text[]) AS t(v)
+		SELECT coalesce(max(bytes), 0)::bigint::text AS largest_row_bytes,
+			coalesce(sum(bytes), 0)::bigint::text AS data_bytes
+		FROM (
+			SELECT octet_length(v::jsonb::text) + CASE WHEN c IS NULL OR c::jsonb = '{}'::jsonb THEN 0 ELSE octet_length(c::jsonb::text) END AS bytes
+			FROM unnest(${rows.map((row) => JSON.stringify(row))}::text[], ${contents?.map((content) => JSON.stringify(content)) ?? []}::text[]) AS t(v,c)
+		) measured
 	`.execute(db);
 	const measured = result.rows[0];
 	if (measured === undefined) {
@@ -414,8 +462,9 @@ async function measureWith(
  */
 export async function measureLookupRows(
 	rows: readonly LookupRowValues[],
+	contents?: readonly LookupRowContent[],
 ): Promise<LookupRowsMeasure> {
-	return measureWith(await getAppDb(), rows);
+	return measureWith(await getAppDb(), rows, contents);
 }
 
 /** The caps, judged before anything is written; `storage_limit` names each one the table is over. */
@@ -424,8 +473,12 @@ async function holdCaps(
 	tag: string,
 	content: ManagedLookupContent,
 	rows: readonly LookupRowValues[],
+	contents?: readonly LookupRowContent[],
 ): Promise<void> {
-	const excess = lookupCapExcess(content, await measureWith(tx, rows));
+	const excess = lookupCapExcess(
+		content,
+		await measureWith(tx, rows, contents),
+	);
 	if (excess.length > 0) {
 		throw new LookupError(
 			"storage_limit",
@@ -478,10 +531,6 @@ function originColumns(
 	};
 }
 
-function textColumn(id: LookupColumnId, wireName: string): LookupColumn {
-	return { id, wireName, label: columnLabelFor(wireName), dataType: "text" };
-}
-
 /**
  * Create tables that CommCare HQ manages, with the ids derived for them. One
  * revision, one notice. Each table is named `name`, every column is text with
@@ -505,7 +554,8 @@ export async function createManagedLookupTablesInTransaction(
 	}
 	const tags = new Set<string>();
 	const tableIds = new Set<string>();
-	const prepared = tables.map(({ binding, name, content, origin }) => {
+	const prepared = [];
+	for (const { binding, name, content, origin } of tables) {
 		const tag = binding.tag;
 		const tagCheck = lookupTagSchema.safeParse(tag);
 		if (!tagCheck.success) {
@@ -554,20 +604,46 @@ export async function createManagedLookupTablesInTransaction(
 			columnIds.add(columnId);
 			columnIdOf.set(field, columnId);
 		}
-		const columns = content.fields.map((field, index) => {
-			const id = columnIdOf.get(field);
-			if (id === undefined) {
-				throw new Error(`No column holds the table's field ${index + 1}.`);
-			}
-			return textColumn(id, field);
-		});
+		const rich = await bindManagedMembers(
+			tx,
+			content,
+			columnIdOf,
+			new Map(),
+			binding.memberIds,
+		);
 		const rows = rowValuesFor(content, columnIdOf);
-		return { tag, name, tableId, content, origin, columns, rows };
-	});
+		const contents = rows.map((values, index) =>
+			resolveNamedRowContent(
+				rich.columns,
+				rich.attributes,
+				values,
+				content.rowDetails?.[index] ?? {},
+			),
+		);
+		prepared.push({
+			tag,
+			name,
+			tableId,
+			content,
+			origin,
+			...rich,
+			rows,
+			contents,
+		});
+	}
 	// The caps first, so a cell or row over one is refused with its phrase;
 	// the cells' own check then finds nothing a cap does not name.
 	for (const table of prepared) {
-		await holdCaps(tx, table.tag, table.content, table.rows);
+		if (
+			managedCanonicalSchema.parse(table.origin.canonical).source?.inventory ===
+			"unavailable"
+		) {
+			if (table.rows.length)
+				invalid(
+					"This source has no complete row inventory. You can attach a complete inventory before adding rows.",
+				);
+		} else
+			await holdCaps(tx, table.tag, table.content, table.rows, table.contents);
 		checkCells(table.tag, table.columns, table.rows);
 	}
 
@@ -600,14 +676,20 @@ export async function createManagedLookupTablesInTransaction(
 						key: table.tag,
 						name: table.name,
 						tag: table.tag,
+						attributes: table.attributes,
 						columns: table.columns.map((column) => ({
 							key: column.wireName,
 							wireName: column.wireName,
 							label: column.label,
 							dataType: column.dataType,
+							repeated: column.repeated,
+							properties: column.properties
+								? [...column.properties]
+								: undefined,
 						})),
 						rows: table.content.rows.map((row, index) => ({
 							key: `row-${index}`,
+							content: table.content.rowDetails?.[index],
 							cells: table.content.fields.flatMap((field) =>
 								Object.hasOwn(row, field)
 									? [{ columnKey: field, value: row[field] }]
@@ -618,6 +700,14 @@ export async function createManagedLookupTablesInTransaction(
 					{
 						tableId: table.tableId,
 						columnIds: table.columns.map((column) => column.id),
+						memberIds: table.memberIds,
+						sourceRows: table.content.rowDetails,
+						fieldIndexes: Object.fromEntries(
+							table.columns.map((column) => [
+								column.wireName,
+								column.index ?? "off",
+							]),
+						),
 					},
 					originColumns(scope, table.origin, at),
 				),
@@ -793,10 +883,17 @@ export async function refreshManagedLookupTableInTransaction(
 		readonly olderReadYields: boolean;
 		/** Column ids for fields the table has no column for; minted where absent. */
 		readonly newColumnIds?: Readonly<Record<string, LookupColumnId>>;
+		readonly newMemberIds?: ManagedLookupMemberIds;
 	} & (
 		| {
 				/** The table is managed in CommCare HQ already. */
 				readonly mode: "refresh";
+				/** Locked, verified private storage being promoted on this transaction. */
+				readonly verifiedGeneration?: {
+					id: string;
+					count: number;
+					bytes: string;
+				};
 				/** The revisions a reading saw, where a person's answer rests on them. */
 				readonly reviewed?: LookupTableReviewedRevisions;
 		  }
@@ -809,6 +906,8 @@ export async function refreshManagedLookupTableInTransaction(
 ): Promise<ManagedRefreshReceipt> {
 	const tableId = lookupTableIdSchema.parse(input.tableId);
 	const { content, origin, at, mode } = input;
+	const generation =
+		input.mode === "refresh" ? input.verifiedGeneration : undefined;
 	checkOrigin(origin);
 	const canonical = managedCanonicalSchema.parse(origin.canonical);
 	await lockLookupProjectState(tx, scope);
@@ -847,7 +946,12 @@ export async function refreshManagedLookupTableInTransaction(
 		if (publishing !== null) {
 			throw new LookupError("conflict", handBackWhilePublishing(publishing));
 		}
+		// A renewed takeover must reconstruct access from its own current source.
+		await sql`DELETE FROM lookup_row_assignments WHERE project_id=${scope.projectId} AND table_id=${tableId}`.execute(
+			tx,
+		);
 	}
+	if (managedInHq) await assertWorkbookEditAvailable(tx, tableId);
 	if (input.olderReadYields) {
 		if (table.hq_taken_over_at !== null && table.hq_taken_over_at > at) {
 			throw new LookupError("conflict", HAND_BACK_OVERTAKEN);
@@ -865,9 +969,73 @@ export async function refreshManagedLookupTableInTransaction(
 		throw new LookupReviewMovedError();
 	}
 	checkContent(table.tag, content);
+	const previousCanonical =
+		table.hq_canonical === null
+			? undefined
+			: managedCanonicalSchema.parse(table.hq_canonical);
+	const sourceChanged = !deepEqual(previousCanonical?.source, canonical.source);
+	if (canonical.source?.inventory === "unavailable") {
+		if (!managedInHq || !sameOrigin || table.hq_remote_id !== origin.remoteId)
+			throw new LookupError(
+				"conflict",
+				"This source has no complete row snapshot. You can refresh it before transferring management.",
+			);
+		// Keep the last complete physical rows and their member identities. The
+		// source state gates all current reads; an unknown inventory is never
+		// an empty generation. The canonical source names the current schema.
+
+		if (
+			previousCanonical &&
+			(!deepEqual(previousCanonical.fields, canonical.fields) ||
+				!deepEqual(
+					previousCanonical.itemAttributes ?? [],
+					canonical.itemAttributes ?? [],
+				))
+		)
+			throw new LookupError(
+				"conflict",
+				"The source definition changed while its rows were unavailable. You can refresh with a complete inventory to update this table.",
+			);
+		const changed =
+			sourceChanged || previousCanonical?.digest !== canonical.digest;
+		const revision = changed
+			? await advanceLookupProjectRevision(tx, scope.projectId)
+			: undefined;
+		const updated = await updateLockedLookupTable(
+			tx,
+			scope.projectId,
+			tableId,
+			{
+				hq_canonical: JSON.stringify(origin.canonical),
+				hq_refreshed_at: at,
+				hq_refreshed_by: scope.actorId,
+				...(revision
+					? {
+							definition_revision: revision,
+							rows_revision: revision,
+							updated_by: scope.actorId,
+							updated_at: at,
+						}
+					: {}),
+			},
+		);
+		if (revision)
+			await notifyCommittedLookupMutation(tx, scope.projectId, revision);
+		return {
+			changed: changed ? "definition" : "nothing",
+			addedColumns: [],
+			removedColumns: [],
+			keptGoneColumns: [],
+			...lookupTableRevisions(updated),
+		};
+	}
 
 	if (
 		mode === "refresh" &&
+		!sourceChanged &&
+		!content.rowDetails &&
+		!content.fieldDetails &&
+		!content.attributes &&
 		managedCanonicalSchema.parse(table.hq_canonical).digest ===
 			canonical.digest &&
 		table.hq_remote_id === origin.remoteId
@@ -926,7 +1094,7 @@ export async function refreshManagedLookupTableInTransaction(
 		}
 	}
 	const columnCount = content.fields.length + kept.length;
-	if (columnCount > LOOKUP_MAX_COLUMNS) {
+	if (!generation && columnCount > LOOKUP_MAX_COLUMNS) {
 		throw new LookupError(
 			"storage_limit",
 			managedLookupCapRefusal(table.tag, [
@@ -982,21 +1150,25 @@ export async function refreshManagedLookupTableInTransaction(
 		}
 		columnIdOf.set(field, id);
 	}
-	const rows = rowValuesFor(content, columnIdOf);
-	await holdCaps(tx, table.tag, content, rows);
-	checkCells(
-		table.tag,
-		content.fields.map((field, index) => {
-			const id = columnIdOf.get(field);
-			if (id === undefined) {
-				throw new Error(
-					`No column of the lookup table ${tableId} holds its field ${index + 1}.`,
-				);
-			}
-			return textColumn(id, field);
-		}),
-		rows,
+	const previousMembers = await readTableMembers(tx, scope.projectId, tableId);
+	const rich = await bindManagedMembers(
+		tx,
+		content,
+		columnIdOf,
+		previousMembers,
+		input.newMemberIds,
 	);
+	const rows = rowValuesFor(content, columnIdOf);
+	const contents = rows.map((values, index) =>
+		resolveNamedRowContent(
+			rich.columns,
+			rich.attributes,
+			values,
+			content.rowDetails?.[index] ?? {},
+		),
+	);
+	if (!generation) await holdCaps(tx, table.tag, content, rows, contents);
+	checkCells(table.tag, rich.columns, rows);
 
 	// Which columns read as gone from CommCare HQ is part of the definition
 	// every open page holds (`lookupHqOriginOf`): it was every stored column
@@ -1019,7 +1191,10 @@ export async function refreshManagedLookupTableInTransaction(
 		kept.some(({ column }) => !goneBefore.has(column.id));
 
 	let definitionChanged =
-		mode === "adopt" || table.hq_remote_id !== origin.remoteId || goneChanged;
+		mode === "adopt" ||
+		table.hq_remote_id !== origin.remoteId ||
+		goneChanged ||
+		sourceChanged;
 
 	// Text, in adopt mode, for every column that stays. Nothing stored is
 	// coerced: the rows below are CommCare HQ's strings, and a kept column
@@ -1116,54 +1291,250 @@ export async function refreshManagedLookupTableInTransaction(
 		definitionChanged = true;
 	}
 
+	if (
+		await updateLookupMembers(
+			tx,
+			scope.projectId,
+			tableId,
+			previousMembers,
+			rich.members,
+			[null, ...columnIdOf.values()],
+		)
+	)
+		definitionChanged = true;
+	for (const column of rich.columns) {
+		const before = byWireName.get(column.wireName);
+		const repeated = column.repeated ?? false;
+		if (before && before.repeated !== repeated && keptIds.has(before.id)) {
+			const blockingApps = await appsReadingColumn(
+				tx,
+				scope.projectId,
+				tableId,
+				column.id,
+			);
+			throw new LookupError(
+				blockingApps.length ? "referenced" : "accepted_design",
+				"The source changed how a column holds values. You can update the apps or accepted design using this column, then refresh.",
+				{ blockingApps },
+			);
+		}
+		const index = column.index ?? "off";
+		if (
+			(before?.repeated ?? false) !== repeated ||
+			(before?.index_status ?? "off") !== index
+		) {
+			await tx
+				.updateTable("lookup_columns")
+				.set({ repeated, index_status: index })
+				.where("project_id", "=", scope.projectId)
+				.where("table_id", "=", tableId)
+				.where("id", "=", column.id)
+				.execute();
+			definitionChanged = true;
+		}
+	}
+	if (generation) {
+		if (
+			content.rows.length ||
+			canonical.source?.storage !== "generation" ||
+			canonical.rowCount !== generation.count ||
+			table.hq_remote_id !== origin.remoteId
+		)
+			throw new LookupReviewMovedError();
+		const complete =
+			await sql`SELECT 1 FROM lookup_generations WHERE project_id=${scope.projectId} AND table_id=${tableId}
+            AND id=${generation.id} AND state='complete' AND next_ordinal=${generation.count} AND payload_bytes=${generation.bytes}`.execute(
+				tx,
+			);
+		if (!complete.rows.length) throw new LookupReviewMovedError();
+		const revision = await advanceLookupProjectRevision(tx, scope.projectId);
+		const updated = await updateLockedLookupTable(
+			tx,
+			scope.projectId,
+			tableId,
+			{
+				active_generation_id: generation.id,
+				rows_revision: revision,
+				row_count: generation.count,
+				data_bytes: generation.bytes,
+				column_count: columnCount,
+				...(definitionChanged ? { definition_revision: revision } : {}),
+				hq_canonical: JSON.stringify(origin.canonical),
+				hq_refreshed_at: at,
+				hq_refreshed_by: scope.actorId,
+				updated_at: at,
+				updated_by: scope.actorId,
+			},
+		);
+		await notifyCommittedLookupMutation(tx, scope.projectId, revision);
+		return {
+			...lookupTableRevisions(updated),
+			changed: definitionChanged ? "definition" : "rows",
+			addedColumns,
+			removedColumns: removed.map((column) => column.wire_name),
+			keptGoneColumns: kept.map(({ column, apps }) => ({
+				id: lookupColumnIdSchema.parse(column.id),
+				wireName: column.wire_name,
+				apps,
+			})),
+		};
+	}
+	const sameSourceTable = sameOrigin && table.hq_remote_id === origin.remoteId;
+	const inlineComparable =
+		table.active_generation_id === null &&
+		table.row_count === rows.length &&
+		Number(table.data_bytes) <= LOOKUP_MAX_TABLE_BYTES;
+	const incoming = (content.rowDetails ?? []).map((row) => row.remoteId);
+	// A table can already exceed the inline request budget. Keep the join on
+	// its incoming source IDs and never bring its old rows or large leaves
+	// into memory to decide that this confirmed replacement is different.
 	const current = await tx
 		.selectFrom("lookup_rows")
-		.select("values")
+		.select(["id", "order_key", "hq_row_id", "hq_sort_key", "external_bytes"])
+		.select([
+			sql<unknown>`CASE WHEN ${inlineComparable} AND external_bytes=0 THEN "values" ELSE '{}'::jsonb END`.as(
+				"values",
+			),
+			sql<unknown>`CASE WHEN ${inlineComparable} AND external_bytes=0 THEN content ELSE '{}'::jsonb END`.as(
+				"content",
+			),
+		])
 		.where("project_id", "=", scope.projectId)
 		.where("table_id", "=", tableId)
-		.orderBy("order_key", "asc")
-		.orderBy("id", "asc")
+		.where(
+			sql<boolean>`${inlineComparable} OR (${sameSourceTable} AND hq_row_id=ANY(${incoming}::text[]))`,
+		)
+		.orderBy("order_key")
+		.orderBy("id")
 		.execute();
 	const rowsChanged =
+		!inlineComparable ||
 		current.length !== rows.length ||
 		current.some(
 			(row, index) =>
-				!sameValues(lookupRowValuesSchema.parse(row.values), rows[index]),
+				Number(row.external_bytes) > 0 ||
+				!sameValues(
+					storedLookupRowValuesSchema.parse(row.values),
+					rows[index],
+				) ||
+				!deepEqual(row.content, contents[index]) ||
+				row.hq_row_id !== (content.rowDetails?.[index].remoteId ?? null) ||
+				row.hq_sort_key !== (content.rowDetails?.[index].sortKey ?? null) ||
+				(row.hq_row_id !== null && !sameSourceTable),
 		);
-	let dataBytes = table.data_bytes;
+	let dataBytes = Number(table.data_bytes);
 	if (rowsChanged) {
+		const byRemote = new Map(
+			current.flatMap((row) =>
+				row.hq_row_id !== null && sameSourceTable
+					? [[row.hq_row_id, row] as const]
+					: [],
+			),
+		);
 		await tx
 			.deleteFrom("lookup_rows")
 			.where("project_id", "=", scope.projectId)
 			.where("table_id", "=", tableId)
+			.where(
+				sql<boolean>`NOT ${sameSourceTable} OR hq_row_id IS NULL OR NOT(hq_row_id=ANY(${incoming}::text[]))`,
+			)
 			.execute();
-		dataBytes = 0;
-		if (rows.length > 0) {
-			const orderKeys = balancedKeysBetween(null, null, rows.length);
-			try {
-				const inserted = await tx
-					.insertInto("lookup_rows")
-					.values(
-						rows.map((values, index) => ({
+		await sql`DELETE FROM lookup_cell_value_refs WHERE project_id=${scope.projectId} AND table_id=${tableId}`.execute(
+			tx,
+		);
+		const generatedRows =
+			table.active_generation_id && sameSourceTable
+				? await sql<{
+						source_id: string;
+						row_id: import("./types").LookupRowId;
+					}>`
+			SELECT source_id,row_id FROM lookup_generation_rows WHERE project_id=${scope.projectId} AND table_id=${tableId}
+			AND generation_id=${table.active_generation_id} AND source_id=ANY(${incoming}::text[])`.execute(
+						tx,
+					)
+				: null;
+		const generatedIds = new Map(
+			generatedRows?.rows.map((row) => [row.source_id, row.row_id]),
+		);
+		const orderKeys = balancedKeysBetween(null, null, rows.length);
+		try {
+			// Keep stored source identities in place so a refresh cannot cascade
+			// through their assignments or erase an unchanged row's audit stamp.
+			for (let offset = 0; offset < rows.length; offset += 500) {
+				const writes = rows.slice(offset, offset + 500).flatMap((values, i) => {
+					const index = i + offset;
+					const source = content.rowDetails?.[index];
+					const previous = source && byRemote.get(source.remoteId);
+					const heldId =
+						previous?.id ?? (source && generatedIds.get(source.remoteId));
+					if (
+						previous &&
+						inlineComparable &&
+						Number(previous.external_bytes) === 0 &&
+						previous.order_key === orderKeys[index] &&
+						previous.hq_sort_key === (source?.sortKey ?? null) &&
+						sameValues(
+							storedLookupRowValuesSchema.parse(previous.values),
+							values,
+						) &&
+						deepEqual(previous.content, contents[index])
+					)
+						return [];
+					return [
+						{
 							project_id: scope.projectId,
 							table_id: tableId,
 							order_key: orderKeys[index],
 							values: JSON.stringify(values),
+							content: JSON.stringify(contents[index]),
+							hq_row_id: source?.remoteId,
+							hq_sort_key: source?.sortKey,
 							created_by: scope.actorId,
 							updated_by: scope.actorId,
-						})),
-					)
-					.returning("value_bytes")
-					.execute();
-				dataBytes = inserted.reduce((total, row) => total + row.value_bytes, 0);
-			} catch (error) {
-				translateRowCheck(table.tag, error);
+							...(heldId ? { id: heldId } : {}),
+						},
+					];
+				});
+				if (writes.length)
+					await tx
+						.insertInto("lookup_rows")
+						.values(writes)
+						.onConflict((oc) =>
+							oc
+								.columns(["project_id", "table_id", "id"])
+								.doUpdateSet((eb) => ({
+									order_key: eb.ref("excluded.order_key"),
+									values: eb.ref("excluded.values"),
+									content: eb.ref("excluded.content"),
+									hq_sort_key: eb.ref("excluded.hq_sort_key"),
+									updated_by: scope.actorId,
+									updated_at: at,
+								})),
+						)
+						.execute();
 			}
+		} catch (error) {
+			translateRowCheck(table.tag, error);
 		}
+		const measured = await tx
+			.selectFrom("lookup_rows")
+			.select(
+				sql<number>`coalesce(sum(value_bytes+external_bytes),0)::bigint::text`.as(
+					"bytes",
+				),
+			)
+			.where("project_id", "=", scope.projectId)
+			.where("table_id", "=", tableId)
+			.executeTakeFirstOrThrow();
+		dataBytes = Number(measured.bytes);
 		if (dataBytes > LOOKUP_MAX_TABLE_BYTES) storageFloor(table.tag, dataBytes);
 	}
 
+	if (table.active_generation_id)
+		await sql`UPDATE lookup_generations SET state='retired' WHERE project_id=${scope.projectId}
+		AND table_id=${tableId} AND id=${table.active_generation_id}`.execute(tx);
 	const origins = {
+		active_generation_id: null,
 		hq_server: origin.server,
 		hq_domain: origin.domain,
 		hq_remote_id: origin.remoteId,
@@ -1174,6 +1545,7 @@ export async function refreshManagedLookupTableInTransaction(
 			? {
 					hq_brought_in_at: table.hq_brought_in_at ?? at,
 					hq_brought_in_by: table.hq_brought_in_by ?? scope.actorId,
+					worker_access: "all" as const,
 					hq_taken_over_at: null,
 					hq_taken_over_by: null,
 				}
@@ -1224,30 +1596,11 @@ export async function refreshManagedLookupTableInTransaction(
 	};
 }
 
-/**
- * The project space an open workbook carrying `tableId` goes to, or null
- * where none is open (`hq_remote_writes`, which `lib/deployment/store.ts`
- * writes under the same table's lock), by the one rule of an open write
- * (`openRemoteWrite`).
- */
-async function openWorkbookDomain(
-	tx: Transaction<AppDatabase>,
-	tableId: LookupTableId,
-): Promise<string | null> {
-	const row = await tx
-		.selectFrom("hq_remote_writes")
-		.select("domain")
-		.where("resource_kind", "=", "lookup-table")
-		.where("resource_id", "=", tableId)
-		.where(openRemoteWrite)
-		.orderBy("held_until", "desc")
-		.limit(1)
-		.executeTakeFirst();
-	return row?.domain ?? null;
-}
-
 /** A table a publish's workbook carries, as the workbook's admission locked it. */
 export interface PublishedLookupTableLock {
+	readonly rowsRevision: string;
+	readonly definitionRevision: string;
+	readonly isGlobal: boolean;
 	readonly id: string;
 	readonly tag: string;
 	readonly hqServer: string | null;
@@ -1280,7 +1633,20 @@ export async function lockLookupTablesForPublishInTransaction(
 		.sort();
 	const rows = await tx
 		.selectFrom("lookup_tables")
-		.select(["id", "tag", "hq_server", "hq_domain", "hq_taken_over_at"])
+		.select([
+			"id",
+			"tag",
+			"hq_server",
+			"hq_domain",
+			"hq_taken_over_at",
+			"definition_revision",
+			"rows_revision",
+		])
+		.select(
+			sql<boolean>`worker_access <> 'assigned' AND coalesce(hq_canonical->'source'->>'distribution','global') <> 'assigned'`.as(
+				"is_global",
+			),
+		)
 		.where("project_id", "=", projectId)
 		.where("id", "in", ids)
 		.orderBy("id")
@@ -1291,6 +1657,9 @@ export async function lockLookupTablesForPublishInTransaction(
 		tag: row.tag,
 		hqServer: row.hq_server,
 		hqDomain: row.hq_domain,
+		definitionRevision: String(row.definition_revision),
+		rowsRevision: String(row.rows_revision),
+		isGlobal: row.is_global,
 		takenOver: row.hq_taken_over_at !== null,
 	}));
 }
@@ -1311,6 +1680,15 @@ export async function takeOverManagedLookupTableInTransaction(
 	tableIdInput: LookupTableId,
 	reviewed: ManagedTableReviewed,
 	at: Date,
+	observed?: {
+		readonly indexedFields: readonly string[];
+		readonly sourceDigest: string;
+		readonly assignments?: readonly SourceRowAssignment[];
+		readonly generation?: {
+			access: InventoryAccess;
+			evidence: TransferGenerationEvidence;
+		};
+	},
 ): Promise<LookupTableRevisions> {
 	const tableId = lookupTableIdSchema.parse(tableIdInput);
 	await lockLookupProjectState(tx, scope);
@@ -1325,12 +1703,121 @@ export async function takeOverManagedLookupTableInTransaction(
 		throw new LookupError("not_found", "Lookup resource was not found.");
 	}
 	if (table.hq_taken_over_at !== null) return lookupTableRevisions(table);
+	await assertWorkbookEditAvailable(tx, tableId);
 	await holdReviewed(tx, table, reviewed);
+	const original = managedCanonicalSchema.parse(table.hq_canonical);
+	const source = original.source;
+	if (
+		source &&
+		(source.distribution !== (observed?.assignments ? "assigned" : "global") ||
+			source.inventory !== "complete" ||
+			(source.storage === "generation") !== !!observed?.generation)
+	)
+		throw new LookupError(
+			"managed_in_hq",
+			"This table needs its current complete global data before Nova can manage it.",
+		);
+	if (source && !observed)
+		throw new LookupError(
+			"conflict",
+			"The table needs a fresh index check before Nova can manage it.",
+		);
+	if (observed) {
+		if (original.digest !== observed.sourceDigest)
+			throw new LookupReviewMovedError();
+		const names = original.fields.map((field) => field.name);
+		const indexed = new Set(observed.indexedFields);
+		if (
+			indexed.size !== observed.indexedFields.length ||
+			[...indexed].some((name) => !names.includes(name))
+		)
+			throw new LookupReviewMovedError();
+		if (names.length)
+			await tx
+				.updateTable("lookup_columns")
+				.set({
+					index_status: sql`CASE WHEN wire_name=ANY(${[...indexed]}::text[]) THEN 'indexed' ELSE 'off' END`,
+				})
+				.where("project_id", "=", scope.projectId)
+				.where("table_id", "=", tableId)
+				.where("wire_name", "in", names)
+				.execute();
+	}
+	let materializedBytes: string | undefined;
+	if (observed?.generation) {
+		const { access, evidence } = observed.generation;
+		if (
+			access.tableId !== tableId ||
+			access.scope.projectId !== scope.projectId ||
+			access.scope.actorId !== scope.actorId
+		)
+			throw new LookupReviewMovedError();
+		const verify = async () => {
+			const current = await transferGeneration(
+				tx,
+				access,
+				observed.assignments ? "assigned" : "global",
+			);
+			if (!deepEqual(current.evidence, evidence))
+				throw new LookupReviewMovedError();
+		};
+		await verify();
+		const budget = await lockLookupBudget(tx, scope.projectId);
+		await availableBulkSlot(tx, scope.projectId, budget.bulk_slots);
+		const [definition] = (
+			await readLookupDefinitionsInTransaction(tx, scope.projectId, [tableId])
+		).definitions;
+		if (!definition) throw new LookupReviewMovedError();
+		materializedBytes = await materializeGeneration(
+			tx,
+			{
+				projectId: scope.projectId,
+				tableId,
+				generationId: evidence.generationId,
+			},
+			scope.actorId,
+			definition,
+			evidence.count,
+		);
+		await verify();
+		await sql`UPDATE lookup_generations SET state='retired' WHERE project_id=${scope.projectId} AND table_id=${tableId} AND id=${evidence.generationId}`.execute(
+			tx,
+		);
+	}
+	if (observed?.assignments)
+		await installSourceAssignments(
+			tx,
+			scope.projectId,
+			tableId,
+			observed.assignments,
+		);
 	const projectRevision = await advanceLookupProjectRevision(
 		tx,
 		scope.projectId,
 	);
 	const updated = await updateLockedLookupTable(tx, scope.projectId, tableId, {
+		...(observed
+			? {
+					worker_access: observed.assignments
+						? ("assigned" as const)
+						: ("all" as const),
+					hq_canonical: JSON.stringify({
+						...original,
+						source: {
+							inventory: "complete",
+							distribution: observed.assignments ? "assigned" : "global",
+							indexEvidence: observed.assignments ? "workbook" : "restore",
+						},
+					}),
+				}
+			: {}),
+		...(materializedBytes !== undefined
+			? {
+					active_generation_id: null,
+					rows_revision: projectRevision,
+					data_bytes: materializedBytes,
+				}
+			: {}),
 		hq_taken_over_at: at,
 		hq_taken_over_by: scope.actorId,
 		definition_revision: projectRevision,

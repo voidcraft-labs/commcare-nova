@@ -33,7 +33,6 @@ import { simpleSearchInputDef } from "@/lib/domain/modules";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { expressionSlotKey } from "@/lib/domain/referenceSlots";
 import { wireTable } from "../../../lookup/__tests__/lookupWireCorpus";
-import { parseIssueEntry } from "../findings";
 import { readExpressions } from "../index";
 import { readExpression } from "../readExpression";
 import {
@@ -503,15 +502,10 @@ describe("a form slot's text read through the reading hook", () => {
 				]),
 			}),
 		);
-		expect(judgment.kind).toBe("refused");
-		if (judgment.kind !== "refused" || judgment.cause.kind !== "parse")
-			throw new Error("The groups read was not refused at its parse.");
-		const [issue] = judgment.cause.issues;
-		if (issue === undefined) throw new Error("The refusal names no issue.");
-		expect(issue.code).toBe("groups-held");
-		expect(parseIssueEntry(issue, doc, pending).entryId).toBe(
-			"expressions-and-data/groups-jr-fixture-user-groups",
-		);
+		expect(held(judgment)).toMatchObject({
+			kind: "gt",
+			left: { kind: "count", via: { kind: "worker-groups", where: [] } },
+		});
 	});
 
 	it("reads what Core's own spelling of normalize-space prints back", () => {

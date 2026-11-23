@@ -94,6 +94,7 @@ import {
 
 /** The Project data readers + services a change-set workspace runs over. */
 export interface ChangeSetWorkspaceHost {
+	readonly dataGrant?: ToolInvocationContext["dataGrant"];
 	readonly actorUserId: string;
 	readonly runId: string;
 	readonly chatRunHolder?: ChatRunHolderCapability;
@@ -612,6 +613,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			userId: this.host.actorUserId,
 			runId: this.host.runId,
 			chatRunHolder: this.host.chatRunHolder,
+			dataGrant: this.host.dataGrant,
 			authoringSessionId: this.changeSet.designSessionId ?? undefined,
 			ordinaryAuthoring: this.host.ordinaryAuthoring,
 			snapshot,

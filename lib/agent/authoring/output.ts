@@ -413,6 +413,7 @@ const readProjectors: {
 	getAuthoringGuide: passthrough,
 	getLanguages: passthrough,
 	getLookupTables: passthrough,
+	getWorkerGroups: passthrough,
 	getLookupTableRows: passthrough,
 	evaluateForm: passthrough,
 	readAppTest: passthrough,

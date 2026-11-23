@@ -55,7 +55,7 @@ import {
 	persistableJsonPositiveIntegerSchema,
 } from "./jsonNumber";
 import { lookupOptionsSourceSchema } from "./lookupCarriers";
-import { lookupColumnIdSchema } from "./lookupIds";
+import { lookupReadSchema, sameLookupRead } from "./lookupRead";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
 import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
@@ -1463,7 +1463,7 @@ export const simpleDateRangeSearchInputSchema = visibleSearchInputBase
  * none.
  */
 export const searchInputLookupOptionsSchema = lookupOptionsSourceSchema
-	.extend({ sortColumnId: lookupColumnIdSchema.optional() })
+	.extend({ sortColumnId: lookupReadSchema.optional() })
 	.strict();
 export type SearchInputLookupOptions = z.infer<
 	typeof searchInputLookupOptionsSchema
@@ -1490,7 +1490,10 @@ export function withCanonicalSearchInputOptions<T extends SearchInputDef>(
 ): T {
 	if (!isSelectSearchInput(input)) return input;
 	const { sortColumnId, ...options } = input.options;
-	if (sortColumnId === undefined || sortColumnId !== options.labelColumnId) {
+	if (
+		sortColumnId === undefined ||
+		!sameLookupRead(sortColumnId, options.labelColumnId)
+	) {
 		return input;
 	}
 	return { ...input, options };

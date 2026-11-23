@@ -22,7 +22,10 @@ import {
 } from "@/lib/chat/toolSummary";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
+import { OrganizationError } from "@/lib/organization/errors";
+import * as organizationPages from "@/lib/organization/pages";
 import * as organizationService from "@/lib/organization/service";
+import type { OrganizationSnapshot } from "@/lib/organization/types";
 import {
 	addLocationPropertiesInputSchema,
 	addLocationPropertiesTool,
@@ -87,6 +90,45 @@ function continuation(data: unknown): string {
 	const page = organizationPageSchema.parse(data).page;
 	if (page.nextCursor === null) throw new Error("fixture needs another page");
 	return page.nextCursor;
+}
+
+/** Supply controlled SQL page answers to exercise the tool's combined
+ * level, property and row cursor. The database suite proves its keyset. */
+function servePages(snapshot: OrganizationSnapshot) {
+	return vi
+		.spyOn(organizationPages, "readPlacePage")
+		.mockImplementation(async (_scope, query) => {
+			if (query.revision && query.revision !== snapshot.revision)
+				throw new OrganizationError("conflict", "Places changed.", {
+					currentRevision: snapshot.revision,
+				});
+			const start = Number(query.cursor ?? 0);
+			const filtered = snapshot.locations.filter(
+				(row) => !query.query || row.name.toLowerCase().includes(query.query),
+			);
+			const end = start + (query.limit ?? 40);
+			return {
+				revision: snapshot.revision,
+				total: snapshot.locations.length,
+				...(snapshot.hq && {
+					hq: {
+						...snapshot.hq,
+						leftOut: { ...snapshot.hq.leftOut },
+						goneIds: [],
+					},
+				}),
+				matching: filtered.length,
+				nextCursor: end < filtered.length ? String(end) : null,
+				locations: filtered.slice(start, end).map((row) => ({
+					...row,
+					path: [],
+					hasChildren: false,
+					hasNextSibling: false,
+					previousId: null,
+					gone: false,
+				})),
+			};
+		});
 }
 
 describe("organization authoring tools", () => {
@@ -317,9 +359,7 @@ describe("organization authoring tools", () => {
 				orderKey: String(index),
 			})),
 		} as const;
-		vi.spyOn(organizationService, "readOrganization").mockResolvedValue(
-			snapshot,
-		);
+		servePages(snapshot);
 		const first = await h.runTool(getOrganizationTool, {
 			query: "clinic",
 			limit: 25,
@@ -366,9 +406,9 @@ describe("organization authoring tools", () => {
 			archivedAt: null,
 			orderKey: String(index),
 		}));
-		const read = vi.spyOn(organizationService, "readOrganization");
+		let read: ReturnType<typeof servePages> | undefined;
 		try {
-			read.mockResolvedValue({
+			read = servePages({
 				revision: "4",
 				locations,
 				hq: {
@@ -392,14 +432,14 @@ describe("organization authoring tools", () => {
 					},
 				});
 
-			read.mockResolvedValue({ revision: "4", locations });
+			read = servePages({ revision: "4", locations });
 			const plain = await h.runTool(getOrganizationTool, { limit: 50 });
 			expect(organizationPageSchema.parse(plain.data).locations).toHaveLength(
 				3,
 			);
 			expect(plain.data).not.toHaveProperty("places_managed_in_commcare_hq");
 		} finally {
-			read.mockRestore();
+			read?.mockRestore();
 		}
 	});
 
@@ -446,7 +486,7 @@ describe("organization authoring tools", () => {
 			archivedAt: null,
 			orderKey: String(index),
 		}));
-		vi.spyOn(organizationService, "readOrganization").mockResolvedValue({
+		servePages({
 			revision: "7",
 			locations,
 		});
@@ -643,22 +683,21 @@ describe("organization authoring tools", () => {
 			archivedAt: null,
 			orderKey: "a0",
 		} as const;
-		vi.spyOn(organizationService, "readOrganization")
-			.mockResolvedValueOnce({
-				revision: "7",
-				locations: [
-					location,
-					{
-						...location,
-						id: testUuid("paged-location-2"),
-						siteCode: "clinic_2",
-						orderKey: "a1",
-					},
-				],
-			})
-			.mockResolvedValueOnce({ revision: "8", locations: [location] });
+		servePages({
+			revision: "7",
+			locations: [
+				location,
+				{
+					...location,
+					id: testUuid("paged-location-2"),
+					siteCode: "clinic_2",
+					orderKey: "a1",
+				},
+			],
+		});
 		const first = await h.runTool(getOrganizationTool, { limit: 1 });
 		const cursor = continuation(first.data);
+		servePages({ revision: "8", locations: [location] });
 		const second = await h.runTool(getOrganizationTool, { cursor, limit: 1 });
 		expect(second.data).toMatchObject({ restart: true, revision: "8" });
 	});
@@ -682,7 +721,7 @@ describe("organization authoring tools", () => {
 			archivedAt: null,
 			orderKey: "a0",
 		} as const;
-		vi.spyOn(organizationService, "readOrganization").mockResolvedValue({
+		servePages({
 			revision: "7",
 			locations: [
 				location,
@@ -708,6 +747,10 @@ describe("organization authoring tools", () => {
 					addressBook: { reach: "own-branch" },
 				},
 			],
+		});
+		vi.spyOn(organizationPages, "readPlaceState").mockResolvedValue({
+			revision: "7",
+			total: 2,
 		});
 		const second = await h.runTool(getOrganizationTool, { cursor, limit: 1 });
 		expect(second.data).toMatchObject({ restart: true, revision: "7" });

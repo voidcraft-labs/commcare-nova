@@ -1,3 +1,4 @@
+import { editorLookupReads } from "./lookupTablePresentation";
 // Pick the first meaningful, type-valid condition available in a scope.
 // Structural predicates use this instead of assuming every case type owns a
 // property. A relation-only schema can therefore still seed a real condition,
@@ -30,7 +31,7 @@ export function firstConditionSeed(
 	 * the active table's first admitted column, or the gesture is unavailable
 	 * until the table owns a column. */
 	if (tableRowInScope(ctx)) {
-		return (ctx.tableScope?.columns.length ?? 0) > 0
+		return editorLookupReads(ctx.tableScope).length > 0
 			? firstComparisonDefault(ctx)
 			: undefined;
 	}

@@ -327,3 +327,64 @@ export function xlsxToMarkdown(buffer: Buffer): string {
 		? `${sections}\n\n_(${omittedSheets} additional ${omittedSheets === 1 ? "sheet was" : "sheets were"} not read because this workbook reached the extraction limit)_`
 		: sections;
 }
+
+/** A selected-table export has one definition sheet and one row sheet. Reject
+ * additional sheets before reading their cells. Keep literal strings and
+ * native blank padding distinct from numeric conversions and cached formulas. */
+export function selectedWorkbookGrids(buffer: Buffer, tag: string) {
+	const canonical = canonicalOfficeArchive(buffer, "xlsx");
+	const names = XLSX.read(canonical, {
+		type: "buffer",
+		bookSheets: true,
+	}).SheetNames;
+	if (
+		names.length !== 2 ||
+		!names.includes("types") ||
+		!names.includes(tag) ||
+		tag.toLowerCase() === "types"
+	)
+		throw new Error("Expected a selected workbook");
+	const book = XLSX.read(canonical, {
+		type: "buffer",
+		sheets: ["types", tag],
+		sheetStubs: true,
+		cellFormula: true,
+		cellText: false,
+	});
+	const grid = (name: string) => {
+		const sheet = book.Sheets[name];
+		if (!sheet?.["!ref"] || sheet["!merges"]?.length)
+			throw new Error("Unusable sheet");
+		const bounds = XLSX.utils.decode_range(sheet["!ref"]);
+		const height = bounds.e.r + 1,
+			width = bounds.e.c + 1;
+		if (bounds.s.r !== 0 || bounds.s.c !== 0 || height * width > 400_000)
+			throw new Error("Unusable sheet dimensions");
+		const rows = Array.from({ length: height }, () =>
+			Array<string>(width).fill(""),
+		);
+		for (const [address, cell] of Object.entries(sheet)) {
+			if (address.startsWith("!")) continue;
+			const { r, c } = XLSX.utils.decode_cell(address);
+			if (
+				!Number.isSafeInteger(r) ||
+				!Number.isSafeInteger(c) ||
+				r < 0 ||
+				c < 0 ||
+				r >= height ||
+				c >= width ||
+				cell.f !== undefined ||
+				cell.F !== undefined ||
+				cell.l !== undefined ||
+				!["s", "z"].includes(cell.t)
+			)
+				throw new Error("Expected a literal text cell");
+			if (cell.t === "s") {
+				if (typeof cell.v !== "string") throw new Error("Expected text");
+				rows[r][c] = cell.v;
+			}
+		}
+		return rows;
+	};
+	return { definition: grid("types"), items: grid(tag) };
+}

@@ -146,6 +146,7 @@ export function caseDatabaseRequirements(
 			field.optionsSource.kind === "cases",
 	);
 	const required =
+		doc.appSettings.caseSharing === true ||
 		caseChoices ||
 		explicitReference ||
 		proseReference ||

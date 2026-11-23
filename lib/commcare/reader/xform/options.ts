@@ -1,3 +1,8 @@
+import {
+	bindLookupRead,
+	lookupReadNames,
+	lookupReadPath,
+} from "../../lookup/readPath";
 /**
  * A select's choices: its inline `item`s, or one `itemset` over a lookup table or over
  * the worker's cases in the shape Nova writes for a question's case choices. An itemset's
@@ -8,6 +13,7 @@
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
+import { questionChoiceReadIssue } from "@/lib/domain/lookupRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
@@ -304,8 +310,8 @@ function readItemset(
 			cursor.refuseSubtreeAt(itemset, refOf(label), X.itemsetItextLabel, place);
 			return undefined;
 		}
-		const labelName = singleName(labelRef, true);
-		const valueName = singleName(valueRef, true);
+		const labelName = lookupReadPath(labelRef, "stored-xml");
+		const valueName = lookupReadPath(valueRef, "stored-xml");
 		if (labelName === undefined || valueName === undefined) {
 			cursor.refuseSubtreeAt(
 				itemset,
@@ -315,8 +321,8 @@ function readItemset(
 			);
 			return undefined;
 		}
-		const labelColumn = table.column(labelName);
-		const valueColumn = table.column(valueName);
+		const labelColumn = bindLookupRead(labelName, table);
+		const valueColumn = bindLookupRead(valueName, table);
 		// A ref to a column the table lacks reads blank for every choice on a device: one finding,
 		// which the whole itemset stands behind. Its reason is the form parser's for a read of a
 		// column the table lacks, so a reader of the account can tell a read of the Project's data
@@ -327,17 +333,35 @@ function readItemset(
 			});
 			return undefined;
 		}
-		for (const [name, part, at] of [
-			[tag, "tag", { element: itemset, attribute: "nodeset" }],
-			[labelName, "column", refOf(label)],
-			[valueName, "column", refOf(value)],
+		for (const [names, part, at] of [
+			[[tag], "tag", { element: itemset, attribute: "nodeset" }],
+			[lookupReadNames(labelName), "column", refOf(label)],
+			[lookupReadNames(valueName), "column", refOf(value)],
 		] as const) {
-			const refusal = lookupNameRefusal(name, "lookup_options_source", part);
-			if (refusal !== undefined) {
-				cursor.refuseSubtreeAt(itemset, at, refusal.claim, place, { name });
-				return undefined;
+			for (const name of names) {
+				const refusal = lookupNameRefusal(name, "lookup_options_source", part);
+				if (refusal !== undefined) {
+					cursor.refuseSubtreeAt(itemset, at, refusal.claim, place, { name });
+					return undefined;
+				}
 			}
 		}
+		if (
+			questionChoiceReadIssue(labelColumn) ||
+			questionChoiceReadIssue(valueColumn)
+		) {
+			cursor.refuseSubtreeAt(
+				itemset,
+				questionChoiceReadIssue(labelColumn) ? refOf(label) : refOf(value),
+				X.itemsetRefShape,
+				place,
+			);
+			return undefined;
+		}
+		const labelSites =
+			typeof labelColumn === "string" ? X.lookupRefs : X.richLookupRefs;
+		const valueSites =
+			typeof valueColumn === "string" ? X.lookupRefs : X.richLookupRefs;
 		const sites = X.lookupItemset;
 		const refs = X.lookupRefs;
 		const one = select === "select1";
@@ -370,12 +394,12 @@ function readItemset(
 			[
 				label,
 				one ? refs.select1Label : refs.selectLabel,
-				one ? refs.select1LabelRef : refs.selectLabelRef,
+				one ? labelSites.select1LabelRef : labelSites.selectLabelRef,
 			],
 			[
 				value,
 				one ? refs.select1Value : refs.selectValue,
-				one ? refs.select1ValueRef : refs.selectValueRef,
+				one ? valueSites.select1ValueRef : valueSites.selectValueRef,
 			],
 		] as const) {
 			cursor.take({ element }, siteElement).value;

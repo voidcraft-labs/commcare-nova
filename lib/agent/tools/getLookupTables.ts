@@ -2,7 +2,14 @@ import { z } from "zod";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { readAuthorizedLookupCatalog } from "@/lib/lookup/agentService";
 import { LookupError } from "@/lib/lookup/errors";
-import type { LookupDataType, LookupHqOrigin } from "@/lib/lookup/types";
+import { requiresLookupProjection } from "@/lib/lookup/source";
+import type {
+	LookupColumn,
+	LookupDataType,
+	LookupHqOrigin,
+	LookupMember,
+	LookupTableDefinition,
+} from "@/lib/lookup/types";
 import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import { lookupAgentScope } from "./shared/lookupScope";
@@ -16,6 +23,7 @@ const catalogCursorSchema = z.strictObject({
 	projectRevision: z.string(),
 	tableIndex: z.number().int().nonnegative(),
 	columnOffset: z.number().int().nonnegative(),
+	detailOffset: z.number().int().nonnegative().optional(),
 });
 
 export const getLookupTablesInputSchema = z.strictObject({
@@ -28,14 +36,17 @@ interface CatalogColumn {
 	readonly wireName: string;
 	readonly label: string;
 	readonly dataType: LookupDataType;
+	readonly repeated?: true;
+	readonly index?: LookupColumn["index"];
 }
 interface CatalogTableSegment {
 	readonly id: LookupTableId;
 	readonly name: string;
 	readonly tag: string;
 	readonly columnCount: number;
-	readonly rowCount: number;
-	readonly dataBytes: number;
+	readonly rowCount?: number;
+	readonly dataBytes?: number;
+	readonly rowsRequireSourceAccess?: true;
 	readonly definitionRevision: string;
 	readonly rowsRevision: string;
 	readonly tableRevision: string;
@@ -44,11 +55,26 @@ interface CatalogTableSegment {
 	readonly managed_in_commcare_hq?: ManagedInCommCareHq;
 	readonly columnOffset?: number;
 	readonly columnsComplete: boolean;
+	/** Entries without a column ID describe the whole row. */
+	readonly details?: readonly CatalogDetail[];
 	readonly columns: readonly CatalogColumn[];
+}
+interface CatalogDetail extends LookupMember {
+	readonly columnId?: LookupColumnId;
+}
+function* catalogDetails(
+	table: LookupTableDefinition,
+): Generator<CatalogDetail> {
+	for (const member of table.attributes ?? []) yield member;
+	for (const column of table.columns)
+		for (const member of column.properties ?? [])
+			yield { ...member, columnId: column.id };
 }
 interface ManagedInCommCareHq {
 	/** The project space that manages the table. */
 	readonly project_space: string;
+	readonly inventory?: "complete" | "unavailable";
+	readonly distribution?: "global" | "assigned";
 	/** When Nova's copy was last refreshed from it. */
 	readonly refreshed_at: string;
 }
@@ -106,6 +132,10 @@ function managedInCommCareHq(hq: LookupHqOrigin | undefined): {
 		managed_in_commcare_hq: {
 			project_space: hq.domain,
 			refreshed_at: hq.refreshedAt,
+			...(hq.source && {
+				inventory: hq.source.inventory,
+				distribution: hq.source.distribution,
+			}),
 		},
 	};
 }
@@ -115,6 +145,8 @@ function projectColumn(column: CatalogColumn): CatalogColumn {
 		wireName: column.wireName,
 		label: column.label,
 		dataType: column.dataType,
+		...(column.repeated && { repeated: true }),
+		...(column.index && { index: column.index }),
 	};
 }
 
@@ -122,7 +154,7 @@ function projectColumn(column: CatalogColumn): CatalogColumn {
  * segment without ever crossing the model-facing result ceiling. */
 export const getLookupTablesTool = {
 	description:
-		"Read the Project data-table catalog with names, IDs and revisions. Continue with nextCursor until complete. A table with `managed_in_commcare_hq` is a copy of a table that lives in CommCare HQ. Read it freely. Changing it is refused: its rows and columns change in CommCare HQ.",
+		"Read the Project’s table names, IDs, details and revisions. Continue with nextCursor until complete. Tables managed in CommCare HQ are read-only here. When rowsRequireSourceAccess is true, a connected Project editor can inspect the source inventory in Project data. Each worker sees their own verified data.",
 	inputSchema: getLookupTablesInputSchema,
 	async execute(
 		input: GetLookupTablesInput,
@@ -148,6 +180,7 @@ export const getLookupTablesTool = {
 			}
 			let tableIndex = cursor?.tableIndex ?? 0;
 			let columnOffset = cursor?.columnOffset ?? 0;
+			let detailOffset = cursor?.detailOffset ?? 0;
 			if (tableIndex > catalog.definitions.length) {
 				throw new LookupError(
 					"invalid_input",
@@ -158,7 +191,10 @@ export const getLookupTablesTool = {
 			let nextCursor: string | undefined;
 			catalogPage: while (tableIndex < catalog.definitions.length) {
 				const table = catalog.definitions[tableIndex];
-				if (columnOffset > table.columns.length) {
+				if (
+					columnOffset > table.columns.length ||
+					(detailOffset > 0 && columnOffset !== table.columns.length)
+				) {
 					throw new LookupError(
 						"invalid_input",
 						"The lookup catalog cursor is outside this table. Start again without a cursor.",
@@ -169,8 +205,12 @@ export const getLookupTablesTool = {
 					name: table.name,
 					tag: table.tag,
 					columnCount: table.columnCount ?? table.columns.length,
-					rowCount: table.rowCount ?? 0,
-					dataBytes: table.dataBytes ?? 0,
+					...(requiresLookupProjection(table.hq)
+						? { rowsRequireSourceAccess: true as const }
+						: {
+								rowCount: table.rowCount ?? 0,
+								dataBytes: table.dataBytes ?? 0,
+							}),
 					definitionRevision: table.definitionRevision,
 					rowsRevision: table.rowsRevision ?? table.definitionRevision,
 					tableRevision: table.tableRevision ?? table.definitionRevision,
@@ -214,12 +254,48 @@ export const getLookupTablesTool = {
 				}
 				const columnsComplete =
 					columnOffset + columns.length >= table.columns.length;
-				tables.push({
+				const segment: CatalogTableSegment = {
 					...base,
 					...(columnOffset === 0 ? {} : { columnOffset }),
 					columnsComplete,
 					columns,
-				});
+				};
+				const details: CatalogDetail[] = [];
+				if (columnsComplete) {
+					let seen = 0;
+					for (const detail of catalogDetails(table)) {
+						if (seen++ < detailOffset) continue;
+						if (
+							jsonBytes({
+								tables: [
+									...tables,
+									{ ...segment, details: [...details, detail] },
+								],
+							}) >
+							LOOKUP_CATALOG_PAGE_MAX_BYTES -
+								LOOKUP_CATALOG_CURSOR_RESERVE_BYTES
+						) {
+							if (columns.length || details.length)
+								tables.push({ ...segment, ...(details.length && { details }) });
+							nextCursor = encodeCursor({
+								v: 1,
+								projectId: catalog.projectId,
+								projectRevision: catalog.projectRevision,
+								tableIndex,
+								columnOffset: table.columns.length,
+								detailOffset: seen - 1,
+							});
+							break catalogPage;
+						}
+						details.push(detail);
+					}
+					if (detailOffset > seen)
+						throw new LookupError(
+							"invalid_input",
+							"The catalog cursor is outside this table's details. Start again without a cursor.",
+						);
+				}
+				tables.push({ ...segment, ...(details.length > 0 && { details }) });
 				if (!columnsComplete) {
 					nextCursor = encodeCursor({
 						v: 1,
@@ -232,6 +308,7 @@ export const getLookupTablesTool = {
 				}
 				tableIndex++;
 				columnOffset = 0;
+				detailOffset = 0;
 				if (
 					tableIndex < catalog.definitions.length &&
 					jsonBytes({

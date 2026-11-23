@@ -42,6 +42,12 @@ import * as hqChangesAppChangeKind from "./20261201010000_hq_changes_app_change_
 import * as hqBringInProjectData from "./20261202000000_hq_bring_in_project_data";
 import * as lookupXmlNames from "./20261203000000_lookup_xml_names";
 import * as deploymentFoldReferences from "./20261204000000_deployment_fold_references";
+import * as lookupOccurrences from "./20261205000000_lookup_occurrences";
+import * as lookupGenerations from "./20261206000000_lookup_generations";
+import * as lookupCellValues from "./20261206010000_lookup_cell_values";
+import * as workerAssignments from "./20261207000000_worker_assignments";
+import * as exportArtifacts from "./20261207040000_export_artifacts";
+import * as organizationPlacePages from "./20261207050000_organization_place_pages";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -255,6 +261,12 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261202000000_hq_bring_in_project_data": hqBringInProjectData,
 	"20261203000000_lookup_xml_names": lookupXmlNames,
 	"20261204000000_deployment_fold_references": deploymentFoldReferences,
+	"20261205000000_lookup_occurrences": lookupOccurrences,
+	"20261206000000_lookup_generations": lookupGenerations,
+	"20261206010000_lookup_cell_values": lookupCellValues,
+	"20261207000000_worker_assignments": workerAssignments,
+	"20261207040000_export_artifacts": exportArtifacts,
+	"20261207050000_organization_place_pages": organizationPlacePages,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

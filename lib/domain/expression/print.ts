@@ -1,6 +1,7 @@
 import { isDateFormatPreset, resolveCommCareDatePattern } from "../dateFormats";
 import { caseReferenceText } from "../hashtagSegments";
 import type { LookupColumnId, LookupTableId } from "../lookupIds";
+import type { LookupRead } from "../lookupRead";
 import type { Uuid } from "../uuid";
 import { expressionChildPath } from "./children";
 import type { FormNodeGraph, FormNodeStep } from "./formNodes";
@@ -39,6 +40,10 @@ export interface FormPrintContext {
 		column: LookupColumnId,
 	) => string | undefined;
 	readonly lookupInstanceId?: (tag: string) => string;
+	readonly tableReadPath?: (
+		table: LookupTableId,
+		read: LookupRead,
+	) => string | undefined;
 	readonly locationLevelCode?: (level: Uuid) => string | undefined;
 	readonly locationPropertySlug?: (property: Uuid) => string | undefined;
 	readonly itextId?: (unit: ItextUnit) => string | undefined;
@@ -422,7 +427,9 @@ function printWith(
 			}
 			case "table-column": {
 				const name = named(
-					ctx.tableColumnName?.(term.tableId, term.columnId),
+					typeof term.columnId === "string"
+						? ctx.tableColumnName?.(term.tableId, term.columnId)
+						: ctx.tableReadPath?.(term.tableId, term.columnId),
 					path,
 				);
 				if (name !== undefined) emit(name);
@@ -448,6 +455,19 @@ function printWith(
 				if (code !== undefined) literal(code, path);
 				break;
 			}
+			case "worker-group-field":
+				if (typeof term.field === "string")
+					emit(term.field === "id" ? "@id" : "name");
+				else {
+					emit("group_data/data");
+					if (term.field.key !== undefined) {
+						emit("[@key = ");
+						literal(term.field.key, path);
+						emit("]");
+					}
+					if (term.field.detail === "key") emit("/@key");
+				}
+				break;
 			case "location-field":
 				if (typeof term.field === "string")
 					emit(
@@ -475,7 +495,10 @@ function printWith(
 		bracketed(`${name}(`, ")", action);
 	}
 	function predicates(
-		node: Extract<Expression, { kind: "cases" | "table-rows" | "locations" }>,
+		node: Extract<
+			Expression,
+			{ kind: "cases" | "table-rows" | "locations" | "worker-groups" }
+		>,
 		path: CheckPath,
 		ctx: FormPrintContext,
 	): void {
@@ -686,6 +709,10 @@ function printWith(
 			case "table-rows":
 				if (tableRoot(node.tableId, path, ctx)) predicates(node, path, ctx);
 				break;
+			case "worker-groups":
+				emit("instance('groups')/groups/group");
+				predicates(node, path, ctx);
+				break;
 			case "locations":
 				emit("instance('locations')/locations/location");
 				predicates(node, path, ctx);
@@ -711,7 +738,9 @@ function printWith(
 					);
 					emit("[1]/");
 					const name = named(
-						ctx.tableColumnName?.(node.tableId, node.resultColumnId),
+						typeof node.resultColumnId === "string"
+							? ctx.tableColumnName?.(node.tableId, node.resultColumnId)
+							: ctx.tableReadPath?.(node.tableId, node.resultColumnId),
 						path,
 					);
 					if (name !== undefined) emit(name);

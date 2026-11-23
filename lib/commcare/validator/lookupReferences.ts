@@ -241,6 +241,29 @@ export function validateLookupReferences(
 			checkedTags.add(tagUse);
 			checkName(occurrence, table.tag, "tag");
 		}
+		if (occurrence.memberId !== undefined) {
+			const members =
+				occurrence.columnId === undefined
+					? table.attributes
+					: table.columns.find((column) => column.id === occurrence.columnId)
+							?.properties;
+			const member = members?.find(
+				(candidate) => candidate.id === occurrence.memberId,
+			);
+			if (member === undefined) {
+				errors.push(
+					validationError(
+						"LOOKUP_COLUMN_NOT_AVAILABLE",
+						occurrence.location.scope,
+						"This lookup detail is no longer available in its table. Choose a current detail or change the source.",
+						occurrenceLocation(occurrence),
+						{ ...occurrenceDetails(occurrence), memberId: occurrence.memberId },
+					),
+				);
+				continue;
+			}
+			checkName(occurrence, member.wireName, "column");
+		}
 		if (occurrence.columnId === undefined) continue;
 
 		const column = table.columns.find(

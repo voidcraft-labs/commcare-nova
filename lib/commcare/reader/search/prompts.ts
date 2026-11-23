@@ -10,13 +10,13 @@
 
 import type {
 	BlueprintDoc,
-	LookupColumnId,
 	LookupTableId,
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
+import { sameLookupRead } from "@/lib/domain/lookupRead";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
 	SEARCH_INPUT_NAME_PATTERN,
@@ -31,6 +31,11 @@ import {
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import {
+	bindLookupRead,
+	lookupReadNames,
+	lookupReadPath,
+} from "../../lookup/readPath";
 import { isReservedSearchInputName } from "../../suite/case-search/reservedInputNames";
 import {
 	type FormSyntax,
@@ -213,9 +218,17 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
 		"parser:QueryPromptParser/prompt@input",
 	),
-	itemsetRefs: refuse(
+	itemsetRichLabel: take(
 		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
 		"schema:Itemset.label",
+	),
+	itemsetRichValue: take(
+		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
+		"schema:Itemset.value",
+	),
+	itemsetRichSort: take(
+		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
+		"schema:Itemset.sort",
 	),
 	defaultOnRange: refuse(
 		`${S}default-value-on-a-date-range-input`,
@@ -355,20 +368,6 @@ function parse(text: unknown, storedNames = false): FormSyntax | undefined {
 	if (typeof text !== "string") return undefined;
 	const read = storedNames ? readStoredNameSyntax(text) : readFormSyntax(text);
 	return read.ok ? read.node : undefined;
-}
-
-/** The one child name a label, value or sort ref reads: `name` or `./name`. */
-function fieldName(text: unknown): string | undefined {
-	const node = parse(text, true);
-	if (node?.kind === "name" && !node.wildcard) return node.name;
-	if (
-		node?.kind === "child" &&
-		node.left?.kind === "self" &&
-		node.step.kind === "name" &&
-		!node.step.wildcard
-	)
-		return node.step.name;
-	return undefined;
 }
 
 /** An itemset's nodeset as `instance('item-list:<tag>')/<tag>_list/<tag>[filter]`: the tag and the
@@ -811,12 +810,12 @@ function readPrompt(
 					"Itemset",
 					input === "select1" ? P.itemset : P.itemsetMulti,
 				);
-				const label = fieldName(itemset.label);
-				const value = fieldName(itemset.value);
+				const label = lookupReadPath(itemset.label, "stored-xml");
+				const value = lookupReadPath(itemset.value, "stored-xml");
 				const sortText = itemset.sort;
 				const sort =
 					typeof sortText === "string" && sortText !== ""
-						? fieldName(sortText)
+						? lookupReadPath(sortText, "stored-xml")
 						: undefined;
 				const table =
 					source === undefined ||
@@ -825,25 +824,37 @@ function readPrompt(
 						? undefined
 						: ctx.input.lookup.table(source.tag);
 				const valueColumn =
-					value === undefined ? undefined : table?.column(value);
+					value === undefined || !table
+						? undefined
+						: bindLookupRead(value, table);
 				const labelColumn =
-					label === undefined ? undefined : table?.column(label);
-				const sortColumn = sort === undefined ? undefined : table?.column(sort);
+					label === undefined || !table
+						? undefined
+						: bindLookupRead(label, table);
+				const sortColumn =
+					sort === undefined || !table
+						? undefined
+						: bindLookupRead(sort, table);
 				const nameRefusal =
 					source?.undiscovered && instance === `item-list:${source.tag}`
 						? undiscoveredLookupName(source.tag)
 						: table === undefined || source === undefined
 							? undefined
 							: (lookupNameRefusal(source.tag, "search_input_options", "tag") ??
-								[label, value, sort].flatMap((name) => {
-									if (name === undefined || table.column(name) === undefined)
-										return [];
-									const refusal = lookupNameRefusal(
-										name,
-										"search_input_options",
-										"column",
-									);
-									return refusal === undefined ? [] : [refusal];
+								[
+									{ read: label, bound: labelColumn },
+									{ read: value, bound: valueColumn },
+									{ read: sort, bound: sortColumn },
+								].flatMap(({ read, bound }) => {
+									if (read === undefined || bound === undefined) return [];
+									return lookupReadNames(read).flatMap((name) => {
+										const refusal = lookupNameRefusal(
+											name,
+											"search_input_options",
+											"column",
+										);
+										return refusal === undefined ? [] : [refusal];
+									});
 								})[0]);
 				if (nameRefusal !== undefined) {
 					const raised = refuseWith("nodeset", nameRefusal.claim, cursor, {
@@ -872,7 +883,16 @@ function readPrompt(
 						sortText !== "" &&
 						sort === undefined)
 				) {
-					const raised = refuseWith("label", P.itemsetRefs, cursor);
+					const raised = refuseWith(
+						label === undefined
+							? "label"
+							: value === undefined
+								? "value"
+								: "sort",
+						P.itemsetColumn,
+						cursor,
+						{ ...named, reason: "parse:invalid-lookup-selector" },
+					);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
 				} else if (table === undefined) {
@@ -930,22 +950,40 @@ function readPrompt(
 					// A filter's claim on the nodeset is the expression stage's, by the registration below.
 					if (source.filter === undefined)
 						cursor.take("nodeset", P.itemsetNodeset, String).value;
-					cursor.take("label", P.itemsetLabel, String).value;
-					cursor.take("value", P.itemsetValue, String).value;
+					cursor.take(
+						"label",
+						typeof labelColumn === "string"
+							? P.itemsetLabel
+							: P.itemsetRichLabel,
+						String,
+					).value;
+					cursor.take(
+						"value",
+						typeof valueColumn === "string"
+							? P.itemsetValue
+							: P.itemsetRichValue,
+						String,
+					).value;
 					if (sortColumn !== undefined)
-						cursor.take("sort", P.itemsetSort, String).value;
+						cursor.take(
+							"sort",
+							typeof sortColumn === "string"
+								? P.itemsetSort
+								: P.itemsetRichSort,
+							String,
+						).value;
 					type = input === "select1" ? "select" : "multi-select";
 					options = {
 						kind: "lookup",
 						tableId: table.tableId as LookupTableId,
-						valueColumnId: valueColumn as LookupColumnId,
-						labelColumnId: labelColumn as LookupColumnId,
+						valueColumnId: valueColumn,
+						labelColumnId: labelColumn,
 						// The label column is the order a field with no sort column of its own prints
 						// (`searchInputLookupSortColumnId`), and a document holds that order as no sort
 						// column (`withCanonicalSearchInputOptions`).
 						...(sortColumn !== undefined &&
-							sortColumn !== labelColumn && {
-								sortColumnId: sortColumn as LookupColumnId,
+							!sameLookupRead(sortColumn, labelColumn) && {
+								sortColumnId: sortColumn,
 							}),
 					};
 					optionsFilterText = source.filter;

@@ -270,6 +270,9 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 			? {}
 			: { localization: draft.localization }),
 		appSettings: {
+			...(draft.appSettings.caseSharing !== undefined
+				? { caseSharing: draft.appSettings.caseSharing }
+				: {}),
 			showSavedForms:
 				draft.appSettings.showSavedForms ?? NEW_APP_SETTINGS.showSavedForms,
 			showIncompleteForms:

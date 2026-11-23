@@ -373,6 +373,7 @@ export function compileTerm(
 		case "case-index":
 		case "repeat-row":
 		case "location-level":
+		case "worker-group-field":
 		case "location-field":
 		case "form-case":
 			throw new Error(

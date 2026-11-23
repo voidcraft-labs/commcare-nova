@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import {
-	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
-} from "@/lib/lookup/constants";
+import { LOOKUP_MAX_TABLE_BYTES } from "@/lib/lookup/constants";
 import {
 	lookupRevisionSchema,
 	lookupTagSchema,
@@ -41,7 +39,6 @@ import {
 	discardRevisionedTextDraft,
 	editRevisionedTextDraft,
 	editRowDraftCellText,
-	filterRows,
 	formatLookupBytes,
 	formatLookupCount,
 	freshestManifestEntry,
@@ -55,13 +52,11 @@ import {
 	reconcileRevisionedTextDraft,
 	reconcileRowDraft,
 	retainedRowRecoveries,
-	rowAdditionRefusal,
 	rowDraftToValues,
 	rowValuesEqual,
 	rowValuesToDraft,
 	rowWriteConflictVerdict,
 	suggestWireName,
-	tableCapacity,
 	tableEditability,
 	temporalDraftTextHiddenByControl,
 } from "../projectDataModel";
@@ -178,45 +173,33 @@ describe("formatLookupCount", () => {
 	});
 });
 
-describe("tableCapacity", () => {
-	it("takes the binding cap, whichever it is", () => {
-		const byRows = tableCapacity({
-			rowCount: LOOKUP_MAX_ROWS / 2,
-			dataBytes: 0,
+describe("rich row editing", () => {
+	it("detects changes to a single occurrence property even when every displayed cell is unchanged", () => {
+		const id = lookupMemberIdSchema.parse(
+			"01912d68-783e-7000-8000-00000000d003",
+		);
+		const stored = row({});
+		const occurrence = (text: string) => ({
+			[nameColumnId]: [{ text: "Hill", properties: { [id]: text } }],
 		});
-		expect(byRows.fullness).toBeCloseTo(0.5);
-		expect(byRows.full).toBe(false);
-
-		const byBytes = tableCapacity({
-			rowCount: 1,
-			dataBytes: LOOKUP_MAX_TABLE_BYTES,
-		});
-		expect(byBytes.fullness).toBe(1);
-		expect(byBytes.full).toBe(true);
-	});
-});
-
-describe("rowAdditionRefusal", () => {
-	it("stays silent while the table has room", () => {
+		const baseline = { ...stored, occurrences: occurrence("en") };
+		const current = { ...stored, occurrences: occurrence("fr") };
 		expect(
-			rowAdditionRefusal(tableCapacity({ rowCount: 3, dataBytes: 40 })),
-		).toBe(undefined);
-	});
-
-	it("names the row limit that stopped the write", () => {
-		const refusal = rowAdditionRefusal(
-			tableCapacity({ rowCount: LOOKUP_MAX_ROWS, dataBytes: 10 }),
-		);
-		expect(refusal).toContain("5,000 rows");
-	});
-
-	it("names the MEASURED size, not just the limit, when bytes are the cap", () => {
-		const refusal = rowAdditionRefusal(
-			tableCapacity({ rowCount: 2, dataBytes: LOOKUP_MAX_TABLE_BYTES }),
-		);
-		expect(refusal).toContain("8 MB");
-		// Both halves of the sentence are present: what it holds AND the ceiling.
-		expect(refusal).toMatch(/holds 8 MB.*limit of 8 MB/);
+			rowWriteConflictVerdict({
+				baseline: stored.values,
+				baselineContent: baseline,
+				current,
+				columnsChanged: false,
+			}),
+		).toEqual({ kind: "ask", reason: "row-changed" });
+		expect(
+			rowWriteConflictVerdict({
+				baseline: stored.values,
+				baselineContent: baseline,
+				current: baseline,
+				columnsChanged: false,
+			}),
+		).toEqual({ kind: "retry" });
 	});
 });
 
@@ -228,31 +211,6 @@ describe("cellText", () => {
 
 	it("renders a stored number as its text", () => {
 		expect(cellText(values({ [codeColumnId]: 7 }), codeColumn)).toBe("7");
-	});
-});
-
-describe("filterRows", () => {
-	const rows = [
-		{ values: values({ [nameColumnId]: "Kitgum Clinic", [codeColumnId]: 11 }) },
-		{ values: values({ [nameColumnId]: "Gulu Hospital", [codeColumnId]: 22 }) },
-		{ values: values({}) },
-	];
-	const columns = [nameColumn, codeColumn];
-
-	it("returns everything for an empty or whitespace query", () => {
-		expect(filterRows(rows, columns, "")).toBe(rows);
-		expect(filterRows(rows, columns, "   ")).toBe(rows);
-	});
-
-	it("matches the text the grid shows, case-insensitively, across columns", () => {
-		expect(filterRows(rows, columns, "kitgum")).toStrictEqual([rows[0]]);
-		expect(filterRows(rows, columns, "22")).toStrictEqual([rows[1]]);
-	});
-
-	it("never matches a missing cell against the empty string", () => {
-		// The blank row would match "" under a naive coercion, which would make
-		// every query with an unmatched column return every empty row.
-		expect(filterRows(rows, columns, "x")).toHaveLength(0);
 	});
 });
 

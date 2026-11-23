@@ -47,8 +47,10 @@ export function LookupOrderingSection(props: LookupOrderingSectionProps) {
 		workspace.reloadManifest,
 	);
 	const items = kind === "column" ? table.columns : table.rows;
-	const position = items.findIndex((item) => item.id === itemId);
-	const count = items.length;
+	const local = items.findIndex((item) => item.id === itemId);
+	const position =
+		kind === "row" ? (table.rows[local]?.sourceIndex ?? local) : local;
+	const count = kind === "row" ? table.rowCount : items.length;
 	const locked = props.disabled === true || ordering.moving;
 	const previousLabel = kind === "column" ? "Move left" : "Move up";
 	const nextLabel = kind === "column" ? "Move right" : "Move down";
@@ -87,7 +89,7 @@ export function LookupOrderingSection(props: LookupOrderingSectionProps) {
 		target?.focus();
 		pendingFocus.current = null;
 	}, [ordering.moving, position]);
-	if (position < 0) return null;
+	if (position < 0 || count === null) return null;
 
 	const move = async (direction: "earlier" | "later") => {
 		const toIndex = direction === "earlier" ? position - 1 : position + 1;

@@ -249,7 +249,7 @@ describe("lookup input schemas", () => {
 		).toBe(false);
 	});
 
-	it.each([-1, 0.5, 5001])(
+	it.each([-1, 0.5, 2_147_483_648])(
 		"rejects invalid row position %s with an otherwise valid revision",
 		(toIndex) => {
 			expect(

@@ -1,3 +1,4 @@
+import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import type { Uuid } from "@/lib/domain";
 import { afterSubmitFrameLanding, appHomeLanding } from "../afterSubmitRouting";
@@ -88,12 +89,8 @@ export async function submitAppTest(
 			actorId: scope.actorUserId,
 			role: scope.role,
 		},
-		lookupTableSchemas: new Map(
-			context.lookup.definitions.map((table) => [
-				table.id,
-				new Map(table.columns.map((column) => [column.id, column.dataType])),
-			]),
-		),
+		testWorkerGroups: context.workerGroups,
+		lookupTableSchemas: workerLookupSchemas(scope.projectId, context.lookup),
 		mutation,
 		projection,
 		/* The places of the test's own snapshot, which the form read. An

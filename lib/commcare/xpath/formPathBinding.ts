@@ -31,6 +31,7 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
+import { bindLookupRead, lookupReadSyntax } from "../lookup/readPath";
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "../sessionContext";
 import type { FormNodeProjection } from "./formNodeProjection";
 import { FormParseRefusal, refuse } from "./formParseIssues";
@@ -158,6 +159,114 @@ function rowValue(
 			whole,
 			"This path needs one property of the selected row.",
 		);
+	if (row.kind === "worker-group") {
+		const firstName = name(first.node);
+		if (
+			!first.where.length &&
+			steps.length === 1 &&
+			firstName &&
+			((firstName.name === "id" && firstName.attribute) ||
+				(firstName.name === "name" && !firstName.attribute))
+		)
+			return {
+				kind: "worker-group-field",
+				field: firstName.name as "id" | "name",
+			};
+		const detail = steps[1],
+			keyStep = steps[2] && name(steps[2].node),
+			node = detail && name(detail.node);
+		if (
+			plain(first, "group_data") &&
+			detail &&
+			node?.name === "data" &&
+			!node.attribute &&
+			detail.where.length <= 1 &&
+			(steps.length === 2 ||
+				(steps.length === 3 &&
+					keyStep?.attribute &&
+					keyStep.name === "key" &&
+					!steps[2].where.length))
+		) {
+			const filter = detail.where[0];
+			const attr = filter?.kind === "binary" ? name(filter.left) : undefined;
+			if (
+				!filter ||
+				(filter.kind === "binary" &&
+					filter.op === "=" &&
+					attr?.attribute &&
+					attr.name === "key" &&
+					filter.right.kind === "string")
+			) {
+				const key =
+					filter?.kind === "binary" && filter.right.kind === "string"
+						? filter.right.value
+						: undefined;
+				return {
+					kind: "worker-group-field",
+					field: {
+						detail: keyStep ? "key" : "value",
+						...(key !== undefined && { key }),
+					},
+				};
+			}
+		}
+		refuse(
+			"row-step-after-value",
+			whole,
+			"A worker group has an identifier, a name and details you can read by key.",
+		);
+	}
+	if (row.kind === "table") {
+		if (binder.scope.lookup === "unavailable")
+			refuse(
+				"lookup-unavailable",
+				whole,
+				"Project data is still loading. You can try this table read again in a moment.",
+			);
+		const table = binder.scope.lookup.get(row.tableId);
+		const projected = steps
+			.map(({ node, where }) =>
+				where.reduce<FormSyntax>(
+					(base, predicate) => ({
+						kind: "filter",
+						base,
+						where: predicate,
+						from: base.from,
+						to: predicate.to,
+					}),
+					node,
+				),
+			)
+			.reduce((left, step) => ({
+				kind: "child",
+				left,
+				step,
+				descendant: false,
+				from: left.from,
+				to: step.to,
+			}));
+		const path = lookupReadSyntax(projected);
+		const read =
+			path &&
+			table &&
+			bindLookupRead(path, {
+				column: (name) =>
+					table.columns.find((column) => column.wireName === name)?.id,
+				attribute: (name) =>
+					table.attributes?.find((member) => member.wireName === name)?.id,
+				property: (id, name) =>
+					table.columns
+						.find((column) => column.id === id)
+						?.properties?.find((member) => member.wireName === name)?.id,
+			});
+		if (!read)
+			refuse(
+				"unknown-column",
+				whole,
+				`Choose a column or a detail from “${table?.name ?? "the selected table"}” for this read.`,
+			);
+		return { kind: "table-column", tableId: row.tableId, columnId: read };
+	}
 	if (steps.some((step) => step.where.length > 0))
 		refuse(
 			"filter-root",
@@ -243,26 +352,7 @@ function rowValue(
 			...(caseType === undefined ? {} : { caseType }),
 		};
 	}
-	if (row.kind === "table") {
-		if (binder.scope.lookup === "unavailable")
-			refuse(
-				"lookup-unavailable",
-				whole,
-				"Project data is still loading, so this table read can't be checked yet. You can try again in a moment.",
-			);
-		const table = binder.scope.lookup.get(row.tableId);
-		const column =
-			!named.attribute && tail.length === 0
-				? table?.columns.find((column) => column.wireName === named.name)
-				: undefined;
-		if (column === undefined)
-			refuse(
-				"unknown-column",
-				whole,
-				`The ${table?.name ?? "selected"} table has no column ${named.name}. You can use one of its columns: ${table?.columns.map((column) => column.wireName).join(", ") ?? "none"}.`,
-			);
-		return { kind: "table-column", tableId: row.tableId, columnId: column.id };
-	}
+
 	if (row.kind === "location") {
 		if (
 			!named.attribute &&
@@ -515,12 +605,6 @@ function instancePath(
 			`This form doesn't open with a session value at this path. You can read a question or a case property instead.`,
 		);
 	}
-	if (id === "groups")
-		refuse(
-			"groups-held",
-			whole,
-			"Reading the worker's case-sharing groups isn't available yet. You can read the places the worker is assigned to with instance('locations') instead.",
-		);
 	if (id === "results") {
 		const ownType =
 			form === undefined
@@ -579,7 +663,10 @@ function instancePath(
 		return binder.term({ kind: "input", searchInputUuid: input.uuid }, whole);
 	}
 
-	let base: Extract<Expression, { kind: "cases" | "table-rows" | "locations" }>;
+	let base: Extract<
+		Expression,
+		{ kind: "cases" | "table-rows" | "locations" | "worker-groups" }
+	>;
 	let row: RowScope;
 	let predicates: readonly FormSyntax[];
 	const consumed = 2;
@@ -671,6 +758,21 @@ function instancePath(
 				? searchedCaseType(context)
 				: undefined;
 		row = searched === undefined ? typed : { ...typed, caseType: searched };
+	} else if (id === "groups") {
+		if (
+			!plain(steps[0], "groups") ||
+			!rowsStep ||
+			name(rowsStep.node)?.name !== "group" ||
+			name(rowsStep.node)?.attribute
+		)
+			refuse(
+				"instance-unknown",
+				whole,
+				"The worker’s groups are at instance('groups')/groups/group.",
+			);
+		base = { kind: "worker-groups", where: [] };
+		row = { kind: "worker-group", root: "worker-groups" };
+		predicates = rowsStep.where;
 	} else if (id === "locations") {
 		if (
 			!plain(steps[0], "locations") ||
@@ -742,7 +844,7 @@ function instancePath(
 		(predicates.length === 2 || firstOfAll) &&
 		last?.kind === "number" &&
 		last.value === 1 &&
-		projected.length === 1
+		projected.length > 0
 	) {
 		const value = rowValue(binder, projected, rowContext, whole);
 		if (value.kind === "table-column")

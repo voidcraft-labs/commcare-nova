@@ -279,6 +279,11 @@ export const appTestActionsSchema = z
 	);
 export type AppTestExpectation = z.infer<typeof appTestExpectationSchema>;
 
+export interface AppTestLookupProof {
+	groups?: true;
+	tableIds: LookupTableId[];
+	workers: { personaUuid: Uuid | null; digest: string }[];
+}
 export interface AppTestSnapshot {
 	purpose: string;
 	blueprint: PersistableDoc;
@@ -286,6 +291,15 @@ export interface AppTestSnapshot {
 	projectSpace: string | null;
 	lookup: {
 		projectRevision: string;
+		proof?: AppTestLookupProof;
+		workers?: readonly {
+			groupScope?: Pick<
+				import("../engine/restoreScope").WorkerRestoreScope,
+				"groups" | "ownerIds" | "placeGroupCount"
+			>;
+			personaUuid: Uuid | null;
+			rows: readonly (readonly [LookupTableId, readonly LookupFixtureRow[]])[];
+		}[];
 		definitions: readonly LookupTableDefinition[];
 		rows: readonly (readonly [LookupTableId, readonly LookupFixtureRow[]])[];
 	};

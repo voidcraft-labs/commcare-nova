@@ -8,7 +8,7 @@ references and emits the exact CommCare fixture wire.
 
 ## Identity and tenancy
 
-- Tables, columns, and rows use the distinct server-minted UUIDv7 identities
+- Tables, columns, rows and detail members use distinct server-minted UUIDv7 identities
   and runtime schemas from the import-light `lib/domain/lookupIds` leaf. There
   is no public generic lookup id: a table id cannot satisfy a column- or row-id
   slot. Display names, table tags, column wire names, and order keys are mutable
@@ -166,7 +166,7 @@ the formula.
 
 ## Reference edges and schema governance
 
-`lookup_table_references` and `lookup_column_references` store only stable
+`lookup_table_references`, `lookup_column_references` and `lookup_member_references` store stable
 Project/table/column/app UUID identity, never names, wire names, carrier paths,
 or caller-provided edge deltas. A column edge is constrained to an existing
 table edge. Authoritative app commits replace each app's complete freshly
@@ -234,6 +234,17 @@ export. The same spellings can name a column. A historical tag containing
 lowercase `ledgerdb` or `casedb` still needs an authorized rename because
 Core dispatches the fixture source itself to that store.
 
+- Table row details and each repeated column's value details have separate, ordered
+  definitions with UUIDs, display labels and export names. A row detail is required on
+  every row, including when its value is empty. A missing rich column, an explicitly
+  empty list, and one occurrence with empty text are three different stored states.
+  Each occurrence preserves exact text, its optional UUID-keyed details and order.
+  Index status distinguishes indexed, unindexed, and source-managed unobserved.
+- A Project row may contain only attributes. A reader's column or member reference
+  identifies its exact owner. The reference writer verifies it under the table lock.
+  A member deletion checks every dependent app, including archived apps, and the
+  enclosing legacy design protection. Rich schema edits that affect readers compare
+  the reviewed Project and table revisions and complete reader app IDs.
 - Missing UUID key means a missing cell. JSON `null`, booleans, arrays, objects,
   unknown column ids, NUL, and unpaired UTF-16 surrogates are invalid. Empty text
   is valid for typed writes; an empty CSV cell omits the key.
@@ -242,14 +253,85 @@ Core dispatches the fixture source itself to that store.
 - Server-minted order keys use the shared base-62 fractional-order primitives and
   Postgres `C` collation. Reads always tie-break on stable UUID. Bulk replacement
   uses the balanced generator, never a 5,000-key sequential chain.
-- Limits are 250 columns, 5,000 rows, 64 KiB per string cell, 256 KiB per stored
-  row, and 8 MiB of stored row values per table. The raw CSV request separately
-  caps at 8 MiB. `lookup_rows.value_bytes` is generated from Postgres
-  `octet_length("values"::text)`; use SQL `returning value_bytes` for row deltas
-  and replacement totals. Never guess JSONB size in JavaScript.
+- Inline changes admit up to 250 columns or details and 5,000 rows. A string in
+  an inline request is at most 64 KiB, a full inline row 256 KiB, and an inline
+  replacement 8 MiB. Adding an individual row or reducing a cell uses the actual
+  transaction delta and the Project's physical storage budget. Tables can grow
+  beyond one request. The exact row measure is PostgreSQL's byte length of the
+  scalar JSONB text, the structured JSONB text for a nonempty structured body,
+  and the exact UTF-8 bytes of its reference-backed text.
+- A partial row edit addresses the row and column or detail by UUID. A repeated value
+  is addressed by ordinal within that column at the expected table revision. Patches
+  update only those JSONB paths in PostgreSQL. A browser operation ID is scoped to
+  its Project and actor. Its digest, committed receipt and recorded minimum
+  capability make exact retries safe after a role change.
+  A repeated CSV import binds the raw bytes as well as the table and revision.
+- A staged text value keeps its lexical bytes in immutable segments. Its empty
+  inline string preserves the shape of that slot. Row projections read the
+  actual bytes, include the full value digest and both character and byte
+  offsets, and find matches across segment boundaries. Ordinary edits preserve
+  other slots and shift surviving references with their occurrence on insertion
+  or removal. The Project row grid and model-facing row reads hold assigned
+  inventory behind the current source connection.
 - `column_count`, `row_count`, and `data_bytes` are maintained under the locked
   table row. A delete/shrink returns capacity. Concurrent writers cannot cross a
   cap.
+
+## Staged source inventories and large values
+
+An editor can refresh an accepted source reference in Project data. A reading
+of an unaccepted application never creates a job. The remote reader brackets
+two complete ordered visits with the selected table definition. The resumable
+checkpoint binds the ordered prefix to the authenticated server, domain,
+principal and definition. The local job also binds the exact table revision,
+actor, Project membership revision, connection and browser or MCP grant.
+Each staged page records its inclusive start, exclusive end, ordered payload
+digest and through-digest. A remote row identity is unique throughout the
+generation. A page that moves, disappears, repeats an identity or reuses an
+offset with different bytes cannot become visible. An interrupted run resumes
+only after an independent re-read of its prefix. The runner lease fences a
+process that resumes after its replacement.
+
+Only a completed verification moves the table's active pointer. Historical
+source inspection checks the current Nova grant and Project role together
+with live permission on the HQ fixture resource using the editor's own
+connection. A cursor names the active generation, row ordinal and UTF-8 byte
+boundary. Each response is at most one 32 KiB source chunk. The source
+inventory has its own permission boundary. Worker and installation
+projections use their verified distribution facts and carry their own scope.
+
+An authored value can replace a reviewed byte range at a stable row and
+cell, row detail, occurrence or value detail. The request binds the original
+table revision and SHA-256, interval and replacement length and digest. A
+retry uses the same operation UUID, authority and reviewed request. Ordered
+32 KiB write chunks may split a UTF-8 character. Completion independently
+validates the old prefix, replacement and suffix. Text keeps its exact lexical
+value, including an initial byte-order mark. An over-budget, invalid, stale
+or cancelled replacement leaves the visible value and revisions intact.
+The author receives at most 8 KiB of validated UTF-8 per value range.
+
+Large text lives in immutable, Project-local blobs and ordered value
+segments. The row's value reference names the active content and digest.
+Its empty inline string marks the occupied slot and preserves occurrence
+shape. A reader resolving a value must follow that reference. Small and
+empty values are stored inline. Foreign Projects cannot use equality of
+content as authority. A small splice reuses physically identical existing
+blobs. Retyping, occurrence edits, schema deletion and row replacement update
+or remove the matching references in their own transaction.
+
+The default storage budget is 32 GiB and two concurrent bulk jobs per Project.
+The budget row controls both. SQL triggers settle payload and metadata with
+a conservative per-row allowance for indexes and tuple overhead. Bulk objects
+reserve before writes, transfer their charge to retained storage after
+confirmation, and refund on confirmed physical deletion. Replaced generations
+and unreferenced blobs keep their charge through cleanup. A shrinking value
+edit can use reserved rewrite space. PostgreSQL commits a deletion together
+with its refund. New schema migrations adding measured columns must reconcile
+the existing measurement in the same migration. Operators can audit totals
+before and after migration with `scripts/scan-lookup-storage.ts`. A bounded
+`scripts/reclaim-lookup-storage.ts --max-batches N` invocation resumes SQL
+cleanup after an interruption. External object owners confirm physical
+deletion before requesting their refund.
 
 ## Tables from CommCare HQ
 
@@ -277,8 +359,9 @@ first 120 characters (`managedRules.ts::columnLabelFor`), its origin in the
 table's insert, with one revision and one notice. The refresh arm matches
 columns to CommCare HQ's fields by wire name: a new field adds a text column, a
 column with no field is removed unless an app's column edge or an accepted
-design names it, and then stays, empty, after CommCare HQ's columns; rows are
-replaced by CommCare HQ's, in its order, only where they differ. Every column
+design names it, and then stays, empty, after CommCare HQ's columns; a row with an authenticated identity retains its Nova UUID only for the same source
+table and remote row ID. Refresh preserves exact ordered values. An unavailable
+source marks the retained data historical and advances both revision clocks. Every column
 of a managed table is text. Taking CommCare HQ's table over a Project table
 (`adopt`) sets every column to text with no stored value coerced, since the
 rows that follow are CommCare HQ's strings, clears a takeover, and stamps
@@ -293,8 +376,7 @@ reads as the cap it is over.
 
 `hq_canonical` is `lib/deployment`'s value for CommCare HQ's table at the last
 refresh; `lib/lookup` reads its `digest` and `fields[].name`
-(`managedCanonicalSchema`) and passes the rest through. A refresh whose digest
-and remote table are unchanged stamps only `hq_refreshed_at` and
+(`managedCanonicalSchema`) and passes the rest through. A refresh whose source facts, schema, ordered row identities and values are unchanged stamps only `hq_refreshed_at` and
 `hq_refreshed_by` and advances no revision; one whose digest moved but whose
 columns, rows and gone columns are as they were also writes `hq_canonical`.
 Neither changes a byte of the manifest. Only a refresh that changes neither
@@ -350,10 +432,12 @@ stand in for the member's authority or the table's revisions.
 
 ## Reads and realtime
 
-Manifest and full-table reads are authoritative snapshots, not change logs.
-Compose each from one SQL statement or a read-only `REPEATABLE READ`
-transaction. Multiple ordinary `READ COMMITTED` reads can pair data N with head
-N+1 and leave a client permanently stale.
+Manifest and row-window reads use one read-only snapshot. The table workspace
+loads 25 rows at a time with previous and next revision-bound cursors. Search
+matches projected attributes, occurrence text and value details. Row movement
+uses absolute positions in the full table. Oversize rows show their identity,
+position and size. An inspector can continue through their values. Export
+and worker delivery have separate source and access checks.
 
 `getLookupTableRowsPage` is the bounded agent read. Its opaque cursor binds the
 table UUID, table revision, a digest of the normalized query and projected
@@ -444,3 +528,11 @@ establish batch atomicity. Pagination assertions should join all pages and check
 ordered identities and cells. Blocker-name filtering belongs in a real database
 test with foreign and unrelated apps, because a mocked query chain cannot prove
 Project isolation.
+
+## Worker assignments
+
+The Project owns worker groups and each table's row assignments. A worker or place reference carries both its app and UUID. Group references carry their Project. A restore grants the ordered union of direct worker, group membership and primary place ancestry. Additional places and the group case-sharing setting do not grant lookup rows. The audience of a complete worker restore and the audience of an editor inventory are distinct.
+
+Assignments are replaced in the row transaction, guarded by table revision and operation identity. Removing an assignment, changing group membership and changing where a worker is assigned invalidate worker evidence. Moving an app to a different Project requires removing its Project-bound assignments first.
+
+Taking over an assigned source table takes a new selected workbook with the confirmation. Each source UID must match the entire ordered source inventory. Each principal must resolve to exactly one current source-space ledger binding in this Project. Compare the modeled projections, including empty and duplicate rows, to fresh authenticated worker restores before materializing any assignments. A historical workbook never authorizes that action. Hand-back discards the local assignment set.

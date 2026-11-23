@@ -1,36 +1,63 @@
+import { ownRecordValue } from "@/lib/domain/records";
 import "server-only";
 
 import { type Insertable, sql, type Transaction } from "kysely";
-import type { z } from "zod";
+import { z } from "zod";
 import type { AppDatabase, LookupTablesTable } from "@/lib/db/pg";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type LookupColumnId,
+	type LookupMemberId,
 	type LookupRowId,
 	type LookupTableId,
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { rowAssigneesSchema } from "./assignmentVocabulary";
 import { validateLookupRowValues } from "./coercion";
 import {
 	LOOKUP_MAX_COLUMNS,
+	LOOKUP_MAX_ROW_BYTES,
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
 } from "./constants";
 import { hasLookupDesignProtection } from "./designProtection";
 import { LookupError } from "./errors";
+import { dropDefinitionExternalRefs } from "./largeValues/projection";
+import { holdLookupReaderReview } from "./memberGovernance";
+import {
+	columnWithMembers,
+	insertLookupMembers,
+	readTableMembers,
+	updateLookupMembers,
+} from "./members";
 import { assertLookupRenamesAllowed } from "./nameGovernance";
+import { lookupEditOnce } from "./operationReceipt";
 import { balancedKeysBetween, deriveKeyAtIndex } from "./orderKeys";
+import { checkLookupRetype } from "./retypeCells";
+import { replaceRowAssignments } from "./rowAssignments";
+import { checkedRowContent, resolveNamedRowContent } from "./rowContent";
+import { rowIndex, rowOrderForPlacement } from "./rowOrdering";
+import {
+	patchLookupRowInTransaction,
+	replaceLookupRowInTransaction,
+} from "./rowPatch";
 import {
 	lookupColumnDraftSchema,
 	lookupColumnLabelSchema,
 	lookupDataTypeSchema,
+	lookupMemberDraftSchema,
+	lookupReaderReviewSchema,
 	lookupRevisionSchema,
+	lookupRowChangesSchema,
 	lookupTableNameSchema,
 	lookupTagSchema,
 	lookupWireNameSchema,
 	parseLookupRevision,
 } from "./schema";
+import { changeLookupRowShape } from "./schemaRowShape";
 import type {
 	LookupAuthoringBatchInput,
 	LookupAuthoringBatchReceipt,
@@ -39,8 +66,11 @@ import type {
 	LookupAuthoringExistingTable,
 	LookupAuthoringRowOperation,
 	LookupColumn,
+	LookupMember,
+	LookupMemberEdit,
 	LookupReferencingAppSummary,
 	LookupRevision,
+	LookupRowContent,
 	LookupRowValues,
 	LookupScope,
 } from "./types";
@@ -62,6 +92,9 @@ interface MutableColumn extends LookupColumn {
 }
 
 interface MutableRow {
+	content: LookupRowContent;
+	remoteId?: string;
+	sortKey?: number;
 	id: LookupRowId;
 	orderKey: string;
 	values: LookupRowValues;
@@ -71,7 +104,9 @@ interface TableWork {
 	input: LookupAuthoringExistingTable;
 	table: StoredLookupTable;
 	columns: MutableColumn[];
-	rows: MutableRow[];
+	attributes: LookupMember[];
+	rowCount: number;
+	dataBytes: number;
 	columnIds: { key: string; id: LookupColumnId }[];
 	rowIds: { key: string; id: LookupRowId }[];
 	definitionChanged: boolean;
@@ -118,10 +153,13 @@ function referenced(
 	);
 }
 
-function needsDeleteCapability(input: LookupAuthoringBatchInput): boolean {
+export function lookupBatchNeedsDelete(
+	input: LookupAuthoringBatchInput,
+): boolean {
 	return (input.updateTables ?? []).some(
 		(table) =>
 			table.delete === true ||
+			table.workerAccess === "all" ||
 			table.tag !== undefined ||
 			(table.columnOperations ?? []).some(
 				(operation) =>
@@ -142,7 +180,7 @@ function assertCapability(
 		requireLookupCapability(
 			tx,
 			authority,
-			needsDeleteCapability(input) ? "delete" : "edit",
+			lookupBatchNeedsDelete(input) ? "delete" : "edit",
 		);
 	} catch (error) {
 		if (error instanceof LookupAuthorityError) notFound();
@@ -179,6 +217,8 @@ function parseBatch(
 	if (input === null || typeof input !== "object" || Array.isArray(input)) {
 		invalid("Lookup authoring input must be an object.");
 	}
+	if (input.operationId !== undefined)
+		parseInput(z.uuid(), input.operationId, "Operation ID");
 	const creates = input.createTables ?? [];
 	const updates = input.updateTables ?? [];
 	if (creates.length === 0 && updates.length === 0) {
@@ -190,7 +230,7 @@ function parseBatch(
 		parseInput(lookupTableNameSchema, create.name, "Table name");
 		parseInput(lookupTagSchema, create.tag, "Table tag");
 		if (
-			create.columns.length === 0 ||
+			(!create.columns.length && !create.attributes?.length) ||
 			create.columns.length > LOOKUP_MAX_COLUMNS
 		) {
 			invalid(
@@ -200,19 +240,24 @@ function parseBatch(
 		if (create.rows.length > LOOKUP_MAX_ROWS) {
 			invalid(`A lookup table may have at most ${LOOKUP_MAX_ROWS} rows.`);
 		}
+		if (create.attributes !== undefined) {
+			parseInput(
+				lookupMemberDraftSchema.array().max(LOOKUP_MAX_COLUMNS),
+				create.attributes,
+				"Row details",
+			);
+			if (
+				new Set(create.attributes.map((member) => member.wireName)).size !==
+				create.attributes.length
+			)
+				invalid("Each row detail needs its own export name.");
+		}
 		assertUniqueKeys(create.columns, "column key");
 		assertUniqueKeys(create.rows, "row key");
 		const wireNames = new Set<string>();
 		for (const column of create.columns) {
-			parseInput(
-				lookupColumnDraftSchema,
-				{
-					wireName: column.wireName,
-					label: column.label,
-					dataType: column.dataType,
-				},
-				"Column",
-			);
+			const { key: _key, ...draft } = column;
+			parseInput(lookupColumnDraftSchema, draft, "Column");
 			if (wireNames.has(column.wireName)) {
 				invalid(`Duplicate column wire name "${column.wireName}".`);
 			}
@@ -230,9 +275,18 @@ function parseBatch(
 			invalid(`Table "${update.tableId}" appears more than once in the batch.`);
 		}
 		tableIds.add(update.tableId);
+		if (update.workerAccess !== undefined)
+			parseInput(
+				z.enum(["all", "assigned"]),
+				update.workerAccess,
+				"Worker access",
+			);
 		if (update.name !== undefined) {
 			parseInput(lookupTableNameSchema, update.name, "Table name");
 		}
+		if (update.attributes !== undefined) validateMemberEdits(update.attributes);
+		if (update.reviewed !== undefined)
+			parseInput(lookupReaderReviewSchema, update.reviewed, "Reader review");
 		if (update.tag !== undefined) {
 			parseInput(lookupTagSchema, update.tag, "Table tag");
 		}
@@ -244,8 +298,10 @@ function parseBatch(
 		}
 		if (update.delete === true) {
 			if (
+				update.workerAccess !== undefined ||
 				update.name !== undefined ||
 				update.tag !== undefined ||
+				update.attributes !== undefined ||
 				(update.columnOperations?.length ?? 0) > 0 ||
 				(update.rowOperations?.length ?? 0) > 0 ||
 				update.replaceRows !== undefined
@@ -287,6 +343,22 @@ function parseBatch(
 	return input;
 }
 
+function validateMemberEdits(members: LookupMemberEdit[]) {
+	parseInput(
+		lookupMemberDraftSchema
+			.extend({ id: lookupMemberIdSchema.optional() })
+			.array()
+			.max(LOOKUP_MAX_COLUMNS),
+		members,
+		"Details",
+	);
+	if (new Set(members.map((member) => member.wireName)).size !== members.length)
+		invalid("Each detail needs its own export name.");
+	const ids = members.flatMap((member) => (member.id ? [member.id] : []));
+	if (new Set(ids).size !== ids.length)
+		invalid("A detail can only appear once in its definition.");
+}
+
 function validateColumnOperation(
 	operation: LookupAuthoringColumnOperation,
 ): void {
@@ -316,8 +388,16 @@ function validateColumnOperation(
 			return;
 		case "update":
 			parseInput(lookupColumnIdSchema, operation.columnId, "Column id");
-			if (operation.label === undefined && operation.wireName === undefined) {
-				invalid("A column update needs a label or wireName change.");
+			if (operation.properties !== undefined)
+				validateMemberEdits(operation.properties);
+			if (
+				operation.label === undefined &&
+				operation.wireName === undefined &&
+				operation.repeated === undefined &&
+				operation.indexed === undefined &&
+				operation.properties === undefined
+			) {
+				invalid("Choose a column setting to change.");
 			}
 			if (operation.label !== undefined) {
 				parseInput(lookupColumnLabelSchema, operation.label, "Column label");
@@ -383,7 +463,21 @@ function validateColumnOperation(
 
 function validateRowOperation(operation: LookupAuthoringRowOperation): void {
 	switch (operation.kind) {
+		case "assign":
+			parseInput(lookupRowIdSchema, operation.rowId, "Row id");
+			parseInput(
+				rowAssigneesSchema,
+				operation.assignments,
+				"Workers who receive this row",
+			);
+			return;
 		case "add":
+			if (operation.assignments !== undefined)
+				parseInput(
+					rowAssigneesSchema,
+					operation.assignments,
+					"Workers who receive this row",
+				);
 			assertKey(operation.key, "row key");
 			if (operation.afterRowId !== undefined && operation.afterRowId !== null) {
 				parseInput(lookupRowIdSchema, operation.afterRowId, "Row anchor id");
@@ -397,6 +491,10 @@ function validateRowOperation(operation: LookupAuthoringRowOperation): void {
 			if (operation.afterRowKey !== undefined) {
 				assertKey(operation.afterRowKey, "row anchor key");
 			}
+			return;
+		case "patch":
+			parseInput(lookupRowChangesSchema, operation.changes, "Row changes");
+			parseInput(lookupRowIdSchema, operation.rowId, "Row id");
 			return;
 		case "update":
 			parseInput(lookupRowIdSchema, operation.rowId, "Row id");
@@ -503,19 +601,6 @@ function insertionIndex<T extends { id: string }>(
 	return index + 1;
 }
 
-function sameValues(left: LookupRowValues, right: LookupRowValues): boolean {
-	const leftKeys = Object.keys(left).sort(compareAscii);
-	const rightKeys = Object.keys(right).sort(compareAscii);
-	return (
-		leftKeys.length === rightKeys.length &&
-		leftKeys.every(
-			(key, index) =>
-				key === rightKeys[index] &&
-				left[key as LookupColumnId] === right[key as LookupColumnId],
-		)
-	);
-}
-
 async function blockingAppsFor(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
@@ -597,29 +682,17 @@ async function loadWork(
 		.orderBy("order_key", "asc")
 		.orderBy("id", "asc")
 		.execute();
-	const rows = await tx
-		.selectFrom("lookup_rows")
-		.selectAll()
-		.where("project_id", "=", scope.projectId)
-		.where("table_id", "=", input.tableId)
-		.orderBy("order_key", "asc")
-		.orderBy("id", "asc")
-		.execute();
+	const members = await readTableMembers(tx, scope.projectId, input.tableId);
 	return {
 		input,
 		table,
+		attributes: members.get(null) ?? [],
 		columns: columns.map((column) => ({
-			id: lookupColumnIdSchema.parse(column.id),
-			wireName: column.wire_name,
-			label: column.label,
-			dataType: column.data_type,
+			...columnWithMembers(column, members.get(column.id)),
 			orderKey: column.order_key,
 		})),
-		rows: rows.map((row) => ({
-			id: lookupRowIdSchema.parse(row.id),
-			orderKey: row.order_key,
-			values: row.values as LookupRowValues,
-		})),
+		rowCount: table.row_count,
+		dataBytes: Number(table.data_bytes),
 		columnIds: [],
 		rowIds: [],
 		definitionChanged: false,
@@ -628,9 +701,88 @@ async function loadWork(
 	};
 }
 
+async function editMembers(
+	tx: Transaction<AppDatabase>,
+	scope: LookupWriteAuthority,
+	work: TableWork,
+	columnId: LookupColumnId | null,
+	before: readonly LookupMember[],
+	edits: readonly LookupMemberEdit[],
+): Promise<LookupMember[]> {
+	const byId = new Map(before.map((member) => [member.id, member]));
+	const minted = (
+		await mintIds(tx, edits.filter((member) => member.id === undefined).length)
+	).map((id) => lookupMemberIdSchema.parse(id));
+	let mint = 0;
+	const after = edits.map((member) => {
+		if (member.id && !byId.has(member.id)) notFound();
+		return {
+			id: member.id ?? minted[mint++],
+			wireName: member.wireName,
+			label: member.label,
+		};
+	});
+	const afterById = new Map(after.map((member) => [member.id, member]));
+	if (
+		before.some(
+			(member) => afterById.get(member.id)?.wireName !== member.wireName,
+		)
+	) {
+		try {
+			requireLookupCapability(tx, scope, "delete");
+		} catch (error) {
+			if (error instanceof LookupAuthorityError) notFound();
+			throw error;
+		}
+	}
+	for (const member of before) {
+		if (!afterById.has(member.id))
+			work.dataBytes -= await dropDefinitionExternalRefs(
+				tx,
+				scope.projectId,
+				work.input.tableId,
+				columnId === null
+					? { attributeId: member.id }
+					: { columnId, propertyId: member.id },
+			);
+	}
+	if (
+		await updateLookupMembers(
+			tx,
+			scope.projectId,
+			work.input.tableId,
+			new Map([[columnId, before]]),
+			new Map([[columnId, after]]),
+			[columnId],
+		)
+	)
+		work.definitionChanged = true;
+	return after;
+}
+
+async function syncAuthoredRows(
+	tx: Transaction<AppDatabase>,
+	scope: LookupWriteAuthority,
+	work: TableWork,
+	before?: LookupColumn,
+	after?: LookupColumn,
+) {
+	if (work.input.replaceRows !== undefined) return;
+	const result = await changeLookupRowShape(
+		tx,
+		scope,
+		work.input.tableId,
+		work.attributes,
+		before,
+		after,
+	);
+	work.dataBytes += result.delta;
+	work.rowsChanged ||= result.changed;
+}
+
 async function applyColumnOperations(
 	tx: Transaction<AppDatabase>,
-	scope: LookupScope,
+	scope: LookupWriteAuthority,
 	work: TableWork,
 ): Promise<Map<string, LookupColumnId>> {
 	const keyMap = new Map<string, LookupColumnId>();
@@ -646,11 +798,6 @@ async function applyColumnOperations(
 			case "add": {
 				if (keyMap.has(operation.key))
 					invalid(`Duplicate column key "${operation.key}".`);
-				if (work.columns.length >= LOOKUP_MAX_COLUMNS) {
-					invalid(
-						`A lookup table may have at most ${LOOKUP_MAX_COLUMNS} columns.`,
-					);
-				}
 				if (
 					work.columns.some(
 						(column) => column.wireName === operation.column.wireName,
@@ -687,10 +834,28 @@ async function applyColumnOperations(
 						wire_name: operation.column.wireName,
 						label: operation.column.label,
 						data_type: operation.column.dataType,
+						repeated: operation.column.repeated ?? false,
+						index_status: operation.column.indexed ? "indexed" : "off",
 						order_key: orderKey,
 					})
 					.execute();
-				work.columns.splice(index, 0, { id, orderKey, ...operation.column });
+				const props = await insertLookupMembers(
+					tx,
+					scope.projectId,
+					work.input.tableId,
+					id,
+					operation.column.properties ?? [],
+				);
+				work.columns.splice(index, 0, {
+					id,
+					orderKey,
+					wireName: operation.column.wireName,
+					label: operation.column.label,
+					dataType: operation.column.dataType,
+					...(operation.column.repeated ? { repeated: true } : {}),
+					...(props.length ? { properties: props } : {}),
+					...(operation.column.indexed ? { index: "indexed" } : {}),
+				});
 				keyMap.set(operation.key, id);
 				work.columnIds.push({ key: operation.key, id });
 				work.definitionChanged = true;
@@ -714,17 +879,76 @@ async function applyColumnOperations(
 						`Column wire name "${nextWireName}" is already used in this table.`,
 					);
 				}
-				if (nextLabel === column.label && nextWireName === column.wireName)
+				const repeated = operation.repeated ?? column.repeated ?? false;
+				const properties =
+					operation.properties === undefined
+						? (column.properties ?? [])
+						: await editMembers(
+								tx,
+								scope,
+								work,
+								column.id,
+								column.properties ?? [],
+								operation.properties,
+							);
+				const index =
+					operation.indexed === undefined
+						? column.index
+						: operation.indexed
+							? "indexed"
+							: undefined;
+				if (repeated && column.dataType !== "text")
+					invalid("Repeated values need a text column.");
+				if (!repeated && properties.length)
+					invalid("A column with value details needs repeated values.");
+				if (repeated !== (column.repeated ?? false)) {
+					try {
+						requireLookupCapability(tx, scope, "delete");
+					} catch (error) {
+						if (error instanceof LookupAuthorityError) notFound();
+						throw error;
+					}
+					await assertColumnDestructiveChangeAllowed(
+						tx,
+						scope.projectId,
+						work.input.tableId,
+						column.id,
+					);
+				}
+				if (
+					nextLabel === column.label &&
+					nextWireName === column.wireName &&
+					repeated === (column.repeated ?? false) &&
+					index === column.index &&
+					deepEqual(properties, column.properties ?? [])
+				)
 					break;
+				const before = { ...column };
+				if (repeated) column.repeated = true;
+				else delete column.repeated;
+				if (properties.length) column.properties = properties;
+				else delete column.properties;
+				if (index) column.index = index;
+				else delete column.index;
 				await tx
 					.updateTable("lookup_columns")
-					.set({ label: nextLabel, wire_name: nextWireName })
+					.set({
+						label: nextLabel,
+						wire_name: nextWireName,
+						repeated,
+						index_status: index ?? "off",
+					})
 					.where("project_id", "=", scope.projectId)
 					.where("table_id", "=", work.input.tableId)
 					.where("id", "=", column.id)
 					.execute();
 				column.label = nextLabel;
 				column.wireName = nextWireName;
+				if (
+					before.repeated !== column.repeated ||
+					!deepEqual(before.properties, column.properties)
+				)
+					await syncAuthoredRows(tx, scope, work, before, column);
 				work.definitionChanged = true;
 				break;
 			}
@@ -778,7 +1002,7 @@ async function applyColumnOperations(
 				break;
 			}
 			case "remove": {
-				if (work.columns.length <= 1) {
+				if (work.columns.length <= 1 && work.attributes.length === 0) {
 					throw new LookupError(
 						"last_column",
 						"A lookup table must retain at least one column.",
@@ -794,14 +1018,13 @@ async function applyColumnOperations(
 					work.input.tableId,
 					operation.columnId,
 				);
-				await sql`
-					UPDATE lookup_rows
-					SET "values" = "values" - ${operation.columnId}::text,
-						updated_by = ${scope.actorId}, updated_at = ${new Date()}
-					WHERE project_id = ${scope.projectId}
-						AND table_id = ${work.input.tableId}
-						AND "values" ? ${operation.columnId}::text
-				`.execute(tx);
+				work.dataBytes -= await dropDefinitionExternalRefs(
+					tx,
+					scope.projectId,
+					work.input.tableId,
+					{ columnId: operation.columnId },
+				);
+				await syncAuthoredRows(tx, scope, work, work.columns[index]);
 				await tx
 					.deleteFrom("lookup_columns")
 					.where("project_id", "=", scope.projectId)
@@ -809,7 +1032,6 @@ async function applyColumnOperations(
 					.where("id", "=", operation.columnId)
 					.execute();
 				work.columns.splice(index, 1);
-				for (const row of work.rows) delete row.values[operation.columnId];
 				work.definitionChanged = true;
 				work.rowsChanged = true;
 				break;
@@ -820,35 +1042,28 @@ async function applyColumnOperations(
 				);
 				if (column === undefined) notFound();
 				if (column.dataType === operation.dataType) break;
+				if (column.repeated)
+					invalid(
+						"A repeated column needs text values. You can change how it holds values first.",
+					);
 				await assertColumnDestructiveChangeAllowed(
 					tx,
 					scope.projectId,
 					work.input.tableId,
 					operation.columnId,
 				);
-				const candidate = { ...column, dataType: operation.dataType };
-				const incompatibleRowIds: LookupRowId[] = [];
-				let incompatibleRowCount = 0;
-				// A complete replacement makes the stored rows intermediate state, not
-				// the batch result. `applyRowOperations` validates every replacement
-				// cell against the fully updated column set before this transaction can
-				// commit, so rejecting on the rows about to be deleted would make a
-				// valid atomic migration impossible.
-				if (work.input.replaceRows === undefined) {
-					for (const row of work.rows) {
-						const result = validateLookupRowValues(
-							work.columns.map((item) =>
-								item.id === column.id ? candidate : item,
-							),
-							row.values,
-						);
-						if (!result.success) {
-							incompatibleRowCount++;
-							if (incompatibleRowIds.length < 100)
-								incompatibleRowIds.push(row.id);
-						}
-					}
-				}
+				// A complete atomic replacement validates its new values against the
+				// final definition. Otherwise check the exact stored cells in pages.
+				const { incompatibleRowCount, incompatibleRowIds } =
+					work.input.replaceRows === undefined
+						? await checkLookupRetype(
+								tx,
+								scope.projectId,
+								work.input.tableId,
+								column.id,
+								operation.dataType,
+							)
+						: { incompatibleRowCount: 0, incompatibleRowIds: [] };
 				if (incompatibleRowCount > 0) {
 					throw new LookupError(
 						"incompatible_values",
@@ -878,27 +1093,37 @@ async function insertRows(
 	tx: Transaction<AppDatabase>,
 	scope: LookupScope,
 	tableId: LookupTableId,
-	rows: readonly {
-		id: LookupRowId;
-		orderKey: string;
-		values: LookupRowValues;
-	}[],
-): Promise<void> {
-	if (rows.length === 0) return;
-	await tx
-		.insertInto("lookup_rows")
-		.values(
-			rows.map((row) => ({
-				project_id: scope.projectId,
-				table_id: tableId,
-				id: row.id,
-				order_key: row.orderKey,
-				values: JSON.stringify(row.values),
-				created_by: scope.actorId,
-				updated_by: scope.actorId,
-			})),
-		)
-		.execute();
+	rows: readonly MutableRow[],
+): Promise<number> {
+	if (rows.length === 0) return 0;
+	let bytes = 0;
+	for (let start = 0; start < rows.length; start += 250) {
+		const written = await tx
+			.insertInto("lookup_rows")
+			.values(
+				rows.slice(start, start + 250).map((row) => ({
+					project_id: scope.projectId,
+					table_id: tableId,
+					id: row.id,
+					order_key: row.orderKey,
+					values: JSON.stringify(row.values),
+					content: JSON.stringify(row.content),
+					hq_row_id: row.remoteId,
+					hq_sort_key: row.sortKey,
+					created_by: scope.actorId,
+					updated_by: scope.actorId,
+				})),
+			)
+			.returning("value_bytes")
+			.execute();
+		if (written.some((row) => row.value_bytes > LOOKUP_MAX_ROW_BYTES))
+			throw new LookupError(
+				"storage_limit",
+				"This row is too large for one inline edit. You can edit its values in parts.",
+			);
+		bytes += written.reduce((sum, row) => sum + row.value_bytes, 0);
+	}
+	return bytes;
 }
 
 async function applyRowOperations(
@@ -909,24 +1134,40 @@ async function applyRowOperations(
 ): Promise<void> {
 	const rowKeys = new Map<string, LookupRowId>();
 	if (work.input.replaceRows !== undefined) {
+		if (
+			work.table.worker_access === "assigned" ||
+			work.input.workerAccess === "assigned"
+		)
+			invalid(
+				"Replacing this table would clear its row assignments. You can update individual rows and keep their workers, groups and places.",
+			);
 		const drafts = work.input.replaceRows;
 		const ids = (await mintIds(tx, drafts.length)).map((id) =>
 			lookupRowIdSchema.parse(id),
 		);
 		const keys = balancedKeysBetween(null, null, drafts.length);
-		const rows = drafts.map((draft, index) => ({
-			id: ids[index],
-			orderKey: keys[index],
-			values: valuesFromCells(work.columns, columnKeys, draft.cells),
-		}));
-		if (rows.length > 0 || work.rows.length > 0) {
+		const rows = drafts.map((draft, index) => {
+			const values = valuesFromCells(work.columns, columnKeys, draft.cells);
+			return {
+				id: ids[index],
+				orderKey: keys[index],
+				values,
+				content: resolveNamedRowContent(
+					work.columns,
+					work.attributes,
+					values,
+					draft.content ?? {},
+				),
+			};
+		});
+		if (rows.length > 0 || work.rowCount > 0) {
 			await tx
 				.deleteFrom("lookup_rows")
 				.where("project_id", "=", scope.projectId)
 				.where("table_id", "=", work.input.tableId)
 				.execute();
-			await insertRows(tx, scope, work.input.tableId, rows);
-			work.rows = rows;
+			work.dataBytes = await insertRows(tx, scope, work.input.tableId, rows);
+			work.rowCount = rows.length;
 			work.rowsChanged = true;
 			work.rowIds.push(
 				...drafts.map((draft, index) => ({ key: draft.key, id: ids[index] })),
@@ -944,13 +1185,24 @@ async function applyRowOperations(
 	let mintedIndex = 0;
 	for (const operation of work.input.rowOperations ?? []) {
 		switch (operation.kind) {
-			case "add": {
-				if (work.rows.length >= LOOKUP_MAX_ROWS) {
-					throw new LookupError(
-						"row_limit",
-						`A lookup table may have at most ${LOOKUP_MAX_ROWS} rows.`,
+			case "assign": {
+				if (
+					(work.input.workerAccess ?? work.table.worker_access) !== "assigned"
+				)
+					invalid(
+						"This table goes to everyone. You can choose assigned workers for the table first.",
 					);
-				}
+				const changed = await replaceRowAssignments(
+					tx,
+					scope.projectId,
+					work.input.tableId,
+					operation.rowId,
+					operation.assignments,
+				);
+				work.rowsChanged ||= changed;
+				break;
+			}
+			case "add": {
 				const id = minted[mintedIndex++];
 				const afterRowId =
 					operation.afterRowKey === undefined
@@ -961,47 +1213,91 @@ async function applyRowOperations(
 						`Row anchor key "${operation.afterRowKey}" has not been created earlier in this batch.`,
 					);
 				}
-				const index = insertionIndex(work.rows, afterRowId, "Row");
-				const orderKey = deriveKeyAtIndex(
-					work.rows.map((row) => row.orderKey),
-					index,
+				const orderKey = await rowOrderForPlacement(
+					tx,
+					scope.projectId,
+					work.input.tableId,
+					{ afterRowId },
 				);
-				const row = {
-					id,
-					orderKey,
-					values: valuesFromCells(work.columns, columnKeys, operation.cells),
-				};
-				await insertRows(tx, scope, work.input.tableId, [row]);
-				work.rows.splice(index, 0, row);
-				work.rowIds.push({ key: operation.key, id });
-				rowKeys.set(operation.key, id);
-				work.rowsChanged = true;
-				break;
-			}
-			case "update": {
-				const row = work.rows.find(
-					(candidate) => candidate.id === operation.rowId,
-				);
-				if (row === undefined) notFound();
 				const values = valuesFromCells(
 					work.columns,
 					columnKeys,
 					operation.cells,
 				);
-				if (sameValues(row.values, values)) break;
-				await tx
-					.updateTable("lookup_rows")
-					.set({
-						values: JSON.stringify(values),
-						updated_by: scope.actorId,
-						updated_at: new Date(),
-					})
-					.where("project_id", "=", scope.projectId)
-					.where("table_id", "=", work.input.tableId)
-					.where("id", "=", row.id)
-					.execute();
-				row.values = values;
+				const row = {
+					id,
+					orderKey,
+					values,
+					content: resolveNamedRowContent(
+						work.columns,
+						work.attributes,
+						values,
+						operation.content ?? {},
+					),
+				};
+				work.dataBytes += await insertRows(tx, scope, work.input.tableId, [
+					row,
+				]);
+				if (operation.assignments !== undefined) {
+					if (
+						(work.input.workerAccess ?? work.table.worker_access) !== "assigned"
+					)
+						invalid(
+							"This table goes to everyone. You can choose assigned workers for the table first.",
+						);
+					await replaceRowAssignments(
+						tx,
+						scope.projectId,
+						work.input.tableId,
+						id,
+						operation.assignments,
+					);
+				}
+				work.rowCount++;
+				work.rowIds.push({ key: operation.key, id });
+				rowKeys.set(operation.key, id);
 				work.rowsChanged = true;
+				break;
+			}
+			case "patch": {
+				const result = await patchLookupRowInTransaction(
+					tx,
+					scope,
+					work.input.tableId,
+					operation.rowId,
+					work.columns,
+					work.attributes,
+					operation.changes,
+				);
+				work.dataBytes += result.delta;
+				work.rowsChanged ||= result.changed;
+				break;
+			}
+			case "update": {
+				const values = valuesFromCells(
+					work.columns,
+					columnKeys,
+					operation.cells,
+				);
+				const content =
+					operation.content === undefined
+						? checkedRowContent(work.columns, [], values, {})
+						: resolveNamedRowContent(
+								work.columns,
+								work.attributes,
+								values,
+								operation.content,
+							);
+				const updated = await replaceLookupRowInTransaction(
+					tx,
+					scope,
+					work.input.tableId,
+					operation.rowId,
+					values,
+					operation.content === undefined ? undefined : content,
+				);
+				work.dataBytes += updated.delta;
+				work.rowsChanged ||= updated.changed;
 				break;
 			}
 			case "move": {
@@ -1015,9 +1311,12 @@ async function applyRowOperations(
 						`Row key "${operation.rowKey ?? ""}" has not been created earlier in this batch.`,
 					);
 				}
-				const currentIndex = work.rows.findIndex((row) => row.id === targetId);
-				if (currentIndex < 0) notFound();
-				const [row] = work.rows.splice(currentIndex, 1);
+				const currentIndex = await rowIndex(
+					tx,
+					scope.projectId,
+					work.input.tableId,
+					targetId,
+				);
 				const afterRowId =
 					operation.afterRowKey === undefined
 						? operation.afterRowId
@@ -1027,14 +1326,26 @@ async function applyRowOperations(
 						`Row anchor key "${operation.afterRowKey}" has not been created earlier in this batch.`,
 					);
 				}
-				const index = insertionIndex(work.rows, afterRowId, "Row");
-				if (index === currentIndex) {
-					work.rows.splice(currentIndex, 0, row);
-					break;
-				}
-				const orderKey = deriveKeyAtIndex(
-					work.rows.map((candidate) => candidate.orderKey),
-					index,
+				const anchorIndex =
+					afterRowId == null
+						? -1
+						: await rowIndex(
+								tx,
+								scope.projectId,
+								work.input.tableId,
+								afterRowId,
+							);
+				const index =
+					afterRowId === undefined
+						? work.rowCount - 1
+						: anchorIndex + 1 - (currentIndex < anchorIndex ? 1 : 0);
+				if (currentIndex === index) break;
+				const orderKey = await rowOrderForPlacement(
+					tx,
+					scope.projectId,
+					work.input.tableId,
+					{ afterRowId },
+					targetId,
 				);
 				await tx
 					.updateTable("lookup_rows")
@@ -1045,23 +1356,22 @@ async function applyRowOperations(
 					})
 					.where("project_id", "=", scope.projectId)
 					.where("table_id", "=", work.input.tableId)
-					.where("id", "=", row.id)
+					.where("id", "=", targetId)
 					.execute();
-				row.orderKey = orderKey;
-				work.rows.splice(index, 0, row);
 				work.rowsChanged = true;
 				break;
 			}
 			case "remove": {
-				const index = work.rows.findIndex((row) => row.id === operation.rowId);
-				if (index < 0) notFound();
-				await tx
+				const removed = await tx
 					.deleteFrom("lookup_rows")
 					.where("project_id", "=", scope.projectId)
 					.where("table_id", "=", work.input.tableId)
 					.where("id", "=", operation.rowId)
-					.execute();
-				work.rows.splice(index, 1);
+					.returning(["value_bytes", "external_bytes"])
+					.executeTakeFirst();
+				if (!removed) notFound();
+				work.rowCount--;
+				work.dataBytes -= removed.value_bytes + Number(removed.external_bytes);
 				work.rowsChanged = true;
 				break;
 			}
@@ -1069,33 +1379,25 @@ async function applyRowOperations(
 	}
 }
 
-async function tableAccounting(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	tableId: LookupTableId,
-): Promise<{ rowCount: number; dataBytes: number }> {
-	const result = await sql<{ row_count: number; data_bytes: number }>`
-		SELECT count(*)::integer AS row_count,
-			COALESCE(sum(value_bytes), 0)::integer AS data_bytes
-		FROM lookup_rows
-		WHERE project_id = ${projectId} AND table_id = ${tableId}
-	`.execute(tx);
-	const accounting = result.rows[0];
-	if (accounting === undefined)
-		throw new Error("Lookup row accounting returned no row.");
-	if (accounting.data_bytes > LOOKUP_MAX_TABLE_BYTES) {
-		throw new LookupError(
-			"storage_limit",
-			`This change would put ${accounting.data_bytes} bytes of data in the table, which is over its ${LOOKUP_MAX_TABLE_BYTES}-byte limit.`,
-		);
-	}
-	return { rowCount: accounting.row_count, dataBytes: accounting.data_bytes };
-}
-
 /** The ids a created table and its columns take, in the input's column order. */
 export interface LookupCreatedTableIds {
 	readonly tableId: LookupTableId;
 	readonly columnIds: readonly LookupColumnId[];
+	readonly memberIds?: ManagedLookupMemberIds;
+	readonly fieldIndexes?: Readonly<
+		Record<string, "off" | "indexed" | "unobserved">
+	>;
+	readonly sourceRows?: readonly {
+		readonly remoteId: string;
+		readonly sortKey?: number;
+	}[];
+}
+
+export interface ManagedLookupMemberIds {
+	readonly attributes: Readonly<Record<string, LookupMemberId>>;
+	readonly properties: Readonly<
+		Record<string, Readonly<Record<string, LookupMemberId>>>
+	>;
 }
 
 /** The CommCare HQ origin a created table carries, written in its insert. */
@@ -1145,13 +1447,12 @@ export async function createTable(
 		label: column.label,
 		dataType: column.dataType,
 		orderKey: columnOrderKeys[index],
+		...(column.repeated ? { repeated: true } : {}),
+		...(column.indexed ? { index: "indexed" } : {}),
 	}));
-	const rowKeys = balancedKeysBetween(null, null, input.rows.length);
-	const rows = input.rows.map((row, index) => ({
-		id: rowIds[index],
-		orderKey: rowKeys[index],
-		values: valuesFromCells(columns, columnKeys, row.cells),
-	}));
+	const scalarRows = input.rows.map((row) =>
+		valuesFromCells(columns, columnKeys, row.cells),
+	);
 	await tx
 		.insertInto("lookup_tables")
 		.values({
@@ -1162,30 +1463,75 @@ export async function createTable(
 			definition_revision: revision,
 			rows_revision: revision,
 			column_count: columns.length,
-			row_count: rows.length,
+			row_count: input.rows.length,
 			created_by: scope.actorId,
 			updated_by: scope.actorId,
 			...origin,
 		})
 		.execute();
-	await tx
-		.insertInto("lookup_columns")
-		.values(
-			columns.map((column) => ({
-				project_id: scope.projectId,
-				table_id: tableId,
-				id: column.id,
-				wire_name: column.wireName,
-				label: column.label,
-				data_type: column.dataType,
-				order_key: column.orderKey,
-			})),
-		)
-		.execute();
-	await insertRows(tx, scope, tableId, rows);
-	const accounting = await tableAccounting(tx, scope.projectId, tableId);
+	for (let start = 0; start < columns.length; start += 250)
+		await tx
+			.insertInto("lookup_columns")
+			.values(
+				columns.slice(start, start + 250).map((column) => ({
+					project_id: scope.projectId,
+					table_id: tableId,
+					id: column.id,
+					wire_name: column.wireName,
+					label: column.label,
+					data_type: column.dataType,
+					repeated: column.repeated ?? false,
+					index_status:
+						ownRecordValue(ids.fieldIndexes, column.wireName) ??
+						column.index ??
+						(origin ? "unobserved" : "off"),
+					order_key: column.orderKey,
+				})),
+			)
+			.execute();
+	const attributes = await insertLookupMembers(
+		tx,
+		scope.projectId,
+		tableId,
+		null,
+		input.attributes ?? [],
+		ids.memberIds?.attributes,
+	);
+	for (const [index, draft] of input.columns.entries()) {
+		const column = columns[index];
+		const properties = await insertLookupMembers(
+			tx,
+			scope.projectId,
+			tableId,
+			column.id,
+			draft.properties ?? [],
+			ownRecordValue(ids.memberIds?.properties, draft.wireName),
+		);
+		if (properties.length) column.properties = properties;
+	}
+	const rowKeys = balancedKeysBetween(null, null, input.rows.length);
+	const rows = input.rows.map((row, index) => {
+		const values = scalarRows[index];
+		return {
+			id: rowIds[index],
+			orderKey: rowKeys[index],
+			values,
+			content: resolveNamedRowContent(
+				columns,
+				attributes,
+				values,
+				row.content ?? {},
+			),
+			...ids.sourceRows?.[index],
+		};
+	});
+	const dataBytes = await insertRows(tx, scope, tableId, rows);
+	if (dataBytes > LOOKUP_MAX_TABLE_BYTES)
+		invalid(
+			"This inline table is too large for one request. You can import it in parts.",
+		);
 	const table = await updateLockedLookupTable(tx, scope.projectId, tableId, {
-		data_bytes: accounting.dataBytes,
+		data_bytes: dataBytes,
 	});
 	return {
 		key: input.key,
@@ -1217,9 +1563,33 @@ export async function applyLookupAuthoringBatchInTransaction(
 	scope: LookupWriteAuthority,
 	inputValue: LookupAuthoringBatchInput,
 ): Promise<LookupAuthoringBatchReceipt> {
+	if (
+		Buffer.byteLength(JSON.stringify(inputValue), "utf8") >
+		LOOKUP_MAX_TABLE_BYTES
+	)
+		throw new LookupError(
+			"storage_limit",
+			"This edit is too large for one request. You can import it in parts.",
+		);
 	const input = parseBatch(inputValue);
 	assertCapability(tx, scope, input);
 	const projectState = await lockLookupProjectState(tx, scope);
+	return lookupEditOnce(
+		tx,
+		scope,
+		input.operationId,
+		"lookupBatch",
+		input,
+		() => applyBatch(tx, scope, input, projectState),
+	);
+}
+
+async function applyBatch(
+	tx: Transaction<AppDatabase>,
+	scope: LookupWriteAuthority,
+	input: LookupAuthoringBatchInput,
+	projectState: { revision: LookupRevision },
+): Promise<LookupAuthoringBatchReceipt> {
 	const nextRevision = parseLookupRevision(
 		(BigInt(projectState.revision) + BigInt(1)).toString(),
 	);
@@ -1277,6 +1647,40 @@ export async function applyLookupAuthoringBatchInTransaction(
 			changed = true;
 			continue;
 		}
+		if (
+			work.input.workerAccess !== undefined &&
+			work.input.workerAccess !== work.table.worker_access
+		) {
+			await holdLookupReaderReview(
+				tx,
+				scope.projectId,
+				work.input.tableId,
+				projectState.revision,
+				work.input.reviewed,
+			);
+			await tx
+				.updateTable("lookup_tables")
+				.set({ worker_access: work.input.workerAccess })
+				.where("project_id", "=", scope.projectId)
+				.where("id", "=", work.input.tableId)
+				.execute();
+			work.definitionChanged = true;
+		}
+		const richEdit =
+			work.input.attributes !== undefined ||
+			work.input.columnOperations?.some(
+				(operation) =>
+					(operation.kind === "add" &&
+						(operation.column.repeated ||
+							operation.column.indexed !== undefined)) ||
+					(operation.kind === "update" &&
+						(operation.repeated !== undefined ||
+							operation.indexed !== undefined ||
+							operation.properties !== undefined)) ||
+					(operation.kind === "remove" &&
+						work.columns.find((column) => column.id === operation.columnId)
+							?.repeated),
+			);
 		const name = work.input.name ?? work.table.name;
 		const tag = work.input.tag ?? work.table.tag;
 		if (name !== work.table.name || tag !== work.table.tag) {
@@ -1287,6 +1691,22 @@ export async function applyLookupAuthoringBatchInTransaction(
 				.where("id", "=", work.input.tableId)
 				.execute();
 			work.definitionChanged = true;
+		}
+		if (work.input.attributes !== undefined) {
+			const oldIds = new Set(work.attributes.map(({ id }) => id));
+			work.attributes = await editMembers(
+				tx,
+				scope,
+				work,
+				null,
+				work.attributes,
+				work.input.attributes,
+			);
+			if (
+				oldIds.size !== work.attributes.length ||
+				work.attributes.some(({ id }) => !oldIds.has(id))
+			)
+				await syncAuthoredRows(tx, scope, work);
 		}
 		const previousNames = new Map(
 			work.columns.map((column) => [column.id, column.wireName]),
@@ -1301,6 +1721,16 @@ export async function applyLookupAuthoringBatchInTransaction(
 					: [];
 			}),
 		]);
+		if (!work.columns.length && !work.attributes.length)
+			invalid("A table needs at least one column or row detail.");
+		if (work.definitionChanged && richEdit)
+			await holdLookupReaderReview(
+				tx,
+				scope.projectId,
+				work.input.tableId,
+				parseLookupRevision(projectState.revision),
+				work.input.reviewed,
+			);
 		await applyRowOperations(tx, scope, work, columnKeys);
 		changed ||= work.definitionChanged || work.rowsChanged;
 	}
@@ -1330,11 +1760,7 @@ export async function applyLookupAuthoringBatchInTransaction(
 		}
 		let table = work.table;
 		if (work.definitionChanged || work.rowsChanged) {
-			const accounting = await tableAccounting(
-				tx,
-				scope.projectId,
-				work.input.tableId,
-			);
+			const accounting = { rowCount: work.rowCount, dataBytes: work.dataBytes };
 			table = await updateLockedLookupTable(
 				tx,
 				scope.projectId,

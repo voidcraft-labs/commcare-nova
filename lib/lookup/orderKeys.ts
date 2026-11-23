@@ -190,26 +190,23 @@ export function balancedKeysBetween(
 	hi: string | null,
 	count: number,
 ): string[] {
-	if (count <= 0) return [];
-	if (!Number.isSafeInteger(count)) {
+	return Array.from(iterateBalancedKeys(lo, hi, count));
+}
+
+/** Stream the very same keys when only one row or batch fits in memory. */
+export function* iterateBalancedKeys(
+	lo: string | null,
+	hi: string | null,
+	count: number,
+): Generator<string> {
+	if (count <= 0) return;
+	if (!Number.isSafeInteger(count))
 		throw new RangeError("balancedKeysBetween count must be a safe integer");
-	}
-	const keys = new Array<string>(count);
-	const fill = (
-		start: number,
-		end: number,
-		lower: string | null,
-		upper: string | null,
-	) => {
-		if (start >= end) return;
-		const middle = start + Math.floor((end - start) / 2);
-		const key = keyBetween(lower, upper);
-		keys[middle] = key;
-		fill(start, middle, lower, key);
-		fill(middle + 1, end, key, upper);
-	};
-	fill(0, count, lo, hi);
-	return keys;
+	const left = Math.floor(count / 2);
+	const middle = keyBetween(lo, hi);
+	yield* iterateBalancedKeys(lo, middle, left);
+	yield middle;
+	yield* iterateBalancedKeys(middle, hi, count - left - 1);
 }
 
 /**

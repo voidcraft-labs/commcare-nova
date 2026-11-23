@@ -25,6 +25,11 @@ import {
 	functionArityIssue,
 	QUERY_FUNCTIONS,
 } from "@/lib/domain/expressionFunctions";
+import {
+	type LookupMemberId,
+	lookupColumnIdSchema,
+} from "@/lib/domain/lookupIds";
+import { type LookupRead, lookupReadSchema } from "@/lib/domain/lookupRead";
 import type { Uuid } from "@/lib/domain/uuid";
 import { AuthoringInputError } from "./errors";
 import {
@@ -48,6 +53,11 @@ export interface QueryBindings {
 	): string;
 	/** The menu a chosen-case read names, refused unless one case is chosen
 	 *  there: its module and that module's case type. */
+	memberIdentity?(
+		tableId: string,
+		columnId: string | undefined,
+		name: string,
+	): LookupMemberId;
 	chosenCaseMenu(name: string): { module: Uuid; caseType: string };
 	forRelation(relation: RelationPath): QueryBindings;
 	forTable(tableId: string): QueryBindings;
@@ -226,6 +236,65 @@ function relation(node: Node): RelationPath {
 	return relationPathSchema.parse(result);
 }
 
+/** A name identifies one owner, and the shape preserves the order in which
+ * a worker filters occurrences, chooses a position, then reads a detail. */
+function readSelector(
+	node: Node,
+	table: string,
+	bindings: QueryBindings,
+): LookupRead {
+	const member = (column: string | undefined, name: string) => {
+		if (!bindings.memberIdentity)
+			throw new AuthoringInputError(
+				"The data table’s details are unavailable.",
+			);
+		return bindings.memberIdentity(table, column, name);
+	};
+	if (
+		node.kind !== "call" ||
+		!["row-detail", "value-with", "value-at", "value-detail"].includes(
+			node.name,
+		)
+	)
+		return lookupColumnIdSchema.parse(
+			bindings.identity("column", string(node), table),
+		);
+	const { name, args } = node;
+	arity(name, args);
+	if (name === "row-detail")
+		return { attributeId: member(undefined, string(args[0])) };
+	const inner = readSelector(args[0], table, bindings);
+	if (typeof inner !== "string" && ("attributeId" in inner || inner.propertyId))
+		throw new AuthoringInputError(
+			"Choose a data column before selecting a value or its detail.",
+		);
+	const base = typeof inner === "string" ? { columnId: inner } : inner;
+	if (name === "value-with" && base.where)
+		throw new AuthoringInputError("Choose a single value detail to match.");
+	if (name === "value-at" && base.occurrence !== undefined)
+		throw new AuthoringInputError("Choose one position in the list of values.");
+	const selected =
+		name === "value-at"
+			? { ...base, occurrence: number(args[1]) }
+			: name === "value-with"
+				? {
+						...base,
+						...(base.occurrence !== undefined && {
+							positionBeforeFilter: true as const,
+						}),
+						where: {
+							propertyId: member(base.columnId, string(args[1])),
+							equals: string(args[2]),
+						},
+					}
+				: { ...base, propertyId: member(base.columnId, string(args[1])) };
+	const result = lookupReadSchema.safeParse(selected);
+	if (!result.success)
+		throw new AuthoringInputError(
+			"Choose a whole value position starting at one.",
+		);
+	return result.data;
+}
 function compiler(bindings: QueryBindings) {
 	function term(node: Node): ObjectValue {
 		if (node.kind === "reference")
@@ -293,7 +362,7 @@ function compiler(bindings: QueryBindings) {
 				return {
 					kind: "table-column",
 					tableId,
-					columnId: bindings.identity("column", string(args[1]), tableId),
+					columnId: readSelector(args[1], tableId, bindings),
 				};
 			}
 		}
@@ -423,7 +492,7 @@ function compiler(bindings: QueryBindings) {
 			return {
 				kind: "table-lookup",
 				tableId,
-				resultColumnId: bindings.identity("column", string(args[1]), tableId),
+				resultColumnId: readSelector(args[1], tableId, bindings),
 				where: compiler(bindings.forTable(tableId)).predicate(args[2]),
 			};
 		}

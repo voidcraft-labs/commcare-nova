@@ -1,3 +1,4 @@
+import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 // lib/preview/engine/serverSearchRead.ts
 //
 // A records screen's search and the read its Results run, for the server-side
@@ -49,6 +50,7 @@ export interface ServerSearchWorld {
 	readonly doc: BlueprintDoc & { readonly caseTypes: readonly CaseType[] };
 	readonly language: LanguageTag;
 	readonly appId: string;
+	readonly projectId: string;
 	readonly identity: FormEvaluationContext["identity"];
 	/** The device the session runs on: its platform's search rules and
 	 *  session values (`previewDevice.ts`). */
@@ -259,13 +261,9 @@ export async function serverRecordsRead(
 						),
 						chosenCaseIds: step.chosenCaseIds,
 					},
-					lookupTableSchemas: new Map(
-						world.lookup.definitions.map((table) => [
-							table.id,
-							new Map(
-								table.columns.map((column) => [column.id, column.dataType]),
-							),
-						]),
+					lookupTableSchemas: workerLookupSchemas(
+						world.projectId,
+						world.lookup,
 					),
 					excludedOwnerIds: search.excludedOwnerIds,
 					authoredExcludedOwnerIds: search.authoredExcludedOwnerIds,

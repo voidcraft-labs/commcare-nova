@@ -103,7 +103,7 @@ function readToolReceipt(
 }
 
 export type AuthoringHost =
-	| { kind: "mcp" }
+	| { kind: "mcp"; grant?: ToolInvocationContext["dataGrant"] }
 	| {
 			kind: "chat";
 			threadId: string;
@@ -263,6 +263,7 @@ async function workspaceHost(
 	return {
 		actorUserId: args.actorUserId,
 		authoringSessionId: args.workId,
+		dataGrant: args.host.kind === "mcp" ? args.host.grant : undefined,
 		ordinaryAuthoring:
 			args.host.kind === "chat"
 				? {
@@ -704,6 +705,7 @@ async function workToolContext(
 		runId: host.runId,
 		chatRunHolder: host.chatRunHolder,
 		ordinaryAuthoring: host.ordinaryAuthoring,
+		dataGrant: host.dataGrant,
 		snapshot,
 		invocation: {
 			requestId: external

@@ -291,7 +291,7 @@ describe("worker names a write and a read spell in other letters", () => {
 });
 
 describe("levels whose names differ only in capitalization", () => {
-	it("keeps the first in CommCare HQ's list and finds the other, which the gate would refuse", () => {
+	it("keeps both display spellings with their separate level codes", () => {
 		const { levels, findings } = levelsFromHq(
 			[
 				level("state", "State", null),
@@ -301,16 +301,13 @@ describe("levels whose names differ only in capitalization", () => {
 			],
 			claimsUnder(mintingResolver("app-1")),
 		);
-		expect(levels.map((one) => one.code)).toEqual(["state", "clinic"]);
-		expect(findings).toEqual([
-			{
-				code: "place-not-holdable",
-				standing: "not-yet",
-				place: { kind: "organization" },
-				subject: null,
-				detail: { name: "clinic" },
-			},
+		expect(levels.map((one) => one.code)).toEqual([
+			"state",
+			"clinic",
+			"site",
+			"ward",
 		]);
+		expect(findings).toEqual([]);
 		const doc = produce(survey(), (draft) => {
 			draft.organizationLevels = Object.fromEntries(
 				levels.map((one) => [one.uuid, one]),
@@ -348,8 +345,8 @@ describe("levels whose names differ only in capitalization", () => {
 			expect(levels.map((one) => one.code)).toEqual(["site"]);
 			expect(findings).toEqual([
 				{
-					code: "place-not-holdable",
-					standing: "not-yet",
+					code: "place-field-unusable",
+					standing: "fix-in-hq",
 					place: { kind: "organization" },
 					subject: null,
 					detail: { name: finding },

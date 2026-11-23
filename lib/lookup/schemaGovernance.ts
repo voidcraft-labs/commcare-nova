@@ -7,12 +7,12 @@ import {
 	type LookupRowId,
 	type LookupTableId,
 	lookupColumnIdSchema,
-	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { coerceLookupCell } from "./coercion";
 import { hasLookupDesignProtection } from "./designProtection";
 import { LookupError } from "./errors";
+import { dropDefinitionExternalRefs } from "./largeValues/projection";
+import { checkLookupRetype } from "./retypeCells";
 import { lookupDataTypeSchema, parseLookupRevision } from "./schema";
 import type {
 	LookupDataType,
@@ -147,11 +147,6 @@ interface RemovalAccounting {
 	affected_rows: number;
 	affected_cells: number;
 	freed_bytes: number;
-}
-
-interface PresentCellRow {
-	row_id: string;
-	cell_value: unknown;
 }
 
 function assertScope(scope: LookupScope): void {
@@ -303,10 +298,10 @@ async function requireColumn(
 	projectId: string,
 	tableId: LookupTableId,
 	columnId: LookupColumnId,
-): Promise<{ dataType: LookupDataType }> {
+): Promise<{ dataType: LookupDataType; repeated: boolean }> {
 	const column = await tx
 		.selectFrom("lookup_columns")
-		.select("data_type")
+		.select(["data_type", "repeated"])
 		.where("project_id", "=", projectId)
 		.where("table_id", "=", tableId)
 		.where("id", "=", columnId)
@@ -317,7 +312,10 @@ async function requireColumn(
 			"Lookup resource was not found.",
 		);
 	}
-	return { dataType: lookupDataTypeSchema.parse(column.data_type) };
+	return {
+		dataType: lookupDataTypeSchema.parse(column.data_type),
+		repeated: column.repeated,
+	};
 }
 
 async function deleteTable(
@@ -356,7 +354,7 @@ async function deleteTable(
 		projectRevision,
 		deletedColumnCount: table.column_count,
 		deletedRowCount: table.row_count,
-		freedBytes: table.data_bytes,
+		freedBytes: Number(table.data_bytes),
 	};
 }
 
@@ -372,7 +370,16 @@ async function removeColumn(
 		operation.tableId,
 		operation.columnId,
 	);
-	if (table.column_count <= 1) {
+	if (
+		table.column_count <= 1 &&
+		!(await tx
+			.selectFrom("lookup_members")
+			.select("id")
+			.where("project_id", "=", scope.projectId)
+			.where("table_id", "=", operation.tableId)
+			.where("column_id", "is", null)
+			.executeTakeFirst())
+	) {
 		throw new LookupSchemaGovernanceError(
 			"last_column",
 			"A lookup table must retain at least one column.",
@@ -397,17 +404,25 @@ async function removeColumn(
 	if (blockers.length > 0) rejectReferenced(blockers);
 
 	const changedAt = new Date();
+	const externalFreed = await dropDefinitionExternalRefs(
+		tx,
+		scope.projectId,
+		operation.tableId,
+		{ columnId: operation.columnId },
+	);
 	const accountingResult = await sql<RemovalAccounting>`
 		WITH candidates AS MATERIALIZED (
 			SELECT project_id, table_id, id, value_bytes AS before_bytes
 			FROM lookup_rows
 			WHERE project_id = ${scope.projectId}
 				AND table_id = ${operation.tableId}
-				AND "values" ? ${operation.columnId}::text
+				AND ("values" ? ${operation.columnId}::text OR (content -> 'occurrences') ? ${operation.columnId}::text)
 			FOR UPDATE
 		), updated AS (
 			UPDATE lookup_rows AS target
 			SET "values" = target."values" - ${operation.columnId}::text,
+				content = CASE WHEN (target.content->'occurrences') - ${operation.columnId}::text = '{}'::jsonb THEN target.content - 'occurrences'
+					ELSE target.content #- ARRAY['occurrences',${operation.columnId}::text] END,
 				updated_by = ${scope.actorId},
 				updated_at = ${changedAt}
 			FROM candidates
@@ -419,14 +434,15 @@ async function removeColumn(
 		)
 		SELECT count(*)::integer AS affected_rows,
 			count(*)::integer AS affected_cells,
-			COALESCE(sum(before_bytes - after_bytes), 0)::integer AS freed_bytes
+			COALESCE(sum(before_bytes - after_bytes), 0)::bigint::text AS freed_bytes
 		FROM updated
 	`.execute(tx);
 	const accounting = accountingResult.rows[0];
 	if (!accounting) {
 		throw new Error("Lookup column removal returned no accounting row.");
 	}
-	const dataBytes = table.data_bytes - accounting.freed_bytes;
+	const dataBytes =
+		Number(table.data_bytes) - Number(accounting.freed_bytes) - externalFreed;
 	if (dataBytes < 0) {
 		throw new Error("Lookup column removal produced negative byte accounting.");
 	}
@@ -466,7 +482,7 @@ async function removeColumn(
 		projectRevision,
 		affectedRows: accounting.affected_rows,
 		affectedCells: accounting.affected_cells,
-		freedBytes: accounting.freed_bytes,
+		freedBytes: Number(accounting.freed_bytes) + externalFreed,
 		...lookupTableRevisions(updated),
 	};
 }
@@ -496,6 +512,11 @@ async function retypeColumn(
 			...lookupTableRevisions(table),
 		};
 	}
+	if (column.repeated)
+		throw new LookupSchemaGovernanceError(
+			"incompatible_values",
+			"A repeated column needs text values. You can change how it holds values first.",
+		);
 	if (
 		await hasLookupDesignProtection(
 			tx,
@@ -514,23 +535,13 @@ async function retypeColumn(
 	);
 	if (blockers.length > 0) rejectReferenced(blockers);
 
-	const presentCells = await sql<PresentCellRow>`
-		SELECT id::text AS row_id,
-			"values" -> ${operation.columnId}::text AS cell_value
-		FROM lookup_rows
-		WHERE project_id = ${scope.projectId}
-			AND table_id = ${operation.tableId}
-			AND "values" ? ${operation.columnId}::text
-		ORDER BY id ASC
-	`.execute(tx);
-	const incompatibleRowIds: LookupRowId[] = [];
-	for (const cell of presentCells.rows) {
-		if (
-			!coerceLookupCell(operation.dataType, cell.cell_value, "typed").success
-		) {
-			incompatibleRowIds.push(lookupRowIdSchema.parse(cell.row_id));
-		}
-	}
+	const { checkedCells, incompatibleRowIds } = await checkLookupRetype(
+		tx,
+		scope.projectId,
+		operation.tableId,
+		operation.columnId,
+		operation.dataType,
+	);
 	if (incompatibleRowIds.length > 0) {
 		throw new LookupSchemaGovernanceError(
 			"incompatible_values",
@@ -571,7 +582,7 @@ async function retypeColumn(
 		columnId: operation.columnId,
 		dataType: operation.dataType,
 		projectRevision,
-		checkedCells: presentCells.rows.length,
+		checkedCells,
 		changed: true,
 		...lookupTableRevisions(updated),
 	};

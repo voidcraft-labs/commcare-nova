@@ -17,8 +17,6 @@ import {
 } from "@/lib/domain/portableName";
 import { coerceLookupCell } from "@/lib/lookup/coercion";
 import {
-	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
 	LOOKUP_MAX_TAG_LENGTH,
 	LOOKUP_MAX_WIRE_NAME_LENGTH,
 	LOOKUP_WIRE_IDENTIFIER_PATTERN,
@@ -35,12 +33,15 @@ import type {
 	LookupHqOrigin,
 	LookupRevision,
 	LookupRow,
+	LookupRowContent,
 	LookupRowValues,
 	LookupTableManifestEntry,
 	LookupTableSnapshot,
 	UpdateLookupRowInput,
 } from "@/lib/lookup/types";
 import { parseClockTime } from "@/lib/ui/clockTime";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
+import { sameRowContent } from "./richRowModel";
 
 /* Sizes and counts come from `lib/lookup/format`, the same module the
  * service's and the CSV route's refusals use. One formatter means a refusal
@@ -50,59 +51,6 @@ import { parseClockTime } from "@/lib/ui/clockTime";
 export { formatLookupBytes, formatLookupCount };
 
 /**
- * How full a table is against the two caps that can actually stop a write.
- *
- * Both are reported, because they bind independently: 5,000 short rows hit
- * the row cap with bytes to spare, and 400 long ones hit the byte cap with
- * rows to spare. A surface that shows only one leaves the author guessing
- * which limit refused them.
- */
-export interface TableCapacity {
-	readonly rowCount: number;
-	readonly rowLimit: number;
-	readonly dataBytes: number;
-	readonly byteLimit: number;
-	/** The larger of the two utilizations, 0–1, for one at-a-glance meter. */
-	readonly fullness: number;
-	/** True once either cap is reached: no further row can be added. */
-	readonly full: boolean;
-}
-
-export function tableCapacity(table: {
-	readonly rowCount: number;
-	readonly dataBytes: number;
-}): TableCapacity {
-	const byRows = table.rowCount / LOOKUP_MAX_ROWS;
-	const byBytes = table.dataBytes / LOOKUP_MAX_TABLE_BYTES;
-	return {
-		rowCount: table.rowCount,
-		rowLimit: LOOKUP_MAX_ROWS,
-		dataBytes: table.dataBytes,
-		byteLimit: LOOKUP_MAX_TABLE_BYTES,
-		fullness: Math.min(1, Math.max(byRows, byBytes)),
-		full:
-			table.rowCount >= LOOKUP_MAX_ROWS ||
-			table.dataBytes >= LOOKUP_MAX_TABLE_BYTES,
-	};
-}
-
-/**
- * Why a table cannot take another row, in the author's words, or
- * `undefined` when it can. Names the measured size against the limit rather
- * than saying "full", so the author knows which one to act on.
- */
-export function rowAdditionRefusal(
-	capacity: TableCapacity,
-): string | undefined {
-	if (capacity.rowCount >= capacity.rowLimit) {
-		return `This table already holds its limit of ${formatLookupCount(capacity.rowLimit, "row")}. Remove a row, or split the data across two tables.`;
-	}
-	if (capacity.dataBytes >= capacity.byteLimit) {
-		return `This table already holds ${formatLookupBytes(capacity.dataBytes)}, which is its limit of ${formatLookupBytes(capacity.byteLimit)}. Shorten some values, remove a row, or split the data across two tables.`;
-	}
-	return undefined;
-}
-
 /** Suggest a name workers' expressions can read. The author can edit the
  * suggestion, and a deliberately chosen name is stored as entered. */
 export function suggestWireName(
@@ -171,37 +119,6 @@ export function cellText(
 	const raw: LookupCellValue | undefined = values[column.id];
 	if (raw === undefined) return undefined;
 	return typeof raw === "number" ? String(raw) : raw;
-}
-
-/**
- * How many rows one page of the grid shows.
- *
- * Matched to the running case list's own page size so the two row surfaces
- * behave alike rather than each picking a number.
- */
-export const ROWS_PER_PAGE = 50;
-
-/**
- * The rows whose displayed text contains `query`, in authored order.
- *
- * Matching runs over the SAME text `cellText` renders, so a row a person can
- * see is a row they can find: searching stored values instead would miss a
- * number the grid shows as text, and a missing cell would silently match the
- * empty string. Case-insensitive and whitespace-trimmed; an empty query
- * matches everything rather than nothing.
- */
-export function filterRows<Row extends { readonly values: LookupRowValues }>(
-	rows: readonly Row[],
-	columns: readonly LookupColumn[],
-	query: string,
-): readonly Row[] {
-	const needle = query.trim().toLocaleLowerCase();
-	if (needle === "") return rows;
-	return rows.filter((row) =>
-		columns.some((column) =>
-			cellText(row.values, column)?.toLocaleLowerCase().includes(needle),
-		),
-	);
 }
 
 /**
@@ -645,6 +562,7 @@ function parseTemporalText(
 export interface RowEditBaseline {
 	readonly tableRevision: LookupTableSnapshot["tableRevision"];
 	readonly row: LookupRow;
+	readonly attributes?: LookupTableSnapshot["attributes"];
 	readonly columns: readonly LookupColumn[];
 }
 
@@ -654,8 +572,9 @@ export function captureRowEditBaseline(
 ): RowEditBaseline {
 	return {
 		tableRevision: table.tableRevision,
-		row: { ...row, values: { ...row.values } as LookupRowValues },
-		columns: table.columns.map((column) => ({ ...column })),
+		row: structuredClone(row),
+		...(table.attributes && { attributes: structuredClone(table.attributes) }),
+		columns: structuredClone(table.columns),
 	};
 }
 
@@ -854,14 +773,17 @@ export type ConflictReason =
  */
 export function rowWriteConflictVerdict(args: {
 	readonly baseline: LookupRowValues;
+	readonly baselineContent?: LookupRowContent;
 	readonly current: LookupRow | undefined;
 	readonly columnsChanged: boolean;
 }): ConflictVerdict {
 	if (args.current === undefined) return { kind: "gone" };
+	if (args.current.fragmented) return { kind: "ask", reason: "row-changed" };
 	if (args.columnsChanged) {
 		return { kind: "ask", reason: "columns-changed" };
 	}
-	return rowValuesEqual(args.baseline, args.current.values)
+	return rowValuesEqual(args.baseline, args.current.values) &&
+		sameRowContent(args.baselineContent ?? {}, args.current)
 		? { kind: "retry" }
 		: { kind: "ask", reason: "row-changed" };
 }
@@ -879,7 +801,11 @@ export function columnsEqual(
 				column.id === other.id &&
 				column.wireName === other.wireName &&
 				column.label === other.label &&
-				column.dataType === other.dataType
+				column.dataType === other.dataType &&
+				column.repeated === other.repeated &&
+				column.index === other.index &&
+				canonicalJsonText(column.properties ?? []) ===
+					canonicalJsonText(other.properties ?? [])
 			);
 		})
 	);

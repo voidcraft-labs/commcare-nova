@@ -471,10 +471,13 @@ export type ValidationErrorCode =
 	| "LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE"
 	| "LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE"
 	| "LOOKUP_SELECT_SOURCE_LABEL_BLANK"
+	| "LOOKUP_QUESTION_READ_UNEDITABLE"
+	| "LOOKUP_SELECT_SOURCE_AMBIGUOUS"
 	| "LOOKUP_SELECT_SOURCE_EMPTY"
 	// What each carrier can hold: fixture bytes a downloadable app embeds,
 	// rows CommCare HQ's importer takes in one workbook, and the sheet name
 	// its importer keeps for its own list of tables.
+	| "LOOKUP_WORKER_SOURCE_UNAVAILABLE"
 	| "LOOKUP_FIXTURE_EXPORT_TOO_LARGE"
 	| "LOOKUP_HQ_PUSH_TOO_LARGE"
 	| "HQ_NESTED_SELECTION_UNREPRESENTABLE"

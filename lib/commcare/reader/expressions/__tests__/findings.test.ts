@@ -52,7 +52,6 @@ const ISSUES: Readonly<Record<FormParseIssueCode, true>> = {
 	variable: true,
 	"instance-unknown": true,
 	"instance-argument": true,
-	"groups-held": true,
 	"form-root": true,
 	"unknown-field": true,
 	"ambiguous-field": true,

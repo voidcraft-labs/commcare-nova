@@ -22,7 +22,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/expression/context";
-import { readOrganization } from "@/lib/organization/service";
+import { readPlaceNames } from "@/lib/organization/pages";
 import { bindToolAddress } from "./addresses";
 import {
 	type AuthoringScopeOptions,
@@ -85,26 +85,35 @@ function searchType(input: Input) {
 	return found[1];
 }
 
-function readsCatalog(
-	node: AuthoredExpression,
-	catalog: "locations" | "tables",
-): boolean {
+function collectPlaceNames(node: AuthoredExpression, names: Set<string>) {
+	if (node.kind === "call") {
+		const [argument] = node.args;
+		if (
+			node.name === "location" &&
+			argument?.kind === "literal" &&
+			typeof argument.value === "string"
+		)
+			names.add(argument.value);
+		for (const child of node.args) collectPlaceNames(child, names);
+	} else if (node.kind === "binary") {
+		collectPlaceNames(node.left, names);
+		collectPlaceNames(node.right, names);
+	} else if (node.kind === "negative") collectPlaceNames(node.value, names);
+}
+
+function readsTableCatalog(node: AuthoredExpression): boolean {
 	switch (node.kind) {
 		case "call":
 			return (
-				(catalog === "locations"
-					? node.name === "location"
-					: ["lookup", "table-column"].includes(node.name)) ||
-				node.args.some((arg) => readsCatalog(arg, catalog))
+				["lookup", "table-column"].includes(node.name) ||
+				node.args.some((arg) => readsTableCatalog(arg))
 			);
 		case "binary":
-			return (
-				readsCatalog(node.left, catalog) || readsCatalog(node.right, catalog)
-			);
+			return readsTableCatalog(node.left) || readsTableCatalog(node.right);
 		case "negative":
-			return readsCatalog(node.value, catalog);
+			return readsTableCatalog(node.value);
 		case "reference":
-			return catalog === "tables" && node.namespace === "row";
+			return node.namespace === "row";
 		default:
 			return false;
 	}
@@ -387,28 +396,25 @@ async function prepareInput<S extends z.ZodType>(args: {
 		tables = (await ctx.lookupCatalog?.())?.definitions;
 		tablesLoaded = true;
 	}
-	async function loadLocations() {
-		if (locations) return;
-		locations =
-			ctx.appId === null
-				? []
-				: (
-						await readOrganization({
-							appId: ctx.appId,
-							projectId: ctx.projectId,
-							actorUserId: ctx.userId,
-							role: "tool",
-							changeSource: {
-								kind: ctx.chatRunHolder === undefined ? "mcp" : "chat",
-								runId: ctx.runId,
-							},
-							...(ctx.chatRunHolder && { chatRunHolder: ctx.chatRunHolder }),
-						})
-					).locations.map((location) => ({
-						uuid: location.id,
-						name: location.name,
-						siteCode: location.siteCode,
-					}));
+	const placeNames = new Set<string>();
+	async function loadLocations(names: Iterable<string>) {
+		const missing = [...names].filter((name) => !placeNames.has(name));
+		if (!missing.length || ctx.appId === null) return;
+		for (const name of missing) placeNames.add(name);
+		const matches = await readPlaceNames(
+			{
+				appId: ctx.appId,
+				projectId: ctx.projectId,
+				actorUserId: ctx.userId,
+				role: "tool",
+			},
+			missing,
+		);
+		locations = [
+			...new Map(
+				[...(locations ?? []), ...matches].map((row) => [row.uuid, row]),
+			).values(),
+		];
 	}
 	const lookupIndex = () =>
 		new Map((tables ?? []).map((table) => [table.id, table]));
@@ -523,20 +529,18 @@ async function prepareInput<S extends z.ZodType>(args: {
 		authoringToolSchema(toolName, schema).identitySchema,
 		input,
 	).filter((slot) => !uuidSchema.validate(slot.value));
-	if (
-		references.some(
-			(slot) =>
-				slot.family === "lookup-table" || slot.family === "lookup-column",
-		)
-	)
+	if (references.some((slot) => slot.family.startsWith("lookup-")))
 		await loadTables();
-	if (references.some((slot) => slot.family === "location"))
-		await loadLocations();
+	await loadLocations(
+		references
+			.filter((slot) => slot.family === "location")
+			.map((slot) => slot.value),
+	);
 	// Resolve owners before their children, independent of JSON property order.
 	const priority = (family: string) =>
 		family === "module" || family === "lookup-table"
 			? 0
-			: family === "form"
+			: family === "form" || family === "lookup-column"
 				? 1
 				: family === "field"
 					? 2
@@ -564,7 +568,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 		if (scope.options.formUuid !== undefined)
 			scope.options.form = preparedForms.forms.get(scope.options.formUuid);
 	}
-	let needsLocations = false;
+	const expressionPlaces = new Set<string>();
 	let needsTables = false;
 	const scanFamily =
 		(family: string) => (value: unknown, path: AuthoringPath) => {
@@ -584,10 +588,10 @@ async function prepareInput<S extends z.ZodType>(args: {
 				const expression = parseAuthoringExpression(
 					valueExpression.parse(value),
 				);
-				needsLocations ||= readsCatalog(expression, "locations");
+				collectPlaceNames(expression, expressionPlaces);
 				needsTables ||=
 					enclosingAuthoringTable(input, path) !== undefined ||
-					readsCatalog(expression, "tables");
+					readsTableCatalog(expression);
 			}
 			return value;
 		};
@@ -606,7 +610,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 	};
 	decodeAuthoringValues(schema, input, scan);
 	if (needsTables) await loadTables();
-	if (needsLocations) await loadLocations();
+	await loadLocations(expressionPlaces);
 
 	function scopeAt(path: AuthoringPath) {
 		const searchValidation = [
