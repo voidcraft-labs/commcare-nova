@@ -30,6 +30,7 @@ import {
 	localizeTranslationUnit,
 	type ProseTemplate,
 	type TranslationUnit,
+	type Uuid,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { buildEngineInput } from "@/lib/preview/engine/engineInput";
@@ -101,7 +102,7 @@ function greetLabel(doc: BlueprintDoc): TranslationUnit {
 	return unit;
 }
 
-const reads = (uuid: string): ProseTemplate => ({
+const reads = (uuid: Uuid): ProseTemplate => ({
 	parts: [
 		{ kind: "text", text: "Hola " },
 		{ kind: "field-ref", uuid },
