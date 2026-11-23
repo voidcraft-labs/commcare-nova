@@ -466,13 +466,20 @@ describe("a detail's two texts and a sort element's label", () => {
 		expect(closedCodes(reading)).toEqual([]);
 	});
 
-	it("refuses HQ's default text with a space at its start, which a device shows, as wording of its own", async () => {
+	it("holds HQ's default text with a space at its start, which a device shows, as wording of its own, trimmed as every app string is", async () => {
 		const reading = await readBilingual(village(), (app) => {
 			shortOf(app).no_items_text = { en: " List is empty.", fr: "" };
 		});
-		expect(closedCodes(reading)).toEqual([
-			"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
-		]);
+		expect(closedCodes(reading)).toEqual([]);
+		const list = Object.values(reading.ctx.doc?.modules ?? {})[0]
+			?.caseListConfig;
+		expect(list?.emptyText).toBe("List is empty.");
+		// The space a device showed is a change the first publish makes, which workers see.
+		expect(
+			reading.ctx.facts.sameStateRewrites
+				.map((one) => one.path.slice(one.path.lastIndexOf("/")))
+				.filter((tail) => tail === "/no_items_text"),
+		).toEqual(["/no_items_text"]);
 	});
 
 	it("refuses a text whose rest after a carriage return defines another app string, under that entry alone", async () => {

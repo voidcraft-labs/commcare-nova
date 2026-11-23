@@ -721,7 +721,7 @@ export interface DeploymentRecord {
 	readonly lastObservedAt: string | null;
 	/** The logo content hash this deployment last told a person to upload in CommCare HQ. */
 	readonly offeredLogoContentHash: string | null;
-	/** The target's USH_EMPTY_CASE_LIST_TEXT as the last publish read it; null until a publish has read it. */
+	/** The target's empty case list text flag as the last publish read it; null until a publish has read it. */
 	readonly targetEmptyCaseListText: boolean | null;
 	/**
 	 * How many times this deployment has ended. A publish carries the count

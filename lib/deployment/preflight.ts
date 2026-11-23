@@ -343,7 +343,7 @@ export type PreflightResult =
 					readonly learned: HqMediaRecord;
 				} | null;
 				/**
-				 * Whether the project space holds `USH_EMPTY_CASE_LIST_TEXT`, read
+				 * Whether the project space holds the empty case list text flag (`lib/commcare` names it), read
 				 * by every publish whatever the app holds; `null` where the read
 				 * failed. The publish stores a definite answer with the
 				 * deployment, and a `.ccz` made for it writes the empty-list text
