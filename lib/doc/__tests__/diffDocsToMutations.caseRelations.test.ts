@@ -25,7 +25,7 @@ const child = (targetType: string) =>
 
 function withVisit(visit: Omit<CaseType, "name" | "properties">): BlueprintDoc {
 	return {
-		...emptyBlueprintDoc(),
+		...emptyBlueprintDoc("relations-app"),
 		caseTypes: [
 			{ name: "household", properties: [] },
 			{ name: "patient", properties: [] },
@@ -42,11 +42,11 @@ function replay(from: BlueprintDoc, to: BlueprintDoc): CaseType | undefined {
 			admitMutationBatch(JSON.parse(JSON.stringify(batch))),
 		);
 	});
-	return next.caseTypes.find((type) => type.name === "visit");
+	return next.caseTypes?.find((type) => type.name === "visit");
 }
 
 const visitOf = (doc: BlueprintDoc) =>
-	doc.caseTypes.find((type) => type.name === "visit");
+	doc.caseTypes?.find((type) => type.name === "visit");
 
 describe("a type's parent links across their two spellings", () => {
 	for (const [name, from, to] of [

@@ -172,7 +172,7 @@ describe("the Details tile at the gate", () => {
 		const doc = tileFixture("detail-layout");
 		const { menu, config } = menuOf(doc);
 		const cells = config.detailTile?.cells ?? {};
-		const [first, ...rest] = Object.keys(cells);
+		const [first, ...rest] = Object.keys(cells) as (keyof typeof cells)[];
 		const partial = Object.fromEntries(rest.map((key) => [key, cells[key]]));
 		expect(
 			codes(doc, [

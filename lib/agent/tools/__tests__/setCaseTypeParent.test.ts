@@ -133,12 +133,12 @@ describe("set_case_type_parent", () => {
 	});
 
 	it("moves the lone parent left by a removal or a cleared default into the default slot", async () => {
-		const two = {
+		const two: Omit<CaseType, "name" | "properties"> = {
 			parent_type: "clinic",
 			relations: [
 				{ identifier: "parent", targetType: "home", relationship: "extension" },
 			],
-		} as const;
+		};
 		for (const input of [
 			{
 				caseType: "visit",
