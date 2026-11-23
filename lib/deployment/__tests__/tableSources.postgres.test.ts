@@ -789,7 +789,7 @@ describe("Create a separate table", () => {
 			await sql`UPDATE lookup_storage_budgets SET capacity_bytes = used_bytes WHERE project_id = ${PROJECT}`.execute(
 				h.db(),
 			);
-		expect(full.numAffectedRows).toBe(1n);
+		expect(Number(full.numAffectedRows)).toBe(1);
 		expect(
 			await separateLookupTable(EDITOR_LOOKUP, copy.tableId, {
 				name: "Clinic facilities",
