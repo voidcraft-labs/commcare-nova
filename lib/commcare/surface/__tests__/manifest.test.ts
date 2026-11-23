@@ -358,7 +358,7 @@ const KEYLESS = MANIFEST.inventory.find(
 // A HELD-NEW entry whose value class sets it apart from the HELD entries on
 // its keys, and a REFUSED entry to plant reasons on.
 const CLASSED_HELD_NEW = entry(
-	"expressions-and-data/groups-jr-fixture-user-groups",
+	"expressions-and-data/search-input-results-read-in-the-search-results-detail",
 );
 const REFUSED_ENTRY = MANIFEST.inventory.find(
 	(each) => each.disposition === "REFUSED",
@@ -404,11 +404,11 @@ const HELD_INSTANCE_READS = [
 	"expressions-and-data/session-context-applanguage",
 	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
 	"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
+	"expressions-and-data/groups-jr-fixture-user-groups",
 ] as const;
 const WAITING_INSTANCE_READS = {
 	"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it":
 		"HELD-NEW",
-	"expressions-and-data/groups-jr-fixture-user-groups": "HELD-NEW",
 	"expressions-and-data/commtrack-locations-hierarchical": "REFUSED",
 	"expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": "REFUSED",
 	"expressions-and-data/session-data-fingerprintquery": "HELD-NEW",
@@ -747,7 +747,7 @@ describe("each rule refuses a planted entry the real manifest lacks", () => {
 				});
 			},
 			problem:
-				"expressions-and-data/planted-unclassed is HELD-NEW and shares instance-source:fixture with",
+				"expressions-and-data/planted-unclassed is HELD-NEW and shares instance-scheme:search-input with",
 		},
 		{
 			rule: "every REFUSED entry whose reasons mix the groups is listed",

@@ -85,7 +85,7 @@ function projectData(reads: readonly HqLookupTableRead[]) {
 const DATA = projectData([
 	tableRead("villages", "a1"),
 	tableRead("seasons", "b2"),
-	/* A period in a tag is a finding of the table's own, so nothing of it is held. */
+	/* A period in a tag is an XML name Nova holds: its tag settles the period entry. */
 	tableRead("crop.types", "c3"),
 ]);
 
@@ -246,6 +246,16 @@ describe("settledClaims", () => {
 			{
 				artifact: "lookup-tables",
 				where: "/villages/id",
+				entry: `${E}/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table`,
+			},
+			{
+				artifact: "lookup-tables",
+				where: "/crop.types/tag",
+				entry: `${E}/tag-or-field-name-holding-a-period`,
+			},
+			{
+				artifact: "lookup-tables",
+				where: "/crop.types/id",
 				entry: `${E}/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table`,
 			},
 			{
