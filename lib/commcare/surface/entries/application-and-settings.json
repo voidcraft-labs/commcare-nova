@@ -3749,8 +3749,8 @@
 			"schema:Application.auto_gps_capture"
 		],
 		"valueClass": "not-a-connect-app",
-		"disposition": "TARGET-OWNED",
-		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value. A publish leaves the key out; a `.ccz` made for the project space captures location where it is on (`xform/metaBlock.ts::addMetaBlock`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: App settings choose whether every form requests the Android device location.",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (`meta/location` submitted empty; HQ's own setting names it Android's, `commcare-app-settings.yml`, `auto_gps_capture`) / RUNS",
@@ -3763,10 +3763,11 @@
 			}
 		},
 		"emission": {
-			"cell": "nothing in the HQ JSON; the local `.ccz` captures location with every form where the project space has it on (`xform/metaBlock.ts::addMetaBlock`)",
+			"cell": "`auto_gps_capture` (true or false)",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "application-and-settings/46-hq-use-grid-menus",

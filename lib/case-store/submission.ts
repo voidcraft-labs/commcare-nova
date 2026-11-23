@@ -31,6 +31,10 @@ import type {
 } from "@/lib/domain";
 import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
+import {
+	type DeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { DeviceCaseDatabase } from "./store";
 
@@ -231,6 +235,8 @@ export interface CaseOperationProgram {
 }
 
 export interface ApplySubmissionArgs {
+	/** Empty when the requested location was unavailable; absent when the form requested none. */
+	readonly submissionLocation?: DeviceLocation | null;
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
@@ -311,6 +317,8 @@ export interface CreatedChildCaseReceipt {
 }
 
 export interface SubmissionEnvelopeResult {
+	/** Empty when the requested location was unavailable; absent when the form requested none. */
+	readonly submissionLocation?: DeviceLocation | null;
 	/** The case the registration's own arm created with the id its entry
 	 * minted, the ordered followup/close selection, or an empty collection for
 	 * `kind: "none"` and for a registration whose open condition did not
@@ -394,6 +402,9 @@ export function parseSubmissionEnvelopeResult(
 				(caseId) => typeof caseId !== "string" || caseId.length === 0,
 			)) ||
 		!Array.isArray((parsed as { operations?: unknown }).operations) ||
+		("submissionLocation" in parsed &&
+			!deviceLocationSchema.nullable().safeParse(parsed.submissionLocation)
+				.success) ||
 		("primaryCaseIds" in parsed &&
 			!Array.isArray(
 				(parsed as { primaryCaseIds?: unknown }).primaryCaseIds,

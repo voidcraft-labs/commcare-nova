@@ -77,6 +77,10 @@ export function applyAppMutation(
 		case "setAppSettings":
 			// Each named key replaces its value; a key the patch leaves out
 			// keeps the document's.
+			if (mut.settings.captureLocation === true)
+				draft.appSettings.captureLocation = true;
+			else if (mut.settings.captureLocation === false)
+				delete draft.appSettings.captureLocation;
 			if (mut.settings.showSavedForms !== undefined) {
 				draft.appSettings.showSavedForms = mut.settings.showSavedForms;
 			}

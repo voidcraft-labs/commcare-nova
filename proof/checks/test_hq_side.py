@@ -86,7 +86,7 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
         app_id = _created(unit, export)
         held = hqside.save(unit, _ops(unit), app_id, saves)
         assert sorted(held) == sorted(set(saves) - set(hqside.STATEMENTS))
-        assert saves["republish"] == "proceeds"
+        assert saves["republish"] == "discards"
 
         def kept(app):
             return {
@@ -108,7 +108,40 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
 
         refusal, lookups = publish.update(unit, app_id, export.republish, "B")
         assert _landed(refusal, lookups), (refusal, lookups)
-        assert kept(operations.held_app(unit, app_id)) == saved
+        assert kept(operations.held_app(unit, app_id)) == {**saved, "auto_gps_capture": False}
+
+
+def test_a_form_keeps_its_independent_location_choice_after_the_app_switch_is_cleared(hq, core_runner):
+    """HQ's two authentic settings saves and its build distinguish both choices from a geopoint answer."""
+    from lxml import etree
+    from proof.hq import operations
+    from proof.observe import hqside
+
+    document = _document("targeted-gps-question")
+    export = document.exports["minimum"]
+    with hq_check(export.configuration.hq()) as (unit, _):
+        app_id = _created(unit, export)
+
+        def held():
+            app = operations.held_app(unit, app_id)
+            form = app.get_module(0).get_form(0)
+            xml = etree.fromstring(form.render_xform())
+            model = xml.xpath("//*[local-name()='model']")[0]
+            sensors = model.xpath("./*[local-name()='pollsensor']")
+            meta = model.xpath("./*[local-name()='instance'][1]/*/*[local-name()='meta']/*[local-name()='location']")
+            binds = model.xpath("./*[local-name()='bind' and @nodeset='/data/meta/location' and @type='geopoint']")
+            return (app.auto_gps_capture, form.auto_gps_capture, bool(meta), bool(binds),
+                    [sensor.get("ref") for sensor in sensors])
+
+        target = {"module": 0, "form": 0}
+        assert held() == (False, False, False, False, [None])
+        hqside.form_attribute(unit, app_id, {**target, "attributes": {"auto_gps_capture": "true"}})
+        hqside.app_attributes(unit, app_id, {"auto_gps_capture": True})
+        assert held() == (True, True, True, True, ["/data/meta/location"])
+        hqside.app_attributes(unit, app_id, {"auto_gps_capture": False})
+        assert held() == (False, True, True, True, ["/data/meta/location"])
+        hqside.form_attribute(unit, app_id, {**target, "attributes": {"auto_gps_capture": "false"}})
+        assert held() == (False, False, False, False, [None])
 
 
 def test_every_value_a_local_archive_mirrors_lands_in_hq_and_novas_next_publish_keeps_it(hq, core_runner):

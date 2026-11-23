@@ -539,16 +539,17 @@ describe("a first publish", () => {
 
 		const [shell, update] = bodies;
 		expect(shell.appId).toBeNull();
-		// Seven keys: `auto_gps_capture` is written only for a Connect app, and
+		// The app-wide location choice is present even when it is false.
 		// `add_ons` and `profile` arrive with the update over the shell's read.
 		// HQ keeps its own `build_spec`, so no body names one.
-		expect(Object.keys(shell.app)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
-		);
-		expect(shell.app).toMatchObject({ modules: [], _attachments: {} });
+		expect(Object.keys(shell.app)).toEqual(APP_SHELL_KEYS);
+		expect(shell.app).toMatchObject({
+			modules: [],
+			_attachments: {},
+			auto_gps_capture: false,
+		});
 		for (const key of [
 			"add_ons",
-			"auto_gps_capture",
 			"multimedia_map",
 			"logo_refs",
 			"profile",
@@ -2536,6 +2537,68 @@ async function baselineRow() {
 }
 
 describe("a publish over an app Nova brought in", () => {
+	it("asks before replacing an ordinary target's previously kept location choice even when its source has not changed", async () => {
+		const doc = await seed();
+		const on = (source: Record<string, unknown>) => {
+			source.auto_gps_capture = true;
+		};
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			const read = await bringIn(peer, doc, on);
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({
+					ownership: JSON.stringify({
+						...read.ownership,
+						autoGpsCapture: false,
+					}),
+				})
+				.where("deployment_id", "=", (await state())?.deployment.id ?? fail())
+				.execute();
+			const sent = requests(peer).length;
+			serveEdited(peer, SOURCE, "source-live", on);
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toMatchObject({
+				failure: { code: "hq_changed" },
+				remoteChanges: [
+					expect.objectContaining({
+						identity: HQ_APP,
+						parts: [
+							"Automatic location for every form will change from on to off",
+						],
+						baselineKnown: true,
+					}),
+				],
+			});
+			expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+			const change = stopped.remoteChanges[0];
+			serveEdited(peer, SOURCE, "source-live", on);
+			const bodies: unknown[] = [];
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			expect(
+				(
+					await publish(doc, [
+						{
+							kind: "app",
+							novaResourceId: APP,
+							observedDigest: change.observedDigest,
+						},
+					])
+				).landed,
+			).toBe(true);
+			expect(bodies).toEqual([
+				expect.objectContaining({
+					app: expect.objectContaining({ auto_gps_capture: false }),
+				}),
+			]);
+			expect((await baselineRow()).ownership).toMatchObject({
+				autoGpsCapture: true,
+			});
+		});
+	});
+
 	it("updates the app it came from under the ids HQ holds, keeps the mapping adopted, records the files it publishes, and says so", async () => {
 		const doc = await seed();
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];

@@ -154,6 +154,8 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"connect-location-capture": [
 		"application-and-settings/45-hq-auto-gps-capture",
+		"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app",
+		"forms-and-case-writes/auto-gps-capture-form",
 		"questions/hq-generated-pollsensor",
 	],
 } as const satisfies Readonly<

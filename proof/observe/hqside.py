@@ -475,7 +475,7 @@ def questions(unit, app_id, value):
 
 
 # The form attributes the harness saves, each a key ``views/forms.py::_edit_form_attr`` stores as posted.
-FORM_ATTRIBUTES = ("post_form_workflow", "form_filter", "post_form_workflow_fallback")
+FORM_ATTRIBUTES = ("post_form_workflow", "form_filter", "post_form_workflow_fallback", "auto_gps_capture")
 
 
 def form_attribute(unit, app_id, value):

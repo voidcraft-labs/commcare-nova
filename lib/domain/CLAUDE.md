@@ -587,3 +587,7 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+
+### Automatic form location
+
+`appSettings.captureLocation` and `form.captureLocation` store independent optional true switches. Their effective result also includes Connect (`locationCapture.ts`). A form’s own choice survives an app-wide request. On the wire Connect makes the app-wide choice indistinguishable from its requirement.

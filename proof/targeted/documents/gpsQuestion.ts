@@ -48,8 +48,11 @@ export function gpsQuestion() {
 			},
 		],
 	});
+	const edit = structuredClone(doc);
+	edit.forms[form].captureLocation = true;
 	return targetedDocument({
 		id,
+		edit,
 		rows: ["34"],
 		doc,
 		expected: {

@@ -71,12 +71,14 @@ import {
 	usePreviewing,
 	usePreviewPersonaUuid,
 	usePreviewPlatform,
+	usePreviewSubmissionLocation,
 	useSetPreviewAndroidAppInstalled,
 	useSetPreviewing,
 	useSetPreviewPersonaUuid,
 	useSetPreviewPlatform,
 } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
+import { PreviewLocationDialog } from "./PreviewLocationDialog";
 
 const AS_ME = "Preview as me";
 
@@ -135,6 +137,7 @@ export function PreviewIdentityMenu() {
 
 function PreviewIdentityMenuBody() {
 	const appId = useAppId();
+	const [showLocation, setShowLocation] = useState(false);
 	const [showTests, setShowTests] = useState(false);
 	const readiness = useWorkerReadiness();
 	const personas = readiness.personas;
@@ -150,6 +153,7 @@ function PreviewIdentityMenuBody() {
 	const setPlatform = useSetPreviewPlatform();
 	const installedApps = usePreviewInstalledAndroidApps();
 	const setInstalled = useSetPreviewAndroidAppInstalled();
+	const recordedLocation = usePreviewSubmissionLocation();
 	const caseTypes = useEffectiveCaseTypes();
 	/* The running worker's open claims, read each time the menu opens. The
 	 * read names the worker it asked about, so an answer for a worker the
@@ -276,6 +280,18 @@ function PreviewIdentityMenuBody() {
 								);
 							})}
 						</DropdownMenuRadioGroup>
+						{platform === "android" && (
+							<DropdownMenuItem onClick={() => setShowLocation(true)}>
+								Device location
+							</DropdownMenuItem>
+						)}
+						{recordedLocation !== undefined && (
+							<p className="px-2 py-1.5 text-xs text-nova-text-muted">
+								{recordedLocation === null
+									? "Last submission: no location fix"
+									: `Last submission: ${recordedLocation.latitude}, ${recordedLocation.longitude} (altitude ${recordedLocation.altitude} m, accuracy ${recordedLocation.accuracy} m)`}
+							</p>
+						)}
 					</DropdownMenuGroup>
 					<DropdownMenuSeparator />
 					{platform === "android" &&
@@ -370,6 +386,9 @@ function PreviewIdentityMenuBody() {
 					</DropdownMenuGroup>
 				</DropdownMenuContent>
 			</DropdownMenu>
+			{showLocation && (
+				<PreviewLocationDialog onClose={() => setShowLocation(false)} />
+			)}
 			{appId ? (
 				<AppTestHistory
 					appId={appId}

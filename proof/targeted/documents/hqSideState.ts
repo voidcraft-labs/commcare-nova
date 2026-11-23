@@ -12,13 +12,8 @@
  *   (`views/apps.py::edit_app_ui_translations`), a key the target owns,
  *   which Nova's next update carries back as HQ held it, so
  *   `app_strings.txt` keeps it (defect 4, translations);
- * - "Auto Capture Location" on the settings page
- *   (`views/settings.py::edit_commcare_settings`, through
- *   `views/apps.py::edit_app_attr`), a key Nova's update leaves out for an
- *   app that is not a Connect app, so HQ keeps it and each form's meta keeps
- *   its location (`xform.py::XForm._add_meta_2`; defect 4,
- *   `auto_gps_capture`), which the local archive of an app that is not a
- *   Connect app cannot hold (`proof/checks/proof3.py::stated_hq_side_values`);
+ * - automatic location for every form, which the next publish explicitly
+ *   confirms discarding, then restores to the author's choice (off);
  * - Menu Mode on in the add-ons section, which posts every add-on HQ lists
  *   at the value the section shows (`app_manager/js/add_ons.js`,
  *   `EditAddOns`), and HQ stores each slug posted
@@ -193,7 +188,7 @@ export function hqSideState() {
 				empty_case_lists: false,
 			},
 			profileProperties: { "cc-autoup-freq": "freq-daily" },
-			republish: "proceeds",
+			republish: "discards",
 		},
 	});
 }

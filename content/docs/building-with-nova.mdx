@@ -461,6 +461,24 @@ HEVC or MPEG-4 Part 2 video and MKV play only on Android. A file goes in an app
 where it plays on every platform the app runs on. SVG images can't be used,
 because CommCare HQ can't store them.
 
+## Automatic location on Android
+
+**App settings → Request location for every form** asks the phone for a location
+when each form opens. With the switch off, **Form settings → Request location for
+this form** lets each form choose. Each form keeps its own switch if you change
+the app-wide setting. Connect requests location for every form.
+
+Android includes a fix in the submission when the worker grants location permission
+and the phone gets a fix. Workers can still send a form when the phone has no fix.
+Web Apps leaves automatic location empty. A location question records the point the
+worker answers independently.
+
+In Android Preview, open the worker menu and choose **Device location**. Enter the
+coordinates of a simulated phone fix or choose **Use unavailable location**. After
+sending a form that records location, the worker menu shows the submitted fix or
+says that no fix was available.
+The next form you open uses that choice. You can ask Nova to test both outcomes.
+
 ## Asking for a date and a time separately
 
 Web Apps has no way to answer a date-and-time question, so in an app that runs

@@ -98,6 +98,7 @@ export async function startAppTest(
 			id: "default",
 			personaUuid: null,
 			language: input.language,
+			locationFix: input.locationFix,
 			platform: input.platform,
 			installedAndroidApps: input.installedAndroidApps,
 		},
@@ -161,11 +162,33 @@ export async function startAppTest(
 			const doc = hydratePersistedBlueprint(snapshot.blueprint);
 			const sessions: Record<string, AppTestSessionState> = {};
 			let primaryObservation: Record<string, unknown> = {};
+			if (
+				input.locationFix &&
+				!sessionInputs.some(
+					(sessionInput) =>
+						appTestPlatform(
+							snapshot,
+							sessionInput.platform ?? input.platform,
+						) === "android",
+				)
+			)
+				throw new AppTestActionError(
+					"Automatic location is available on Android, and this test starts no Android session. Add one or leave out the device location.",
+				);
 			for (const sessionInput of sessionInputs) {
 				const platform = appTestPlatform(
 					snapshot,
 					sessionInput.platform ?? input.platform,
 				);
+				/* A session's own fix belongs to an Android session; the test's
+				 * fix is the default every Android session takes. */
+				if (sessionInput.locationFix && platform !== "android")
+					throw new AppTestActionError(
+						"Automatic location is available on Android. Choose an Android session or leave out its device location.",
+					);
+				const locationFix =
+					sessionInput.locationFix ??
+					(platform === "android" ? input.locationFix : undefined);
 				const initial: AppTestSessionState = {
 					language: appTestLanguage(
 						snapshot,
@@ -176,6 +199,7 @@ export async function startAppTest(
 						sessionInput.installedAndroidApps ??
 						input.installedAndroidApps ??
 						[],
+					...(locationFix !== undefined && { locationFix }),
 					androidDeviceId: randomUUID(),
 					personaUuid: null,
 					screen: appTestEntryScreen(platform),

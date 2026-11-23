@@ -42,6 +42,10 @@ import {
 	type HqFailure,
 	hqReadCircumstance,
 } from "@/lib/commcare/hq/failure";
+import {
+	locationComparisonSource,
+	sourceCapturesLocation,
+} from "@/lib/commcare/locationCapture";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import type { ReadDraft } from "@/lib/commcare/reader";
@@ -1176,6 +1180,11 @@ async function computeWith(
 		baseline.source,
 		normalized.normalized,
 	);
+	const legacyLocationDiffers =
+		!baseline.ownership.autoGpsCapture &&
+		head.doc.connectType === null &&
+		sourceCapturesLocation(source.raw) !==
+			(head.doc.appSettings.captureLocation === true);
 	const languageNames = live.ownership === "adopted" ? "target" : "nova";
 
 	/* 5. The reference document, whose files the publish sends. */
@@ -1215,6 +1224,7 @@ async function computeWith(
 		);
 		if (
 			!unownedAndroidSelection &&
+			!legacyLocationDiffers &&
 			baseline.firstPublishReview !== "required" &&
 			!fileReviewMoved(
 				removedHqFiles(normalized.normalized, {
@@ -1312,13 +1322,17 @@ async function computeWith(
 			parts.length,
 		);
 	mayOfferDiscard = !hiddenFiles;
-	if (!unownedAndroidSelection && parts.length === 0) {
+	if (
+		!unownedAndroidSelection &&
+		!legacyLocationDiffers &&
+		parts.length === 0
+	) {
 		const same = reviewMatchingSource(basis);
 		if (same) return answer(same, same.readingId === null ? null : basis);
 	}
 
 	/* 8. The flag a write saved only if changed needs, where either source holds one. */
-	const comparisonSource = unownedAndroidSelection
+	const androidComparisonSource = unownedAndroidSelection
 		? androidRequirementsComparisonSource(
 				baseline.source,
 				reference.doc.appSettings.requiredAndroidApps,
@@ -1326,6 +1340,12 @@ async function computeWith(
 		: androidPrivilegeLost
 			? androidRequirementsComparisonSource(baseline.source, undefined)
 			: baseline.source;
+	const comparisonSource = legacyLocationDiffers
+		? locationComparisonSource(
+				androidComparisonSource,
+				reference.doc.appSettings.captureLocation === true,
+			)
+		: androidComparisonSource;
 	const baseSource = await pieces
 		.at("the base source")
 		.run(() => sourceFromBaseline(comparisonSource));

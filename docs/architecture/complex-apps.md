@@ -3527,3 +3527,17 @@ ordinary choice widget can appear unanswered until another path needs the
 selection. A leading empty multi-select token fails during initialization.
 The pinned evidence and retained regression are recorded in
 `docs/research/inline-choice-starting-values.md`.
+
+### Automatic location on submitted forms
+
+Ordinary apps can request an Android device location for all forms, or on
+individual forms. Turning the app setting off reveals each form’s independent
+choice. Connect requests location on every form. HQ’s basic and advanced form
+settings keep their own value even when the app requests location. Its build adds
+a metadata node, geopoint bind, and targeted sensor action whenever either
+switch requests it. A geopoint question still records what the worker answers.
+On Android, the sensor can supply a fix if permission and a reading are
+available. Web Apps submits no automatic fix. Nova Preview and app tests accept
+a simulated fix and return the committed submission location separately from
+question answers. These behaviors originate in HQ’s `FormBase.get_auto_gps_capture`
+and `XForm._add_meta_2`, and Android’s `PollSensorController`.

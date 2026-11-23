@@ -66,6 +66,10 @@ import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import type { LanguageTag } from "@/lib/domain/localization";
 import {
+	capturesDeviceLocation,
+	type DeviceLocation,
+} from "@/lib/domain/locationCapture";
+import {
 	afterSubmitFrameLanding,
 	afterSubmitRoute,
 	afterSubmitTargetVisibility,
@@ -1079,6 +1083,20 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const reloadLookupData = usePreviewLookupReload();
 	const entryKey =
 		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
+	// Polling starts at form entry. Changing the simulated phone affects the next entry.
+	const [sensor, setSensor] = useState<{
+		entryKey?: string;
+		fix?: DeviceLocation;
+	}>({});
+	if (sensor.entryKey !== entryKey) {
+		setSensor({
+			entryKey,
+			fix:
+				entryKey === undefined
+					? undefined
+					: session.getState().previewLocationFix,
+		});
+	}
 	const engineReady =
 		engineEntry.formUuid === formUuid &&
 		engineEntry.ready &&
@@ -2775,8 +2793,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 				 * `owner_id` stamped on every case this submission creates, so
 				 * dropping it here would quietly give a persona's work to the
 				 * signed-in member while every read still looked persona-scoped. */
+				const recordFix =
+					previewDevice.platform === "android" &&
+					sensor.entryKey === submittedEntryKey &&
+					sensor.fix !== undefined &&
+					capturesDeviceLocation(finalDoc, finalDoc.forms[mutation.formUuid]);
 				return await submitFormAction(
-					mutation,
+					recordFix ? { ...mutation, locationFix: sensor.fix } : mutation,
 					submittedAppId,
 					finalBlueprintDigest,
 					viewerTimeZone(),
@@ -2876,6 +2899,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				result.kind === "close" ||
 				result.kind === "survey"
 			) {
+				session
+					.getState()
+					.setPreviewSubmissionLocation(result.submissionLocation);
 				await dispatchAfterSubmit({
 					submitted: {
 						...submitted,

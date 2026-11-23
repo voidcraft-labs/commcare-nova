@@ -612,11 +612,12 @@ the Commcare Nova form. Usually omit it: Commcare Nova derives it once and store
 An explicit id must already be valid and unique, or the whole call is refused;
 Commcare Nova never silently rewrites it. The form itself is selected by its stable ID or unambiguous name.
 
-Disabling Connect leaves Auto Capture Location as it is in each app on CommCare
-HQ. To stop automatic capture, turn it off in the app's Android Settings and on
-any forms that have it on, then build and release a new version for workers to
-install. [Turning off automatic location capture](../commcare-connect.mdx#turning-off-automatic-location-capture)
-gives the steps.
+An ordinary app’s `update_app` accepts `capture_location`: true requests location when
+every Android form opens, false lets each form choose. `update_form` accepts the
+same argument for one form. The form’s own choice survives changes to the app-wide
+setting. Connect always requests location for every form. Web Apps sends the form
+without a location. Workers get a changed setting when they install the new release.
+[Automatic location capture](../commcare-connect.mdx#turning-off-automatic-location-capture)
 
 To disable Connect and clear every form's Connect block in the same change:
 

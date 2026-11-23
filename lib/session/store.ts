@@ -1,3 +1,4 @@
+import type { DeviceLocation } from "@/lib/domain/locationCapture";
 import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchTypes";
 /**
  * BuilderSession store — ephemeral UI state for the builder.
@@ -368,6 +369,14 @@ export interface BuilderSessionState {
 	/** The UUID part of Android's `deviceid` (`commcare_<uuid>`), minted when
 	 *  the store is created: one page load is one install. */
 	previewAndroidDeviceId: string;
+	/** The chosen sensor fix applies to the next Android form entry. */
+	previewLocationFix?: DeviceLocation;
+	setPreviewLocationFix: (fix: DeviceLocation | undefined) => void;
+	/** The last committed form's automatic location, if the app requested it. */
+	previewSubmissionLocation?: DeviceLocation | null;
+	setPreviewSubmissionLocation: (
+		location: DeviceLocation | null | undefined,
+	) => void;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
 
@@ -1045,6 +1054,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				/* `uuid` rather than `crypto.randomUUID`, for the reason
 				 * `newPreviewSessionId` gives: the builder opened over plain
 				 * http on a LAN address would throw making this store. */
+				setPreviewSubmissionLocation: (previewSubmissionLocation) =>
+					set({ previewSubmissionLocation }),
+				setPreviewLocationFix: (previewLocationFix) =>
+					set({ previewLocationFix }),
 				previewAndroidDeviceId: uuidv4(),
 				previewSessionId: newPreviewSessionId(),
 				previewTaskId: newPreviewSessionId(),
@@ -1251,6 +1264,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewSessionId: newPreviewSessionId(),
 										previewParentCaseRequest: undefined,
 										previewSearchStates: {},
+										previewSubmissionLocation: undefined,
+										previewLocationFix: undefined,
 										previewPersonaUuid: undefined,
 										previewPlatform: undefined,
 										previewAtDeviceHome: false,
@@ -1522,6 +1537,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const structureStashed = s.sidebars.structure.stashed;
 					set({
 						previewing: false,
+						previewSubmissionLocation: undefined,
+						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						/* `previewPlatform` stays: a flip back in keeps the runtime
 						 * the author is checking. */
@@ -1558,6 +1575,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const android = previewRunsOnAndroid(get().previewPlatform);
 					set({
 						previewPersonaUuid: personaUuid,
+						previewSubmissionLocation: undefined,
 						previewCaseTarget: undefined,
 						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
@@ -1595,6 +1613,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const android = previewRunsOnAndroid(platform);
 					set({
 						previewPlatform: platform,
+						previewSubmissionLocation: undefined,
 						previewCaseTarget: undefined,
 						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
@@ -2184,6 +2203,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
+						previewSubmissionLocation: undefined,
+						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						previewPlatform: undefined,
 						previewAtDeviceHome: false,

@@ -204,7 +204,11 @@ describe("required Android app names in a multilingual destination", () => {
 });
 
 describe("a CCZ made for a project space that keeps values", () => {
-	const doc = bilingualDoc();
+	const original = bilingualDoc();
+	const doc = {
+		...original,
+		appSettings: { ...original.appSettings, captureLocation: true as const },
+	};
 	const files = compiled(doc, keptFacts(true), true);
 	const profile = parseXml(text(files, "profile.ccpr"));
 	const root = only(elements(profile), "profile");
@@ -270,7 +274,7 @@ describe("a CCZ made for a project space that keeps values", () => {
 		).toEqual([["credential", { level: "3MON_ACTIVE", type: "APP_ACTIVITY" }]]);
 	});
 
-	it("uses the target's observed GPS setting after Connect is turned off and the app's setting when it is on", () => {
+	it("compiles the app and form choices when a target holds the opposite GPS value", () => {
 		const fixtures = connectWireFixtures();
 		const connected = fixtures.find(
 			(entry) => entry.name === "learn-default",
@@ -284,12 +288,20 @@ describe("a CCZ made for a project space that keeps values", () => {
 				{ ...READ, novaOwnsAutoGpsCapture: true, adopted: true },
 			);
 			if (!facts) throw new Error("Missing the project space's settings.");
-			for (const current of [connected, disabled]) {
+			const chosenId = disabled.formOrder[disabled.moduleOrder[0]][0];
+			const single = {
+				...disabled,
+				forms: {
+					...disabled.forms,
+					[chosenId]: {
+						...disabled.forms[chosenId],
+						captureLocation: true as const,
+					},
+				},
+			};
+			for (const current of [connected, disabled, single]) {
 				const update = expandDoc(current);
-				const gpsAfterUpload = update.auto_gps_capture ?? enabledInHq;
-				expect(Object.hasOwn(update, "auto_gps_capture")).toBe(
-					current.connectType !== null,
-				);
+				expect(update.auto_gps_capture).toBe(current.connectType !== null);
 				const archive = compiled(current, facts, true);
 				const forms = [...archive.keys()].filter(
 					(path) => path.startsWith("modules-") && path.endsWith(".xml"),
@@ -303,7 +315,15 @@ describe("a CCZ made for a project space that keeps values", () => {
 							node.name === "orx:pollsensor" &&
 							node.attribs.ref === "/data/meta/location",
 					);
-					expect(pollsLocation).toBe(gpsAfterUpload);
+					const independentlyChosen =
+						current === single && path === "modules-0/forms-0.xml";
+					expect(pollsLocation).toBe(
+						current.connectType !== null || independentlyChosen,
+					);
+					if (path === "modules-0/forms-0.xml")
+						expect(update.modules[0].forms[0].auto_gps_capture).toBe(
+							independentlyChosen,
+						);
 				}
 			}
 		}

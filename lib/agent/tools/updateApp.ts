@@ -49,7 +49,7 @@ import type {
 
 /** The refusal a call that names nothing to change reads. */
 export const UPDATE_APP_EMPTY_INPUT_MESSAGE =
-	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms) where the app runs (runs_only_on), and which apps workers need on Android (required_android_apps). A call needs at least one change.";
+	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms), whether forms request the device location (capture_location), where the app runs (runs_only_on), and which apps workers need on Android (required_android_apps). A call needs at least one change.";
 
 export const updateAppInputSchema = z
 	.strictObject({
@@ -59,6 +59,12 @@ export const updateAppInputSchema = z
 			.optional()
 			.describe(
 				"App display name (the title users see on devices). Leave it out to keep the current name.",
+			),
+		capture_location: z
+			.boolean()
+			.optional()
+			.describe(
+				"Whether every form requests the Android device's location when it opens. False lets each form choose. Connect always requests location. Web Apps leaves the location empty.",
 			),
 		show_saved_forms: z
 			.boolean()
@@ -100,6 +106,11 @@ function changedSettings(
 	current: AppSettings,
 ): AppSettingsPatch {
 	const settings: AppSettingsPatch = {};
+	if (
+		input.capture_location !== undefined &&
+		input.capture_location !== (current.captureLocation === true)
+	)
+		settings.captureLocation = input.capture_location;
 	if (
 		input.show_saved_forms !== undefined &&
 		input.show_saved_forms !== current.showSavedForms
@@ -174,7 +185,7 @@ function declarationAfter(
 
 export const updateAppTool = {
 	description:
-		"Set the app's display name, whether workers see their saved forms and their incomplete forms, where it runs, and which apps workers need on Android. Anything left out keeps its value.",
+		"Set the app's display name, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location, where it runs, and which apps workers need on Android. Anything left out keeps its value.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(
@@ -233,6 +244,9 @@ export const updateAppTool = {
 				}),
 				...(input.name !== undefined && { subject: input.name, nameChange }),
 				...(platforms !== undefined && { platforms }),
+				...(settings.captureLocation !== undefined && {
+					captureLocation: settings.captureLocation === true,
+				}),
 				...(formListsChanged && {
 					formLists: {
 						...(settings.showSavedForms !== undefined && {

@@ -764,12 +764,12 @@ describe("adoptedAppBaselineWrite", () => {
 		).toEqual(FIRST_PUBLISH);
 	});
 
-	it("owns the needed add-ons and the two settings Nova always writes, and no custom profile property", () => {
+	it("owns the needed add-ons, form lists and app-wide location, and no custom profile property", () => {
 		expect(baselineFor(PLAIN).ownership).toEqual({
 			addOns: ["display_conditions"],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
 			profileCustomProperties: [],
-			autoGpsCapture: false,
+			autoGpsCapture: true,
 		});
 	});
 

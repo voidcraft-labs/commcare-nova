@@ -191,6 +191,7 @@ export const FORM_KEY_PARTS = {
 	purpose: "note",
 	displayCondition: "settings",
 	hiddenFromMenu: "settings",
+	captureLocation: "settings",
 	plainText: "settings",
 	openCondition: "case-changes",
 	closeCondition: "case-changes",

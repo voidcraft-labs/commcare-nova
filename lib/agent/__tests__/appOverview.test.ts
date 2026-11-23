@@ -77,7 +77,19 @@ it("holds the form lists and ordered Android apps a settings edit can replace", 
 			{ app: "simprints-id", name: "Simprints ID" },
 			{ app: "commcare-toolkit", name: "CommCare Toolkit" },
 		],
+		captureLocation: false,
 	});
+});
+
+it("holds the app's own location request, which a form's read does not name", () => {
+	const doc = buildDoc({
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			captureLocation: true,
+		},
+	});
+	expect(appOverview(doc).settings).toMatchObject({ captureLocation: true });
 });
 
 it.each([
