@@ -1436,6 +1436,97 @@ function hqChangesCheck(outcome: PublishOutcome) {
 }
 
 describe("changes made in CommCare HQ", () => {
+	it.each([true, false])(
+		"lists a grid CommCare HQ held before Nova wrote menu layouts, and accounts for it once published over (usable reference: %s)",
+		async (paired) => {
+			const doc = await seed();
+			const heldGrid = (source: Record<string, unknown>) => {
+				source.use_grid_menus = true;
+			};
+			await withPeer(async (peer) => {
+				accepted(peer, 201);
+				serve(peer, SOURCE, "source-shell");
+				accepted(peer, 200);
+				serveEdited(peer, SOURCE, "source-live", heldGrid);
+				expect((await publish(doc)).landed).toBe(true);
+				const db = h.db();
+				const deployment = await db
+					.selectFrom("app_deployments")
+					.select("id")
+					.where("app_id", "=", APP)
+					.executeTakeFirstOrThrow();
+				/* A baseline recorded before Nova wrote menu layouts, over an HQ app
+				 * whose first menu someone made a grid there before it: both reads
+				 * agree, so no comparison of the two can show the grid. */
+				await db
+					.updateTable("app_deployment_baselines")
+					.set({
+						ownership: sql`ownership - 'menuLayouts'`,
+						...(!paired && { nova_revision: null }),
+					})
+					.where("deployment_id", "=", deployment.id)
+					.executeTakeFirstOrThrow();
+				const before = requests(peer).length;
+				serveEdited(peer, SOURCE, "source-live", heldGrid);
+				const stopped = refusal(await publish(doc));
+				expect(stopped).toMatchObject({
+					phase: "preflight",
+					failure: {
+						code: "hq_changed",
+						message: expect.stringContaining("menu layouts"),
+					},
+					remoteChanges: [
+						{
+							kind: "app",
+							replacesMenuLayouts: true,
+							baselineKnown: true,
+						},
+					],
+				});
+				const [shown] = stopped.remoteChanges;
+				/* The settings the baseline held agree with HQ's: the grid is the one part. */
+				expect(shown?.parts).toEqual([
+					"The first menu would change from a grid to a list.",
+				]);
+				expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+				const confirm = [
+					{
+						kind: "app" as const,
+						novaResourceId: APP,
+						observedDigest: shown?.observedDigest ?? fail(),
+					},
+				];
+				/* HQ moved after the person was shown the list: they confirm again. */
+				serveEdited(peer, SOURCE, "source-live", (source) => {
+					heldGrid(source);
+					source.grid_form_menus = "all";
+				});
+				const changed = refusal(await publish(doc, confirm));
+				expect(changed.remoteChanges[0]?.observedDigest).not.toBe(
+					confirm[0].observedDigest,
+				);
+				expect(changed.remoteChanges[0]?.parts).toContain(
+					"The layout for the other menus would change from a grid to a list.",
+				);
+				serveEdited(peer, SOURCE, "source-live", heldGrid);
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc, confirm)).landed).toBe(true);
+				const after = await readAppBaseline(SCOPE, TARGET);
+				expect(
+					after !== null &&
+						after.origin !== "unread" &&
+						after.ownership.menuLayouts,
+				).toBe(true);
+				/* Accounted for: the next publish over the same app lists nothing. */
+				serve(peer, SOURCE, "source-live");
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc)).landed).toBe(true);
+			});
+		},
+	);
+
 	it("lands three publishes of an unchanged app in a row, saying what it compared", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {

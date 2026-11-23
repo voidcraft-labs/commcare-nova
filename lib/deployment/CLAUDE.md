@@ -980,6 +980,24 @@ it, so a state HQ has since left is asked about again. A save in an HQ editor
 that changes no value can still be listed: HQ's pages write keys Nova does
 not, and the form builder re-spells XML.
 
+Menu layouts a deployment made before Nova wrote them are listed whatever
+the baseline (`legacyMenuLayouts.ts`). HQ's update merges the body over the
+stored app, so `use_grid_menus` and `grid_form_menus` a person saved in HQ
+stayed through every earlier publish, and both reads can agree on them. Until
+a baseline's `ownership.menuLayouts` accounts for them, preflight compares
+HQ's choices, by this target's menu ids and including a dormant grid and a
+menu the document lost, with the document's, and lists each replacement as
+the first parts of the app's change (`appRemoteChange.ts`, at most six lines,
+one per kind of change, naming at most ten menus each), with
+`replacesMenuLayouts` and a note on matching them in Nova. The lines are a
+function of the head, the target's identity and the read the digest names,
+so the ordinary app discard binds them, and the ordinary second-read and
+confirmed-source checks guard them. A create baseline accounts for none: a
+choice made on a shell before its first complete upload is listed too. A
+baseline accounts for the layouts once the read it records shows only
+choices the document holds (`observedMenuLayoutOwnership`): the read after a
+publish, an adoption's or a bring-in's. No migration rewrites old baselines.
+
 A shell is exempt except for its menus. While the app baseline's origin is
 `create`, the app comparison reads only `modules`, so a menu added in HQ stops
 with `hq_changed` and any other change to the shell, raising its CommCare
