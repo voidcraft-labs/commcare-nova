@@ -31638,12 +31638,20 @@
 	{
 		"id": "hq-questions/long-form-on-help",
 		"base": "hq-questions",
-		"entry": "questions/long-qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of",
+		"entry": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "full_name"
+		},
 		"change": {
 			"op": "named",
 			"name": "long_form_on_help"
-		},
-		"holds": []
+		}
 	},
 	{
 		"id": "hq-questions/markdown-differing",
@@ -32109,6 +32117,16 @@
 		"change": {
 			"op": "named",
 			"name": "protected_validation_message"
+		},
+		"holds": []
+	},
+	{
+		"id": "hq-questions/qrcode-on-help",
+		"base": "hq-questions",
+		"entry": "questions/qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of",
+		"change": {
+			"op": "named",
+			"name": "qrcode_on_help"
 		},
 		"holds": []
 	},

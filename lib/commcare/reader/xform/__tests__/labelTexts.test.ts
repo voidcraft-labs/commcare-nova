@@ -7,12 +7,15 @@
  * same document. A form the form's default language lacks is refused (Core's
  * `Localizer.getLocaleData` raises `NoLocalizedTextException` for it as that language loads); a
  * blank in the default language beside another language's text is refused, as a label's is; a
- * blank everywhere is held blank. A `long` form on a group's label is refused as not yet held,
- * and the forms on a text no runtime reads them of are dropped.
+ * blank everywhere is held blank. A `long` form on any other text (a group's label, a hint, a
+ * choice) is refused as not yet held, since both runtimes show it in place of that text
+ * (`FormEntryPrompt.getSelectItemText`, `FormEntryCaption.getQuestionText`), and a QR code or
+ * spoken text on one, which no runtime reads, is dropped.
  *
  * Plausible failures: a form read only in the source language, or not read; a translation lost
  * or read as the source; a reference read as text; a form only another language holds read
- * as held; a blank form dropped; a group's `long` form read as held, or a hint's refused.
+ * as held; a blank form dropped; a `long` form on another text dropped, so the next publish
+ * loses the text workers see; a QR code on another text refused.
  */
 
 import { describe, expect, it } from "vitest";
@@ -161,7 +164,7 @@ describe("a question label's other texts", () => {
 		).toBe(true);
 	});
 
-	it("refuses a group's long form as not yet held, and drops a hint's", async () => {
+	it("refuses a long form on a hint or a choice as not yet held, and drops a QR code there", async () => {
 		const doc = buildDoc({
 			appName: "Other texts",
 			modules: [
@@ -178,21 +181,57 @@ describe("a question label's other texts", () => {
 									label: proseText("Answer"),
 									hint: proseText("A hint"),
 								}),
+								f({
+									kind: "single_select",
+									id: "seen",
+									label: proseText("Seen"),
+									options: [
+										{ value: "yes", label: proseText("Yes") },
+										{ value: "no", label: proseText("No") },
+									],
+								}),
 							],
 						},
 					],
 				},
 			],
 		});
+		const notYetHeld = (outcome: Awaited<ReturnType<typeof read>>) =>
+			JSON.stringify(outcome.kind === "account" ? outcome.findings : []);
 		const hinted = await read(doc, (xml) =>
 			xml.replace(
 				/(<text id="answer-hint">\s*<value>A hint<\/value>)/u,
 				'$1<value form="long">Longer</value>',
 			),
 		);
-		expect(hinted.defects).toEqual([]);
-		expect(hinted.kind === "account" ? hinted.findings : []).toEqual([]);
+		expect(hinted.kind).toBe("account");
+		expect(notYetHeld(hinted)).toContain(
+			"long-form-on-a-hint-help-text-validation-message-or-choice",
+		);
+		const chosen = await read(doc, (xml) =>
+			xml.replace(
+				/(<value>Yes<\/value>)/u,
+				'$1<value form="long">Yes, the child was seen today</value>',
+			),
+		);
+		expect(chosen.kind).toBe("account");
+		expect(notYetHeld(chosen)).toContain(
+			"long-form-on-a-hint-help-text-validation-message-or-choice",
+		);
 
+		const coded = await read(doc, (xml) =>
+			xml.replace(
+				/(<text id="answer-hint">\s*<value>A hint<\/value>)/u,
+				'$1<value form="qrcode">A code</value><value form="tts">Say it</value>',
+			),
+		);
+		expect(coded.defects).toEqual([]);
+		expect(coded.kind === "account" ? coded.findings : []).toEqual([]);
+		if (coded.kind !== "read") throw new Error("The QR code was not dropped.");
+		expect(fieldById(coded.draft.doc, "answer").qr_code).toBeUndefined();
+	});
+
+	it("refuses a group's long form as not yet held", async () => {
 		const grouped = buildDoc({
 			appName: "Group text",
 			modules: [

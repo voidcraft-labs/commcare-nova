@@ -9170,19 +9170,18 @@
 		"gates": []
 	},
 	{
-		"id": "questions/long-qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of",
+		"id": "questions/qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "a `long`, `qrcode` or `tts` form on a hint, a help text, a validation message or a choice, or a `qrcode` or `tts` form on a group's or repeat's label",
+		"item": "a `qrcode` or `tts` form on a hint, a help text, a validation message, a choice, or a group's or repeat's label",
 		"surfaceKeys": [
-			"itext-form:core/long",
 			"itext-form:android/qrcode",
 			"itext-form:android/tts",
 			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "on-another-text",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: no runtime reads it: Core asks a hint, a help text, a validation message and a choice for no form but its text and its markdown form (`FormEntryPrompt.localizeText`, `getSelectChoiceText`), and Android asks only a question for a `qrcode` or `tts` form (`QuestionWidget.addQuestionText`)",
+		"dispositionCell": "**INERT**: no runtime reads it: Android asks only a question's label for a `qrcode` or `tts` form (`QuestionWidget.addQuestionText`), and Core reads neither of a hint, a help text, a validation message, a choice or a group's label (`FormEntryPrompt.getSelectItemText` and `FormEntryCaption.getQuestionText` ask for `long` and the default only)",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -9190,6 +9189,33 @@
 		"emission": {
 			"cell": "omit",
 			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "`long` form on a hint, a help text, a validation message or a choice",
+		"surfaceKeys": ["itext-form:core/long"],
+		"valueClass": "other-text",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: an extended text on a hint, a help text, a validation message or a choice (both runtimes show it in place of the text: Core reads `long` first and the default after it, `FormEntryPrompt.getSelectItemText` for a choice and `FormEntryCaption.getQuestionText` for a hint, a help text and a validation message its alert names, which Formplayer sends and Android draws)",
+		"subject": "question-text",
+		"owner": "question-display",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`form=\"long\"`",
+			"markers": []
 		},
 		"gates": []
 	},

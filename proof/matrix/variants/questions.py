@@ -953,12 +953,22 @@ MEMBERS_LABEL_VALUE = '<text id="members-label">\n\t\t\t\t\t\t<value>Members</va
 
 
 def long_form_on_help(authoring, app_id):
-    """A ``long`` form of ``full_name``'s help text, which no runtime asks a help text for."""
+    """A ``long`` form of ``full_name``'s help text, which both runtimes show in place of the help text."""
     _change(
         authoring,
         app_id,
         "long-form-on-help",
         (FULL_NAME_HELP_VALUE, FULL_NAME_HELP_VALUE + '<value form="long">Ask who heads the household</value>', 1),
+    )
+
+
+def qrcode_on_help(authoring, app_id):
+    """A ``qrcode`` form of ``full_name``'s help text, which no runtime asks a help text for."""
+    _change(
+        authoring,
+        app_id,
+        "qrcode-on-help",
+        (FULL_NAME_HELP_VALUE, FULL_NAME_HELP_VALUE + '<value form="qrcode">household</value>', 1),
     )
 
 

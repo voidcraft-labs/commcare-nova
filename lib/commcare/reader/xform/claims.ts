@@ -1344,13 +1344,12 @@ export const X = {
 			spoken_text: "itext-form:android/tts",
 		},
 	),
-	/** One of them on a text no runtime reads it of: a hint, a help text, a validation message or
-	 *  a choice, and a QR code or spoken text on a group's or repeat's label. */
+	/** A QR code or spoken text on a text no runtime reads it of: a hint, a help text, a validation
+	 *  message, a choice, or a group's or repeat's label. */
 	labelTextElsewhere: under(
 		"drop",
-		Q("long-qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of"),
+		Q("qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of"),
 		{
-			extended_text: "itext-form:core/long",
 			qr_code: "itext-form:android/qrcode",
 			spoken_text: "itext-form:android/tts",
 		},
@@ -1359,6 +1358,13 @@ export const X = {
 	longFormOnContainer: one(
 		"refuse",
 		Q("long-form-on-a-group-or-repeat-label"),
+		"itext-form:core/long",
+	),
+	/** A `long` form on a hint, a help text, a validation message or a choice, which both runtimes
+	 *  show in place of the text. */
+	longFormOnOtherText: one(
+		"refuse",
+		Q("long-form-on-a-hint-help-text-validation-message-or-choice"),
 		"itext-form:core/long",
 	),
 	shortForm: one("account", Q("short-form"), "itext-form:core/short"),

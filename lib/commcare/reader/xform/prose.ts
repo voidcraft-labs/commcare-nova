@@ -1957,13 +1957,15 @@ function claimMarkdown(
 }
 
 /** A value of a form other than the default, markdown and media, claimed by the form it names.
- *  A question label's other texts are read by `readLabelTexts` (`heldLabelTexts`); on any other
- *  text a `long` form is a group's or repeat's header on both runtimes (Android
- *  `QuestionsView.java` reads the group's `getLongText()`, Formplayer sends it as the caption,
- *  `PromptToJson`), which Nova holds no slot for, and every other is read by no runtime: Core
- *  asks a hint, a help text, a validation message and a choice for no form but the default and
- *  markdown (`FormEntryPrompt.localizeText`, `getSelectChoiceText`), and Android asks only a
- *  question for a `qrcode` or `tts` form (`QuestionWidget.addQuestionText`). */
+ *  A question label's other texts are read by `readLabelTexts` (`heldLabelTexts`). On any other
+ *  text a `long` form is what both runtimes show in place of the text, which Nova holds no slot
+ *  for, so it is not yet held: Core reads `long` first and the default after it for a choice
+ *  (`FormEntryPrompt.getSelectItemText`) and for a hint, a help text and a validation message
+ *  its alert names (`localizeText` through `FormEntryCaption.getQuestionText`), and for a
+ *  group's or repeat's header (Android `QuestionsView.java` reads the group's `getLongText()`,
+ *  Formplayer sends it as the caption, `PromptToJson`). A `qrcode` or `tts` form there is read by
+ *  no runtime: Android asks only a question's label for either (`QuestionWidget.addQuestionText`),
+ *  and Core reads neither of any other text. */
 function claimOtherForm(
 	input: ReadTextInput,
 	owner: ItextOwner,
@@ -1985,12 +1987,12 @@ function claimOtherForm(
 	if (labelText !== undefined && heldLabelTexts) return;
 	claimFormValue(input.accounting, value, place);
 	if (labelText !== undefined) {
-		if (
-			labelText === "extended_text" &&
-			owner.slot === "label" &&
-			CONTAINER_KINDS.has(owner.field.kind)
-		)
-			cursor.refuseSubtree(value, X.longFormOnContainer, place);
+		if (labelText === "extended_text")
+			cursor.refuseSubtree(
+				value,
+				owner.slot === "label" ? X.longFormOnContainer : X.longFormOnOtherText,
+				place,
+			);
 		else cursor.dropSubtree(value, X.labelTextElsewhere[labelText]);
 		return;
 	}
