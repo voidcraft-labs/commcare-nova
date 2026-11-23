@@ -51,6 +51,14 @@
  *                                question), or `null`. Sent on connect and
  *                                on that same notify when the facts changed.
  *                                Seq-less.
+ *   event: preview-search-settings the Project's Preview search and map
+ *                                settings for every destination this app
+ *                                may preview against, as a start / part /
+ *                                end snapshot (`lib/preview/
+ *                                searchSettingsFrames.ts`) so a large profile
+ *                                never fills one frame. Sent on connect and on
+ *                                that same notify when a destination or a
+ *                                revision changed. Seq-less.
  *   event: reload                replay is impossible (below the retention
  *                                efficiency bound or a gap), or a server-only
  *                                change requires a fresh snapshot handoff; the
