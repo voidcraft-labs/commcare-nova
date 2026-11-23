@@ -25,6 +25,7 @@ import {
 	formFindings,
 	readFields,
 	readForm,
+	unrecognizedAt,
 	xformSource,
 } from "./formReading";
 
@@ -432,5 +433,37 @@ describe("a row count beside the control's other display words", () => {
 			(reading.xform ? readFields(reading.xform) : []).find((f) => f.id === "q")
 				?.field,
 		).toMatchObject(settings);
+	});
+});
+
+describe("a lone broadcast on a question no address search sends from", () => {
+	it.each([
+		["text", "xsd:string"],
+		["barcode", "barcode"],
+	])("stands unrecognized on %s rather than vanish", async (_kind, type) => {
+		const reading = await readForm(
+			xformSource({
+				data: "<q/>",
+				model: `<bind nodeset="/data/q" type="${type}"/>`,
+				body: '<input ref="/data/q" appearance="broadcast-home"><label>Q</label></input>',
+			}),
+		);
+		expect(unrecognizedAt(reading, "q")).toEqual(["broadcast-home"]);
+		expect(reading.xform?.inertAppearances ?? []).not.toContain("q");
+	});
+
+	it("is still taken beside address search", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<q/>",
+				model: '<bind nodeset="/data/q" type="xsd:string"/>',
+				body: '<input ref="/data/q" appearance="address broadcast-home"><label>Q</label></input>',
+			}),
+		);
+		expect(codesAt(reading, "q")).toEqual([]);
+		expect(
+			(reading.xform ? readFields(reading.xform) : []).find((f) => f.id === "q")
+				?.field,
+		).toMatchObject({ addressLookup: true, sendTopics: ["home"] });
 	});
 });

@@ -18,6 +18,7 @@ import surface from "../../surface/surface.json";
 import {
 	FIELD_DISPLAY_SETTING_TOKENS,
 	kindAppearanceToken,
+	writeFieldAppearance,
 } from "../../xform/appearance";
 import { fieldKindBindType } from "../../xform/bindType";
 import { UPLOAD_MEDIATYPE_BY_CAPTURE_KIND } from "../../xform/captureUpload";
@@ -1466,7 +1467,15 @@ export function claimAppearance(
 					(child) => child.tag === "repeat" || wrapsRepeat(child),
 				),
 			);
-		if (!next || !field) {
+		/* A reading that writes nothing back took no setting from the value
+		 * (a lone `broadcast-…` on a text question with no address search,
+		 * which no entry sends from), so the value stands unrecognized rather
+		 * than vanish from the question. */
+		if (
+			!next ||
+			!field ||
+			writeFieldAppearance(field.kind, next) === undefined
+		) {
 			const detail = { name: value };
 			accounting.circumstance("unrecognized", place, detail);
 			accounting.cover(
