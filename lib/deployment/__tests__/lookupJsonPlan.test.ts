@@ -14,6 +14,7 @@ import {
 	lookupJsonRanks,
 	lookupJsonRowDigest,
 	planLookupJsonPublish,
+	RANK_STEP,
 } from "../lookupJsonPlan";
 
 const DEFINITION = {
@@ -77,12 +78,12 @@ describe("planLookupJsonPublish", () => {
 				{
 					kind: "create-row",
 					novaRowId: "nova-a",
-					row: { ...content("a"), sortKey: 0 },
+					row: { ...content("a"), sortKey: 1023 },
 				},
 				{
 					kind: "create-row",
 					novaRowId: "nova-b",
-					row: { ...content("b"), sortKey: 1 },
+					row: { ...content("b"), sortKey: 2047 },
 				},
 			],
 		});
@@ -136,7 +137,7 @@ describe("planLookupJsonPublish", () => {
 				{
 					kind: "create-row",
 					novaRowId: "nova-d",
-					row: { ...content("d"), sortKey: 3 },
+					row: { ...content("d"), sortKey: 2 + RANK_STEP },
 				},
 			],
 		});
@@ -162,7 +163,7 @@ describe("planLookupJsonPublish", () => {
 					kind: "update-row",
 					novaRowId: "nova-b",
 					remoteId: remoteId("b"),
-					row: { ...content("b"), sortKey: 31 },
+					row: { ...content("b"), sortKey: 30 + RANK_STEP },
 					before: { sortKey: 10, digest: lookupJsonRowDigest(content("b")) },
 				},
 			],
@@ -313,15 +314,110 @@ describe("planLookupJsonPublish", () => {
 		).toEqual({ kind: "review", reason: "schema-change-over-rows" });
 	});
 
-	it("asks for review where no integer rank is free between two kept rows", () => {
+	it("inserts and moves in a table the carrier made by writing the new or moved row alone", () => {
+		/* The plausible failure: the ranks a create leaves have no room between
+		 * them, so every later insert or move is held for review. */
+		const created = planLookupJsonPublish({
+			definition: DEFINITION,
+			rows: local("a", "b", "c"),
+			ledger: null,
+			remote: null,
+		});
+		if (created.kind !== "operations") throw new Error("expected writes");
+		const ranks = created.operations.flatMap((operation) =>
+			operation.kind === "create-row"
+				? [
+						[
+							operation.novaRowId.slice("nova-".length),
+							operation.row.sortKey,
+						] as const,
+					]
+				: [],
+		);
+		const state = published(ranks);
+		for (const rows of [
+			local("a", "new", "b", "c"),
+			local("new", "a", "b", "c"),
+			local("a", "c", "b"),
+		]) {
+			const plan = planLookupJsonPublish({
+				definition: DEFINITION,
+				rows,
+				...state,
+			});
+			expect(plan.kind).toBe("operations");
+			if (plan.kind !== "operations") continue;
+			expect(plan.operations).toHaveLength(1);
+		}
+	});
+
+	it("makes room in a table whose ranks leave none by moving the fewest kept rows after the insert", () => {
+		/* Ranks 0, 1, 2 with no gap, as a table CommCare HQ ranked itself. */
 		const { ledger, remote } = published([
 			["a", 0],
 			["b", 1],
+			["c", 2],
 		]);
+		const middle = planLookupJsonPublish({
+			definition: DEFINITION,
+			rows: local("a", "new", "b", "c"),
+			ledger,
+			remote,
+		});
+		expect(middle).toEqual({
+			kind: "operations",
+			operations: [
+				{
+					kind: "update-row",
+					novaRowId: "nova-b",
+					remoteId: remoteId("b"),
+					row: { ...content("b"), sortKey: 2 * RANK_STEP },
+					before: { sortKey: 1, digest: lookupJsonRowDigest(content("b")) },
+				},
+				{
+					kind: "update-row",
+					novaRowId: "nova-c",
+					remoteId: remoteId("c"),
+					row: { ...content("c"), sortKey: 3 * RANK_STEP },
+					before: { sortKey: 2, digest: lookupJsonRowDigest(content("c")) },
+				},
+				{
+					kind: "create-row",
+					novaRowId: "nova-new",
+					row: { ...content("new"), sortKey: RANK_STEP },
+				},
+			],
+		});
+		const moved = planLookupJsonPublish({
+			definition: DEFINITION,
+			rows: local("a", "c", "b"),
+			ledger,
+			remote,
+		});
+		/* c leaves the run; b, after it with no rank free between, moves on. */
+		expect(moved).toMatchObject({
+			kind: "operations",
+			operations: [
+				{
+					kind: "update-row",
+					novaRowId: "nova-c",
+					row: { sortKey: RANK_STEP },
+				},
+				{
+					kind: "update-row",
+					novaRowId: "nova-b",
+					row: { sortKey: 2 * RANK_STEP },
+				},
+			],
+		});
+	});
+
+	it("asks for review only where CommCare HQ's integer has no rank left after the last kept row", () => {
+		const { ledger, remote } = published([["a", 2_147_483_647]]);
 		expect(
 			planLookupJsonPublish({
 				definition: DEFINITION,
-				rows: local("a", "new", "b"),
+				rows: local("a", "new"),
 				ledger,
 				remote,
 			}),
@@ -335,7 +431,18 @@ describe("lookupJsonRanks", () => {
 		expect(lookupJsonRanks([null, null, 3])).toEqual([0, 1, 3]);
 		expect(lookupJsonRanks([30, 10, 20])).toEqual([4, 10, 20]);
 		expect(lookupJsonRanks([2_147_483_647, null])).toBeNull();
-		expect(lookupJsonRanks([0, 1, null, null])).toEqual([0, 1, 2, 3]);
+		expect(lookupJsonRanks([0, 1, null, null])).toEqual([
+			0,
+			1,
+			1 + RANK_STEP,
+			1 + 2 * RANK_STEP,
+		]);
+		expect(lookupJsonRanks([0, null, 1, 2])).toEqual([
+			0,
+			RANK_STEP,
+			2 * RANK_STEP,
+			3 * RANK_STEP,
+		]);
 	});
 
 	it("gives every row a distinct rank increasing in Nova's order", () => {

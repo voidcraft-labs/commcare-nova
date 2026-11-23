@@ -22,8 +22,10 @@
  * definition's update; the deletes of rows Nova removed; the full PUT of each
  * kept row whose values or rank changed; then the appends of new rows. Every
  * row gets a distinct integer rank in Nova's order, keeping the rank of the
- * longest run of kept rows already in order, so a move rewrites as few rows
- * as it can. `LookupTableItemResource.obj_create` gives an appended row the
+ * longest run of kept rows already in order, and the ranks it chooses are
+ * `RANK_STEP` apart where they fit, so a move or an insert rewrites the moved
+ * or new row alone where its neighbours left room, and otherwise also the
+ * kept rows after it, up to the first whose rank leaves room. `LookupTableItemResource.obj_create` gives an appended row the
  * table's largest rank plus one whatever it is sent; a create's `sortKey` is
  * the rank the plan wants, and the executor moves the row there with a PUT
  * where CommCare HQ chose another.
@@ -38,6 +40,13 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 /** The lowest and highest rank `LookupTableRow.sort_key`, a Postgres `integer`, holds. */
 const RANK_FLOOR = 0;
 const RANK_CEILING = 2_147_483_647;
+
+/**
+ * How far apart the plan puts the ranks it chooses, where they fit: a later
+ * insert or move between two of them then takes a free rank and rewrites no
+ * neighbour. 2^31 / 1024 leaves room for two million rows so spaced.
+ */
+export const RANK_STEP = 1024;
 
 /** A row's content as the JSON resource carries it, without its rank. */
 export type HqLookupJsonContent = Omit<HqLookupJsonRow, "sortKey">;
@@ -207,10 +216,36 @@ function longestIncreasing(keys: readonly (number | null)[]): Set<number> {
 }
 
 /**
- * A distinct rank for every position, increasing in Nova's order: a kept
- * row of the longest in-order run keeps its rank, and every other row takes
- * one spread evenly in the gap its neighbours leave. Null where some gap has
- * no integer free for the rows it must hold.
+ * `count` distinct ranks strictly between `lower` and `upper`, increasing.
+ * After the last kept row (`upper` past CommCare HQ's integer) they go one
+ * `RANK_STEP` past another where that fits, as appends; between two kept
+ * rows they spread evenly, leaving room on both sides. Null where the gap
+ * holds fewer integers than `count`.
+ */
+function ranksBetween(
+	lower: number,
+	upper: number,
+	count: number,
+): number[] | null {
+	if (upper - lower - 1 < count) return null;
+	const step =
+		upper > RANK_CEILING && lower + RANK_STEP * count < upper
+			? RANK_STEP
+			: (upper - lower) / (count + 1);
+	return Array.from({ length: count }, (_, offset) =>
+		Math.floor(lower + step * (offset + 1)),
+	);
+}
+
+/**
+ * A distinct rank for every position, increasing in Nova's order. A kept row
+ * of the longest in-order run keeps its rank, and every other row takes one
+ * in the gap its neighbours leave (`ranksBetween`), so the next insert or
+ * move there has room too. Where a gap has no integer free
+ * for the rows it must hold, the kept rows after it give up their ranks one
+ * by one, in Nova's order, until it does: the fewest rows that can make room
+ * on that side are rewritten. Null only where even CommCare HQ's integer has
+ * no room left after the last kept row before the gap.
  */
 export function lookupJsonRanks(
 	current: readonly (number | null)[],
@@ -222,21 +257,21 @@ export function lookupJsonRanks(
 	while (index < current.length) {
 		let next = index;
 		while (next < current.length && !anchors.has(next)) next++;
-		const upper =
-			next < current.length ? (current[next] as number) : RANK_CEILING + 1;
-		const count = next - index;
-		if (count > 0) {
-			if (upper - lower - 1 < count) return null;
-			if (next === current.length) {
-				// After the last kept row: append-like, one past the other.
-				for (let offset = 0; offset < count; offset++)
-					ranks[index + offset] = lower + 1 + offset;
-			} else {
-				const step = (upper - lower) / (count + 1);
-				for (let offset = 0; offset < count; offset++)
-					ranks[index + offset] = Math.floor(lower + step * (offset + 1));
-			}
+		let gap: number[] | null = null;
+		for (;;) {
+			const upper =
+				next < current.length ? (current[next] as number) : RANK_CEILING + 1;
+			gap = ranksBetween(lower, upper, next - index);
+			if (gap !== null || next === current.length) break;
+			/* No room before this kept row: it joins the rows that move, and
+			 * the gap reaches to the kept row after it. */
+			next++;
+			while (next < current.length && !anchors.has(next)) next++;
 		}
+		if (gap === null) return null;
+		gap.forEach((rank, offset) => {
+			ranks[index + offset] = rank;
+		});
 		if (next < current.length) {
 			ranks[next] = current[next] as number;
 			lower = current[next] as number;
@@ -262,12 +297,14 @@ export function planLookupJsonPublish(input: {
 
 	if (ledger === null) {
 		if (remote !== null) return review("tag-held-elsewhere");
+		const ranks = lookupJsonRanks(rows.map(() => null));
+		if (ranks === null) return review("no-rank-room");
 		operations.push({ kind: "create-table", definition });
 		rows.forEach((row, index) => {
 			operations.push({
 				kind: "create-row",
 				novaRowId: row.novaRowId,
-				row: { ...row.content, sortKey: index },
+				row: { ...row.content, sortKey: ranks[index] as number },
 			});
 		});
 		return { kind: "operations", operations };
