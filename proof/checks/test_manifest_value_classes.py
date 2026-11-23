@@ -6264,6 +6264,123 @@ def _held_new():
     }
 
 
+def _listed_forms_and_first_menu():
+    """Menus listing another menu's forms, a deep link's case-creation arguments and the first menu's shared case."""
+
+    def shadow(**fields):
+        return {
+            "doc_type": "ShadowModule",
+            "unique_id": fields.pop("unique_id", "sh"),
+            "shadow_module_version": 2,
+            "source_module_id": "src",
+            "excluded_form_ids": [],
+            "form_session_endpoints": [],
+            **fields,
+        }
+
+    source = _module([{**_form_json(), "unique_id": "visit"}], unique_id="src")
+    child = _module([{**_form_json(), "unique_id": "check"}], unique_id="kid", root_module_id="src")
+    mirror_child = shadow(unique_id="shkid", root_module_id="sh", source_module_id="kid")
+    opening = _form_json("none", open_case={"condition": ALWAYS})
+
+    def first_menu(*others):
+        """A top-level menu that lists its one follow-up on the first menu, then ``others``."""
+        above = _module([{**_form_json(), "unique_id": "visit"}], unique_id="above", put_in_root=True)
+        return _app([above, *others])
+
+    review = _module(
+        [{**_form_json(), "unique_id": "review", "session_endpoint_id": "review"}],
+        unique_id="reviews",
+        root_module_id="above",
+    )
+    household = _module([{**_form_json(), "unique_id": "home"}], unique_id="homes", case_type="household")
+    register = {
+        "form_id": "reg",
+        "post_form_workflow": "case_list",
+    }
+    registration = _module([{**_form_json("none", open_case={"condition": ALWAYS}), "unique_id": "reg"}], unique_id="r")
+    return {
+        "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form": (
+            refused(
+                "app",
+                _app([source, shadow(source_module_id="gone")]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+            refused(
+                "app",
+                _app([source, shadow(excluded_form_ids=["gone"])]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+            accepted(
+                "app",
+                _app([source, shadow(excluded_form_ids=["visit"])]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+        ),
+        "menus-and-case-lists/shared-form-menus-with-incomplete-submenus": (
+            refused(
+                "app",
+                _app([source, child, shadow()]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/2/source_module_id",
+            ),
+            accepted(
+                "app",
+                _app([source, child, shadow(), mirror_child]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/2/source_module_id",
+            ),
+        ),
+        "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier": (
+            refused(
+                "app",
+                _app([_module([{**opening, "function_datum_endpoints": ["case_id_new_patient_1"]}])]),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+            accepted(
+                "app",
+                _app([_module([{**opening, "function_datum_endpoints": ["case_id_new_patient_0"]}])]),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+        ),
+        "forms-and-case-writes/first-menu-selection-used-for-different-records": (
+            # The review's deep link opens through the first menu, which keeps the patient for the household
+            # menu's form that reads ``case_id`` as a household.
+            refused(
+                "app",
+                first_menu(review, household),
+                "schema:Form.session_endpoint_id",
+                "/modules/1/forms/0/session_endpoint_id",
+            ),
+            accepted(
+                "app",
+                first_menu(review),
+                "schema:Form.session_endpoint_id",
+                "/modules/1/forms/0/session_endpoint_id",
+            ),
+        ),
+        "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case": (
+            refused(
+                "app",
+                first_menu({**review, "case_list_form": register}, registration, household),
+                "schema:CaseListForm.form_id",
+                "/modules/1/case_list_form/form_id",
+            ),
+            accepted(
+                "app",
+                first_menu({**review, "case_list_form": register}, registration),
+                "schema:CaseListForm.form_id",
+                "/modules/1/case_list_form/form_id",
+            ),
+        ),
+    }
+
+
 SHAPES = {
     **_questions(),
     **_settings_and_forms(),
@@ -6271,6 +6388,7 @@ SHAPES = {
     **_search_and_menus(),
     **_data_binds_and_itext(),
     **_held_new(),
+    **_listed_forms_and_first_menu(),
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
