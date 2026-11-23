@@ -3679,3 +3679,81 @@ describe("readFilterPreview", () => {
 		expect(result).toMatchObject({ kind: "rows", totalCount: 1 });
 	});
 });
+
+describe("a Details tab that lists records", () => {
+	// A field made for a table tab reads a table row, which no case-store
+	// query has in scope; Preview reads no tab's records, so the list and
+	// the case's Details read without it instead of failing.
+	it("reads the list and the case without the fields of its rows", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { age: 30 },
+			},
+		});
+		const table = "018f0000-0000-7000-8000-0000000000c1" as never;
+		const rowField = testUuid("50000000-0000-0000-0000-0000000000c2");
+		const config = resolveCaseListConfig({
+			columns: [
+				plainColumn(NAME_COLUMN_UUID, "case_name", "Name"),
+				{
+					kind: "calculated",
+					uuid: rowField,
+					header: "Clinic",
+					expression: term({
+						kind: "table-column",
+						tableId: table,
+						columnId: "018f0000-0000-7000-8000-0000000000c3" as never,
+					}),
+					rowField: true,
+					visibleInList: false,
+					notOnList: true,
+				},
+			],
+			searchInputs: [],
+			detailTabs: [
+				{
+					uuid: testUuid("50000000-0000-0000-0000-0000000000c4"),
+					title: "Case",
+					startColumnUuid: NAME_COLUMN_UUID,
+				},
+				{
+					uuid: testUuid("50000000-0000-0000-0000-0000000000c5"),
+					title: "Clinics",
+					startColumnUuid: rowField,
+					rowSource: {
+						kind: "records",
+						rows: { kind: "table-rows", tableId: table, where: [] },
+					},
+				},
+			],
+		});
+		const list = await readCases(store, {
+			tileGrouping: "grouped",
+			reading: CASEDB_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: config,
+		});
+		expect(list.kind).toBe("rows");
+		const detail = await readCaseData(store, {
+			reading: CASEDB_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			caseId: ALICE_CASE_ID,
+			ancestorDepth: 5,
+			caseListConfig: config,
+		});
+		expect(detail.kind).toBe("row");
+		if (detail.kind !== "row") return;
+		expect(detail.row.calculated[rowField]).toBeUndefined();
+	});
+});

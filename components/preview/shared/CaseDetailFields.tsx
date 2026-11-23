@@ -113,9 +113,21 @@ export function CaseDetailFields({
 				</TabsList>
 				{detailSpans.map(({ tab, start, end }) => (
 					<TabsContent key={tab.uuid} value={tab.uuid}>
-						{renderDetailFields(
-							detailColumns.slice(start, end),
-							displayedOpenCase,
+						{tab.rowSource ? (
+							// Preview reads no tab's records yet, and a field of such a
+							// tab reads a record, never the selected case.
+							<p
+								data-case-detail-records-unshown
+								className="rounded-lg border border-pv-input-border bg-pv-surface px-4 py-3 text-[13px] text-nova-text-muted"
+							>
+								This tab lists records on the device. Preview doesn't show them
+								yet.
+							</p>
+						) : (
+							renderDetailFields(
+								detailColumns.slice(start, end),
+								displayedOpenCase,
+							)
 						)}
 					</TabsContent>
 				))}

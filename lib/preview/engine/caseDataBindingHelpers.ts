@@ -27,6 +27,7 @@ import "server-only";
 
 import { workerDistanceValueId } from "@/lib/domain";
 import { caseContextLine } from "@/lib/domain/caseFormContext";
+import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
 import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
@@ -227,7 +228,9 @@ function runtimeCalculatedColumns(
 	if (!config) return undefined;
 	const columns = config.columns.filter(
 		(column): column is Extract<Column, { kind: "calculated" }> =>
-			column.kind === "calculated" && caseListColumnRuns(column, config),
+			column.kind === "calculated" &&
+			caseListColumnRuns(column, config) &&
+			!columnReadsDetailTabRow(config, column),
 	);
 	return [
 		...columns.map((column) => ({
@@ -279,6 +282,7 @@ function runtimeRelatedReads(
 	if (config === undefined) return undefined;
 	return config.columns.flatMap((column): RelatedRead[] => {
 		if (column.kind === "calculated") return [];
+		if (columnReadsDetailTabRow(config, column)) return [];
 		const distance =
 			column.kind === "worker-distance" &&
 			(column.visibleInDetail !== false ||

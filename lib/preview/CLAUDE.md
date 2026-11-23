@@ -1629,8 +1629,12 @@ Results rows, the pinned tile and Web Apps Details. Each surface passes its own 
 a number.
 
 Web Apps draws an independent Details grid when configured. Android draws ordinary
-labeled Details fields. A conditional tab reads the selected record, then its
-fields read the row supplied to that tab. A signed app test can open an available
+labeled Details fields. A conditional tab reads the selected record. Preview
+reads no tab's records yet: a tab with a `rowSource` shows a note in place of
+its fields, and every field that reads such a tab's row
+(`detailTabs.ts::columnReadsDetailTabRow`) stays out of the calculated and
+related reads sent to the case store, whose compiler has no row scope for it.
+A signed app test can open an available
 tab by identity and expand the case context above a form. The selecting menu
 and case identify the data even when a different menu supplies the display.
 

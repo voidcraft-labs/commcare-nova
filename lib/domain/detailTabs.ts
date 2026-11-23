@@ -30,6 +30,22 @@ export {
 	detailTabsSchema,
 } from "./detailTabSchema";
 
+/** Whether a column reads a row of its Details tab's records rather than the
+ * selected case: a field made for a records tab (`rowField`), or a field of a
+ * tab that lists records which the list itself doesn't carry. Preview reads
+ * no tab's records, so it evaluates such a field nowhere; on the list, a
+ * field reads the case. */
+export function columnReadsDetailTabRow(
+	config: CaseListConfig,
+	column: Column,
+): boolean {
+	if (column.kind === "calculated" && column.rowField) return true;
+	return (
+		column.notOnList === true &&
+		detailTabMembership(config).get(column.uuid)?.rowSource !== undefined
+	);
+}
+
 /** Relevance belongs to the selected case even when a tab later lists other
  * records. A gated expression is read from the same SQL row as its columns. */
 export function availableDetailTabs(
