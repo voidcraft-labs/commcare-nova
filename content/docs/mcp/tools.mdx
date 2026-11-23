@@ -279,6 +279,13 @@ Android session stops on a `required-android-apps` screen whose `missingApps`
 names each one, and offers only `observe`, `back` and `finish`; start a new
 test with those apps installed to open the app. Web Apps ignores this check.
 
+A form that requests the device location reads a simulated fix on the Preview
+phone. `start_app_test` takes `locationFix` (`latitude`, `longitude`, `altitude`,
+`accuracy`) as the default for every Android session, and an Android session can
+name its own. Leave it out to test a phone with no fix or with location turned
+off. A Web Apps session sends no location, so a fix it names, or a test fix no
+Android session takes, is refused. A location question keeps its own answer.
+
 For overlapping worker journeys, `start_app_test` accepts up to four
 `sessions: [{id, personaUuid?, language?}, ...]`. Each ID is a unique test-local
 label; a Preview identity must already be saved in the app. The first session
@@ -570,7 +577,7 @@ use the saved revision.
 
 | Tool | What it does |
 |---|---|
-| `update_app` | Set the app's name, whether workers see their saved forms and their incomplete forms, whether it runs only in Web Apps or only on Android, and which apps workers need installed on Android (`required_android_apps`, the whole selection in the order workers see it; an empty list clears it). |
+| `update_app` | Set the app's name, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location (`capture_location`), whether it runs only in Web Apps or only on Android, and which apps workers need installed on Android (`required_android_apps`, the whole selection in the order workers see it; an empty list clears it). |
 | `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
 | `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A private app edit; modules reference types by name, and a form field that writes a recorded property may inherit its intrinsic type, canonical label, and choice catalog. Field hint, requiredness, and validation remain specific to each form. Also how a new case type enters an existing app. A declaration can have no custom properties; an already satisfied declaration reports unchanged records. |
 
@@ -617,7 +624,8 @@ every Android form opens, false lets each form choose. `update_form` accepts the
 same argument for one form. The form’s own choice survives changes to the app-wide
 setting. Connect always requests location for every form. Web Apps sends the form
 without a location. Workers get a changed setting when they install the new release.
-[Automatic location capture](../commcare-connect.mdx#turning-off-automatic-location-capture)
+[Turning off automatic location capture](../commcare-connect.mdx#turning-off-automatic-location-capture)
+describes the switches after Connect is turned off.
 
 To disable Connect and clear every form's Connect block in the same change:
 
