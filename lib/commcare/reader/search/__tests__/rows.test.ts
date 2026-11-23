@@ -1030,6 +1030,30 @@ describe("a menu whose forms do not read the search", () => {
 		}
 	});
 
+	it("keeps a comparison only HQ's search converts on the search condition, never on the list a device runs", async () => {
+		// The answered phone orders the notes as HQ's search alone does (`searchIndexedComparison`);
+		// a device's list filter would refuse it, so the list keeps its own filter.
+		const SI = "instance('search-input:results')/input/field[@name = 'phone']";
+		const reading = await readLists(typed(doc(), { notes: "text" }), {
+			edit: (app) => {
+				rowsOf(app).push({
+					property: "_xpath_query",
+					doc_type: "DefaultCaseSearchProperty",
+					defaultValue: `if(count(${SI}), concat("notes > '", ${SI}, "'"), 'match-all()')`,
+				});
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const read = listOf(reading);
+		expect(read.filter).toEqual(notesIs("open"));
+		expect(authored(read.searchCondition, reading, [bare])).toEqual(
+			and(
+				notesIs("open"),
+				whenInput(input(PHONE), gt(prop("patient", "notes"), input(PHONE))),
+			),
+		);
+	});
+
 	it("reads an independent request condition beside existing shared clauses", async () => {
 		const reading = await readLists(doc(), {
 			edit: (app) => {

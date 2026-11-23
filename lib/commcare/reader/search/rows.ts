@@ -21,6 +21,7 @@ import { literalInstantMicros } from "@/lib/domain/expression/instantOperand";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import {
 	isRelationPath,
 	type RelationPath,
@@ -993,6 +994,29 @@ function deviceFilter(filter: Expression | undefined): Expression | undefined {
  *  the list the case list stage reads, which a row restates (kind B). */
 function waitsForFields(clause: Expression): boolean {
 	return deviceFilter(clause) === undefined;
+}
+
+/** Whether the module's list filter type-checks in its own slot: a filter both the list and the
+ *  search read takes a device's rules as well as HQ's, so a comparison only HQ's search runs by
+ *  converting its value (`searchIndexedComparison`) stays the search condition's alone. */
+function typesAsListFilter(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	naming: ReturnType<typeof readProjectionInputs>["lookupNaming"],
+): boolean {
+	const filter = doc.modules[moduleUuid]?.caseListConfig?.filter;
+	if (filter === undefined) return true;
+	try {
+		const context = moduleExpressionContexts(
+			doc,
+			moduleUuid,
+			naming,
+		)({ slot: "case_list_filter" });
+		return checkExpression(filter, context).errors.length === 0;
+	} catch (error) {
+		rethrowWorkStop(error);
+		return false;
+	}
 }
 
 /** Whether an advanced form loads a case from `moduleUuid`'s list. */
@@ -2605,7 +2629,9 @@ export function classifySearchRows(
 					(originally === shared ||
 						(originally !== "" &&
 							shared !== "" &&
-							sameXPathText(originally, shared)))
+							sameXPathText(originally, shared))) &&
+					(typesAsListFilter(combined, module.uuid, naming) ||
+						!typesAsListFilter(start, module.uuid, naming))
 				? combined
 				: withCandidate(doc, (draft) => {
 						const config = draft.modules[module.uuid]?.caseListConfig;
