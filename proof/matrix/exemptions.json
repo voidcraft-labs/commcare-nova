@@ -19,6 +19,10 @@
 		"reason": "hq-never-serves-the-value",
 		"note": "CommCare HQ's source read pops external_blobs (models/applications.py::Application.export_json), so no app's source carries it; the row hq-new-app/external-blobs holds that on every run."
 	},
+	"application-and-settings/menu-layout-outside-editor-choices": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's wrap of an Application refuses a use_grid_menus that is no boolean and a grid_form_menus outside none, all and some (BadValueError: models/applications.py declares a BooleanProperty and a StringProperty with those choices), so no app's source carries one; the row hq-new-app/form-menu-unknown-layout holds that outcome."
+	},
 	"application-and-settings/profile-and-suite-skeleton": {
 		"reason": "only-in-a-build",
 		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."

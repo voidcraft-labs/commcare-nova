@@ -27380,6 +27380,9 @@
 			"op": "set-json",
 			"pointer": "/grid_form_menus",
 			"value": "columns"
+		},
+		"hqNeverServes": {
+			"raised": "BadValueError"
 		}
 	},
 	{
