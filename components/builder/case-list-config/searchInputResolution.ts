@@ -41,6 +41,7 @@ import {
 	type SearchInputMode,
 	type SearchInputType,
 	type SimpleSearchInputDef,
+	searchForBlankRefusal,
 	searchInputRuntimeValueType,
 	startsWithMode,
 } from "@/lib/domain";
@@ -601,4 +602,24 @@ export function recoverAnchoredProperty(
 	const ref = left.term;
 	if (ref.via !== undefined && ref.via.kind !== "self") return undefined;
 	return ref.property;
+}
+
+// ── Search for blank across a Match change ────────────────────────
+
+/**
+ * A standard field a Match change builds keeps the author's search for blank
+ * only where the field can carry it (`searchForBlankRefusal`): a match the
+ * field now leaves the bare prompt for, or a property under another name,
+ * turns it off in the same edit, so the Builder never offers a replacement the
+ * gate refuses. `removed` says the search for blank was turned off, which the
+ * confirmation names.
+ */
+export function withSearchForBlankItCanCarry(row: SimpleSearchInputDef): {
+	readonly row: SimpleSearchInputDef;
+	readonly removed: boolean;
+} {
+	if (row.allowBlank !== true || searchForBlankRefusal(row) === undefined)
+		return { row, removed: false };
+	const { allowBlank: _removed, ...rest } = row;
+	return { row: rest, removed: true };
 }

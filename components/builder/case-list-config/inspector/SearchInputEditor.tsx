@@ -179,6 +179,7 @@ import {
 	searchInputDecls,
 	seedCustomCondition,
 	seedDefaultExpression,
+	withSearchForBlankItCanCarry,
 } from "../searchInputResolution";
 import {
 	labelFromProperty,
@@ -280,6 +281,8 @@ interface PendingStandardReplacement {
 	readonly resultingMode: SearchInputMode["kind"];
 	readonly modeAdjustment?: string;
 	readonly meaningfulDefaultRemoved: boolean;
+	/** The replacement can't search for blank, so Also find blank turns off. */
+	readonly searchForBlankRemoved: boolean;
 }
 
 const PICKER_TRIGGER_CLS =
@@ -836,9 +839,12 @@ function VisibleSearchInputEditor({
 							},
 						);
 		const keepDefault = defaultFits(withDefault);
-		const next = keepDefault
-			? withDefault
-			: rebuildRow(withDefault, { default: undefined });
+		const { row: next, removed: searchForBlankRemoved } =
+			withSearchForBlankItCanCarry(
+				keepDefault
+					? withDefault
+					: rebuildRow(withDefault, { default: undefined }),
+			);
 		const resultingMode = effectiveModeKind(next);
 		const targetPropertyLabel = propertyDisplayLabel(propertyDef, projectProse);
 		return {
@@ -854,6 +860,7 @@ function VisibleSearchInputEditor({
 				!keepDefault &&
 				currentDefault !== undefined &&
 				expressionHasMeaningfulContent(currentDefault),
+			searchForBlankRemoved,
 		};
 	};
 
@@ -1852,7 +1859,10 @@ function standardReplacementConsequence(
 	const defaultConsequence = pending.meaningfulDefaultRemoved
 		? ` The starting value will also be removed because ${SEARCH_INPUT_TYPE_LABELS[pending.next.type]} can't use it.`
 		: "";
-	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Some parts of the custom condition don't fit “${match}” and will be removed.${defaultConsequence} You can undo this change.`;
+	const blankConsequence = pending.searchForBlankRemoved
+		? " Also find blank will be turned off because this match can't search for blank."
+		: "";
+	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Some parts of the custom condition don't fit “${match}” and will be removed.${defaultConsequence}${blankConsequence} You can undo this change.`;
 }
 
 function customConversionConsequence(row: SimpleSearchInputDef | null): string {

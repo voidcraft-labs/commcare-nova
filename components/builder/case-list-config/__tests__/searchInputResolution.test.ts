@@ -27,6 +27,7 @@ import {
 	resolveRows,
 	searchInputDecls,
 	seedCustomCondition,
+	withSearchForBlankItCanCarry,
 } from "../searchInputResolution";
 import { admittedWorkspace, commitWorkspace } from "./admittedWorkspace";
 
@@ -324,4 +325,48 @@ it("leaves malformed or ambiguous walks unresolved instead of borrowing origin p
 		resolveRows([row], ambiguous, "patient", proseTemplateText)[0]
 			.propertyState,
 	).toEqual({ kind: "dangling", destination: undefined });
+});
+
+// A custom condition keeps Also find blank (an advanced field may carry it),
+// and picking a standard match turns it back into a simple field: the
+// replacement keeps the search for blank only where the gate admits it.
+describe("search for blank across a Match change", () => {
+	const village = (slots: Parameters<typeof simpleSearchInputDef>[5]) =>
+		simpleSearchInputDef(
+			testUuid("blank-village"),
+			"village",
+			"Village",
+			"text",
+			"village",
+			{ allowBlank: true, ...slots },
+		);
+
+	it("keeps it on an exact match of the field's own property", () => {
+		const row = village({});
+		expect(withSearchForBlankItCanCarry(row)).toEqual({
+			row,
+			removed: false,
+		});
+	});
+
+	it.each([
+		["a similar-spelling match", village({ mode: { kind: "fuzzy" } })],
+		[
+			"another property than the field's name",
+			simpleSearchInputDef(
+				testUuid("blank-village"),
+				"village",
+				"Village",
+				"text",
+				"region",
+				{ allowBlank: true },
+			),
+		],
+	])("turns it off for %s, and says so", (_label, row) => {
+		const { row: next, removed } = withSearchForBlankItCanCarry(row);
+		expect(removed).toBe(true);
+		expect(next.allowBlank).toBeUndefined();
+		const { allowBlank: _dropped, ...rest } = row;
+		expect(next).toEqual(rest);
+	});
 });
