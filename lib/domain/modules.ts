@@ -1434,6 +1434,17 @@ const visibleSearchInputBase = searchInputBase
 		 * (`searchForBlankRefusal`). Absent is no.
 		 */
 		allowBlank: z.literal(true).optional(),
+		/**
+		 * Web Apps does not draw the field, and searches with its starting value
+		 * as it stands (`query.js` hides a hidden prompt's row whole with
+		 * `d-none`). Neither Core nor Android reads the attribute, so Android
+		 * draws the field like any other, where the worker can change it, and
+		 * draws none of a widget its Search screen does not show. A hidden field
+		 * carries no hint, requirement, check or search for blank, since nobody
+		 * in Web Apps can see them (`hiddenSearchFieldRefusal`). Absent is
+		 * shown. A value the search never matches is the `hidden` arm.
+		 */
+		hidden: z.literal(true).optional(),
 	})
 	.strict();
 
@@ -1868,6 +1879,7 @@ interface SearchInputVisibleSlots {
 	readonly required?: SearchInputRequired;
 	readonly validation?: SearchInputValidation;
 	readonly allowBlank?: true;
+	readonly hidden?: true;
 }
 
 /** The slot that seeds a visible input's initial state. */
@@ -1917,12 +1929,14 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 		required?: SearchInputRequired;
 		validation?: SearchInputValidation;
 		allowBlank?: true;
+		hidden?: true;
 	} = { ...base };
 	if (slots.default !== undefined) out.default = slots.default;
 	if (slots.hint !== undefined) out.hint = slots.hint;
 	if (slots.required !== undefined) out.required = slots.required;
 	if (slots.validation !== undefined) out.validation = slots.validation;
 	if (slots.allowBlank === true) out.allowBlank = true;
+	if (slots.hidden === true) out.hidden = true;
 	return out;
 }
 
@@ -2000,6 +2014,7 @@ export function simpleSearchInputDef(
 	if (slots.required !== undefined) candidate.required = slots.required;
 	if (slots.validation !== undefined) candidate.validation = slots.validation;
 	if (slots.allowBlank === true) candidate.allowBlank = true;
+	if (slots.hidden === true) candidate.hidden = true;
 	if ("options" in slots) candidate.options = slots.options;
 	if (slots.via !== undefined && slots.via.kind !== "self")
 		candidate.via = slots.via;
@@ -2370,6 +2385,50 @@ export function searchForBlankRefusal(
 	if (mode !== "exact" && mode !== "range")
 		return "Searching for blank works with exact matching or a date range.";
 	return undefined;
+}
+
+/**
+ * Why a Search field Web Apps does not draw (`hidden: true`) cannot be one,
+ * or `undefined` where it can. Shared by the commit gate and the builder so
+ * the builder never offers a choice the gate refuses.
+ *
+ * Web Apps hides the prompt's row whole, so nobody there reads a hint,
+ * answers a requirement, fixes a failed check or ticks the box to search for
+ * blank, and CommCare HQ's Case List page blanks a hidden prompt's
+ * requirement and checks on a save.
+ *
+ * A hidden prompt with no widget that leaves its key out of the request
+ * (`exclude`) is a value the search never matches by its name, the `hidden`
+ * arm. So a hidden text field rides the bare prompt CommCare HQ matches by
+ * its own key: a simple field over its own case's property of its name,
+ * matched exactly, or by the project space's own rule. Any other match runs
+ * through `_xpath_query`, which writes `exclude` on the prompt
+ * (`suite/case-search/simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`).
+ */
+export function hiddenSearchFieldRefusal(
+	input: VisibleSearchInputDef,
+): string | undefined {
+	if (input.hint !== undefined)
+		return "A field Web Apps hides can't show a hint. Remove the hint, or leave the field shown.";
+	if (input.required !== undefined || input.validation !== undefined)
+		return "Nobody in Web Apps can answer a field it hides, so a hidden field can't be required or checked. Remove the requirement and the check, or leave the field shown.";
+	if (input.allowBlank === true)
+		return "Nobody in Web Apps can tick the box to also find blank on a field it hides. Turn off Also find blank, or leave the field shown.";
+	if (input.type === "text" && !textRidesItsOwnName(input))
+		return "A hidden text field can only search the property of its own name exactly. Change how it matches, or use a hidden value that a condition reads.";
+	return undefined;
+}
+
+/** Whether a text field rides the bare prompt CommCare HQ matches by its own key. */
+function textRidesItsOwnName(input: VisibleSearchInputDef): boolean {
+	if (input.kind !== "simple") return false;
+	if (input.matching === "project-space") return true;
+	return (
+		(input.via === undefined || input.via.kind === "self") &&
+		input.name === input.property &&
+		effectiveSimpleSearchModeKind(input) === "exact" &&
+		!CASE_NODE_ATTRIBUTE_PROPERTIES.has(input.property)
+	);
 }
 
 /**

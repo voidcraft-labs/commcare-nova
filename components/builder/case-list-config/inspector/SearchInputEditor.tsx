@@ -137,6 +137,7 @@ import {
 	relationStep,
 } from "@/lib/domain/expression";
 import {
+	hiddenSearchFieldRefusal,
 	searchForBlankRefusal,
 	takesMultipleSearchChoices,
 } from "@/lib/domain/modules";
@@ -904,14 +905,22 @@ function VisibleSearchInputEditor({
 					{resolved.labelEmpty && <InlineError errors={["Enter a label"]} />}
 				</FieldRow>
 
-				<FieldRow label="Hint" hint="A short line under the label, if it helps">
-					<BlurCommitTextInput
-						value={value.hint ?? ""}
-						onCommit={setHint}
-						placeholder="Optional"
-						ariaLabel={`Search field ${index + 1} hint`}
-					/>
-				</FieldRow>
+				{/* A field Web Apps hides shows no hint, requirement or check
+				    (`hiddenSearchFieldRefusal`): each is offered on a hidden
+				    field only while it is still there to remove. */}
+				{(value.hidden !== true || value.hint !== undefined) && (
+					<FieldRow
+						label="Hint"
+						hint="A short line under the label, if it helps"
+					>
+						<BlurCommitTextInput
+							value={value.hint ?? ""}
+							onCommit={setHint}
+							placeholder="Optional"
+							ariaLabel={`Search field ${index + 1} hint`}
+						/>
+					</FieldRow>
+				)}
 
 				{value.kind === "simple" && (
 					<FieldRow label="Case information">
@@ -1029,8 +1038,25 @@ function VisibleSearchInputEditor({
 						/>
 					)}
 
+				<ToggleRow
+					label="Hidden in Web Apps"
+					description="Web Apps searches with the starting value without showing the field. Android still shows it, where people can change it."
+					checked={value.hidden === true}
+					onChange={(enabled) =>
+						onChange(
+							rebuildRow(value, {
+								hidden: enabled ? true : undefined,
+							}),
+						)
+					}
+					disabledReason={
+						value.hidden === true ? undefined : hiddenSearchFieldRefusal(value)
+					}
+				/>
+
 				{(value.allowBlank === true ||
 					(value.kind === "simple" &&
+						value.hidden !== true &&
 						searchForBlankRefusal(value) === undefined)) && (
 					<ToggleRow
 						label="Also find blank"
@@ -1087,33 +1113,37 @@ function VisibleSearchInputEditor({
 					onChange={setDefault}
 				/>
 
-				<RequiredSlot
-					expressionContext={requiredContext}
-					value={value.required}
-					rowIndex={index}
-					summaryContext={{
-						caseTypes,
-						currentCaseType,
-						knownInputs,
-						projectProse,
-					}}
-					onChange={setRequired}
-					onEditCondition={() => onEditCondition("required")}
-				/>
+				{(value.hidden !== true || value.required !== undefined) && (
+					<RequiredSlot
+						expressionContext={requiredContext}
+						value={value.required}
+						rowIndex={index}
+						summaryContext={{
+							caseTypes,
+							currentCaseType,
+							knownInputs,
+							projectProse,
+						}}
+						onChange={setRequired}
+						onEditCondition={() => onEditCondition("required")}
+					/>
+				)}
 
-				<CheckSlot
-					expressionContext={validationContext}
-					value={value.validation}
-					rowIndex={index}
-					summaryContext={{
-						caseTypes,
-						currentCaseType,
-						knownInputs,
-						projectProse,
-					}}
-					onChange={setValidation}
-					onEditRule={() => onEditCondition("validation")}
-				/>
+				{(value.hidden !== true || value.validation !== undefined) && (
+					<CheckSlot
+						expressionContext={validationContext}
+						value={value.validation}
+						rowIndex={index}
+						summaryContext={{
+							caseTypes,
+							currentCaseType,
+							knownInputs,
+							projectProse,
+						}}
+						onChange={setValidation}
+						onEditRule={() => onEditCondition("validation")}
+					/>
+				)}
 
 				<SearchInputPlatformNotes
 					moduleUuid={moduleUuid}
@@ -1896,6 +1926,7 @@ interface RowPatch {
 	readonly validation?: SearchInputValidation | undefined;
 	readonly options?: LookupOptionsSource;
 	readonly allowBlank?: true | undefined;
+	readonly hidden?: true | undefined;
 }
 
 /** The slots every visible prompt carries beside its widget. */
@@ -1909,6 +1940,7 @@ function visibleSlotsOf(value: VisibleSearchInputDef): {
 		...(value.required === undefined ? {} : { required: value.required }),
 		...(value.validation === undefined ? {} : { validation: value.validation }),
 		...(value.allowBlank === true && { allowBlank: true as const }),
+		...(value.hidden === true && { hidden: true as const }),
 	};
 }
 
@@ -1933,11 +1965,13 @@ function rebuildRow(
 		"validation" in patch ? patch.validation : value.validation;
 	const allowBlank =
 		"allowBlank" in patch ? patch.allowBlank : value.allowBlank;
+	const hidden = "hidden" in patch ? patch.hidden : value.hidden;
 	const visible = {
 		...(hint === undefined ? {} : { hint }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
 		...(allowBlank === true && { allowBlank }),
+		...(hidden === true && { hidden }),
 	};
 	const dflt = "default" in patch ? patch.default : searchInputDefault(value);
 	// A choice widget's list rides along whenever the target is still a choice

@@ -188,40 +188,6 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a hidden field matched by its own name",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.hidden = true;
-			prompt.default_value = "'north'";
-		},
-		findings: [
-			[
-				`${S}hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
-		title: "a hidden field with a widget",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.hidden = true;
-			prompt.exclude = true;
-			prompt.default_value = "'north'";
-			prompt.input_ = "daterange";
-		},
-		findings: [
-			[
-				`${S}hidden-on-a-prompt-that-carries-an-itemset-input-type-or`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
 		title: "a second validation",
 		edit: (body) => {
 			const validations = third(body).validations as JsonObject[];
@@ -507,6 +473,51 @@ describe("a hidden field CommCare HQ holds with no value", () => {
 			.find((one) => one.name === "case_name");
 		expect(field).toMatchObject({ kind: "hidden", name: "case_name" });
 		expect(field && "value" in field).toBe(false);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+});
+
+// A hidden prompt that HQ matches by its name, or that carries a widget, is a Search field Web Apps
+// does not draw: Core reads no `hidden` (`QueryPromptParser` keeps it for Formplayer to hand Web
+// Apps, `query.js` hides the row with `d-none`), so it searches with its starting value as any
+// field does, and Android draws it.
+describe("a hidden Search field CommCare HQ holds", () => {
+	it("reads a hidden field matched by its own name as a simple field Web Apps hides", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.name = "region";
+			prompt.hidden = true;
+			prompt.default_value = "'north'";
+			// The second prompt's required test read the first by its old name.
+			delete (promptsOf(body)[1] as JsonObject).required;
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "region");
+		expect(field).toMatchObject({
+			kind: "simple",
+			type: "text",
+			property: "region",
+			hidden: true,
+			default: { kind: "term", term: { kind: "literal", value: "north" } },
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("reads a hidden date range left out of the request as a field Web Apps hides", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.hidden = true;
+			prompt.exclude = true;
+			prompt.input_ = "daterange";
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		expect(field).toMatchObject({ type: "date-range", hidden: true });
+		expect(field?.kind).not.toBe("hidden");
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 });

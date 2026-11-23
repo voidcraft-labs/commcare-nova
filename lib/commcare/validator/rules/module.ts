@@ -31,6 +31,7 @@ import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresen
 import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
 import { dateColumnPattern } from "./case-list/dateColumnPattern";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
+import { hiddenSearchField } from "./case-list/hiddenSearchField";
 import { idMappingKeyCharacters } from "./case-list/idMappingKeyCharacters";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
@@ -338,6 +339,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	searchInputRefUsesWhenInputPresent,
 	nativeSearchFilters,
 	searchInputViaModeCompatibility,
+	hiddenSearchField,
 	// Case-search-config rules. Slot-specific checks read authored config;
 	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
 	// markerless inputs receive the same validation as the remote request they

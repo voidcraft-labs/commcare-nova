@@ -295,7 +295,7 @@ export function searchPromptWire(
 		...(mapping.appearance === undefined
 			? {}
 			: { appearance: mapping.appearance }),
-		hidden: input.kind === "hidden",
+		hidden: input.kind === "hidden" || input.hidden === true,
 		...(mapping.input === undefined ? {} : { input: mapping.input }),
 		...(defaultValue === undefined ? {} : { defaultValue }),
 		exclude: searchInputSuppressesAutoMatch(input),

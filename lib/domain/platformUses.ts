@@ -594,6 +594,8 @@ function searchInputUses(
 		return uses;
 	}
 	if (!isVisibleSearchInput(input)) return uses;
+	if (input.hidden === true && wanted("hidden-search-field"))
+		uses.push(slotUse("hidden-search-field", owner, `${path}.hidden`));
 	const type = "type" in input ? input.type : undefined;
 	if (type === "date" && wanted("search-field-single-date"))
 		uses.push(slotUse("search-field-single-date", owner, `${path}.type`));

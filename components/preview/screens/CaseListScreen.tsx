@@ -754,11 +754,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	/* The submission whose search found nothing on a phone, which keeps the
 	 * search screen with the answers as typed (`caseListStep`). */
 	const [emptySubmission, setEmptySubmission] = useState<object>();
-	/* Hidden inputs are answered by the system at submit, so only visible
-	 * prompts decide whether a worker has a Search screen to fill in; the wire
-	 * makes the same distinction in `searchWireShape`. */
-	const hasSearchInputs =
-		visibleSearchInputs(config?.searchInputs ?? []).length > 0;
+	/* Hidden inputs are answered by the system at submit, so only the
+	 * prompts the platform draws decide whether a worker has a Search screen
+	 * to fill in: Web Apps draws no field marked hidden, Android draws it
+	 * (`drawnSearchInputs`). */
+	const hasSearchInputs = visibleSearchInputs(searchRun.drawnInputs).length > 0;
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
 	/* CommCare evaluates this predicate on the case-list Search action, before
 	 * the prompt screen exists. Preview's combined Search + Results composition

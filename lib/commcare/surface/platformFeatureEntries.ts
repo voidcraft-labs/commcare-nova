@@ -137,6 +137,8 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
 		"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
+		"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
+		"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
 	],
 	"search-first": [
 		"case-search/workflow-search-first-auto-launch-true-default-search-false",

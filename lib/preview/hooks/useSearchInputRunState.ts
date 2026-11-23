@@ -79,14 +79,17 @@ export interface SearchInputRunState {
 }
 
 /** The inputs a Search screen draws on a platform: Web Apps hides a hidden
- *  input; Android draws it as an editable field holding its value. */
+ *  value and a field marked hidden; Android draws each as an editable
+ *  field holding its value. */
 export function drawnSearchInputs(
 	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">,
+	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
 ): readonly SearchInputDef[] {
-	return rules.hiddenSearchFieldWithDefault === "editable"
+	return rules.hiddenSearchField === "editable"
 		? searchInputs
-		: searchInputs.filter((input) => input.kind !== "hidden");
+		: searchInputs.filter(
+				(input) => input.kind !== "hidden" && input.hidden !== true,
+			);
 }
 
 const DEFAULT_RULES = previewPlatformRules(
@@ -101,7 +104,7 @@ export function useSearchInputRunState(args: {
 	readonly session: PreviewSearchSessionValues;
 	readonly environment: PreviewSearchEnvironment;
 	/** The platform Preview plays; defaults to an app's default platform. */
-	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">;
+	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchField">;
 	/** The lookup data failed to load, so the screen opens over what the
 	 *  data it holds covers rather than waiting for data that will not
 	 *  arrive. */

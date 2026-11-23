@@ -210,6 +210,7 @@ interface SearchInputFormProps {
 		| "searchForBlank"
 		| "searchRangeStartingValue"
 		| "searchRangeChosenDay"
+		| "hiddenSearchField"
 	>;
 	/** What the screen shows in place of its fields where a required
 	 *  condition or a check reads data the worker's device lacks (a place key
@@ -626,9 +627,13 @@ export function SearchInputForm({
 	const submitAvailable = onSubmit !== undefined;
 
 	// Hidden inputs are system-generated values the worker never sees;
-	// the run-state hook resolves them at submit.
+	// the run-state hook resolves them at submit. A field marked hidden is
+	// one Web Apps does not draw, its starting value searched as it stands,
+	// and one Android draws like any other (`hiddenSearchField`).
 	const visibleInputs = searchInputs.filter(
-		(input): input is VisibleSearchInputDef => input.kind !== "hidden",
+		(input): input is VisibleSearchInputDef =>
+			input.kind !== "hidden" &&
+			(input.hidden !== true || platformRules.hiddenSearchField === "editable"),
 	);
 
 	// Zero-input modules render nothing: the caller is the

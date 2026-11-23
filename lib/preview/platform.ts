@@ -147,9 +147,14 @@ export interface PreviewPlatformRules {
 	/** A Search field's required condition and checks (manifest
 	 *  `case-search/required-test-text`, `validations-0-test-text`). */
 	readonly searchFieldChecks: boolean;
-	/** A hidden Search field with a starting value (manifest
-	 *  `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`). */
-	readonly hiddenSearchFieldWithDefault: "hidden" | "editable";
+	/** A hidden Search field: a hidden value or a field Web Apps does not
+	 *  draw (manifest `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`,
+	 *  `hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
+	 *  `hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
+	 *  `hidden-on-a-prompt-that-carries-an-itemset-input-type-or`). Web Apps
+	 *  hides the prompt's row whole (`query.js`, `d-none`); Android reads no
+	 *  `hidden` and draws it as any field, where the worker can change it. */
+	readonly hiddenSearchField: "hidden" | "editable";
 	/** "Include results where … is blank" under a Search field that allows it
 	 *  (manifest `case-search/allow-blank-value`): Web Apps draws the box from
 	 *  Formplayer's `allow_blank_value` (`query/item.html`); Android reads no
@@ -433,7 +438,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		searchScreenCaseTile: true,
 		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
-		hiddenSearchFieldWithDefault: "hidden",
+		hiddenSearchField: "hidden",
 		searchForBlank: true,
 		searchChoiceOrder: "values",
 		searchRangeStartingValue: "date-picker",
@@ -505,7 +510,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		searchScreenCaseTile: false,
 		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
-		hiddenSearchFieldWithDefault: "editable",
+		hiddenSearchField: "editable",
 		searchForBlank: false,
 		searchChoiceOrder: "rows",
 		searchRangeStartingValue: "text",

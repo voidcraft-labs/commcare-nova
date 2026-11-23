@@ -298,8 +298,30 @@ export function composeXPathQueryEmission(
 	const emissions = clauses.map((clause) =>
 		emitCsql(clause.expression, { types: clause.context, bindings }),
 	);
+	// A field Web Apps hides shows no check, so a guard names no hidden
+	// field: a value only hidden fields contribute is a value no worker can
+	// repair there, which the wrapper answers with `match-none()` as it does
+	// a session or computed one.
+	const hiddenNames = new Set(
+		caseListConfig.searchInputs
+			.filter((input) => input.kind !== "hidden" && input.hidden === true)
+			.map((input) => input.name),
+	);
 	const runtimeRejections = dedupeRuntimeRejections(
-		emissions.flatMap((emission) => emission.runtimeRejections ?? []),
+		emissions.flatMap((emission) =>
+			(emission.runtimeRejections ?? []).map((rejection) => {
+				if (
+					hiddenNames.size === 0 ||
+					rejection.inputNames?.some((name) => hiddenNames.has(name)) !== true
+				)
+					return rejection;
+				const { inputNames, ...rest } = rejection;
+				const shown = inputNames?.filter((name) => !hiddenNames.has(name));
+				return shown === undefined || shown.length === 0
+					? rest
+					: { ...rest, inputNames: shown };
+			}),
+		),
 	);
 	return {
 		clauseWrappers: emissions.map((emission) => emission.wrapper),

@@ -2913,10 +2913,9 @@
 			"parser:QueryPromptParser/prompt@hidden"
 		],
 		"valueClass": "hidden-filter-without-required-or-validations",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a typed default filter (as for a plain-key default filter above), held as a hidden prompt, a property of the filter, since Android shows such a prompt and lets the worker edit it: Core seeds the prompt from its default and sends it as a filter (`RemoteQuerySessionManager.initUserAnswers`)",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `searchInputs[].hidden` on a simple text field matched by its own name: Web Apps does not draw it and searches with its starting value, and Android shows it and lets the worker edit it, since Core reads no `hidden`, seeds the prompt from its default and sends it as a filter (`RemoteQuerySessionManager.initUserAnswers`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (not sent on the automatic default search of a skip-to-results workflow, `MenuSessionRunnerService.doQuery`) / DIFFERENT (shown, editable)",
@@ -2946,10 +2945,9 @@
 			"parser:QueryPromptParser/prompt@hidden"
 		],
 		"valueClass": "hidden-with-widget-without-required-or-validations",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a hidden input with a widget: Core drops a hidden select or checkbox value that is not among the itemset's choices (`RemoteQuerySessionManager.refreshItemSetChoices`) and seeds a default only for a prompt the platform supports (`initUserAnswers`, `isPromptSupported`: select1, daterange, checkbox and text on Android)",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `searchInputs[].hidden` on a field with its widget, simple or advanced: Core drops a hidden select or checkbox value that is not among the itemset's choices (`RemoteQuerySessionManager.refreshItemSetChoices`) and seeds a default only for a prompt the platform supports (`initUserAnswers`, `isPromptSupported`: select1, daterange, checkbox and text on Android), as for any field",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (a hidden prompt Android does not support sends nothing)",

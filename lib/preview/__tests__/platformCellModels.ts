@@ -664,8 +664,9 @@ export const PLATFORM_MODEL_CHECKS = {
 		).toBe(1);
 	},
 
-	/* Android draws a hidden Search field with a starting value as an
-	 * ordinary field. */
+	/* Android reads no `hidden`: it draws a hidden value, with or without a
+	 * starting value, and a field Web Apps does not draw, as ordinary fields;
+	 * Web Apps draws none of them (`SearchInputForm` reads the same rule). */
 	"hidden-search-field-android": () => {
 		const hidden = hiddenSearchInputDef(
 			testUuid("cell-model-hidden"),
@@ -673,8 +674,28 @@ export const PLATFORM_MODEL_CHECKS = {
 			"District",
 			term(literal("north")),
 		);
-		expect(drawnSearchInputs([hidden], ANDROID)).toEqual([hidden]);
-		expect(drawnSearchInputs([hidden], WEB_APPS)).toEqual([]);
+		const empty = hiddenSearchInputDef(
+			testUuid("cell-model-hidden-empty"),
+			"zone",
+			"Zone",
+			undefined,
+		);
+		const field = simpleSearchInputDef(
+			testUuid("cell-model-hidden-field"),
+			"region",
+			"Region",
+			"text",
+			"region",
+			{ hidden: true, default: term(literal("north")) },
+		);
+		expect(drawnSearchInputs([hidden, empty, field], ANDROID)).toEqual([
+			hidden,
+			empty,
+			field,
+		]);
+		expect(drawnSearchInputs([hidden, empty, field], WEB_APPS)).toEqual([]);
+		expect(ANDROID.hiddenSearchField).toBe("editable");
+		expect(WEB_APPS.hiddenSearchField).toBe("hidden");
 	},
 
 	/* Android reads no `allow_blank_value`: its Search screen draws the field

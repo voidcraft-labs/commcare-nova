@@ -169,6 +169,70 @@ describe("Search fields Nova emits", () => {
 		expect(read.searchInputs).toEqual(asRead(inputs, reading));
 	});
 
+	// A field Web Apps does not draw is a `hidden` prompt beside the widget, the match and the
+	// starting value it has as a shown field: a text field matched by its own name, a date range,
+	// and a barcode field whose condition reads it, which keeps no check, since a hidden field
+	// shows none.
+	it("reads fields Web Apps does not draw", async () => {
+		const inputs: SearchInputDef[] = [
+			{
+				uuid: uuid(9),
+				name: "notes",
+				label: "Notes",
+				hidden: true,
+				kind: "simple",
+				type: "text",
+				property: "notes",
+				default: term(literal("north")),
+			},
+			{
+				uuid: uuid(10),
+				name: "dob",
+				label: "Born",
+				hidden: true,
+				kind: "simple",
+				type: "date-range",
+				property: "dob",
+				mode: { kind: "range" },
+			},
+			{
+				uuid: uuid(11),
+				name: "anything",
+				label: "Anything",
+				hidden: true,
+				kind: "advanced",
+				type: "barcode",
+				default: term(literal("00123")),
+				predicate: whenInput(
+					input(uuid(11)),
+					or(
+						eq(prop("patient", "notes"), input(uuid(11))),
+						eq(prop("patient", "phone"), input(uuid(11))),
+					),
+				),
+			},
+		];
+		const { reading, read } = await roundTrip(inputs);
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
+		const prompts = reading.app.modules[0]?.search_config.properties as {
+			name: string;
+			hidden?: boolean;
+			validations?: unknown[];
+		}[];
+		expect(
+			prompts.map(({ name, hidden, validations }) => [
+				name,
+				hidden,
+				validations ?? [],
+			]),
+		).toEqual([
+			["notes", true, []],
+			["dob", true, []],
+			["anything", true, []],
+		]);
+	});
+
 	// A hidden field with no value is a hidden, excluded prompt with no `default`, which reads
 	// back as a hidden field with none; one with a value keeps it.
 	it("reads a hidden field with no value beside one with a value", async () => {

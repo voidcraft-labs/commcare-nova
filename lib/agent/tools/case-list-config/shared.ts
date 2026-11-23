@@ -551,6 +551,11 @@ function refineSearchInputBoundary(
 export const SEARCH_FOR_BLANK_DESCRIPTION =
 	"Web Apps also lets people find cases where this is blank; Android shows the field without the box. Use it on a simple field with exact or range matching (or matching project-space) on its own property under the same name. An advanced field's condition receives the blank joined before the answer (#,#answer, or an empty value when only the box is ticked), so a condition comparing the answer finds nothing; leave it off there unless the condition reads that spelling.";
 
+/** What hiding a field from Web Apps does, and what it can't carry
+ * (`hiddenSearchFieldRefusal`, which the gate enforces). */
+export const HIDDEN_SEARCH_FIELD_DESCRIPTION =
+	"Web Apps doesn't show the field and searches with its starting value as it stands; Android still shows it, where people can change it. A hidden field carries no hint, requirement, check or allowBlank, and a hidden text field matches its own property by its own name exactly (or matching project-space). For a value the search never matches, add a hidden value instead.";
+
 /**
  * The three prompt slots every visible arm shares. The descriptions are
  * shared by all visible input kinds. The tool description explains their
@@ -569,6 +574,7 @@ const visibleSearchInputSlots = {
 		.optional()
 		.describe("One rule a nonblank answer must pass, with its message."),
 	allowBlank: z.literal(true).optional().describe(SEARCH_FOR_BLANK_DESCRIPTION),
+	hidden: z.literal(true).optional().describe(HIDDEN_SEARCH_FIELD_DESCRIPTION),
 };
 
 const searchInputUuidSlot = {

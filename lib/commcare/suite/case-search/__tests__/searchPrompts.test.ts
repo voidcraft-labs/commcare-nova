@@ -448,3 +448,39 @@ it("emits a hidden field with no value as a hidden prompt with no default", () =
 		exclude: "true()",
 	});
 });
+
+// A field Web Apps does not draw keeps its widget, its match and its starting value, with
+// `hidden="true"` beside them: matched by its own name it rides the bare prompt, so Core sends its
+// starting value as a filter (`RemoteQuerySessionManager.getRawQueryParams`).
+it("emits a field Web Apps does not draw as its prompt with hidden beside it", () => {
+	const { doc, config, expressions } = projection("prompt-widgets");
+	config.searchInputs = config.searchInputs.map((one) =>
+		one.kind === "simple" && one.name === "first_name"
+			? (() => {
+					const { hint: _hint, required: _required, ...rest } = one;
+					return { ...rest, hidden: true as const };
+				})()
+			: one.kind === "simple" && one.name === "region"
+				? { ...one, hidden: true as const }
+				: one,
+	);
+	expect(runValidation(doc, promptLookupContext)).toEqual([]);
+	const emission = buildSearchPrompts(
+		config.searchInputs,
+		"m0",
+		undefined,
+		expressions,
+		promptLookupNaming,
+	);
+	const attribs = emission.elements.map((element) => element.attribs);
+	expect(attribs.find((one) => one.key === "first_name")).toEqual({
+		key: "first_name",
+		hidden: "true",
+	});
+	expect(attribs.find((one) => one.key === "region")).toEqual({
+		key: "region",
+		hidden: "true",
+		input: "select1",
+		default: "'north'",
+	});
+});

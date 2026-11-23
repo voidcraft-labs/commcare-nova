@@ -35438,12 +35438,6 @@
 		"id": "hq-search/hidden-choice-field",
 		"base": "hq-search",
 		"entry": "case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/5",
@@ -35475,18 +35469,44 @@
 				"doc_type": "CaseSearchProperty",
 				"default_value": "'d1'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/name",
+				"value": "district"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/type",
+				"value": "select"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/hidden",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-search/hidden-field-matched-by-its-name",
 		"base": "hq-search",
 		"entry": "case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/-",
@@ -35512,7 +35532,49 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/kind",
+				"value": "simple"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/name",
+				"value": "region"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/property",
+				"value": "region"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/hidden",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-search/hidden-field-with-no-value",

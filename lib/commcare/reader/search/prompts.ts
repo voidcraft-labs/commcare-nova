@@ -247,11 +247,11 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
 		"schema:CaseSearchProperty.exclude",
 	),
-	hiddenNoExclude: refuse(
+	hiddenNoExclude: take(
 		`${S}hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
 		"schema:CaseSearchProperty.hidden",
 	),
-	hiddenWidget: refuse(
+	hiddenWidget: take(
 		`${S}hidden-on-a-prompt-that-carries-an-itemset-input-type-or`,
 		"schema:CaseSearchProperty.hidden",
 	),
@@ -662,8 +662,13 @@ function readPrompt(
 	// page of HQ's shows an address field, and the appearance is read as nothing.
 	const inputOverAddress =
 		input === "date" || input === "daterange" || input === "checkbox";
-	// A hidden prompt Nova cannot hold is read as a Hidden Value, and each key whose meaning the
-	// refusal names (its checks, its widget, `exclude`) stands under the refusal's finding.
+	// A hidden prompt with no widget that leaves its key out of the request is a value the search
+	// never matches by its name, Nova's hidden arm; any other hidden prompt is a Search field Web
+	// Apps does not draw (`hidden: true`), read as a shown one is. A hidden prompt Nova cannot hold
+	// is read as a Hidden Value, and each key whose meaning the refusal names (its checks, its
+	// widget, `exclude`) stands under the refusal's finding.
+	const widget = carriesWidget(prompt);
+	const hiddenArm = hidden && exclude && !widget;
 	let hiddenRefused = false;
 	let addressRefused: Finding | undefined;
 	// Web Apps draws "Include results where … is blank" under a shown prompt whose
@@ -681,29 +686,20 @@ function readPrompt(
 	// and range searches"), while the box alone searches every owner.
 	else if (allowsBlank && !exclude && name === "owner_id")
 		refuseWith("allow_blank_value", P.allowBlankOwner);
-	if (hidden) {
-		const claim = checked
-			? P.hiddenChecked
-			: carriesWidget(prompt)
-				? P.hiddenWidget
-				: !exclude
-					? P.hiddenNoExclude
-					: undefined;
-		if (claim !== undefined) {
-			hiddenRefused = true;
-			cover(
-				prompt,
-				[
-					"exclude",
-					"input_",
-					"itemset",
-					"appearance",
-					"validations",
-					...(requires ? ["required"] : []),
-				],
-				refuseWith("hidden", claim),
-			);
-		}
+	if (hidden && checked) {
+		hiddenRefused = true;
+		cover(
+			prompt,
+			[
+				"exclude",
+				"input_",
+				"itemset",
+				"appearance",
+				"validations",
+				...(requires ? ["required"] : []),
+			],
+			refuseWith("hidden", P.hiddenChecked),
+		);
 	} else if (appearance === "address" && !inputOverAddress)
 		addressRefused = refuseWith(
 			"appearance",
@@ -750,11 +746,12 @@ function readPrompt(
 	const readsRequired = requires && !hiddenRefused && !refusedHere("required");
 	const readsValidation = !hiddenRefused && !refusedHere("validations");
 
-	let type: PromptReading["type"] = hidden ? "hidden" : "text";
+	let type: PromptReading["type"] =
+		hiddenArm || hiddenRefused ? "hidden" : "text";
 	let options: SearchInputLookupOptions | undefined;
 	let optionsFilterText: string | undefined;
 	let itemsetCursor: JsonCursor | undefined;
-	if (!hidden) {
+	if (type !== "hidden") {
 		if (input === "date") {
 			prompt.take("input_", exclude ? P.date : P.dateBare, String).value;
 			type = "date";
@@ -998,17 +995,23 @@ function readPrompt(
 	const hiddenWithValue =
 		hidden && typeof storedDefault === "string" && storedDefault.trim() !== "";
 	if (!hiddenRefused) {
-		if (exclude && hidden)
+		if (exclude && hiddenArm)
 			prompt.take(
 				"exclude",
 				hiddenWithValue ? P.hiddenExclude : P.hiddenNoDefaultExclude,
 				Boolean,
 			).value;
 		else if (exclude) prompt.take("exclude", P.exclude, Boolean).value;
-		if (hidden)
+		if (hiddenArm)
 			prompt.take(
 				"hidden",
 				hiddenWithValue ? P.hiddenValue : P.hiddenNoDefault,
+				Boolean,
+			).value;
+		else if (hidden)
+			prompt.take(
+				"hidden",
+				widget ? P.hiddenWidget : P.hiddenNoExclude,
 				Boolean,
 			).value;
 	}
@@ -1113,7 +1116,9 @@ function readPrompt(
 		defaultText.trim() !== "";
 	const defaultIndex = hasDefault
 		? register(
-				hidden ? "search_input_hidden_value" : "search_input_default",
+				type === "hidden"
+					? "search_input_hidden_value"
+					: "search_input_default",
 				defaultText,
 				{ json: prompt, key: "default_value" },
 				"none",
@@ -1257,6 +1262,7 @@ function readPrompt(
 				default: pendingPlaceholder("value"),
 			}),
 			...(allowBlank && { allowBlank: true as const }),
+			...(hidden && { hidden: true as const }),
 		};
 		// A refused field reads no property: it stands in the provisional document only so the
 		// expressions that read it bind.
@@ -1285,7 +1291,9 @@ function readPrompt(
 		type,
 		exclude,
 		...(defaultIndex !== undefined &&
-			(hidden ? { hiddenValue: defaultIndex } : { default: defaultIndex })),
+			(type === "hidden"
+				? { hiddenValue: defaultIndex }
+				: { default: defaultIndex })),
 		...(requiredWhen !== undefined && { requiredWhen }),
 		...(validationRule !== undefined && { validationRule }),
 		...(optionsFilter !== undefined && { optionsFilter }),

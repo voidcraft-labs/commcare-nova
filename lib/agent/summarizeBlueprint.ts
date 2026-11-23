@@ -448,6 +448,7 @@ function formatSearchInput(input: SearchInputDef): string {
 		);
 	}
 	if (input.allowBlank === true) markers.push("finds blank");
+	if (input.hidden === true) markers.push("hidden in Web Apps");
 	const suffix = markers.length === 0 ? "" : ` [${markers.join(", ")}]`;
 	return `${input.uuid}: ${body}${suffix}`;
 }
