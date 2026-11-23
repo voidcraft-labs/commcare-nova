@@ -1067,7 +1067,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		recordFindingCopy(
 			e,
 			`The badge for ${q(e.scope === "form" ? formName(e) : modName(e))}`,
-		) ?? e.message,
+		) ??
+		`The badge for ${q(e.scope === "form" ? formName(e) : modName(e))} can't show this value on the worker's menu. Open it and choose a value the menu can read.`,
 	MODULE_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The display condition for ${q(modName(e))}`) ??
 		`The display condition for ${q(modName(e))} compares values that don't go together. Open it and adjust the comparison.`,

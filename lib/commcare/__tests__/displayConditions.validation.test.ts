@@ -309,16 +309,24 @@ describe("form display-condition validation", () => {
 		).toContain("FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE");
 	});
 
-	it("rejects related reads and counts even in a case-first module", () => {
+	it("admits related reads and counts once the module has chosen the case", () => {
+		const parent = ancestorPath(relationStep("parent", "household"));
+		expect(
+			validateFormFindings(
+				eq(prop("patient", "family_name", parent), literal("Smith")),
+			).map((error) => [error.code, error.message]),
+		).toEqual([]);
+		expect(validateForm(gt(count(selfPath()), literal(0)))).toEqual([]);
+	});
+
+	it("refuses related reads and device queries before a case is chosen", () => {
 		const parent = ancestorPath(relationStep("parent", "household"));
 		expect(
 			validateForm(
-				eq(prop("household", "family_name", parent), literal("Smith")),
+				eq(prop("patient", "family_name", parent), literal("Smith")),
+				"survey",
 			),
 		).toContain("FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE");
-		expect(validateForm(gt(count(selfPath()), literal(0)))).toContain(
-			"FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
-		);
 	});
 
 	it("rejects non-portable on-device operators", () => {

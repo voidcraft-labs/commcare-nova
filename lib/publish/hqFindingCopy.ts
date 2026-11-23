@@ -274,8 +274,6 @@ export const FINDING_COPY: Readonly<
 	"display-conditions": {
 		never:
 			"This condition reads a value that the worker’s menu cannot use. In CommCare HQ, choose a condition that uses the information available on that menu, then bring the app in again.",
-		"not-yet":
-			"A display condition here is more than Nova can read as a condition yet.",
 	},
 	"display-only-forms": {
 		never:
@@ -465,6 +463,7 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"form-settings": "A form setting is",
 	"form-source": "Part of this form's source is",
 	"lookup-tables": "A lookup table is",
+	"menu-badges": "A menu badge is",
 	"menu-settings": "A menu setting is",
 	"menu-structure": "How this menu is nested is",
 	"parent-selection": "Choosing a parent case first is",

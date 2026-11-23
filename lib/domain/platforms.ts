@@ -217,6 +217,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"entry-points",
 	"case-list-menu-item",
 	"case-list-registration-media",
+	"menu-badge",
 	"tile-grouping",
 	"tile-alignment",
 	"tile-border-and-shading",
@@ -685,6 +686,15 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: { reading: "ignored", note: "the button shows its text only" },
 		android: { reading: "runs" },
+	},
+	"menu-badge": {
+		label: "Menu badges",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "a badge that is empty or reads 0 is hidden, and one longer than three characters shows as 999+ when it reads as a whole number, otherwise as its first three characters and two dots",
+		},
 	},
 	"tile-grouping": {
 		label: "Grouped tiles",

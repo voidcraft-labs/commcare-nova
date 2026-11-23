@@ -189,6 +189,9 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/case-list-form-media-image-media-audio@web-apps": model(
 		"register-action-media",
 	),
+	"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath@android":
+		model("menu-badge-android"),
+	"forms-and-case-writes/custom-icons-0@android": model("menu-badge-android"),
 	"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows@android":
 		model("tiles-flat-android"),
 	"menus-and-case-lists/show-border-show-shading@android": model(

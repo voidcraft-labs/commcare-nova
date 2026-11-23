@@ -754,6 +754,18 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListRegistrationForm.icon",
 		),
 	},
+	"menu-badge": {
+		with: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				configure: (doc) => {
+					const form = doc.forms[FIXTURE_FORM];
+					if (form !== undefined) form.badge = { kind: "text", text: "New" };
+				},
+			}),
+		without: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })]),
+		use: slotUse("menu-badge", FORM_OWNER, "badge"),
+	},
 	"tile-grouping": {
 		with: () =>
 			caseApp({

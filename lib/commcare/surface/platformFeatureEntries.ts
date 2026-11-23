@@ -104,6 +104,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"case-list-registration-media": [
 		"menus-and-case-lists/case-list-form-media-image-media-audio",
 	],
+	"menu-badge": [
+		"forms-and-case-writes/custom-icons-0",
+		"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+	],
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
 	],

@@ -414,6 +414,8 @@ export function platformFeatureUses(
 				formUses.push(
 					slotUse("after-submit-several-destinations", formOwner, "formLinks"),
 				);
+			if (form.badge !== undefined && wanted("menu-badge"))
+				formUses.push(slotUse("menu-badge", formOwner, "badge"));
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(
@@ -506,6 +508,9 @@ function moduleUses(
 					: "caseListRegistrationForm.audioLabel",
 			),
 		);
+	// A menu's badge: Android hides and shortens what Web Apps shows whole.
+	if (module.badge !== undefined && wanted("menu-badge"))
+		own.push(slotUse("menu-badge", owner, "badge"));
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
 	// A search with no title holds no text for Android to leave out, so only

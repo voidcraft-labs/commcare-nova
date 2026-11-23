@@ -12449,12 +12449,22 @@
 		},
 		"holds": [
 			{
-				"key": ["module", { "$menu": 1 }],
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
 				"pointer": "/heldKind",
 				"value": "advanced"
 			},
 			{
-				"key": ["module", { "$menu": 1 }],
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
 				"pointer": "/caseListRegistrationForm/kind",
 				"value": "always"
 			}
@@ -17104,7 +17114,12 @@
 		},
 		"holds": [
 			{
-				"key": ["module", { "$menu": 1 }],
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
 				"pointer": "/caseListRegistrationForm/target/kind",
 				"value": "chosen-parent"
 			}
@@ -17171,7 +17186,12 @@
 		},
 		"holds": [
 			{
-				"key": ["module", { "$menu": 1 }],
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
 				"pointer": "/caseListRegistrationForm/target/kind",
 				"value": "created-case"
 			}
@@ -22173,6 +22193,68 @@
 		}
 	},
 	{
+		"id": "hq-menus/case-list-action-badge-unread",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/case-list-action-badges",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/case_list_form/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/badge",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-menus/case-list-item-badge-unread",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/case-list-item-badges",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/case_list/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/badge",
+				"value": null
+			}
+		]
+	},
+	{
 		"id": "hq-menus/browse-households-with-a-picture",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/module-case-list-media-image-media-audio",
@@ -25526,6 +25608,22 @@
 		]
 	},
 	{
+		"id": "hq-menus/menu-filter-reading-a-form-answer",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/navigation-condition-outside-typed-worker-context",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/3/module_filter",
+			"value": "/data/answer = 'yes'"
+		},
+		"standing": "never",
+		"place": {
+			"kind": "menu",
+			"menu": 3,
+			"name": "Tools"
+		}
+	},
+	{
 		"id": "hq-menus/menu-filter-reading-the-case",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/module-filter-referencing-case-parent-host-or-a-bare",
@@ -26470,7 +26568,12 @@
 		},
 		"holds": [
 			{
-				"key": ["module", { "$menu": 1 }],
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
 				"pointer": "/caseListRegistrationForm/showWhen/kind",
 				"value": "condition"
 			}
@@ -36721,12 +36824,22 @@
 		},
 		"holds": [
 			{
-				"key": ["module", { "$menu": 1 }],
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
 				"pointer": "/caseListRegistrationForm/kind",
 				"value": "always"
 			},
 			{
-				"key": ["module", { "$menu": 2 }],
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
 				"pointer": "/caseListRegistrationForm/kind",
 				"value": "after-empty-search"
 			}
@@ -36742,7 +36855,12 @@
 		},
 		"holds": [
 			{
-				"key": ["module", { "$menu": 2 }],
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
 				"pointer": "/caseListRegistrationForm/afterSubmit",
 				"value": "new-case"
 			}

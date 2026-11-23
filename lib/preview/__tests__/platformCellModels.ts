@@ -79,6 +79,7 @@ import {
 } from "../engine/searchInputConstraints";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
 import { drawnSearchInputs } from "../hooks/useSearchInputRunState";
+import { shownMenuBadge } from "../menuProjection";
 import {
 	ANDROID_DEVICE_ID_PREFIX,
 	androidAppVersion,
@@ -642,6 +643,35 @@ export const PLATFORM_MODEL_CHECKS = {
 			icon: REGISTER_ICON,
 			audioLabel: REGISTER_AUDIO,
 		});
+	},
+
+	/* A menu or form badge: Web Apps shows the evaluated text whole; Android
+	 * hides an empty or exactly "0" badge and shortens a longer one, "999+"
+	 * where a Java int reads it, else its first three units and "..". */
+	"menu-badge-android": () => {
+		const values = [
+			"",
+			"0",
+			"New",
+			"0000",
+			"1234",
+			"-2147483648",
+			"2147483648",
+			"Équipe",
+		];
+		expect(values.map((text) => shownMenuBadge(text, "web-apps"))).toEqual(
+			values,
+		);
+		expect(values.map((text) => shownMenuBadge(text, "android"))).toEqual([
+			"",
+			"",
+			"New",
+			"999+",
+			"999+",
+			"999+",
+			"214..",
+			"Équ..",
+		]);
 	},
 
 	"tiles-flat-android": () => {

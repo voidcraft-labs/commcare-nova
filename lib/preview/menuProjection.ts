@@ -31,6 +31,7 @@ import {
 	moduleParent,
 	moduleSiblingUuids,
 } from "@/lib/domain/moduleHierarchy";
+import type { Platform } from "@/lib/domain/platforms";
 import { caseListEntryStillNeedsDatum } from "@/lib/preview/engine/caseListEntryListing";
 import { previewDataRefusalOf } from "@/lib/preview/engine/dataRefusal";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
@@ -50,6 +51,7 @@ import {
 import type { PreviewSearchSessionValues } from "./engine/identity";
 import type { PreviewScreen } from "./engine/types";
 import type { PreviewLookupStatus } from "./engine/useLookupPreviewData";
+import { previewPlatformRules } from "./platform";
 
 export interface PreviewMenuSource extends ModuleHierarchySource {
 	readonly caseTypes: readonly CaseType[];
@@ -425,11 +427,9 @@ export function previewModuleVisibility(
 
 /** Android's MenuAdapter tests exactly "0" and integer overflow. Java parses
  * BMP decimal digits, including non-ASCII decimal blocks, one UTF-16 unit at a time. */
-export function shownMenuBadge(
-	text: string,
-	platform: import("@/lib/domain/platforms").Platform,
-): string {
-	if (platform === "web-apps" || text.length === 0) return text;
+export function shownMenuBadge(text: string, platform: Platform): string {
+	if (previewPlatformRules(platform).menuBadge === "whole" || text.length === 0)
+		return text;
 	if (text === "0") return "";
 	if (text.length <= 3) return text;
 	const body = /^[+-]/u.test(text) ? text.slice(1) : text;
@@ -456,7 +456,7 @@ export function previewEntryBadge(args: {
 	deviceCases?: NavigationDeviceCases;
 	authoring?: boolean;
 	localizedValues: Pick<ReadonlyMap<TranslationUnitId, unknown>, "get">;
-	platform: import("@/lib/domain/platforms").Platform;
+	platform: Platform;
 }): string | undefined {
 	const { doc, entry } = args;
 	if (entry.kind === "case-list") return "";

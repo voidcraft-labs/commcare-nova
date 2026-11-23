@@ -1658,6 +1658,10 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"connect.task.description": "display-text",
 	icon: "media",
 	audioLabel: "media",
+	// A badge's kind selects text or a calculation; its text is display text
+	// with its own translation unit. The calculation is the `form_badge` slot.
+	"badge.kind": "discriminator",
+	"badge.text": "display-text",
 };
 
 export const NON_REFERENCE_MODULE_PATHS: Readonly<
@@ -1679,6 +1683,10 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
+	// A badge's kind selects text or a calculation; its text is display text
+	// with its own translation unit. The calculation is the `module_badge` slot.
+	"badge.kind": "discriminator",
+	"badge.text": "display-text",
 	// The case list menu entry: its label is plain display text (the
 	// module's name when absent), its icon and spoken label media.
 	"caseListMenuItem.label": "display-text",

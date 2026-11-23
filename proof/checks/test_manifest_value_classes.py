@@ -1088,6 +1088,8 @@ class Shape:
     # How many uses of the key sit there: one, but where the expression reads the key more than once (a guard and
     # the read it guards), each read is a use and each takes the verdict.
     uses: int = 1
+    # Whether the app JSON is the one HQ made (``App.authored``), which a class only Nova's reader settles there reads.
+    authored: bool = False
 
 
 def refused(export, source, key, where, **kw):
@@ -6381,6 +6383,60 @@ def _listed_forms_and_first_menu():
     }
 
 
+def _menu_badges():
+    """A menu's and a form's first badge, and the navigation conditions beside them."""
+
+    def icon(**fields):
+        return {"doc_type": "CustomIcon", "form": "badge", "text": {}, "xpath": None, **fields}
+
+    def badged(*icons, langs=("en",)):
+        module = _module([_form_json()], custom_icons=list(icons))
+        return _app([module], langs=list(langs))
+
+    def conditioned(module_filter):
+        return _app([_module([_form_json()], module_filter=module_filter)])
+
+    return {
+        "menus-and-case-lists/custom-icon-form-other-than-badge": (
+            refused("app", badged(icon(form="image", text={"en": "1"})), "schema:CustomIcon.form", "/custom_icons/0/form"),
+            # Only the first icon is read: a later one's form is no use of the class.
+            accepted(
+                "app",
+                badged(icon(text={"en": "1"}), icon(form="image", text={"en": "2"})),
+                "schema:CustomIcon.form",
+                "/custom_icons/1/form",
+            ),
+        ),
+        "menus-and-case-lists/badge-missing-localized-text": (
+            refused("app", badged(icon(text={"en": ""})), "schema:CustomIcon.text", "/custom_icons/0/text"),
+            # A language with no text of its own shows the default language's.
+            accepted(
+                "app",
+                badged(icon(text={"en": "New"}), langs=("en", "fr")),
+                "schema:CustomIcon.text",
+                "/custom_icons/0/text",
+            ),
+            # A calculation is read in place of the text.
+            accepted(
+                "app",
+                badged(icon(text={"en": ""}, xpath="1")),
+                "schema:CustomIcon.text",
+                "/custom_icons/0/text",
+            ),
+        ),
+        "menus-and-case-lists/badge-calculation-outside-typed-values": (
+            unsettled(
+                "app", badged(icon(xpath="count(x)")), "schema:CustomIcon.xpath", "/custom_icons/0/xpath", authored=True
+            ),
+            accepted("app", badged(icon(xpath="count(x)")), "schema:CustomIcon.xpath", "/custom_icons/0/xpath"),
+        ),
+        "menus-and-case-lists/navigation-condition-outside-typed-worker-context": (
+            unsettled("app", conditioned("x = 1"), "schema:Module.module_filter", "/modules/0/module_filter", authored=True),
+            accepted("app", conditioned("x = 1"), "schema:Module.module_filter", "/modules/0/module_filter"),
+        ),
+    }
+
+
 SHAPES = {
     **_questions(),
     **_settings_and_forms(),
@@ -6389,10 +6445,18 @@ SHAPES = {
     **_data_binds_and_itext(),
     **_held_new(),
     **_listed_forms_and_first_menu(),
+    **_menu_badges(),
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
-UNSETTLED = {}
+UNSETTLED = {
+    "menus-and-case-lists/badge-calculation-outside-typed-values": (
+        "Nova prints every badge calculation it sends from a typed value; only Nova's reader types one HQ holds"
+    ),
+    "menus-and-case-lists/navigation-condition-outside-typed-worker-context": (
+        "Nova prints every display condition it sends from a typed one; only Nova's reader types one HQ holds"
+    ),
+}
 # Classes that take every use of their keys, by why: they have no accepted shape.
 EVERY_USE_TAKEN = {
     "questions/authored-orx-pollsensor": (
@@ -6433,7 +6497,9 @@ def _shape_uses(shape, manifest, readings=None):
     if shape.export == "form":
         manifest_usage.xform_uses(shape.source, manifest, artifact, found)
     elif shape.export == "app":
-        manifest_usage.app_json_uses(shape.source, manifest, artifact, found, configurations=shape.configurations)
+        manifest_usage.app_json_uses(
+            shape.source, manifest, artifact, found, configurations=shape.configurations, authored=shape.authored
+        )
     else:
         manifest_usage.runtime_xml_uses(shape.source, "SuiteParser", manifest, artifact, found)
     for document in found.documents:

@@ -381,6 +381,13 @@ export interface PreviewPlatformRules {
 		readonly back: "address" | "new-list";
 		readonly search: "keeps-sort" | "new-list";
 	};
+	/** A menu or form badge's evaluated text. Web Apps shows the text
+	 *  Formplayer returns as the command's `badgeText` whole, in list and grid
+	 *  styles (`menus/views.js`); Android's `MenuAdapter.updateBadgeView`
+	 *  hides an empty or exactly `0` badge and shortens one longer than three
+	 *  UTF-16 units (`shortened`): `999+` where `Integer.parseInt` reads it,
+	 *  else its first three units and `..`. */
+	readonly menuBadge: "whole" | "shortened";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -452,6 +459,7 @@ export const PREVIEW_PLATFORM_RULES = {
 			marks: "pick-only",
 		}),
 		caseListReturn: Object.freeze({ back: "address", search: "keeps-sort" }),
+		menuBadge: "whole",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -519,6 +527,7 @@ export const PREVIEW_PLATFORM_RULES = {
 			marks: "list-order-and-pick",
 		}),
 		caseListReturn: Object.freeze({ back: "new-list", search: "new-list" }),
+		menuBadge: "shortened",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 

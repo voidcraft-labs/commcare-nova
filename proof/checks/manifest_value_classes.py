@@ -9880,6 +9880,87 @@ def first_menu_registration_return_otherwise(use, manifest):
     return module.get("case_type") != shared or _reads_case_id_otherwise(at.app, shared)
 
 
+
+# Menu and form badges, and the navigation conditions beside them -------------------------------------------------
+
+
+def _first_badge(use):
+    """The CustomIcon a use sits in, where it is the first of a menu's or a form's ``custom_icons``, the one HQ's
+    build reads (``models/mixins.py::NavMenuItemMediaMixin.custom_icon``, read by ``suite_xml/sections/menus.py``
+    and ``entries.py``), with the app; ``(at, None)`` for a later icon, one a case list or its registration
+    action holds (which no build reads), or a use in no icon."""
+    at = _json(use)
+    if at is None:
+        return None, None
+    classes = [cls for cls, _ in at.scope]
+    if "CustomIcon" not in classes:
+        return at, None
+    index = len(classes) - 1 - classes[::-1].index("CustomIcon")
+    icon = at.scope[index][1]
+    holder_cls, holder = at.scope[index - 1] if index > 0 else (None, None)
+    if holder_cls not in (*MODULES, *FORMS) or not isinstance(holder, dict):
+        return at, None
+    icons = holder.get("custom_icons")
+    if not isinstance(icons, list) or not icons or icons[0] is not icon:
+        return at, None
+    return at, icon
+
+
+def badge_form_other_than_badge(use, manifest):
+    """``menus-and-case-lists/custom-icon-form-other-than-badge``: a menu's or a form's first custom icon whose
+    ``form`` names a display form other than ``badge``. HQ's editor saves only badges
+    (``views/utils.py::handle_custom_icon_edits`` keeps ``CustomIcon.form``, which is always ``badge``)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None:
+        return False
+    return icon.get("form", "badge") != "badge"
+
+
+def badge_without_text(use, manifest):
+    """``menus-and-case-lists/badge-missing-localized-text``: a menu's or a form's first badge with no calculation
+    (``not custom_icon.xpath``, ``menus.py``, ``entries.py``), whose text holds nothing in every language of the
+    app once a missing language takes the default language's (``mixins.py::custom_icon_form_and_text_by_language``):
+    HQ's build names the badge's locale id and writes no text for it (``app_strings.py``)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None or icon.get("form", "badge") != "badge" or icon.get("xpath"):
+        return False
+    texts = icon.get("text") or {}
+    if not isinstance(texts, dict):
+        return None
+    langs = [code for code in at.app.doc.get("langs") or [] if isinstance(code, str)] or ["en"]
+    shown = [texts.get(lang, texts.get(langs[0])) for lang in langs]
+    return not any(isinstance(text, str) and text for text in shown)
+
+
+def badge_calculation_untyped(use, manifest):
+    """``menus-and-case-lists/badge-calculation-outside-typed-values``: a first badge's calculation Nova's reader
+    cannot bind to a typed value on the worker's menu. Nova prints every calculation it sends from a typed value
+    (``lib/commcare/menuBadge.ts``), so an app Nova sends holds none; on an app made in CommCare HQ only Nova's
+    reader settles it (None)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None or icon.get("form", "badge") != "badge" or not icon.get("xpath"):
+        return False
+    return None if at.app.authored else False
+
+
+def navigation_condition_untyped(use, manifest):
+    """``menus-and-case-lists/navigation-condition-outside-typed-worker-context``: a menu's or a form's display
+    condition Nova's reader cannot bind to a typed condition on the worker's route. Nova prints every condition it
+    sends from a typed one (``lib/commcare/suite/displayConditions.ts``), so an app Nova sends holds none; on an app
+    made in CommCare HQ only Nova's reader settles it (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    if at.key not in ("module_filter", "form_filter") or not at.value:
+        return False
+    return None if at.app.authored else False
+
 VALUE_CLASSES = {
     # Questions
     "questions/other-h-head-children-whose-local-name-or-a-descendant-s-core-or": head_child,
@@ -10168,6 +10249,10 @@ VALUE_CLASSES = {
     ),
     "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier": function_datum_without_one_creation,
     "forms-and-case-writes/first-menu-selection-used-for-different-records": first_menu_case_read_otherwise,
+    "menus-and-case-lists/custom-icon-form-other-than-badge": badge_form_other_than_badge,
+    "menus-and-case-lists/badge-missing-localized-text": badge_without_text,
+    "menus-and-case-lists/badge-calculation-outside-typed-values": badge_calculation_untyped,
+    "menus-and-case-lists/navigation-condition-outside-typed-worker-context": navigation_condition_untyped,
     # Expressions and data
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,

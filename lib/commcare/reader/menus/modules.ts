@@ -1119,6 +1119,10 @@ const BADGE = defineClaims("menus.badges", {
 	formText: take(FORM_BADGE, "schema:CustomIcon.text"),
 	menuForm: take(MENU_BADGE, "schema:CustomIcon.form"),
 	formForm: take(FORM_BADGE, "schema:CustomIcon.form"),
+	/** An empty calculation, which HQ's build reads as none (`menus.py`,
+	 *  `entries.py`: `not custom_icon.xpath`) and Nova writes as `null`. */
+	menuNoCalculation: take(MENU_BADGE, "schema:CustomIcon.xpath"),
+	formNoCalculation: take(FORM_BADGE, "schema:CustomIcon.xpath"),
 	later: account(`${M}/custom-icons-1`, "schema:CustomIcon"),
 	unsupportedForm: refuse(
 		`${M}/custom-icon-form-other-than-badge`,
@@ -1188,7 +1192,14 @@ function readBadge(ctx: ReadContext, owner: DraftModule | DraftForm): void {
 		return;
 	}
 	const langs = appLanguageCodes(ctx);
-	if (xpath === "") rewrite(`${first.pointer}/xpath`);
+	if (xpath === "") {
+		first.take(
+			"xpath",
+			isForm ? BADGE.formNoCalculation : BADGE.menuNoCalculation,
+			() => null,
+		).value;
+		rewrite(`${first.pointer}/xpath`);
+	}
 	const emitted = recordFromEntries(
 		langs.map((lang) => [
 			lang,

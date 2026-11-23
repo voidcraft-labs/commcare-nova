@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useTranslationUnitEditor } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
+import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -107,6 +108,7 @@ export function MenuBadgeSection({
 					)}
 				</div>
 			)}
+			{badge && <PlatformNoteRow features={["menu-badge"]} />}
 			{error && (
 				<p role="alert" className="text-sm text-nova-text">
 					{error}

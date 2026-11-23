@@ -1768,8 +1768,6 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			places: (facts) => recordedPlaces(facts, "text-spaces-dropped"),
 		},
 		paths: [
-			"/modules/*/custom_icons/0/text",
-			"/modules/*/forms/*/custom_icons/0/text",
 			"/modules/*/name",
 			"/modules/*/forms/*/name",
 			"/name",
@@ -1784,6 +1782,8 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/search_config/properties/*/hint",
 			"/modules/*/search_config/properties/*/required/text",
 			"/modules/*/search_config/properties/*/validations/*/text",
+			"/modules/*/custom_icons/0/text",
+			"/modules/*/forms/*/custom_icons/0/text",
 		],
 	},
 	/**
