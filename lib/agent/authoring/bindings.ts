@@ -12,6 +12,7 @@ import {
 	effectiveCaseTypes,
 	type FieldKind,
 	type Module,
+	menuWithInheritedCaseSettings,
 	moduleUuidOfForm,
 	searchInputRuntimeValueType,
 	type Uuid,
@@ -122,7 +123,9 @@ export function readScopeOptions(
 		tables,
 		formUuid,
 		moduleUuid: module,
-		currentCaseType: module ? doc.modules[module]?.caseType : undefined,
+		currentCaseType: module
+			? menuWithInheritedCaseSettings(doc, module)?.caseType
+			: undefined,
 		operations: formUuid
 			? (doc.forms[formUuid]?.caseOperations ?? []).map((operation) => ({
 					uuid: operation.uuid,
@@ -452,11 +455,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			`Column ${name} in ${table.name}`,
 		);
 	}
-	/** The app's menus, in menu order. */
+	/** The app's menus, in menu order. A menu listing another menu's forms
+	 *  carries the case type and selection of the menu that supplies them. */
 	private modules(): Module[] {
 		const { doc } = this.options;
 		return doc.moduleOrder
-			.map((uuid) => doc.modules[uuid])
+			.map((uuid) => menuWithInheritedCaseSettings(doc, uuid))
 			.filter((module): module is Module => module !== undefined);
 	}
 	/** A menu by its UUID, its name or its id, matching exactly one module. */

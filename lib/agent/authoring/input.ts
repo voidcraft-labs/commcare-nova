@@ -10,6 +10,7 @@ import {
 	effectiveAppLocalization,
 	fieldKinds,
 	languageTag,
+	menuWithInheritedCaseSettings,
 	moduleUuidOfForm,
 	orderedCaseOperations,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
@@ -180,7 +181,8 @@ async function prepareInput<S extends z.ZodType>(args: {
 			: { moduleUuid }),
 		...(!formUuid &&
 			moduleUuid && {
-				currentCaseType: doc.modules[moduleUuid]?.caseType,
+				currentCaseType: menuWithInheritedCaseSettings(doc, moduleUuid)
+					?.caseType,
 			}),
 	};
 	const scopes: ScopedInput[] = [{ path: [], options: root }];
@@ -500,7 +502,10 @@ async function prepareInput<S extends z.ZodType>(args: {
 						: "moduleUuid" in owner
 							? {
 									moduleUuid: owner.moduleUuid,
-									currentCaseType: doc.modules[owner.moduleUuid]?.caseType,
+									currentCaseType: menuWithInheritedCaseSettings(
+										doc,
+										owner.moduleUuid,
+									)?.caseType,
 								}
 							: {}),
 				},

@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from "uuid";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import {
 	echoLookupDefinitions,
@@ -8,10 +9,15 @@ import {
 } from "@/lib/agent/__tests__/fixtures";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import {
+	ROUTE,
+	twoMenus,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
+import {
 	type BlueprintDoc,
 	orderedCaseOperations,
 	translationUnitsById,
 } from "@/lib/domain";
+import { eq, literal, prop } from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -782,4 +788,21 @@ it("uses each translation unit's own form and preserves inserted identities", as
 	).toMatchObject({
 		items: [{ status: "ready", effective: "Salut {{name}}" }],
 	});
+});
+
+it("reads and writes #case on a menu that lists another menu's forms as that menu's case type", async () => {
+	const h = authoring({}, expectAdmittedDoc(twoMenus()));
+	await h.call("setCaseListFilter", {
+		moduleUuid: ROUTE,
+		filter: "#case/case_name = 'Ada'",
+	});
+	expect(h.currentDoc().modules[ROUTE].caseListConfig?.filter).toEqual(
+		eq(prop("patient", "case_name"), literal("Ada")),
+	);
+	const read = (await h.call("getModule", { moduleUuid: ROUTE })) as {
+		case_type: string;
+		case_list_config: { filter: unknown };
+	};
+	expect(read.case_type).toBe("patient");
+	expect(read.case_list_config.filter).toBe("(#case/case_name = 'Ada')");
 });
