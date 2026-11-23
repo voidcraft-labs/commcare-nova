@@ -215,6 +215,11 @@ describe("display combinations the tools refuse", () => {
 			item: { ...itemOf("image"), webSignature: true },
 			says: "change this picture to a signature on Android",
 		},
+		{
+			name: "a channel name Web Apps reads as a row layout",
+			item: { ...itemOf("image"), sendTopics: ["step-1-per-row"] },
+			says: "ends in a number followed by -per-row",
+		},
 	])("refuses $name, naming the step that works", async ({ item, says }) => {
 		const h = makeAuthoringHarness({}, makeDoc());
 		const refused = await attempt(h, "addFields", {

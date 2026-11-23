@@ -33,6 +33,20 @@ function rowCount(
 	return digits?.replace(/^0+(?=\d)/, "");
 }
 
+/** Whether the first word Web Apps' row pattern matches is a channel's
+ * `broadcast-…` or `receive-…-…` word rather than a row count: its
+ * `PER_ROW_PATTERN` (`const.js`) is unanchored, and `calculateElementWidth`
+ * then takes `parseInt` of the text before the word's first hyphen, which is
+ * NaN, so the question's tile gets `col-md-NaN` and the row never wraps. */
+function channelLaysOutRow(value: string): boolean {
+	const token = value
+		.split(" ")
+		.find((part) => /\d+-per-row(?:\s|$)/.test(part));
+	return (
+		token !== undefined && !/^\+?\d/.test(token.slice(0, token.indexOf("-")))
+	);
+}
+
 interface ChoiceWidgets {
 	web:
 		| "ordinary"
@@ -384,6 +398,8 @@ export function fieldDisplayProblem(field: Field): string | undefined {
 		return "Web Apps signing on its own would also change this picture to a signature on Android. You can use a Signature question for signing on both platforms.";
 	if (field.kind === "group" && field.fieldList && !read?.fieldList)
 		return "This group needs its ordinary display to keep its questions together on one screen. You can remove the other display settings or show one question per screen.";
+	if (channelLaysOutRow(emitted))
+		return "A channel name here ends in a number followed by -per-row, so Web Apps would read it as this question's row layout and break the row. You can choose a channel name that ends some other way.";
 	if (deepEqual(read, held)) return undefined;
 	const missing = active
 		.filter(
