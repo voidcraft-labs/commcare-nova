@@ -850,9 +850,14 @@ test("native clearing availability confirms once and preserves Search and assign
 	).toBeFocused();
 	const after = await savedModule(page);
 	expect(after.caseSearchConfig).toEqual(before.caseSearchConfig);
-	const { filter: ignored, ...expected } = before.caseListConfig;
-	expect(ignored).toBeDefined();
-	expect(after.caseListConfig).toEqual(expected);
+	const { filter: cleared, ...expected } = before.caseListConfig;
+	expect(cleared).toBeDefined();
+	// The Device list surface is the one cleared: the online search keeps
+	// the condition it sent, now stored as its own.
+	expect(after.caseListConfig).toEqual({
+		...expected,
+		searchCondition: cleared,
+	});
 	await page.getByRole("button", { name: "Search", exact: true }).click();
 	await expect(
 		page.getByText("Search is available from Results", { exact: true }),
