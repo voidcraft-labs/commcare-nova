@@ -184,7 +184,8 @@ export function choiceValueColumns() {
 		doc,
 		expected: {
 			intent: [
-				...(["local", "A"] as const).flatMap((exportName) =>
+				// Core opens a case list only on the local archive's request.
+				...(["local"] as const).flatMap((exportName) =>
 					(["en", "fr"] as const).map((locale) => ({
 						id: `first-matching-label-${locale}-${exportName}`,
 						export: exportName,

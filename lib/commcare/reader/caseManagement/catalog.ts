@@ -49,7 +49,6 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	isStandardCaseListProperty,
 } from "@/lib/domain/standardCaseProperties";
-import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { declaredTypeHolds } from "../../validator/rules/fieldKindMatchesPropertyType";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
@@ -741,12 +740,11 @@ function listProperties(
 		| undefined;
 	for (const column of config?.columns ?? []) {
 		if (typeof column.field !== "string") continue;
+		// The worker's own record is no case type the app declares: a column
+		// reads its property as the record holds it, declared or not.
+		if (column.readFrom === "worker-record") continue;
 		if (column.via === undefined) {
-			out.push({
-				caseType:
-					column.readFrom === "worker-record" ? USERCASE_CASE_TYPE : caseType,
-				property: column.field,
-			});
+			out.push({ caseType, property: column.field });
 			continue;
 		}
 		const destination = resolveRelationDestination(

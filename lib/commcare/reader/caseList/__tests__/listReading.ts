@@ -191,7 +191,15 @@ export function searchOf(
  *  the detail order, and the Search fields without their uuids. */
 export function comparableList(config: CaseListConfig): unknown {
 	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
-	const strip = ({ uuid: _uuid, ...rest }: Column) => rest;
+	/* A fresh reading mints each column's identity and each display rule's,
+	 * which the document it was emitted from does not hold. */
+	const strip = ({ uuid: _uuid, ...rest }: Column) =>
+		"mapping" in rest
+			? {
+					...rest,
+					mapping: rest.mapping.map(({ uuid: _row, ...row }) => row),
+				}
+			: rest;
 	return {
 		list: config.listColumnOrder.map((uuid) =>
 			strip(byUuid.get(uuid) as Column),

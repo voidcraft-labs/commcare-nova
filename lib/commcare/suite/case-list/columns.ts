@@ -350,7 +350,11 @@ function detailColumnLocaleBase(
 	word?: string,
 ): string {
 	const localeType = DETAIL_LOCALE_TYPE[target][detailKind];
-	return `m${moduleIndex}.${localeType}.case_${hqColumnFieldText(field, word)}_${position}`;
+	// HQ drops `#` and `=` from the field, which an app strings file cannot
+	// hold in a key (`id_strings.py::_clean_field_for_mobile`): `#owner_name`
+	// is `owner_name` here.
+	const cleaned = hqColumnFieldText(field, word).replace(/[#=]/g, "");
+	return `m${moduleIndex}.${localeType}.case_${cleaned}_${position}`;
 }
 
 /** The word the export's target keeps `column`'s property under on the context's screen. */

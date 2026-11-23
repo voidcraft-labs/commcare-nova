@@ -50,7 +50,12 @@ import {
 	type GeneratedNodePurpose,
 	generatedNodePaths,
 } from "@/lib/commcare/xform/generatedNodes";
-import { type BlueprintDoc, declaresWebApps, type Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Column,
+	declaresWebApps,
+	type Uuid,
+} from "@/lib/domain";
 import { isCaseScalarTextProperty } from "@/lib/domain/caseScalarTextGuard";
 import { formCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { datetimeSplitFieldUuid } from "@/lib/domain/datetimeSplitIdentity";
@@ -2104,6 +2109,18 @@ function storedSubjectValue(facts: FirstPublishFacts, place: string): unknown {
 
 /** Proof locations follow HQ's document order. Review compares the owner the two readings
  * rematched, so changing a menu or form's position changes only its displayed location. */
+/** A column as what it shows, without the identities a reading mints for it
+ *  and its display rules, which follow the column's position. */
+function columnMeaning(column: Column): unknown {
+	const { uuid: _uuid, ...rest } = column;
+	if ("mapping" in rest)
+		return {
+			...rest,
+			mapping: rest.mapping.map(({ uuid: _row, ...row }) => row),
+		};
+	return rest;
+}
+
 function reviewPlaceOf(facts: FirstPublishFacts) {
 	const forms = new Map(
 		[...facts.formPositions].map(([uuid, position]) => [position, uuid]),
@@ -2288,7 +2305,7 @@ function reviewPlaceOf(facts: FirstPublishFacts) {
 					const owner = columnAt.get(pointer);
 					const column = owner && columns.get(owner.uuid);
 					if (!owner || !column) return { meaning: null, source: row };
-					const { uuid: _uuid, ...meaning } = column;
+					const meaning = columnMeaning(column);
 					const other = owner.short === pointer ? owner.long : owner.short;
 					return {
 						meaning,

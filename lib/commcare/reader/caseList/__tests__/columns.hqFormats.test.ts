@@ -426,6 +426,20 @@ describe("CommCare HQ's column formats", () => {
 			expect(codes(reading)).toContain(entry);
 		});
 
+	// The variant `hq-case-lists/conditional-id-mapping-unparsed-key` exhibits it.
+	it("refuses a display rule whose condition is no expression", async () => {
+		const read = await readDetails((short, long) => {
+			for (const detail of [short, long])
+				Object.assign(detail.columns[1] ?? {}, {
+					format: "conditional-enum",
+					enum: [{ key: ". > (", value: { en: "Many" } }],
+				});
+		}, false);
+		expect(closedCodes(read)).toContain(
+			`${M}mapping-condition-outside-predicate`,
+		);
+	});
+
 	// HQ's build writes no `max-select-value` for a null, and Core then takes 100
 	// (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`); a text HQ's model refuses as it wraps the app.
 	it("reads a null maximum of a multi-select list as 100, and a text maximum as no entry's", async () => {

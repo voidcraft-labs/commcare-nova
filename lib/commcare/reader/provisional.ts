@@ -938,6 +938,7 @@ export function applyExpressionReading(
 	};
 	for (const claim of reading.claims) {
 		if (claim.source < 0) continue;
+		if (pending[claim.source]?.readerClaimed === true) continue;
 		apply(claim.source, () =>
 			applyExpressionClaim(ctx, claim, ctx.pending.site(claim.source).at),
 		);

@@ -2215,6 +2215,10 @@ export function parseIssueEntry(
 				return answer(
 					C["detail-filter-failing-etree-xpath-dummy-filter"].entry,
 				);
+			// A rule's key that is no expression is no condition a case meets
+			// (`proof/checks/manifest_value_classes.py::mapping_condition_outside_predicate`).
+			if (ref.slot === "case_list_mapping_condition")
+				return answer(C["mapping-condition-untyped"].entry);
 			return answer("unrecognized");
 		case "unknown-hashtag":
 			return bindAscii

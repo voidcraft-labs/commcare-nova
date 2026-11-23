@@ -995,6 +995,8 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 	// catalog lacks is project data's one finding).
 	for (const reading of caseListReadings(ctx).values())
 		for (const twin of reading.twins) {
+			if (ctx.pending.list()[twin.registration]?.readerClaimed === true)
+				continue;
 			const claim = ctx.pending.outcome(twin.registration).claim;
 			if (claim !== undefined)
 				applyExpressionClaim(ctx, { ...claim, place: twin.place }, twin.site);

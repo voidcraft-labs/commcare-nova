@@ -234,7 +234,7 @@ describe("an ID mapping's labels HQ's page saved in one language", () => {
 			(one) => one.kind === "id-mapping",
 		);
 		expect(column?.kind === "id-mapping" && column.mapping).toEqual([
-			{ uuid: expect.any(String), value: "a", label: "Alpha" },
+			{ value: "a", label: "Alpha" },
 		]);
 	});
 });
@@ -265,7 +265,7 @@ describe("an image map's image HQ's page saved in one language", () => {
 			(one) => one.kind === "image-map",
 		);
 		expect(column?.kind === "image-map" && column.mapping).toEqual([
-			{ uuid: expect.any(String), value: "a", assetId: icon },
+			{ value: "a", assetId: icon },
 		]);
 	});
 });

@@ -113,7 +113,8 @@ describe("a generated key in a reading", () => {
 	});
 
 	it("stands under the finding at its menu's case list, and a form position the menu holds none at is classified", async () => {
-		const address = "menus-and-case-lists/8-address";
+		// A product column is one the reader refuses.
+		const held = "menus-and-case-lists/model-product";
 		const source = exportedBody(
 			patients([
 				plainColumn(uuid(1), "case_name", "Name"),
@@ -125,7 +126,7 @@ describe("a generated key in a reading", () => {
 						| { short: { columns: Record<string, unknown>[] } }
 						| undefined;
 					Object.assign(details?.short.columns[1] ?? {}, {
-						format: "address",
+						model: "product",
 					});
 					return modules;
 				},
@@ -142,8 +143,8 @@ describe("a generated key in a reading", () => {
 		);
 		const { outcome, generated } = await read(source);
 		if (outcome.kind !== "account")
-			throw new Error("The address column is a finding.");
-		const atList = outcome.findings.filter((one) => one.code === address);
+			throw new Error("The product column is a finding.");
+		const atList = outcome.findings.filter((one) => one.code === held);
 		expect(atList.map((one) => one.place.kind)).toEqual(["case-list"]);
 		expect(generated).toEqual(["translations-generated-key-with-no-effect"]);
 		/* One generated key read, recorded at `translations`, where the key its claim names sits. */

@@ -75,9 +75,18 @@ export function authoredBlueprintIdentities(
 					});
 			}
 			if (column.kind === "image-map" || column.kind === "id-mapping") {
+				/* A row with no stored identity is known by its column and
+				 * comparison; two such rows of one comparison are the column's
+				 * duplicate-rule finding, not a second identity. */
+				const derived = new Set<string>();
 				for (const row of column.mapping) {
+					const uuid = caseMappingRowUuid(column.uuid, row);
+					if (row.uuid === undefined) {
+						if (derived.has(uuid)) continue;
+						derived.add(uuid);
+					}
 					identities.push({
-						uuid: caseMappingRowUuid(column.uuid, row),
+						uuid,
 						kind: "caseMappingRow",
 						ownerUuid: column.uuid,
 					});

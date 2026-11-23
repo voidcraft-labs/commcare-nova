@@ -31,6 +31,7 @@ import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
 import {
 	caseMappingComparison,
+	caseMappingRowUuid,
 	caseMappingTextUnit,
 } from "@/lib/domain/caseMappingRows";
 import {
@@ -1458,6 +1459,8 @@ export function readCaseDetails(
 		const body = column.proposal.column;
 		if (body.kind === "calculated" || typeof body.field !== "string") return [];
 		if (caseType === undefined) return [];
+		// The worker's own record is no case type of the catalog.
+		if (body.readFrom === "worker-record") return [];
 		const graph = new CaseRelationCatalog(ctx.draft.caseTypes ?? []);
 		return graph
 			.reached(caseType, body.via ?? [])
@@ -1557,12 +1560,13 @@ export function readCaseDetails(
 				const comparison = source
 					? JSON.stringify(["condition", recordSyntaxKey(source.text)])
 					: caseMappingComparison(row);
+				const key = externalKey.caseMappingRow(
+					uuid,
+					mappingIdentityAt(comparison, counts),
+				);
 				const matched = ctx.accounting.identity(
 					ctx.identities.claim(
-						externalKey.caseMappingRow(
-							uuid,
-							mappingIdentityAt(comparison, counts),
-						),
+						key,
 						`${module.uniqueId}/case-list/${uuid}/mapping/${index}`,
 					),
 					column.proposal.json.place,
@@ -1570,7 +1574,18 @@ export function readCaseDetails(
 				);
 				if (matched === undefined) whole = false;
 				else {
-					row.uuid = matched;
+					// A saved value's row is known by its column and comparison, as
+					// HQ keys its translations (`caseMappingRows.ts::caseMappingRowUuid`);
+					// it holds an identity only where the document it was published
+					// from gave it one of its own. A condition always holds one.
+					const known =
+						matched !==
+						caseMappingRowUuid(uuid, {
+							value: row.value,
+							...("match" in row && { match: row.match }),
+						});
+					if (source !== undefined || row.when !== undefined || known)
+						row.uuid = matched;
 					if (source) {
 						const registration = ctx.pending.register(
 							{
@@ -1644,6 +1659,7 @@ export function readCaseDetails(
 					mode: expression.mode,
 					place: expression.place,
 					key: expression.key,
+					...(expression.readerClaimed && { readerClaimed: true }),
 				},
 				expression.at,
 			);

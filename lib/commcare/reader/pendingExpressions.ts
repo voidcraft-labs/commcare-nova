@@ -39,6 +39,11 @@ export interface PendingExpression {
 	 *  nothing of it and claims each use its syntax makes, at the node it was read from, under the
 	 *  slot `ref` names for the form it stands in. */
 	readonly usesOnly?: true;
+	/** The tree is one Nova derives from a node its registrar's own read claims (the property a
+	 *  non-calculated `translatable-enum` column names, which Nova holds as a calculation over
+	 *  it): the expression stage binds the tree and claims nothing at the node, whose claims are
+	 *  the registrar's. */
+	readonly readerClaimed?: true;
 	/** HQ's build names a fixture where it interpolates the text, so `$fixture_value` is one of the
 	 *  patterns it replaces there: a form's display condition in a menu whose lookup table
 	 *  selection is active (`menus.py`, `fixture_xpath`). */

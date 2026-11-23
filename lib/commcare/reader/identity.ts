@@ -25,6 +25,10 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import {
+	type CaseMappingRow,
+	caseMappingRowUuid,
+} from "@/lib/domain/caseMappingRows";
 
 /** Wire protocol: changing either re-ids every app a later reading mints. */
 export const HQ_ENTITY_KEY_VERSION = "nova-hq-entity-v1";
@@ -213,12 +217,49 @@ export function externalKeyText(key: ExternalKey): string {
 
 /** UUIDv5 of `JSON.stringify([HQ_ENTITY_KEY_VERSION, appId, key.kind, ...key.parts])`. */
 export function mintEntityUuid(appId: string, key: ExternalKey): Uuid {
+	const saved = savedValueRow(key);
+	if (saved !== undefined) return caseMappingRowUuid(saved.owner, saved.row);
 	return asUuid(
 		uuidv5(
 			JSON.stringify([HQ_ENTITY_KEY_VERSION, appId, key.kind, ...key.parts]),
 			HQ_ENTITY_NAMESPACE_UUID,
 		),
 	);
+}
+
+/** A display rule over one saved value is known by its column and that
+ *  comparison (`caseMappingRows.ts::caseMappingRowUuid`), which the document
+ *  holds no identity for, so a reading names it as the document does. */
+function savedValueRow(
+	key: ExternalKey,
+): { readonly owner: Uuid; readonly row: CaseMappingRow } | undefined {
+	if (key.kind !== "caseMappingRow") return undefined;
+	const [owner, comparison] = key.parts;
+	if (typeof owner !== "string" || typeof comparison !== "string")
+		return undefined;
+	// Every comparison is `JSON.stringify`'s (`caseMappingComparison`).
+	if (
+		!comparison.startsWith('["selected",') &&
+		!comparison.startsWith('["exact",')
+	)
+		return undefined;
+	const parsed: unknown = JSON.parse(comparison);
+	if (
+		!Array.isArray(parsed) ||
+		parsed.length !== 2 ||
+		(parsed[0] !== "selected" && parsed[0] !== "exact") ||
+		typeof parsed[1] !== "string"
+	)
+		return undefined;
+	const owned = uuidSchema.safeParse(owner);
+	if (!owned.success) return undefined;
+	return {
+		owner: owned.data,
+		row: {
+			value: parsed[1],
+			...(parsed[0] === "exact" && { match: "exact" as const }),
+		},
+	};
 }
 
 export interface IdentityMapEntry {

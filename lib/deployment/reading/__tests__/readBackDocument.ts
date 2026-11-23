@@ -69,6 +69,15 @@ export function everyKindDocument(): BlueprintDoc {
 	const config = module.caseListConfig as Record<string, unknown>;
 	config.searchInputs = [{ uuid: U("search"), name: "name" }];
 	config.calculatedSorts = [{ uuid: U("sort") }];
+	(config.columns as unknown[]).push({
+		uuid: U("mapping"),
+		kind: "id-mapping",
+		field: "colour",
+		header: "Colour",
+		mapping: [{ uuid: U("mapping-row"), value: "red", label: "Red" }],
+	});
+	(config.listColumnOrder as unknown[]).push(U("mapping"));
+	(config.detailColumnOrder as unknown[]).push(U("mapping"));
 	module.entryPoint = { uuid: U("menu-entry") };
 	const form = forms[formUuid] as Record<string, unknown>;
 	form.caseOperations = [{ uuid: U("operation"), id: "patient" }];

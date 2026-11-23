@@ -12,7 +12,10 @@ import {
 	isPathExpression,
 } from "@/lib/commcare/xform/pathExpression";
 import { parser } from "@/lib/commcare/xpath";
-import { locationsInstance } from "@/lib/commcare/xpath/wire/instances";
+import {
+	groupsInstance,
+	locationsInstance,
+} from "@/lib/commcare/xpath/wire/instances";
 import { tryParseXml } from "../xmlParse";
 import {
 	type ValidationError,
@@ -1462,10 +1465,16 @@ function checkFixtures(
 	}
 
 	// Every declared jr://fixture src must name an embedded fixture, except
-	// the flat locations fixture: HQ's restore delivers it as a user fixture
-	// with id `locations` (`corehq/apps/locations/fixtures.py::
-	// flat_location_fixture_generator`), so the suite never embeds it.
-	const restoreDelivered = locationsInstance().src;
+	// the two HQ's restore delivers as user fixtures, so the suite never
+	// embeds them: the flat locations fixture, id `locations`
+	// (`corehq/apps/locations/fixtures.py::flat_location_fixture_generator`),
+	// and the worker's case-sharing groups, id `user-groups`, whose `groups`
+	// element HQ writes for every worker, in no group or several
+	// (`corehq/apps/users/fixturegenerators.py::UserGroupsFixtureProvider`).
+	const restoreDelivered = new Set([
+		locationsInstance().src,
+		groupsInstance().src,
+	]);
 	for (const inst of findAll(
 		(el) => el.name === "instance",
 		model.doc.children,
@@ -1474,7 +1483,7 @@ function checkFixtures(
 		if (
 			src === undefined ||
 			!src.startsWith("jr://fixture/") ||
-			src === restoreDelivered
+			restoreDelivered.has(src)
 		)
 			continue;
 		const deliveredId = src.slice(src.lastIndexOf("/") + 1);

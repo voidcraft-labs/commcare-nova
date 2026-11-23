@@ -652,6 +652,8 @@ export interface ColumnExpressionSource {
 	readonly mode: ReadMode;
 	readonly place: HqPlace;
 	readonly key: string;
+	/** The column's own read claims the node (`PendingExpression.readerClaimed`). */
+	readonly readerClaimed?: true;
 }
 
 /** `Omit` over each arm of a union. */
@@ -1434,7 +1436,15 @@ function claimPropertySource(
 				);
 		}
 	}
-	if (relation.showOwner) claimField(C.ownerName);
+	// An owner's name read from a reached case or the worker's record is a
+	// use of both classes at the one field.
+	if (relation.showOwner && C.ownerName.key !== null)
+		ctx.accounting.claimEntryClass(
+			{ json: column, key: "field" },
+			C.ownerName.entry,
+			C.ownerName.key,
+			column.place,
+		);
 }
 
 /** Read an ordinary saved property with a native translation table. HQ also
@@ -1587,6 +1597,7 @@ function readGeneralCalculation(
 					mode: { target: "hq-json", interpolation: "none" },
 					place: column.place,
 					key: "schema:DetailColumn.field",
+					...(!calculated && { readerClaimed: true as const }),
 				},
 			}
 		: undefined;

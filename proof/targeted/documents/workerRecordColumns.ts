@@ -19,6 +19,7 @@ export function workerRecordColumns() {
 		],
 		modules: [
 			{
+				uuid: uuid("visits"),
 				name: "Visits",
 				caseType: "visit",
 				caseListConfig: caseListOf([
@@ -43,7 +44,7 @@ export function workerRecordColumns() {
 						uuid: form,
 						name: "Note",
 						type: "followup",
-						fields: [f({ kind: "text", id: "note" })],
+						fields: [f({ kind: "text", uuid: uuid("note"), id: "note" })],
 					},
 				],
 			},
