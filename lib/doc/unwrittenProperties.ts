@@ -50,6 +50,7 @@
 
 import type {
 	BlueprintDoc,
+	FieldProseSlot,
 	FieldSlotId,
 	FormSlotId,
 	ModuleSlotId,
@@ -58,6 +59,7 @@ import type {
 import {
 	asUuid,
 	casePropertyTargetKey,
+	FIELD_PROSE_SLOTS,
 	isStandardCaseListProperty,
 } from "@/lib/domain";
 import { findContainingForm } from "./mutations/helpers";
@@ -216,11 +218,13 @@ const FIELD_SLOT_NOUNS: Readonly<Record<string, string>> = {
 	required: "the required condition",
 	repeat_count: "the repeat count",
 	ids_query: "the repeat data source",
-	label: "the display text",
-	hint: "the display text",
-	help: "the display text",
-	validate_msg: "the display text",
-	option_label: "the display text",
+	// Every text slot, a choice's label among them, reads as display text.
+	...(Object.fromEntries(
+		[...FIELD_PROSE_SLOTS, "option_label"].map((slot) => [
+			slot,
+			"the display text",
+		]),
+	) as Record<FieldProseSlot | "option_label", string>),
 } satisfies Partial<Record<FieldSlotId, string>>;
 
 /** Module-slot phrasing per audience. The builder column phrases stay

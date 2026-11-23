@@ -324,4 +324,20 @@ describe("unwritten property derivation", () => {
 		]);
 		expect(unwrittenPropertyCards(doc)).toBe(cards);
 	});
+	it("names a read from a label's QR code, extended text or spoken text as display text", () => {
+		for (const slot of ["extended_text", "qr_code", "spoken_text"] as const) {
+			const doc = orderDoc([
+				f({
+					uuid: FIELD,
+					kind: "label",
+					id: "status",
+					label: proseText("Status"),
+					[slot]: { parts: [STATUS] },
+				}),
+			]);
+			expect(unwrittenPropertyCards(doc)[0].reads).toEqual([
+				"the display text of “status” in form “Administer Medication”",
+			]);
+		}
+	});
 });
