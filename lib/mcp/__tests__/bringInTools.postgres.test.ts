@@ -223,6 +223,7 @@ async function readReview(client: Client) {
 			runs_only_on: preselected.runs_only_on,
 			split_datetime: preselected.split_datetime,
 			table_choices: {},
+			owner_rule_choices: {},
 		},
 	};
 }
@@ -687,6 +688,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 				runs_only_on: null,
 				split_datetime: false,
 				table_choices: {},
+				owner_rule_choices: {},
 			},
 		],
 	] as const)(
@@ -730,6 +732,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 					runs_only_on: null,
 					split_datetime: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				for (const answer of [read, create])
 					expect(answer).toEqual({
@@ -764,6 +767,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 					...args,
 					split_datetime: !args.split_datetime,
 					table_choices: { district: "use-project" },
+					owner_rule_choices: {},
 				});
 				expect(notOffered.body).toMatchObject({
 					error_type: "invalid_input",

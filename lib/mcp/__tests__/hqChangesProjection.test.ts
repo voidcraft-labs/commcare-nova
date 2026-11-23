@@ -162,6 +162,7 @@ describe("a review of changes made in CommCare HQ", () => {
 				nova_changes_total: 45,
 				renamed_in_nova_total: 0,
 				tables_total: 0,
+				owner_rules: [],
 				made_by_total: 5,
 				next_page: null,
 				cut_line: null,

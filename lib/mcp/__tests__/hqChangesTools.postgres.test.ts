@@ -301,6 +301,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					nova_changes_total: 0,
 					renamed_in_nova_total: 0,
 					tables_total: 0,
+					owner_rules: [],
 					made_by_total: 0,
 					next_page: null,
 					cut_line: null,
@@ -329,6 +330,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					review_digest: listed.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(brought.isError).toBe(false);
 				expect(brought.body).toMatchObject({
@@ -415,6 +417,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					review_digest: listed.body.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(recorded.isError).toBe(false);
 				expect(recorded.body).toMatchObject({
@@ -464,6 +467,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 						review_digest: listed.review_digest,
 						discard_nova_changes: true,
 						table_choices: {},
+						owner_rule_choices: {},
 					}),
 				).toEqual({
 					isError: true,
@@ -493,6 +497,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					reading_id: listed.reading_id,
 					review_digest: listed.review_digest,
 					table_choices: {},
+					owner_rule_choices: {},
 				};
 				expect(
 					await call(client, "bring_in_hq_changes", {
@@ -591,6 +596,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					review_digest: "e".repeat(64),
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(nested.body).toMatchObject({
 					kind: "changed",
@@ -679,6 +685,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					review_digest: earlier.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				};
 				type Changes = {
 					kind: string;
@@ -788,6 +795,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					review_digest: listed.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(isError).toBe(false);
 				expect(body).toMatchObject({
@@ -936,6 +944,7 @@ describe("what a call is handed", () => {
 					review_digest: read.body.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(brought.body.kind).toBe("brought-in");
 				expect(observed.stages).toContain("bringing-in");
@@ -1019,6 +1028,7 @@ describe("what a call is handed", () => {
 					review_digest: "ab".repeat(32),
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				}),
 			);
 			expect(elsewhere).toEqual({
