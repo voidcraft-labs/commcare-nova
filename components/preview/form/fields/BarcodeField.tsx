@@ -2,6 +2,7 @@
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import {
 	BarcodeScanner,
+	type BarcodeScanSupport,
 	useBarcodeScanSupport,
 } from "@/components/preview/shared/BarcodeScanner";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -37,7 +38,11 @@ interface BarcodeFieldProps {
  * Search field uses (`BarcodeScanner`), as Android's barcode widget scans
  * or takes typed text (`lib/preview/platform.ts`, `barcodeQuestion`). The
  * scanner shows only where the browser can scan; elsewhere a line says so
- * and typing stays available. Edit mode draws the text box alone.
+ * and typing stays available. Android takes the scanned text alone unless the
+ * question lets the worker edit it (`BarcodeWidget.java`, `editable`), so the
+ * box is read-only where Preview can scan; where the browser cannot, typing
+ * stands in for the scan, since nothing else could answer the question. Edit
+ * mode draws the text box alone.
  */
 export function BarcodeField({
 	field,
@@ -50,6 +55,7 @@ export function BarcodeField({
 	const isEditMode = useEditMode() === "edit";
 	const rules = usePreviewPlatformRules();
 	const scans = !isEditMode && rules.barcodeQuestion === "scan-or-text";
+	const support = useBarcodeScanSupport();
 	const platform = usePreviewPlatform();
 	const project = useProseProjection();
 	const showError = state.touched && !state.valid;
@@ -66,7 +72,9 @@ export function BarcodeField({
 							? (state.resolvedHint ?? project(field.hint))
 							: undefined
 					}
-					readOnly={scans && !field.canEditScan}
+					readOnly={
+						scans && support.kind !== "unsupported" && !field.canEditScan
+					}
 					aria-labelledby={labelledBy}
 					aria-invalid={showError || undefined}
 					value={state.value}
@@ -80,6 +88,7 @@ export function BarcodeField({
 				/>
 				{scans ? (
 					<BarcodeScan
+						support={support}
 						label={questionLabel ?? ""}
 						openOnMount={!!field.scanOnOpen && !state.value}
 						onScan={(value) => {
@@ -97,16 +106,17 @@ export function BarcodeField({
 }
 
 function BarcodeScan({
+	support,
 	openOnMount,
 	label,
 	onScan,
 }: {
+	readonly support: BarcodeScanSupport;
 	readonly label: string;
 	readonly openOnMount: boolean;
 	readonly onScan: (value: string) => void;
 }) {
 	const { language } = useBuilderLanguage();
-	const support = useBarcodeScanSupport();
 	if (support.kind === "supported")
 		return (
 			<BarcodeScanner
@@ -120,7 +130,8 @@ function BarcodeScan({
 	if (support.kind === "unsupported")
 		return (
 			<p className="max-w-48 text-xs text-nova-text-muted">
-				Camera scanning is unavailable in this browser
+				Your browser doesn&apos;t support camera scanning. You can type the
+				barcode
 			</p>
 		);
 	return null;

@@ -567,10 +567,11 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 	},
 	async "group-label-web-apps"(page) {
 		await openScenario(page, "group-label-web-apps");
-		await expect(
-			page.getByRole("button", { name: /Details/, expanded: true }),
-		).toBeVisible();
+		await expect(page.getByText("Details", { exact: true })).toBeVisible();
 		await expect(page.getByRole("textbox", { name: /Inside/ })).toBeVisible();
+		/* A group is collapsible in Web Apps only where it asks to be
+		 * (`form_ui.js`, `collapsible`), and this one does not. */
+		await expect(page.getByRole("button", { name: /Details/ })).toHaveCount(0);
 	},
 	async "barcode-search-field-web-apps"(page) {
 		await openSearch(page, "web-apps");
@@ -757,6 +758,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 				"Your browser doesn't support camera scanning. You can type the barcode",
 			),
 		).toBeVisible();
+		/* Where the browser cannot scan, typing stands in for the scan. */
+		await page.getByRole("textbox", { name: /Code/ }).fill("BC-8");
+		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-8");
 		await page.addInitScript(() => {
 			Object.defineProperty(window, "BarcodeDetector", {
 				value: class {
@@ -776,8 +780,11 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			page.locator('[data-preview-engine-ready="true"]'),
 		).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByRole("button", { name: /^Scan/ })).toBeVisible();
-		await page.getByRole("textbox", { name: /Code/ }).fill("BC-8");
-		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-8");
+		/* Android takes the scanned text alone: this question does not let the
+		 * worker edit it (`BarcodeWidget.java`, `editable`). */
+		await expect(
+			page.getByRole("textbox", { name: /Code/ }),
+		).not.toBeEditable();
 	},
 	async "form-screens-android"(page) {
 		await openScenario(page, "form-screens-android");
