@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain";
 import {
 	type EntryPointCommitPlan,
+	holdsEntryCaseCreations,
 	planEntryPointAdd,
 	planEntryPointRemove,
 	planEntryPointUpdate,
@@ -96,12 +97,7 @@ export function useEntryPointActions() {
 			base: readonly Uuid[],
 		) {
 			const current = api.getState();
-			if (
-				target.kind !== "form" ||
-				JSON.stringify(
-					current.forms[target.formUuid]?.entryCaseCreations ?? [],
-				) !== JSON.stringify(base)
-			)
+			if (!holdsEntryCaseCreations(current, target, base))
 				return {
 					ok: false,
 					messages: [

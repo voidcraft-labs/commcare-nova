@@ -20,6 +20,22 @@ const refuse = (kind: string, message: string): EntryPointCommitPlan => ({
 	ok: false,
 	reason: { kind, message },
 });
+/** Whether `target`'s form still holds the creation choice an editor read as
+ * `base`. An editor reads the choice in frame order with no repeats
+ * (`entryPointProjection.ts`); a form brought in from CommCare HQ keeps the
+ * list as HQ saved it, in typed order and with any repeat, which is the same
+ * choice. */
+export function holdsEntryCaseCreations(
+	doc: BlueprintDoc,
+	target: EntryPointTarget,
+	base: readonly Uuid[],
+): boolean {
+	if (target.kind !== "form") return false;
+	const held = new Set(doc.forms[target.formUuid]?.entryCaseCreations ?? []);
+	const read = new Set(base);
+	return held.size === read.size && [...read].every((uuid) => held.has(uuid));
+}
+
 /** Creation IDs belong to the source form and can be chosen before its own or a second menu's deep link exists. */
 export function planFormEntryCaseCreations(
 	doc: BlueprintDoc,
