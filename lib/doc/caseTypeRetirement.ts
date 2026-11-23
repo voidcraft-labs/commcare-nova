@@ -68,6 +68,8 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
+import { translatedFieldProse } from "@/lib/domain/referenceSlots";
 
 // ── Outcome shape ───────────────────────────────────────────────────────
 
@@ -347,7 +349,13 @@ function findCaseTypeReferences(
 			const form = formUuid !== undefined ? doc.forms[formUuid] : undefined;
 			if (!form) continue;
 			const where = `form "${form.name}" (module "${mod.name}")`;
-			collectFieldReferences(field, caseType, where, references);
+			collectFieldReferences(
+				field,
+				caseType,
+				where,
+				references,
+				doc.localization,
+			);
 			continue;
 		}
 		const form = doc.forms[uuid];
@@ -470,7 +478,21 @@ function collectFieldReferences(
 	caseType: string,
 	where: string,
 	out: RetirementReference[],
+	localization: BlueprintDoc["localization"],
 ): void {
+	/* A translation that shows values of its own names what it reads in its
+	 * language, where the source may name nothing. */
+	for (const { ref, template, language } of translatedFieldProse(
+		localization,
+		field,
+	)) {
+		if (!proseNamesCaseType(template, caseType)) continue;
+		const name = languageDisplayLabel(language) ?? language;
+		out.push({
+			verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${ref.slot}" text in ${name}`,
+			concise: `field "${field.id}" in ${where} mentions it in its ${slotLabel(ref.slot)} text in ${name}`,
+		});
+	}
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
