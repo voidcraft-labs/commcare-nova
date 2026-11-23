@@ -3874,12 +3874,6 @@
 		"id": "hq-case-lists/address-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/8-address",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -4040,7 +4034,19 @@
 					"useXpathExpression": false
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/kind",
+				"value": "map-location"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/address-popup-column",
@@ -7061,12 +7067,6 @@
 		"id": "hq-case-lists/conditional-id-mapping",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/20-conditional-enum",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -7236,7 +7236,29 @@
 					"useXpathExpression": false
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/behavior",
+				"value": "first-match"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/mapping/0/when/kind",
+				"value": "gt"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/continue-text",
@@ -7483,12 +7505,6 @@
 		"id": "hq-case-lists/distance-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/9-distance",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -7649,7 +7665,19 @@
 					"useXpathExpression": false
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/kind",
+				"value": "worker-distance"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/empty-case-list",
@@ -7948,111 +7976,20 @@
 		"id": "hq-case-lists/geo-boundary-colors",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/12-geo-boundary-color-on-the-case-list-only-needs-an-address",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/short/columns/5",
-			"value": {
-				"model": "case",
-				"field": "area_colour",
-				"header": {
-					"en": "Area colour"
-				},
-				"format": "geo-boundary-color",
-				"useXpathExpression": false,
-				"grid_x": null,
-				"grid_y": null,
-				"enum": [],
-				"graph_configuration": {
-					"config": {},
-					"locale_specific_config": {},
-					"annotations": [],
-					"series": [],
-					"doc_type": "GraphConfiguration"
-				},
-				"late_flag": 30,
-				"time_ago_interval": 365.25,
-				"date_format": "%d/%m/%y",
-				"doc_type": "DetailColumn"
-			}
+			"op": "named",
+			"name": "case_list_geo_boundary_colors"
 		},
-		"second": {
-			"entry": "menus-and-case-lists/8-address",
-			"standing": "not-yet",
-			"place": {
-				"kind": "case-list",
-				"menu": 0,
-				"name": "Patients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/case_details/short/columns/6",
-				"value": {
-					"model": "case",
-					"field": "address",
-					"header": {
-						"en": "Address"
-					},
-					"format": "address",
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				}
-			}
-		},
-		"also": [
+		"holds": [
 			{
-				"entry": "menus-and-case-lists/11-geo-boundary",
-				"standing": "not-yet",
-				"place": {
-					"kind": "case-list",
-					"menu": 0,
-					"name": "Patients"
-				},
-				"change": {
-					"op": "set-json",
-					"pointer": "/modules/0/case_details/short/columns/7",
-					"value": {
-						"model": "case",
-						"field": "area",
-						"header": {
-							"en": "Area"
-						},
-						"format": "geo-boundary",
-						"useXpathExpression": false,
-						"grid_x": null,
-						"grid_y": null,
-						"enum": [],
-						"graph_configuration": {
-							"config": {},
-							"locale_specific_config": {},
-							"annotations": [],
-							"series": [],
-							"doc_type": "GraphConfiguration"
-						},
-						"late_flag": 30,
-						"time_ago_interval": 365.25,
-						"date_format": "%d/%m/%y",
-						"doc_type": "DetailColumn"
+				"key": [
+					"module",
+					{
+						"$menu": 0
 					}
-				}
+				],
+				"pointer": "/caseListConfig/columns/5/layer",
+				"value": "boundary-color"
 			}
 		]
 	},
@@ -8060,75 +7997,22 @@
 		"id": "hq-case-lists/geo-boundary-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/11-geo-boundary",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/short/columns/5",
-			"value": {
-				"date_format": "%d/%m/%y",
-				"doc_type": "DetailColumn",
-				"enum": [],
-				"field": "area",
-				"format": "geo-boundary",
-				"graph_configuration": {
-					"annotations": [],
-					"config": {},
-					"doc_type": "GraphConfiguration",
-					"locale_specific_config": {},
-					"series": []
-				},
-				"grid_x": null,
-				"grid_y": null,
-				"header": {
-					"en": "Area"
-				},
-				"late_flag": 30,
-				"model": "case",
-				"time_ago_interval": 365.25,
-				"useXpathExpression": false
-			}
+			"op": "named",
+			"name": "case_list_geo_boundary_column"
 		},
-		"second": {
-			"entry": "menus-and-case-lists/8-address",
-			"standing": "not-yet",
-			"place": {
-				"kind": "case-list",
-				"menu": 0,
-				"name": "Patients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/case_details/short/columns/6",
-				"value": {
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"enum": [],
-					"field": "address",
-					"format": "address",
-					"graph_configuration": {
-						"annotations": [],
-						"config": {},
-						"doc_type": "GraphConfiguration",
-						"locale_specific_config": {},
-						"series": []
-					},
-					"grid_x": null,
-					"grid_y": null,
-					"header": {
-						"en": "Address"
-					},
-					"late_flag": 30,
-					"model": "case",
-					"time_ago_interval": 365.25,
-					"useXpathExpression": false
-				}
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/layer",
+				"value": "boundary"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-case-lists/geo-column-without-its-dependency",
@@ -8306,111 +8190,20 @@
 		"id": "hq-case-lists/geo-points-colors",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/14-geo-points-colors-on-the-case-list-only-needs-an-address",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/short/columns/5",
-			"value": {
-				"model": "case",
-				"field": "point_colours",
-				"header": {
-					"en": "Point colours"
-				},
-				"format": "geo-points-colors",
-				"useXpathExpression": false,
-				"grid_x": null,
-				"grid_y": null,
-				"enum": [],
-				"graph_configuration": {
-					"config": {},
-					"locale_specific_config": {},
-					"annotations": [],
-					"series": [],
-					"doc_type": "GraphConfiguration"
-				},
-				"late_flag": 30,
-				"time_ago_interval": 365.25,
-				"date_format": "%d/%m/%y",
-				"doc_type": "DetailColumn"
-			}
+			"op": "named",
+			"name": "case_list_geo_points_colors"
 		},
-		"second": {
-			"entry": "menus-and-case-lists/8-address",
-			"standing": "not-yet",
-			"place": {
-				"kind": "case-list",
-				"menu": 0,
-				"name": "Patients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/case_details/short/columns/6",
-				"value": {
-					"model": "case",
-					"field": "address",
-					"header": {
-						"en": "Address"
-					},
-					"format": "address",
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				}
-			}
-		},
-		"also": [
+		"holds": [
 			{
-				"entry": "menus-and-case-lists/13-geo-points-on-the-case-list-only",
-				"standing": "not-yet",
-				"place": {
-					"kind": "case-list",
-					"menu": 0,
-					"name": "Patients"
-				},
-				"change": {
-					"op": "set-json",
-					"pointer": "/modules/0/case_details/short/columns/7",
-					"value": {
-						"model": "case",
-						"field": "points",
-						"header": {
-							"en": "Points"
-						},
-						"format": "geo-points",
-						"useXpathExpression": false,
-						"grid_x": null,
-						"grid_y": null,
-						"enum": [],
-						"graph_configuration": {
-							"config": {},
-							"locale_specific_config": {},
-							"annotations": [],
-							"series": [],
-							"doc_type": "GraphConfiguration"
-						},
-						"late_flag": 30,
-						"time_ago_interval": 365.25,
-						"date_format": "%d/%m/%y",
-						"doc_type": "DetailColumn"
+				"key": [
+					"module",
+					{
+						"$menu": 0
 					}
-				}
+				],
+				"pointer": "/caseListConfig/columns/5/layer",
+				"value": "point-colors"
 			}
 		]
 	},
@@ -8418,75 +8211,22 @@
 		"id": "hq-case-lists/geo-points-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/13-geo-points-on-the-case-list-only",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/short/columns/5",
-			"value": {
-				"date_format": "%d/%m/%y",
-				"doc_type": "DetailColumn",
-				"enum": [],
-				"field": "area",
-				"format": "geo-points",
-				"graph_configuration": {
-					"annotations": [],
-					"config": {},
-					"doc_type": "GraphConfiguration",
-					"locale_specific_config": {},
-					"series": []
-				},
-				"grid_x": null,
-				"grid_y": null,
-				"header": {
-					"en": "Area"
-				},
-				"late_flag": 30,
-				"model": "case",
-				"time_ago_interval": 365.25,
-				"useXpathExpression": false
-			}
+			"op": "named",
+			"name": "case_list_geo_points_column"
 		},
-		"second": {
-			"entry": "menus-and-case-lists/8-address",
-			"standing": "not-yet",
-			"place": {
-				"kind": "case-list",
-				"menu": 0,
-				"name": "Patients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/case_details/short/columns/6",
-				"value": {
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"enum": [],
-					"field": "address",
-					"format": "address",
-					"graph_configuration": {
-						"annotations": [],
-						"config": {},
-						"doc_type": "GraphConfiguration",
-						"locale_specific_config": {},
-						"series": []
-					},
-					"grid_x": null,
-					"grid_y": null,
-					"header": {
-						"en": "Address"
-					},
-					"late_flag": 30,
-					"model": "case",
-					"time_ago_interval": 365.25,
-					"useXpathExpression": false
-				}
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/layer",
+				"value": "points"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-case-lists/graph-column",
@@ -8710,412 +8450,74 @@
 		"id": "hq-case-lists/icon-alt-text",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/enum-mappingitem-alt-text-non-blank",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/short/columns/5",
-			"value": {
-				"date_format": "%d/%m/%y",
-				"doc_type": "DetailColumn",
-				"enum": [
+			"op": "named",
+			"name": "case_list_icon_alt_text"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
 					{
-						"alt_text": {
-							"en": "North"
-						},
-						"doc_type": "MappingItem",
-						"key": "selected(., 'north')",
-						"value": {
-							"en": "jr://file/commcare/image/north.png"
-						}
+						"$menu": 0
 					}
 				],
-				"field": "village",
-				"format": "enum-image",
-				"graph_configuration": {
-					"annotations": [],
-					"config": {},
-					"doc_type": "GraphConfiguration",
-					"locale_specific_config": {},
-					"series": []
-				},
-				"grid_x": null,
-				"grid_y": null,
-				"header": {
-					"en": "Map"
-				},
-				"late_flag": 30,
-				"model": "case",
-				"time_ago_interval": 365.25,
-				"useXpathExpression": false
+				"pointer": "/caseListConfig/columns/5/mapping/0/altText",
+				"value": "North"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-case-lists/icon-column-over-conditions",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/short/columns",
-			"value": [
-				{
-					"model": "case",
-					"field": "name",
-					"header": {
-						"en": "Name"
-					},
-					"format": "plain",
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"model": "case",
-					"field": "dob",
-					"header": {
-						"en": "Born"
-					},
-					"format": "date",
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"model": "case",
-					"field": "phone",
-					"header": {
-						"en": "Phone"
-					},
-					"format": "phone",
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"model": "case",
-					"field": "village",
-					"header": {
-						"en": "Village"
-					},
-					"format": "enum",
-					"enum": [
-						{
-							"key": "north",
-							"value": {
-								"en": "North"
-							},
-							"alt_text": {},
-							"doc_type": "MappingItem"
-						},
-						{
-							"key": "south",
-							"value": {
-								"en": "South"
-							},
-							"alt_text": {},
-							"doc_type": "MappingItem"
-						}
-					],
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"model": "case",
-					"field": "visits + 1",
-					"header": {
-						"en": "Next visit"
-					},
-					"format": "plain",
-					"useXpathExpression": true,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"enum": [
-						{
-							"alt_text": {},
-							"doc_type": "MappingItem",
-							"key": ". > 3",
-							"value": {
-								"en": "jr://file/commcare/image/many.png"
-							}
-						}
-					],
-					"field": "visits",
-					"format": "enum-image",
-					"graph_configuration": {
-						"annotations": [],
-						"config": {},
-						"doc_type": "GraphConfiguration",
-						"locale_specific_config": {},
-						"series": []
-					},
-					"grid_x": null,
-					"grid_y": null,
-					"header": {
-						"en": "Visits"
-					},
-					"late_flag": 30,
-					"model": "case",
-					"time_ago_interval": 365.25,
-					"useXpathExpression": false
-				}
-			]
-		}
+			"op": "named",
+			"name": "case_list_icon_column_over_conditions"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/kind",
+				"value": "image-map"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/mapping/0/when/kind",
+				"value": "gt"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/icon-column-over-values",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/19-enum-image-whose-keys-are-plain-values",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/short/columns",
-			"value": [
-				{
-					"model": "case",
-					"field": "name",
-					"header": {
-						"en": "Name"
-					},
-					"format": "plain",
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"model": "case",
-					"field": "dob",
-					"header": {
-						"en": "Born"
-					},
-					"format": "date",
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"model": "case",
-					"field": "phone",
-					"header": {
-						"en": "Phone"
-					},
-					"format": "phone",
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"model": "case",
-					"field": "village",
-					"header": {
-						"en": "Village"
-					},
-					"format": "enum",
-					"enum": [
-						{
-							"key": "north",
-							"value": {
-								"en": "North"
-							},
-							"alt_text": {},
-							"doc_type": "MappingItem"
-						},
-						{
-							"key": "south",
-							"value": {
-								"en": "South"
-							},
-							"alt_text": {},
-							"doc_type": "MappingItem"
-						}
-					],
-					"useXpathExpression": false,
-					"grid_x": null,
-					"grid_y": null,
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"model": "case",
-					"field": "visits + 1",
-					"header": {
-						"en": "Next visit"
-					},
-					"format": "plain",
-					"useXpathExpression": true,
-					"grid_x": null,
-					"grid_y": null,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn"
-				},
-				{
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"enum": [
-						{
-							"alt_text": {},
-							"doc_type": "MappingItem",
-							"key": "a",
-							"value": {
-								"en": "jr://file/commcare/image/active.png"
-							}
-						}
-					],
-					"field": "status_code",
-					"format": "enum-image",
-					"graph_configuration": {
-						"annotations": [],
-						"config": {},
-						"doc_type": "GraphConfiguration",
-						"locale_specific_config": {},
-						"series": []
-					},
-					"grid_x": null,
-					"grid_y": null,
-					"header": {
-						"en": "Status"
-					},
-					"late_flag": 30,
-					"model": "case",
-					"time_ago_interval": 365.25,
-					"useXpathExpression": false
-				}
-			]
-		}
+			"op": "named",
+			"name": "case_list_icon_column_over_values"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/mapping/0/match",
+				"value": "exact"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/icon-text-grid-tile",
@@ -9137,12 +8539,13 @@
 		"id": "hq-case-lists/id-mapping-blank-key",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/5pp-enum-key-that-is-empty-or-holds-whitespace",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/mapping/0",
+				"value": { "value": "", "label": "Unknown" }
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -9884,12 +9287,13 @@
 		"id": "hq-case-lists/late-flag",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/6-late-flag-late-flag-1",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/afterDays",
+				"value": 30
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -10056,12 +9460,13 @@
 		"id": "hq-case-lists/late-flag-zero",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/6p-late-flag-late-flag-0",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/afterDays",
+				"value": 0
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -10572,12 +9977,13 @@
 		"id": "hq-case-lists/markdown-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/10-markdown-outside-the-link-shape",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/kind",
+				"value": "formatted-text"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -11297,12 +10703,18 @@
 		"id": "hq-case-lists/owner-name-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/owner-name",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/field",
+				"value": "owner_id"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/showOwner",
+				"value": "name"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -11869,12 +11281,18 @@
 		"id": "hq-case-lists/plain-column-over-a-select-property",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/1p-plain-over-a-property-select-questions-write",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/showChoice",
+				"value": "saved-value"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/field",
+				"value": "village"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -13887,12 +13305,13 @@
 		"id": "hq-case-lists/time-since-in-years",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/3-time-ago-time-ago-interval-the-7-menu-values-years-months",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/period",
+				"value": "years-since"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -14240,12 +13659,6 @@
 		"id": "hq-case-lists/translatable-text-over-a-parent-property",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -14415,7 +13828,19 @@
 					"useXpathExpression": false
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/kind",
+				"value": "calculated"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/translatable-text-over-a-parent-property-beside-search",
@@ -14436,12 +13861,6 @@
 		"id": "hq-case-lists/translatable-text-over-a-property",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-over-a-property",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -14611,18 +14030,24 @@
 					"useXpathExpression": false
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/kind",
+				"value": "calculated"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/translatable-text-over-an-expression",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/21-translatable-enum-outside-nova-s-two-projections",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -14780,7 +14205,7 @@
 							}
 						}
 					],
-					"field": "if(visits > 3, 'many', 'few')",
+					"field": "if(visits > 3, $many, 'few')",
 					"format": "translatable-enum",
 					"graph_configuration": {
 						"annotations": [],
@@ -14800,7 +14225,29 @@
 					"useXpathExpression": true
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/kind",
+				"value": "calculated"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/expression/then/kind",
+				"value": "case-text"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/two-address-columns",
@@ -15844,12 +15291,18 @@
 		"id": "hq-case-lists/worker-property-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/user-prop-usercase",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/field",
+				"value": "district"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/readFrom",
+				"value": "worker-record"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -16016,12 +15469,18 @@
 		"id": "hq-case-lists/worker-property-path-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/user-steps-prop",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/field",
+				"value": "district"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/readFrom",
+				"value": "worker-record"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",

@@ -14,6 +14,7 @@ written here would name none once the base is authored again.
 from __future__ import annotations
 
 from proof.matrix import ops
+from proof.matrix.bases import _pages
 
 
 def _set_each(authoring, app_id, *values):
@@ -1243,3 +1244,69 @@ def inline_search_under_a_parent_selection(authoring, app_id):
             {"active": True, "relationship": "parent", "module_id": {"$menu": 0}, "doc_type": "ParentSelect"},
         ),
     )
+
+
+def _case_display_columns(authoring, app_id, *columns):
+    """Append map or image fields to the five-column HQ-authored case list."""
+    for index, (field, form, label, *mapping) in enumerate(columns, start=5):
+        column = {"doc_type": "DetailColumn", "model": "case", "format": form,
+                  "field": field, "header": {"en": label}, "useXpathExpression": False}
+        if mapping:
+            column["enum"] = mapping[0]
+        ops.set_json(authoring, app_id, f"/modules/0/case_details/short/columns/{index}", column)
+
+
+def case_list_geo_boundary_colors(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('area_colour', 'geo-boundary-color', 'Area colour'),
+        ('address', 'address', 'Address'),
+        ('area', 'geo-boundary', 'Area'),
+    )
+
+
+def case_list_geo_boundary_column(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('area', 'geo-boundary', 'Area'),
+        ('address', 'address', 'Address'),
+    )
+
+
+def case_list_geo_points_colors(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('point_colours', 'geo-points-colors', 'Point colours'),
+        ('address', 'address', 'Address'),
+        ('points', 'geo-points', 'Points'),
+    )
+
+
+def case_list_geo_points_column(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('area', 'geo-points', 'Area'),
+        ('address', 'address', 'Address'),
+    )
+
+
+def case_list_icon_alt_text(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('village', 'enum-image', 'Map', [{'alt_text': {'en': 'North'}, 'doc_type': 'MappingItem', 'key': "selected(., 'north')", 'value': {'en': 'jr://file/commcare/image/north.png'}}]),
+    )
+    _pages.attach_media(authoring, app_id, 'jr://file/commcare/image/north.png')
+
+
+def case_list_icon_column_over_conditions(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('visits', 'enum-image', 'Visits', [{'alt_text': {}, 'doc_type': 'MappingItem', 'key': '. > 3', 'value': {'en': 'jr://file/commcare/image/many.png'}}]),
+    )
+    _pages.attach_media(authoring, app_id, 'jr://file/commcare/image/many.png')
+
+
+def case_list_icon_column_over_values(authoring, app_id):
+    _case_display_columns(authoring, app_id,
+        ('status_code', 'enum-image', 'Status', [
+            {'alt_text': {'en': 'No image for new cases'}, 'doc_type': 'MappingItem',
+             'key': 'new', 'value': {'en': ''}},
+            {'alt_text': {}, 'doc_type': 'MappingItem', 'key': 'a',
+             'value': {'en': 'jr://file/commcare/image/active.png'}},
+        ]),
+    )
+    _pages.attach_media(authoring, app_id, 'jr://file/commcare/image/active.png')

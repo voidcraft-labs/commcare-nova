@@ -115,6 +115,24 @@ def test_a_list_search_finds_a_hidden_columns_value_on_both_exports(android_docu
         assert _searched(held, "Riverside") == {setting: ["Amina"] for setting in FUZZY}, name
 
 
+def test_a_saved_choice_and_its_label_show_in_default_order_on_both_exports(android_documents, hq):
+    document = android_documents["targeted-case-choice-values"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for name, archive in archives.items():
+            listed = _list(served, archive, name, "m0-f0", [])
+            assert [_texts(row) for row in listed["rows"]] == [
+                ["Ana", "West", "a", "River zone", "Priority", "Visit Ana"], ["Cy", "past", "past", "Unassigned", "Routine", "Visit Cy"], ["Bea", "East", "z", "Routine", "Visit Bea"],
+            ], name
+
+
+def test_android_shows_signed_relative_dates_on_both_exports(android_documents, hq):
+    document = android_documents["targeted-relative-case-dates"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for name, archive in archives.items():
+            listed = _list(served, archive, name, "m0-f0", [])
+            assert [_texts(row) for row in listed["rows"]] == [["Ana", "1", "-4", "**Bring** the card"], ["Bea", "0", "0", "*"], ["Cy", "*"]], name
+
+
 def test_named_calculation_orders_without_adding_a_display_column(android_documents, hq):
     document = android_documents["targeted-independent-case-order"]
     with _archives(document, _restored(document)) as (served, archives):
@@ -138,7 +156,12 @@ def test_android_orders_clinics_from_the_workers_current_position(android_docume
     with _archives(document, _restored(document)) as (served, archives):
         for label, archive in archives.items():
             held = _list(served, archive, label, "m0-f0", [], fix=fix, location_granted=True)
-            assert [_texts(row) for row in held["rows"]] == [[name] for name in names], label
+            distances = {} if fix is None else (
+                {"Asha": "0.1 km", "Zuri": "0.4 km"} if fix[1] == 0 else {"Asha": "0.1 km", "Zuri": "0.2 km"}
+            )
+            assert [_texts(row) for row in held["rows"]] == [
+                [name, distances[name]] if name in distances else [name] for name in names
+            ], label
 
 
 # The first rule's values, set by hand so its order is the reverse of the names'.
@@ -198,3 +221,21 @@ def test_a_tile_cell_takes_only_middle_vertical_alignment(android_documents, hq)
             "Riverside": "center_vertical",
             "open": "top",
         }, (name, gravities)
+
+
+def test_android_map_uses_locations_shapes_and_colors_from_both_installed_archives(android_documents, hq):
+    document = android_documents["targeted-case-map"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for name, archive in archives.items():
+            listed = _list(served, archive, name, "m0-f0", [])
+            cases = {item["label"]: item for item in listed["caseMap"]}
+            assert cases["Ana"] == {
+                "label": "Ana", "invalid": False, "location": [12, 24],
+                "boundary": [[12, 24], [15, 24], [15, 20], [12, 24]],
+                "boundaryColor": 0x80CBA018 - (1 << 32), "points": [[12, 24], [14, 22]],
+                "pointColors": [0xFFAA2211 - (1 << 32), -16776961],
+            }, name
+            assert cases["Bea"] == {
+                "label": "Bea", "invalid": True, "location": [28, 44],
+                "boundary": [], "points": [[28, 44], [30, 46]],
+            }, name

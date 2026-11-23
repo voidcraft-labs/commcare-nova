@@ -129,7 +129,12 @@ def _column(field, header, *, format="plain", **extra):
 def _village_mapping():
     from corehq.apps.app_manager.models import MappingItem
 
-    return [MappingItem(key="north", value={"en": "North"}), MappingItem(key="south", value={"en": "South"})]
+    return [
+        MappingItem(key="north", value={"en": "North"}),
+        MappingItem(key="south", value={"en": "South"}),
+        MappingItem(key="", value={"en": "Unspecified"}),
+        MappingItem(key="east bank", value={"en": "East Bank"}),
+    ]
 
 
 def _sort(field, type, direction, blanks, display=""):
@@ -224,6 +229,10 @@ def build(authoring) -> str:
             _column("phone", "Phone", format="phone"),
             _column("village", "Village", format="enum", enum=_village_mapping()),
             _column("notes", "Notes"),
+            _column("notes", "Visit instructions", format="markdown"),
+            _column("dob", "Weeks since birth", format="time-ago", time_ago_interval=7),
+            _column("dob", "Due", format="late-flag", late_flag=1),
+            _column("dob", "Upcoming", format="late-flag", late_flag=-2),
         ],
     )
 
@@ -278,7 +287,12 @@ BASE = Base(
         "menus-and-case-lists/detail-filter-value-lifts-into-predicate",
         "menus-and-case-lists/2-date-date-format-d-m-y-d-m-y-m-d-y-m-d-y-b-d-y",
         "menus-and-case-lists/4-phone",
+        "menus-and-case-lists/6-late-flag-late-flag-1",
+        "menus-and-case-lists/6p-late-flag-late-flag-0",
+        "menus-and-case-lists/10-markdown-outside-the-link-shape",
+        "menus-and-case-lists/3-time-ago-time-ago-interval-the-7-menu-values-years-months",
         "menus-and-case-lists/5-enum-id-mapping",
+        "menus-and-case-lists/5pp-enum-key-that-is-empty-or-holds-whitespace",
         "menus-and-case-lists/usexpathexpression-field-xpath-lifting-into-valueexpression",
         "menus-and-case-lists/direction",
         "menus-and-case-lists/blanks-first-last",

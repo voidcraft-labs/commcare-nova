@@ -24,9 +24,11 @@ import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
+import { caseMap } from "./documents/caseMap";
 import { caseTypeNames } from "./documents/caseTypeNames";
 import { caseWriteNames } from "./documents/caseWriteNames";
 import { caseWritesOneConcept } from "./documents/caseWritesOneConcept";
+import { choiceValueColumns } from "./documents/choiceValueColumns";
 import { choiceValues } from "./documents/choiceValues";
 import {
 	closeConditions,
@@ -126,6 +128,7 @@ import {
 	registerFromCaseListWebApps,
 } from "./documents/registerFromCaseList";
 import { relatedColumns } from "./documents/relatedColumns";
+import { relativeCaseDates } from "./documents/relativeCaseDates";
 import {
 	queryRepeatPlacements,
 	queryRepeatPlaces,
@@ -167,6 +170,7 @@ import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
+import { workerRecordColumns } from "./documents/workerRecordColumns";
 
 /** Every targeted document's maker, in the corpus's order. */
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
@@ -279,8 +283,12 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	numberKeypad,
 	detailOnlyColumn,
 	relatedColumns,
+	workerRecordColumns,
 	proseValue,
 	searchNoTitle,
+	choiceValueColumns,
+	caseMap,
+	relativeCaseDates,
 	sortBlanks,
 	sortLabels,
 	datetimeSaved,

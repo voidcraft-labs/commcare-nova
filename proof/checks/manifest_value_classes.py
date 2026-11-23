@@ -4619,6 +4619,15 @@ enum_xml_special_key.__doc__ = (
     """``menus-and-case-lists/5p-enum-key-containing``: an ``enum`` key holding ``& < > " '``."""
 )
 
+enum_key_with_spaces = _column_reader(
+    lambda at, column, detail, kind, module: (
+        _format(column) == "enum"
+        and any(isinstance(key, str) and (not key or any(ch.isspace() for ch in key)) for key in _keys_of(column))
+    )
+)
+enum_key_with_spaces.__doc__ = """An enum mapping whose selected() operand is blank or contains whitespace."""
+
+
 MAPPING_FORMATS = frozenset({"enum", "enum-image", "conditional-enum", "translatable-enum"})
 
 mapping_with_shared_key = _column_reader(
@@ -4670,7 +4679,29 @@ def _interval_offered(value):
         number = float(value)
     except (TypeError, ValueError):
         return False
-    return any(abs(number - offered) < 1e-9 for offered in TIME_AGO_INTERVALS)
+    return number in TIME_AGO_INTERVALS
+
+
+def late_flag_threshold(positive):
+    def matches(at, column, detail, kind, module):
+        days = column.get("late_flag", 30)
+        return _format(column) == "late-flag" and type(days) is int and (days > 0) == positive
+
+    return _column_reader(matches)
+
+
+markdown_property = _column_reader(
+    lambda at, column, detail, kind, module: _format(column) == "markdown" and not column.get("useXpathExpression")
+)
+markdown_property.__doc__ = """A markdown property has no link-constructor calculation."""
+
+
+time_ago_with_editor_interval = _column_reader(
+    lambda at, column, detail, kind, module: (
+        _format(column) == "time-ago" and _interval_offered(column.get("time_ago_interval", 365.25))
+    )
+)
+time_ago_with_editor_interval.__doc__ = """A relative date measured in one of HQ's seven editor intervals."""
 
 
 time_ago_with_another_interval = _column_reader(
@@ -4924,6 +4955,23 @@ def _case_order_type(tree, properties):
         if tree[1] == "if" and len(args) == 3 and args[0] == "boolean" and args[1] == args[2]:
             return args[1]
     return None
+
+
+def mapping_condition_outside_predicate(use, manifest):
+    """A syntactically invalid native expression cannot become a typed case condition.
+    A valid expression may still depend on an unavailable binding or an unsupported function."""
+    at, column, _, _, _ = _column(use)
+    if at is None or column is None:
+        return None
+    if column.get("format") not in ("conditional-enum", "enum-image", "clickable-icon"):
+        return False
+    item = at.nearest("MappingItem")
+    if item is None or not isinstance(item.get("key"), str):
+        return None
+    key = item["key"]
+    if not any(character in key for character in "{}()[]=<>.\"'/"):
+        return False
+    return True if at.app.tree(key) is None else None
 
 
 def independent_sort_without_scalar(use, manifest):
@@ -9933,8 +9981,13 @@ VALUE_CLASSES = {
         translatable_enum_over_relation
     ),
     "menus-and-case-lists/5p-enum-key-containing": enum_xml_special_key,
+    "menus-and-case-lists/5pp-enum-key-that-is-empty-or-holds-whitespace": enum_key_with_spaces,
     "menus-and-case-lists/an-enum-enum-image-conditional-enum-or-translatable-enum-column": mapping_with_shared_key,
     "menus-and-case-lists/2p-date-any-other-date-format": date_with_another_pattern,
+    "menus-and-case-lists/3-time-ago-time-ago-interval-the-7-menu-values-years-months": time_ago_with_editor_interval,
+    "menus-and-case-lists/6-late-flag-late-flag-1": late_flag_threshold(True),
+    "menus-and-case-lists/6p-late-flag-late-flag-0": late_flag_threshold(False),
+    "menus-and-case-lists/10-markdown-outside-the-link-shape": markdown_property,
     "menus-and-case-lists/3p-time-ago-other-interval": time_ago_with_another_interval,
     "menus-and-case-lists/a-geo-column-without-the-column-it-depends-on": geo_without_dependency,
     "menus-and-case-lists/24p-filter-otherwise": filter_changes_the_build,
@@ -10020,6 +10073,7 @@ VALUE_CLASSES = {
     "expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws": (
         media_reference_drawn_without_entry
     ),
+    "menus-and-case-lists/mapping-condition-outside-predicate": mapping_condition_outside_predicate,
     "menus-and-case-lists/sort-calculation-without-a-typed-value": independent_sort_without_scalar,
     "menus-and-case-lists/distance-sort-without-a-location-field": calculated_distance_without_property,
     "menus-and-case-lists/distance-on-a-translated-calculated-field": distance_on_translated_calculation,

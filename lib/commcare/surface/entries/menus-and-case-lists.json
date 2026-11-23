@@ -4303,10 +4303,9 @@
 			"schema:MappingItem.alt_text"
 		],
 		"valueClass": "non-blank",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `imageMap[].altText` and the clickable icon mapping's alt text",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: each case image can have a translated description, read by Web Apps",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -4853,10 +4852,9 @@
 		"item": "1′ `plain` over a property select questions write",
 		"surfaceKeys": ["format:plain", "schema:DetailColumn.format"],
 		"valueClass": "plain-over-a-select-property",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a plain column that shows the raw value: Nova's `plain` column over a select property shows and sorts by option labels (`hqJson/caseList.ts::projectColumnToDetail` emits `translatable-enum`), while HQ's `plain` shows and sorts the raw value (`detail_screen.py::Plain`)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a plain column can show and sort by saved choice values independently of other columns showing the localized labels of the same property",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4868,7 +4866,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`plain` (Nova has no raw-value column over a select property today; its label-showing plain column stays `translatable-enum`, row 21 and defect 10)",
+			"cell": "`plain` for saved values, `translatable-enum` for choice labels",
 			"markers": []
 		},
 		"gates": []
@@ -4951,10 +4949,9 @@
 			"schema:DetailColumn.time_ago_interval"
 		],
 		"valueClass": "time-ago-with-a-menu-interval",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `interval` column widened: threshold optional (count only) and signed direction (since/until)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a date count shows whole years, months, weeks or days since the date, or whole days, weeks or months until it. It sorts by the saved date",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5089,10 +5086,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "enum-with-an-empty-or-whitespace-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: ID-mapping keys under Core's `selected()`, which trims only the key and matches it as one token sequence (`XPathSelectedFunc.multiSelected`; executed): an empty key, and a whitespace-only one, which is the same state, labels a blank value (and a value holding two spaces in a row or a leading or trailing space), and a key with inner spaces labels a value holding that token sequence; HQ's editor accepts both (`ui-element-key-val-mapping.js::hasBadXML` checks only XML characters), and Nova refuses them today (`lib/domain/modules.ts`, defect 16)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the ordered Value labels table matches a blank or a sequence of words between literal spaces, in Preview and on the device",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5104,7 +5100,7 @@
 			}
 		},
 		"emission": {
-			"cell": "the key, a whitespace-only one as `''`",
+			"cell": "the original key",
 			"markers": []
 		},
 		"gates": []
@@ -5124,10 +5120,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "translatable-enum-on-a-non-calculated-column-over-an-own-property",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the same state as a calculated `translatable-enum` over that property (`translatedExpression`, row 21): HQ's build differs only in the ids it derives for the column's app strings, whose text every runtime reads identically (executed)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the same state as a calculated `translatable-enum` over that property (the calculated field’s scoped text pieces, row 21): HQ's build differs only in the ids it derives for the column's app strings, whose text every runtime reads identically (executed)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5193,10 +5188,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "translatable-enum-on-a-non-calculated-column-over-a-relation-in-a-non-searching-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the same state as the calculated `translatable-enum` over that path (`translatedExpression`): HQ's build differs only in the column's app-string ids, and nothing reads the relation path, which HQ collects only for modules that offer search (executed)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the same state as the calculated `translatable-enum` over that path (the calculated field’s scoped text pieces): HQ's build differs only in the column's app-string ids, and nothing reads the relation path, which HQ collects only for modules that offer search (executed)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5261,10 +5255,9 @@
 			"schema:DetailColumn.late_flag"
 		],
 		"valueClass": "late-flag-of-one-or-more",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a flag column with no list header: HQ's `LateFlag` writes an empty header on the case list (`detail_screen.py::HideShortHeaderColumn`), and Nova's interval column shows its own",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an overdue marker displays a star for a missing date or a date past its signed day threshold. Results hides the heading and Details keeps it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5276,8 +5269,8 @@
 			}
 		},
 		"emission": {
-			"cell": "nothing: Nova writes an interval column as a calculated `translatable-enum`",
-			"markers": ["omit"]
+			"cell": "`late-flag` and its signed `late_flag`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -5295,10 +5288,9 @@
 			"schema:DetailColumn.late_flag"
 		],
 		"valueClass": "late-flag-of-zero-or-less",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `interval` threshold widened to integers ≤ 0, with text and header as in 6",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an overdue marker displays a star for a missing date or a date past its signed day threshold. Results hides the heading and Details keeps it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5310,7 +5302,7 @@
 			}
 		},
 		"emission": {
-			"cell": "same",
+			"cell": "`late-flag` and its signed `late_flag`",
 			"markers": []
 		},
 		"gates": []
@@ -5462,10 +5454,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "address-outside-a-custom-tile",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `address` column kind",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map location reads saved coordinates. Android uses the first usable location per case and offers Show address in Details. Web Apps can show the first location when the project has case list maps",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (hidden in the list, plain text on the detail; a map only under the CASE_LIST_MAP flag) / RUNS (Map menu, \"show address\")",
@@ -5492,10 +5483,9 @@
 		"item": "9 `distance`",
 		"surfaceKeys": ["format:distance", "schema:DetailColumn.format"],
 		"valueClass": "distance",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `distance` column kind (from `here()`)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a distance cell reads the Android worker’s location and shows kilometers to one decimal place. Its sort compares whole meters",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (never from the user: São Paulo placeholder or blank) / RUNS",
@@ -5557,10 +5547,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "markdown-outside-link",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a `markdown` column kind",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: formatted text from a saved property or a calculation",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (markdown only on the detail; raw in rows, HTML in tiles)",
@@ -5573,7 +5562,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`markdown`",
+			"cell": "`markdown` over the property or calculated field",
 			"markers": []
 		},
 		"gates": []
@@ -5592,10 +5581,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "geo-boundary-on-the-case-list-beside-its-dependencies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `mapLayer` column kind `boundary`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map boundary reads pairs of coordinates from a case property on a Results map with a location",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5626,10 +5614,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "geo-boundary-color-on-the-case-list-beside-its-dependencies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `mapLayer` `boundaryColor`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map boundary color reads its case’s saved color on a Results map with a boundary and a location",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5660,10 +5647,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "geo-points-on-the-case-list-beside-its-dependencies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `mapLayer` `points`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map points layer reads pairs of coordinates from a case property on a Results map with a location",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5694,10 +5680,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "geo-points-colors-on-the-case-list-beside-its-dependencies",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `mapLayer` `pointColors`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a map point colors layer reads an ordered list of colors on a Results map with points and a location",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6090,10 +6075,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "enum-image-with-plain-value-keys",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `image-map` equality keys: HQ matches by equality (`prop = 'key'`, `MappingItem.key_as_condition`), while Nova's image-map matches `selected()` tokens today (19′)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a whole-value image entry compares all the saved text and the first matching entry supplies the image",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (in an `icon_text_grid` tile, the raw path)",
@@ -6167,10 +6151,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "enum-image-with-other-condition-keys",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `image-map` condition keys",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the first matching typed case rule supplies its image and localized description",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (in an `icon_text_grid` tile, the raw path)",
@@ -6203,10 +6186,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "conditional-enum",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `conditionalText` column kind (condition → localized text)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: ordered rules with stable identities supply the first matching localized label; the same label is the worker’s sort text",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6219,6 +6201,33 @@
 		},
 		"emission": {
 			"cell": "`conditional-enum`; add-on `conditional_enum`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/mapping-condition-outside-predicate",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "An image or label rule whose condition cannot be typed for this case",
+		"surfaceKeys": ["schema:MappingItem.key"],
+		"valueClass": "mapping-condition-outside-predicate",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the rule has no typed condition for the selected case.",
+		"subject": "case-list-columns",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "The rule has no typed condition for the selected case."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written",
 			"markers": []
 		},
 		"gates": []
@@ -6274,10 +6283,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "authored-translated-expression",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the `translatedExpression` column kind",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a calculated field binds each translated piece of text to its own UUID. Display and ordering evaluate the same expression in the worker’s language.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6585,10 +6593,9 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "several-address-columns-in-an-advanced-module-detail",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: several address columns, which the map reads differently: Web Apps takes the first address column (`menus/views.js` `findIndex`), and Android, per case, the first address field that yields a location (`gis/EntityMapUtils.kt::getDisplayInfoForEntity`); the editor allows it (`screen.js::save` counts only image and geo-*) and HQ's build does not check it there (executed); holding it makes the module emitted as advanced (\"Case writes\")",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an advanced menu holds ordered locations. Android tries each until it finds a usable one. Web Apps uses the first",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (a blank first address falls through to the next)",
@@ -6784,10 +6791,9 @@
 		"item": "`user/prop` (usercase)",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "usercase-property",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: column over the usercase property",
-		"subject": "worker-record",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the selected property of the current worker’s record",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6812,10 +6818,9 @@
 		"item": "`user/<steps>/prop`",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "usercase-property-with-later-steps",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the column over the usercase property, the same state as `user/prop`: HQ reads only the usercase and drops the later steps (`detail_screen.py::PropertyXpathGenerator.xpath`), so the build is identical",
-		"subject": "worker-record",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the selected property of the current worker’s record. HQ ignores the intermediate path and the next publish uses the direct worker-record field",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6894,10 +6899,9 @@
 		"item": "`#owner_name`",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "owner-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `ownerName` column (the owning group's name, else the current worker's username for a case they own, else blank)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the owner label of the selected record. A synced group’s name takes precedence, followed by the current worker’s username for a case they own, then an empty value",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

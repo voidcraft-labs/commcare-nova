@@ -127,6 +127,7 @@
 		const empty = one(list, ".module-case-list-column-empty .alert");
 		const rows = all(list, ".js-case-container > *");
 		screen.list = {
+			mapOffered: all(menu, ".hide-map-button").some(visible),
 			tiles,
 			search: one(list, "#searchText") !== null,
 			headers: all(list, "th.module-case-list-header").map((header) => ({
@@ -150,6 +151,7 @@
 							return {
 								text: text(cell),
 								image,
+								...(picture.alt.trim() && { alt: picture.alt }),
 								drawn: box.width > 0 && box.height > 0,
 							};
 						}),

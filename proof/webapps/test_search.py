@@ -64,6 +64,8 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
 from proof.editors import pages
 from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
@@ -184,6 +186,49 @@ def test_a_list_search_in_web_apps_finds_a_hidden_columns_value_and_shows_no_col
     for shown in (listed, by_village):
         assert [header["text"] for header in shown["headers"]] == ["Name"]
         assert all(len(row["cells"]) == 1 for row in shown["rows"])
+
+
+def test_a_saved_choice_and_its_label_show_in_default_order(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-case-choice-values"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Village visits"), *steps.choose("Members"), steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    listed = run.screens[0]["list"]
+    evidence("saved-choice-and-label", listed)
+    assert [header["text"] for header in listed["headers"]] == ["Name", "Village", "Village code", "Unassigned", "Zone", "Visit priority", "Visit image", "Visit label"]
+    assert [[cell["text"] for cell in row["cells"]] for row in listed["rows"]] == [
+        ["Ana", "West", "a", "", "River zone", "Priority", "", "Visit Ana"],
+        ["Cy", "past", "past", "Unassigned", "", "Routine", "", "Visit Cy"],
+        ["Bea", "East", "z", "", "", "Routine", "", "Visit Bea"],
+    ]
+    image_cells = [row["cells"][6] for row in listed["rows"]]
+    assert [cell["drawn"] for cell in image_cells] == [True, False, False]
+    assert image_cells[0]["alt"] == "Assigned to east bank"
+
+
+def test_web_apps_shows_signed_relative_case_dates(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-relative-case-dates"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Visit reminders"), *steps.choose("Members"), steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    listed = run.screens[0]["list"]
+    evidence("relative-case-dates", listed)
+    assert [header["text"] for header in listed["headers"]] == ["Name", "Months until", "Weeks since", "", "Message"]
+    assert [[cell["text"] for cell in row["cells"]] for row in listed["rows"]] == [
+        ["Ana", "1", "-4", "", "Bring the card"], ["Bea", "0", "0", "*", ""], ["Cy", "", "", "*", ""],
+    ]
 
 
 def test_an_independent_order_calculation_orders_the_visible_cases(
@@ -339,3 +384,20 @@ def test_web_apps_forces_the_sidebars_search_and_runs_the_default_search_again_a
         if request["queryData"] and request not in executed and request["selections"] == ["2"]
     ]
     assert checked and not any(request["searched"] for request in checked), requests
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_web_apps_case_map_follows_the_project_space_toggle(
+    enabled, hq, core_runner, webapps_documents, formplayer_runner, editor_driver, evidence,
+):
+    document = webapps_documents["targeted-case-map"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document, case_list_map=enabled) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Coverage map"), *steps.choose("Places"), steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    listed = run.screens[0]["list"]
+    evidence("project-map-enabled" if enabled else "project-map-disabled", listed)
+    assert listed["mapOffered"] is enabled
+    assert len(listed["rows"]) == 2

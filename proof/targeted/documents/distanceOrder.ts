@@ -1,7 +1,12 @@
 /** Two clinics are about two and ten metres east of the first worker position.
  * Comparing their displayed distances as text reverses the native numeric order. */
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { NEW_APP_SETTINGS, plainColumn, proseText } from "@/lib/domain";
+import {
+	NEW_APP_SETTINGS,
+	plainColumn,
+	proseText,
+	workerDistanceColumn,
+} from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 import { answerHeld } from "./echo";
@@ -19,6 +24,11 @@ export function nearestClinics() {
 				name: "clinic",
 				properties: [
 					{ name: "case_name", label: proseText("Name") },
+					{
+						name: "entrance",
+						label: proseText("Entrance"),
+						data_type: "geopoint",
+					},
 					{
 						name: "position",
 						label: proseText("Clinic location"),
@@ -46,6 +56,11 @@ export function nearestClinics() {
 							label: "Nearest clinic",
 						},
 					}),
+					workerDistanceColumn(
+						key("distance"),
+						"entrance",
+						"Distance from entrance",
+					),
 				]),
 				forms: [
 					{
@@ -71,13 +86,13 @@ export function nearestClinics() {
 				id: "far",
 				type: "clinic",
 				name: "Asha",
-				properties: { position: "0 0.00009 0 5" },
+				properties: { position: "0 0.00009 0 5", entrance: "0 0.001345 0 5" },
 			},
 			{
 				id: "near",
 				type: "clinic",
 				name: "Zuri",
-				properties: { position: "0 0.000018 0 5" },
+				properties: { position: "0 0.000018 0 5", entrance: "0 0.004" },
 			},
 			{ id: "unknown", type: "clinic", name: "Beno", properties: {} },
 		],
