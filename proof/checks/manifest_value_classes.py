@@ -5996,10 +5996,9 @@ def _node_name(element):
     return f"{element.prefix}:{_local(element)}" if element.prefix else _local(element)
 
 
-# The question ids Vellum warns about in any case (``baseSpecs.js::RESERVED_NAMES``), and those its parser finds by
-# bare element name at any depth, so a form holding one never opens (``parser.js``, and jQuery's ``parseXML``, which
-# takes any ``parsererror`` element for its own parse failure); ``lib/domain/questionId.ts::RESERVED_QUESTION_IDS``.
-RESERVED_ANY_CASE = frozenset({"script"})
+# The names Vellum's parser finds by bare element name at any depth, so a form holding one never opens
+# (``parser.js``, and jQuery's ``parseXML``, which takes any ``parsererror`` element for its own parse failure);
+# ``lib/domain/questionId.ts::FORM_SOURCE_READER_NAMES``.
 NEVER_OPENED = frozenset({"instance", "bind", "parsererror"})
 
 
@@ -6060,13 +6059,6 @@ def _hq_case_collision(form, node):
             and etree.QName(node).namespace in (etree.QName(form.data_root).namespace, CASE))
 
 
-def primary_case_question(use, manifest):
-    form, node = _data_node(use)
-    if form is None:
-        return None
-    return node is not None and _hq_case_collision(form, node) and _hq_primary_case(form)
-
-
 def submitted_case_answer(use, manifest):
     form, node = _data_node(use)
     if form is None:
@@ -6078,18 +6070,6 @@ def submitted_case_answer(use, manifest):
     if _hq_case_collision(form, node) and _hq_primary_case(form) is True:
         return False
     return not any(ancestor.tag == "{%s}case" % CASE for ancestor in node.iterancestors())
-
-
-def android_answer_name(use, manifest):
-    form, node = _question_node(use)
-    if form is None:
-        return None
-    if node is None:
-        return False
-    name = _local(node).lower()
-    namespace = etree.QName(node).namespace
-    return (namespace != "http://commcarehq.org/ledger/v1" and
-            (name in ("registration", "fixture", "schema") or name == "sync" and namespace == "http://commcarehq.org/sync"))
 
 
 def ordinary_stock_answer(use, manifest):
@@ -6121,27 +6101,22 @@ def unsupported_question_lock(use, manifest):
 
 
 def namespace_the_designer_cannot_keep(use, manifest):
-    form, node = _data_node(use)
+    """``questions/submitted-namespace-the-form-designer-cannot-keep``: a question's data node that declares its own
+    namespace, unprefixed and other than its parent's, where Vellum keeps none: an explicit empty namespace (which
+    Vellum's ``parseDataTree`` loses), or one on a question with a control or children (Vellum keeps an ``xmlns``
+    only for a data-only value), as Nova's reader refuses it (``lib/commcare/reader/xform/join.ts::ownNamespace``,
+    ``claimNode``). A node that inherits its parent's namespace is outside the class: every question of a form
+    does."""
+    form, node = _question_node(use)
     if form is None:
         return None
-    if node is None or not use.key.endswith("@xmlns"):
+    if node is None or not use.key.endswith("@xmlns") or node.prefix is not None:
         return False
-    return node.nsmap.get(None) in (None, "") or bool(form.question_controls(_path_of(form, node)))
-
-
-def reserved_question_id(use, manifest):
-    """``questions/question-id-case-registration-script``: a question's data node whose name passes Vellum's Question
-    ID rule and is ``registration`` or ``script`` in any case, which Vellum warns about and Nova preserves
-    on a platform whose reader can submit it (Nova's reader claims the node under this entry,
-    ``lib/commcare/reader/xform/join.ts``)."""
-    form, element = _question_node(use)
-    if form is None:
-        return None
-    # A case block's own ``<case>`` (its namespace the case transaction's) is no question.
-    if element is None or etree.QName(element).namespace == CASE:
+    parent = node.getparent()
+    namespace = etree.QName(node).namespace
+    if parent is None or namespace == etree.QName(parent).namespace:
         return False
-    name = _node_name(element)
-    return VELLUM_ELEMENT_NAME.fullmatch(name) is not None and name.lower() in RESERVED_ANY_CASE
+    return namespace in (None, "") or bool(form.question_controls(_path_of(form, node))) or len(node) > 0
 
 
 def sibling_with_one_name(use, manifest):
@@ -6184,32 +6159,6 @@ def hidden_value_with_children(use, manifest):
     if element is None or form.vellum_nodes.get(element, "") is not None or not _children(element):
         return False
     return not form.question_controls(_path_of(form, element))
-
-
-def _model_setvalues(form):
-    """The setvalues the model holds as its own children, in document order (what Vellum keeps as defaults)."""
-    return [] if form.model is None else list(form.model.iterfind(f"{{{XFORMS}}}setvalue"))
-
-
-def _reads_through_calculates(form, reads, path, seen):
-    """Whether one of ``reads`` (paths) is ``path``, or a Hidden Value's (a node no body control names) whose
-    calculate reads it, through any chain of such calculates. A read this does not place reaches nothing."""
-    for read in reads:
-        if read is None:
-            continue
-        if read == path:
-            return True
-        if read in seen or form.question_controls(read):
-            continue
-        seen.add(read)
-        bind = form.bind(read)
-        calculate = bind.get("calculate") if bind is not None else None
-        if not (calculate or "").strip():
-            continue
-        through = _tree_reads(form, calculate, read)
-        if through and _reads_through_calculates(form, through, path, seen):
-            return True
-    return False
 
 
 def _relative_read(tree, context):
@@ -6295,76 +6244,6 @@ def _count_placement_row_id(form, element, path, bind, defaults):
     )
 
 
-def explicit_hidden_answer_type(use, manifest):
-    """A nonstandard explicit type on a bound, control-less value in the primary instance.
-    Core strips the namespace from its local name. The existing datetime/text classes have
-    their own witnesses. A bind on a case action or data with children is not a hidden answer."""
-    form, bind, node = _bind(use)
-    if form is None:
-        return None
-    if bind is None or node is None or use.at.attribute != "type":
-        return False
-    path = form.paths.get(node)
-    return bool(path and not len(node) and not form.question_controls(path)
-                and not any(parent.tag == f"{{{CASE}}}case" for parent in node.iterancestors())
-                and (bind.get("type") or "").split(":", 1)[-1] not in ("", "string", "dateTime"))
-
-
-def hidden_value_default_read(use, manifest):
-    """``questions/hidden-value-with-both-calculate-and-a-default-by-any-expression``: a Hidden Value (a data node no
-    body control names, ``mug:DataBindOnly``) whose bind calculates it and whose default a model setvalue sets,
-    where a runtime can read the default: the node stands in a repeat, where a row's default can outlast its
-    calculate; or a later ``xforms-ready`` setvalue of the model reads it, directly or through the calculates of
-    the Hidden Values it reads. Core runs a new form's ``xforms-ready`` setvalues in model order and then every
-    calculate (``FormDef.initialize``, ``initAllTriggerables``), so otherwise the calculate replaces the default
-    before anything reads it, which the held class beside it is
-    (``questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads``). As Nova's reader decides it
-    (``xform/afterBinding.ts::defaultUnread``), a node more than one setvalue sets, and a default set at another
-    event, are in the class. Each later setvalue's reads are its value's structure as HQ's XPath grammar reads it
-    (the observation's ``trees``), evaluated at the node it sets; None where the records hold none, or a read this
-    does not place leaves the class open. The class reads the form's own elements alone, never an app beside it.
-    An attribute HQ's reader lists as a Hidden Value, a SaveToCase block's ``<case>`` attribute
-    (``xform.py::XForm.get_questions``), is outside the class: Vellum reads it as a property of the block's own mug
-    (``saveToCase.js``: ``case_id``, ``date_modified``), never as a Hidden Value."""
-    form, element = _data_node(use)
-    if form is None:
-        return None
-    if use.at.attribute is not None:
-        return False
-    if element is None or form.question_controls(form.paths.get(element)):
-        return False
-    path = form.paths.get(element)
-    bind = form.bind(path)
-    if path is None or bind is None or not (bind.get("calculate") or "").strip():
-        return False
-    defaults = [setvalue for setvalue in _model_setvalues(form) if _held_ref(setvalue) == path]
-    if not defaults:
-        return False
-    row_id = _count_placement_row_id(form, element, path, bind, defaults)
-    if row_id is not False:
-        return None if row_id is None else False
-    if form.in_repeat(path):
-        return True
-    if len(defaults) != 1 or (defaults[0].get("event") or "").split() != ["xforms-ready"]:
-        return True
-    loads = _load_setvalues(form)
-    unsure = False
-    for later in loads[loads.index(defaults[0]) + 1 :]:
-        value = later.get("value")
-        if not (value or "").strip() or _held_ref(later) is None:
-            continue  # nothing read, or a setvalue Core reads otherwise than Nova writes, which sets no node here
-        reads = _tree_reads(form, value, _held_ref(later))
-        if reads is None:
-            unsure = True  # no structure recorded, or a read this does not place
-            continue
-        if _reads_through_calculates(form, reads, path, set()):
-            return True
-        unsure = unsure or None in reads
-    return None if unsure else False
-
-
-# The body controls that may name a node with element children: a group and a repeat, the only questions whose
-# mug takes child mugs with data nodes (Vellum ``mugs.js::isNestableGroup``).
 NESTING_CONTROLS = frozenset({"group", "repeat"})
 
 
@@ -9620,24 +9499,6 @@ def default_on_date_range(use, manifest):
     return value not in (None, "") and prompt.get("input_") == "daterange" and prompt.get("hidden") is not True
 
 
-def choice_value_with_both_quote_marks(use, manifest):
-    """``questions/choice-value-holding-both-an-apostrophe-and-a-double-quote``: a choice's ``<value>`` whose text
-    holds both ``'`` and ``"``, which no XPath string literal spells (``lib/domain/selectOptionValue.ts::
-    selectOptionValueProblem``, read by ``lib/commcare/reader/xform/options.ts``). A value with an element of its own
-    inside is read as no value."""
-    form, element = _form_element(use)
-    if form is None:
-        return None
-    item = element.getparent()
-    if _local(element) != "value" or item is None or _local(item) != "item":
-        return False
-    select = item.getparent()
-    if select is None or _local(select) not in SELECTS or _children(element):
-        return False
-    text = element.text or ""
-    return "'" in text and '"' in text
-
-
 def max_select_value_above_100(use, manifest):
     """``menus-and-case-lists/detail-max-select-value-above-100``: a ``max_select_value`` above 100 on the case list
     of a basic menu with a case type whose list selects several cases (``lib/commcare/reader/caseList/details.ts::
@@ -9898,9 +9759,7 @@ VALUE_CLASSES = {
     "questions/question-id-failing-the-grammar-or-meta-in-any-case": invalid_question_id,
     "questions/two-sibling-data-nodes-with-one-name": sibling_with_one_name,
     "questions/hidden-value-with-children": hidden_value_with_children,
-    "questions/hidden-value-bound-a-type-nova-would-not-write": explicit_hidden_answer_type,
     "questions/validation-on-a-hidden-value": validation_on_hidden_value,
-    "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression": hidden_value_default_read,
     "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": question_with_children,
     "questions/default-data-value-datavalue-instance-text": default_data_value,
     "questions/hand-written-case-block-without-vellum-role-incl-a-root-data": hand_written_case_block,
@@ -10205,7 +10064,6 @@ VALUE_CLASSES = {
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
     "case-search/custom-sort-properties-property-name-sort-type-exact-date": custom_sort_on_an_offered_search,
     "case-search/search-on-clear": search_on_clear_without_auto_select,
-    "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
@@ -10215,9 +10073,6 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/column-field-outside-nova-s-property-grammar": column_field_outside_nova_s_grammar,
     "application-and-settings/build-profiles-non-empty": build_profiles_held,
-    "questions/question-id-case-registration-script": reserved_question_id,
-    "questions/a-root-question-case-in-a-form-where-hq-writes-the-primary-case": primary_case_question,
-    "questions/submitted-answer-name-only-android-stores": android_answer_name,
     "questions/submitted-node-consumed-as-case": submitted_case_answer,
     "questions/question-lock-the-designer-cannot-represent": unsupported_question_lock,
     "questions/ordinary-answer-in-stock-namespace": ordinary_stock_answer,

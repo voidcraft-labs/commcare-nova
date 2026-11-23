@@ -5394,13 +5394,6 @@ def _data_binds_and_itext():
             accepted("form", nodes, root_child, f"{data}good[1]"),
             accepted("form", ids, root_child, f"{data}Registration[1]"),
         ),
-        "questions/question-id-case-registration-script": (
-            refused("form", ids, root_child, f"{data}Registration[1]"),
-            refused("form", ids, root_child, f"{data}SCRIPT[1]"),
-            refused("form", ids, node, f"{data}g[1]/{data}script[1]"),
-            accepted("form", ids, root_child, f"{data}plain[1]"),
-            accepted("form", ids, root_child, f"{data}bind[1]"),
-        ),
         "questions/two-sibling-data-nodes-with-one-name": (
             refused("form", nodes, root_child, f"{data}twin[2]"),
             accepted("form", nodes, root_child, f"{data}rows[2]"),  # a repeat's rows share their path
@@ -6001,100 +5994,8 @@ def _held_new():
         return columns(_column(fmt=fmt, enum=[item]))
 
     profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": ["fra"]}})
-    choices = _form(
-        data="<s/>",
-        body="""<select1 ref="/data/s"><item><value>a'b"c</value></item><item><value>a'b</value></item></select1>""",
-    )
     named = _form(data="<q/>").replace(b"<data ", b'<visit uiVersion="1" ').replace(b"</data>", b"</visit>")
-    # Hidden Values (data nodes no control names): a, b and c with a calculate and a default, a read by r's later
-    # default, c through m's calculate by s's, b by nothing; h with both in a repeat; t with a calculate alone.
-    hidden_values = _form(
-        data="<a/><b/><c/><m/><r/><s/><t/><grp><h/><v/></grp>",
-        model=(
-            '<bind nodeset="/data/a" calculate="1 + 1"/><bind nodeset="/data/b" calculate="2 + 2"/>'
-            '<bind nodeset="/data/c" calculate="3 + 3"/><bind nodeset="/data/m" calculate="/data/c * 2"/>'
-            '<bind nodeset="/data/r"/><bind nodeset="/data/s"/><bind nodeset="/data/t" calculate="4"/>'
-            '<bind nodeset="/data/grp/h" calculate="5"/>'
-            '<setvalue event="xforms-ready" ref="/data/a" value="5"/>'
-            '<setvalue event="xforms-ready" ref="/data/b" value="6"/>'
-            '<setvalue event="xforms-ready" ref="/data/c" value="7"/>'
-            '<setvalue event="xforms-ready" ref="/data/grp/h" value="8"/>'
-            '<setvalue event="xforms-ready" ref="/data/r" value="/data/a + 1"/>'
-            '<setvalue event="xforms-ready" ref="/data/s" value="/data/m"/>'
-        ),
-        body="""<group ref="/data/grp"><label>G</label><repeat nodeset="/data/grp">
-          <input ref="/data/grp/v"><label>V</label></input></repeat></group>""",
-    )
-
-    # A query repeat's count placement as Nova writes it (``countPlacementRow.ts``): each row's id holds a
-    # calculate and a ``jr-insert`` default that give the row one id, which the count repeat's own entry holds. In
-    # ``s`` the row's default is another value, which the row's calculate replaces only later.
-    def count_placement(name, row_default):
-        ids, count, row_id, index = (f"nova_query_{part}_{name}" for part in ("ids", "count", "id", "index"))
-        data = f'<{name}><{ids}/><{count}/><item jr:template=""><{row_id}/><{index}/><note/></item></{name}>'
-        model = (
-            f"<bind nodeset=\"/data/{name}/{ids}\" calculate=\"join(' ', 'a b')\"/>"
-            f'<bind nodeset="/data/{name}/{count}" type="xsd:int" calculate="count-selected(../{ids})"/>'
-            f'<bind nodeset="/data/{name}/item/{row_id}"'
-            f" calculate=\"if(../{index} &lt; ../../{count}, selected-at(../../{ids}, ../{index}), '')\"/>"
-            f'<bind nodeset="/data/{name}/item/{index}" type="xsd:int"/>'
-            f'<setvalue event="jr-insert" ref="/data/{name}/item/{row_id}" value="{row_default}"/>'
-            f'<setvalue event="jr-insert" ref="/data/{name}/item/{index}" value="position(..)"/>'
-        )
-        body = (
-            f'<group ref="/data/{name}"><group><repeat nodeset="/data/{name}/item" jr:noAddRemove="true()"'
-            f' jr:count="/data/{name}/{count}"><input ref="/data/{name}/item/note"><label>N</label></input>'
-            "</repeat></group></group>"
-        )
-        return data, model, body
-
-    placed = [
-        count_placement(
-            "r",
-            "if(position(..) &lt; int(../../nova_query_count_r),"
-            " selected-at(../../nova_query_ids_r, position(..)), '')",
-        ),
-        count_placement("s", "if(position(..) &lt; 5, ../../nova_query_ids_s, '')"),
-    ]
-    count_rows = _form(
-        data="".join(data for data, _, _ in placed),
-        model="".join(model for _, model, _ in placed),
-        body="".join(body for _, _, body in placed),
-    )
-
-    def hidden(*names):
-        return "data[1]/" + "/".join(f"{{http://example.org/t}}{name}[1]" for name in names)
-
-    # A SaveToCase block's ``<case>`` attribute HQ's reader lists as a Hidden Value (``get_questions``), here with a
-    # calculate and a default, is the block's own property to Vellum, never a Hidden Value.
-    case_attribute = _form(
-        data=(
-            '<stc><case xmlns="http://commcarehq.org/case/transaction/v2" case_id="" date_modified="">'
-            "<create><case_type/></create></case></stc>"
-        ),
-        model=(
-            '<bind nodeset="/data/stc/case/@case_id" calculate="uuid()"/>'
-            '<bind nodeset="/data/stc/case/create/case_type" calculate="\'patient\'"/>'
-            '<setvalue event="xforms-ready" ref="/data/stc/case/@case_id" value="uuid()"/>'
-        ),
-    )
-    case_id = "{http://example.org/t}stc[1]/{http://commcarehq.org/case/transaction/v2}case[1]/@case_id"
-
-    hidden_type = "mug:DataBindOnly"
     return {
-        "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression": (
-            refused("form", hidden_values, hidden_type, hidden("a"), readings=True),
-            refused("form", hidden_values, hidden_type, hidden("c"), readings=True),
-            refused("form", hidden_values, hidden_type, hidden("grp", "h"), readings=True),
-            accepted("form", hidden_values, hidden_type, hidden("b"), readings=True),
-            accepted("form", hidden_values, hidden_type, hidden("t"), readings=True),
-            accepted("form", hidden_values, hidden_type, hidden("r"), readings=True),
-            # A count placement's row id is the count repeat's, and a row whose default its calculate does not give
-            # is a Hidden Value in a repeat.
-            accepted("form", count_rows, hidden_type, hidden("r", "item", "nova_query_id_r"), readings=True),
-            refused("form", count_rows, hidden_type, hidden("s", "item", "nova_query_id_s"), readings=True),
-            accepted("form", case_attribute, hidden_type, case_id, readings=True),
-        ),
         "forms-and-case-writes/update-keys-location-id-hq-user-id": (
             refused("app", own_update("location_id"), update_map, updates),
             accepted("app", own_update("district"), update_map, updates),
@@ -6159,10 +6060,6 @@ def _held_new():
                 "schema:CaseSearchProperty.default_value",
                 f"{prompts}/default_value",
             ),
-        ),
-        "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": (
-            refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
-            accepted("form", choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
         ),
         "questions/data-root-name-that-workers-cannot-address": (
             refused("form", named.replace(b"visit", "患者".encode()), "xform:model/instance/*", f"instance[1]/{data}患者[1]"),
@@ -6281,6 +6178,60 @@ def _held_new():
     }
 
 
+def _submitted_answers():
+    """The shapes of the classes of a submitted answer: a name a worker's submission reads as a case change, an
+    ordinary answer in the stock namespace, a namespace the form designer cannot keep, a lock it cannot represent and
+    a validation on a Hidden Value."""
+    form = _form
+    data = "{http://example.org/t}"
+    node, root_child = "xform:model/instance//*", "xform:model/instance/*/*"
+    stock = "http://commcarehq.org/ledger/v1"
+    named = form(
+        data=f'''<case/><g><Case/></g><case_note/><entry xmlns="{stock}"/><plain/>''',
+        body='<input ref="/data/case_note"/><input ref="/data/plain"/>',
+    )
+    spaced = form(
+        data='<svc xmlns="urn:receiving:svc"/><empty xmlns=""/><asked xmlns="urn:receiving:asked"/>',
+        model='<bind nodeset="/data/svc" calculate="1"/><bind nodeset="/data/asked" type="xsd:string"/>',
+        body='<input ref="/data/asked"/>',
+    )
+    locks = form(
+        data='<full vellum:lock="all"/><part vellum:lock="partial"/>',
+        model='<bind nodeset="/data/full" type="xsd:string" vellum:lock="all"/><bind nodeset="/data/part" type="xsd:string"/>',
+        body='<input ref="/data/full"/><input ref="/data/part"/>',
+    )
+    checked = form(
+        data="<hv/><q/>",
+        model='<bind nodeset="/data/hv" calculate="1" constraint=". &gt; 0"/><bind nodeset="/data/q" type="xsd:int" constraint=". &gt; 0"/>',
+        body='<input ref="/data/q"/>',
+    )
+    namespace, lock = "xform:model/instance//*@xmlns", "vellum-markup:model/instance//*@vellum:lock"
+    return {
+        "questions/submitted-node-consumed-as-case": (
+            refused("form", named, root_child, f"{data}case[1]"),
+            refused("form", named, node, f"{data}g[1]/{data}Case[1]"),
+            accepted("form", named, root_child, f"{data}case_note[1]"),
+        ),
+        "questions/ordinary-answer-in-stock-namespace": (
+            refused("form", named, root_child, f"{{{stock}}}entry[1]"),
+            accepted("form", named, root_child, f"{data}plain[1]"),
+        ),
+        "questions/submitted-namespace-the-form-designer-cannot-keep": (
+            refused("form", spaced, namespace, "empty[1]/namespace()"),
+            refused("form", spaced, namespace, "{urn:receiving:asked}asked[1]/namespace()"),
+            accepted("form", spaced, namespace, "{urn:receiving:svc}svc[1]/namespace()"),
+        ),
+        "questions/question-lock-the-designer-cannot-represent": (
+            refused("form", locks, lock, f"{data}part[1]/@vellum:lock"),
+            accepted("form", locks, lock, f"{data}full[1]/@vellum:lock"),
+        ),
+        "questions/validation-on-a-hidden-value": (
+            refused("form", checked, "xform:model/bind@constraint", "bind[1]/@constraint"),
+            accepted("form", checked, "xform:model/bind@constraint", "bind[2]/@constraint"),
+        ),
+    }
+
+
 SHAPES = {
     **_questions(),
     **_settings_and_forms(),
@@ -6288,6 +6239,7 @@ SHAPES = {
     **_search_and_menus(),
     **_data_binds_and_itext(),
     **_held_new(),
+    **_submitted_answers(),
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
@@ -6452,7 +6404,7 @@ def test_a_held_new_reader_of_a_use_the_readings_make_reads_its_own_form_alone(m
         for shape in SHAPES[entry.id]
         if _made_by_readings(shape)
     ]
-    assert {shape.key.split(":", 1)[0] for _, shape in shapes} == {"mug", "session-path"}
+    assert {shape.key.split(":", 1)[0] for _, shape in shapes} == {"session-path"}
     for entry_id, shape in shapes:
         found = _shape_uses(shape, manifest, observed)
         uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
