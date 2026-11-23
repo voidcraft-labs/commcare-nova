@@ -58,7 +58,9 @@ def test_two_choices_from_one_list_return_to_the_first_and_submit_the_new_pair(
         web = apps.web(formplayer_runner, served)
         prefix, first_list = _first_list(web)
         available = _people(first_list)
-        first, second, third, fourth = available
+        # The document's own sample people (its review menu adds some) and the extra one.
+        assert len(available) >= 4, available
+        first, second, third, fourth = available[:4]
         assert list_only.case_id not in available
         old = _open_pair(web, prefix, first, second, available)
 
