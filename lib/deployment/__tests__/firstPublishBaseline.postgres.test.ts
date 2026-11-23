@@ -244,8 +244,10 @@ describe("the stored first-publish list", () => {
 
 	it("holds a list of the next publish over a push baseline, which firstPublishOf answers for a mapping Nova created", async () => {
 		const birth = await born();
+		/* As a completed review stores it: its inputs were reviewed. */
 		const next: StoredFirstPublish = {
 			ids: ["case-settings-respelled"],
+			reviewedInputs: 1,
 			webAppsOnInHq: false,
 			of: "next-publish",
 		};
