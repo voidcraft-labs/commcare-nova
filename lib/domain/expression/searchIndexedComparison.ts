@@ -55,7 +55,13 @@ export function searchIndexedComparison(
 	if (rightType === "int" || rightType === "decimal") return "number";
 	if (rightType === "date" || rightType === "datetime") return rightType;
 	if (typeof value === "string") return searchIndexedValueKind(value);
+	// A worker's text converts when the search runs, or HQ refuses the
+	// search there. A time of day never converts: `float()` refuses it, and
+	// so do Django's `parse_date` and `parse_datetime`
+	// (`comparison.py::_parse_date_or_datetime`), so HQ refuses every such
+	// search with `CaseFilterError`, and the comparison is typed by Nova's own
+	// rules, which refuse to order a time.
 	if (right.kind !== "term" || right.term.kind !== "literal") {
-		if (rightType === "text" || rightType === "time") return "runtime";
+		if (rightType === "text") return "runtime";
 	}
 }

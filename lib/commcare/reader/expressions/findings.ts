@@ -478,8 +478,8 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"case-search/several-xpath-query-rows",
 		"csql-key:_xpath_query",
 	),
-	"xpath-query-condition-outside-what-nova-types": refuse(
-		"case-search/xpath-query-condition-outside-what-nova-types",
+	"xpath-query-condition-nova-s-checker-refuses": refuse(
+		"case-search/xpath-query-condition-nova-s-checker-refuses",
 		"csql-key:_xpath_query",
 	),
 	"casedb-jr-instance-casedb": take(
@@ -1451,8 +1451,9 @@ const M3 = C["a-form-expression-outside-what-nova-types"].entry;
 const M5 = C["required-or-validation-test-reading-the-case"].entry;
 /** M6: a search test outside what Nova types. */
 const M6 = C["required-or-validation-test-outside-what-nova-types"].entry;
-/** M7: a search filter outside what Nova types. */
-const M7 = C["xpath-query-condition-outside-what-nova-types"].entry;
+/** M7: a search filter Nova's checker refuses for a reason no other row names. A comparison HQ's
+ *  search converts is held (`csqlRead.ts::holdsHqConvertedComparison`). */
+const M7 = C["xpath-query-condition-nova-s-checker-refuses"].entry;
 /** M8: a child menu's form reading its inline-search parent's Search fields. */
 const M8 =
 	C["search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu"]

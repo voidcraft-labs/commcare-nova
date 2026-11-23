@@ -4561,11 +4561,41 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
-		"item": "a search filter CommCare HQ builds and Nova's checker or its CSQL representability rule refuses, by its reason: text ordered, a time ordered, a date-and-time property against text",
+		"item": "an `_xpath_query` comparison HQ's search runs by its own conversion of the value and Nova's device rules type otherwise: a text or time property ordered against a number, a date or a date and time, or against a worker's text, and a custom date-and-time property tested for equality with text",
+		"surfaceKeys": [
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"csql-key:_xpath_query"
+		],
+		"valueClass": "comparison-hq-converts",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: HQ orders by the number the value converts to, else by its date or date and time, and tests equality on the stored text (`xpath_functions/comparison.py::case_property_range_query`, `es/case_search.py::case_property_query`); a worker's text that converts to neither stops the search there, as it does in Preview. A value that never converts (other text, a time of day, a blank) is the refusal `p-whose-right-side-is-not-a-number-date-or-datetime-a-time-of`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "one row per filter",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/xpath-query-condition-nova-s-checker-refuses",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "a search filter CommCare HQ builds that Nova's checker or its CSQL representability rule refuses for a reason no other row names (a comparison of values Nova types apart that HQ's search neither converts nor refuses by a rule of its own, a relation or a function outside what Nova's search condition holds)",
 		"surfaceKeys": ["csql-key:_xpath_query"],
 		"valueClass": "outside-the-record-rule-set",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the record rule set's wider vocabulary in a search filter",
+		"dispositionCell": "**HELD-NEW**: the record rule set's wider vocabulary in a search filter, past the comparisons HQ's search converts (`xpath-query-condition-outside-what-nova-types`)",
 		"subject": "search-expressions",
 		"owner": "case-search",
 		"platforms": {

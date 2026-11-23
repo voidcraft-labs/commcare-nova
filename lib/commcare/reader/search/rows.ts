@@ -76,6 +76,7 @@ import type { DraftModule, ReadContext } from "../context";
 import { canonicalExpression } from "../expressions/canonical";
 import type { ComparedType } from "../expressions/comparedTypes";
 import {
+	holdsHqConvertedComparison,
 	type SearchRowRuntimeClass,
 	searchRowRuntimeClasses,
 } from "../expressions/csqlRead";
@@ -144,6 +145,16 @@ const PRESENCE_CLAIMS = defineClaims("search.rows.presence", {
 /** The surface use a row's presence test makes (`surfaceUses.ts::csqlUses`), which the row's
  *  value holds, not its key. */
 const PRESENCE_USE = "csql-key:_xpath_query";
+
+/** A held row's comparison HQ's search runs by its own conversion of the value, which Nova's own
+ *  rules would type otherwise (`csqlRead.ts::holdsHqConvertedComparison`): a part of the row's
+ *  value claimed beside the row's own claim. */
+const CONVERTED_CLAIMS = defineClaims("search.rows.converted", {
+	converted: take(
+		`${S}xpath-query-condition-outside-what-nova-types`,
+		ROW_VALUE,
+	),
+});
 
 /** What a held row works out on the device, each class a part of the row's value claimed beside
  *  the row's own claim (`csqlRead.ts::searchRowRuntimeClasses`). */
@@ -1962,6 +1973,17 @@ export function classifySearchRows(
 		for (const [part, claim] of Object.entries(RUNTIME_CLAIMS))
 			if (classes.has(part as SearchRowRuntimeClass))
 				row.cursor.takePart("defaultValue", part, claim);
+		const rowContext = contexts({ slot: "case_search_filter" });
+		if (
+			read.conjuncts.some((one) =>
+				holdsHqConvertedComparison(one, rowContext, read.types),
+			)
+		)
+			row.cursor.takePart(
+				"defaultValue",
+				"hq-converted-comparison",
+				CONVERTED_CLAIMS.converted,
+			);
 		claimUses();
 		for (const id of read.rewrites) rowRewrites.add(id);
 		if (read.respelled) selectionRespelled = true;

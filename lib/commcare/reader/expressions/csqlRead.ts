@@ -18,8 +18,15 @@ import {
 	type LookupDefinitionIndex,
 	pushRowScope,
 } from "@/lib/domain/expression/context";
+import {
+	csqlPositionAt,
+	csqlPositions,
+} from "@/lib/domain/expression/csqlPositions";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
-import { searchIndexedValueKind } from "@/lib/domain/expression/searchIndexedComparison";
+import {
+	searchIndexedComparison,
+	searchIndexedValueKind,
+} from "@/lib/domain/expression/searchIndexedComparison";
 import {
 	type CheckError,
 	checkExpression,
@@ -27,6 +34,7 @@ import {
 	typeOf,
 } from "@/lib/domain/expression/typeChecker";
 import {
+	COMPARISON_KINDS,
 	type ComparisonKind,
 	DATE_ADD_INTERVALS,
 	type DateAddInterval,
@@ -142,7 +150,7 @@ const HQ_REFUSES =
 	C["a-function-on-the-left-side-a-property-on-the-right-side"].entry;
 const DEVICE_QUERY =
 	C["a-search-value-that-queries-cases-a-table-or-places"].entry;
-const M7 = C["xpath-query-condition-outside-what-nova-types"].entry;
+const M7 = C["xpath-query-condition-nova-s-checker-refuses"].entry;
 const UNTYPED_RIGHT_SIDE =
 	C["p-whose-right-side-is-not-a-number-date-or-datetime-a-time-of@csql-op:>"]
 		.entry;
@@ -2812,4 +2820,52 @@ export function searchRowRuntimeClasses(
 		"session-context-applanguage-term",
 	];
 	return order.filter((one) => found.has(one));
+}
+
+/**
+ * Whether a held row compares a case property as HQ's search alone does, by its own conversion of
+ * the value (`searchIndexedComparison.ts::searchIndexedComparison`), where Nova's own rules would
+ * type the comparison otherwise: a text or time property ordered against a number, a date or a
+ * date and time, or against a worker's text the search converts when it runs, and a date-and-time
+ * property tested for equality with text. HQ orders by the number the value converts to, else by
+ * its date or date and time (`xpath_functions/comparison.py::case_property_range_query`), and
+ * tests equality on the stored spelling (`es/case_search.py::case_property_query`), so each runs.
+ * A comparison the device works out inside a value is the device's, by its own rules.
+ */
+export function holdsHqConvertedComparison(
+	predicate: Expression,
+	context: ExpressionContext,
+	types: readonly ComparedType[],
+): boolean {
+	const typed = withPropertyTypes(context, types);
+	const positions = csqlPositions(predicate);
+	const typeAt = (expression: Expression): string | undefined => {
+		try {
+			return scalarDataType(typeOf(expression, typed)?.data);
+		} catch (error) {
+			rethrowWorkStop(error);
+			return undefined;
+		}
+	};
+	let found = false;
+	walkExpression(predicate, {
+		visitExpression(node, path) {
+			if (found || !(COMPARISON_KINDS as readonly string[]).includes(node.kind))
+				return;
+			if (csqlPositionAt(positions, path) === "runtime") return;
+			const comparison = node as Extract<Expression, { kind: ComparisonKind }>;
+			const leftType = typeAt(comparison.left);
+			const rightType = typeAt(comparison.right);
+			if (leftType === undefined || rightType === undefined) return;
+			found =
+				searchIndexedComparison(
+					comparison.kind === "eq" || comparison.kind === "neq",
+					comparison.left,
+					leftType,
+					comparison.right,
+					rightType,
+				) !== undefined;
+		},
+	});
+	return found;
 }

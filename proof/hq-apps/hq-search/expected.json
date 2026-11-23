@@ -73,6 +73,7 @@
 		"case-search/title-label-or-blank-hq-s-default",
 		"case-search/workflow-search-first-auto-launch-true-default-search-false",
 		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
+		"case-search/xpath-query-condition-outside-what-nova-types",
 		"case-search/xpath-query-row-reading-a-field-hq-also-matches",
 		"case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard",
 		"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
