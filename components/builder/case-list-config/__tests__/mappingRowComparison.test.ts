@@ -6,16 +6,22 @@
  * (CASE_LIST_MAPPING_CONDITION), so the author can't convert the row in place. A row keyed by its
  * saved value keeps its translations under the unit it moves to as it gains an identity or a new
  * value (`mappingRowTranslationCarry`); without the carry the old entry would name a unit that
- * no longer exists, and the author's translation would be lost or the edit refused.
+ * no longer exists, and the author's translation would be lost or the edit refused. The same
+ * edit made under a worker language runs through the Builder's language projection, which reads
+ * the moved row as the row it was (`mappingRowUnitMoves`) rather than as new source content.
  */
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { mappingRowTranslationCarry } from "@/lib/doc/caseListColumnMutations";
+import {
+	columnSnapshotMutations,
+	mappingRowTranslationCarry,
+} from "@/lib/doc/caseListColumnMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
+import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -194,6 +200,50 @@ describe("a mapping row's comparison", () => {
 			expect(to).not.toBe(unitId);
 			const spanish = verdict.nextDoc.localization?.translations.spa ?? {};
 			expect(spanish[to]?.value).toBe("Grifo");
+			expect(spanish[unitId]).toBeUndefined();
+		}
+	});
+	it("carries the row's translation when the edit is made under the worker language", () => {
+		// The Builder runs every batch through the language projection; under Spanish the row
+		// shows its Spanish label, and the moved row is the same row, not new source content.
+		const { doc, unitId } = translated();
+		const moduleUuid = doc.moduleOrder[0] as Uuid;
+		const column = waterColumn(doc);
+		const [row] = column.mapping;
+		for (const [patch, spanishLabel] of [
+			[mappingComparisonPatch(row ?? {}, "condition", false), "Grifo"],
+			[{ value: "piped" }, "Grifo"],
+			[{ value: "piped" }, "Agua de grifo"],
+		] as const) {
+			const next = patched(
+				{
+					...column,
+					mapping: column.mapping.map((one) => ({
+						...one,
+						label: "Grifo",
+					})),
+				},
+				{ ...patch, label: spanishLabel },
+			);
+			const carry = mappingRowTranslationCarry(doc, column, next);
+			const projection = projectBuilderLanguageMutations(doc, "spa", [
+				...carry.before,
+				...columnSnapshotMutations(moduleUuid, column, next),
+				...carry.after,
+			]);
+			if (!projection.ok) throw new Error(projection.message);
+			const verdict = mutationCommitVerdict(
+				doc,
+				projection.mutations,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+			const [moved] = waterColumn(verdict.nextDoc).mapping;
+			expect(moved?.label).toBe("Tap");
+			const to = caseMappingTextUnit(WATER, moved ?? {}, "mapping");
+			expect(to).not.toBe(unitId);
+			const spanish = verdict.nextDoc.localization?.translations.spa ?? {};
+			expect(spanish[to]?.value).toBe(spanishLabel);
 			expect(spanish[unitId]).toBeUndefined();
 		}
 	});

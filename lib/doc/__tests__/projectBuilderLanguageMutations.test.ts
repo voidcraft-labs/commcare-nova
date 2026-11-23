@@ -472,7 +472,7 @@ describe("projectBuilderLanguageMutations", () => {
 		});
 	});
 
-	it("requires a source-lens edit when an ID-mapping key would create a new string", () => {
+	it("requires a source-lens edit when an ID-mapping row would create a new string", () => {
 		const doc = fixture();
 		const localized = projectLocalizedModule(doc, "spa", MODULE);
 		if (localized?.caseListConfig === undefined) {
@@ -484,10 +484,7 @@ describe("projectBuilderLanguageMutations", () => {
 		}
 		const planned = columnSnapshotMutations(MODULE, current, {
 			...current,
-			mapping: [
-				{ ...current.mapping[0], value: "open_now" },
-				current.mapping[1],
-			],
+			mapping: [...current.mapping, { value: "pending", label: "Pendiente" }],
 		});
 
 		expect(projectBuilderLanguageMutations(doc, "spa", planned)).toEqual({
@@ -495,6 +492,44 @@ describe("projectBuilderLanguageMutations", () => {
 			message:
 				"Add this worker-facing content in English first, then translate it into Español.",
 		});
+	});
+
+	it("reads an ID-mapping row whose saved value changes in place as the row it was", () => {
+		// A row keyed by its saved value moves to another text unit as its value changes; the
+		// edit is structural, and its words stay the source's (the Builder's commit carries the
+		// row's translations, `mappingRowTranslationCarry`).
+		const doc = fixture();
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
+		const current = localized?.caseListConfig?.columns[0];
+		if (current?.kind !== "id-mapping") {
+			throw new Error("Expected an ID-mapping column.");
+		}
+		const planned = columnSnapshotMutations(MODULE, current, {
+			...current,
+			mapping: [
+				{ ...current.mapping[0], value: "open_now" },
+				current.mapping[1],
+			],
+		});
+
+		const projection = projectBuilderLanguageMutations(doc, "spa", planned);
+		if (!projection.ok) throw new Error(projection.message);
+		const update = projection.mutations.find(
+			(mutation) => mutation.kind === "updateColumn",
+		);
+		expect(
+			update?.kind === "updateColumn" && update.column?.kind === "id-mapping"
+				? update.column.mapping
+				: undefined,
+		).toEqual([
+			{ value: "open_now", label: "Open" },
+			{ value: "closed", label: "Closed" },
+		]);
+		expect(
+			projection.mutations.some(
+				(mutation) => mutation.kind === "setTranslation",
+			),
+		).toBe(false);
 	});
 
 	it("writes an actual column and derived Search-default edit to target overlays", () => {

@@ -8,8 +8,11 @@
 import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseListConfig, Column } from "@/lib/domain";
-import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
-import type { LanguageTag } from "@/lib/domain/localization";
+import {
+	type CaseMappingRow,
+	caseMappingTextUnit,
+} from "@/lib/domain/caseMappingRows";
+import type { LanguageTag, TranslationUnitId } from "@/lib/domain/localization";
 
 type ColumnContent = NonNullable<
 	Extract<Mutation, { kind: "updateColumn" }>["column"]
@@ -245,27 +248,18 @@ export function mappingRowTranslationCarry(
 	const after: Mutation[] = [];
 	if (
 		(current.kind !== "id-mapping" && current.kind !== "image-map") ||
-		next.kind !== current.kind ||
-		next.mapping.length !== current.mapping.length
+		next.kind !== current.kind
 	)
 		return { before, after };
 	const role = current.kind === "image-map" ? "image-description" : "mapping";
-	const was = current.mapping.map((row) =>
-		caseMappingTextUnit(current.uuid, row, role),
-	);
-	const now = next.mapping.map((row) =>
-		caseMappingTextUnit(current.uuid, row, role),
+	const moves = mappingRowUnitMoves(
+		current.uuid,
+		current.mapping,
+		next.mapping,
+		role,
 	);
 	const translations = doc.localization?.translations ?? {};
-	for (const [index, from] of was.entries()) {
-		const to = now[index];
-		if (
-			to === undefined ||
-			from === to ||
-			now.includes(from) ||
-			was.includes(to)
-		)
-			continue;
+	for (const { from, to } of moves.values()) {
 		for (const [language, entries] of Object.entries(translations)) {
 			const entry = entries?.[from];
 			if (entry === undefined) continue;
@@ -285,4 +279,42 @@ export function mappingRowTranslationCarry(
 		}
 	}
 	return { before, after };
+}
+
+/**
+ * The mapping rows an edit in place moves to another text unit, by the place of the row in
+ * `next`: rows are paired by place, only where both lists hold the same number of rows, and a
+ * pair counts only where its units differ and neither unit is another row's. This is the one
+ * pairing both the carry above and the Builder's language projection
+ * (`projectBuilderLanguageMutations`) read, so an edit under a worker language reads a moved row
+ * as the row it was rather than as new source content.
+ */
+export function mappingRowUnitMoves(
+	columnUuid: Uuid,
+	current: readonly CaseMappingRow[],
+	next: readonly CaseMappingRow[],
+	role: "mapping" | "image-description",
+): ReadonlyMap<
+	number,
+	{ readonly from: TranslationUnitId; readonly to: TranslationUnitId }
+> {
+	const moves = new Map<
+		number,
+		{ readonly from: TranslationUnitId; readonly to: TranslationUnitId }
+	>();
+	if (next.length !== current.length) return moves;
+	const was = current.map((row) => caseMappingTextUnit(columnUuid, row, role));
+	const now = next.map((row) => caseMappingTextUnit(columnUuid, row, role));
+	for (const [index, from] of was.entries()) {
+		const to = now[index];
+		if (
+			to === undefined ||
+			from === to ||
+			now.includes(from) ||
+			was.includes(to)
+		)
+			continue;
+		moves.set(index, { from, to });
+	}
+	return moves;
 }

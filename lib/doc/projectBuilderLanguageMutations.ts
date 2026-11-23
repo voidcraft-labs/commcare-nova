@@ -3,6 +3,7 @@
  * overlay while preserving structural edits in the canonical source document.
  */
 
+import { mappingRowUnitMoves } from "@/lib/doc/caseListColumnMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	caseListWordingUnitId,
@@ -100,6 +101,24 @@ export function projectBuilderLanguageMutations(
 			});
 		}
 		return unit.source;
+	};
+
+	/** `redirect` for a row whose unit this batch moves (`mappingRowUnitMoves`):
+	 * the words are compared with the row's old unit, and a changed value is
+	 * written under the unit it moves to, where the batch's carry puts the
+	 * row's existing translation. */
+	const redirectMoved = (
+		from: TranslationUnitId,
+		to: TranslationUnitId,
+		presented: LocalizedValue,
+	): LocalizedValue | undefined => {
+		const pending = targetWrites.has(from);
+		const source = redirect(from, presented);
+		if (!pending && targetWrites.has(from)) {
+			targetWrites.set(to, targetWrites.get(from) ?? null);
+			targetWrites.delete(from);
+		}
+		return source;
 	};
 
 	/** A reset on a localized configuration slot means use source fallback. */
@@ -334,29 +353,33 @@ export function projectBuilderLanguageMutations(
 					refuseMissingSource();
 				}
 				if (column.kind === "id-mapping" && current.kind === "id-mapping") {
-					if (
-						column.mapping.some(
-							(mapping) =>
-								!current.mapping.some(
-									(candidate) =>
-										caseMappingTextUnit(mutation.uuid, candidate, "mapping") ===
-										caseMappingTextUnit(mutation.uuid, mapping, "mapping"),
-								),
-						)
-					) {
-						refuseMissingSource();
-					}
-					column.mapping = column.mapping.map((mapping) => {
+					// A row the edit moves to another unit (a row saved before rows
+					// carried identities, given one or a new value) is the row it was:
+					// its words are read against its old unit, and a changed label is
+					// this language's translation under the unit it moves to.
+					const moves = mappingRowUnitMoves(
+						mutation.uuid,
+						current.mapping,
+						column.mapping,
+						"mapping",
+					);
+					column.mapping = column.mapping.map((mapping, index) => {
+						const unitId = caseMappingTextUnit(
+							mutation.uuid,
+							mapping,
+							"mapping",
+						);
 						const prior = current.mapping.find(
 							(candidate) =>
 								caseMappingTextUnit(mutation.uuid, candidate, "mapping") ===
-								caseMappingTextUnit(mutation.uuid, mapping, "mapping"),
+								unitId,
 						);
-						if (prior === undefined) return mapping;
-						const source = redirect(
-							caseMappingTextUnit(mutation.uuid, mapping, "mapping"),
-							mapping.label,
-						);
+						const move = moves.get(index);
+						let source: LocalizedValue | undefined;
+						if (prior !== undefined) source = redirect(unitId, mapping.label);
+						else if (move !== undefined)
+							source = redirectMoved(move.from, move.to, mapping.label);
+						else refuseMissingSource();
 						return typeof source === "string"
 							? { ...mapping, label: source }
 							: mapping;
@@ -388,22 +411,37 @@ export function projectBuilderLanguageMutations(
 					});
 				}
 				if (column.kind === "image-map") {
-					column.mapping = column.mapping.map((row) => {
-						const id = caseMappingTextUnit(
-							mutation.uuid,
-							row,
-							"image-description",
-						);
+					const moves =
+						current.kind === "image-map"
+							? mappingRowUnitMoves(
+									mutation.uuid,
+									current.mapping,
+									column.mapping,
+									"image-description",
+								)
+							: undefined;
+					column.mapping = column.mapping.map((row, index) => {
+						const move = moves?.get(index);
+						const id =
+							move?.from ??
+							caseMappingTextUnit(mutation.uuid, row, "image-description");
 						if (row.altText === undefined) {
 							if (units.has(id)) {
-								redirectClear(id);
+								if (move === undefined) redirectClear(id);
+								else if (
+									localization.translations[language]?.[id] !== undefined
+								)
+									targetWrites.set(move.to, null);
 								const original = units.get(id)?.source;
 								if (typeof original === "string")
 									return { ...row, altText: original };
 							}
 							return row;
 						}
-						const original = redirect(id, row.altText);
+						const original =
+							move === undefined
+								? redirect(id, row.altText)
+								: redirectMoved(move.from, move.to, row.altText);
 						if (typeof original !== "string") refuseMissingSource();
 						return {
 							...row,
