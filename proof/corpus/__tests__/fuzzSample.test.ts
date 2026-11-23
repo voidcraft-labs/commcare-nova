@@ -240,10 +240,13 @@ function labelledGroups(doc: BlueprintDoc): {
  * `buildField` began keeping a validation message drawn without a condition on
  * its field (`xformDocArbitrary.ts`), a message the emitter writes nowhere,
  * which the suite and expression generators build their fields through too.
+ * Seventeen documents took new bytes, and no new draw, when a message's and a
+ * capture's schema gained a condition, a validation and help: the same
+ * fields, written in the schema's new key order.
  */
 const ORIGINAL_DRAWS: Readonly<Record<string, string>> = {
 	"fuzz-xform-20260930-0":
-		"c4062d192592b9c65e1b2ca3606a5a2b7e0ab94f956fe33fda97fcd4f5e9e84b",
+		"ad0138b64e1ce012d003e64933b2051e1c376f2a1c5f8615bb447ae314b9a6f7",
 	"fuzz-xform-20260930-1":
 		"08a1606671b94f046086e0c24c42c0fa78d327868c8fc864b355436e13951cd7",
 	"fuzz-xform-20260930-2":
@@ -251,29 +254,29 @@ const ORIGINAL_DRAWS: Readonly<Record<string, string>> = {
 	"fuzz-xform-20260930-3":
 		"7c62060f87ab0010df4362ff4001cf0215707750a6905035c6b7edd8ba004ce8",
 	"fuzz-xform-20260930-4":
-		"a3adc2c564df3cbcbe286565d33b9554d7ef88d74026ca38f2502815868f9e79",
+		"0ec30ecbd6a3aca37fed0b1d41a1a99bedcc75570a58588ecc6befa8389c038d",
 	"fuzz-xform-20260930-5":
 		"f8d94a4e26d8ba7b09de641f7c693864145962627c98cb8cfa85ed2688753767",
 	"fuzz-xform-20260930-6":
-		"cab6977a662baa611ceca0230c40a59fb4c985851d1380a819e27525080ffac8",
+		"2b71fa4c8173c5f2b7c51c1c85b9c18e0cbfd8092ce6bc974f19fe845134ba9d",
 	"fuzz-xform-20260930-7":
-		"9c49a1062412661ded8ba61649a48141858bfa39cc3b7bdeac1b55d3723673a6",
+		"005962f8ca8a997b660f318756ca2b96d49ae530a4ba38b66fb0c60fabaf2173",
 	"fuzz-xform-20260930-8":
-		"2a81d3af5a71c2f5ea8278ca4fc310231769b45713cae594e84f06d7e82eae92",
+		"af6bba6b71eececb848ab3e8afd27b530d6cbd3f90f83ef2bb4c02815b439a51",
 	"fuzz-xform-20260930-9":
-		"b72e3fca7be2f3341a9c9e34cd6224254ecbeca2cbefd1230519646e6f542495",
+		"07046776e16c7e32d04939f5770d5fd50922ef1104ec37e0907901dec9a80bdb",
 	"fuzz-xform-20260930-10":
-		"bc79d16b56ca1d6e6e809ad1633fee7b86584acb6d94d8511c6267f536d819fc",
+		"739b1191068b6513a30e730c4f1d3cdc3ddf9893c3e2942d0a5d3385fc8b0793",
 	"fuzz-xform-20260930-11":
-		"c3db59e35973ed260663c9253dbd0ff1d43d6f0ba4be66bda886ec0e8f829154",
+		"5a941a71aecb9acfa4c111dcc34aee1b4ba80dde6d472bb8dce19b04f921ccf3",
 	"fuzz-suite-20260930-0":
 		"81e666b37892004fde4b2e12b48fd8f8cc73559c8d030fba7058eae10817d2ef",
 	"fuzz-suite-20260930-1":
 		"ecff26e43c7cd21a058ad0314f0986d9ee3acdbab6acb4801ca40187ba607aed",
 	"fuzz-suite-20260930-2":
-		"24affccbefa845914b59526ae411497f1f85f5c583c25805da0c6a7b73e706dc",
+		"ac79cdc36401d7142345293cd77967e2476be2d85e25c3bc1ebf7d319ee0889f",
 	"fuzz-suite-20260930-3":
-		"fb8af50e0c32e2e5ac9cfb35548e293e54fbd0137fc433ccac47f8d9403c0357",
+		"25b160b607b23a2f149b7aace4e0414c79fd853568f8b035ce6a29e0bb346789",
 	"fuzz-suite-20260930-4":
 		"25eead83da909b8e12188c93de4c80129bfbd1c3b7cd50a31535dad034164bb5",
 	"fuzz-suite-20260930-5":
@@ -281,23 +284,23 @@ const ORIGINAL_DRAWS: Readonly<Record<string, string>> = {
 	"fuzz-suite-20260930-6":
 		"f6c082356cb222879d3f81123ad6b6730f9e6999e298bca80301c3206f15d865",
 	"fuzz-suite-20260930-7":
-		"f4da0f25cfb5bc39ca46e24011186724593e4508cf50d9079d960a7ec57c31df",
+		"f33ad68efaea41b5aae39e23fc6529ee360589e14f1576c7f4b699a9b6606213",
 	"fuzz-suite-20260930-8":
-		"000d9e0cdc42e7121b6f9ac74560dcdd3b9ad852bd9693bb69d4a0af954ec8dd",
+		"4c60345be7f6e87c60e0c0f6feaaddc95f1e7d3b93b382ab88480c3488715145",
 	"fuzz-suite-20260930-9":
-		"6eddb1823876724ba0dcd5aaeb4a2aefa8b596898fa3f69271056ae38af10263",
+		"568c1169a394c57c235afa0259d6e341af59f020c45423b4814331da8c855493",
 	"fuzz-suite-20260930-10":
 		"9f0f59c5abdd8fbba3782ae4bde289319dd95bd5dd34a4b2bf4216d66a6568d2",
 	"fuzz-suite-20260930-11":
-		"6b43591fa7dbb94df92a709a05a9c43a4362327d4cdd65e269136a34231d4b41",
+		"ddd42fd9bbcc306410280ed7edea24ce18ee72b18b52a74b848f88b67ef67df8",
 	"fuzz-expression-20260930-0":
 		"d8c1f2b3bfc2bf87a81d7cecb0875ba56567fdb2ef7a3a504137b52d5f19d328",
 	"fuzz-expression-20260930-1":
 		"6dfece4adca1ab64d0ca1710cfff270475422a2c27b7e25d8cf950db10bfd384",
 	"fuzz-expression-20260930-2":
-		"0aa95909607a9a6ac608a724074c57db91612d9f41845619e2224658d0362599",
+		"5cbdb1d58328e0f1e5d937c2814e9cbbc367b3fc53c740c44b639502c7b48b98",
 	"fuzz-expression-20260930-3":
-		"6e5f1f8a37679a1e8fd89b9936cdfd6961a161de61289ee257e26ce6bdf31704",
+		"308a4ce6cb8448d43ed67985e84da558cbda4e499a51e9b38f1dff2b0e05d81f",
 	"fuzz-expression-20260930-4":
 		"47126db71c55db4bc669db6f836e320aebdc11e3ffae72db9c814be2f73decf6",
 	"fuzz-expression-20260930-5":
@@ -305,7 +308,7 @@ const ORIGINAL_DRAWS: Readonly<Record<string, string>> = {
 	"fuzz-expression-20260930-6":
 		"7953713af344a9edcae6daf816894a98d2fd43f967f65ba449dbcb68c8e138e9",
 	"fuzz-expression-20260930-7":
-		"34e857b8246782875568cd3786ad528287bf928c8e4ea2aa68680168764146bf",
+		"e1999d660cbfaf761273615a4ad75ded338b1307afab6373f10e6d15745418d6",
 };
 
 /** The SHA-256 of the bytes the writer writes for a sampled document. */
