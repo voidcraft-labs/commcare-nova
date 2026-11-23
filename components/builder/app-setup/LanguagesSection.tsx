@@ -1308,6 +1308,10 @@ function TranslationUnitRow({
 									value={draft}
 									multiline
 									proseSlot={proseSlot}
+									showSavedCheck={false}
+									{...(filledText !== undefined && {
+										placeholder: filledText,
+									})}
 									onChange={setDraft}
 									onSave={(value) => {
 										setDraft(value);

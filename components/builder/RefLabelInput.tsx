@@ -75,6 +75,11 @@ interface RefLabelInputProps {
 	/** The text's prose slot, where a calculated value is parsed, checked and
 	 *  printed. A text with no slot (a case property's label) holds none. */
 	proseSlot?: ProseSlotRef;
+	/** What the empty editor shows while it is not being edited. */
+	placeholder?: string;
+	/** False where `onSave` keeps a draft its owner saves later, so no saved
+	 *  check claims the text was saved. */
+	showSavedCheck?: boolean;
 }
 
 // ── Serialization ───────────────────────────────────────────────────────
@@ -122,6 +127,8 @@ export function RefLabelInput({
 	selectAll,
 	labelRight,
 	proseSlot,
+	placeholder,
+	showSavedCheck = true,
 }: RefLabelInputProps) {
 	const labelId = useId();
 	const [focused, setFocused] = useState(false);
@@ -433,7 +440,7 @@ export function RefLabelInput({
 				>
 					{fieldLabel}
 					<SavedCheck
-						visible={saved && !focused}
+						visible={showSavedCheck && saved && !focused}
 						size={12}
 						className="shrink-0"
 					/>
@@ -442,7 +449,16 @@ export function RefLabelInput({
 				{labelRight}
 			</div>
 			<ProseSlotScope slot={proseSlot}>
-				<div className={wrapperCls} data-field-id={dataFieldId}>
+				<div className={`relative ${wrapperCls}`} data-field-id={dataFieldId}>
+					{isEmpty && placeholder !== undefined && (
+						<span
+							aria-hidden="true"
+							data-placeholder=""
+							className="pointer-events-none absolute inset-x-2 top-1 truncate text-nova-text-muted italic"
+						>
+							{placeholder}
+						</span>
+					)}
 					<EditorContent editor={editor} />
 				</div>
 			</ProseSlotScope>
