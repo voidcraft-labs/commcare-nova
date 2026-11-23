@@ -38,8 +38,6 @@ const DOMAIN = "clinic";
 const HOST = "https://india.commcarehq.org";
 const LIST = `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`;
 const LEVELS = `/a/${DOMAIN}/api/location_type/v1/?limit=1000`;
-const CAPS_ENTRY =
-	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";
 const PROTO_ID = "5c1e0f4a9b8d4c7e8f6a5b4c3d2e1f00";
 
 /** A Project side that holds no table, measuring every candidate's rows as `measure`. */
@@ -168,15 +166,16 @@ describe("readReadingProjectData", () => {
 		if (answer.kind !== "read") throw new Error("the read failed");
 		const [proto] = answer.data.gathered.tables;
 		if (proto?.read.kind !== "read") throw new Error("__proto__ was not read");
-		const phrases = lookupCapExcess(
-			managedLookupContentOf(proto.read.table, proto.read.rows),
-			measure,
-		);
-		expect(phrases).toHaveLength(2);
+		/* Postgres's measure of `__proto__` is found under its own tag, never
+		 * the prototype's: both of its caps pass, so the table comes in as a
+		 * reference to its source with no rows held inline (section 1C),
+		 * rather than as the one row the list served. */
 		expect(
-			proto.findings.map((finding) => [finding.code, finding.detail.name]),
-		).toEqual(phrases.map((phrase) => [CAPS_ENTRY, `__proto__: ${phrase}`]));
-		expect(proto.standing).toBeNull();
+			lookupCapExcess(managedLookupContentOf(proto.read.table, [row]), measure),
+		).toHaveLength(2);
+		expect(proto.findings).toEqual([]);
+		expect(proto.read.rows).toEqual([]);
+		expect(proto.read.canonical.source.inventory).toBe("unavailable");
 	});
 
 	it("reads only the rows reached by the form's local alias, even when prose, a declaration, or a longer tag mentions another table", async () => {
@@ -219,10 +218,11 @@ describe("readReadingProjectData", () => {
 			if (reply.kind !== "read") throw new Error("The table read failed");
 			const [remote] = reply.data.gathered.tables;
 			expect(remote.read.table.tag).toBe("locations-west");
-			expect(remote.findings.map((finding) => finding.detail.name)).toContain(
-				"locations-west: rows limited to certain users",
-			);
-			expect(remote.binding).toBeNull();
+			/* Its rows are assigned to workers, so it comes in as a reference to
+			 * its source (section 1B), never as rows every worker gets. */
+			expect(remote.findings).toEqual([]);
+			if (remote.read.kind !== "read") throw new Error("not read");
+			expect(remote.read.canonical.source.distribution).toBe("assigned");
 			expect(
 				peer
 					.getCallHistory()

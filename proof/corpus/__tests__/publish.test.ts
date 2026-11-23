@@ -225,8 +225,11 @@ it("captures each physical media batch and its counter over the 200-file destina
 }, 60000);
 
 it.each([
+	/* The read-back after the upload. An unchanged republish reads no file:
+	 * CommCare HQ binds a file id to one content
+	 * (`hqmedia/models.py::CommCareMultimedia.get_by_data`), so the id Nova
+	 * recorded still at its path is the file Nova sent. */
 	{ read: 1, message: "did not verify the media upload", posts: 1 },
-	{ read: 2, message: "changed before the media upload", posts: 1 },
 ])(
 	"stops when the authenticated file bytes differ on read $read despite the matched upload report",
 	async ({ read, message, posts }) => {

@@ -108,8 +108,10 @@ describe("a bring-in's lookup rows", () => {
 		).toContainEqual({ name: "rich: more data than Nova reads for one table" });
 	});
 
-	it("answer a request whose tables together pass the request's bound as more lookup data than Nova brings in", async () => {
-		/* Each table fits one table's bound; the two together pass the request's. */
+	it("hold the table that passes what is left of the request's bound as that table's own, and still read the first", async () => {
+		/* Each table fits one table's bound; the two together pass the
+		 * request's. The second is then too large for this one interactive
+		 * read, and section 1C admits it as a reference to its source. */
 		limits.table = bytesOf(RICH) + 1;
 		limits.request = bytesOf(PLAIN) + bytesOf(RICH) - 1;
 		const answer = await withHttpPeer(async (peer) => {
@@ -122,15 +124,23 @@ describe("a bring-in's lookup rows", () => {
 				referencedTags: async () => new Set(["plain", "rich"]),
 			});
 		});
-		expect(answer).toEqual({
-			success: false,
-			status: 502,
-			cause: "too-large",
-			request: "lookup-rows",
-		});
-		if (!("success" in answer)) throw new Error("the read did not fail");
-		expect(hqReadCircumstance(classifyHqFailure(answer, answer.request))).toBe(
-			"lookup-data-too-large",
+		if ("success" in answer) throw new Error("the read failed");
+		expect(answer.tables.map((table) => [table.kind, table.table.tag])).toEqual(
+			[
+				["read", "plain"],
+				["over-byte-limit", "rich"],
+			],
 		);
+	});
+
+	it("names a rows read HQ answered past its byte bound as more lookup data than Nova brings in", () => {
+		expect(
+			hqReadCircumstance(
+				classifyHqFailure(
+					{ success: false, status: 502, cause: "too-large" },
+					"lookup-rows",
+				),
+			),
+		).toBe("lookup-data-too-large");
 	});
 });

@@ -1925,11 +1925,13 @@ function servePlaces(
 	levels: readonly unknown[],
 ) {
 	const read = () =>
-		(typeof objects === "function" ? objects() : objects).map((object) => ({
-			domain: "clinic",
-			last_modified: "2026-11-01T09:00:00",
-			...(object as Record<string, unknown>),
-		}));
+		(typeof objects === "function" ? objects() : objects).map(
+			(object): Record<string, unknown> => ({
+				domain: "clinic",
+				last_modified: "2026-11-01T09:00:00",
+				...(object as Record<string, unknown>),
+			}),
+		);
 	const levelId = new Map(
 		levels.map((level) => {
 			const { id, code } = level as { id: number; code: string };
