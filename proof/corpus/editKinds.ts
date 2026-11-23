@@ -43,6 +43,7 @@ import {
 	updateFormMutations,
 	updateSearchInputMutation,
 } from "@/lib/agent/blueprintHelpers";
+import { qualifiedLanguageWireCode } from "@/lib/commcare/languageWire";
 import {
 	alwaysOfferedRegistrationChoices,
 	alwaysOfferedRegistrationMutations,
@@ -795,16 +796,24 @@ const setDefaultLanguage: KindGenerator = (ctx) => {
 		);
 };
 
+/* A language's code changes only where CommCare HQ's Languages page renamed it
+ * and Nova brings that in (`diffDocsToMutations`); no Nova editor recodes a
+ * language. The batch is that recode: the first registered language takes
+ * another spelling a person can give it there, its ISO 639-3 code where it
+ * holds the shorter one, else its qualified one, and never a code the app
+ * already holds, its own among them. */
 const rebindLanguageCodes: KindGenerator = (ctx) => {
 	const loc = effectiveAppLocalization(ctx.doc.localization);
 	const registered = loc.languageOrder.find(
 		(tag) => !tag.startsWith("project:"),
 	);
 	if (!registered) return [];
-	const to = addLanguageMutation(
-		heldLanguageWireCodes(ctx.doc),
-		parseLanguageTag(registered),
-	).wireCode;
+	const held = heldLanguageWireCodes(ctx.doc);
+	const identity = parseLanguageTag(registered);
+	const to = [identity.language, qualifiedLanguageWireCode(identity)].find(
+		(code) => !held.has(code),
+	);
+	if (to === undefined) return [];
 	return [
 		batch([
 			{
