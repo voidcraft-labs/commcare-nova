@@ -989,9 +989,9 @@ Case search is the search experience that surrounds the case list: the screen ti
 
 | Tool | What it does |
 |---|---|
-| `get_entry_points` | List authored entry points, stable UUIDs and external IDs, destinations, and required case selections. This does not produce or verify a released link. |
-| `add_entry_point` | Enable one explicit entry point with `target: { kind: "module", moduleUuid }`, `{ kind: "case-list", moduleUuid }`, or `{ kind: "form", moduleUuid, formUuid }`. Optional `entryPointUuid` predeclares its identity; optional `id` sets its stable external ID. Otherwise Nova generates both. An `id` uses lowercase letters, digits, underscores and single hyphens, and starts and ends with a letter or digit. |
-| `update_entry_point` | Address `entryPointUuid` and supply `patch` with `id` or the form-only `ignoreDisplayConditions`. Omission keeps a setting; `null` clears the condition bypass. |
+| `get_entry_points` | List authored entry points, stable UUIDs and external IDs, destinations, and required case selections, plus `caseCreations`: for each form destination, the case creations whose new IDs a link can supply (`choices`) and the ones it supplies now (`supplied`). This does not produce or verify a released link. |
+| `add_entry_point` | Enable one explicit entry point with `target: { kind: "module", moduleUuid }`, `{ kind: "case-list", moduleUuid }`, or `{ kind: "form", moduleUuid, formUuid }`. Optional `entryPointUuid` predeclares its identity; optional `id` sets its stable external ID. Otherwise Nova generates both. An `id` uses lowercase letters, digits, underscores and single hyphens, and starts and ends with a letter or digit. On a form, optional `caseCreationUuids` names the case creation operations whose new case IDs the link's caller supplies; they belong to the form, so every link to it, through any menu, takes them. |
+| `update_entry_point` | Address `entryPointUuid` and supply `patch` with `id`, the form-only `ignoreDisplayConditions`, or the form-only `caseCreationUuids`. Omission keeps a setting; `null` clears the condition bypass, and `null` or an empty list lets the form generate every new case ID again. |
 | `remove_entry_point` | Remove the UUID-addressed entry point. Publish and release the change to remove it on HQ. |
 
 Each destination owns at most one entry point. IDs are unique across the app
@@ -1437,7 +1437,9 @@ attachment links open.
 `entry_point_uuid`, and `selections: [{ module_uuid, case_ids }]`. Supply every
 required selection from `get_entry_points`, using **external case IDs from
 that HQ project space**, never Nova Preview row IDs. Use an empty array when
-no cases are required. The tool returns a URL only after a fresh release
+no cases are required. Where the form takes new case IDs from its link, also
+supply `creations: [{ operation_uuid, case_id }]`, one fresh ID for each
+supplied creation; an ID that names a selected case is refused. The tool returns a URL only after a fresh release
 check; a stored `get_deployment` result is not evidence for constructing one.
 Publish all committed app edits, including label changes, before requesting a new
 checked link. The app snapshot must still match when the check completes.
