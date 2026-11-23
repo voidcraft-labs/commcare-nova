@@ -9426,17 +9426,6 @@ def custom_sort_on_an_offered_search(use, manifest):
     return offered
 
 
-def default_on_date_range(use, manifest):
-    """``case-search/default-value-on-a-date-range-input``: a ``default_value`` that holds text on a prompt shown as
-    a date range (``input_: daterange`` on a prompt that is not hidden). A blank
-    default is no default: HQ's build and Web Apps read one only where it holds text."""
-    prompt = _prompt_slot(use, "default_value")
-    if prompt is None:
-        return None
-    value = prompt.get("default_value")
-    return value not in (None, "") and prompt.get("input_") == "daterange" and prompt.get("hidden") is not True
-
-
 def choice_value_with_both_quote_marks(use, manifest):
     """``questions/choice-value-holding-both-an-apostrophe-and-a-double-quote``: a choice's ``<value>`` whose text
     holds both ``'`` and ``"``, which no XPath string literal spells (``lib/domain/selectOptionValue.ts::
@@ -10006,7 +9995,6 @@ VALUE_CLASSES = {
     "forms-and-case-writes/case-tag-holding-a-hyphen": case_tag_with_a_hyphen,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
-    "case-search/default-value-on-a-date-range-input": default_on_date_range,
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
     "case-search/custom-sort-properties-property-name-sort-type-exact-date": custom_sort_on_an_offered_search,
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,

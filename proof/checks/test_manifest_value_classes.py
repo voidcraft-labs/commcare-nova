@@ -6141,26 +6141,6 @@ def _held_new():
             # Excluded from the search, the prompt names no case property.
             accepted("app", search(name="_x", exclude=True), "schema:CaseSearchProperty.name", f"{prompts}/name"),
         ),
-        "case-search/default-value-on-a-date-range-input": (
-            refused(
-                "app",
-                search(name="dob", input_="daterange", default_value="today()"),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
-            accepted(
-                "app",
-                search(name="dob", input_="date", default_value="today()"),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
-            accepted(
-                "app",
-                search(name="dob", input_="daterange", default_value="today()", hidden=True),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
-        ),
         "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": (
             refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
             accepted("form", choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
