@@ -295,7 +295,7 @@ def _base_reads(base="hq-plain"):
             if (tag := fixture_rows_tag(path.name)) is not None
         },
     }
-    for key, name in (("locationTypes", "location-types.json"), ("locations", "locations.json")):
+    for key, name in (("locationTypes", "location-types.json"), ("locations", "locations.json"), ("locationsV1", "locations-v1.json")):
         if (directory / name).is_file():
             data[key] = _answer(directory / name)
     reads["projectData"] = data

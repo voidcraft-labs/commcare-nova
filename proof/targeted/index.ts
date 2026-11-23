@@ -120,6 +120,7 @@ import { plainHelp } from "./documents/plainHelp";
 import { platformDeclaration } from "./documents/platformDeclaration";
 import { previewAndroidRenders } from "./documents/previewAndroidRenders";
 import { proseValue } from "./documents/proseValue";
+import { qualifiedLookupValues } from "./documents/qualifiedLookupValues";
 import {
 	registerFromCaseList,
 	registerFromCaseListWebApps,
@@ -269,6 +270,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	caseTypeNames,
 	choiceValues,
 	lookupNames,
+	qualifiedLookupValues,
 	searchFieldNames,
 	caseWriteNames,
 	connectDeliverHyphenIds,

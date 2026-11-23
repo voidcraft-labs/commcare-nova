@@ -64,6 +64,17 @@ def test_hq_reads_novas_workbooks_as_nova_wrote_them(native):
     assert expected["stripCharacters"] == [point for point in range(0x110000) if chr(point).strip() == ""]
     assert padding_values != expected["padding"]
 
+    rich = result["rich"]
+    assert rich["attributes"] == ["row_code"]
+    fields = {name: (properties, index) for name, properties, index in rich["fields"]}
+    assert fields["label"] == (["lang"], True)
+    assert [row["attributes"]["row_code"] for row in rich["rows"]] == ["north", "south", "east"]
+    for row, name in zip(rich["rows"], ["Northland", "Southland", "Eastland"], strict=True):
+        assert [list(item) for item in row["label"]] == [
+            ["Original " + name, {"lang": "en"}],
+            ["Choix " + name, {"lang": "fr"}],
+        ]
+
     write_evidence(
         exports,
         "lookup-workbook",

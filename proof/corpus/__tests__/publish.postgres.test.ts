@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * The harness publishes as Nova publishes, and downloads as Nova downloads.
  *
@@ -142,7 +143,6 @@ import { bringInHqChanges } from "@/lib/deployment/hqChanges/bringIn";
 import { reviewHqChanges } from "@/lib/deployment/hqChanges/review";
 import { summarizeServedHqApp } from "@/lib/deployment/reading/__tests__/servedHqApp";
 import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
-import { publishAppToHq } from "@/lib/deployment/service";
 import * as deploymentStore from "@/lib/deployment/store";
 import { recordAdoptedDeploymentInTransaction } from "@/lib/deployment/store";
 import { canonicalTargetIdentity } from "@/lib/deployment/targetIdentity";

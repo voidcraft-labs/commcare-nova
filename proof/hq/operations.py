@@ -729,6 +729,12 @@ def locations_read(state, credential: ApiCredential) -> HqAnswer:
     return api_request(state, "GET", f"/a/{state.domain}/api/location/v2/?limit=1000", credential=credential)
 
 
+
+def location_external_ids_read(state, credential: ApiCredential) -> HqAnswer:
+    """The v1 LocationResource exposes external_id, which v2 omits."""
+    return api_request(state, "GET", f"/a/{state.domain}/api/location/v1/?limit=1000", credential=credential)
+
+
 @contextmanager
 def location_types_in_id_order():
     """``LocationTypeResource``'s list, for the block, in the order of its levels' ids.
@@ -1373,17 +1379,29 @@ def served_lookup_tables(state):
     }
 
 
-def served_lookup_rows(state, tag):
-    """The rows of the table under ``tag`` as ``fixtures/resources/v0_1.py::FixtureResource`` serves them filtered
-    to that table, in order, each its ``fields`` alone."""
+def served_lookup_rows(state, tag, *, details=False):
+    """Read the selected table in native fixture order. The fixture list drops singleton properties and row
+    attributes; where Nova read selected row details, use the same detail resource on the listed row IDs."""
     from corehq.apps.fixtures.models import LookupTable
-    from corehq.apps.fixtures.resources.v0_1 import FixtureResource
+    from corehq.apps.fixtures.resources.v0_1 import FixtureResource, LookupTableItemResource
 
     table = LookupTable.objects.get(domain=state.domain, tag=tag)
     resource = FixtureResource()
     request = hq_requests.get(state, f"/a/{state.domain}/api/fixture/v1/", {"fixture_type_id": table.id.hex})
     rows = resource.obj_get_list(resource.build_bundle(request=request), domain=state.domain)
-    return [{"fields": served["fields"]} for served in _dehydrated(resource, request, rows)]
+    if not details:
+        return [{"fields": served["fields"]} for served in _dehydrated(resource, request, rows)]
+    items = LookupTableItemResource()
+    result = []
+    for row in rows:
+        pk = row.id.hex
+        detail_request = hq_requests.get(state, f"/a/{state.domain}/api/lookup_table_item/v1/{pk}/")
+        item = items.obj_get(items.build_bundle(request=detail_request), pk=pk, domain=state.domain)
+        detail, = _dehydrated(items, detail_request, [item])
+        if detail["id"] != pk or detail["data_type_id"] != table.id.hex:
+            raise CapturedResourcesNotHeld(f"The selected row did not belong to the lookup table {tag}.")
+        result.append({"fields": detail["fields"], "item_attributes": detail["item_attributes"]})
+    return result
 
 
 def resource_differences(state, assumed):
@@ -1404,8 +1422,11 @@ def resource_differences(state, assumed):
         if held != table["table"]:
             differences.append((tag, "definition", table["table"], held))
             continue
-        if "rows" in table and (rows := served_lookup_rows(state, tag)) != table["rows"]:
-            differences.append((tag, "rows", table["rows"], rows))
+        if "rows" in table:
+            detailed = any("item_attributes" in row for row in table["rows"])
+            rows = served_lookup_rows(state, tag, details=detailed)
+            if rows != table["rows"]:
+                differences.append((tag, "rows", table["rows"], rows))
     return differences
 
 

@@ -46,6 +46,7 @@ export const SMOKE_PROFILES = [
 	"connect-learn",
 	"identity-moves",
 	"managed-data",
+	"source-inventory",
 	"bring-in",
 ] as const satisfies readonly SmokeProfile[];
 

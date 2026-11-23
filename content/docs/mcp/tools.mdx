@@ -474,7 +474,7 @@ remote write, even when the agent called `check_project_space_compatibility`
 earlier. A successful upload and a `project_space_incompatible` error both
 return `project_space_compatibility` so the agent can explain the checked result.
 
-`compile_app` stays available for the CommCare HQ app file, which has no destination, and compiles a CommCare mobile app file for a project space the app is published to. Neither checks a project space.
+`compile_app` prepares the ordinary CommCare HQ import file or a mobile app for a project space where the app is published. To include assignments in a private import file, choose its server and project space, set `private_data` to `true`, and connect with the `nova.projects.data.export` permission. Nova checks the destination’s worker, group and place bindings before releasing the file.
 When the app has destination requirements, its leading
 `nova_project_space_compatibility` result block contains
 `project_space_compatibility` with `status: "not_checked"`. The same report is
@@ -1432,6 +1432,8 @@ the result as a `nova_manual_import_guide` block. The import file works in any
 project space, so it takes no `domain`; `server` only chooses where its case
 attachment links open.
 
+A publish that stops for destination place IDs can be resumed after a workbook import. `prepare_place_id_workbook` takes `app_id`, `server` and `domain`. Download the returned private resource with the same authorized editor credential. The person importing it can verify each destination row on CommCare HQ’s Organization page. Call the upload tool again to verify the saved IDs and finish the publish.
+
 `get_entry_point_link` takes `app_id`, `server`, `domain`,
 `entry_point_uuid`, and `selections: [{ module_uuid, case_ids }]`. Supply every
 required selection from `get_entry_points`, using **external case IDs from
@@ -1461,6 +1463,8 @@ Recipients still authenticate and need the relevant app and case access.
 | `withdraw_deployment_confirmation` | Withdraw something the user confirmed about a project space: `kind` is `plan-feature` (with its `subject`), `flat-location-fixture`, `connect-forwarder`, `form-entry-sync-off`, `commtrack-off`, or `worker-level` (with the level's code as `subject`). The next upload there asks about it again, or for a level, the next `provision_workers` that stands a worker there. Commcare Nova keeps who confirmed it and who withdrew it. Requires `nova.hq.write` and edit access; returns the deployment. |
 | `stop_publishing` | Stop publishing an app to one project space, given the `hq_app_id` `get_deployment` shows there. The app in CommCare HQ stays; a later upload makes a new app beside it. Sending it again for the same `hq_app_id` answers the stopped deployment, and `deployment_changed` means the app publishes to a different HQ app there now, so nothing was stopped. Admins and owners of the app's Project only. Requires `nova.hq.write`. |
 | `provision_workers` | Create CommCare mobile-worker accounts on a project space for the app's personas, or bring existing ones into step with what the app says. The app must already be published there. Each new account carries that persona's worker information and places, and comes back with a password that exists only in that answer. |
+
+Small ordinary files arrive as base64. For a large file or a private data file, the tool returns a download receipt with its byte length, SHA-256 digest, expiration and a resource URI. Read the URI with the same connection and follow each next resource until the final range. If the underlying data or your access changes, prepare a fresh download. The ordinary import file leaves each worker’s private rows in their project space. A large table can travel in its own numbered workbook. Each workbook lists the complete tables it installs in the accompanying README.
 
 <Callout type="info">
 An upload never changes your Commcare Nova copy. If the linked HQ app was deleted on HQ, the upload refuses with `remote_app_missing` and tells you that uploading again will create a fresh one. The deployment record names anything an earlier upload left behind, under `left_behind`, so you can archive or delete it on HQ. Commcare Nova never deletes a resource it put on a project space.

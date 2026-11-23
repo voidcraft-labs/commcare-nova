@@ -605,6 +605,22 @@ def _lookup_reads(retained, export, member_name):
             assert [{"fields": row["fields"]} for row in _body(rows)["objects"]] == operations.served_lookup_rows(
                 state, tag
             )
+        with _operation(state, "selected-rich-row-details"):
+            table = tables["rich"]
+            selected = [row["id"] for row in _body(rows)["objects"]]
+            details = [_body(operations.api_request(
+                state, "GET", f"/a/{state.domain}/api/lookup_table_item/v1/{row_id}/", credential=member,
+            )) for row_id in selected]
+            assert [row["id"] for row in details] == selected
+            assert all(row["data_type_id"] == table["id"] for row in details)
+            assert [(row["sort_key"], row["id"]) for row in details] == sorted(
+                (row["sort_key"], row["id"]) for row in details)
+            assert [row["item_attributes"] for row in details] == [{"zone": "upland"}, {"zone": "coastal"}]
+            assert [row["fields"]["name"]["field_list"] for row in details] == [
+                [{"field_value": "North", "properties": {"lang": "en"}}],
+                [{"field_value": "South", "properties": {"lang": "en"}},
+                 {"field_value": "Sud", "properties": {"lang": "fr"}}],
+            ]
         with _operation(state, "fixture-rows-long-1"):
             page = _body(
                 retained.keep("fixture-rows-long-1", operations.fixture_rows_read(state, tables["long"]["id"], member))
@@ -707,6 +723,13 @@ def _places_reads(retained, export, member_name):
             assert made.status == 202, made.retained()
         with _operation(state, "locations"):
             listed = _body(retained.keep("locations", operations.locations_read(state, member)))
+        with _operation(state, "locations-v1"):
+            details = _body(retained.keep("locations-v1", operations.location_external_ids_read(state, member)))
+        by_id = {place["location_id"]: place for place in details["objects"]}
+        assert set(by_id) == {place["location_id"] for place in listed["objects"]}
+        for place in listed["objects"]:
+            assert by_id[place["location_id"]]["last_modified"] == place["last_modified"]
+            assert "external_id" in by_id[place["location_id"]] and "external_id" not in place
         child = next(place for place in listed["objects"] if place["site_code"] == "north_clinic")
         with _operation(state, "unchanged-update"):
             fields = ("name", "site_code", "location_type_code", "parent_location_id", "location_data")
@@ -743,10 +766,44 @@ def _places_reads(retained, export, member_name):
                 SQLLocation.objects.get(location_id=child["location_id"]).full_delete()
             with _operation(state, "locations-after-delete"):
                 retained.keep("locations-after-delete", operations.locations_read(state, member))
+        with state.fork():
+            from types import SimpleNamespace
+
+            from corehq.apps.locations.fixtures import _get_metadata_node
+
+            with _operation(state, "rich-place"):
+                row = SQLLocation.objects.get(location_id=child["location_id"])
+                row.name = None
+                row.site_code = "École"
+                row.external_id = " EXT 01 "
+                row.latitude = "1234567890.0000000000"
+                row.metadata = {"visits": 9007199254740993, "rate": 1.0, "ready": True,
+                                "items": [None, "ward", False], "labels": {"z": "first", "a": "second"}}
+                row.save()
+                row.refresh_from_db()
+                fields = [SimpleNamespace(slug=key) for key in [*row.metadata, "absent"]]
+                worker = _get_metadata_node(row, fields)
+                texts = {elem.tag: elem.text or "" for elem in worker}
+                assert texts == {"visits": "9007199254740993", "rate": "1.0", "ready": "True",
+                                 "items": "[None, 'ward', False]", "labels": "{'z': 'first', 'a': 'second'}",
+                                 "absent": ""}
+                retained.keep("rich-worker-fields", texts)
+            with _operation(state, "rich-locations"):
+                v2 = _body(retained.keep("rich-locations", operations.locations_read(state, member)))
+            with _operation(state, "rich-locations-v1"):
+                v1 = _body(retained.keep("rich-locations-v1", operations.location_external_ids_read(state, member)))
+            rich = next(place for place in v2["objects"] if place["location_id"] == row.location_id)
+            detail = next(place for place in v1["objects"] if place["location_id"] == row.location_id)
+            assert detail["external_id"] == " EXT 01 " and "external_id" not in rich
+            assert rich["site_code"] == "École" and rich["name"] is None
+            assert rich["latitude"] == "1234567890.0000000000"
+            assert list(rich["location_data"]["labels"]) == ["a", "z"]
         with _operation(state, "level-write"):
             level = retained.keep(
                 "level-write", operations.location_type_write(state, member, {"name": "Ward", "code": "ward"})
             )
+        with state.fork(), _operation(state, "import-place-id-workbook"):
+            _apply_place_id_workbook(state, member, child["location_id"])
     by_code = {place["site_code"]: place for place in listed["objects"]}
     assert by_code["north"]["latitude"] == "12.5000000000" and by_code["north"]["longitude"] == "-1.1234567890"
     assert by_code["north_clinic"]["latitude"] is None
@@ -755,6 +812,58 @@ def _places_reads(retained, export, member_name):
     assert same.status == 400 and "Location with same name and parent already exists." in same.body
     assert other.status == 400 and "another location already uses this site code" in other.body
     assert level.status == 401, level.retained()
+
+
+def _apply_place_id_workbook(state, member, child_id):
+    """Apply Nova's generated workbook using the same parser, tree validator and
+    SQL writer as Organization's import. A second import leaves the row untouched."""
+    from types import SimpleNamespace
+    from xml.etree.ElementTree import Element
+
+    from corehq.apps.locations.bulk_management import new_locations_import
+    from corehq.apps.locations.fixtures import _fill_in_location_element
+    from corehq.apps.locations.models import LocationType, SQLLocation
+    from corehq.apps.users.models import WebUser
+    from corehq.util.workbook_json.excel import WorkbookJSONReader
+
+    path = PROOF_DIR / "hq" / "fixtures" / "place-external-id.xlsx"
+    actor = WebUser.get_by_username(member.username)
+    row = SQLLocation.objects.get(domain=state.domain, location_id=child_id)
+    row.metadata = {"phone": "01923", "local_note": "ward α"}
+    row.latitude = "1.2300000000"
+    row.save()
+    row.refresh_from_db()
+
+    def neighbors():
+        return list(SQLLocation.objects.filter(domain=state.domain).exclude(pk=row.pk).order_by("pk").values())
+
+    def levels():
+        return list(LocationType.objects.filter(domain=state.domain).order_by("pk").values())
+
+    def row_values():
+        return (row.location_id, row.name, row.site_code, row.location_type_id, row.parent_id,
+                row.latitude, row.longitude, row.metadata)
+
+    before = row_values(), neighbors(), levels()
+    for attempt in range(2):
+        book = WorkbookJSONReader(str(path))
+        progress = SimpleNamespace(worksheets=book.worksheets, add_progress=lambda *args: None)
+        result = new_locations_import(state.domain, progress, actor)
+        assert result.success, result.errors
+        row.refresh_from_db()
+        assert (row_values(), neighbors(), levels()) == before
+        detail = operations.api_request(state, "GET", f"/a/{state.domain}/api/location/v1/{child_id}/",
+                                        credential=member)
+        assert detail.status == 200, detail.retained()
+        assert _body(detail)["external_id"] == row.external_id == "EXT-α-01"
+        fixture = Element("district")
+        _fill_in_location_element(fixture, row, [SimpleNamespace(slug=k) for k in row.metadata])
+        assert fixture.findtext("external_id") == row.external_id
+        assert fixture.findtext("location_data/local_note") == "ward α"
+        if attempt:
+            assert modified == row.last_modified
+            assert "Updated 0 existing locations" in result.messages
+        modified = row.last_modified
 
 
 def _lookup_upload_reads(retained, documents, member_name):

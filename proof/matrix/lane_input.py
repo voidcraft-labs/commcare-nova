@@ -105,10 +105,14 @@ def project_data(members: Mapping[str, bytes]) -> dict:
     found = {"fixtureRows": fixtures, "media": media}
     # A base keeps the answers its reading asked for and no other (retain.py), so an answer it does not hold is
     # one the reading never asks for.
+    for kind, prefix in (("lookupDefinitions", "lookup-definition-"), ("fixtureDetails", "fixture-detail-")):
+        details = {name[len(prefix):-len(".json")]: _json(members, name) for name in members if name.startswith(prefix) and name.endswith(".json")}
+        if details:
+            found[kind] = details
     for key, name in (
         ("lookupTables", "lookup-tables.json"),
         ("locationTypes", "location-types.json"),
-        ("locations", "locations.json"),
+        ("locations", "locations.json"), ("locationsV1", "locations-v1.json"),
     ):
         answer = _optional(members, name)
         if answer is not None:

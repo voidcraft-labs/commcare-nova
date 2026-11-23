@@ -257,7 +257,7 @@ def api_reads(records, name, part, label):
                 for tag, answer in sorted((data.get("fixtureRows") or {}).items())
             },
         }
-        for key in ("locationTypes", "locations"):
+        for key in ("locationTypes", "locations", "locationsV1"):
             if data.get(key) is not None:
                 held[key] = _answer(data[key], blobs, f"{where}.projectData.{key}")
         found["projectData"] = held

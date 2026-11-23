@@ -20951,15 +20951,17 @@
 		"id": "hq-expressions/user-groups-read",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/groups-jr-fixture-user-groups",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Checks",
-			"formName": "Survey",
-			"path": "language"
-		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["language"]],
+				"pointer": "/calculate",
+				"value": {
+					"kind": "project",
+					"of": { "kind": "worker-groups", "where": [] },
+					"value": { "kind": "worker-group-field", "field": "id" }
+				}
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "user_groups_read"
@@ -21455,7 +21457,29 @@
 		"id": "hq-lookups/itemset-attribute-ref",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-refs-to-attr-or-property-qualified-fields",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "itemset_attribute_ref"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["district"]
+				],
+				"pointer": "/optionsSource/labelColumnId/where/equals",
+				"value": "fr"
+			}
+		]
+	},
+	{
+		"id": "hq-lookups/itemset-property-as-label",
+		"base": "hq-lookups",
+		"entry": "questions/lookup-choice-reference-the-form-editor-cannot-keep",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -21466,7 +21490,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_attribute_ref"
+			"name": "itemset_property_as_label"
 		}
 	},
 	{
@@ -26899,10 +26923,9 @@
 		"id": "hq-new-app/case-sharing",
 		"base": "hq-new-app",
 		"entry": "application-and-settings/39-hq-case-sharing",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
+		"holds": [
+			{ "key": ["app"], "pointer": "/appSettings/caseSharing", "value": true }
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/case_sharing",
@@ -27509,18 +27532,6 @@
 		"change": {
 			"op": "named",
 			"name": "child_case_in_a_shared_multi_select_menu"
-		},
-		"second": {
-			"entry": "application-and-settings/39-hq-case-sharing",
-			"standing": "not-yet",
-			"place": {
-				"kind": "app"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/case_sharing",
-				"value": true
-			}
 		}
 	},
 	{
@@ -33900,43 +33911,32 @@
 		"id": "hq-search/choice-labels-from-an-attribute",
 		"base": "hq-search",
 		"entry": "case-search/itemset-refs-to-item-attributes-attr-or-property-qualified",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/search_config/properties/5",
-			"value": {
-				"name": "district",
-				"label": {
-					"en": "District"
-				},
-				"hint": {},
-				"input_": "select1",
-				"itemset": {
-					"instance_id": "item-list:districts",
-					"nodeset": "instance('item-list:districts')/districts_list/districts",
-					"value": "id",
-					"sort": "name",
-					"label": "@name",
-					"doc_type": "Itemset"
-				},
-				"hidden": false,
-				"allow_blank_value": false,
-				"exclude": false,
-				"required": {
-					"test": null,
-					"text": {},
-					"doc_type": "Assertion"
-				},
-				"validations": [],
-				"is_group": false,
-				"doc_type": "CaseSearchProperty"
+			"op": "named",
+			"name": "district_choice_details"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/options/labelColumnId/where/equals",
+				"value": "fr"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/options/sortColumnId/where/equals",
+				"value": "en"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-search/choices-filtered-by-an-ordered-text",

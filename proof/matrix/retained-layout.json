@@ -12,6 +12,7 @@
 				"expected.json",
 				"location-types.json",
 				"locations.json",
+				"locations-v1.json",
 				"lookup-tables.json",
 				"media-reads.json",
 				"media.json",
@@ -24,7 +25,8 @@
 			],
 			"patterns": [
 				"fixture-rows-[A-Za-z_][A-Za-z0-9_.-]*\\.json",
-				"fixture-rows~[0-9a-f]{1,6}(?:-[0-9a-f]{1,6}){0,31}\\.json"
+				"fixture-rows~[0-9a-f]{1,6}(?:-[0-9a-f]{1,6}){0,31}\\.json",
+				"(?:lookup-definition|fixture-detail)-[0-9a-f]{32}\\.json"
 			],
 			"media": {
 				"directory": "media",

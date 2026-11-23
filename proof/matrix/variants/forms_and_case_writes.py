@@ -281,6 +281,7 @@ def preload_in_a_multi_select_menu(authoring, app_id):
 def child_case_in_a_shared_multi_select_menu(authoring, app_id):
     """``hq-plain``'s households list choosing several cases, and its follow-up form opening a child case that writes
     no owner."""
+    ops.set_json(authoring, app_id, "/case_sharing", True)
     ops.set_json(authoring, app_id, "/modules/0/case_details/short/multi_select", True)
     ops.set_json(
         authoring,

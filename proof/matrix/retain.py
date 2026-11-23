@@ -292,11 +292,27 @@ def project_data_reads(authoring, app_id, credential):
     tables = _body(found["lookupTables"]).get("objects", []) if found["lookupTables"].status == 200 else []
     for table in tables:
         with authoring.step("reads", f"fixtureRows:{table['tag']}".encode()):
-            found[f"fixtureRows:{table['tag']}"] = operations.fixture_rows_read(state, table["id"], credential)
+            listed = operations.fixture_rows_read(state, table["id"], credential)
+            found[f"fixtureRows:{table['tag']}"] = listed
+        rows = _body(listed).get("objects", []) if listed.status == 200 else []
+        if not (table.get("item_attributes") or any(field.get("properties") for field in table["fields"])
+                or any(isinstance(value, list) for row in rows for value in row["fields"].values())):
+            continue
+        for name, resource, remote_id in (
+            [("lookupDefinition", "lookup_table", table["id"])]
+            + [("fixtureDetail", "lookup_table_item", row["id"]) for row in rows]
+        ):
+            key = f"{name}:{remote_id}"
+            with authoring.step("reads", key.encode()):
+                found[key] = operations.api_request(
+                    state, "GET", f"/a/{state.domain}/api/{resource}/v1/{remote_id}/", credential=credential,
+                )
     with authoring.step("reads", b"locationTypes"):
         found["locationTypes"] = operations.location_types_read(state, credential)
     with authoring.step("reads", b"locations"):
         found["locations"] = operations.locations_read(state, credential)
+    with authoring.step("reads", b"locationsV1"):
+        found["locationsV1"] = operations.location_external_ids_read(state, credential)
     return found, media_reads(authoring, app_id, credential)
 
 
@@ -345,6 +361,8 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
         },
         "projectData": {
             "lookupTables": project_answers["lookupTables"].retained(),
+            "lookupDefinitions": {name.split(":", 1)[1]: result.retained() for name, result in project_answers.items() if name.startswith("lookupDefinition:")},
+            "fixtureDetails": {name.split(":", 1)[1]: result.retained() for name, result in project_answers.items() if name.startswith("fixtureDetail:")},
             "fixtureRows": {
                 name.split(":", 1)[1]: answer.retained()
                 for name, answer in project_answers.items()
@@ -352,6 +370,7 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
             },
             "locationTypes": project_answers["locationTypes"].retained(),
             "locations": project_answers["locations"].retained(),
+            "locationsV1": project_answers["locationsV1"].retained(),
             "media": [
                 {
                     **{key: row[key] for key in ("path", "mediaType", "multimediaId", "status")},
@@ -474,10 +493,14 @@ def keep_answers(retained, answers, project_answers, media, asked=None):
         ("lookupTables", "lookup-tables"),
         ("locationTypes", "location-types"),
         ("locations", "locations"),
+        ("locationsV1", "locations-v1"),
     ):
-        if name in project_answers and wanted(name):
+        if name in project_answers and (wanted(name) or (name == "locationsV1" and wanted("locations"))):
             retained.keep(file_name, project_answers[name])
     for name, read in sorted(project_answers.items()):
+        for kind, prefix in (("lookupDefinition:", "lookup-definition-"), ("fixtureDetail:", "fixture-detail-")):
+            if name.startswith(kind) and wanted(name):
+                retained.keep(prefix + name[len(kind):], read)
         if name.startswith("fixtureRows:") and wanted(name):
             retained.keep(lane_input.fixture_rows_stem(name.split(":", 1)[1]), read)
     read_rows = [row for row, _ in media if wanted(f"media:{row['path']}")]
@@ -701,7 +724,15 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
     except Exception as error:  # noqa: BLE001 (the class of what HQ raised is what the row records)
         return VariantOutcome(variant, raised=type(error).__name__, base_source=base_source)
     answers = app_reads(authoring, app_id, credential)
-    media = media_reads(authoring, app_id, credential)
+    from proof.matrix import registry
+
+    if any(
+        change["op"] == "named" and getattr(registry.named_change(change["name"]), "changes_lookup_data", False)
+        for change in variant.changes()
+    ):
+        project_answers, media = project_data_reads(authoring, app_id, credential)
+    else:
+        project_answers, media = kept.project_answers, media_reads(authoring, app_id, credential)
     source = json.loads(answers["source"].body) if answers["source"].status == 200 else {}
     from proof.matrix.ops import resolve_references
 
@@ -715,7 +746,7 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
     request = {
         "id": variant.id,
         "mode": "first-read",
-        "input": reading_input(answers, kept.project_answers, media, base, claims="full"),
+        "input": reading_input(answers, project_answers, media, base, claims="full"),
     }
     held = [{**hold, "key": hold_key(hold["key"], base_source)} for hold in variant.holds]
     if held:

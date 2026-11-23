@@ -162,6 +162,8 @@ It never reassigns cases: removing the last worker merely leaves existing
 `owner_id` values orphaned, matching HQ's warning-only behavior. Because place
 rows are keyed by app rather than Project, the authoritative cross-Project app
 move carries the whole organization without a second retenant operation.
+Organization reads use revision-bound root and child pages with searchable parent paths. Worker Preview selects the physical places and ancestors granted by its persona's address books. Case-owner rules separately prove that each assigned source resolves to exactly one reachable case-owning place. The managed place source pairs the authenticated location v1 and v2 inventories by server, domain, durable location ID and matching observed fields. This preserves external IDs, source lexemes, nullable labels and the worker's native text. Transferring to another space uses that space's levels and mapped locations and keeps target-only information. An external ID travels in a destination-bound organization workbook and is checked again at the v1 detail resource before publication continues.
+
 `lib/domain/CLAUDE.md` and `lib/organization/CLAUDE.md` own the implementation
 detail.
 
@@ -605,9 +607,7 @@ byte accounting, optimistic table revisions, and a Project-wide realtime
 invalidation clock. `lib/lookup` is the sole persistence boundary and speaks Nova
 vocabulary only; `lib/lookup/CLAUDE.md` is its contract.
 
-Caps are 5,000 rows and 8 MiB per table, measured as exact Postgres bytes rather
-than estimated. These bound what a client can be asked to load, which is what
-makes client-side choice evaluation viable.
+Project storage budgets account for committed data and reserved uploads. Each inline operation and each response has its own size limit. Existing rows and large text can be updated through revision-bound projections, addressed patches and staged UTF-8 byte spans.
 
 Table schema governance — deleting a table, removing a column, retyping a column —
 lives in `lib/lookup/schemaGovernance.ts::applyLookupSchemaGovernanceInTransaction`.
@@ -643,9 +643,7 @@ Project, as a permanent subtitle rather than a dismissible notice, because a
 deep link never passes the door.
 
 **Editing is row-shaped, and the row is the unit of concurrency.** The grid is
-a real `<table>` in pages of 50; a selected row edits in the rail with one
-correctly-typed control per column; bulk change goes through atomic CSV
-replacement. A table's optimistic token is
+a real `<table>` in server windows of 25. Search covers the whole table. A selected row opens typed controls in the rail. The large-row inspector pages individual slots and accepts a replacement span or file. CSV replaces scalar rows. Authored structured rows retain each ordered occurrence and its own details. A table's optimistic token is
 `max(definitionRevision, rowsRevision)`, so any concurrent change invalidates
 it; a refused write retries only when a fresh read proves the edit is still
 the same edit — byte-identical row AND unmoved column definitions — while CSV
