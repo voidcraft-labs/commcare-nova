@@ -1392,6 +1392,7 @@ const ROWS_SOURCE = buildDoc({
 		{
 			name: "Survey",
 			caseType: "household",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 			forms: [
 				{
 					name: "Household",

@@ -730,6 +730,10 @@ export function createBlueprintDocStore() {
 		for (const key of ["label", "hint", "help", "validate_msg"]) {
 			if (patch[key] === null) return undefined;
 		}
+		/* A repeat's mode decides which of its slots exist: the forward write
+		 * drops the old mode's slot without naming it, and the patch schema of
+		 * the old mode refuses the new mode's slot. Keep the complete diff. */
+		if (Object.hasOwn(patch, "repeat_mode")) return undefined;
 
 		const previous = field as unknown as Record<string, unknown>;
 		const inversePatch = Object.fromEntries(

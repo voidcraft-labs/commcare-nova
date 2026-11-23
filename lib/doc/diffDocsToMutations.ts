@@ -168,6 +168,7 @@ import {
 	moduleSiblingUuids,
 	ownRecordValue,
 	parseLanguageTag,
+	pickFieldKeysForKind,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 
@@ -1001,6 +1002,23 @@ function* diffGranularSteps(
 			!convertNeedsOptionSeed(pField, nField.kind);
 		if (sourceNeedsAtomicReplacement) {
 			patch.optionsSource = cloneEntity(nextOptionsSource);
+		}
+		// A repeat's mode decides which of its slots exist, and the reducer drops
+		// the old mode's slots as the mode changes (`mutations/fields.ts`). A
+		// clear of one the new mode never declares fits no mode's patch schema.
+		if (
+			!kindChanged &&
+			pField.kind === "repeat" &&
+			nField.kind === "repeat" &&
+			pField.repeat_mode !== nField.repeat_mode
+		) {
+			const declared = pickFieldKeysForKind(
+				{ ...patch, repeat_mode: nField.repeat_mode },
+				"repeat",
+			);
+			for (const key of Object.keys(patch))
+				if (patch[key] === null && !Object.hasOwn(declared, key))
+					delete patch[key];
 		}
 		if (Object.keys(patch).length > 0) {
 			updates.push({
