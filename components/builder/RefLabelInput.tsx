@@ -77,9 +77,9 @@ interface RefLabelInputProps {
 	proseSlot?: ProseSlotRef;
 	/** What the empty editor shows while it is not being edited. */
 	placeholder?: string;
-	/** False where `onSave` keeps a draft its owner saves later, so no saved
-	 *  check claims the text was saved. */
-	showSavedCheck?: boolean;
+	/** False where `onSave` keeps a draft its owner saves later: no saved
+	 *  check or save shortcut claims a commit saves the text. */
+	savesOnCommit?: boolean;
 }
 
 // ── Serialization ───────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ export function RefLabelInput({
 	labelRight,
 	proseSlot,
 	placeholder,
-	showSavedCheck = true,
+	savesOnCommit = true,
 }: RefLabelInputProps) {
 	const labelId = useId();
 	const [focused, setFocused] = useState(false);
@@ -440,11 +440,11 @@ export function RefLabelInput({
 				>
 					{fieldLabel}
 					<SavedCheck
-						visible={showSavedCheck && saved && !focused}
+						visible={savesOnCommit && saved && !focused}
 						size={12}
 						className="shrink-0"
 					/>
-					{focused && multiline && <SaveShortcutHint />}
+					{savesOnCommit && focused && multiline && <SaveShortcutHint />}
 				</span>
 				{labelRight}
 			</div>

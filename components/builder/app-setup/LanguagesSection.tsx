@@ -1308,7 +1308,7 @@ function TranslationUnitRow({
 									value={draft}
 									multiline
 									proseSlot={proseSlot}
-									showSavedCheck={false}
+									savesOnCommit={false}
 									{...(filledText !== undefined && {
 										placeholder: filledText,
 									})}
