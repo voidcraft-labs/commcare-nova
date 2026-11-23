@@ -43,6 +43,7 @@ import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { newUuid } from "../uuid";
 import { columnLabel } from "./ColumnInventory";
+import { moveDraftField, setDraftRowSource } from "./detailTabDraft";
 
 interface Props {
 	moduleUuid: Uuid;
@@ -107,15 +108,7 @@ export function DetailTabEditor({
 	}
 	function moveField(uuid: Uuid, destination: Uuid) {
 		if (!draft) return;
-		setDraft(
-			draft.map((group) => ({
-				...group,
-				fields:
-					group.uuid === destination
-						? [...group.fields, uuid]
-						: group.fields.filter((field) => field !== uuid),
-			})),
-		);
+		setDraft(moveDraftField(draft, uuid, destination));
 	}
 	function save(groups: readonly DetailTabGroup[]) {
 		if (
@@ -276,11 +269,7 @@ export function DetailTabEditor({
 											}
 											onChange={(rowSource) =>
 												setDraft(
-													draft.map((one) =>
-														one.uuid === group.uuid
-															? { ...one, rowSource }
-															: one,
-													),
+													setDraftRowSource(draft, group.uuid, rowSource),
 												)
 											}
 										/>
