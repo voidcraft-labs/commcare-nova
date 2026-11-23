@@ -86,6 +86,7 @@ import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransactio
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import { hqChangesPublishingStoppedLine } from "@/lib/publish/hqChangesCopy";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
+import { downloadAssetBytes } from "@/lib/storage/media";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { TargetPeer } from "@/proof/corpus/targetPeer";
 import { DeploymentEndedError } from "../errors";
@@ -1781,12 +1782,18 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 					return reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} });
 				}),
 			);
+			vi.mocked(downloadAssetBytes).mockClear();
 			const outcome = await withHttpPeer(async (peer) => {
 				serveRead(peer, source, { tables: true });
 				serveImage(peer, REPLACED, 1, other);
 				return bringIn(scope, listed);
 			});
 			expect(outcome).toMatchObject({ kind: "brought-in" });
+			/* The next publish's body names each file by its path: the bring-in
+			 * reads no byte of the app's files back from the bucket, so an app
+			 * holding more media than one archive carries in memory still takes
+			 * its changes. */
+			expect(downloadAssetBytes).not.toHaveBeenCalled();
 
 			const loaded = await loadApp(scope.appId);
 			if (loaded === null) throw new Error("The app is gone.");
