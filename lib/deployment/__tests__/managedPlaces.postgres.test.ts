@@ -19,6 +19,7 @@ import { readHttpRequestBody } from "@/__tests__/helpers/httpPeer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
+import { HQ_LOCATION_INVENTORY_MAX_ROWS } from "@/lib/commcare/hq/bounds";
 import type { HqLocation } from "@/lib/commcare/hq/locations";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch } from "@/lib/db/apps";
@@ -30,9 +31,13 @@ import type { Expression } from "@/lib/domain/expression/types";
 import { exportRange } from "@/lib/export/artifacts/store";
 import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
 import { readOrganization } from "@/lib/organization/service";
-import { managedPlacesPassed } from "@/lib/publish/managedData";
+import {
+	managedPlacesPassed,
+	managedPlacesPastInventory,
+} from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { fetchExportPart, storeExportPart } from "@/lib/storage/media";
+import { refreshManagedPlaces } from "../managedData";
 import { publishConfirmationNeeds } from "../preflight";
 import { planManagedPlaces } from "../reading/projectData/places";
 import type { PublishOutcome } from "../service";
@@ -48,7 +53,7 @@ import {
 	serveSource,
 	withManagedPeer,
 } from "./managedFixtures";
-import { servePlaceInventory } from "./placeInventoryPeer";
+import { regionLevel, servePlaceInventory } from "./placeInventoryPeer";
 import { reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/storage/media", async (original) => ({
@@ -274,6 +279,47 @@ it("never pushes places to the project space that manages them, and refreshes th
 		.where("kind", "=", "location")
 		.execute();
 	expect(mappings).toEqual([]);
+});
+
+it("keeps the copy and says why where the managing project space lists more places than Nova reads", async () => {
+	await seed();
+	await withManagedPeer(async (peer) => {
+		request(peer, "/a/clinic/api/location_type/v1/?limit=1000").reply(200, {
+			meta: { next: null, total_count: 1 },
+			objects: [regionLevel],
+		});
+		request(peer, "/a/clinic/api/location/v2/?limit=5000").reply(200, {
+			meta: {
+				next: `${HOST}/a/clinic/api/location/v2/?limit=5000&offset=5000`,
+				offset: 0,
+				total_count: HQ_LOCATION_INVENTORY_MAX_ROWS + 1,
+			},
+			objects: [
+				{
+					location_id: north.locationId,
+					name: north.name,
+					site_code: north.siteCode,
+					location_type_code: "region",
+					parent_location_id: "",
+					latitude: null,
+					longitude: null,
+					location_data: {},
+					domain: "clinic",
+					last_modified: "2026-11-01T09:00:00",
+				},
+			],
+		});
+		expect(await refreshManagedPlaces(SCOPE)).toEqual({
+			ok: false,
+			reason: "over-limit",
+			message: managedPlacesPastInventory(
+				"clinic",
+				HQ_LOCATION_INVENTORY_MAX_ROWS,
+			),
+		});
+	});
+	const organization = await readOrganization(SCOPE);
+	expect(organization.locations.map((place) => place.name)).toEqual(["North"]);
 });
 
 it("still asks the organization plan feature and the flat list where the app's own logic reads the places it does not push", async () => {

@@ -5,7 +5,10 @@ import { z } from "zod";
 import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareCredentials } from "@/lib/commcare/client";
-import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
+import {
+	HQ_LOCATION_INVENTORY_MAX_ROWS,
+	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+} from "@/lib/commcare/hq/bounds";
 import {
 	classifyHqFailure,
 	type HqFailure,
@@ -110,6 +113,7 @@ import {
 	MANAGEMENT_REVIEW_MOVED,
 	managedColumnGoneItem,
 	managedPlaceNotHoldable,
+	managedPlacesPastInventory,
 	managedTableGone,
 	managedTableGoneItem,
 	managedTableManyValuesItem,
@@ -1821,12 +1825,18 @@ export async function refreshManagedPlaces(
 			"not-holdable",
 			"The place lists in CommCare HQ disagree. You can check the levels and parents there, then refresh again.",
 		);
-	if (inventory.kind === "failed")
-		return isAccountRefusal(
-			classifyHqFailure(inventory.error, inventory.request),
-		)
-			? placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain))
-			: placesRefused("unavailable", HQ_UNAVAILABLE);
+	if (inventory.kind === "failed") {
+		const failure = classifyHqFailure(inventory.error, inventory.request);
+		if (isAccountRefusal(failure))
+			return placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain));
+		// A list past what Nova reads stays past it: no retry would answer.
+		if (inventory.error.cause === "too-large")
+			return placesRefused(
+				"over-limit",
+				managedPlacesPastInventory(hq.domain, HQ_LOCATION_INVENTORY_MAX_ROWS),
+			);
+		return placesRefused("unavailable", HQ_UNAVAILABLE);
+	}
 	return refreshManagedPlacesFromRead(scope, hq, inventory.places, at);
 }
 

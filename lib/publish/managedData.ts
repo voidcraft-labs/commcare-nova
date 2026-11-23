@@ -475,6 +475,18 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesAnswer): {
 	};
 }
 
+/**
+ * A refresh whose project space lists more places than Nova reads from one,
+ * by count or by the bytes of its place lists. `maxPlaces` is that count.
+ * Retrying changes nothing, so the sentence offers the copy Nova kept.
+ */
+export function managedPlacesPastInventory(
+	domain: string,
+	maxPlaces: number,
+): string {
+	return `${domain} holds more places than Nova reads from one project space, which is up to ${count(maxPlaces)} places. Nova kept its copy as it was, and you can keep working with it.`;
+}
+
 /** A refresh CommCare HQ refused to answer the account. */
 export function cannotReadManagedPlaces(domain: string): string {
 	return `Nova couldn't read the organization in ${domain} with your CommCare HQ account. That project space needs Locations and API access on its plan, and your account needs the Edit Locations and Access APIs permissions.`;

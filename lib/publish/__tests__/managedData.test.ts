@@ -262,6 +262,10 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.MANAGED_PLACES_REFRESHED_SINCE],
 	},
+	managedPlacesPastInventory: {
+		kind: "sentence",
+		texts: [copy.managedPlacesPastInventory("acme-health", 100_000)],
+	},
 	cannotReadManagedPlaces: {
 		kind: "sentence",
 		texts: [copy.cannotReadManagedPlaces("acme-health")],

@@ -619,6 +619,47 @@ describe("the version floor", () => {
 		},
 	);
 
+	it("stops before any write where the project space lists more places than Nova reads, and says retrying won't help", async () => {
+		const doc = await seed(await lookupAndPlaceDocument());
+		await seedPlace();
+		await withPeer(async (peer) => {
+			emptyTables(peer);
+			request(peer, LEVELS).reply(200, {
+				meta: { next: null, total_count: 1 },
+				objects: remoteLevels,
+			});
+			request(peer, PLACES).reply(200, {
+				meta: {
+					next: `https://india.commcarehq.org${PLACES}&offset=5000`,
+					offset: 0,
+					total_count: 100_001,
+				},
+				objects: [
+					{
+						...remotePlace,
+						domain: "clinic",
+						last_modified: "2026-11-01T09:00:00",
+					},
+				],
+			});
+			expect(refusal(await publish(doc, [LOOKUP, ORGANIZATION]))).toMatchObject(
+				{
+					phase: "preflight",
+					failure: {
+						code: "hq_resource_state_unknown",
+						message:
+							"“clinic” holds more places than Nova reads from one project space, which is up to 100,000 places, so Nova stopped rather than push places into a list it can't read whole. You can publish this app to another project space.",
+					},
+				},
+			);
+			expect(requests(peer)).toEqual([
+				`GET ${TABLES}`,
+				`GET ${LEVELS}`,
+				`GET ${PLACES}`,
+			]);
+		});
+	});
+
 	it("stops a new app below the floor after its create and before any table or place, and the next publish fills that same app", async () => {
 		const doc = await seed(await lookupAndPlaceDocument());
 		await seedPlace();

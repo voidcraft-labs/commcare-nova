@@ -19,7 +19,10 @@ import {
 	readHqAppSource,
 } from "@/lib/commcare/hq/appSource";
 import { readHqAppSaveCounter } from "@/lib/commcare/hq/appSourceAtVersion";
-import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
+import {
+	HQ_LOCATION_INVENTORY_MAX_ROWS,
+	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+} from "@/lib/commcare/hq/bounds";
 import {
 	classifyHqFailure,
 	type HqFailure,
@@ -1362,7 +1365,9 @@ export async function runDeploymentPreflight(
 		const detail =
 			error.status === 401 || error.status === 403
 				? `Nova can't read the organization on “${domain}”, so it won't push places over what's there. That project space needs the Organizations and API access features, and your CommCare HQ account needs the Edit Locations and Access APIs permissions. Ask a CommCare HQ administrator for whichever is missing.`
-				: `Nova couldn't ask “${domain}” about its organization, so it stopped rather than push places into it. Try publishing again in a moment.`;
+				: error.cause === "too-large"
+					? `“${domain}” holds more places than Nova reads from one project space, which is up to ${HQ_LOCATION_INVENTORY_MAX_ROWS.toLocaleString("en-US")} places, so Nova stopped rather than push places into a list it can't read whole. You can publish this app to another project space.`
+					: `Nova couldn't ask “${domain}” about its organization, so it stopped rather than push places into it. Try publishing again in a moment.`;
 		checks.push({
 			id: "organization",
 			title: "Organization",
