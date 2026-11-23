@@ -36,6 +36,7 @@ import type {
 	CaseListRegistrationReturn,
 	Uuid,
 } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import {
@@ -332,6 +333,7 @@ export function RegisterFromListSetting({
 											{ value: "condition", label: "When a condition is met" },
 										]}
 										onChange={(next) => {
+											if (next === visibility) return;
 											setConditionDraft(
 												next === "condition"
 													? { moduleUuid, condition: undefined }

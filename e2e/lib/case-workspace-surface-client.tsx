@@ -191,18 +191,6 @@ const source = buildDoc({
 								: {},
 					}
 				: {}),
-			...(scenario.startsWith("list-action") && {
-				caseListRegistrationForm: {
-					kind: "always" as const,
-					formUuid: registerFormId,
-					...(scenario === "list-action-viewer" && {
-						showWhen: {
-							kind: "condition" as const,
-							condition: eq(sessionContext("username"), literal("ada")),
-						},
-					}),
-				},
-			}),
 			forms: [
 				{
 					name: "Visit",
@@ -229,34 +217,41 @@ const source = buildDoc({
 			],
 		},
 		// A menu holding the registration a list action offers on Clients.
-		...(scenario.startsWith("list-action")
-			? [
-					{
-						name: "Registration",
-						caseType: "patient",
-						caseListConfig: caseListConfig([
-							{ field: "case_name", header: "Name" },
-						]),
-						forms: [
-							{
-								uuid: registerFormId,
-								name: "Register client",
-								type: "registration" as const,
-								fields: [
-									{
-										kind: "text" as const,
-										id: "client_name",
-										label: proseText("Client name"),
-										caseWrite: { caseType: "patient", property: "case_name" },
-									},
-								],
-							},
-						],
-					},
-				]
-			: []),
+		{
+			name: "Registration",
+			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					uuid: registerFormId,
+					name: "Register client",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "client_name",
+							label: proseText("Client name"),
+							caseWrite: { caseType: "patient", property: "case_name" },
+						},
+					],
+				},
+			],
+		},
 	],
 });
+// Clients' list offers Registration's form, with a condition a viewer reads.
+if (scenario.startsWith("list-action"))
+	source.modules[source.moduleOrder[0]].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: registerFormId,
+		afterSubmit: "case-list",
+		...(scenario === "list-action-viewer" && {
+			showWhen: {
+				kind: "condition" as const,
+				condition: eq(sessionContext("username"), literal("ada")),
+			},
+		}),
+	};
 const gate = evaluateCommit({
 	nextDoc: structuredClone(source),
 	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
