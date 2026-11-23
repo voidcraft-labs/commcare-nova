@@ -73,7 +73,10 @@ export function listedForms() {
 	};
 	const edit = structuredClone(doc);
 	edit.forms[visit].name = "Updated visit notes";
-	edit.fields[uuid("visit-note")].label = proseText("What happened?");
+	const note = edit.fields[uuid("visit-note")];
+	if (note.kind !== "text")
+		throw new Error("The visit note in this document is a text field.");
+	note.label = proseText("What happened?");
 	return targetedDocument({
 		id: ID,
 		rows: [

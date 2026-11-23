@@ -281,7 +281,9 @@ export function appTestForms(
 		state.screen.moduleUuid === moduleUuid &&
 		state.screen.selection !== undefined;
 	const chosenCaseId =
-		selected?.length === 1 && caseSelectionCardinality(mod) === "single"
+		selected?.length === 1 &&
+		mod !== undefined &&
+		caseSelectionCardinality(mod) === "single"
 			? selected[0].caseId
 			: undefined;
 	return menuFormUuidsOf(doc, moduleUuid).flatMap((uuid) => {
@@ -579,9 +581,10 @@ export function selectAppTestRecords(
 		throw new AppTestActionError(
 			"Open a record list before selecting records.",
 		);
-	const mod = context.doc.modules[screen.moduleUuid];
+	/* A route listing another menu's forms takes its case type and selection from its source. */
+	const mod = menuWithInheritedCaseSettings(context.doc, screen.moduleUuid);
 	if (
-		!mod.caseType ||
+		!mod?.caseType ||
 		rows.length === 0 ||
 		rows.length > caseSelectionMaximum(mod)
 	)
