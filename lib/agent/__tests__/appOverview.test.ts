@@ -69,7 +69,19 @@ it("holds the document's form-list settings", () => {
 	expect(appOverview(doc).settings).toEqual({
 		showSavedForms: true,
 		showIncompleteForms: false,
+		captureLocation: false,
 	});
+});
+
+it("holds the app's own location request, which a form's read does not name", () => {
+	const doc = buildDoc({
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			captureLocation: true,
+		},
+	});
+	expect(appOverview(doc).settings).toMatchObject({ captureLocation: true });
 });
 
 it.each([
