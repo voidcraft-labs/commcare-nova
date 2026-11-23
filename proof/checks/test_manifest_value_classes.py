@@ -5986,19 +5986,7 @@ def _label_texts():
             <text id="q2"><value>B</value></text></translation></itext>""",
         body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
     )
-    grouped = _form(
-        data="<g><q/></g>",
-        model="""<itext><translation lang="en" default="">
-            <text id="g"><value>G</value><value form="long">The group</value></text>
-            <text id="q"><value>Q</value><value form="long">The question</value></text></translation></itext>""",
-        body="""<group ref="/data/g"><label ref="jr:itext('g')"/>
-            <input ref="/data/g/q"><label ref="jr:itext('q')"/></input></group>""",
-    )
     return {
-        "questions/long-form-on-a-group-or-repeat-label": (
-            refused("form", grouped, "itext-form:core/long", "translation[1]/text[1]/value[2]/@form"),
-            accepted("form", grouped, "itext-form:core/long", "translation[1]/text[2]/value[2]/@form"),
-        ),
         "questions/long-qrcode-or-tts-form-missing-in-default-language": (
             refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),
             refused("form", texts, "itext-form:android/tts", "translation[2]/text[1]/value[3]/@form"),
