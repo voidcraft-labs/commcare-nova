@@ -36961,7 +36961,7 @@
 			"pointer": "/modules/0/search_config/properties/0/validations",
 			"value": [
 				{
-					"test": "string-length(instance('search-input:results')/input/field[@name = 'client_name']) > 1",
+					"test": "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'client_name'], ''), '^[a-z]+$')",
 					"text": {},
 					"doc_type": "Assertion"
 				}
