@@ -15,6 +15,7 @@ import {
 import {
 	ROUTE,
 	twoMenus,
+	VISIT,
 } from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import {
 	type BlueprintDoc,
@@ -808,6 +809,21 @@ it("uses each translation unit's own form and preserves inserted identities", as
 	).toMatchObject({
 		items: [{ status: "ready", effective: "Salut {{name}}" }],
 	});
+});
+
+it("adds a deep link to a form a menu lists from another menu, through that listing menu", async () => {
+	const doc = twoMenus();
+	const route = doc.modules[ROUTE];
+	if (route?.formsFromMenu === undefined) throw new Error("Missing route");
+	route.formsFromMenu = { ...route.formsFromMenu, entryPoints: undefined };
+	const h = authoring({}, expectAdmittedDoc(doc));
+	await h.call("addEntryPoint", {
+		target: { kind: "form", moduleUuid: ROUTE, formUuid: VISIT },
+		id: "clinic-visit",
+	});
+	expect(
+		h.currentDoc().modules[ROUTE].formsFromMenu?.entryPoints,
+	).toMatchObject([{ formUuid: VISIT, entryPoint: { id: "clinic-visit" } }]);
 });
 
 it("reads and writes #case on a menu that lists another menu's forms as that menu's case type", async () => {

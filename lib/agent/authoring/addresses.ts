@@ -8,6 +8,7 @@ import {
 	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import { AuthoringInputError } from "./errors";
 import { fieldNameCandidates } from "./fieldNames";
 
@@ -90,9 +91,15 @@ export function formOfAuthoredEntryPoint(
 		(module) => [module.name],
 		"Menu",
 	);
+	// A menu listing another menu's forms keeps its own form order empty: the
+	// forms it reaches are its source's that it lists (`routeContainsForm`, the
+	// same test the deep-link planner applies).
+	const owner = menu.formsFromMenu?.menuUuid ?? menu.uuid;
 	const form = resolve(
 		target.formUuid,
-		(doc.formOrder[menu.uuid] ?? []).map((uuid) => doc.forms[uuid]),
+		(doc.formOrder[owner] ?? [])
+			.filter((uuid) => routeContainsForm(doc, menu.uuid, uuid))
+			.map((uuid) => doc.forms[uuid]),
 		(item) => [item.name],
 		"Form",
 	);
