@@ -21908,6 +21908,30 @@
 		"id": "hq-media/label-video-inline",
 		"base": "hq-media",
 		"entry": "questions/label-video-inline",
+		"change": {
+			"op": "named",
+			"name": "label_video_inline"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["animal_name"]
+				],
+				"pointer": "/label_media/videoInline",
+				"value": {
+					"$projectFile": "jr://file/commcare/video/data/animal_name.mp4"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-media/video-inline-on-help",
+		"base": "hq-media",
+		"entry": "questions/video-inline-form-on-a-text-other-than-a-question-label",
 		"standing": "not-yet",
 		"place": {
 			"kind": "question",
@@ -21919,7 +21943,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "label_video_inline"
+			"name": "video_inline_on_help"
 		}
 	},
 	{

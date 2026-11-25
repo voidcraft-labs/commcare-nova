@@ -1214,8 +1214,9 @@ def print_callout(use, manifest):
     return intent is not None and intent.get("class") == PRINT_ACTION
 
 
-# The itext forms that carry a file, as Core's Localizer keys them (``<id>;<form>``).
-MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video"})
+# The itext forms that carry a file, as Core's Localizer keys them (``<id>;<form>``): a question label's inline
+# video (``video-inline``) among them, whose file HQ ships beside a video's (``xform.py::video_references``).
+MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video", "video-inline"})
 
 
 # A question label's other texts, as Core's Localizer keys them (``<id>;<form>``): ``long``, ``qrcode`` and
@@ -1246,7 +1247,7 @@ def _media_itext_group(use, forms=MEDIA_ITEXT_FORMS):
 
 
 def media_missing_in_default(use, manifest):
-    """``questions/media-form-missing-in-default-language``: an image, audio or video value whose text the
+    """``questions/media-form-missing-in-default-language``: an image, audio, video or inline video value whose text the
     form's default translation holds without that form. Core keys each locale's forms over the default's
     (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
     group = _media_itext_group(use)
@@ -1268,7 +1269,7 @@ def label_text_missing_in_default(use, manifest):
 
 
 def media_blank_beside_file(use, manifest):
-    """``questions/empty-media-form-beside-a-translated-file``: an image, audio or video value of a text one
+    """``questions/empty-media-form-beside-a-translated-file``: an image, audio, video or inline video value of a text one
     translation holds blank and another holds a file of. Vellum's save fills the blank one from the file
     (``javaRosa/itext.js::getValueOrDefault``); Core keeps the empty string as that translation's own."""
     group = _media_itext_group(use)
@@ -5858,7 +5859,7 @@ def media_reference_drawn_without_entry(use, manifest):
                     continue
                 for value in _children(text):
                     medium = value.get("form")
-                    if _local(value) != "value" or medium not in ("image", "audio", "video"):
+                    if _local(value) != "value" or medium not in ("image", "audio", "video", "video-inline"):
                         continue
                     path = (value.text or "").strip()
                     if not path or path in mapped:

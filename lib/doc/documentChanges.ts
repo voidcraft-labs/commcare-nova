@@ -375,7 +375,7 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				location.fieldUuid,
 				location.bundleKey,
 				...language,
-				ref.slotKind,
+				ref.role ?? ref.slotKind,
 			];
 		case "option_media": {
 			const field = doc.fields[location.fieldUuid];
@@ -395,7 +395,7 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				String(at),
 				"media",
 				...language,
-				ref.slotKind,
+				ref.role ?? ref.slotKind,
 			];
 		}
 		case "image_map_mapping": {
@@ -444,7 +444,7 @@ function mediaSlotIdentity(
 			"option",
 			location.optionUuid,
 			...(location.language ? [location.language] : []),
-			ref.slotKind,
+			ref.role ?? ref.slotKind,
 		];
 	if (location.kind === "image_map_mapping")
 		return ["image-map", location.columnUuid];

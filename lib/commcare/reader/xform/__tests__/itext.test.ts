@@ -184,7 +184,9 @@ describe("the forms of a text", () => {
 					<value form="video-inline">jr://file/v.mp4</value><value form="mine">M</value></text>`,
 			}),
 		);
-		expect(codes(reading)).toEqual([Q("label-video-inline")]);
+		// A question label's inline video is its label media's: a path with no
+		// file is handed off to project data, as another media form's is.
+		expect(codes(reading)).toEqual([]);
 		expect(unclaimedText(reading)).toEqual([]);
 		// A label's `long` form is its extended text.
 		expect(field(reading, "q").extended_text).toEqual(proseText("L"));

@@ -1,4 +1,8 @@
-import { translatedMediaSchema } from "@/lib/domain/multimedia";
+import {
+	holdsLabelOnlyMedia,
+	LABEL_ONLY_MEDIA_MESSAGE,
+	translatedMediaSchema,
+} from "@/lib/domain/multimedia";
 import { navigationLanguageEntrySchema } from "@/lib/domain/navigationMedia";
 
 // lib/doc/types.ts
@@ -1767,16 +1771,25 @@ function createMutationSchema({
 		// clearable slots — `setConnectType` is the lone exception: its slot is
 		// genuinely `.nullable()` and stores `null` as a real value, so it is NOT
 		// a patch reducer and never gets the null-as-delete treatment.
-		z.object({
-			kind: z.literal("setFieldMedia"),
-			sharedOnly: z.literal(true).optional(),
-			fieldUuid: uuidSchema,
-			slot: z.enum(FIELD_MEDIA_SLOTS),
-			language: languageTagSchema.optional(),
-			optionUuid: uuidSchema.optional(),
-			languageEntry: translatedMediaSchema.nullable().optional(),
-			media: mediaSchema.nullable(),
-		}),
+		z
+			.object({
+				kind: z.literal("setFieldMedia"),
+				sharedOnly: z.literal(true).optional(),
+				fieldUuid: uuidSchema,
+				slot: z.enum(FIELD_MEDIA_SLOTS),
+				language: languageTagSchema.optional(),
+				optionUuid: uuidSchema.optional(),
+				languageEntry: translatedMediaSchema.nullable().optional(),
+				media: mediaSchema.nullable(),
+			})
+			.refine(
+				// Only a question's label plays an inline video.
+				(mut) =>
+					(mut.slot === "label" && mut.optionUuid === undefined) ||
+					(!holdsLabelOnlyMedia(mut.media ?? undefined) &&
+						mut.languageEntry?.videoInline === undefined),
+				{ message: LABEL_ONLY_MEDIA_MESSAGE },
+			),
 		z.object({
 			kind: z.literal("setModuleMedia"),
 			language: languageTagSchema.optional(),

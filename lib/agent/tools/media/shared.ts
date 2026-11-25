@@ -13,8 +13,9 @@
  *
  *   - **Field + option carriers** (a field's label / hint / help /
  *     validation message, and select options) take a full `Media` bundle
- *     — image + audio + video, any subset. `mediaSchema` is the single
- *     source of truth for that bundle; the tools reuse it directly.
+ *     — image + audio + video, any subset, and a question's label an
+ *     inline video besides. `mediaSchema` is the single source of truth
+ *     for that bundle; the tools reuse it directly.
  *   - **Menu carriers** (module / form menu tiles, app logo) take only
  *     direct `MediaAssetId` slots (image + audio, or just image for the logo)
  *     — see `lib/domain/multimedia.ts::mediaSchema`'s docstring for why
@@ -47,7 +48,10 @@ import {
 	type MediaAssetId,
 	mediaAssetIdSchema,
 } from "@/lib/domain";
-import { mediaValuesSchema } from "@/lib/domain/multimedia";
+import {
+	mediaValuesSchema,
+	sharedMediaValuesSchema,
+} from "@/lib/domain/multimedia";
 import {
 	type MediaAttachExpectation,
 	mediaAttachVerdict,
@@ -56,18 +60,26 @@ import type { ToolInvocationContext } from "../../workspace/types";
 import { type GuardedMutateOutcome, guardedMutate } from "../common";
 
 /**
- * The full image/audio/video bundle carried by question-message slots and
- * select options. Reuses the domain `mediaSchema` verbatim so the tool
- * boundary and the stored shape can't drift — `mediaSchema` is
- * strict with three optional `mediaAssetIdSchema` slots, none of which
- * carries a `.transform()`, so it lowers cleanly to JSON Schema for the
- * provider tool-input compiler.
+ * The bundle a help text or a choice carries: image, audio and video.
+ * Reuses the domain's bundle schema (`sharedMediaValuesSchema`, the stored
+ * `mediaValuesSchema` without the inline video only a question's label
+ * plays) so the tool boundary and the stored shape can't drift — strict,
+ * optional `mediaAssetIdSchema` slots, none carrying a `.transform()`, so it
+ * lowers cleanly to JSON Schema for the provider tool-input compiler.
  *
  * Clearing a slot is "omit it from the bundle" — an absent key resolves
  * to `undefined` and the carrier drops the reference. Passing an empty
  * bundle (`{}`) clears every slot.
  */
 export const mediaBundleInput = (description: string) =>
+	sharedMediaValuesSchema.describe(description);
+
+/**
+ * The bundle a field's message slots carry: `mediaBundleInput`'s roles and
+ * the inline video, which a tool refuses on a help text (only a question's
+ * label plays one).
+ */
+export const fieldMediaBundleInput = (description: string) =>
 	mediaValuesSchema.describe(description);
 
 /**
@@ -154,6 +166,13 @@ export function bundleExpectations(
 			assetId: media.video,
 			kind: "video",
 			slot: `the video on ${carrierPhrase}`,
+		});
+	}
+	if (media.videoInline !== undefined) {
+		out.push({
+			assetId: media.videoInline,
+			kind: "video",
+			slot: `the inline video on ${carrierPhrase}`,
 		});
 	}
 	return out;

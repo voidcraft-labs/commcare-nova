@@ -1350,6 +1350,14 @@ function coverStandIn(input: ReadTextInput, field: DraftField): void {
 
 const MEDIA_FORMS = new Set(["image", "audio", "video"]);
 
+/** Whether a slot's media reader holds a value of this form: an image, an audio or a video on
+ *  every slot that holds media, and an inline video on a question's label alone, the one text
+ *  commcare-android asks for its `video-inline` form (`QuestionWidget.java`). */
+function heldMediaForm(owner: ItextOwner, form: string): boolean {
+	if (MEDIA_FORMS.has(form)) return true;
+	return form === "video-inline" && mediaHolding(owner) === "label_media";
+}
+
 /** The media a slot holds, by the kind of its field. */
 function mediaHolding(owner: ItextOwner): SlotText["media"] {
 	const kind = owner.field.kind;
@@ -1365,8 +1373,8 @@ function mediaHolding(owner: ItextOwner): SlotText["media"] {
 	return "unheld";
 }
 
-/** Whether a slot that holds media (a question's label or help text, a choice) carries an image,
- *  an audio or a video form in some language. */
+/** Whether a slot that holds media (a question's label or help text, a choice) carries a media
+ *  form it holds (`heldMediaForm`) in some language. */
 function writesMedia(
 	owner: ItextOwner,
 	forms: ReadonlyMap<LanguageTag, ReadonlyMap<string, Element>>,
@@ -1374,7 +1382,7 @@ function writesMedia(
 	const holding = mediaHolding(owner);
 	if (holding === "unheld" || holding === "refused") return false;
 	for (const held of forms.values())
-		for (const form of held.keys()) if (MEDIA_FORMS.has(form)) return true;
+		for (const form of held.keys()) if (heldMediaForm(owner, form)) return true;
 	return false;
 }
 
@@ -1979,7 +1987,11 @@ function claimMarkdown(
 	return true;
 }
 
-/** A value of a form other than the default, markdown and media, claimed by the form it names.
+/** A value of a form other than the default, markdown and the media its slot holds
+ *  (`heldMediaForm`), claimed by the form it names. An inline video on any text but a question's
+ *  label is not yet held: no runtime shows it there (Android asks a question's label alone,
+ *  `QuestionWidget.java`; Formplayer sends no such form, `PromptToJson`), while HQ ships its file
+ *  (`xform.py::video_references`).
  *  A question label's other texts are read by `readLabelTexts` (`heldLabelTexts`). On any other
  *  text a `long` form is what both runtimes show in place of the text, which Nova holds no slot
  *  for, so it is not yet held: Core reads `long` first and the default after it for a choice
@@ -2002,7 +2014,7 @@ function claimOtherForm(
 		form === undefined ||
 		form === "default" ||
 		form === "markdown" ||
-		MEDIA_FORMS.has(form)
+		heldMediaForm(owner, form)
 	)
 		return;
 	if (form.startsWith("__nova_")) return;
@@ -2020,7 +2032,7 @@ function claimOtherForm(
 		return;
 	}
 	if (form === "video-inline")
-		cursor.refuseSubtree(value, X.videoInline, place);
+		cursor.refuseSubtree(value, X.videoInlineElsewhere, place);
 	else if (form === "short") cursor.accountSubtree(value, X.shortForm, place);
 	else if (form === "big-image")
 		cursor.refuseSubtree(

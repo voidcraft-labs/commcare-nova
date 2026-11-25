@@ -339,6 +339,7 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/choice-audio-video@web-apps": browser("choice-media-web-apps"),
 	"questions/help-media@web-apps": browser("help-web-apps"),
 	"questions/label-qrcode@web-apps": model("label-texts"),
+	"questions/label-video-inline@web-apps": model("label-texts"),
 	"questions/label-tts@web-apps": model("label-texts"),
 	"questions/label-tts@android": model("label-texts"),
 	"questions/help-text-markdown-form@web-apps": browser("help-web-apps"),

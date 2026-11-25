@@ -48,7 +48,11 @@
 
 import { z } from "zod";
 import { type Expression, formLogicSchema } from "../expression/types";
-import { type Media, mediaSchema } from "../multimedia";
+import {
+	helpOrChoiceMediaSchema,
+	type Media,
+	mediaSchema,
+} from "../multimedia";
 import {
 	type ProseTemplate,
 	proseTemplateSchema,
@@ -164,7 +168,8 @@ export type InputFieldBase = FieldBase & {
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
 	help: proseTemplateSchema.optional(),
-	help_media: mediaSchema.optional(),
+	/** No inline video: only a question's label plays one. */
+	help_media: helpOrChoiceMediaSchema.optional(),
 	/** The help text shows exactly as written on Android, with no markdown form on the wire.
 	 *  Absent: markdown. */
 	plainHelp: z.literal(true).optional(),
@@ -194,7 +199,8 @@ export type SelectOption = {
 export const selectOptionSchema = z.strictObject({
 	value: z.string(),
 	label: proseTemplateSchema,
-	media: mediaSchema.optional(),
+	/** No inline video: only a question's label plays one. */
+	media: helpOrChoiceMediaSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel: z.literal(true).optional(),
 	uuid: uuidSchema,

@@ -8928,6 +8928,8 @@
 			"itext-form:android/video",
 			"itext-form:core/video",
 			"itext-form:hq/video",
+			"itext-form:android/video-inline",
+			"itext-form:hq/video-inline",
 			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "language-specific-files",
@@ -8955,7 +8957,7 @@
 		"id": "questions/media-form-missing-in-default-language",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "An image, audio or video value held only outside a form’s default language.",
+		"item": "An image, audio, video or inline video value held only outside a form’s default language.",
 		"surfaceKeys": [
 			"itext-form:android/image",
 			"itext-form:core/image",
@@ -8966,6 +8968,8 @@
 			"itext-form:android/video",
 			"itext-form:core/video",
 			"itext-form:hq/video",
+			"itext-form:android/video-inline",
+			"itext-form:hq/video-inline",
 			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "missing-default-media-key",
@@ -8992,7 +8996,7 @@
 		"id": "questions/empty-media-form-beside-a-translated-file",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "An explicitly blank image, audio or video value beside a file in another language.",
+		"item": "An explicitly blank image, audio, video or inline video value beside a file in another language.",
 		"surfaceKeys": [
 			"itext-form:android/image",
 			"itext-form:core/image",
@@ -9003,6 +9007,8 @@
 			"itext-form:android/video",
 			"itext-form:core/video",
 			"itext-form:hq/video",
+			"itext-form:android/video-inline",
+			"itext-form:hq/video-inline",
 			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "blank-media-beside-file",
@@ -9034,10 +9040,10 @@
 			"itext-form:android/video-inline",
 			"itext-form:hq/video-inline"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `label_media.videoInline`",
-		"subject": "question-media",
-		"owner": "question-display",
+		"valueClass": "question-label",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `label_media.videoInline` (a video asset, per language as the label's other media)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (replaces the label image)",
@@ -9051,6 +9057,30 @@
 		},
 		"emission": {
 			"cell": "`form=\"video-inline\"`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/video-inline-form-on-a-text-other-than-a-question-label",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "`video-inline` form on a hint, a help text, a validation message, a choice or a group's or repeat's label",
+		"surfaceKeys": [
+			"itext-form:android/video-inline",
+			"itext-form:hq/video-inline"
+		],
+		"valueClass": "other-text",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: an inline video on a text other than a question's label, which no runtime shows (Android asks a question's label alone for it, `QuestionWidget.java`; Formplayer sends no such form, `PromptToJson`) while HQ ships its file (`xform.py::video_references`)",
+		"subject": "question-media",
+		"owner": "question-display",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

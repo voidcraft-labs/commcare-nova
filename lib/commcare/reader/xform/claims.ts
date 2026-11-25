@@ -1322,9 +1322,35 @@ export const X = {
 		Q("validation-message-markdown-form"),
 		"itext-form:core/markdown",
 	),
-	videoInline: one(
+	/** A question label's inline video (`label_media.videoInline`), held as the label's other
+	 *  media are: one file, files differing by language, and the two refusals a media form
+	 *  meets in a language (`lib/commcare/reader/xform/media.ts`). */
+	videoInline: {
+		held: one(
+			"take",
+			Q("label-video-inline"),
+			"itext-form:android/video-inline",
+		),
+		differing: one(
+			"take",
+			Q("label-or-option-media-differing-by-language"),
+			"itext-form:android/video-inline",
+		),
+		missingDefault: one(
+			"refuse",
+			Q("media-form-missing-in-default-language"),
+			"itext-form:android/video-inline",
+		),
+		blankBesideFile: one(
+			"refuse",
+			Q("empty-media-form-beside-a-translated-file"),
+			"itext-form:android/video-inline",
+		),
+	},
+	/** An inline video on a text other than a question's label, which no runtime shows. */
+	videoInlineElsewhere: one(
 		"refuse",
-		Q("label-video-inline"),
+		Q("video-inline-form-on-a-text-other-than-a-question-label"),
 		"itext-form:android/video-inline",
 	),
 	/** A question label's other texts (`lib/domain/labelForms.ts`), by the slot each is held in. */

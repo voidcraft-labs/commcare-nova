@@ -870,6 +870,23 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		use: slotUse("help-media", FIELD_OWNER, "help_media"),
 	},
+	"label-inline-video": {
+		with: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Watch how to fold it"),
+				label_media: { image: ASSET, videoInline: ASSET },
+			}),
+		without: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Watch how to fold it"),
+				label_media: { image: ASSET, video: ASSET },
+			}),
+		use: slotUse("label-inline-video", FIELD_OWNER, "label_media"),
+	},
 	"label-qr-code": {
 		with: () =>
 			oneField({

@@ -238,6 +238,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"plain-text",
 	"choice-media",
 	"help-media",
+	"label-inline-video",
 	"label-qr-code",
 	"label-spoken-text",
 	"now",
@@ -574,6 +575,18 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "it shows only when the help has text",
 		},
 		android: { reading: "runs" },
+	},
+	"label-inline-video": {
+		label: "Inline video on a question",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the question shows no inline video",
+		},
+		android: {
+			reading: "runs",
+			note: "it plays inside the question, in the place of its QR code or image",
+		},
 	},
 	"label-qr-code": {
 		label: "QR code on a question",

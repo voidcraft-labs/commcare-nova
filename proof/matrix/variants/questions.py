@@ -3224,6 +3224,19 @@ def help_media(authoring, app_id):
     )
 
 
+def video_inline_on_help(authoring, app_id):
+    """A help text on ``animal_name`` with an inline video, at the path its label's video form names: a form no
+    runtime reads of a help text."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-inline-on-help",
+        "help",
+        '<value>Say what the animal is called</value><value form="video-inline">'
+        "jr://file/commcare/video/data/animal_name.mp4</value>",
+    )
+
+
 def hint_media(authoring, app_id):
     """A hint on ``animal_name`` with an image, at the path its label's image names."""
     _animal_name_text(authoring, app_id, "hint-media", "hint", "<value>Its own name</value>" + ANIMAL_NAME_IMAGE)

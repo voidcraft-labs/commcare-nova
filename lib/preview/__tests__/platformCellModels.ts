@@ -473,7 +473,7 @@ export const PLATFORM_MODEL_CHECKS = {
 	},
 
 	/* A label's QR code takes the image's place on Android and shows nowhere
-	 * in Web Apps; its spoken text's speaker button shows on Android where the
+	 * in Web Apps, and an inline video takes the place of both; its spoken text's speaker button shows on Android where the
 	 * label has no audio, and nowhere in Web Apps. */
 	"label-texts": () => {
 		const image = asMediaAssetId(testUuid("platform-cells-label-image"));
@@ -507,6 +507,26 @@ export const PLATFORM_MODEL_CHECKS = {
 			qrCode: "ID-17",
 			speech: "Show the card",
 			media: { image: undefined },
+		});
+		/* An inline video plays on Android in the place of the QR code and the
+		 * image alike, and shows nowhere in Web Apps. */
+		const video = asMediaAssetId(testUuid("platform-cells-label-video"));
+		const film = { ...card, label_media: { image, videoInline: video } };
+		const played = (platform: Platform) =>
+			labelPresentation(
+				film,
+				false,
+				previewPlatformRules(platform),
+				{},
+				project,
+			);
+		expect(played("web-apps")).toMatchObject({
+			qrCode: undefined,
+			media: { image, videoInline: undefined },
+		});
+		expect(played("android")).toMatchObject({
+			qrCode: undefined,
+			media: { image: undefined, videoInline: video },
 		});
 	},
 
