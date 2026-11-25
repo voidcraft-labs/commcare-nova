@@ -2578,6 +2578,13 @@ forms preserves it. The fifteen other settings keep the project space's
 values. A newly created target receives Nova's defaults for missing
 settings. A target Nova brought in keeps them absent on both an HQ update
 and an archive built for that target.
+Required Android apps have one generated package name in every language.
+A destination's UI translation replaces the name only for its own language.
+The default archive locale merges each language's generated and translated
+names in reverse build order, as HQ's app strings writer does. Android
+Preview reads destination text as Core reads the resulting locale record,
+including its escaped number signs and line breaks.
+
 In `translations`, of the keys HQ generates Nova writes only
 `app.display.name` and `homescreen.title`, each only in a language whose
 localized app name differs from `appName`, and it writes every current
@@ -3572,3 +3579,17 @@ The pinned evidence and retained regression are recorded in
 A person can add another entry to an advanced menu and select the form whose questions it opens. Editing those questions or their record changes affects every entry. Each entry chooses how to find records at launch, what it is called, when it is visible and where a worker goes next. The Builder opens the parent when a person wants to edit its questions and shows the opening choices on the entry that owns them.
 
 The wire distinguishes a command from a resource. HQ's `ShadowForm._merge_actions` walks just the extra load rows. A repeated parent tag keeps its writes and replaces the selection, and a new tag supplies an additional read-only record. Open actions come from the parent. HQ's form picker restricts the parent to an ordinary advanced form. A shared entry whose parent questions or case changes require an absent load cannot submit safely. Nova identifies the dependent entry and lets the person restore that opening choice.
+
+### Automatic location on submitted forms
+
+Ordinary apps can request an Android device location for all forms, or on
+individual forms. Turning the app setting off reveals each form’s independent
+choice. Connect requests location on every form. HQ’s basic and advanced form
+settings keep their own value even when the app requests location. Its build adds
+a metadata node, geopoint bind, and targeted sensor action whenever either
+switch requests it. A geopoint question still records what the worker answers.
+On Android, the sensor can supply a fix if permission and a reading are
+available. Web Apps submits no automatic fix. Nova Preview and app tests accept
+a simulated fix and return the committed submission location separately from
+question answers. These behaviors originate in HQ’s `FormBase.get_auto_gps_capture`
+and `XForm._add_meta_2`, and Android’s `PollSensorController`.

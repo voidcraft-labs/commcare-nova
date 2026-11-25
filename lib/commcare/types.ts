@@ -586,6 +586,7 @@ export type HqFormLink<XPath = string> =
 interface HqFormBase<XPath, LinkXPath> {
 	submit_label?: LocalizedString;
 	session_endpoint_id?: string;
+	auto_gps_capture?: boolean;
 	respect_relevancy?: boolean;
 	unique_id: string;
 	name: LocalizedString;
@@ -749,6 +750,7 @@ export interface HqApplicationProfile {
 	 * carries as it is.
 	 */
 	properties?: Record<string, unknown>;
+	features?: Record<string, unknown>;
 	/**
 	 * HQ persists this inside an unschematized DictProperty. Nova-authored
 	 * values are strings, but a target app may already contain any JSON value;

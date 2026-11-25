@@ -150,6 +150,10 @@ import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { isExpression } from "@/lib/domain/expression/types";
+import {
+	capturesDeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
@@ -160,6 +164,7 @@ import {
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
 import type { CaseListSortChoice } from "../caseListSortMenu";
+import { previewPlatformRules } from "../platform";
 import { javaTrim } from "../xpath/javaString";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
@@ -1574,6 +1579,7 @@ export async function resetSampleCases(
  * own case first), and the selection its session holds.
  */
 export interface BuiltSubmissionOperations {
+	readonly submissionLocation?: ApplySubmissionArgs["submissionLocation"];
 	readonly program?: CaseOperationProgram;
 	/** The selection the committed form type and module admit, with the
 	 * client's selected ids. It carries no case write. */
@@ -1787,6 +1793,21 @@ export async function buildSubmissionOperationProgram(args: {
 			: args.lookupTableSchemas,
 	);
 
+	const capture = capturesDeviceLocation(
+		app.blueprint,
+		app.blueprint.forms[args.projection.formUuid],
+	);
+	const fix = args.mutation.locationFix;
+	if (
+		fix !== undefined &&
+		(!capture ||
+			!previewPlatformRules(args.device.platform).automaticLocation ||
+			!deviceLocationSchema.safeParse(fix).success)
+	)
+		throw new CaptureSubmissionRejectedError(
+			"This form could not use the supplied device location. Open it again with the current app and Preview phone settings.",
+		);
+	const metadata = capture ? { submissionLocation: fix ?? null } : {};
 	const validated = args.projection;
 	const allowedAttachments = Object.values(app.blueprint.fields).flatMap(
 		(field) => {
@@ -1817,6 +1838,7 @@ export async function buildSubmissionOperationProgram(args: {
 	) {
 		return {
 			...withLookups,
+			...metadata,
 			submissionReceipt: {
 				...receiptIdentity,
 				expectedAppMutationSeq: app.mutation_seq,
@@ -1834,6 +1856,7 @@ export async function buildSubmissionOperationProgram(args: {
 	};
 	return {
 		...withLookups,
+		...metadata,
 		submissionReceipt: {
 			...receiptIdentity,
 			expectedAppMutationSeq: app.mutation_seq,
@@ -2545,6 +2568,9 @@ export function submissionEnvelopeArgs(
 	if (mutation.kind !== built.ordinaryFormType) rejectFormTypeMismatch();
 	return {
 		appId,
+		...(built.submissionLocation !== undefined && {
+			submissionLocation: built.submissionLocation,
+		}),
 		ordinary: built.ordinaryAction,
 		...operations,
 		...submissionReceipt,

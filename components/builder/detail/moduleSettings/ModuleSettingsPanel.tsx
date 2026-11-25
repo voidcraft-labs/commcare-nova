@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { Button } from "@/components/shadcn/button";
 import { PopoverTitle } from "@/components/shadcn/popover";
 import { useAdvancedKindLine } from "@/lib/doc/hooks/useAdvancedKindReasons";
@@ -70,6 +71,7 @@ export function ModuleSettingsPanel({
 				<MenuScreenSection moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
+				<ControlWording owner={moduleUuid} />
 				<CaseListMenuItemSection moduleUuid={moduleUuid} />
 				<AutomaticRecordSection moduleUuid={moduleUuid} />
 				<DisplayConditionSection

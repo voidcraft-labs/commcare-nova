@@ -277,8 +277,9 @@ export function rewriteCasePropertyCarriers(
 						);
 					}
 				}
-				if (typeof entry.value === "object" && entry.value !== null) {
-					mapCasePropertiesInProse(entry.value, resolve, (expression) =>
+				for (const value of [entry.value, entry.workerFallback?.value]) {
+					if (!value || typeof value === "string") continue;
+					mapCasePropertiesInProse(value, resolve, (expression) =>
 						mapCasePropertiesInExpression(
 							expression,
 							resolve,
@@ -296,6 +297,15 @@ export function rewriteCasePropertyCarriers(
 				) {
 					entry.sourceFingerprint = newUnit.sourceFingerprint;
 				}
+				if (
+					newUnit &&
+					entry.workerFallback &&
+					translationSourceFingerprintsEqual(
+						entry.workerFallback.sourceFingerprint,
+						oldUnit.sourceFingerprint,
+					)
+				)
+					entry.workerFallback.sourceFingerprint = newUnit.sourceFingerprint;
 				remapped[newUnitId] = entry;
 			}
 			for (const oldUnitId of Object.keys(translations)) {

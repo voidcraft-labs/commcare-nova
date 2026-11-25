@@ -645,49 +645,57 @@ function buildRequired(
  * half keeps its own translation unit; the locale table joins them per
  * language.
  */
+/** The single validation message read by the worker, even where an authored
+ * test and a generated check share the native prompt's one assertion. */
+export function promptCheckText(
+	input: SearchInputDef,
+	runtimeValidation?: RuntimeCsqlPromptValidation,
+): SearchPromptText | undefined {
+	const authored = input.kind === "hidden" ? undefined : input.validation;
+	const parts: { text: string; unit: TranslationUnitId }[] = [];
+	if (authored)
+		parts.push({
+			text: authored.message,
+			unit: makeTranslationUnitId(
+				"search-input",
+				input.uuid,
+				"validation-message",
+			),
+		});
+	if (runtimeValidation)
+		parts.push({
+			text: runtimeValidation.message,
+			unit: makeTranslationUnitId(
+				"system",
+				"search-validation",
+				runtimeValidation.messageKey,
+			),
+		});
+	if (!parts.length) return undefined;
+	return {
+		text: parts.map((p) => p.text).join(" "),
+		source: parts.length === 1 ? parts[0].unit : parts.map((p) => p.unit),
+	};
+}
+
 function buildValidation(
 	input: SearchInputDef,
 	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
 	emission: PromptEmissionContext,
 ): SearchPromptAssertion | undefined {
-	const authored = input.kind === "hidden" ? undefined : input.validation;
-	if (authored === undefined && runtimeValidation === undefined) {
-		return undefined;
-	}
+	const message = promptCheckText(input, runtimeValidation);
+	if (!message) return undefined;
 	const tests: WireExpr[] = [];
-	const messages: string[] = [];
-	const units: TranslationUnitId[] = [];
-	if (authored !== undefined) {
+	if (input.kind !== "hidden" && input.validation)
 		tests.push(
 			emitScreenPredicate(
-				authored.rule,
+				input.validation.rule,
 				"search_input_validation_rule",
 				emission,
 			),
 		);
-		messages.push(authored.message);
-		units.push(
-			makeTranslationUnitId("search-input", input.uuid, "validation-message"),
-		);
-	}
-	if (runtimeValidation !== undefined) {
-		tests.push(runtimeValidation.test);
-		messages.push(runtimeValidation.message);
-		units.push(
-			makeTranslationUnitId(
-				"system",
-				"search-validation",
-				runtimeValidation.messageKey,
-			),
-		);
-	}
-	return {
-		test: w.and(...tests),
-		message: {
-			text: messages.join(" "),
-			source: units.length === 1 ? units[0] : units,
-		},
-	};
+	if (runtimeValidation) tests.push(runtimeValidation.test);
+	return { test: w.and(...tests), message };
 }
 
 /**

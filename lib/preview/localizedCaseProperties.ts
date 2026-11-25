@@ -7,8 +7,65 @@ import {
 	casePropertyOptionTranslationUnitId,
 	columnPropertyCaseType,
 	type LocalizedValue,
+	proseText,
 	type TranslationUnitId,
 } from "@/lib/domain";
+
+import {
+	columnWordingRole,
+	generatedWordingId,
+} from "@/lib/domain/generatedWording";
+import type { ColumnDisplayContext } from "./columnDisplay";
+
+/** A detail can use a different option label from the row that opens it.
+ * Resolve each option once per screen so the filter and rendered cells agree. */
+export function columnOutputWording(
+	config: CaseListConfig | undefined,
+	listCaseType: string | undefined,
+	caseTypes: readonly CaseType[],
+	caseProperties: readonly CaseProperty[],
+	relatedProperties: NonNullable<ColumnDisplayContext["relatedProperties"]>,
+	values: ReadonlyMap<TranslationUnitId, LocalizedValue>,
+	search: boolean,
+	detail: boolean,
+): Pick<ColumnDisplayContext, "columnProperties" | "imageDescription"> {
+	const role = columnWordingRole(search, detail);
+	const columnProperties = new Map<Column["uuid"], CaseProperty>();
+	for (const column of config?.columns ?? []) {
+		if (column.kind !== "plain") continue;
+		const type = columnPropertyCaseType(column, listCaseType, caseTypes);
+		if (type === undefined) continue;
+		const property =
+			column.via === undefined
+				? caseProperties.find((p) => p.name === column.field)
+				: relatedProperties.get(column.uuid);
+		if (!property?.options?.length) continue;
+		columnProperties.set(column.uuid, {
+			...property,
+			options: property.options.map((option, index, options) => {
+				const id = casePropertyOptionTranslationUnitId(
+					type,
+					property.name,
+					option.value,
+					casePropertyOptionOccurrence(options, index),
+				);
+				const value = values.get(generatedWordingId(column.uuid, role, id));
+				return typeof value === "string"
+					? { ...option, label: proseText(value) }
+					: option;
+			}),
+		});
+	}
+	return {
+		columnProperties,
+		imageDescription: (column, value) => {
+			const text = values.get(
+				generatedWordingId(column, role, "image-description", value),
+			);
+			return typeof text === "string" && text !== "" ? text : undefined;
+		},
+	};
+}
 
 /** Project option labels through the same selected-language lens as the rest
  * of Preview while retaining the effective catalog's structural data type. */

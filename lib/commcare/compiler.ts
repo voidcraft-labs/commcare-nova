@@ -1,4 +1,8 @@
-import { defaultAppStringsHeldText } from "@/lib/commcare/appStringKeys";
+import { requiredAndroidPackages } from "@/lib/commcare/androidAppDependencies";
+import {
+	defaultAppStringsHeldText,
+	defaultTableText,
+} from "@/lib/commcare/appStringKeys";
 import { targetProfileProperties } from "@/lib/commcare/keptProfile";
 import {
 	profileServerProperties,
@@ -6,6 +10,10 @@ import {
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
 import { buildEntryPointSuite } from "./entryPointSuite";
+import {
+	generatedWordingKeys,
+	generatedWordingOverrides,
+} from "./generatedWording";
 import { basicActionsWriteWorker } from "./session";
 import type { TargetFacts } from "./targetFacts";
 import type { TargetFill } from "./targetOverlay";
@@ -162,6 +170,7 @@ import {
 	moduleParent,
 	moduleShowsFormsInMenuAbove,
 	projectedModulePreorder,
+	type TranslationUnitId,
 	type Uuid,
 	type WireStringSource,
 } from "@/lib/domain";
@@ -335,6 +344,7 @@ export interface CczParts {
 	 */
 	readonly tables: Readonly<Record<string, ReadonlyMap<string, string>>>;
 	/** Each app string's source unit, as the walk filled it. */
+	readonly wordingUnits: Readonly<Record<string, TranslationUnitId>>;
 	readonly appStringUnits: Readonly<Record<string, WireStringSource>>;
 }
 
@@ -458,16 +468,24 @@ export function compileCczParts(
 		"cchq.case": "Case",
 	};
 	const submitLabels = new Map<string, Readonly<Record<string, string>>>();
+	for (const { id, name } of requiredAndroidPackages(
+		doc.appSettings.requiredAndroidApps,
+	))
+		appStrings[`android.package.name.${id}`] = name;
 	const appStringUnits: Record<string, WireStringSource> = {
 		"homescreen.title": makeTranslationUnitId("app", "name"),
 		"app.display.name": makeTranslationUnitId("app", "name"),
 	};
+	const columnWordings: Record<string, TranslationUnitId> = {};
 	const mergeLocalizedStrings = (emission: {
 		readonly strings: Record<string, string>;
 		readonly translationUnits: Record<string, WireStringSource>;
+		readonly wordingUnits?: Record<string, TranslationUnitId>;
 	}): void => {
 		Object.assign(appStrings, emission.strings);
 		Object.assign(appStringUnits, emission.translationUnits);
+		if (emission.wordingUnits)
+			Object.assign(columnWordings, emission.wordingUnits);
 	};
 	// Top-level `<suite>` children accumulate as typed `Element[]`. The
 	// orchestrator splices everything into one `<suite>` Element at the
@@ -936,12 +954,10 @@ export function compileCczParts(
 			if (xform) {
 				const form = parseXForm(xform);
 				addMetaBlockTo(form, {
-					/* HQ's build captures location on every form where the
-					 * app's `auto_gps_capture` is on: a Connect app's, which
-					 * Nova sets, or another app's where the project space
-					 * holds it (`xform.py::XForm._add_meta_2`). */
+					/* HQ builds from the independent app and form switches. */
 					captureLocation:
-						authoredDoc.connectType !== null || facts?.autoGpsCapture === true,
+						hqJson.auto_gps_capture === true ||
+						hqForm.auto_gps_capture === true,
 				});
 				stripVellumAttributesFrom(form);
 				setFormVersionOn(form, sequence);
@@ -1441,32 +1457,53 @@ export function compileCczParts(
 	// HQ's build merges into its default table from every language
 	// (`defaultAppStringsHeldText`); a language of the facts the app does not
 	// have writes nothing, as HQ builds no table for it.
+	const wording = generatedWordingKeys(authoredDoc, plan);
+	for (const [key, id] of Object.entries(columnWordings)) wording.set(key, id);
+	const overrides = generatedWordingOverrides(authoredDoc, wording);
+	const generatedText = (language: string, key: string): string | undefined => {
+		const own = ownEntry(ownEntry(overrides, language), key);
+		if (own !== undefined) return own;
+		// A form's own submit wording, under the override as HQ's build puts
+		// the app's translations over `submit_label`. A language with none
+		// shows the built default.
+		const labels = submitLabels.get(key);
+		if (labels !== undefined) return labels[language] ?? FORM_SUBMIT_LABEL;
+		if (!Object.hasOwn(appStrings, key)) return undefined;
+		const base = ownEntry(appStringUnits, key);
+		return base === undefined
+			? appStrings[key]
+			: localization.wireTextFor(language, base);
+	};
 	const defaultHeldText =
 		facts === null
 			? {}
-			: defaultAppStringsHeldText(facts.uiText, localization.languages);
+			: defaultAppStringsHeldText(
+					facts.uiText,
+					localization.languages,
+					generatedText,
+				);
 	const tables: Record<string, ReadonlyMap<string, string>> = {};
 	for (const [language, dir] of langDirs) {
 		const table = new Map<string, string>();
 		for (const [localeId, source] of Object.entries(appStrings)) {
-			const labels = submitLabels.get(localeId);
-			if (labels !== undefined) {
-				const value =
-					dir === "default"
-						? (localization.languages
-								.map((code) => labels[code] ?? FORM_SUBMIT_LABEL)
-								.find((text) => text !== "") ?? "")
-						: (labels[language] ?? FORM_SUBMIT_LABEL);
-				if (value !== "" || dir === "default") table.set(localeId, value);
-				continue;
+			let value = generatedText(language, localeId) ?? source;
+			if (dir === "default" && defaultTableText(value) === "") {
+				for (const code of localization.languages) {
+					const alternative = generatedText(code, localeId);
+					if (
+						alternative !== undefined &&
+						defaultTableText(alternative) !== ""
+					) {
+						value = alternative;
+						break;
+					}
+				}
 			}
-			const unitSource = appStringUnits[localeId];
-			table.set(
-				localeId,
-				unitSource === undefined
-					? source
-					: localization.wireTextFor(language, unitSource),
-			);
+			// A named HQ locale omits a zero-length generated value. Core
+			// falls back to its default locale for this key. Whitespace is
+			// a present value and the locale writer preserves that distinction.
+			if (dir === "default" || value !== "" || !wording.has(localeId))
+				table.set(localeId, value);
 		}
 		const heldNames = ownEntry(facts?.languageNames, language);
 		for (const code of localization.languages) {
@@ -1480,11 +1517,13 @@ export function compileCczParts(
 		))
 			table.set(key, value);
 		table.set("lang.current", language);
+		const installed =
+			dir === "default" ? table : new Map([...tables.default, ...table]);
 		const localizedSuiteErrors = validateSuiteStrings(
 			oracleSuite,
-			new Set(table.keys()),
+			new Set(installed.keys()),
 			{
-				appStringValues: table,
+				appStringValues: installed,
 				manifest: bundledWirePaths,
 			},
 		);
@@ -1503,6 +1542,7 @@ export function compileCczParts(
 		mediaEntries: mediaBundle.cczEntries,
 		tables,
 		appStringUnits,
+		wordingUnits: Object.fromEntries(wording),
 	};
 }
 
@@ -1608,6 +1648,17 @@ function generateProfile(input: {
 			el("features", {}, [
 				el("checkoff", { active: "true" }),
 				el("users", { active: "true" }),
+				...(input.doc.appSettings.requiredAndroidApps?.length
+					? [
+							el(
+								"dependencies",
+								{ active: "true" },
+								requiredAndroidPackages(
+									input.doc.appSettings.requiredAndroidApps,
+								).map(({ id }) => el("android_package", { id })),
+							),
+						]
+					: []),
 				...(facts === null || facts.credentialLevel === null
 					? []
 					: [

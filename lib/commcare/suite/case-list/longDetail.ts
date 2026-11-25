@@ -69,13 +69,18 @@ import {
 import { moduleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
-import { buildColumnField, mergeFieldStrings } from "./columns";
+import {
+	buildColumnField,
+	imageDescriptions,
+	mergeFieldStrings,
+} from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
 	DetailTarget,
 } from "./types";
+import { columnOutputWordings } from "./wording";
 
 /**
  * Empty sort-directive map for long-detail emission. The long-detail
@@ -131,6 +136,7 @@ export function buildLongDetail(args: {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly wordingUnits: Record<string, TranslationUnitId>;
 	readonly instances: readonly InstanceDecl[];
 } {
 	const { module: mod, moduleIndex } = args;
@@ -148,6 +154,7 @@ export function buildLongDetail(args: {
 			element: buildDetailShell(detailId, []),
 			strings: {},
 			translationUnits: {},
+			wordingUnits: {},
 			instances: [],
 		};
 	}
@@ -180,6 +187,7 @@ export function buildLongDetail(args: {
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
 	const translationUnits: Record<string, TranslationUnitId> = {};
+	const wordingUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk every column in the config's exact Details UUID permutation,
 	// independently of Results. Position is 1-based among the columns Details
@@ -198,13 +206,25 @@ export function buildLongDetail(args: {
 			ctx,
 		});
 		fields.push(emission.element);
+		for (const key of imageDescriptions(column, i + 1, ctx))
+			wordingUnits[key.localeId] = key.id;
 		mergeFieldStrings(strings, translationUnits, emission);
+		Object.assign(
+			wordingUnits,
+			columnOutputWordings(
+				column.uuid,
+				target,
+				"long",
+				emission.translationUnits,
+			),
+		);
 	}
 
 	return {
 		element: buildDetailShell(detailId, fields),
 		strings,
 		translationUnits,
+		wordingUnits,
 		instances: instances.declarations(),
 	};
 }

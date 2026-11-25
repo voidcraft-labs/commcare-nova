@@ -157,3 +157,35 @@ test("Release claimed cases shows the running worker's count, releases them, and
 	await expect(release).toHaveCount(0);
 	await page.keyboard.press("Escape");
 });
+
+test("an author can place the Preview phone and simulate an unavailable fix", async ({
+	page,
+}) => {
+	await answerClaimCounts(page, [0]);
+	await page.goto(`${peer.origin}/?runs-on=android`);
+	await page
+		.getByRole("button", { name: "Toggle Preview", exact: true })
+		.click();
+	const trigger = page.getByRole("button", { name: /^Running as / });
+	const openSensor = async () => {
+		await trigger.click();
+		await page.getByRole("menuitem", { name: "Device location" }).click();
+	};
+	await openSensor();
+	const dialog = page.getByRole("dialog", { name: "Device location" });
+	const save = dialog.getByRole("button", { name: "Use this location" });
+	await expect(save).toBeDisabled();
+	await dialog.getByLabel("Latitude").fill("23.5");
+	await dialog.getByLabel("Longitude").fill("-75.25");
+	await dialog.getByLabel("Accuracy (m)").fill("4");
+	await save.click();
+	await openSensor();
+	await expect(dialog.getByLabel("Latitude")).toHaveValue("23.5");
+	await expect(dialog.getByLabel("Longitude")).toHaveValue("-75.25");
+	await dialog
+		.getByRole("button", { name: "Use unavailable location" })
+		.click();
+	await openSensor();
+	await expect(dialog.getByLabel("Latitude")).toHaveValue("");
+	await expect(save).toBeDisabled();
+});

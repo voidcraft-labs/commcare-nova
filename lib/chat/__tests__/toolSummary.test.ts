@@ -155,6 +155,20 @@ describe("updateApp transcript row", () => {
 		expect(toolLocation(part)).toBe("Saved forms on · Incomplete forms off");
 	});
 
+	it("names a change to the location every form requests, after the form lists", () => {
+		const part = donePart("updateApp", {
+			formLists: { saved: true },
+			captureLocation: true,
+		});
+		expect(toolAction(part)).toBe("Updated app settings");
+		expect(toolLocation(part)).toBe(
+			"Saved forms on · Location for every form on",
+		);
+		expect(
+			toolLocation(donePart("updateApp", { captureLocation: false })),
+		).toBe("Location for every form off");
+	});
+
 	it("keeps the rename and puts the name first when a call also changes a setting", () => {
 		const part = donePart("updateApp", {
 			subject: "Village Health",

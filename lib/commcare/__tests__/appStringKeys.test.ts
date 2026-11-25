@@ -38,10 +38,10 @@ describe("translationKeyOwner", () => {
 		);
 	});
 
-	it("classes a key every generated pattern names as generated", () => {
+	it("recognizes each generated pattern and leaves the training runtime title in the catalog", () => {
 		for (const pattern of GENERATED_APP_STRING_PATTERNS)
 			expect(translationKeyOwner(sample(pattern), NO_CODES), pattern).toBe(
-				"generated",
+				pattern === "training.root.title" ? "target" : "generated",
 			);
 		for (const key of [
 			"homescreen.title",

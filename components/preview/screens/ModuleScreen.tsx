@@ -43,6 +43,7 @@ import {
 	moduleParent,
 	reachableCaseTypes,
 } from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
 import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
 import {
@@ -591,9 +592,9 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 									entry={caseListEntry}
 									index={fIdx}
 									label={
-										(localizedValues.get(caseListEntry.labelUnitId) as
-											| string
-											| undefined) ?? caseListEntry.label
+										(localizedValues.get(
+											generatedWordingId(entry.moduleUuid, "caseListEntry"),
+										) as string | undefined) ?? caseListEntry.label
 									}
 									onClick={() => chooseCaseListEntry(entry.moduleUuid)}
 								/>
@@ -604,7 +605,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 						const formModuleUuid = entry.moduleUuid;
 						const localizedFormName =
 							(localizedValues.get(
-								makeTranslationUnitId("form", form.uuid, "name"),
+								generatedWordingId(form.uuid, "formTitle"),
 							) as string | undefined) ?? form.name;
 
 						const handleClick = () => {

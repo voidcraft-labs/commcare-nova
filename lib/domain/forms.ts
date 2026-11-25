@@ -849,6 +849,8 @@ export const formSchema = z.strictObject({
 	 * after-submit link and from an entry point.
 	 */
 	hiddenFromMenu: z.literal(true).optional(),
+	/** Independently requests device location when this form opens on Android. */
+	captureLocation: z.literal(true).optional(),
 	/** Text formatting is off for the whole form: no label, choice or help text writes a markdown
 	 *  form, so each shows as its platform shows a text without one. */
 	plainText: z.literal(true).optional(),

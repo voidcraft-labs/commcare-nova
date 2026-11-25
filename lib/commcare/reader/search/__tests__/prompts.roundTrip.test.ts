@@ -732,7 +732,7 @@ describe("a stored validation that carries Nova's runtime guard under a message 
 		]);
 	});
 
-	it("alone is unrecognized at the message, with no defect", async () => {
+	it("preserves the customized guard alone when every language changes its wording", async () => {
 		const doc = produce(localizationWireFixture("prompts"), (draft) => {
 			for (const mod of Object.values(draft.modules))
 				for (const one of mod.caseListConfig?.searchInputs ?? [])
@@ -744,9 +744,23 @@ describe("a stored validation that carries Nova's runtime guard under a message 
 			search_config: { properties: Record<string, unknown>[] };
 		}[];
 		edited(modules[0]?.search_config.properties ?? []);
-		expect(await findingsOf(body)).toEqual([
-			["unrecognized", "schema:Assertion.text", "search"],
-		]);
+		const read = readHqApp(await inputFor(body));
+		expect(read.defects).toEqual([]);
+		expect(read.kind === "account" ? read.findings : []).toEqual([]);
+		if (read.kind !== "read") throw Error("Expected the customized guard");
+		const module = expandDoc(read.draft.doc).modules[0];
+		expect(module?.search_config?.properties).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "status",
+					validations: [
+						expect.objectContaining({
+							text: { es: "algo", en: "Use lowercase." },
+						}),
+					],
+				}),
+			]),
+		);
 	});
 
 	// Every finding a reading can decide is reported in one pass: the message keeps the field out,

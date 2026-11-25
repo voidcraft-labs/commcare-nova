@@ -12,8 +12,8 @@
  * menu's case list covers the menu's keys and no key of a form position the
  * menu holds none at; a choice's label that two menus' lists show, one of them
  * a mirror, is judged at the menu that read whole and stands under the
- * mirror's finding at the other, and a label three menus' lists show, a
- * mirror between them, is judged against every menu it feeds.
+ * mirror's finding at the other, and a split list header after a menu with
+ * a finding stays with the menu whose worker sees it.
  *
  * Plausible failures: a key judged against the menu that now stands at its
  * number, a covered key reported, a key left unclaimed where there is no
@@ -21,6 +21,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { localAppStringTable } from "@/lib/commcare/appStrings";
 import {
 	type BlueprintDoc,
 	makeTranslationUnitId,
@@ -159,11 +161,11 @@ describe("a generated key in a reading", () => {
 		).toEqual([]);
 	});
 
-	it("stands under the finding at a language the reading cannot name", async () => {
+	it("stands under the finding at an invalid language code", async () => {
 		const { outcome, generated, named } = await read(
-			body([menu("menu-one")], { xx: { "modules.m0": "Patients" } }, [
+			body([menu("menu-one")], { "x x": { "modules.m0": "Patients" } }, [
 				"en",
-				"xx",
+				"x x",
 			]),
 		);
 		expect(outcome.kind).toBe("account");
@@ -224,56 +226,45 @@ describe("a generated key in a reading", () => {
 		expect(named).toEqual([]);
 	});
 
-	it("is judged against every menu a choice's label feeds, the menu after a mirror at its position in the document", async () => {
-		const enumKey = (menu: number) =>
-			`m${menu}.case_short.case_status_1.enum.ka`;
-		const unit = makeTranslationUnitId(
-			"case-property-option",
-			"client",
-			"status",
-			"a",
+	it("keeps a split list header on the right menu after a menu that could not be read", async () => {
+		const source = localizationWireFixture("bilingual");
+		const raw = exportedBody(source);
+		const original = (raw.modules as Record<string, unknown>[])[0];
+		raw.modules = [
+			{ ...original, unique_id: "first-menu", forms: [] },
+			menu("unread-menu", { not_a_module_key: 1 }),
+			original,
+		];
+		const table = localAppStringTable(source, []);
+		const first = Object.keys(table.languages.en).find(
+			(key) => key.includes("case_short") && table.languages.en[key] === "Age",
 		);
-		const { outcome, generated } = await read(
-			body([menu("menu-one"), mirrorMenu("menu-one"), menu("menu-two")], {
-				en: {
-					en: "English",
-					[enumKey(0)]: "Active",
-					[enumKey(1)]: "Other",
-					[enumKey(2)]: "Current",
-				},
+		if (!first) throw Error("The control needs the list's age column");
+		const third = first.replace("m0.", "m2.");
+		const strings = raw.translations as Record<string, Record<string, string>>;
+		strings.en[first] = "Age";
+		strings.en[third] = "Reported age";
+		const outcome = readHqApp(
+			await inputFor(raw, {
+				appStrings: (doc) => localAppStringTable(doc, []),
 			}),
-			(doc) => {
-				const strings = menuStrings(doc);
-				const ids = doc.moduleOrder.map((_, index) => enumKey(index));
-				return {
-					languages: {
-						en: {
-							...strings.languages.en,
-							...Object.fromEntries(ids.map((id) => [id, "Active"])),
-						},
-					},
-					units: {
-						...strings.units,
-						...Object.fromEntries(ids.map((id) => [id, unit])),
-					},
-				};
-			},
+			{ claims: "full" },
 		);
 		if (outcome.kind !== "account")
-			throw new Error("The mirror menu is a finding.");
-		// The first menu's key equals its string; the third's, at the second position in the
-		// document, overrides a label the first menu's list shows too, where it holds another value.
-		expect([...generated].sort()).toEqual([
-			"translations-generated-key-anything-else",
-			"translations-generated-key-with-no-effect",
-		]);
-		const keyed = outcome.findings
-			.map((one) => one.detail.name)
-			.filter((name) => name?.includes(".enum.") === true);
-		expect(keyed).toEqual([enumKey(2)]);
-		const keys = [...outcome.claims.records()]
-			.filter((record) => record.entry.includes(GENERATED))
-			.map((record) => record.where);
-		expect(keys).toEqual(["/translations", "/translations"]);
+			throw Error("The middle menu should be held");
+		expect([...outcome.claims.records()]).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					entry:
+						"application-and-settings/translations-generated-key-with-no-effect",
+					at: `/translations/en/${first}`,
+				}),
+				expect.objectContaining({
+					entry: "application-and-settings/translations-generated-wording",
+					at: `/translations/en/${third}`,
+				}),
+			]),
+		);
+		expect(outcome.findings.some((f) => f.detail.name === third)).toBe(false);
 	});
 });

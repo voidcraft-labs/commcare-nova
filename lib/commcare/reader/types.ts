@@ -13,6 +13,7 @@ import type {
 	LookupColumnId,
 	LookupTableId,
 	MediaKind,
+	TranslationUnitId,
 	Uuid,
 	WireStringSource,
 } from "@/lib/domain";
@@ -87,7 +88,11 @@ export interface ReaderInput {
 }
 
 /** The language each CommCare HQ code of an app Nova holds names, by the code. */
-export type ReaderKnownLanguageCodes = ReadonlyMap<string, LanguageTag>;
+export interface ReaderKnownLanguageCodes {
+	readonly tagByCode: ReadonlyMap<string, LanguageTag>;
+	readonly sourceCode: string | undefined;
+	readonly rtlProjectLanguages?: Readonly<Record<LanguageTag, true>>;
+}
 
 /** The case types the indices of the app's document reach and the types its catalog declares,
  *  as Nova holds them (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */
@@ -179,6 +184,8 @@ export interface AppStringTable {
 	readonly languages: Readonly<
 		Record<string, Readonly<Record<string, string>>>
 	>;
+	/** Stable individual output, where its generator admits an independent wording. */
+	readonly wordingUnits?: Readonly<Record<string, TranslationUnitId>>;
 	/** A string's source where it comes from a translation unit or several. */
 	readonly units: Readonly<Record<string, WireStringSource>>;
 }

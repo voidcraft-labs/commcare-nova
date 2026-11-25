@@ -14,6 +14,11 @@ Only the creating actor can continue a test; current app members can read its
 observations. Simulated worker identity never grants Project authority.
 
 A journey may retain one to four worker sessions in the same isolated namespace.
+Android session inputs hold the apps installed on the Preview phone. Before any
+worker screen or action, Android compares that selection with the app's ordered
+requirements. A missing app is an observable startup refusal. A test can start
+another phone session with the needed apps installed. Web Apps skips that check.
+
 `startAppTest.sessions` supplies unique bounded test-local IDs and optional saved
 identity/language choices; omission creates `default`. The first session is
 primary. Each ordered action may address `sessionId`; omission uses primary.
@@ -365,3 +370,9 @@ Answer, section and page-turn observations reuse the evaluation that produced
 their exact next form screen. The normal language, route and action decoration
 still applies. A standalone observe, navigation, identity change or submission
 performs a fresh evaluation; no result is cached across actions or sessions.
+
+
+Menu and form choices, record cells, selection and submission buttons project
+the same generated wording as the running app. A journey changing language
+observes the named locale over the default locale, including inherited image
+descriptions. Platform-specific actions retain their own labels.

@@ -139,6 +139,10 @@ import {
 	type TranslationUnitId,
 	tileCellFor,
 } from "@/lib/domain";
+import {
+	columnWordingRole,
+	generatedWordingId,
+} from "@/lib/domain/generatedWording";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	type AssetManifest,
@@ -912,6 +916,39 @@ export function imageMapEnumKey(value: string): string {
 	}).text;
 }
 
+/** The exact locale id for each mapping value is independent of whether this
+ * particular compilation carries the media bytes. The importer uses these
+ * identities even when its table omits media. */
+export function imageDescriptions(
+	column: Column,
+	position: number,
+	ctx: CaseListEmitContext,
+) {
+	if (column.kind !== "image-map") return [];
+	const idBase = detailColumnLocaleBase(
+		ctx.target,
+		ctx.detailKind,
+		ctx.moduleIndex,
+		columnFieldText(column),
+		position,
+		heldWord(column, ctx),
+	);
+	return column.mapping.map((entry) => {
+		const name = keyAsVariable(imageMapEnumKey(entry.value));
+		return {
+			value: entry.value,
+			id: generatedWordingId(
+				column.uuid,
+				columnWordingRole(ctx.target === "search", ctx.detailKind === "long"),
+				"image-description",
+				entry.value,
+			),
+			name,
+			localeId: `${idBase}.alt_text.${name}`,
+		};
+	});
+}
+
 /**
  * The `<alt_text>` HQ's build gives an image-map field at CommCare 2.54 or
  * later (`detail_screen.py::EnumImage.alt_text`, `feature_support.py::
@@ -942,23 +979,11 @@ function imageMapAltText(
 		return undefined;
 	}
 	const field = columnPropertyPath(column);
-	const idBase = detailColumnLocaleBase(
-		ctx.target,
-		ctx.detailKind,
-		ctx.moduleIndex,
-		columnFieldText(column),
-		position,
-		heldWord(column, ctx),
-	);
-	const keys = column.mapping.map((entry) => {
-		const name = keyAsVariable(imageMapEnumKey(entry.value));
-		return {
-			condition: w.call("selected", [field, w.str(entry.value)]),
-			variable: w.imageAltVar(entry.value),
-			name,
-			localeId: `${idBase}.alt_text.${name}`,
-		};
-	});
+	const keys = imageDescriptions(column, position, ctx).map((key) => ({
+		...key,
+		condition: w.call("selected", [field, w.str(key.value)]),
+		variable: w.imageAltVar(key.value),
+	}));
 	const xpath = keys.reduceRight<WireExpr>(
 		(elseArm, key) => w.call("if", [key.condition, key.variable, elseArm]),
 		w.str(""),

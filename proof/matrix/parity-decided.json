@@ -1,5 +1,6 @@
 {
 	"hq-advanced": [
+		"hq-advanced/auto-capture-location",
 		"hq-advanced/auto-select-case",
 		"hq-advanced/auto-select-case-on-a-load-s-basic-list",
 		"hq-advanced/auto-select-without-case-type",
@@ -109,7 +110,8 @@
 		"hq-case-lists/unregistered-prefix-column",
 		"hq-case-lists/village-mapping-alt-text",
 		"hq-case-lists/visit-note-reads-the-chosen-cases",
-		"hq-case-lists/worker-case-type-on-a-basic-menu"
+		"hq-case-lists/worker-case-type-on-a-basic-menu",
+		"hq-case-lists/worker-words-for-one-generated-title"
 	],
 	"hq-case-management": [
 		"hq-case-management/child-case-index-named-household",
@@ -147,8 +149,10 @@
 		"hq-expressions/survey-typed-advanced"
 	],
 	"hq-kept-settings": [
+		"hq-kept-settings/android-app-dependencies",
 		"hq-kept-settings/blank-first-language",
 		"hq-kept-settings/custom-property",
+		"hq-kept-settings/duplicate-android-requirement",
 		"hq-kept-settings/logo-holding-only-a-path",
 		"hq-kept-settings/markdown-one-language",
 		"hq-kept-settings/profile-property-only-a-local-archive-writes",
@@ -210,7 +214,10 @@
 		"hq-new-app/grid-form-menus",
 		"hq-new-app/grid-menus",
 		"hq-new-app/hierarchical-location-fixture-only",
+		"hq-new-app/language-alias-before-canonical-code",
 		"hq-new-app/language-code-outside-the-grammar",
+		"hq-new-app/language-code-repeated",
+		"hq-new-app/language-outside-the-registry",
 		"hq-new-app/recipients",
 		"hq-new-app/requires-referral",
 		"hq-new-app/smart-lang-display",
@@ -221,6 +228,7 @@
 	"hq-plain": [
 		"hq-plain/advanced-itemsets-turned-on",
 		"hq-plain/auto-capture-location",
+		"hq-plain/auto-capture-location-every-form",
 		"hq-plain/child-case-in-a-shared-multi-select-menu",
 		"hq-plain/computed-endpoint-argument",
 		"hq-plain/custom-instance",
@@ -246,6 +254,7 @@
 		"hq-plain/update-from-a-label",
 		"hq-plain/update-never-alone"
 	],
+	"hq-project-languages": [],
 	"hq-questions": [
 		"hq-questions/action-inside-control",
 		"hq-questions/appearance-android-inside-held",

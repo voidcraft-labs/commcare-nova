@@ -110,6 +110,12 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"true takes the form off the menu, null puts it back, omission keeps it. Off the menu, the form opens on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions.",
 			),
+		capture_location: z
+			.boolean()
+			.optional()
+			.describe(
+				"Whether this form requests the Android device's location when it opens. False uses the app setting. Connect always requests location. Web Apps leaves the location empty.",
+			),
 		plain_text: z
 			.boolean()
 			.nullable()
@@ -165,6 +171,7 @@ export const updateFormTool = {
 			connect,
 			displayCondition,
 			hiddenFromMenu,
+			capture_location,
 			plain_text,
 			case_list_registration,
 		} = input;
@@ -192,6 +199,8 @@ export const updateFormTool = {
 			if (purpose !== undefined) patch.purpose = purpose;
 			if (submitLabel !== undefined)
 				patch.submitLabel = submitLabel === null ? {} : { text: submitLabel };
+			if (capture_location !== undefined)
+				patch.captureLocation = capture_location ? true : null;
 			if (plain_text !== undefined)
 				patch.plainText = plain_text === true ? true : null;
 			// Each condition arrives parsed in its own form slot; the checker

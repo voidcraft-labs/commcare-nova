@@ -1,5 +1,6 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import type { Uuid } from "@/lib/domain";
+import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import {
 	afterSubmitFrameLanding,
 	appHomeLanding,
@@ -78,7 +79,12 @@ export async function submitAppTest(
 			effects: undefined,
 			validation: evaluated.fields,
 		};
-	const mutation = evaluated.submission;
+	const mutation =
+		state.locationFix !== undefined &&
+		context.rules.automaticLocation &&
+		capturesDeviceLocation(context.doc, context.doc.forms[screen.formUuid])
+			? { ...evaluated.submission, locationFix: state.locationFix }
+			: evaluated.submission;
 	const projection = validateCaptureSubmissionProjection(mutation);
 	if (projection.attachmentRefs.length > 0)
 		throw new AppTestActionError(

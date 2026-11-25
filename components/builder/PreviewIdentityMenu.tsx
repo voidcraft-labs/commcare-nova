@@ -32,10 +32,12 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
 import { useRef, useState } from "react";
 import { AppTestHistory } from "@/components/builder/AppTestHistory";
+import { useAndroidAppName } from "@/components/builder/localization/useAndroidAppName";
 import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
 import { Button } from "@/components/shadcn/button";
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
@@ -65,14 +67,18 @@ import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useAppId,
+	usePreviewInstalledAndroidApps,
 	usePreviewing,
 	usePreviewPersonaUuid,
 	usePreviewPlatform,
+	usePreviewSubmissionLocation,
+	useSetPreviewAndroidAppInstalled,
 	useSetPreviewing,
 	useSetPreviewPersonaUuid,
 	useSetPreviewPlatform,
 } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
+import { PreviewLocationDialog } from "./PreviewLocationDialog";
 
 const AS_ME = "Preview as me";
 
@@ -131,6 +137,7 @@ export function PreviewIdentityMenu() {
 
 function PreviewIdentityMenuBody() {
 	const appId = useAppId();
+	const [showLocation, setShowLocation] = useState(false);
 	const [showTests, setShowTests] = useState(false);
 	const readiness = useWorkerReadiness();
 	const personas = readiness.personas;
@@ -142,7 +149,11 @@ function PreviewIdentityMenuBody() {
 	const appSettings = useAppSettings();
 	const declared = declaredPlatforms({ appSettings });
 	const platform = usePreviewPlatform();
+	const appName = useAndroidAppName();
 	const setPlatform = useSetPreviewPlatform();
+	const installedApps = usePreviewInstalledAndroidApps();
+	const setInstalled = useSetPreviewAndroidAppInstalled();
+	const recordedLocation = usePreviewSubmissionLocation();
 	const caseTypes = useEffectiveCaseTypes();
 	/* The running worker's open claims, read each time the menu opens. The
 	 * read names the worker it asked about, so an answer for a worker the
@@ -269,8 +280,36 @@ function PreviewIdentityMenuBody() {
 								);
 							})}
 						</DropdownMenuRadioGroup>
+						{platform === "android" && (
+							<DropdownMenuItem onClick={() => setShowLocation(true)}>
+								Device location
+							</DropdownMenuItem>
+						)}
+						{recordedLocation !== undefined && (
+							<p className="px-2 py-1.5 text-xs text-nova-text-muted">
+								{recordedLocation === null
+									? "Last submission: no location fix"
+									: `Last submission: ${recordedLocation.latitude}, ${recordedLocation.longitude} (altitude ${recordedLocation.altitude} m, accuracy ${recordedLocation.accuracy} m)`}
+							</p>
+						)}
 					</DropdownMenuGroup>
 					<DropdownMenuSeparator />
+					{platform === "android" &&
+						appSettings.requiredAndroidApps?.length && (
+							<DropdownMenuGroup>
+								<DropdownMenuLabel>Installed on this phone</DropdownMenuLabel>
+								{appSettings.requiredAndroidApps.map((app) => (
+									<DropdownMenuCheckboxItem
+										key={app}
+										checked={installedApps.includes(app)}
+										onCheckedChange={(checked) => setInstalled(app, checked)}
+									>
+										{appName(app)}
+									</DropdownMenuCheckboxItem>
+								))}
+								<DropdownMenuSeparator />
+							</DropdownMenuGroup>
+						)}
 					<DropdownMenuGroup>
 						<DropdownMenuLabel>Running as</DropdownMenuLabel>
 						<DropdownMenuRadioGroup
@@ -347,6 +386,9 @@ function PreviewIdentityMenuBody() {
 					</DropdownMenuGroup>
 				</DropdownMenuContent>
 			</DropdownMenu>
+			{showLocation && (
+				<PreviewLocationDialog onClose={() => setShowLocation(false)} />
+			)}
 			{appId ? (
 				<AppTestHistory
 					appId={appId}

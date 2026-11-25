@@ -1,4 +1,5 @@
 import type { AppTestScope } from "@/lib/db/appTests";
+import { workerWording } from "@/lib/doc/localizationWorkspace";
 import {
 	assignedLocationUuids,
 	caseSelectionCardinality,
@@ -7,6 +8,10 @@ import {
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	type GeneratedWordingRole,
+	generatedWordingId,
+} from "@/lib/domain/generatedWording";
 import { languageDirection } from "@/lib/domain/languageRegistry";
 import {
 	effectiveAppLocalization,
@@ -15,9 +20,13 @@ import {
 import {
 	projectLocalizedAppName,
 	projectLocalizedForm,
-	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
 import { PLATFORM_LABELS } from "@/lib/domain/platforms";
+import {
+	androidAppName,
+	missingAndroidApps,
+	type RequiredAndroidApp,
+} from "@/lib/domain/requiredAndroidApps";
 import { locationFixtureRows } from "@/lib/organization/footprint";
 import type {
 	PreviewCaseChoice,
@@ -95,6 +104,20 @@ type CompletedFormObservation = {
 	readonly screen: FormScreen;
 	readonly result: Awaited<ReturnType<typeof evaluateForm>>;
 };
+
+function controlText(
+	context: AppTestContext,
+	owner: string,
+	role: GeneratedWordingRole,
+	overrideOnly = false,
+) {
+	return workerWording(
+		context.doc,
+		context.language,
+		generatedWordingId(owner, role),
+		overrideOnly,
+	);
+}
 
 /** The entry's device world: its cases and, for an app whose forms read
  * places, the worker's `locations` fixture, which the session's restore
@@ -277,11 +300,7 @@ async function observeScreen(
 				state,
 				observation: {
 					screen: "menu",
-					name: projectLocalizedModule(
-						context.doc,
-						context.language,
-						screen.moduleUuid,
-					)?.name,
+					name: controlText(context, screen.moduleUuid, "menuTitle"),
 					worker,
 					menus: appTestMenus(context, screen.moduleUuid, state),
 					forms: screenFormsObservation(context, state, screen.moduleUuid),
@@ -301,18 +320,14 @@ async function observeScreen(
 							state,
 							screen.moduleUuid,
 						);
-						const ownLabel =
-							context.doc.modules[screen.moduleUuid].caseListMenuItem?.label;
 						return entry === undefined
 							? undefined
 							: {
-									name:
-										ownLabel ??
-										projectLocalizedModule(
-											context.doc,
-											context.language,
-											screen.moduleUuid,
-										)?.name,
+									name: controlText(
+										context,
+										screen.moduleUuid,
+										"caseListEntry",
+									),
 								};
 					})(),
 					recordsAvailable:
@@ -401,7 +416,12 @@ async function observeScreen(
 								}
 							: undefined,
 					registration: registration
-						? { uuid: registration.form.uuid, name: registration.form.name }
+						? {
+								uuid: registration.form.uuid,
+								name:
+									controlText(context, screen.moduleUuid, "registerButton") ??
+									registration.form.name,
+							}
 						: undefined,
 				},
 			};
@@ -413,11 +433,7 @@ async function observeScreen(
 				observation: {
 					screen: "details",
 					worker,
-					name: projectLocalizedModule(
-						context.doc,
-						context.language,
-						screen.moduleUuid,
-					)?.name,
+					name: controlText(context, screen.moduleUuid, "menuTitle"),
 					record: read.result.kind === "row" ? read.result.row : undefined,
 					unavailable: read.result.kind !== "row",
 					fields: read.fields,
@@ -426,12 +442,20 @@ async function observeScreen(
 						appTestCanContinue(context, screen.source),
 					/* What `continue` presses here: Android's Done on a case list
 					 * menu entry's detail, which returns to the list. */
-					...(isCaseListMenuItemList(context, screen.source) && {
-						continueLabel: runtimeMessage(
+					continueLabel:
+						(context.rules.caseListDetailWording
+							? controlText(context, screen.moduleUuid, "selectCase", true)
+							: undefined) ??
+						runtimeMessage(
 							context.language,
-							caseListMenuItemDetailAction(context.rules).message,
+							isCaseListMenuItemList(context, screen.source)
+								? caseListMenuItemDetailAction(context.rules).message
+								: "continue",
 						),
-					}),
+					title:
+						controlText(context, "app", "caseTitle", true) ??
+						((read.result.kind === "row" && read.result.row.case_name) ||
+							runtimeMessage(context.language, "case")),
 					actions:
 						read.result.kind === "row" &&
 						appTestCanContinue(context, screen.source)
@@ -510,12 +534,46 @@ export async function observeAppTest(
 	}
 }
 
+function requiredAppName(
+	context: AppTestContext,
+	app: RequiredAndroidApp,
+): string {
+	const code = effectiveAppLocalization(context.doc.localization).wireCodes[
+		context.language
+	];
+	return androidAppName(app, code, context.androidAppLabels);
+}
+
 async function observeAppTestWithEvaluation(
 	context: AppTestContext,
 	scope: AppTestScope,
 	state: AppTestSessionState,
 	completedForm?: CompletedFormObservation,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
+	const missing = missingAndroidApps(
+		state.platform,
+		context.doc.appSettings.requiredAndroidApps,
+		state.installedAndroidApps,
+	);
+	if (state.awaitingAndroidApps && missing.length > 0) {
+		return {
+			state,
+			observation: {
+				screen: "required-android-apps",
+				missingApps: missing.map((app) => ({
+					app,
+					name: requiredAppName(context, app),
+				})),
+				actions: ["observe", "back", "finish"],
+				platform: {
+					selected: state.platform,
+					label: PLATFORM_LABELS[state.platform],
+				},
+				recovery:
+					"Start a test with the required apps in installedAndroidApps to try opening the app on this phone.",
+			},
+		};
+	}
 	const result = await observeScreen(context, scope, state, completedForm);
 	const screen = result.state.screen;
 	const identity = parseLanguageTag(context.language);
@@ -574,6 +632,39 @@ async function observeAppTestWithEvaluation(
 						return [
 							[action, runtimeMessage(context.language, "deviceHomeStart")],
 						];
+					if (screen.kind === "form" && action === "submit") {
+						return [
+							[
+								action,
+								(context.rules.submitLabel === "submit"
+									? controlText(context, screen.formUuid, "submitButton", true)
+									: undefined) ??
+									runtimeMessage(context.language, context.rules.submitLabel),
+							],
+						];
+					}
+					if (
+						screen.kind === "details" &&
+						(action === "continue" || action === "routeContinue")
+					) {
+						const label = result.observation.continueLabel;
+						return [
+							[
+								action,
+								typeof label === "string"
+									? label
+									: runtimeMessage(context.language, "continue"),
+							],
+						];
+					}
+					if (screen.kind === "records" && action === "search")
+						return [
+							[
+								action,
+								controlText(context, screen.moduleUuid, "searchButton") ??
+									runtimeMessage(context.language, "search"),
+							],
+						];
 					const label =
 						action === "routeBack" || action === "pagePrevious"
 							? "back"
@@ -597,7 +688,7 @@ async function observeAppTestWithEvaluation(
 			},
 			language: {
 				selected: identity,
-				direction: languageDirection(identity),
+				direction: languageDirection(identity, context.doc.localization),
 				runtime: runtimeLanguage(context.language),
 				available: effectiveAppLocalization(
 					context.doc.localization,
@@ -747,6 +838,33 @@ export async function advanceAppTest(
 	action: AppTestAction,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
 	try {
+		const missing = missingAndroidApps(
+			state.platform,
+			context.doc.appSettings.requiredAndroidApps,
+			state.installedAndroidApps,
+		);
+		if (
+			missing.length &&
+			!state.awaitingAndroidApps &&
+			state.screen.kind === "device-home" &&
+			action.kind === "continue"
+		) {
+			return await observeAppTest(context, scope, {
+				...state,
+				awaitingAndroidApps: true,
+			});
+		}
+		if (state.awaitingAndroidApps && missing.length) {
+			if (action.kind === "back")
+				return await observeAppTest(context, scope, {
+					...state,
+					awaitingAndroidApps: false,
+				});
+			if (action.kind !== "observe")
+				throw new AppTestActionError(
+					`This Android phone needs ${missing.map((app) => requiredAppName(context, app)).join(", ")} before the worker can open the app.`,
+				);
+		}
 		return await advanceAppTestOnScreen(context, scope, state, action);
 	} catch (error) {
 		throw appTestDataRefusal(context, error);
@@ -1360,8 +1478,7 @@ function screenFormsObservation(
 	return appTestScreenForms(context, state, parent).map(
 		({ form, moduleUuid, visibility }) => ({
 			uuid: form.uuid,
-			name: projectLocalizedForm(context.doc, context.language, form.uuid)
-				?.name,
+			name: controlText(context, form.uuid, "formTitle"),
 			menuUuid: moduleUuid,
 			visibility,
 		}),
@@ -1378,9 +1495,7 @@ function screenCaseListsObservation(
 	return appTestScreenCaseLists(context, state, parent).map(
 		({ moduleUuid, visibility }) => ({
 			menuUuid: moduleUuid,
-			name:
-				context.doc.modules[moduleUuid]?.caseListMenuItem?.label ??
-				projectLocalizedModule(context.doc, context.language, moduleUuid)?.name,
+			name: controlText(context, moduleUuid, "caseListEntry"),
 			visibility,
 		}),
 	);

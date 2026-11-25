@@ -287,10 +287,7 @@ test("turning off Connect keeps the app on Android only", {
 		"Turning off Connect keeps this app running on Android only. You can change where it runs in App settings.",
 	);
 	await expect(manager).toContainText(
-		"Turning off Connect leaves Auto Capture Location as it is in each app on CommCare HQ.",
-	);
-	await expect(manager).toContainText(
-		"build and release a new version for workers to install",
+		"After Connect is turned off, Android follows this app's location settings. Workers see the change after installing the next released version.",
 	);
 	const turnedOff = page.waitForResponse(
 		(response) =>
@@ -304,4 +301,59 @@ test("turning off Connect keeps the app on Android only", {
 	// The dialog may have taken App settings with it as it opened.
 	if (!(await androidOnly.isVisible())) await openAppSettings(page);
 	await expect(androidOnly).toBeChecked();
+});
+
+test("each form keeps its own location choice while the app requests every location", {
+	tag: "@seed:workspace",
+}, async ({ scenario, page }) => {
+	const { caseWorkspace } = seedFor(scenario, "workspace");
+	await openBuilder(page, caseWorkspace.routes.tileForm);
+	const openForm = () =>
+		page.getByRole("button", { name: "Form settings", exact: true }).click();
+	const form = page.getByRole("switch", {
+		name: "Request location for this form",
+		exact: true,
+	});
+	const all = page.getByRole("switch", {
+		name: "Request location for every form",
+		exact: true,
+	});
+	const save = async (control: typeof all, needle: string) => {
+		const [response] = await Promise.all([
+			page.waitForResponse(
+				(r) =>
+					new URL(r.url()).pathname === `/api/apps/${caseWorkspace.appId}` &&
+					r.request().method() === "PUT" &&
+					(r.request().postData() ?? "").includes(needle),
+			),
+			control.click(),
+		]);
+		expect(response.ok()).toBe(true);
+	};
+	await openForm();
+	await expect(form).not.toBeChecked();
+	await save(form, '"captureLocation":true');
+	await page.getByRole("button", { name: "Close form settings" }).click();
+	await openAppSettings(page);
+	await expect(all).not.toBeChecked();
+	await save(all, '"captureLocation":true');
+	await page.getByRole("button", { name: "Close app settings" }).click();
+	await openForm();
+	await expect(form).toBeChecked();
+	await expect(
+		page.getByText("Your app requests location for every form.", {
+			exact: false,
+		}),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Close form settings" }).click();
+	await openAppSettings(page);
+	await save(all, '"captureLocation":false');
+	await reloadBuilder(page);
+	await openForm();
+	await expect(form).toBeChecked();
+	await expect(
+		page.getByText(
+			"On Android, opening this form requests the worker’s location.",
+		),
+	).toBeVisible();
 });

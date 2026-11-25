@@ -1,7 +1,6 @@
 "use client";
 
 import {
-	collectLocalizedTranslationUnits,
 	type Field,
 	formSubmitWording,
 	type LanguageTag,
@@ -16,6 +15,11 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	presentedSearchWording,
+	workerLocalizedValues,
+	workerWording,
+} from "../localizationWorkspace";
 import { useBlueprintDoc, useBlueprintDocEq } from "./useBlueprintDoc";
 
 /** Persisted language configuration, independently of the selected URL lens. */
@@ -34,6 +38,7 @@ function sameLocalizedUnit(
 		left.sourceFingerprint === right.sourceFingerprint &&
 		left.status === right.status &&
 		left.filledFrom === right.filledFrom &&
+		JSON.stringify(left.defaultText) === JSON.stringify(right.defaultText) &&
 		JSON.stringify(left.effective) === JSON.stringify(right.effective) &&
 		JSON.stringify(left.explicit) === JSON.stringify(right.explicit)
 	);
@@ -47,10 +52,13 @@ export function useLocalizedTranslationUnit(
 		const unit = snapshotTranslationUnits(doc).get(unitId);
 		return unit === undefined
 			? undefined
-			: localizeTranslationUnit(
+			: presentedSearchWording(
 					doc,
-					resolveAppLanguage(doc.localization, language),
-					unit,
+					localizeTranslationUnit(
+						doc,
+						resolveAppLanguage(doc.localization, language),
+						unit,
+					),
 				);
 	}, sameLocalizedUnit);
 }
@@ -72,12 +80,7 @@ export function useLocalizedValues(
 ): ReadonlyMap<TranslationUnitId, LocalizedValue> {
 	return useBlueprintDocEq((doc) => {
 		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
-		return new Map(
-			collectLocalizedTranslationUnits(doc, snapshotLanguage).map((unit) => [
-				unit.id,
-				unit.effective,
-			]),
-		);
+		return workerLocalizedValues(doc, snapshotLanguage);
 	}, sameLocalizedValues);
 }
 
@@ -145,5 +148,47 @@ export function useFormSubmitWording(
 ) {
 	return useBlueprintDoc((doc) =>
 		uuid == null ? undefined : formSubmitWording(doc, uuid, language),
+	);
+}
+
+/** Every independently worded output of this control. */
+export function useControlWordingIds(owner: string) {
+	return useBlueprintDocEq(
+		(doc) =>
+			[...snapshotTranslationUnits(doc).values()]
+				.filter((unit) => {
+					if (!unit.generated || unit.generated.dormant) return false;
+					const place = unit.owner;
+					switch (place.kind) {
+						case "app":
+							return owner === "app";
+						case "form":
+							return owner === place.formUuid;
+						case "module":
+							return owner === place.moduleUuid;
+						case "search-input":
+							return owner === place.searchInputUuid;
+						case "case-list-column":
+							return owner === place.columnUuid;
+						default:
+							return false;
+					}
+				})
+				.map((unit) => unit.id),
+		(a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
+	);
+}
+
+export function useWorkerWordingOverride(
+	language: LanguageTag,
+	id: TranslationUnitId,
+) {
+	return useBlueprintDoc((doc) =>
+		workerWording(
+			doc,
+			resolveAppLanguage(doc.localization, language),
+			id,
+			true,
+		),
 	);
 }

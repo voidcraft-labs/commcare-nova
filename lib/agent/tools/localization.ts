@@ -1,3 +1,7 @@
+import {
+	presentedSearchWording,
+	wordingSourceUnit,
+} from "@/lib/doc/localizationWorkspace";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 /** Shared Solutions Architect / MCP language and translation tools. */
 
@@ -17,12 +21,15 @@ import {
 	collectTranslationCoverageDiagnostics,
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	hasGeneratedWording,
 	type LocalizedTranslationUnit,
 	type LocalizedValue,
+	languageEntries,
 	languageTag,
 	localizedValueSchema,
 	localizeTranslationUnit,
 	parseLanguageTag,
+	projectLanguageIdentitySchema,
 	type TranslationStatus,
 	type TranslationUnit,
 	type TranslationUnitOwner,
@@ -65,15 +72,18 @@ const translationStatuses = [
 ] as const satisfies readonly TranslationStatus[];
 
 /** The raw language-identity input before null-as-absence collapses. */
-interface LanguageIdentityInput {
+interface RegisteredLanguageInput {
 	readonly language: string;
 	readonly script?: string | null;
 	readonly region?: string | null;
 }
 
 function cleanLanguageIdentity(
-	input: LanguageIdentityInput,
+	input:
+		| RegisteredLanguageInput
+		| z.infer<typeof projectLanguageIdentitySchema>,
 ): AppLanguageIdentity {
+	if ("kind" in input) return input;
 	return {
 		language: input.language,
 		...(input.script != null && { script: input.script }),
@@ -88,7 +98,7 @@ function cleanLanguageIdentity(
  * individual members, a two-letter code names its Set 3 code, a branching
  * language lists its required writing systems).
  */
-export const languageIdentityInputSchema = z
+export const registeredLanguageInputSchema = z
 	.strictObject({
 		language: z
 			.string()
@@ -127,6 +137,13 @@ export const languageIdentityInputSchema = z
 			ctx.addIssue({ code: "custom", message });
 		}
 	});
+
+export const languageIdentityInputSchema = z.union([
+	registeredLanguageInputSchema,
+	projectLanguageIdentitySchema.describe(
+		"An exact project code, such as a language from CommCare HQ that has its own translations.",
+	),
+]);
 
 export const getLanguagesInputSchema = z.strictObject({});
 
@@ -173,7 +190,20 @@ export const addLanguageInputSchema = z.strictObject({
 
 export const updateLanguageInputSchema = z
 	.strictObject({
-		action: z.enum(["set-default", "change-identity"]),
+		action: z.enum(["set-default", "change-identity", "move", "set-direction"]),
+		direction: z
+			.enum(["ltr", "rtl"])
+			.nullable()
+			.optional()
+			.describe(
+				"Writing direction for the project language, for set-direction.",
+			),
+		after: languageIdentityInputSchema
+			.nullable()
+			.optional()
+			.describe(
+				"For move, the app language this one will follow. Use null to move it first and make it the default.",
+			),
 		language: languageIdentityInputSchema.describe(
 			"Existing app language the action applies to.",
 		),
@@ -185,6 +215,20 @@ export const updateLanguageInputSchema = z
 			),
 	})
 	.superRefine((input, ctx) => {
+		if ((input.action === "set-direction") !== (input.direction != null))
+			ctx.addIssue({
+				code: "custom",
+				path: ["direction"],
+				message:
+					"A writing direction applies only to set-direction and is required for that choice.",
+			});
+		if (input.action !== "move" && input.after != null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["after"],
+				message: "Only a move can name a preceding language.",
+			});
+		}
 		const replacementExpected = input.action === "change-identity";
 		if ((input.replacement != null) !== replacementExpected) {
 			ctx.addIssue({
@@ -444,6 +488,7 @@ interface LanguageResultFacts {
 	language: AppLanguageIdentity;
 	copy?: { from: AppLanguageIdentity; strings: number; review: "needs-review" };
 	previousLanguage?: AppLanguageIdentity;
+	direction?: "ltr" | "rtl";
 	source?: true;
 	default?: boolean;
 	translationsMoved?: number;
@@ -481,7 +526,9 @@ export const getLanguagesTool = {
 		const doc = ctx.snapshot.doc;
 		const localization = effectiveAppLocalization(doc.localization);
 		const sourceIdentity = parseLanguageTag(localization.sourceLanguage);
-		const units = collectTranslationUnits(doc);
+		const units = collectTranslationUnits(doc)
+			.filter((unit) => !unit.generated?.dormant)
+			.map((unit) => wordingSourceUnit(doc, unit));
 		return {
 			kind: "read",
 			data: {
@@ -506,7 +553,7 @@ export const getLanguagesTool = {
 							resolvedLanguageEnglishName(identity) ??
 							languageDescriptor(identity),
 						qualifiers: languageQualifierLabels(identity),
-						direction: languageDirection(identity),
+						direction: languageDirection(identity, localization),
 						isSource,
 						isDefault: tag === localization.defaultLanguage,
 						automaticTranslation:
@@ -523,7 +570,7 @@ export const getLanguagesTool = {
 				}),
 				coverageDiagnostics: collectTranslationCoverageDiagnostics(doc),
 				codePolicy:
-					"A language is an exact identity: an ISO 639:2023 Set 3 individual living-language code, an ISO 15924 script where the language is written in more than one, and an ISO 3166-1 alpha-2 region where regional conventions differ. Macrolanguages, two-letter codes, and non-living codes are rejected with the identifiers to use instead. Names and text direction derive from the identity and are never authored.",
+					"A registered language uses an ISO 639:2023 Set 3 individual living-language code, with its script or region when needed. A project language keeps its exact code and can set its writing direction. Both support manual wording.",
 			},
 		};
 	},
@@ -557,7 +604,9 @@ export const getTranslatableContentTool = {
 				formUuid: input.formUuid ?? null,
 			};
 			const units = filteredTranslationUnits(
-				collectLocalizedTranslationUnits(doc, tag),
+				collectLocalizedTranslationUnits(doc, tag).map((unit) =>
+					presentedSearchWording(doc, unit),
+				),
 				filters,
 			);
 			const digest = translationPageDigest(units);
@@ -592,6 +641,10 @@ export const getTranslatableContentTool = {
 						sourceFingerprint: unit.sourceFingerprint,
 						effective: unit.effective,
 						explicit: unit.explicit,
+						...(unit.generated && {
+							output: unit.generated,
+							defaultText: unit.defaultText,
+						}),
 						status: unit.status,
 						...(unit.filledFrom === undefined
 							? {}
@@ -652,7 +705,9 @@ export const addLanguageTool = {
 			const mutations: Mutation[] = [
 				addLanguageMutation(heldLanguageWireCodes(doc), identity),
 			];
-			for (const unit of collectLocalizedTranslationUnits(doc, copyFromTag)) {
+			for (const raw of collectLocalizedTranslationUnits(doc, copyFromTag)) {
+				const unit = presentedSearchWording(doc, raw);
+				if (unit.generated && unit.explicit === undefined) continue;
 				mutations.push({
 					kind: "setTranslation",
 					language: tag,
@@ -688,7 +743,7 @@ export const addLanguageTool = {
 
 export const updateLanguageTool = {
 	description:
-		"Set the default language or change a language identity. A multilingual source identity is fixed. Changing an identity preserves text and does not translate it.",
+		"Move a language in the app's order, set the default language, change a language identity or choose a project's language text direction. Workers start in the first language. Moving a language preserves each language’s text. A multilingual source identity is fixed.",
 	inputSchema: updateLanguageInputSchema,
 	async execute(
 		input: z.infer<typeof updateLanguageInputSchema>,
@@ -706,6 +761,43 @@ export const updateLanguageTool = {
 				);
 			}
 			switch (input.action) {
+				case "set-direction":
+					if (identity.kind !== "project" || input.direction == null)
+						return mutationError(
+							"Choose a project language to set its writing direction. Other languages use the direction of their writing system.",
+						);
+					return await commitLanguageMutations(
+						ctx,
+						[
+							{
+								kind: "setProjectLanguageDirection",
+								code: tag,
+								direction: input.direction,
+							},
+						],
+						`localization:${tag}:direction`,
+						{ language: identity, direction: input.direction },
+						{ subject: descriptor },
+					);
+				case "move": {
+					const after =
+						input.after == null
+							? null
+							: languageTag(cleanLanguageIdentity(input.after));
+					if (tag === after)
+						return mutationError("A language can't follow itself.");
+					if (after !== null && !localization.languageOrder.includes(after))
+						return mutationError(
+							"The preceding language isn't in this app. You can choose one from getLanguages.",
+						);
+					return await commitLanguageMutations(
+						ctx,
+						[{ kind: "moveLanguage", code: tag, after }],
+						`localization:${tag}:order`,
+						{ language: identity, default: after === null },
+						{ subject: descriptor },
+					);
+				}
 				case "set-default":
 					if (localization.defaultLanguage === tag) {
 						return mutationError(
@@ -755,7 +847,7 @@ export const updateLanguageTool = {
 							{ subject: replacementDescriptor },
 						);
 					}
-					const entries = localization.translations[tag] ?? {};
+					const entries = languageEntries(localization, tag) ?? {};
 					// The replacement is added before the old language is removed, so
 					// it mints against codes that still hold the old one: the state
 					// the reducer applies the add on.
@@ -859,7 +951,7 @@ function integrityMessage(
 
 export const updateTranslationsTool = {
 	description:
-		"Set, clear or review translations. Use fingerprints from the current read so edits cannot overwrite a changed source or translation. Keep answer and record insertions and every {{= formula}} intact.",
+		"Set, clear or review translations and generated worker wording, including generated wording in the source language. Clear an override to use the default wording. Use fingerprints from the current read so edits cannot overwrite a changed source or translation. Keep answer and record insertions and every {{= formula}} intact.",
 	inputSchema: updateTranslationsInputSchema,
 	async execute(
 		input: z.infer<typeof updateTranslationsInputSchema>,
@@ -876,21 +968,21 @@ export const updateTranslationsTool = {
 					`${descriptor} does not belong to this app. Add it first.`,
 				);
 			}
-			if (tag === localization.sourceLanguage) {
-				return mutationError(
-					"Canonical source content is edited through its ordinary app, module, form, field, and case-list tools, not through a target overlay.",
-				);
-			}
 			const units = translationUnitsById(doc);
-			const entries = localization.translations[tag] ?? {};
+			const entries = languageEntries(localization, tag) ?? {};
 			const mutations: Mutation[] = [];
 			for (const update of input.updates) {
-				const unit = units.get(update.unitId);
+				const raw = units.get(update.unitId);
+				const unit = raw && wordingSourceUnit(doc, raw);
 				if (unit === undefined) {
 					return mutationError(
 						`Translation unit ${update.unitId} no longer exists. Re-read getTranslatableContent.`,
 					);
 				}
+				if (tag === localization.sourceLanguage && !hasGeneratedWording(unit))
+					return mutationError(
+						"This wording belongs to the app, menu, form or field. You can edit it there.",
+					);
 				switch (update.operation) {
 					case "set": {
 						if (
@@ -914,7 +1006,10 @@ export const updateTranslationsTool = {
 								`Translation source ${languageDescriptor(parseLanguageTag(translatedFromTag))} does not belong to this app.`,
 							);
 						}
-						if (translatedFromTag === tag) {
+						if (
+							translatedFromTag === tag &&
+							tag !== localization.sourceLanguage
+						) {
 							return mutationError(
 								"A target entry cannot name its own language as the translation source.",
 							);

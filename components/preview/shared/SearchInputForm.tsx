@@ -221,6 +221,7 @@ export function SearchInputForm({
 	platformRules = DEFAULT_SEARCH_RULES,
 	renderRefusal,
 }: SearchInputFormProps) {
+	const { language } = useBuilderLanguage();
 	const [validationState, setValidationState] = useState({
 		scopeKey,
 		attempted: false,
@@ -295,6 +296,7 @@ export function SearchInputForm({
 								candidate,
 								session,
 								environment,
+								{ language },
 							)
 						: await validation.searchInputSubmissionErrorsOnDevice(
 								platformRules,
@@ -303,7 +305,7 @@ export function SearchInputForm({
 								candidate,
 								session,
 								environment,
-								{ evaluateOnDevice },
+								{ evaluateOnDevice, language },
 							);
 			} catch (error) {
 				// A rejection from a request a later draft has already superseded
@@ -326,6 +328,7 @@ export function SearchInputForm({
 		},
 		[
 			caseType?.name,
+			language,
 			evaluateOnDevice,
 			filter,
 			environment,

@@ -1676,6 +1676,8 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	hiddenFromMenu: "config",
 	// The form's text formatting switch: a literal, naming nothing.
 	plainText: "config",
+	// The form's own location request switch: a literal, naming nothing.
+	captureLocation: "config",
 	"formLinks[].uuid": "identity",
 	"otherwise.kind": "discriminator",
 	"otherwise.destination": "config",

@@ -119,6 +119,7 @@ export type HqChangesReview =
 			readonly kind: "held";
 			readonly requiresReview?: true;
 			readonly reason: HqChangeHeld;
+			readonly translation?: import("@/lib/publish/hqChangesKinds").HqSourceTranslationRecovery;
 			/** For `runs-elsewhere`: where the app runs, and where CommCare HQ's version runs. */
 			readonly runs: {
 				readonly app: readonly Platform[];

@@ -55,6 +55,7 @@ import { useDeploymentTargetFacts } from "@/components/builder/DeploymentTargetP
 import {
 	useBuilderLanguage,
 	useLocalizedValues,
+	useWorkerWordingOverride,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import {
@@ -127,6 +128,7 @@ import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import {
@@ -269,6 +271,7 @@ import {
 	previewSearchRunFollows,
 } from "@/lib/preview/searchStanding";
 import {
+	projectWorkerColumn,
 	type WorkerListPurpose,
 	workerListDocument,
 	workerListExcludedOwners,
@@ -605,6 +608,18 @@ export function CaseListScreen({
 		setPreviewParentCaseRequest,
 	]);
 	const localizedValues = useLocalizedValues();
+	const searchButton =
+		useWorkerWordingOverride(generatedWordingId(moduleUuid, "searchButton")) ??
+		CASE_SEARCH_BUTTON_LABEL;
+	const selectWording = useWorkerWordingOverride(
+		generatedWordingId(moduleUuid, "selectCase"),
+	);
+	const noItemsWording = useWorkerWordingOverride(
+		generatedWordingId(moduleUuid, "emptyList"),
+	);
+	const caseTitle = useWorkerWordingOverride(
+		generatedWordingId("app", "caseTitle"),
+	);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
 	const listDoc = useMemo(
@@ -1446,11 +1461,16 @@ export function CaseListScreen({
 			doc: menuSource.doc,
 			moduleUuid,
 			reading: readsSearchResults ? "results" : "casedb",
+			searchOutput: claimsAtResult,
 		},
 	);
 	/* Results rows and tiles, and the Quick Filter that matches what they
 	 * say, read a link column as the platform's list draws it; the case
 	 * detail keeps the link on both. */
+	const detailDisplayContext = useMemo(
+		() => ({ ...columnDisplayContext, ...columnDisplayContext.detailWording }),
+		[columnDisplayContext],
+	);
 	const resultsDisplayContext = useMemo<ColumnDisplayContext>(
 		() => ({
 			...columnDisplayContext,
@@ -1773,7 +1793,11 @@ export function CaseListScreen({
 	// sequence, so rearranging one running-app screen cannot silently
 	// rearrange the other.
 	const listOrderedColumns =
-		config === undefined ? [] : orderedColumns(config, "list");
+		config === undefined
+			? []
+			: orderedColumns(config, "list").map((column) =>
+					projectWorkerColumn(column, claimsAtResult, false, localizedValues),
+				);
 	const visibleColumns = listOrderedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
@@ -1844,7 +1868,11 @@ export function CaseListScreen({
 			};
 	const detailColumns = (
 		config === undefined ? [] : orderedColumns(config, "detail")
-	).filter((col) => col.visibleInDetail !== false);
+	)
+		.filter((col) => col.visibleInDetail !== false)
+		.map((column) =>
+			projectWorkerColumn(column, claimsAtResult, true, localizedValues),
+		);
 	/* Clear lives with the search, where you would reach to start over, and
 	 * shows only where the platform's Search screen has one and there is
 	 * something to clear (`searchStanding.ts::previewSearchClearOffered`). */
@@ -2186,11 +2214,7 @@ export function CaseListScreen({
 			sourceSearchTitle === null
 				? null
 				: ((localizedValues.get(
-						makeTranslationUnitId(
-							"module",
-							moduleUuid ?? "missing",
-							"search-title",
-						),
+						generatedWordingId(moduleUuid, "searchTitle"),
 					) as string | undefined) ?? sourceSearchTitle),
 		subtitle:
 			(localizedValues.get(
@@ -2273,9 +2297,9 @@ export function CaseListScreen({
 	const registerLabel =
 		registerAction === undefined
 			? undefined
-			: ((localizedValues.get(registerAction.labelUnitId) as
-					| string
-					| undefined) ?? registerAction.label);
+			: ((localizedValues.get(
+					generatedWordingId(moduleUuid, "registerButton"),
+				) as string | undefined) ?? registerAction.label);
 	const noMatchesAction = useMemo(() => {
 		if (
 			!previewing ||
@@ -3004,7 +3028,7 @@ export function CaseListScreen({
 							className="h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 						>
 							<Icon icon={tablerSearch} width="15" height="15" />
-							{CASE_SEARCH_BUTTON_LABEL}
+							{searchButton}
 						</Button>
 					)}
 				{accessPhase === "authorized" &&
@@ -3033,7 +3057,7 @@ export function CaseListScreen({
 							value={searchRun.draft}
 							onChange={changeSearchDraft}
 							onSubmit={submitSearch}
-							submitLabel={CASE_SEARCH_BUTTON_LABEL}
+							submitLabel={searchButton}
 							localizeValidationMessage={localizeSearchValidationMessage}
 							platformRules={platformRules}
 							renderRefusal={(reason) => (
@@ -3087,7 +3111,7 @@ export function CaseListScreen({
 				data-case-detail-title
 				className="mb-4 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
-				{displayedOpenCase.case_name || message("case")}
+				{caseTitle ?? (displayedOpenCase.case_name || message("case"))}
 			</h1>
 			<dl
 				data-case-detail="responsive"
@@ -3108,7 +3132,7 @@ export function CaseListScreen({
 								data-case-detail-value
 								className="min-w-0 break-words text-[14px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]"
 							>
-								{renderColumnCell(col, displayedOpenCase, columnDisplayContext)}
+								{renderColumnCell(col, displayedOpenCase, detailDisplayContext)}
 							</dd>
 						</div>
 					);
@@ -3137,7 +3161,11 @@ export function CaseListScreen({
 						onClick={() => proceedWithCase(displayedOpenCase)}
 						className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
-						<WorkerText message="continue" />
+						{platformRules.caseListDetailWording && selectWording ? (
+							selectWording
+						) : (
+							<WorkerText message="continue" />
+						)}
 						<Icon icon={tablerArrowRight} width="15" height="15" />
 					</Button>
 				))}
@@ -3252,9 +3280,9 @@ export function CaseListScreen({
 			<div className="grid gap-2">
 				{formMenuDecided.map(({ form, visibility }) => {
 					const localizedFormName =
-						(localizedValues.get(
-							makeTranslationUnitId("form", form.uuid, "name"),
-						) as string | undefined) ?? form.name;
+						(localizedValues.get(generatedWordingId(form.uuid, "formTitle")) as
+							| string
+							| undefined) ?? form.name;
 					if (visibility === "hidden") return null;
 					if (visibility === "pending") {
 						return (
@@ -3350,9 +3378,9 @@ export function CaseListScreen({
 			<div className="grid gap-2">
 				{multiFormMenuDecided.map(({ form, visibility }) => {
 					const localizedFormName =
-						(localizedValues.get(
-							makeTranslationUnitId("form", form.uuid, "name"),
-						) as string | undefined) ?? form.name;
+						(localizedValues.get(generatedWordingId(form.uuid, "formTitle")) as
+							| string
+							| undefined) ?? form.name;
 					if (visibility === "hidden") return null;
 					if (visibility === "pending") {
 						return (
@@ -3516,7 +3544,7 @@ export function CaseListScreen({
 						className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
 					>
 						<Icon icon={tablerSearch} width="16" height="16" />
-						{CASE_SEARCH_BUTTON_LABEL}
+						{searchButton}
 					</Button>
 				)}
 			{state.kind === "rows" && loadedRows.length > 0 && (
@@ -3613,6 +3641,9 @@ export function CaseListScreen({
 				caseProperties={caseType.properties}
 				columnDisplayContext={resultsDisplayContext}
 				emptyResultContext={resultsContext}
+				workerEmptyMessage={
+					platformRules.caseListDetailWording ? noItemsWording : undefined
+				}
 				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
 				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
@@ -3864,6 +3895,7 @@ function ResultsBody({
 	caseProperties,
 	columnDisplayContext,
 	emptyResultContext,
+	workerEmptyMessage,
 	parentScoped,
 	canEdit,
 	searchErrorShown,
@@ -3899,6 +3931,7 @@ function ResultsBody({
 	readonly columnDisplayContext: ColumnDisplayContext;
 	/** Why an empty server result may differ from a truly empty case type. */
 	readonly emptyResultContext: CaseQueryConstraintContext;
+	readonly workerEmptyMessage?: string;
 	/** The reachable population is limited to one selected parent's direct cases. */
 	readonly parentScoped: boolean;
 	readonly canEdit: boolean;
@@ -4011,6 +4044,10 @@ function ResultsBody({
 		// the caller asked for, so with no restore in play it proves no cases
 		// exist without waiting for the sibling count. The restore arm above is
 		// what keeps that inference honest once a device scope narrows it.
+		if (workerEmptyMessage)
+			return (
+				<p className="text-sm text-nova-text-secondary">{workerEmptyMessage}</p>
+			);
 		if (emptyResultContext === "unconstrained") {
 			return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 		}

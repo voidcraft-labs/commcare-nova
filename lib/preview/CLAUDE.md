@@ -2603,3 +2603,17 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+A menu, form, search field or case column can supply its own worker wording in
+the selected language. Home, menu and form screens use the stable control's
+output. Web Apps reads its form's submit label. Android keeps its native form
+action. A case row, a case detail, a search result and a search result detail
+can each give the same option a different label or image description. The
+Preview column display context shares those labels with the quick filter. Its
+image description supplies the accessible name while preserving the case value.
+A field's search check can combine an authored predicate and a generated
+guard. A generated wording override replaces that complete message.
+
+### Android location at form entry
+
+The Preview phone supplies a simulated fix when a form opens. The committed form and platform decide whether the submission may carry it. `SubmissionEnvelopeResult.submissionLocation` records the point, null for a requested fix the platform did not provide, and no property for a form that requested none. The same receipt replays on retry. The geopoint question’s answer stays independent. A worker test session’s optional `locationFix` supplies the same evidence. An Android session takes its own fix or the test’s; a Web Apps session takes none, and a fix it names itself, or a test fix no Android session takes, is refused.

@@ -1941,3 +1941,8 @@ moves it into a search input and returns it on dismissal.
 
 
 A form with several entries keeps its questions and case changes on one original form. Opening a shared entry in Edit exposes its own name, translations, menu appearance, submit button, destination and opening choices. The two links lead to its original form’s questions and writes. In Preview the same entry runs the original questions on its own ordered selections. The form tree lists the question nodes only under their original form.
+
+The Worker wording section on an app, menu, form, search input or case column
+edits that control's individual outputs in the selected language through the
+same translation mutations as Languages. Use default wording clears the
+override. Viewers can read these words and switch their language lens.

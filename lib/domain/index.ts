@@ -48,6 +48,7 @@ export * from "./jsonNumber";
 export * from "./kinds";
 export * from "./localization";
 export * from "./localizedBlueprintProjection";
+export * from "./locationCapture";
 export * from "./lookupCarriers";
 export * from "./lookupIds";
 export * from "./menuForms";

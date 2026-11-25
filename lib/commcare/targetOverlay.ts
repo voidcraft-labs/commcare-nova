@@ -58,6 +58,8 @@ export interface TargetOwnership {
 	readonly addOns: readonly string[];
 	readonly profileProperties: readonly string[];
 	readonly profileCustomProperties: readonly string[];
+	/** Absent on baselines recorded before Nova authored profile features. */
+	readonly profileFeatures?: readonly string[];
 	readonly autoGpsCapture: boolean;
 }
 
@@ -241,6 +243,21 @@ export function projectProfileForTarget(
 	}
 
 	const projected: HqApplicationProfile = { ...current };
+	const currentFeatures = isRecord(current.features) ? current.features : {};
+	const packages = application.profile?.features?.dependencies;
+	if (Array.isArray(packages) && packages.length > 0) {
+		projected.features = { ...currentFeatures, dependencies: packages };
+	} else if (
+		Object.hasOwn(currentFeatures, "dependencies") &&
+		!(
+			Array.isArray(currentFeatures.dependencies) &&
+			currentFeatures.dependencies.length === 0
+		)
+	) {
+		const features = { ...currentFeatures };
+		delete features.dependencies;
+		projected.features = features;
+	}
 	if (
 		Object.keys(properties).length > 0 ||
 		Object.hasOwn(current, "properties")
@@ -304,6 +321,7 @@ export function projectApplicationForTarget(
 		ownership: {
 			addOns: [...neededAddOns(application)].sort(),
 			profileProperties: [...OWNED_PROFILE_PROPERTY_KEYS],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties:
 				targetState === "available"
 					? [...NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS]
@@ -319,11 +337,24 @@ export function projectApplicationForTarget(
  * key staying absent. The drift comparison compares this part alone; the
  * rest is the target's, which the overlay carries.
  */
+/* HQ's settings page posts an empty multi-select as `[]`, and its profile
+ * writes `<dependencies>` only for a non-empty list
+ * (`templates/app_manager/profile.xml`), so an empty selection is no selection:
+ * a save of that page with nothing chosen changes nothing Nova owns. */
+function withoutEmptyDependencies(
+	features: Record<string, unknown>,
+): Record<string, unknown> {
+	const { dependencies, ...rest } = features;
+	return Array.isArray(dependencies) && dependencies.length === 0
+		? rest
+		: features;
+}
+
 export function ownedProfilePart(
 	profile: unknown,
 	ownership: Pick<
 		TargetOwnership,
-		"profileProperties" | "profileCustomProperties"
+		"profileProperties" | "profileCustomProperties" | "profileFeatures"
 	>,
 ): Record<string, Record<string, unknown>> {
 	const bag = isRecord(profile) ? profile : {};
@@ -337,6 +368,11 @@ export function ownedProfilePart(
 	};
 	return {
 		properties: pick(bag.properties, ownership.profileProperties),
+		...(ownership.profileFeatures && {
+			features: withoutEmptyDependencies(
+				pick(bag.features, ownership.profileFeatures),
+			),
+		}),
 		custom_properties: pick(
 			bag.custom_properties,
 			ownership.profileCustomProperties,

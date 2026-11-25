@@ -144,6 +144,7 @@ async function contextFor(
 	const language = resolveAppLanguage(doc.localization, state.language);
 	return {
 		language,
+		androidAppLabels: snapshot.androidAppLabels,
 		/* A journey has no browser window: its device is the session's own
 		 * install on Android and a 1280-wide window on Web Apps. */
 		device: serverPreviewDevice({

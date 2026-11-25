@@ -1,3 +1,4 @@
+import { connectWireFixtures } from "../../__tests__/connectWireFixtures";
 /**
  * The canonical form of a document, and the pairs its rows name.
  *
@@ -772,6 +773,20 @@ function profileWithout(files: Map<string, string>, key: string): unknown[] {
 }
 
 const PAIRS: readonly Pair[] = [
+	{
+		id: "connect-requires-app-location",
+		name: "an ordinary app-wide location choice kept while Connect is on",
+		other: () => {
+			const fixture = connectWireFixtures().find(
+				({ name }) => name === "deliver-default",
+			);
+			if (!fixture) throw new Error("Missing delivery app.");
+			return {
+				...fixture.doc,
+				appSettings: { ...fixture.doc.appSettings, captureLocation: true },
+			};
+		},
+	},
 	{
 		id: "root-question-lists-are-sections",
 		name: "a root of one question list with no condition",

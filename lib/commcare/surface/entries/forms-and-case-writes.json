@@ -1935,10 +1935,8 @@
 			"schema:Form.auto_gps_capture",
 			"schema:AdvancedForm.auto_gps_capture"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.autoCaptureLocation` (effective = form OR app, `FormBase.get_auto_gps_capture`)",
-		"subject": "form-settings",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Form settings independently request the Android device location.",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1950,10 +1948,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`auto_gps_capture`",
+			"cell": "`auto_gps_capture` (true or false)",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/submit-label-default",
