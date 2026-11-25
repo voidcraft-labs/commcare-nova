@@ -78,6 +78,10 @@ export function validateFormEntryCases(
 			note(
 				`its questions and record changes belong to “${parent.name}”. You can edit them there.`,
 			);
+		if (form.captureLocation)
+			note(
+				`whether it asks for the device location follows “${parent.name}”. You can set location there.`,
+			);
 		if (form.type !== parent.type)
 			note(
 				`its form type follows “${parent.name}”. You can apply the same type to each entry sharing that form.`,

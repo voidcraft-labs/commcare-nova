@@ -10,6 +10,7 @@ import {
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { workerWording } from "@/lib/commcare/workerWording";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -24,6 +25,7 @@ import {
 	matchNone,
 	sessionUser,
 } from "@/lib/domain/expression";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { inSpanish } from "../reader/menus/__tests__/menuReading";
 import {
 	compilerNavigationFixture,
@@ -534,6 +536,47 @@ describe("the texts HQ's build writes for a list and a form", () => {
 		expect(appStrings(zip, "en").get(key)).toBe("Send visit");
 		expect(appStrings(zip, "es").has(key)).toBe(false);
 		expect(appStrings(zip, "default").get(key)).toBe("Send visit");
+	});
+
+	it("puts a form's worker wording over its own submit wording, as HQ's translations go over submit_label", () => {
+		const doc = temporalSearchFixture("legacy");
+		const menu = doc.moduleOrder[0];
+		const formUuid = menu && doc.formOrder[menu]?.[0];
+		const form = formUuid && doc.forms[formUuid];
+		if (!form || !formUuid)
+			throw new Error("Expected a form in the first menu");
+		const button = generatedWordingId(formUuid, "submitButton");
+		const labelled = {
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: { ...form, submitLabel: { text: "Send visit" } },
+			},
+		};
+		// The form's own wording is the default its worker wording starts from.
+		const plain = inSpanish(
+			labelled,
+			new Map([
+				[makeTranslationUnitId("form", formUuid, "submit-label"), "Enviar"],
+			]),
+		);
+		expect(workerWording(plain, "eng", button)).toBe("Send visit");
+		expect(workerWording(plain, "spa", button)).toBe("Enviar");
+		expect(workerWording(plain, "spa", button, true)).toBe(undefined);
+		// An override of the button in one language wins there alone.
+		const overridden = inSpanish(
+			labelled,
+			new Map([
+				[makeTranslationUnitId("form", formUuid, "submit-label"), "Enviar"],
+				[button, "Mandar visita"],
+			]),
+		);
+		const { zip } = exported(overridden);
+		const key = "forms.m0f0.submit_label";
+		expect(appStrings(zip, "en").get(key)).toBe("Send visit");
+		expect(appStrings(zip, "es").get(key)).toBe("Mandar visita");
+		expect(appStrings(zip, "default").get(key)).toBe("Send visit");
+		expect(workerWording(overridden, "spa", button)).toBe("Mandar visita");
 	});
 
 	it("gives every short detail its select text, and every language the text and each form's submit label", () => {

@@ -91,6 +91,10 @@ it("says which side of a shared entry can't be made, and what to change", async 
 	await expect(entry({ plain_text: true })).resolves.toMatchObject({
 		error: expect.stringContaining("keeps its own text formatting"),
 	});
+	// The shared form decides whether its entries ask for the location.
+	await expect(entry({ capture_location: true })).resolves.toMatchObject({
+		error: expect.stringContaining("decides whether its entries ask"),
+	});
 	// An entry can't be shared; its own form can.
 	await expect(entry({ name: "Morning visit" })).resolves.toMatchObject({
 		ok: true,
@@ -98,6 +102,21 @@ it("says which side of a shared entry can't be made, and what to change", async 
 	// Named by its uuid, since the names an entry offers are shareable forms.
 	const morning = Object.values(h.currentDoc().forms).find(
 		(form) => form.name === "Morning visit",
+	);
+	// Nor can an edit give the entry a location request of its own.
+	await expect(
+		h.call("updateForm", {
+			moduleUuid: "Households",
+			formUuid: morning?.uuid,
+			capture_location: true,
+		}),
+	).resolves.toMatchObject({
+		error: expect.stringContaining(
+			"whether it asks for the device location follows “Under test”",
+		),
+	});
+	expect(morning && h.currentDoc().forms[morning.uuid]?.captureLocation).toBe(
+		undefined,
 	);
 	await expect(
 		entry({ name: "Night visit", shared_form_uuid: morning?.uuid }),

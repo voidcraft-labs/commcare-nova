@@ -1795,7 +1795,9 @@ export async function buildSubmissionOperationProgram(args: {
 
 	const capture = capturesDeviceLocation(
 		app.blueprint,
-		app.blueprint.forms[args.projection.formUuid],
+		app.blueprint.forms[
+			formContentUuid(app.blueprint, args.projection.formUuid)
+		],
 	);
 	const fix = args.mutation.locationFix;
 	if (

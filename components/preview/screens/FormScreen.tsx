@@ -55,6 +55,7 @@ import {
 	effectivePostSubmit,
 	type FormLink,
 	type FormType,
+	formContentUuid,
 	makeTranslationUnitId,
 	materializableCaseTypes as materializableCaseTypesFromDoc,
 	menuFormUuidsOf,
@@ -2899,7 +2900,12 @@ export function FormScreen({
 					platformRules.automaticLocation &&
 					sensor.entryKey === submittedEntryKey &&
 					sensor.fix !== undefined &&
-					capturesDeviceLocation(finalDoc, finalDoc.forms[mutation.formUuid]);
+					capturesDeviceLocation(
+						finalDoc,
+						finalDoc.forms[
+							formContentUuid(finalDoc, mutation.formUuid as Uuid)
+						],
+					);
 				return await submitFormAction(
 					{
 						...mutation,

@@ -23,6 +23,7 @@ import {
 	casePropertySchema,
 	caseSearchConfigSchema,
 	fieldSchema,
+	formContentUuid,
 	formIconRefSchema,
 	formLinkEntries,
 	formSchema,
@@ -607,9 +608,10 @@ const readProjectors: {
 				// Read under the name an edit takes, so a read sent back
 				// through `updateForm` keeps it.
 				capture_location: captureLocation === true,
+				// A shared entry asks as the form it opens does.
 				captures_device_location_on_android: capturesDeviceLocation(
 					doc,
-					data.form,
+					doc.forms[formContentUuid(doc, form.uuid)],
 				),
 				...(plainText === true && { plain_text: true }),
 				...(closeCondition !== undefined && {

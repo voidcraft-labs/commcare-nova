@@ -99,7 +99,7 @@ export function FormSettingsPanel({
 					<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 				)}
 
-				<FormLocationSection formUuid={formUuid} />
+				{!shared && <FormLocationSection formUuid={formUuid} />}
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
 				<ControlWording owner={formUuid} />
 
