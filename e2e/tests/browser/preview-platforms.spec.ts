@@ -511,12 +511,16 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await page.mouse.down();
 		try {
 			await expect.poll(heard).toBe(true);
+			// The hold alone opens nothing.
+			expect(page.url()).not.toContain(PLATFORM_IDS.module);
 		} finally {
 			await page.mouse.up();
 		}
 		/* Android delivers the tap when the worker lets go of a tile it held,
-		 * so the menu opens while its label keeps playing. */
-		await expect(page.locator('[data-menu-layout="grid"]')).toHaveCount(0);
+		 * so the menu opens while its label keeps playing. This page mounts
+		 * Home alone, so the opening shows as the builder's location moving
+		 * to the menu. */
+		await expect.poll(() => page.url()).toContain(PLATFORM_IDS.module);
 		expect(await heard()).toBe(true);
 		expect(
 			run.mediaRequests.some((path) => path.includes(PLATFORM_IDS.menuSound)),
