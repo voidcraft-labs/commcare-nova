@@ -68,6 +68,7 @@ import {
 } from "./adoptionFixture";
 import { servedExport } from "./novaReading";
 import { servedHqApp, serveHqApp } from "./servedHqApp";
+import { hqPlace, serveHqPlaces, serveLocationLevels } from "./servedPlaces";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 /* The reader runs as it is, a stage at a time as a request runs it; the spy
@@ -368,89 +369,6 @@ function withSiblingId(doc: BlueprintDoc): BlueprintDoc {
 		...doc,
 		fields: { ...doc.fields, [field.uuid]: { ...field, id: "name" } },
 	};
-}
-
-/** The levels `locationOwnerFixture` holds, region over district over clinic, each sharing
- *  cases, as `LocationTypeResource` serves them. */
-function serveLevels(peer: MockAgent): void {
-	const parentOf = (index: number) =>
-		index === 0 ? null : `/a/${DOMAIN}/api/location_type/v1/${index}/`;
-	serve(peer, PATHS.levels, {
-		status: 200,
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			meta: { next: null, total_count: LOCATION_LEVELS.length },
-			objects: LOCATION_LEVELS.map((level, index) => ({
-				id: index + 1,
-				name: level.name,
-				code: level.code,
-				parent: parentOf(index),
-				administrative: false,
-				shares_cases: true,
-				view_descendants: false,
-			})),
-		}),
-	});
-}
-
-/** One place as `LocationResource` v2 serves it. */
-function hqPlace(
-	siteCode: string,
-	level: string,
-	parent: string | null,
-): Record<string, unknown> {
-	return {
-		domain: DOMAIN,
-		last_modified: "2026-10-05T10:02:16",
-		latitude: null,
-		location_data: {},
-		location_id: `${siteCode}-id`,
-		location_type_code: level,
-		location_type_name: level,
-		longitude: null,
-		name: siteCode,
-		parent_location_id: parent === null ? "" : `${parent}-id`,
-		site_code: siteCode,
-	};
-}
-
-/** The place list, one page, `meta` changed where given. */
-function servePlaces(
-	peer: MockAgent,
-	places: readonly Record<string, unknown>[],
-	meta: Record<string, unknown> = {},
-): void {
-	const details = places.map((place) => ({
-		...place,
-		external_id: null,
-		location_type: `/a/${DOMAIN}/api/location_type/v1/${LOCATION_LEVELS.findIndex((level) => level.code === place.location_type_code) + 1}/`,
-		parent: place.parent_location_id
-			? `/a/${DOMAIN}/api/location/v1/${place.parent_location_id}/`
-			: null,
-	}));
-	serve(peer, `/a/${DOMAIN}/api/location/v1/?limit=1000`, {
-		status: 200,
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			meta: { next: null, total_count: details.length, ...meta },
-			objects: details,
-		}),
-	});
-	serve(peer, PATHS.places, {
-		status: 200,
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			meta: {
-				limit: 1000,
-				next: null,
-				offset: 0,
-				previous: null,
-				total_count: places.length,
-				...meta,
-			},
-			objects: places,
-		}),
-	});
 }
 
 /** The fixture's table list, the fields of `district` changed. */
@@ -857,8 +775,8 @@ describe("readHqAppForReview", () => {
 				serving: (peer) => {
 					serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
 					for (let read = 0; read < 2; read++) {
-						serveLevels(peer);
-						servePlaces(peer, [
+						serveLocationLevels(peer);
+						serveHqPlaces(peer, [
 							hqPlace("north", "region", null),
 							hqPlace("north_district", "district", "elsewhere"),
 						]);
@@ -998,8 +916,8 @@ describe("readHqAppForReview", () => {
 			 * below its owner names no one place. */
 			const { answer } = await read((peer) => {
 				serveHqApp(peer, servedHqApp(locationOwnerFixture("direct"), 1));
-				serveLevels(peer);
-				servePlaces(peer, [
+				serveLocationLevels(peer);
+				serveHqPlaces(peer, [
 					hqPlace("north", "region", null),
 					hqPlace("north_district", "district", "north"),
 					hqPlace("first_clinic", "clinic", "north_district"),
@@ -1033,8 +951,8 @@ describe("readHqAppForReview", () => {
 			const app = servedHqApp(locationOwnerFixture("direct"), 1);
 			const serving = (peer: MockAgent) => {
 				serveHqApp(peer, app);
-				serveLevels(peer);
-				servePlaces(peer, [
+				serveLocationLevels(peer);
+				serveHqPlaces(peer, [
 					hqPlace("north", "region", null),
 					hqPlace("north_district", "district", "north"),
 					hqPlace("first_clinic", "clinic", "north_district"),
@@ -1352,8 +1270,8 @@ describe("readHqAppForReview", () => {
 						body: JSON.stringify(body),
 					});
 				}
-				serveLevels(peer);
-				servePlaces(peer, []);
+				serveLocationLevels(peer);
+				serveHqPlaces(peer, []);
 			});
 			expect(asked(requests, resource)).toBe(2);
 			expect(missedLines()).toHaveLength(1);
@@ -1377,8 +1295,8 @@ describe("readHqAppForReview", () => {
 				serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
 				/* The read once more asks for the tables again. */
 				serve(peer, PATHS.tables, retainedGroupRead("lookups/lookup-tables"));
-				serveLevels(peer);
-				servePlaces(peer, [hqPlace("north", "region", null)]);
+				serveLocationLevels(peer);
+				serveHqPlaces(peer, [hqPlace("north", "region", null)]);
 			});
 			expect(answer.kind).not.toBe("stop");
 			expect(asked(requests, PATHS.tables)).toBe(2);
