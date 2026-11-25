@@ -1090,6 +1090,9 @@ class Shape:
     uses: int = 1
     # Whether the app JSON is the one HQ made (``App.authored``), which a class only Nova's reader settles there reads.
     authored: bool = False
+    # Whether Nova's reader read that app (``App.read``): a corpus document's, which a class only that reader
+    # settles takes as held.
+    read: bool = False
 
 
 def refused(export, source, key, where, **kw):
@@ -6318,6 +6321,48 @@ def _listed_forms_and_first_menu():
     }
     registration = _module([{**_form_json("none", open_case={"condition": ALWAYS}), "unique_id": "reg"}], unique_id="r")
     return {
+        # HQ's default version is no use, so the class takes none (``DEFAULT_ONLY``).
+        "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": (
+            accepted(
+                "app",
+                _app([source, shadow()]),
+                "schema:ShadowModule.shadow_module_version",
+                "/modules/1/shadow_module_version",
+            ),
+        ),
+        "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": (
+            refused(
+                "app",
+                _app([source, shadow(session_endpoint_id=" visits ")]),
+                "schema:ShadowModule.session_endpoint_id",
+                "/modules/1/session_endpoint_id",
+            ),
+            accepted(
+                "app",
+                _app([source, shadow(session_endpoint_id="visits")]),
+                "schema:ShadowModule.session_endpoint_id",
+                "/modules/1/session_endpoint_id",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        source,
+                        shadow(
+                            form_session_endpoints=[
+                                {
+                                    "doc_type": "ShadowFormEndpoint",
+                                    "form_id": "visit",
+                                    "session_endpoint_id": "visit ",
+                                }
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowFormEndpoint.session_endpoint_id",
+                "/modules/1/form_session_endpoints/0/session_endpoint_id",
+            ),
+        ),
         "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form": (
             refused(
                 "app",
@@ -6362,6 +6407,24 @@ def _listed_forms_and_first_menu():
             accepted(
                 "app",
                 _app([_module([{**opening, "function_datum_endpoints": ["case_id_new_patient_0"]}])]),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+            # A name given twice is the one argument HQ's build adds once.
+            accepted(
+                "app",
+                _app(
+                    [
+                        _module(
+                            [
+                                {
+                                    **opening,
+                                    "function_datum_endpoints": ["case_id_new_patient_0", "case_id_new_patient_0"],
+                                }
+                            ]
+                        )
+                    ]
+                ),
                 "schema:Form.function_datum_endpoints",
                 "/modules/0/forms/0/function_datum_endpoints",
             ),
@@ -6445,10 +6508,27 @@ def _menu_badges():
                 "app", badged(icon(xpath="count(x)")), "schema:CustomIcon.xpath", "/custom_icons/0/xpath", authored=True
             ),
             accepted("app", badged(icon(xpath="count(x)")), "schema:CustomIcon.xpath", "/custom_icons/0/xpath"),
+            # The app HQ made of a corpus document, which Nova's reader read.
+            accepted(
+                "app",
+                badged(icon(xpath="count(x)")),
+                "schema:CustomIcon.xpath",
+                "/custom_icons/0/xpath",
+                authored=True,
+                read=True,
+            ),
         ),
         "menus-and-case-lists/navigation-condition-outside-typed-worker-context": (
             unsettled("app", conditioned("x = 1"), "schema:Module.module_filter", "/modules/0/module_filter", authored=True),
             accepted("app", conditioned("x = 1"), "schema:Module.module_filter", "/modules/0/module_filter"),
+            accepted(
+                "app",
+                conditioned("x = 1"),
+                "schema:Module.module_filter",
+                "/modules/0/module_filter",
+                authored=True,
+                read=True,
+            ),
         ),
     }
 
@@ -6471,6 +6551,12 @@ UNSETTLED = {
     ),
     "menus-and-case-lists/navigation-condition-outside-typed-worker-context": (
         "Nova prints every display condition it sends from a typed one; only Nova's reader types one HQ holds"
+    ),
+}
+# Classes whose refused value is HQ's default, which is no use, by why: they have no refused shape.
+DEFAULT_ONLY = {
+    "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": (
+        "version 1 is the model's default, and a key at its default is no use"
     ),
 }
 # Classes that take every use of their keys, by why: they have no accepted shape.
@@ -6503,7 +6589,9 @@ def test_every_reader_has_a_refused_shape_and_an_accepted_one_beside_it():
     unconsulted = {entry_id for entry_id, shapes in SHAPES.items() if not all(shape.named for shape in shapes)}
     assert unconsulted == set(UNCONSULTED)
     for entry_id, shapes in SHAPES.items():
-        needed = {None if entry_id in UNSETTLED else True} | (set() if entry_id in EVERY_USE_TAKEN else {False})
+        needed = (set() if entry_id in DEFAULT_ONLY else {None if entry_id in UNSETTLED else True}) | (
+            set() if entry_id in EVERY_USE_TAKEN else {False}
+        )
         assert needed <= {shape.verdict for shape in shapes}, f"{entry_id} has no {needed} shape"
 
 
@@ -6514,7 +6602,13 @@ def _shape_uses(shape, manifest, readings=None):
         manifest_usage.xform_uses(shape.source, manifest, artifact, found)
     elif shape.export == "app":
         manifest_usage.app_json_uses(
-            shape.source, manifest, artifact, found, configurations=shape.configurations, authored=shape.authored
+            shape.source,
+            manifest,
+            artifact,
+            found,
+            configurations=shape.configurations,
+            authored=shape.authored,
+            read=shape.read,
         )
     else:
         manifest_usage.runtime_xml_uses(shape.source, "SuiteParser", manifest, artifact, found)

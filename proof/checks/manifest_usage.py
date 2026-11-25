@@ -533,19 +533,27 @@ def without_carried(app: dict, hq_side) -> dict:
 
 
 def app_json_uses(
-    app: dict, manifest: Manifest, artifact: str, found: Uses, carried=None, configurations=None, authored=False
+    app: dict,
+    manifest: Manifest,
+    artifact: str,
+    found: Uses,
+    carried=None,
+    configurations=None,
+    authored=False,
+    read=False,
 ):
     """The surface items one app JSON uses, its XForm sources included (by their forms' positions), each parsed form
     keeping the form object that names it (``Form.app_form``), which the value classes read of a form's own case
     actions and type. ``carried`` is the document's ``hq-side.json``, whose saved values the upload carries back
     from the target and does not use (``without_carried``); ``configurations`` are those the app was sent under
     (``App.configurations``), which a class turned by a project-space flag reads; ``authored`` says the app is the
-    one HQ made (``App.authored``), whose multimedia map names the files HQ holds for it."""
+    one HQ made (``App.authored``), whose multimedia map names the files HQ holds for it; ``read`` says Nova's
+    reader read it (``App.read``)."""
     if not isinstance(app, dict):
         raise ManifestError(f"{artifact} is not a JSON object, so it is no app HQ's import reads.")
     app = without_carried(app, carried)
     root = app.get("doc_type") or "Application"
-    document = App(app, artifact, configurations, authored=authored)
+    document = App(app, artifact, configurations, authored=authored, read=read)
     found.documents.append(document)
     scope = ((root, app),)
     # The app's own class sits at the whole document, whose pointer is the empty one (RFC 6901), as each object's
@@ -2571,6 +2579,8 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
             carried=document.hq_side,
             configurations=configurations,
             authored=key == AUTHORED_UPLOAD,
+            # A document made in HQ is in the corpus only where Nova's reader reads its A.
+            read=key == AUTHORED_UPLOAD,
         )
         # An app JSON's forms are opened by the entries HQ's build of it writes: each state HQ built of this upload.
         built = built_suites(document, records, states, suites)

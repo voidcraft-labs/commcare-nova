@@ -920,13 +920,17 @@ class App:
 
     kind = "app"
 
-    def __init__(self, doc, artifact, configurations=None, authored=False):
+    def __init__(self, doc, artifact, configurations=None, authored=False, read=False):
         self.doc = doc
         self.artifact = artifact
         self.configurations = None if configurations is None else tuple(configurations)
         # The app HQ made, on a document made in CommCare HQ: its multimedia map names the files HQ holds for it
         # (``Readings.authored_media``), never those of Nova's local archive.
         self.authored = authored
+        # The app HQ made of a corpus document: the corpus holds a base only where Nova's reader reads it
+        # (``proof/corpus/hqAuthored.ts``, ``expected.json``'s ``reads``), so a use only that reader settles is one
+        # it held. A variant's app, which parity reads, may be refused, and is not.
+        self.read = read
         self.forms = {}  # a form's unique_id -> Form
         self.readings = None
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
@@ -9777,10 +9781,11 @@ def _creation_datum_ids(module, form):
 
 def function_datum_without_one_creation(use, manifest):
     """``forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier``: a form's
-    ``function_datum_endpoints`` naming an id twice or one no new-case datum of the form has
-    (``_creation_datum_ids``). HQ's build adds only the names it finds on the navigation frame
-    (``post_process/endpoints.py``, ``child.id in form.function_datum_endpoints``); Nova holds each argument as the
-    case creation that supplies it. A shadow form's are undecided here (None)."""
+    ``function_datum_endpoints`` naming an id no new-case datum of the form has (``_creation_datum_ids``). HQ's build
+    adds only the names it finds on the navigation frame (``post_process/endpoints.py``, ``child.id in
+    form.function_datum_endpoints``), so a name given twice is one argument; Nova holds each name as the case
+    creation that supplies it, twice where it is given twice, and its deep link exposes that creation once
+    (``entryPointProjection.ts::exposedEntryCaseCreations``). A shadow form's are undecided here (None)."""
     at = _json(use)
     if at is None:
         return None
@@ -9794,7 +9799,7 @@ def function_datum_without_one_creation(use, manifest):
     created = None if module is None else _creation_datum_ids(module, form)
     if created is None:
         return None
-    return len(set(names)) != len(names) or any(name not in created for name in names)
+    return any(name not in created for name in names)
 
 
 def _first_menu_modules(app):
@@ -9976,26 +9981,54 @@ def badge_calculation_untyped(use, manifest):
     """``menus-and-case-lists/badge-calculation-outside-typed-values``: a first badge's calculation Nova's reader
     cannot bind to a typed value on the worker's menu. Nova prints every calculation it sends from a typed value
     (``lib/commcare/menuBadge.ts``), so an app Nova sends holds none; on an app made in CommCare HQ only Nova's
-    reader settles it (None)."""
+    reader settles it (None), and on one the corpus holds it read it (``App.read``)."""
     at, icon = _first_badge(use)
     if at is None:
         return None
     if icon is None or icon.get("form", "badge") != "badge" or not icon.get("xpath"):
         return False
-    return None if at.app.authored else False
+    return None if at.app.authored and not at.app.read else False
+
+
+def shadow_version_one(use, manifest):
+    """``menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1``: a menu listing another menu's
+    forms (``ShadowModule``) whose ``shadow_module_version`` is 1, the retiring version HQ's model defaults to
+    (``models/modules.py::ShadowModule.shadow_module_version``), whose behaviour HQ keys on ``== 1``; Nova writes
+    version 2. Version 1 and an absent key are HQ's default and no use, so every use is outside the class."""
+    at = _json(use)
+    if at is None or at.key != "shadow_module_version":
+        return None
+    return at.value == 1
+
+
+def shadow_endpoint_id_padded(use, manifest):
+    """``menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding``: a listing menu's own
+    deep link id, or one of its forms' (``ShadowFormEndpoint``), with whitespace around it: HQ's shadow save checks
+    the stripped id and stores it as typed (``views/modules.py::set_shadow_module_and_form_session_endpoint``). In a
+    suite an endpoint's ``id`` says nothing of the menu it came from, so a padded one there is left open (None)."""
+    at = _json(use)
+    if at is not None:
+        value = at.value
+        return isinstance(value, str) and value != value.strip()
+    at = _xml(use)
+    if at is None or at.attribute is None:
+        return None
+    value = at.element.get(at.attribute) or ""
+    return None if value != value.strip() else False
 
 
 def navigation_condition_untyped(use, manifest):
     """``menus-and-case-lists/navigation-condition-outside-typed-worker-context``: a menu's or a form's display
     condition Nova's reader cannot bind to a typed condition on the worker's route. Nova prints every condition it
     sends from a typed one (``lib/commcare/suite/displayConditions.ts``), so an app Nova sends holds none; on an app
-    made in CommCare HQ only Nova's reader settles it (None)."""
+    made in CommCare HQ only Nova's reader settles it (None), and on one the corpus holds it read it
+    (``App.read``)."""
     at = _json(use)
     if at is None:
         return None
     if at.key not in ("module_filter", "form_filter") or not at.value:
         return False
-    return None if at.app.authored else False
+    return None if at.app.authored and not at.app.read else False
 
 VALUE_CLASSES = {
     "application-and-settings/menu-layout-outside-editor-choices": menu_layout_outside_choices,
@@ -10292,6 +10325,8 @@ VALUE_CLASSES = {
     "menus-and-case-lists/badge-missing-localized-text": badge_without_text,
     "menus-and-case-lists/badge-calculation-outside-typed-values": badge_calculation_untyped,
     "menus-and-case-lists/navigation-condition-outside-typed-worker-context": navigation_condition_untyped,
+    "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": shadow_version_one,
+    "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": shadow_endpoint_id_padded,
     # Expressions and data
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,
