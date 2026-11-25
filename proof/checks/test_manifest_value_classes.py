@@ -1242,6 +1242,28 @@ def _linked(link, target_requires="case", **target_module):
     return _app([_module([source]), _module([target], unique_id="m2", **target_module)])
 
 
+def _advanced_linked(link):
+    """A form linking to the advanced form ``f2`` of an advanced menu (``m2``) holding a load of a person chosen
+    from the list (``case_id_person``) and a load of the worker's record (``case_id_worker``), which selects
+    itself."""
+    source = {**_form_json("none"), "form_links": [link]}
+    target = {
+        "doc_type": "AdvancedForm",
+        "unique_id": "f2",
+        "actions": {
+            "doc_type": "AdvancedFormActions",
+            "load_update_cases": [
+                {"doc_type": "LoadUpdateAction", "case_tag": "worker", "case_type": "commcare-user",
+                 "auto_select": {"doc_type": "AutoSelectCase", "mode": "usercase", "value_key": ""}},
+                {"doc_type": "LoadUpdateAction", "case_tag": "person", "case_type": "patient"},
+            ],
+            "open_cases": [],
+        },
+    }
+    advanced = {"doc_type": "AdvancedModule", "unique_id": "m2", "case_type": "patient", "forms": [target]}
+    return _app([_module([source]), advanced])
+
+
 def _root_linked(link, *, root_case_type, target_case_type="visit"):
     """A form linking to the case form (``f2``) of a child menu (``m2``, of ``target_case_type``) whose root's
     first form requires a case of ``root_case_type``."""
@@ -2384,6 +2406,19 @@ def _settings_and_forms():
                 "schema:Form.form_links",
                 "/modules/0/forms/0/form_links",
             ),
+            # An advanced target needs each load that asks for a selection: the person, never the worker's record.
+            refused(
+                "app",
+                _advanced_linked(links(datums=[{"name": "case_id_person", "xpath": ""}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            accepted(
+                "app",
+                _advanced_linked(links(datums=[{"name": "case_id_person", "xpath": case_id}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
             accepted(
                 "app",
                 _linked(links(datums=[{"name": "case_id", "xpath": case_id}])),
@@ -2424,6 +2459,21 @@ def _settings_and_forms():
             refused(
                 "app",
                 _linked(links(datums=[{"name": "other_id", "xpath": case_id}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            # An advanced target offers each load that asks for a selection, and no load that selects itself.
+            accepted(
+                "app",
+                _advanced_linked(links(datums=[{"name": "case_id_person", "xpath": case_id}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            refused(
+                "app",
+                _advanced_linked(
+                    links(datums=[{"name": "case_id_person", "xpath": case_id}, {"name": "case_id_worker", "xpath": case_id}])
+                ),
                 "schema:Form.form_links",
                 "/modules/0/forms/0/form_links",
             ),
@@ -2829,10 +2879,30 @@ def _advanced_actions():
             # Two loads of one tag both write ``case_id_load_patient_0``.
             refused("app", _advanced_app([_load("load_patient_0"), _load("load_patient_0")]), load_tag, f"{loads}/0/case_tag"),
             accepted("app", _advanced_app([household, linked]), load_tag, f"{loads}/0/case_tag"),
-            # Under another menu, alignment may rename a load onto another's id, which the JSON does not settle.
-            unsettled(
+            # Under another menu the ids are HQ's once aligned: the root's household selection takes no load of
+            # this form's, whose own ids stay distinct.
+            accepted(
                 "app",
                 _advanced_app([household, linked], modules_before=[root], **child_menu),
+                load_tag,
+                "/modules/1/forms/0/actions/load_update_cases/0/case_tag",
+            ),
+            # A root whose first form opens a visit joins its new case id to the entry, which this form's own
+            # open action of a visit takes too (``add_parent_datums``, then ``get_new_case_id_datums_meta``).
+            refused(
+                "app",
+                _advanced_app(
+                    [household],
+                    [_open("open_visit_0")],
+                    modules_before=[
+                        _module(
+                            [_form_json("none", open_case={"condition": {"type": "always"}})],
+                            unique_id="r",
+                            case_type="visit",
+                        )
+                    ],
+                    **child_menu,
+                ),
                 load_tag,
                 "/modules/1/forms/0/actions/load_update_cases/0/case_tag",
             ),

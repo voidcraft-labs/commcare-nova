@@ -128,6 +128,12 @@ export interface WireTermBindings {
 	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
 	readonly searchInputInstanceId?: SearchInputInstanceId;
 	readonly datumId?: (datum: DatumRef) => string | undefined;
+	/** The value a read of the session datum `id` takes in place of
+	 *  `instance('commcaresession')/session/data/<id>`: a stack `<create>`
+	 *  evaluates every datum in the linking form's session, so a function
+	 *  datum carries an earlier datum of its own frame by that datum's value
+	 *  (HQ's `workflow.py::_replace_session_references_in_stack`). */
+	readonly sessionDatumValue?: (id: string) => WireExpr;
 	readonly itextId?: (unit: ItextUnit) => string | undefined;
 	readonly locationPropertySlugs?: ReadonlyMap<Uuid, string>;
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
@@ -369,12 +375,14 @@ function related(
 	};
 }
 
-function datumPath(datum: DatumRef, ctx: Context): WirePath {
+function datumPath(datum: DatumRef, ctx: Context): WireExpr {
 	const id = ctx.bindings.datumId?.(datum);
 	if (id === undefined)
 		throw new Error(
 			`The '${datum.kind}' session datum has no emitted id in this expression context.`,
 		);
+	if (ctx.bindings.sessionDatumValue !== undefined)
+		return ctx.bindings.sessionDatumValue(id);
 	return w.instance(sessionInstance(), [
 		w.step("session"),
 		w.step("data"),

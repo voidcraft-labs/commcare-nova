@@ -97,6 +97,7 @@ export function entryValueWire(
 	value: Expression,
 	datumId: (ref: DatumRef) => string | undefined,
 	lookupNaming?: LookupWireNaming,
+	sessionDatumValue?: (id: string) => WireExpr,
 ): WireExpr {
 	const types = requireExpressionContext(
 		doc,
@@ -108,6 +109,7 @@ export function entryValueWire(
 		types,
 		bindings: {
 			datumId,
+			...(sessionDatumValue && { sessionDatumValue }),
 			userPropertySlugs: types.facts.userPropertySlugs,
 			...(lookupNaming && {
 				lookup: { naming: lookupNaming, instanceScope: "suite" },
@@ -128,6 +130,7 @@ export function automaticCase(
 	selection: FormCaseSelection,
 	datumId: (ref: DatumRef) => string | undefined,
 	naming?: LookupWireNaming,
+	sessionDatumValue?: (id: string) => WireExpr,
 ): AutoCaseProjection | undefined {
 	const source = selection.source;
 	if (source.kind === "choose") return undefined;
@@ -165,6 +168,7 @@ export function automaticCase(
 			source.value,
 			datumId,
 			naming,
+			sessionDatumValue,
 		);
 		configuration = settings(
 			"raw",
@@ -226,10 +230,12 @@ export function automaticCase(
 			throw new Error(
 				`“${selection.name}” follows a record outside this form.`,
 			);
-		required = value = w.append(caseWithId(caseDatum(earlier.tag)), [
-			w.step("index"),
-			w.step(source.identifier),
-		]);
+		required = value = w.append(
+			caseWithId(
+				sessionDatumValue?.(`case_id_${earlier.tag}`) ?? caseDatum(earlier.tag),
+			),
+			[w.step("index"), w.step(source.identifier)],
+		);
 		configuration = settings("case", source.identifier, earlier.tag);
 		assertions.push({
 			test: one(value),

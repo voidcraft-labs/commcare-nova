@@ -2895,11 +2895,56 @@ def _aligned(at):
     return isinstance(module, dict) and bool(module.get("root_module_id"))
 
 
+def _aligned_entry_ids(app, module, form, loads, opens):
+    """The session ids of an advanced form's entry once HQ aligns it to its root's first form, in HQ's order, or
+    None where the root's datums are not followed here (``_root_selection_datums``) or a load chooses from a lookup
+    table. HQ's datums are each load's (``case_id_<tag>``; one selected in a mode of its own loads no case type and
+    asks for no selection) and each computed datum's (``get_datum_meta_assertions_advanced``), aligned to the
+    root's (``add_parent_datums``): a datum whose id a root datum holds, as first read, is renamed
+    ``<id>_<case type>``; a root datum that asks for no selection joins the entry under its own id; and each that
+    asks for one takes the child's next datum where both load one case type, which takes the root's id. Each root
+    open action's new case id follows, unaligned (``get_new_case_id_datums_meta``)."""
+    root = app.root(module)
+    parents = _root_selection_datums(app, root) if root is not None else []
+    if parents is None:
+        return None
+    datums = []
+    for load in loads:
+        if _from_fixture(load):
+            return None
+        auto = _auto_selected(load) and (load["auto_select"].get("mode") or None)
+        tag = load.get("case_tag")
+        datums.append({"id": f"case_id_{tag}", "type": None if auto else load.get("case_type"), "action": True})
+    for datum in form.get("arbitrary_datums") or []:
+        if isinstance(datum, dict) and datum.get("datum_id"):
+            datums.append({"id": datum.get("datum_id"), "type": None, "action": False})
+    by_id = {datum["id"]: datum for datum in datums}
+    joined = []
+    remaining = list(datums)
+    for parent_id, parent_type, selects in parents:
+        if parent_id in by_id:
+            renamed = by_id[parent_id]
+            renamed["id"] = f"{renamed['id']}_{renamed['type']}"
+        if not selects:
+            joined.append(parent_id)
+            continue
+        if remaining and remaining[0]["action"] and remaining[0]["type"] == parent_type:
+            remaining[0]["id"] = parent_id
+            joined.append(remaining.pop(0)["id"])
+    ids = joined + [datum["id"] for datum in remaining]
+    ids += [
+        f"case_id_new_{action.get('case_type')}_{i}"
+        for i, action in enumerate(opens)
+        if not action.get("repeat_context")
+    ]
+    return ids
+
+
 def opening_values_sharing_a_session_name(use, manifest):
     """``forms-and-case-writes/opening-values-sharing-a-physical-session-name``: an advanced form two of whose
     opening values (a load, a computed datum, a root open action's new case) take one session id. Read from the ids
-    before alignment; where they are distinct and the form's menu sits under another, alignment may rename a load
-    onto another's id, which the app's JSON alone does not settle: None there."""
+    before alignment, and in a menu under another from the ids once HQ aligns them (``_aligned_entry_ids``), where
+    alignment may rename a load onto another's id; None where that alignment is not followed here."""
     at, form = _form(use)
     if form is None or form.get("doc_type") != "AdvancedForm":
         return False if form is not None else None
@@ -2907,7 +2952,13 @@ def opening_values_sharing_a_session_name(use, manifest):
     ids = _opening_ids(form, loads, opens)
     if len(set(ids)) < len(ids):
         return True
-    return None if _aligned(at) and loads else False
+    if not _aligned(at):
+        return False
+    module = at.app.module_of(form)
+    aligned = _aligned_entry_ids(at.app, module, form, loads, opens) if module is not None else None
+    if aligned is None:
+        return None
+    return len(set(aligned)) < len(aligned)
 
 
 def automatic_connection_renamed_by_parent(use, manifest):
@@ -4159,6 +4210,25 @@ def _select_chain(app, module):
     return list(reversed(chain))
 
 
+def _advanced_selection_datums(app, module, target):
+    """The datums HQ's link editor offers for an advanced target form (``get_datums_meta_for_form_generic``, which
+    for an advanced form reads ``get_datum_meta_assertions_advanced``): each load that asks for a selection (one
+    selected in a mode of its own asks for none), under its id once HQ aligns it to its root
+    (``_aligned_load_datums``). None where a load chooses from a lookup table or shows CommCare Supply's product,
+    or the root's datums are not followed here."""
+    loads, _ = _advanced_lists(target)
+    if any(_from_fixture(load) or load.get("show_product_stock") for load in loads):
+        return None
+    aligned = _aligned_load_datums(app, module, loads)
+    if aligned is None:
+        return None
+    return {
+        aligned[id(load)]
+        for load in loads
+        if not (_auto_selected(load) and load["auto_select"].get("mode"))
+    }
+
+
 def _selection_datums(app, link):
     """The datums HQ's link editor offers for a form link's target (``views/forms.py::_get_form_datums``: the
     target form's datums that require a selection, ``EntriesHelper.get_datums_meta_for_form_generic``), where
@@ -4172,6 +4242,14 @@ def _selection_datums(app, link):
     datums need HQ's suite."""
     target = app.forms_by_id.get(link.get("form_id"))
     module = app.module_of(target) if target is not None else None
+    if (
+        target is not None
+        and module is not None
+        and module.get("doc_type") == "AdvancedModule"
+        and target.get("doc_type") == "AdvancedForm"
+        and not (module.get("search_config") or {}).get("data_registry")
+    ):
+        return _advanced_selection_datums(app, module, target)
     if target is None or module is None or (module.get("doc_type") or "Module") != "Module":
         return None
     if (target.get("doc_type") or "Form") != "Form" or (module.get("search_config") or {}).get("data_registry"):

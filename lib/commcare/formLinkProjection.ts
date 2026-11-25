@@ -1130,6 +1130,18 @@ function advancedEntrySessionDatums(
 			datum.function = auto.value;
 			datum.assertions = auto.assertions;
 			datum.autoConfiguration = auto.configuration;
+			// A link's frame carries the value under the ids its own earlier
+			// datums hold (`replaceSessionReferences`).
+			const selection = load.selection;
+			datum.renderFunction = (sessionRef) =>
+				automaticCase(
+					doc,
+					formUuid,
+					selection,
+					refs,
+					ctx.lookupNaming,
+					sessionRef,
+				)?.value ?? auto.value;
 		}
 		for (const [index, row] of (
 			doc.forms[formUuid]?.computedDatums ?? []
@@ -1143,6 +1155,17 @@ function advancedEntrySessionDatums(
 				refs,
 				ctx.lookupNaming,
 			);
+			computed[index].renderFunction = (sessionRef) =>
+				entryValueWire(
+					doc,
+					formUuid,
+					row.uuid,
+					"form_entry_value",
+					row.value,
+					refs,
+					ctx.lookupNaming,
+					sessionRef,
+				);
 		}
 	}
 	const newCases = ctx.newCaseDatums(formUuid);
