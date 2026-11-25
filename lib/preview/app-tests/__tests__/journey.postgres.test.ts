@@ -185,8 +185,12 @@ it("shows shared worker wording for a menu, form, record choice and submit butto
 		expect(await step({ kind: "form", formUuid: form })).toMatchObject({
 			screen: "browse",
 		});
-		expect(await step({ kind: "select", caseIds: ["one"] })).toMatchObject({
-			screen: "details",
+		// The record choice's own wording labels only Web Apps' several-case
+		// Continue (`multi_select_continue_button.html`); a single case's
+		// details keep the platform's own Continue.
+		const details = await step({ kind: "select", caseIds: ["one"] });
+		expect(details).toMatchObject({ screen: "details" });
+		expect(details).not.toMatchObject({
 			controls: { continue: labels[2][index] },
 		});
 		expect(await step({ kind: "continue" })).toMatchObject({

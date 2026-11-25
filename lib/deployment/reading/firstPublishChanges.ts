@@ -1451,6 +1451,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: [
 			"/modules/*/case_details/short/max_select_value",
+			"/modules/*/case_details/short/persist_tile_on_forms",
 			"/modules/*/case_details/short/sort_elements",
 			"/modules/*/search_config/title_label",
 			"/modules/*/search_config/description",

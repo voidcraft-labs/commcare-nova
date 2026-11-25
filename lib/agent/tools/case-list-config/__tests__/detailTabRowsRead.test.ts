@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { lowerFixtureCaseWrites } from "@/lib/__tests__/docHelpers";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { projectAuthoringRead } from "@/lib/agent/authoring/output";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
@@ -82,6 +83,42 @@ function tabbedDoc(): BlueprintDoc {
 	];
 	config.detailColumnOrder = [BASE_COLUMN, NOTES, VISIT_NAME, PLACE];
 	config.listColumnOrder = [BASE_COLUMN, NOTES, VISIT_NAME, PLACE];
+	// A visit menu, and a patient form that adds a visit to its patient: the
+	// child type CommCare HQ's Case Detail page then offers the tabs.
+	const visits = testUuid("detail-rows-visits-menu");
+	const addVisit = testUuid("detail-rows-add-visit-form");
+	const visitName = testUuid("detail-rows-visit-name-field");
+	const visitColumn = testUuid("detail-rows-visit-column");
+	doc.modules[visits] = {
+		uuid: visits,
+		id: "visits",
+		name: "Visits",
+		caseType: "visit",
+		caseListMenuItem: {},
+		caseListConfig: {
+			columns: [plainColumn(visitColumn, "case_name", "Visit")],
+			listColumnOrder: [visitColumn],
+			detailColumnOrder: [visitColumn],
+			searchInputs: [],
+		},
+	};
+	doc.moduleOrder = [...doc.moduleOrder, visits];
+	doc.forms[addVisit] = {
+		uuid: addVisit,
+		id: "add_visit",
+		name: "Add a visit",
+		type: "followup",
+	};
+	doc.formOrder[MOD_A] = [...(doc.formOrder[MOD_A] ?? []), addVisit];
+	doc.formOrder[visits] = [];
+	doc.fields[visitName] = {
+		uuid: visitName,
+		id: "visit_name",
+		kind: "text",
+		label: proseText("Visit"),
+	};
+	doc.fieldOrder[addVisit] = [visitName];
+	doc.fieldParent[visitName] = addVisit;
 	config.detailTabs = [
 		{
 			uuid: testUuid("detail-rows-own-tab"),
@@ -111,7 +148,10 @@ function tabbedDoc(): BlueprintDoc {
 			rowSource: { kind: "records", rows: { kind: "locations", where: [] } },
 		},
 	];
-	return doc;
+	return lowerFixtureCaseWrites(
+		doc,
+		new Map([[visitName, { caseType: "visit", property: "case_name" }]]),
+	);
 }
 
 describe("a Details tab's records in the record dialect", () => {
