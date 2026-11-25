@@ -169,6 +169,27 @@ function stored(h: ReturnType<typeof makeAuthoringHarness>): Field {
 	return field;
 }
 
+describe("a grid's fixed column count", () => {
+	it("is kept on its own, and named as Android's limit beside another setting", () => {
+		const grid = { kind: "grid", columns: 3, advanceOnChoice: true };
+		expect(
+			fieldDisplayProblem(fieldOf("single_select", { choiceLayout: grid })),
+		).toBeUndefined();
+		for (const extra of [
+			{ itemsPerRow: "2" },
+			{ receiveFrom: { channel: "home", field: "city" } },
+			{ hintPlacement: "hidden-on-web" },
+		])
+			expect(
+				fieldDisplayProblem(
+					fieldOf("single_select", { choiceLayout: grid, ...extra }),
+				),
+			).toBe(
+				"Android keeps a fixed number of grid columns only when the question has no other display setting. You can choose automatic columns or remove the other settings.",
+			);
+	});
+});
+
 describe("display settings through addFields and editField", () => {
 	it("walks a value for every offered setting and kind", () => {
 		expect(CASES.length).toBeGreaterThan(40);

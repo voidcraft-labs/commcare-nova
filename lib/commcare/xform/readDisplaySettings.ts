@@ -408,6 +408,18 @@ export function fieldDisplayProblem(field: Field): string | undefined {
 		read?.hintPlacement === "hidden-on-web"
 	)
 		return "This question has no entry box that can show the hint in Web Apps. You can choose Hide in Web Apps for its hint placement instead.";
+	/* Android reads a grid's column count from the text after the appearance's
+	 * first hyphen (`WidgetFactory.buildCompactSelectOne`), so the count holds
+	 * only where it ends the appearance with no hyphen before it: every other
+	 * setting a choice question writes after its layout holds one. */
+	const heldGrid = held.choiceLayout as ChoiceLayout | undefined;
+	const readGrid = read?.choiceLayout as ChoiceLayout | undefined;
+	if (
+		heldGrid?.kind === "grid" &&
+		heldGrid.columns !== undefined &&
+		(readGrid?.kind !== "grid" || readGrid.columns === undefined)
+	)
+		return "Android keeps a fixed number of grid columns only when the question has no other display setting. You can choose automatic columns or remove the other settings.";
 	if (
 		held.sendTopics !== undefined &&
 		read?.sendTopics === undefined &&
