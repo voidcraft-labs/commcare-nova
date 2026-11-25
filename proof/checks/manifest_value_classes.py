@@ -3392,6 +3392,20 @@ def _reads_through(load, opens):
     )
 
 
+def basic_or_shadow_parent(use, manifest):
+    """``forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform``: a shadow form whose
+    ``shadow_parent_form_id`` names a basic form or another shadow form, which HQ's form settings never offer
+    (``ShadowForm.get_shadow_parent_options`` lists advanced forms alone). A parent the app does not hold is
+    ``shadow-parent-form-id-missing-or-dangling``'s; a use of any other form is in no such class."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    if form.get("doc_type") != "ShadowForm":
+        return False
+    parent = at.app.forms_by_id.get(form.get("shadow_parent_form_id"))
+    return parent is not None and parent.get("doc_type") in ("Form", "ShadowForm")
+
+
 def shadow_parent_tag_not_repeated(use, manifest):
     """``forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent``: a mirror form
     whose ``extra_actions`` leave out the tag of a source form's load the source XForm reads or writes through
@@ -10021,6 +10035,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": (
         shadow_parent_tag_not_repeated
     ),
+    "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform": basic_or_shadow_parent,
     "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat": relationship_question_in_repeat,
     "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an": (
         question_relationship_to_open_action

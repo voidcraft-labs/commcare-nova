@@ -2683,6 +2683,24 @@ def _shadow_app(source_loads, extra_loads):
     return app
 
 
+def _shadow_of_shadow():
+    """``_shadow_app`` with a second mirror form ``t`` whose parent is the mirror ``s``."""
+    app = _shadow_app([_load("load_patient_0")], [])
+    app["modules"][0]["forms"].append(
+        {
+            "doc_type": "ShadowForm",
+            "unique_id": "t",
+            "shadow_parent_form_id": "s",
+            "extra_actions": {"doc_type": "AdvancedFormActions", "load_update_cases": [], "open_cases": []},
+        }
+    )
+    return app
+
+
+def parent_id_of(index):
+    return f"/modules/0/forms/{index}/shadow_parent_form_id"
+
+
 def _advanced_actions():
     """The classes of an advanced form's loads and open actions, each read in the action a use sits in."""
     loads = "/modules/0/forms/0/actions/load_update_cases"
@@ -2805,6 +2823,11 @@ def _advanced_actions():
                 "schema:LoadUpdateAction.show_product_stock",
                 f"{loads}/0/show_product_stock",
             ),
+        ),
+        "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform": (
+            # A shadow of a shadow: the editor offers advanced forms alone.
+            refused("app", _shadow_of_shadow(), "schema:ShadowForm.shadow_parent_form_id", parent_id_of(2)),
+            accepted("app", _shadow_app([_load("load_patient_0")], []), "schema:ShadowForm.shadow_parent_form_id", parent_id_of(1)),
         ),
         "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": (
             refused(
@@ -6744,7 +6767,6 @@ KNOWN_GAPS = frozenset(
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
         "forms-and-case-writes/custom-assertions-form-non-empty",
         "forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes",
-        "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform",
         "forms-and-case-writes/show-count-true",
         "forms-and-case-writes/unknown-form-doc-type",
         "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding",
