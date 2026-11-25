@@ -22,7 +22,12 @@ import {
 } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc } from "@/lib/domain";
-import { managedPlacesOwnerRules, workerOwnerMutations } from "../ownerRules";
+import {
+	managedPlacesOwnerRules,
+	ownerGivenToWorker,
+	reverseHopOwnerChanges,
+	workerOwnerMutations,
+} from "../ownerRules";
 import { planManagedPlaces } from "../places";
 import {
 	keptOwnerRuleChoices,
@@ -153,6 +158,26 @@ describe("workerOwnerMutations", () => {
 	it("changes nothing for no level, or for a level no rule names", () => {
 		expect(workerOwnerMutations(doc, [])).toEqual([]);
 		expect(workerOwnerMutations(doc, ["region"])).toEqual([]);
+	});
+});
+
+describe("the owner change the next publish makes", () => {
+	const answered = produce(doc, (draft) => {
+		applyMutations(draft, workerOwnerMutations(doc, ["clinic"]));
+	});
+
+	it("holds where the document committed gives the worker a case CommCare HQ's app gives a place", () => {
+		expect(
+			reverseHopOwnerChanges(doc).map(({ operation }) => operation.id),
+		).toEqual(["transfer"]);
+		expect(ownerGivenToWorker(doc, answered)).toBe(true);
+	});
+
+	it("does not hold where nothing was answered, or CommCare HQ's app gives no place", () => {
+		expect(ownerGivenToWorker(doc, doc)).toBe(false);
+		const plain = locationOwnerFixture("plain");
+		expect(reverseHopOwnerChanges(plain)).toEqual([]);
+		expect(ownerGivenToWorker(plain, plain)).toBe(false);
 	});
 });
 

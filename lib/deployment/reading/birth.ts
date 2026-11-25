@@ -38,7 +38,10 @@ import {
 import { exportIdentityOf } from "../targetIdentity";
 import type { AcceptedDeclaration } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
-import { firstPublishListToStore } from "./firstPublishChanges";
+import {
+	firstPublishListToStore,
+	withAnsweredChanges,
+} from "./firstPublishChanges";
 import type { Gathered } from "./gather";
 import type { ReadingProjectDataWrite } from "./projectData";
 import { writeBroughtInLookupTablesInTransaction } from "./projectData/lookupTableStore";
@@ -89,7 +92,11 @@ export function adoptedDeploymentWrite(input: {
 			fetched.source.multimediaMap ?? [],
 		),
 		observedAt: fetched.readAt,
-		firstPublish: firstPublishListToStore(chosen.firstPublish, draft.facts),
+		/* The reading's list, and the owner change the person's answer made, which no reading gives. */
+		firstPublish: firstPublishListToStore(
+			withAnsweredChanges(chosen.firstPublish, chosen.firstPublishFacts, doc),
+			draft.facts,
+		),
 	});
 	return {
 		appId: input.appId,

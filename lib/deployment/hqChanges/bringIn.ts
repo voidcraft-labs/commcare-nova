@@ -32,6 +32,7 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
@@ -66,7 +67,10 @@ import {
 import { removalLedgerPaths } from "../hqSourceBaseline";
 import { hqImportApplicationSteps } from "../importApplication";
 import { movedBindingCount } from "../reading/create";
-import { firstPublishListToStore } from "../reading/firstPublishChanges";
+import {
+	firstPublishListToStore,
+	withAnsweredChanges,
+} from "../reading/firstPublishChanges";
 import { Pieces } from "../reading/gather";
 import { resolveTableChoices, underTableChoices } from "../reading/projectData";
 import {
@@ -101,6 +105,7 @@ import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	HqChangesBaselineMovedError,
+	type HqChangesFirstPublish,
 	type HqChangesTaken,
 	HqReviewWriteInFlightError,
 	readDeployment,
@@ -421,11 +426,7 @@ async function recordReadsTheSame(
 		 * the list, which then stays. */
 		...(checked !== null && {
 			nextPublish: {
-				accepted: firstPublishListToStore(
-					checked.declaration.firstPublish,
-					checked.draft.facts,
-				),
-				publishChanges: checked.plan.publishChanges,
+				...nextPublishLists(checked, basis.head.doc),
 				removedFiles: {
 					compared: basis.baseline.approvedFileRemovals ?? [],
 					accepted: checked.removedFiles,
@@ -616,6 +617,15 @@ async function bringChangesIn(
 	/* The tables the changed app newly reads, written in the commit below. */
 	const tables = newTableWrites(answeredData, checked.newTags, review.tables);
 
+	/* The explicit owner rule the person chose for each level the places cannot satisfy, and the
+	 * document the commit makes with it. */
+	const ownerAnswer = workerOwnerMutations(plan.target, ownerRules.levels);
+	const committed =
+		ownerAnswer.length === 0
+			? plan.target
+			: prepareMutationCandidate(plan.target, admitMutationBatch(ownerAnswer))
+					.nextDoc;
+
 	/* The ownership the next publish's body gives, and the record. */
 	onEvent({ type: "stage", stage: "bringing-in" });
 	const taking = await takenFor(
@@ -625,6 +635,7 @@ async function bringChangesIn(
 		checked,
 		newMediaFiles(checked, plan.target, fetched.head.doc),
 		pieces,
+		committed,
 	);
 	if (taking.kind === "refusal") return taking.outcome;
 
@@ -645,10 +656,7 @@ async function bringChangesIn(
 			/* The explicit owner rule the person chose for each level the places cannot satisfy,
 			 * given in the same batch, so the commit's gate meets only rules that hold. */
 			guard: {
-				mutations: admitMutationBatch([
-					...plan.batch,
-					...workerOwnerMutations(plan.target, ownerRules.levels),
-				]),
+				mutations: admitMutationBatch([...plan.batch, ...ownerAnswer]),
 			},
 			/* The tables the change newly reads are written in the commit's own
 			 * transaction, before its gate reads them: a change that is turned
@@ -819,9 +827,13 @@ async function takenFor(
 	checked: CheckedHqChanges,
 	mediaPaths: readonly AdoptedMediaFile[],
 	pieces: Pieces,
+	/** The document the commit makes, where it is not the plan's: the person's owner-rule answer
+	 *  applied over the target. */
+	committed?: BlueprintDoc,
 ): Promise<Taking> {
 	const plan = checked.plan;
-	const doc = plan.kind === "changes" ? plan.target : basis.head.doc;
+	const doc =
+		committed ?? (plan.kind === "changes" ? plan.target : basis.head.doc);
 
 	/* Where CommCare HQ keeps everything once the record lands: what the next
 	 * publish prints under, and so what its body's ownership is computed over. */
@@ -905,11 +917,7 @@ async function takenFor(
 			},
 			targetIdentity: checked.targetIdentity,
 			firstPublish: {
-				accepted: firstPublishListToStore(
-					checked.declaration.firstPublish,
-					checked.draft.facts,
-				),
-				publishChanges: plan.publishChanges,
+				...nextPublishLists(checked, doc),
 				removedFiles: {
 					compared: basis.baseline.approvedFileRemovals ?? [],
 					accepted: checked.removedFiles,
@@ -917,6 +925,31 @@ async function takenFor(
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		},
+	};
+}
+
+/**
+ * The lists a take stores of what the next publish changes: the reading's own under the app's
+ * declaration, and the plan's, each with the owner change where `committed` gives a case change
+ * to the worker who fills in the form that CommCare HQ's app gives to a place, which no reading
+ * gives alone (`firstPublishChanges.ts::withAnsweredChanges`).
+ */
+function nextPublishLists(
+	checked: CheckedHqChanges,
+	committed: BlueprintDoc,
+): Pick<HqChangesFirstPublish, "accepted" | "publishChanges"> {
+	const facts = checked.declaration.firstPublishFacts;
+	const accepted = firstPublishListToStore(
+		withAnsweredChanges(checked.declaration.firstPublish, facts, committed),
+		checked.draft.facts,
+	);
+	return {
+		accepted,
+		publishChanges: withAnsweredChanges(
+			{ ...accepted, ids: checked.plan.publishChanges },
+			facts,
+			committed,
+		).ids,
 	};
 }
 

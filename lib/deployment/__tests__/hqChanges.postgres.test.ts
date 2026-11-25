@@ -6336,6 +6336,22 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			});
 		}
 
+		/** The list of what the next publish changes that the app's baseline keeps. */
+		async function storedListOf(appId: string) {
+			const row = await h
+				.db()
+				.selectFrom("app_deployment_baselines as baseline")
+				.innerJoin(
+					"app_deployments as deployment",
+					"deployment.id",
+					"baseline.deployment_id",
+				)
+				.select("baseline.first_publish_changes")
+				.where("deployment.app_id", "=", appId)
+				.executeTakeFirstOrThrow();
+			return row.first_publish_changes;
+		}
+
 		/** The owner rule of every case change the app's head holds. */
 		async function ownersAtHead(appId: string) {
 			const head = await headDocOf(appId);
@@ -6399,6 +6415,10 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					(uuid) => head.organizationLevels?.[uuid]?.code,
 				),
 			).toEqual(["region", "district", "clinic"]);
+			/* The next publish gives those cases to the worker in CommCare HQ too, and says so. */
+			expect((await storedListOf(appId))?.ids).toContain(
+				"owner-rule-given-to-worker",
+			);
 		});
 	});
 });

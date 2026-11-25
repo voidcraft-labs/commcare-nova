@@ -1012,6 +1012,22 @@ describe("readHqAppForReview", () => {
 			expect(
 				operations.some((operation) => operation.owner?.kind === "acting-user"),
 			).toBe(true);
+			/* The first publish gives those cases to the worker in CommCare HQ too, and its list
+			 * says so, though the reading's own list could not. */
+			const baseline = await h
+				.db()
+				.selectFrom("app_deployment_baselines as baseline")
+				.innerJoin(
+					"app_deployments as deployment",
+					"deployment.id",
+					"baseline.deployment_id",
+				)
+				.select("baseline.first_publish_changes")
+				.where("deployment.app_id", "=", answer.receipt.appId)
+				.executeTakeFirstOrThrow();
+			expect(baseline.first_publish_changes?.ids).toContain(
+				"owner-rule-given-to-worker",
+			);
 		});
 	});
 

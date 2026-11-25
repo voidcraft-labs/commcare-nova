@@ -97,6 +97,38 @@ function conflictOf(verdict: ReverseLocationOwnerVerdict): OwnerRuleConflict {
 	}
 }
 
+/** Every case change of `doc` whose owner rule finds a place at a level below its owner, form by
+ *  form in menu order. */
+export function reverseHopOwnerChanges(
+	doc: BlueprintDoc,
+): readonly { readonly formUuid: Uuid; readonly operation: CaseOperation }[] {
+	const destinations = new Set<string>(reverseHopDestinationLevelUuids(doc));
+	if (destinations.size === 0) return [];
+	return formsInOrder(doc).flatMap((formUuid) =>
+		(doc.forms[formUuid]?.caseOperations ?? [])
+			.filter((operation) => ownerReachesLevel(operation, destinations))
+			.map((operation) => ({ formUuid, operation })),
+	);
+}
+
+/**
+ * Whether `committed` gives a case change to the worker who fills in the form
+ * where `reading`, CommCare HQ's app as Nova read it, gives it to a place
+ * below its owner: what the person's answer to an owner rule did, and what
+ * the next publish changes in CommCare HQ until it is made.
+ */
+export function ownerGivenToWorker(
+	reading: BlueprintDoc,
+	committed: BlueprintDoc,
+): boolean {
+	return reverseHopOwnerChanges(reading).some(
+		({ formUuid, operation }) =>
+			ownRecordValue(committed.forms, formUuid)?.caseOperations?.find(
+				(one) => one.uuid === operation.uuid,
+			)?.owner?.kind === "acting-user",
+	);
+}
+
 /**
  * The owner rules of `doc` the planned places cannot satisfy, one question a
  * level, by level code.

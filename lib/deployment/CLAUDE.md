@@ -744,12 +744,19 @@ the places read hold two such places or none below an owner, is no finding: it
 is a question of the review (`projectData/ownerRules.ts::managedPlacesOwnerRules`,
 `ReadingReview.ownerRules`, and the HQ-changes review's `ownerRules` over the
 document it would commit), named by level code, the forms and the zero or two
-places, and bound into the digest. The one answer offered, `worker`, drops the
-owner rule of each case change that uses that level (`workerOwnerMutations`),
-applied before the gate by `create.ts` and `hqChanges/bringIn.ts`; neither
-refuses less than an answer per question (`choice_missing`) or more
-(`choice_not_offered`). Nova never picks a candidate place; the other remedy is
-changing the places in CommCare HQ and reading again.
+places, and bound into the digest. The one answer offered, `worker`, sets the
+owner rule of each case change that uses that level to the worker who fills in
+the form (`workerOwnerMutations`), applied before the gate by `create.ts` and
+`hqChanges/bringIn.ts`; neither refuses less than an answer per question
+(`choice_missing`) or more (`choice_not_offered`). Nova never picks a candidate
+place; the other remedy is changing the places in CommCare HQ and reading again.
+No reading lists the change the answer makes, so the list the birth and the
+take store adds it (`owner-rule-given-to-worker`,
+`firstPublishChanges.ts::withAnsweredChanges` over the reading's document and
+the one committed), and a later take keeps it while CommCare HQ's app still
+gives those cases to a place. A change made in CommCare HQ that newly reads
+places, over an app whose document holds no level, reads the base without
+levels (`hqChanges/readings.ts`), so the levels come in with the change.
 
 HQ includes hint and validation media and group or repeat label media in its
 form media lists even though neither client draws it. A mapped file used only

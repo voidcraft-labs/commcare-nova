@@ -81,6 +81,10 @@ import {
 	sortedPlaces,
 } from "./firstPublishPlaces";
 import type { HqMediaClaim } from "./projectData/media";
+import {
+	ownerGivenToWorker,
+	reverseHopOwnerChanges,
+} from "./projectData/ownerRules";
 
 // ── The generated difference ────────────────────────────────────────────
 
@@ -261,6 +265,13 @@ export interface FirstPublishFacts {
 		readonly runsOnlyOn: Platform | null;
 		readonly split: boolean;
 	};
+	/**
+	 * The reading's own document under the choice, where the person's answers
+	 * to the review made `doc` of it (`withAnsweredChanges`); absent where
+	 * `doc` is the reading's own. Only an entry a reading never gives alone
+	 * reads it.
+	 */
+	readonly read?: BlueprintDoc;
 }
 
 export interface FirstPublishChange {
@@ -1888,6 +1899,45 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/_attachments/*"],
 	},
+	/**
+	 * A case owner rule the places CommCare HQ holds cannot satisfy, given to
+	 * the worker who fills in the form by the person's answer to the review
+	 * (`projectData/ownerRules.ts::workerOwnerMutations`). No reading gives it
+	 * alone: it applies where the document committed (`doc`) gives such a case
+	 * change to that worker and the reading (`read`) gives it to a place
+	 * (`withAnsweredChanges`). It stands at each such change's owner in the
+	 * form's case block, and the stored owner update.
+	 */
+	"owner-rule-given-to-worker": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: (facts) =>
+			facts.read !== undefined && ownerGivenToWorker(facts.read, facts.doc),
+		at: {
+			kinds: ["form-part"],
+			places: (facts) =>
+				reverseHopOwnerChanges(facts.read ?? facts.doc).flatMap(
+					({ formUuid, operation }) => {
+						const position = facts.formPositions.get(formUuid);
+						return position === undefined
+							? []
+							: [
+									blockWritePlace(
+										position,
+										operation.action === "create" ? "create" : "update",
+										"owner_id",
+									),
+								];
+					},
+				),
+		},
+		paths: [
+			"/_attachments/*",
+			"/modules/*/forms/*/actions/update_case/update/owner_id",
+			"/modules/*/forms/*/actions/load_update_cases/*/case_properties/owner_id",
+			"/modules/*/forms/*/actions/open_cases/*/case_properties/owner_id",
+		],
+	},
 };
 
 /**
@@ -1993,6 +2043,44 @@ export function firstPublishListToStore(
 		ids,
 		touchesWorkers: ids.some((id) => FIRST_PUBLISH_TOUCHES_WORKERS[id]),
 		of: chosen.of,
+	};
+}
+
+/** The entries no reading gives alone: each applies only where the person's answers to the
+ *  review changed the reading's document. */
+const ANSWERED_CHANGES: readonly FirstPublishChangeId[] = [
+	"owner-rule-given-to-worker",
+];
+
+/**
+ * `view`, the list of a reading worked out from `facts`, with each change the
+ * person's answers to the review made of it where `committed`, the document
+ * the birth or the bring-in commits, is not the reading's own (`facts.doc`).
+ * In registry order.
+ */
+export function withAnsweredChanges(
+	view: FirstPublishView,
+	facts: FirstPublishFacts,
+	committed: BlueprintDoc,
+): FirstPublishView {
+	if (committed === facts.doc) return view;
+	const answered: FirstPublishFacts = {
+		...facts,
+		read: facts.doc,
+		doc: committed,
+	};
+	const added = ANSWERED_CHANGES.filter(
+		(id) =>
+			!view.ids.includes(id) && FIRST_PUBLISH_CHANGES[id].applies(answered),
+	);
+	if (added.length === 0) return view;
+	const ids = new Set<FirstPublishChangeId>([...view.ids, ...added]);
+	return {
+		...view,
+		ids: FIRST_PUBLISH_CHANGE_IDS.filter((id) => ids.has(id)),
+		touchesWorkers:
+			view.touchesWorkers ||
+			added.some((id) => FIRST_PUBLISH_CHANGES[id].touchesWorkers),
 	};
 }
 

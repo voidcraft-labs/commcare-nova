@@ -2635,5 +2635,31 @@
 				"path": "/_attachments/*"
 			}
 		]
+	},
+	{
+		"change": "owner-rule-given-to-worker",
+		"placeKinds": ["form-part"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/update_case/update/owner_id"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/load_update_cases/*/case_properties/owner_id"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/open_cases/*/case_properties/owner_id"
+			}
+		]
 	}
 ]
