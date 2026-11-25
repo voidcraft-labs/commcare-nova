@@ -12,6 +12,18 @@ import type { PlatformFeatureId } from "@/lib/domain/platforms";
 /** Each platform feature's manifest entries, in inventory order. */
 export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
+	"automatic-form-submission": [
+		"questions/auto-submit-on-a-referenced-question-or-choice-text",
+	],
+	"form-skip-automatic-sync": [
+		"questions/a-question-text-label-hint-help-validation-message-repeat-add",
+	],
+	"form-check-changed-answers": [
+		"questions/a-question-text-label-hint-help-validation-message-repeat-add",
+	],
+	"form-activity-notice": [
+		"questions/a-question-text-label-hint-help-validation-message-repeat-add",
+	],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
 	],

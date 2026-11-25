@@ -120,6 +120,12 @@ export interface PreviewPlatformRules {
 	 *  gravity draws at the top, so `top` and `bottom` both draw there
 	 *  (`proof/android/test_case_lists.py` reads each cell's gravity). */
 	readonly tileVerticalAlign: "as-authored" | "middle-only";
+	/** Formplayer reads a form's Web Apps behavior texts by presence
+	 *  (`FormSession.setAutoSubmitFlag`, `setSuppressAutosyncFlag`,
+	 *  `setSkipValidation`, `setVolatilityIndicators`): a form submits as soon
+	 *  as it opens, skips its sync, or rechecks only changed answers. CommCare
+	 *  Android reads none of these texts. */
+	readonly webAppsFormPragmas: boolean;
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
 	readonly linkColumnInList: "link" | "raw-text";
@@ -418,6 +424,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileGrouping: "grouped",
 		tileBorderShading: true,
 		tileVerticalAlign: "as-authored",
+		webAppsFormPragmas: true,
 		linkColumnInList: "link",
 		searchScreenText: true,
 		searchScreenCaseTile: true,
@@ -488,6 +495,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileGrouping: "flat",
 		tileBorderShading: false,
 		tileVerticalAlign: "middle-only",
+		webAppsFormPragmas: false,
 		linkColumnInList: "raw-text",
 		searchScreenText: false,
 		searchScreenCaseTile: false,

@@ -9,6 +9,11 @@ import {
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
 import { wordingSourceUnit } from "../../generatedSearchWording";
+import {
+	formBehaviorTextDetails,
+	formBehaviorTextSentence,
+} from "../../xform/behaviorTextCopy";
+import { formBehaviorTextIssue } from "../../xform/behaviorTexts";
 /**
  * App-level validation rules.
  *
@@ -613,8 +618,30 @@ function firstMenuSharedCaseEntryPointMessage(
 	return `The entry point on "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the entry point, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${above}" its own screen again (forms_in_menu_above null), or remove the entry point.`;
 }
 
+/** Each form behavior's carrier text must still be written, agree with the
+ * slots sharing it, and survive CommCare HQ's merge of equal texts. App-scoped
+ * because a language or translation edit outside the form can break it. */
+function validFormBehaviorTexts(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const form of Object.values(doc.forms)) {
+		const issue = formBehaviorTextIssue(doc, form.uuid);
+		if (issue)
+			errors.push(
+				validationError(
+					"FORM_BEHAVIOR_TEXT_INVALID",
+					"form",
+					formBehaviorTextSentence(issue),
+					{ formUuid: form.uuid, formName: form.name },
+					formBehaviorTextDetails(issue),
+				),
+			);
+	}
+	return errors;
+}
+
 export const APP_RULES = [
 	authoredXmlText,
+	validFormBehaviorTexts,
 	validEntryPoints,
 	// A link or a built-in `module` destination that opens through the first
 	// menu with the case every form listed there from a menu above opens.

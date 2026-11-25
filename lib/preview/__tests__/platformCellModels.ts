@@ -71,6 +71,7 @@ import {
 	WEB_APPS_APPVERSION,
 	WEB_APPS_DEVICE_ID,
 } from "../platform";
+import { automaticSubmissionEntry } from "../submitOffer";
 import { evaluateAsync } from "../xpath/asyncEvaluator";
 import {
 	coreDateAdd,
@@ -296,6 +297,33 @@ function searchFixture() {
 // ── The checks ────────────────────────────────────────────────────────
 
 export const PLATFORM_MODEL_CHECKS = {
+	"automatic-submit-on-open": () => {
+		const opening = {
+			active: true,
+			enabled: true,
+			offered: "offered" as const,
+			entry: "second-visit",
+			attempted: undefined,
+		};
+		const web = {
+			...opening,
+			platformAllows: previewPlatformRules("web-apps").webAppsFormPragmas,
+		};
+		expect(automaticSubmissionEntry(web)).toBe("second-visit");
+		expect(
+			automaticSubmissionEntry({ ...web, attempted: "second-visit" }),
+		).toBeUndefined();
+		expect(
+			automaticSubmissionEntry({ ...web, offered: "waiting" }),
+		).toBeUndefined();
+		expect(automaticSubmissionEntry({ ...web, active: false })).toBeUndefined();
+		expect(
+			automaticSubmissionEntry({
+				...opening,
+				platformAllows: previewPlatformRules("android").webAppsFormPragmas,
+			}),
+		).toBeUndefined();
+	},
 	/* A calculate over the clock and a condition over it re-evaluate after
 	 * an unrelated answer on Web Apps; a starting value does not; on Android
 	 * neither moves. */

@@ -1,6 +1,12 @@
 import type { BlueprintDoc } from "../blueprint";
 import type { FieldKind, RepeatMode } from "../fields";
-import { type FormLinkTarget, type FormType, formLinkEntries } from "../forms";
+import {
+	type FormBehaviorTexts,
+	type FormLinkTarget,
+	type FormType,
+	formBehaviorTextsOf,
+	formLinkEntries,
+} from "../forms";
 import type { LookupTableId } from "../lookupIds";
 import { moduleUuidOfForm } from "../postSubmit";
 import type { QueryRepeatPlacement, RowTiming } from "../queryRepeatPlacement";
@@ -60,7 +66,7 @@ export type FormStructureConnect = Readonly<
 	>
 >;
 
-export interface FormStructure {
+export interface FormStructure extends FormBehaviorTexts {
 	readonly dataRootName?: string;
 	readonly formUuid: Uuid;
 	readonly moduleUuid: Uuid;
@@ -196,6 +202,7 @@ export function formStructure(
 		...(form.dataRootName !== undefined && { dataRootName: form.dataRootName }),
 		moduleUuid,
 		type: form.type,
+		...formBehaviorTextsOf(form),
 		fields,
 		fieldOrder: layout.children,
 		connect,

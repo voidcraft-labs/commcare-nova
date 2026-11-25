@@ -1,5 +1,6 @@
 /** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
+import { formBehaviorTextChoices } from "@/lib/commcare/xform/behaviorTexts";
 import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -19,6 +20,7 @@ import {
 import { conditionSchema } from "@/lib/domain/expression";
 import { formLogicSchema } from "@/lib/domain/expression/types";
 import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
+import { behaviorTextSchema, formBehaviorRoles } from "@/lib/domain/forms";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import {
 	refineFormConnectMutations,
@@ -116,6 +118,43 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"Whether this form requests the Android device's location when it opens. False uses the app setting. Connect always requests location. Web Apps leaves the location empty.",
 			),
+		automaticSubmissionText: z
+			.union([z.literal(true), behaviorTextSchema])
+			.nullable()
+			.optional()
+			.describe(
+				"Submit this form automatically in Web Apps when it opens and its answers are valid. True lets Nova choose a question label in this form to hold the setting; or name an existing question or choice text by identity (getForm lists behaviorTextChoices). Null restores manual submission.",
+			),
+		skipAutomaticSyncText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Skip automatic sync after this form submits in Web Apps. Choose an existing question or choice text by identity. Null removes the setting.",
+			),
+		validateChangedAnswersText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"In Web Apps, recheck changed answers and blanks at submission. A previously accepted nonblank answer can stay accepted after a related answer changes. Choose an existing question or choice text by identity. Null removes the setting.",
+			),
+		activityKeyText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Show Web Apps workers recent activity on this form when the resolved key matches, for example a case identifier in a label. Choose an existing question or choice text by identity. Null removes the setting.",
+			),
+		activityTitleText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Name the shared activity in Web Apps, using localized text evaluated when the form opens. Requires a shared activity key. Choose an existing question or choice text by identity. Null removes the setting.",
+			),
+		activityWindowText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Set how many seconds the shared activity remains visible. Requires a shared activity key. The default is 300 seconds. Choose an existing question or choice text by identity. Null removes the setting.",
+			),
 		plain_text: z
 			.boolean()
 			.nullable()
@@ -151,7 +190,7 @@ export type UpdateFormResult =
 
 export const updateFormTool = {
 	description:
-		"Edit a form's name, purpose, record naming rule, open and close conditions, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
+		"Edit a form's name, purpose, record naming rule, open and close conditions, automatic submission, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -172,6 +211,7 @@ export const updateFormTool = {
 			displayCondition,
 			hiddenFromMenu,
 			capture_location,
+			automaticSubmissionText,
 			plain_text,
 			case_list_registration,
 		} = input;
@@ -201,6 +241,28 @@ export const updateFormTool = {
 			if (purpose !== undefined) patch.purpose = purpose;
 			if (capture_location !== undefined)
 				patch.captureLocation = capture_location ? true : null;
+			if (automaticSubmissionText === true) {
+				if (!existing.automaticSubmissionText) {
+					const options = formBehaviorTextChoices(doc, formUuid);
+					const first =
+						options.find((option) => option.questionLabel) ?? options[0];
+					if (!first)
+						return {
+							kind: "mutate",
+							mutations: [],
+							result: {
+								error:
+									"A question or choice with text lets this form submit automatically. Add one and try again.",
+							},
+						};
+					patch.automaticSubmissionText = { carrier: first.unit };
+				}
+			} else if (automaticSubmissionText !== undefined)
+				patch.automaticSubmissionText = automaticSubmissionText;
+			for (const role of formBehaviorRoles) {
+				if (role !== "automaticSubmissionText" && input[role] !== undefined)
+					patch[role] = input[role];
+			}
 			if (plain_text !== undefined)
 				patch.plainText = plain_text === true ? true : null;
 			// Each condition arrives parsed in its own form slot; the checker

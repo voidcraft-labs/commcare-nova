@@ -34,7 +34,7 @@ import {
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
-import { itextIdFor } from "@/lib/commcare/xform/itextIds";
+import { itextIdFor, itextProseSlot } from "@/lib/commcare/xform/itextIds";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
@@ -56,16 +56,21 @@ import type {
 import {
 	type ContainerField,
 	caseScalarTextGuardIsChecked,
+	effectiveAppLocalization,
+	type FormBehaviorRole,
 	fieldPreload,
 	fieldProseTemplate,
+	filledProse,
 	formCaseWriteViews,
 	instantDatetimeValue,
 	isCaptureFieldKind,
 	isContainer,
 	isReadableTemporalValue,
+	itextUnitTranslationId,
 	orderedCaseOperations,
 	prepareCaseScalarTextValue,
 	proseSource,
+	snapshotTranslationUnits,
 } from "@/lib/domain";
 import { isMatchAll, isMatchNone } from "@/lib/domain/expression/builders";
 import {
@@ -885,6 +890,36 @@ export class FormEngine {
 
 	// ── Public API ───────────────────────────────────────────────────
 
+	/** Read a behavior text from the initialized form root, as both native
+	 * readers do. A blank localized value is present and remains distinct
+	 * from a setting the form does not have. */
+	resolvedFormBehavior(role: FormBehaviorRole): string | null {
+		const carrier = this.printDoc.forms[this.inputFormUuid]?.[role]?.carrier;
+		if (!carrier) return null;
+		const unit = snapshotTranslationUnits(this.printDoc).get(
+			itextUnitTranslationId(carrier),
+		);
+		if (!unit) return null;
+		const localization = effectiveAppLocalization(this.printDoc.localization);
+		const language =
+			this.presentationLanguage &&
+			localization.languageOrder.includes(this.presentationLanguage)
+				? this.presentationLanguage
+				: localization.defaultLanguage;
+		const template = filledProse(this.printDoc, unit, language);
+		const slot = itextProseSlot(carrier);
+		const context = this.createEvalContext("/");
+		return template.parts
+			.map((part) =>
+				part.kind === "text"
+					? part.text
+					: xpathToString(
+							evaluate(this.expressions.prose(part, slot), context),
+						),
+			)
+			.join("");
+	}
+
 	/** Structured-clone projection for one evaluation: the world's instances
 	 * on its first request, then only the values and relevance that changed. */
 	workerInstances(
@@ -1134,6 +1169,7 @@ export class FormEngine {
 				updates,
 				evaluateAsync,
 			);
+			this.recordAcceptedAnswer(updates[path] ?? current, updates);
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 		await this.settleLiveRepeatsAsync(evaluateAsync, beforeInsertion);
@@ -1159,10 +1195,49 @@ export class FormEngine {
 		this.store.setState(updates);
 	}
 
+	/** Formplayer compares the non-null values of the submitted answer and
+	 * the current initialized instance before asking Core to validate again.
+	 * An answer Core already refused is never the accepted instance value. */
+	private checksChangedAnswersOnly(): boolean {
+		return (
+			this.rules.webAppsFormPragmas &&
+			this.printDoc.forms[this.inputFormUuid]?.validateChangedAnswersText !==
+				undefined
+		);
+	}
+
+	private recordAcceptedAnswer(state: FieldState, updates: EngineStoreState) {
+		if (
+			!this.checksChangedAnswersOnly() ||
+			!state.valid ||
+			state.keypadRefused ||
+			!state.value
+		)
+			return;
+		if (state.acceptedAnswer !== state.value)
+			updates[state.path] = { ...state, acceptedAnswer: state.value };
+	}
+
+	private acceptUnchangedOnSubmit(
+		state: FieldState,
+		updates: EngineStoreState,
+	): boolean {
+		if (
+			!this.checksChangedAnswersOnly() ||
+			!state.value ||
+			state.keypadRefused ||
+			(state.edited && state.value !== state.acceptedAnswer)
+		)
+			return false;
+		if (!state.valid || state.errorMessage)
+			updates[state.path] = { ...state, valid: true, errorMessage: undefined };
+		return true;
+	}
+
 	async validateAllAsync(
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<boolean> {
-		return this.validateWhereAsync(() => true, evaluateAsync);
+		return this.validateWhereAsync(() => true, evaluateAsync, "commit", true);
 	}
 
 	/** Read the current questions' validation without committing a screen or answering its messages. */
@@ -1323,6 +1398,8 @@ export class FormEngine {
 			}
 		}
 
+		if (stores && latestState && !this.asyncRuntime)
+			this.recordAcceptedAnswer(updates[path] ?? latestState, updates);
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
@@ -1998,7 +2075,7 @@ export class FormEngine {
 	 * checks and validation rules. Returns true if the form is valid.
 	 */
 	validateAll(): boolean {
-		return this.validateWhere(() => true);
+		return this.validateWhere(() => true, true);
 	}
 
 	/** The native screen commit supplies OK for each passive trigger. The web
@@ -2039,7 +2116,10 @@ export class FormEngine {
 		}
 	}
 
-	private validateWhere(include: (path: string) => boolean): boolean {
+	private validateWhere(
+		include: (path: string) => boolean,
+		submitting = false,
+	): boolean {
 		for (const path of this.messagesToConfirm(include))
 			this.setValue(path, "OK");
 		let valid = true;
@@ -2051,6 +2131,7 @@ export class FormEngine {
 			if (state === DEFAULT_ENGINE_STATE) continue;
 			if (!include(path)) continue;
 			if (!effectivelyVisible.has(path)) continue;
+			if (submitting && this.acceptUnchangedOnSubmit(state, updates)) continue;
 
 			const touched = state.touched ? state : { ...state, touched: true };
 			if (touched !== state) updates[path] = touched;
@@ -4622,6 +4703,7 @@ export class FormEngine {
 		include: (path: string) => boolean,
 		evaluateAsync: FormEngineAsyncEvaluator,
 		mode: "commit" | "observe" = "commit",
+		submitting = false,
 	): Promise<boolean> {
 		if (mode === "commit") {
 			for (const path of this.messagesToConfirm(include)) {
@@ -4635,6 +4717,7 @@ export class FormEngine {
 		for (const [path, state] of Object.entries(currentState)) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
 			if (!include(path) || !effectivelyVisible.has(path)) continue;
+			if (submitting && this.acceptUnchangedOnSubmit(state, updates)) continue;
 			const touched =
 				mode === "observe" || state.touched
 					? state

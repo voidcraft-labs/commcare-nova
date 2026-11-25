@@ -1,3 +1,8 @@
+import {
+	type BehaviorText,
+	type FormBehaviorRole,
+	formBehaviorRoles,
+} from "@/lib/domain/forms";
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
@@ -641,16 +646,18 @@ export function removeFormMutations(
 export function updateFormMutations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	patch: Partial<{
-		name: string;
-		dataRootName: string | null;
-		openCondition: Form["openCondition"] | null;
-		closeCondition: Form["closeCondition"] | null;
-		postSubmit: PostSubmitDestination | null;
-		purpose: string | null;
-		captureLocation: true | null;
-		plainText: true | null;
-	}>,
+	patch: Partial<
+		{
+			name: string;
+			dataRootName: string | null;
+			openCondition: Form["openCondition"] | null;
+			closeCondition: Form["closeCondition"] | null;
+			postSubmit: PostSubmitDestination | null;
+			purpose: string | null;
+			captureLocation: true | null;
+			plainText: true | null;
+		} & Record<FormBehaviorRole, BehaviorText | null>
+	>,
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
 	const mutations: Mutation[] = [];
@@ -677,6 +684,8 @@ export function updateFormMutations(
 	}
 	if (patch.captureLocation !== undefined)
 		reducerPatch.captureLocation = patch.captureLocation;
+	for (const role of formBehaviorRoles)
+		if (patch[role] !== undefined) reducerPatch[role] = patch[role];
 	if (patch.plainText !== undefined) reducerPatch.plainText = patch.plainText;
 	if (Object.keys(reducerPatch).length > 0) {
 		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });

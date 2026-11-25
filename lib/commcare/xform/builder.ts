@@ -160,7 +160,8 @@ import {
 	trimmedValuePath,
 } from "./generatedNodes";
 import {
-	fieldItextKey,
+	behaviorWireIds,
+	fieldTextIds,
 	formItextUnits,
 	itextProseSlot,
 	itextTranslationUnitId,
@@ -829,6 +830,10 @@ export function buildXForm(
 	return buildXFormSource(doc, formUuid, opts).xml;
 }
 
+const BEHAVIOR_WIRE_IDS: ReadonlySet<string> = new Set(
+	Object.values(behaviorWireIds),
+);
+
 /**
  * Emit the full XForm XML for `formUuid` and its Save to Case references.
  * Walks the form's field order (plus any container children), accumulates
@@ -837,6 +842,7 @@ export function buildXForm(
  * `case_references_data.save` map from that tree, and serializes the tree
  * once.
  */
+
 export function buildXFormSource(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -959,6 +965,9 @@ export function buildXFormSource(
 	// option label is `force`d: each `<item>` needs its `<label>`, and the
 	// validator refuses a written choice with no label and no media
 	// (`SELECT_OPTION_LABEL_EMPTY`) before emission.
+	// A form behavior text shared by several slots is one itext entry under its
+	// pragma id; each further slot only references it.
+	const writtenBehaviorIds = new Set<string>();
 	const addItext: AddItext = (
 		id: string,
 		label: ProseTemplate | undefined,
@@ -1003,6 +1012,14 @@ export function buildXFormSource(
 					lowerProse,
 				)
 			: undefined;
+		if (BEHAVIOR_WIRE_IDS.has(id)) {
+			if (writtenBehaviorIds.has(id))
+				return {
+					registered: true,
+					protectedConstraint: protectedMessage?.expression,
+				};
+			writtenBehaviorIds.add(id);
+		}
 		for (const [index, language] of localization.languages.entries()) {
 			const languageEntries = itextEntries.get(language);
 			if (languageEntries === undefined) {
@@ -1301,9 +1318,7 @@ function buildFieldParts(
 	const nodePath = parentPath.child(field.id);
 	// Itext identity follows logical authored ancestry, shared with parsing
 	// and expression printing even when physical repeats add an item node.
-	const itextKey = fieldItextKey(expressions.form, fieldUuid);
-	if (itextKey === undefined)
-		throw new Error(`Field ${fieldUuid} has no reachable itext identity.`);
+	const textId = fieldTextIds(expressions.form, fieldUuid);
 
 	const relevant = expressionSlotValue(doc, {
 		entity: "field",
@@ -1369,21 +1384,14 @@ function buildFieldParts(
 	);
 	const hasLabel =
 		field.kind !== "hidden" &&
-		addItext(
-			`${itextKey}-label`,
-			label,
-			labelMedia,
-			false,
-			false,
-			labelMarkdown,
-		).registered;
+		addItext(textId("label"), label, labelMedia, false, false, labelMarkdown)
+			.registered;
 	const hasHint =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-hint`, hint, undefined, false, false, false)
-			.registered;
+		addItext(textId("hint"), hint, undefined, false, false, false).registered;
 	const hasHelp =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-help`, help, helpMedia, false, false, helpMarkdown)
+		addItext(textId("help"), help, helpMedia, false, false, helpMarkdown)
 			.registered;
 	// A message no constraint can fail is never shown, so none is written.
 	const validationMessage = bindCarriesConstraint(
@@ -1392,7 +1400,7 @@ function buildFieldParts(
 		scalarGuard,
 	)
 		? addItext(
-				`${itextKey}-constraintMsg`,
+				textId("constraintMsg"),
 				validateMsg,
 				undefined,
 				false,
@@ -1523,7 +1531,7 @@ function buildFieldParts(
 	if (hasValidationMessage) {
 		bindXPath["jr:constraintMsg"] =
 			validationMessage.protectedConstraint ??
-			w.call("jr:itext", [w.str(`${itextKey}-constraintMsg`)]);
+			w.call("jr:itext", [w.str(textId("constraintMsg"))]);
 	}
 
 	if (relevant) {
@@ -1712,7 +1720,7 @@ function buildFieldParts(
 	// Options (select kinds).
 	//
 	// itext ids are keyed by the option's stable array INDEX, not its `value` —
-	// `${itextKey}-opt${index}-label`. Two options may legally share a `value`
+	// textId(`opt${index}-label`). Two options may legally share a `value`
 	// (the domain's `selectOptionSchema` is `{ value, label }` with no
 	// uniqueness constraint), but a value-keyed itext id would then collapse
 	// both onto one id. CommCare's XForm parser hard-rejects a duplicate itext
@@ -1734,7 +1742,7 @@ function buildFieldParts(
 			// registration even for an empty option label — a dangling ref
 			// is parse-fatal in `verifyTextMappings`.
 			addItext(
-				`${itextKey}-opt${index}-label`,
+				textId(`opt${index}-label`),
 				opt.label,
 				opt.media,
 				true,
@@ -1755,7 +1763,7 @@ function buildFieldParts(
 			field,
 			fieldUuid,
 			nodePath,
-			itextKey,
+			textId,
 			hasLabel,
 			relevant,
 			insideRepeat,
@@ -1837,7 +1845,7 @@ function buildFieldParts(
 		buildLeafControl(
 			field,
 			nodePath,
-			itextKey,
+			textId,
 			hasLabel,
 			hasHint,
 			hasHelp,
@@ -1871,7 +1879,7 @@ function buildFieldParts(
 					"label",
 					{
 						xpath: {
-							ref: w.call("jr:itext", [w.str(`${itextKey}-constraintMsg`)]),
+							ref: w.call("jr:itext", [w.str(textId("constraintMsg"))]),
 						},
 					},
 					context,
@@ -2030,7 +2038,7 @@ function buildLookupItemset(
 function buildLeafControl(
 	field: Field,
 	nodePath: FormPath,
-	itextKey: string,
+	textId: (suffix: string) => string,
 	hasLabel: boolean,
 	hasHint: boolean,
 	hasHelp: boolean,
@@ -2048,7 +2056,7 @@ function buildLeafControl(
 		head.push(
 			xel(
 				"label",
-				{ xpath: { ref: w.call("jr:itext", [w.str(`${itextKey}-label`)]) } },
+				{ xpath: { ref: w.call("jr:itext", [w.str(textId("label"))]) } },
 				context,
 			),
 		);
@@ -2056,7 +2064,7 @@ function buildLeafControl(
 		head.push(
 			xel(
 				"hint",
-				{ xpath: { ref: w.call("jr:itext", [w.str(`${itextKey}-hint`)]) } },
+				{ xpath: { ref: w.call("jr:itext", [w.str(textId("hint"))]) } },
 				context,
 			),
 		);
@@ -2064,7 +2072,7 @@ function buildLeafControl(
 		head.push(
 			xel(
 				"help",
-				{ xpath: { ref: w.call("jr:itext", [w.str(`${itextKey}-help`)]) } },
+				{ xpath: { ref: w.call("jr:itext", [w.str(textId("help"))]) } },
 				context,
 			),
 		);
@@ -2077,7 +2085,7 @@ function buildLeafControl(
 				"alert",
 				{
 					xpath: {
-						ref: w.call("jr:itext", [w.str(`${itextKey}-constraintMsg`)]),
+						ref: w.call("jr:itext", [w.str(textId("constraintMsg"))]),
 					},
 				},
 				context,
@@ -2111,7 +2119,7 @@ function buildLeafControl(
 					"label",
 					{
 						xpath: {
-							ref: w.call("jr:itext", [w.str(`${itextKey}-opt${index}-label`)]),
+							ref: w.call("jr:itext", [w.str(textId(`opt${index}-label`))]),
 						},
 					},
 					context,
@@ -2180,7 +2188,7 @@ function buildContainer(
 	field: Field,
 	fieldUuid: Uuid,
 	nodePath: FormPath,
-	itextKey: string,
+	textId: (suffix: string) => string,
 	hasLabel: boolean,
 	relevant: Expression | undefined,
 	insideRepeat: boolean,
@@ -2232,7 +2240,7 @@ function buildContainer(
 			["addFirstLabel", "add-empty-caption", "jr:addEmptyCaption"],
 			["addLabel", "add-caption", "jr:addCaption"],
 		] as const) {
-			const id = `${itextKey}-${suffix}`;
+			const id = textId(suffix);
 			if (
 				addItext(id, field[slot], undefined, false, false, false).registered
 			) {
@@ -2351,7 +2359,7 @@ function buildContainer(
 	const labelEl = hasLabel
 		? xel(
 				"label",
-				{ xpath: { ref: w.call("jr:itext", [w.str(`${itextKey}-label`)]) } },
+				{ xpath: { ref: w.call("jr:itext", [w.str(textId("label"))]) } },
 				context,
 			)
 		: undefined;

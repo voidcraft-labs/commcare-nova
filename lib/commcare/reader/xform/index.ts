@@ -16,6 +16,7 @@ import type {
 	ProseSlotRef,
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
+import { formBehaviorRoles } from "@/lib/domain/forms";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
 	activeActions,
@@ -26,6 +27,7 @@ import {
 	type GeneratedNodePurpose,
 	generatedBaseName,
 } from "../../xform/generatedNodes";
+import { behaviorWireIds } from "../../xform/itextIds";
 import { splitName } from "../../xmlNamespaces";
 import { heldXmlParse } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
@@ -53,7 +55,12 @@ import {
 	datetimeSpelling,
 	isAllocatedName,
 } from "./generated";
-import { EMPTY_ITEXT_TABLE, type ItextTable, readItext } from "./itext";
+import {
+	EMPTY_ITEXT_TABLE,
+	type ItextTable,
+	pragmaClaim,
+	readItext,
+} from "./itext";
 import { joinForm, registerGeneratedUses } from "./join";
 import { pendingLogic } from "./logic";
 import { readMediaForms } from "./media";
@@ -77,7 +84,7 @@ import {
 	parseXFormSource,
 	type RefusedSource,
 } from "./parse";
-import { readText, rememberFormText, unitOf } from "./prose";
+import { formText, readText, rememberFormText, unitOf } from "./prose";
 import {
 	type FormRefusals,
 	refusingCursor,
@@ -963,6 +970,25 @@ export function mintFields(ctx: ReadContext): void {
 							position: field.dataPosition,
 						};
 				}
+				// A pragma text HQ keeps is the form's behavior: the first slot
+				// that references it carries it, every other slot shares it.
+				const text = formText(xform)?.itext;
+				if (text)
+					for (const role of formBehaviorRoles) {
+						const id = behaviorWireIds[role];
+						const owners = text.owners(id);
+						if (!owners.length || pragmaClaim(text, id).use !== "take")
+							continue;
+						const [carrier, ...alsoUsedBy] = owners.map(unitOf);
+						if (
+							carrier === undefined ||
+							!alsoUsedBy.every((unit) => unit !== undefined)
+						)
+							continue;
+						form.form[role] = alsoUsedBy.length
+							? { carrier, alsoUsedBy }
+							: { carrier };
+					}
 				xform.sourceNames = sourceNames(xform, fields);
 			});
 		}

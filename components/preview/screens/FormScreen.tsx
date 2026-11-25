@@ -10,6 +10,7 @@ import {
 	type SyntheticEvent,
 	useCallback,
 	useEffect,
+	useEffectEvent,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -186,6 +187,7 @@ import {
 } from "@/lib/preview/menuProjection";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
+	automaticSubmissionEntry,
 	type PreviewSubmitOffer,
 	type PreviewSubmitState,
 	previewSubmitAccess,
@@ -3035,6 +3037,31 @@ export function FormScreen({ screen }: FormScreenProps) {
 		},
 		[appId, controller, entryKey, session, showFirstPage, submitStatus.kind],
 	);
+
+	// The same readiness, access and authoritative submission as the worker's Submit button.
+	const automaticEntry = useRef<string | undefined>(undefined);
+	const submitOnOpen = useEffectEvent(handleSubmit);
+	useEffect(() => {
+		const next = automaticSubmissionEntry({
+			active: mode === "preview" && routeMatchesScreen && loc.kind === "form",
+			enabled: Boolean(form?.automaticSubmissionText),
+			platformAllows: platformRules.webAppsFormPragmas,
+			offered: submitOffer.kind,
+			entry: entryKey,
+			attempted: automaticEntry.current,
+		});
+		if (!next) return;
+		automaticEntry.current = next;
+		void submitOnOpen();
+	}, [
+		entryKey,
+		form?.automaticSubmissionText,
+		loc.kind,
+		mode,
+		platformRules.webAppsFormPragmas,
+		routeMatchesScreen,
+		submitOffer.kind,
+	]);
 
 	// A fresh entry waits for its selected record and ancestor preloads before
 	// running one-time defaults and query snapshots. An existing entry can

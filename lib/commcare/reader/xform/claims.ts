@@ -1276,7 +1276,7 @@ export const X = {
 		"xform:model/itext/translation/text@id",
 	),
 	pragmaKey: one(
-		"refuse",
+		"take",
 		Q("a-question-text-label-hint-help-validation-message-repeat-add"),
 		"xform:model/itext/translation/text@id",
 	),

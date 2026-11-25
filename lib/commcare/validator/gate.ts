@@ -119,6 +119,7 @@ export type ValidityClass =
 export const VALIDITY_CLASS_BY_CODE = {
 	// ── App-level ────────────────────────────────────────────────────
 	ENTRY_POINT_INVALID: "soundness",
+	FORM_BEHAVIOR_TEXT_INVALID: "soundness",
 	SUITE_ENDPOINT_INVALID: "oracle",
 	EMPTY_APP_NAME: "soundness",
 	APP_TEXT_UNREPRESENTABLE: "soundness",

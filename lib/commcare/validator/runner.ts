@@ -108,6 +108,8 @@ export interface RunValidationOptions {
  */
 const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"ENTRY_POINT_INVALID",
+	// A form behavior text: a translation or language edit anywhere can break it.
+	"FORM_BEHAVIOR_TEXT_INVALID",
 	// APP_RULES products.
 	"CASE_PARENT_SELECTION_CONFLICT",
 	// A child form's entry reads its root menu's first form, so a batch in

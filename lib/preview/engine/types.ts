@@ -15,6 +15,8 @@ export interface LookupChoice {
 
 /** Per-field reactive state tracked by the form engine. */
 export interface FieldState {
+	/** Last nonblank worker answer accepted by Web Apps when checking only changes. */
+	acceptedAnswer?: string;
 	path: string;
 	value: string;
 	visible: boolean;
@@ -121,6 +123,7 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.touched === b.touched &&
 		a.edited === b.edited &&
 		a.captureFileName === b.captureFileName &&
+		a.acceptedAnswer === b.acceptedAnswer &&
 		a.errorMessage === b.errorMessage &&
 		a.resolvedLabel === b.resolvedLabel &&
 		a.resolvedHint === b.resolvedHint &&

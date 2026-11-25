@@ -204,6 +204,12 @@ export const FORM_KEY_PARTS = {
 	icon: "settings",
 	audioLabel: "settings",
 	dataRootName: "settings",
+	automaticSubmissionText: "settings",
+	skipAutomaticSyncText: "settings",
+	validateChangedAnswersText: "settings",
+	activityKeyText: "settings",
+	activityTitleText: "settings",
+	activityWindowText: "settings",
 } as const satisfies Record<keyof Form, FormPart | null>;
 
 /** Where a key of the document's root is filed: an app part, or one of the walks below. */

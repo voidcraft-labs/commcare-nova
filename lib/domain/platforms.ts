@@ -184,6 +184,10 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
+	"automatic-form-submission",
+	"form-skip-automatic-sync",
+	"form-check-changed-answers",
+	"form-activity-notice",
 	"case-list-here",
 	"forms-read-search",
 	"list-first",
@@ -297,6 +301,30 @@ export const PLATFORM_FEATURES: Readonly<
 			pickerLine:
 				"Not available in Web Apps. You can ask for a date and a time as two questions, or change where this app runs in App settings.",
 		},
+	},
+	"automatic-form-submission": {
+		label: "Submit a form on open",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "ignored", note: "the worker submits the form" },
+	},
+	"form-skip-automatic-sync": {
+		label: "Skip automatic sync",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "ignored" },
+	},
+	"form-check-changed-answers": {
+		label: "Check changed answers",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "ignored" },
+	},
+	"form-activity-notice": {
+		label: "Show recent form activity",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "ignored" },
 	},
 	"case-list-here": {
 		label: "here() in a case list",

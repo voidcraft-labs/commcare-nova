@@ -466,13 +466,18 @@ function claimReferencedId(
 		return;
 	}
 	const claim = pragmaClaim(reading, id);
+	if (claim.use === "take") {
+		for (const element of elements)
+			cursor.take({ element, attribute: "id" }, claim).value;
+		return;
+	}
 	for (const text of elements) {
 		if (claim.use === "account")
 			cursor.account({ element: text, attribute: "id" }, claim, place);
 		else
 			cursor.refuse(
 				{ element: text, attribute: "id" },
-				claim as typeof X.pragmaKey,
+				claim as typeof X.pragmaFormDescriptor,
 				place,
 			);
 	}
@@ -498,7 +503,7 @@ export function sameValueNodes(a: Element, b: Element): boolean {
 	});
 }
 
-function pragmaClaim(
+export function pragmaClaim(
 	reading: ItextReading,
 	id: string,
 ):
@@ -529,7 +534,8 @@ function pragmaClaim(
 	if (
 		(id === "Pragma-Volatility-Entity-Title" ||
 			id === "Pragma-Volatility-Window") &&
-		!reading.ids().includes("Pragma-Volatility-Key")
+		(!reading.owners("Pragma-Volatility-Key").length ||
+			pragmaClaim(reading, "Pragma-Volatility-Key").use !== "take")
 	)
 		return X.pragmaVolatilityWithoutKey;
 	if (id === "Pragma-Form-Descriptor") return X.pragmaFormDescriptor;

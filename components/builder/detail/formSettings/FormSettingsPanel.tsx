@@ -11,6 +11,7 @@ import { AnswerRootSection } from "./AnswerRootSection";
 import { CaseChangesSection } from "./CaseChangesSection";
 import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
+import { FormBehaviorSection } from "./FormBehaviorSection";
 import { FormEntrySection } from "./FormEntrySection";
 import { FormLocationSection } from "./FormLocationSection";
 import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
@@ -68,6 +69,7 @@ export function FormSettingsPanel({
 				<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />
+				<FormBehaviorSection moduleUuid={moduleUuid} formUuid={formUuid} />
 				{!noMatches && (
 					<EntryPointSettingsShortcut
 						target={{ kind: "form", moduleUuid, formUuid }}

@@ -10,6 +10,7 @@
 /** All validation error codes — one per distinct check. */
 export type ValidationErrorCode =
 	| "ENTRY_POINT_INVALID"
+	| "FORM_BEHAVIOR_TEXT_INVALID"
 	| "SUITE_ENDPOINT_INVALID"
 	// App-level
 	| "EMPTY_APP_NAME"

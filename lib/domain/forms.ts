@@ -9,6 +9,7 @@ import {
 	type Expression,
 	formLinkDatumNameSchema,
 	formLogicSchema,
+	itextUnitSchema,
 	type RelationStep,
 	relationStepSchema,
 	valueSchema,
@@ -23,6 +24,39 @@ import {
 	ownClosePlacementSchema,
 } from "./placements";
 import { type Uuid, uuidSchema } from "./uuid";
+
+/** One physical form text, even when several question or choice slots use it. */
+export const behaviorTextSchema = z.strictObject({
+	carrier: itextUnitSchema,
+	alsoUsedBy: z.array(itextUnitSchema).min(1).optional(),
+});
+export type BehaviorText = z.infer<typeof behaviorTextSchema>;
+export const formBehaviorRoleNames = {
+	automaticSubmissionText: "Automatic submission",
+	skipAutomaticSyncText: "Skip automatic sync",
+	validateChangedAnswersText: "Check changed answers",
+	activityKeyText: "Shared activity key",
+	activityTitleText: "Shared activity title",
+	activityWindowText: "Shared activity window",
+} as const;
+export type FormBehaviorRole = keyof typeof formBehaviorRoleNames;
+export type FormBehaviorTexts = Partial<Record<FormBehaviorRole, BehaviorText>>;
+export const formBehaviorRoles = Object.keys(
+	formBehaviorRoleNames,
+) as FormBehaviorRole[];
+export function formBehaviorTextsOf(
+	form: FormBehaviorTexts,
+): FormBehaviorTexts {
+	const texts: FormBehaviorTexts = {};
+	for (const role of formBehaviorRoles)
+		if (form[role]) texts[role] = form[role];
+	return texts;
+}
+export function behaviorTextUnits(
+	text: BehaviorText,
+): readonly z.infer<typeof itextUnitSchema>[] {
+	return [text.carrier, ...(text.alsoUsedBy ?? [])];
+}
 
 export const FORM_TYPES = [
 	"registration",
@@ -796,6 +830,13 @@ export type ConnectTask = z.infer<typeof connectTaskSchema>;
 export const formSchema = z.strictObject({
 	dataRootName: formRootNameSchema.optional(),
 	entryPoint: formEntryPointSchema.optional(),
+	/** The existing form text whose presence submits this form when Web Apps opens it. */
+	automaticSubmissionText: behaviorTextSchema.optional(),
+	skipAutomaticSyncText: behaviorTextSchema.optional(),
+	validateChangedAnswersText: behaviorTextSchema.optional(),
+	activityKeyText: behaviorTextSchema.optional(),
+	activityTitleText: behaviorTextSchema.optional(),
+	activityWindowText: behaviorTextSchema.optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),

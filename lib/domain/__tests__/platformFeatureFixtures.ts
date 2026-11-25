@@ -27,6 +27,7 @@ import {
 	type ConnectType,
 	calculatedColumn,
 	columnSort,
+	type FormBehaviorRole,
 	hiddenSearchInputDef,
 	linkColumn,
 	type Module,
@@ -407,7 +408,56 @@ const tiled =
 
 const SKIP_FILTER = eq(prop("patient", "status"), literal("open"));
 
+/** The case app with its form's first question label holding `role`. */
+function formBehaviorFixture(role?: FormBehaviorRole): BlueprintDoc {
+	const doc = caseApp({});
+	if (role === undefined) return doc;
+	const field = doc.fieldOrder[FIXTURE_FORM][0];
+	return {
+		...doc,
+		forms: {
+			...doc.forms,
+			[FIXTURE_FORM]: {
+				...doc.forms[FIXTURE_FORM],
+				[role]: { carrier: { field, role: "field-label" as const } },
+			},
+		},
+	};
+}
+
 export const PLATFORM_FEATURE_FIXTURES = {
+	"form-skip-automatic-sync": {
+		with: () => formBehaviorFixture("skipAutomaticSyncText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse(
+			"form-skip-automatic-sync",
+			FORM_OWNER,
+			"skipAutomaticSyncText",
+		),
+	},
+	"form-check-changed-answers": {
+		with: () => formBehaviorFixture("validateChangedAnswersText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse(
+			"form-check-changed-answers",
+			FORM_OWNER,
+			"validateChangedAnswersText",
+		),
+	},
+	"form-activity-notice": {
+		with: () => formBehaviorFixture("activityKeyText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse("form-activity-notice", FORM_OWNER, "activityKeyText"),
+	},
+	"automatic-form-submission": {
+		with: () => formBehaviorFixture("automaticSubmissionText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse(
+			"automatic-form-submission",
+			FORM_OWNER,
+			"automaticSubmissionText",
+		),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"case-list-here": {
 		with: () =>

@@ -50,7 +50,7 @@ import {
 	type SlotContextRef,
 } from "./expression/types";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
-import { FORM_TYPES, type FormType } from "./forms";
+import { FORM_TYPES, type FormType, formBehaviorRoles } from "./forms";
 import type { ColumnKind, SearchInputDef } from "./modules";
 import { ownRecordValue } from "./records";
 import { isDeeplySettled } from "./settled";
@@ -399,6 +399,22 @@ export const FORM_REFERENCE_SLOTS = [
 		kind: "expression",
 		formTypes: ["registration", "close"],
 	},
+	// A form behavior names the question or choice text that carries it, by
+	// identity (`Form.<role>.carrier` and each `alsoUsedBy[]` alias).
+	...formBehaviorRoles.flatMap((role) =>
+		(["carrier", "alsoUsedBy[]"] as const).flatMap((member) =>
+			(["field", "option"] as const).map((part) => ({
+				entity: "form" as const,
+				slot:
+					part === "field"
+						? ("form_behavior_text_field" as const)
+						: ("form_behavior_text_choice" as const),
+				path: `${role}.${member}.${part}`,
+				kind: "entity-uuid" as const,
+				formTypes: FORM_TYPES,
+			})),
+		),
+	),
 	{
 		entity: "form",
 		slot: "form_link_condition",
@@ -1562,6 +1578,12 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",
 	"entryPoint.ignoreDisplayConditions": "config",
+	...Object.fromEntries(
+		formBehaviorRoles.flatMap((role) => [
+			[`${role}.carrier.role`, "discriminator" as const],
+			[`${role}.alsoUsedBy[].role`, "discriminator" as const],
+		]),
+	),
 	id: "declaration",
 	name: "display-text",
 	// The submitted answer envelope's element name: the name every absolute
