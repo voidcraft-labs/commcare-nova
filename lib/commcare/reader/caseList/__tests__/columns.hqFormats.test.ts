@@ -206,6 +206,23 @@ describe("CommCare HQ's column formats", () => {
 			texts: [{ label: "Hello" }],
 		});
 	});
+	it("names translated text over a parent's property when the app declares no parent type", async () => {
+		// HQ's build walks `index/parent` to whatever case it reaches; Nova holds the column as a
+		// calculation over the property, which reads no case the app declares no type for yet.
+		// The reading names the column instead of holding a calculation with an empty value.
+		const read = await readDetails((short, long) => {
+			for (const detail of [short, long])
+				Object.assign(detail.columns[1], {
+					format: "translatable-enum",
+					field: "parent/village",
+					useXpathExpression: false,
+					enum: [{ key: "north", value: { en: "North" } }],
+				});
+		}, false);
+		expect(closedCodes(read)).toEqual([
+			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-to-no-declared`,
+		]);
+	});
 	it("keeps a distance order on a translated saved property bound to the real row", async () => {
 		const read = await readDetails((short, long) => {
 			for (const detail of [short, long])

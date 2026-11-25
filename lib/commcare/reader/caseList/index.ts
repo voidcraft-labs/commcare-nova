@@ -48,6 +48,7 @@ import { nativeCalculationText } from "./calculationText";
 import {
 	appCodes,
 	attributeOf,
+	COLUMN_CLAIMS,
 	columnFormatAsRead,
 	formatReadsMapping,
 	imageMapFieldText,
@@ -1126,10 +1127,27 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 	// detail's `field` holds the same tree (the join's equality), so the expression stage's
 	// claim of the registration holds it too, handed off as the registration's is (a table the
 	// catalog lacks is project data's one finding).
+	const registrations = ctx.pending.list();
+	// A non-calculated `translatable-enum` Nova holds as a calculation over its property
+	// (`PendingExpression.readerClaimed`, whose node its read claims) and the expression stage
+	// held no tree for: its relation reaches no case type the app declares, which no calculation
+	// Nova holds yet reads, so the column stands under that class rather than as an empty value.
+	registrations.forEach((registration, index) => {
+		if (
+			registration.readerClaimed !== true ||
+			ctx.pending.outcome(index).expression !== undefined
+		)
+			return;
+		const site = ctx.pending.site(index).at;
+		ctx.accounting.findingAt(
+			COLUMN_CLAIMS.translatableEnumRelationUnreached,
+			registration.place,
+			`${site.json.pointer}/format`,
+		);
+	});
 	for (const reading of caseListReadings(ctx).values())
 		for (const twin of reading.twins) {
-			if (ctx.pending.list()[twin.registration]?.readerClaimed === true)
-				continue;
+			if (registrations[twin.registration]?.readerClaimed === true) continue;
 			const claim = ctx.pending.outcome(twin.registration).claim;
 			if (claim !== undefined)
 				applyExpressionClaim(ctx, { ...claim, place: twin.place }, twin.site);

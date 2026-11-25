@@ -366,6 +366,10 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
 		"schema:DetailColumn.format",
 	),
+	translatableEnumRelationUnreached: refuse(
+		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-to-no-declared`,
+		"schema:DetailColumn.format",
+	),
 	graph: refuse(`${A}22-graph`, "schema:DetailColumn.format"),
 	image: refuse(`${A}23-image-cc-case-image`, "schema:DetailColumn.format"),
 	filterInert: drop(

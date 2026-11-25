@@ -5545,6 +5545,41 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-to-no-declared",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "`translatable-enum` on a column that is not a calculated property, over a relation path whose link the app declares no case type for, in a module that does not offer search",
+		"surfaceKeys": [
+			"format:translatable-enum",
+			"schema:DetailColumn.enum",
+			"schema:DetailColumn.format",
+			"schema:MappingItem",
+			"schema:MappingItem.key",
+			"schema:MappingItem.value"
+		],
+		"valueClass": "translatable-enum-on-a-non-calculated-column-over-a-relation-to-no-declared-case-type",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: HQ's build walks the link to whatever case it reaches, as a plain column over the same path reads it (`parent-property-column-of-a-type-with-no-parent`, `PropertyRef.readReached`); the calculation Nova holds a translated column as reads a related case only through a link the app declares, and the record dialect has no spelling of a reached read",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/5p-enum-key-containing",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

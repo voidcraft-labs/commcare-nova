@@ -13772,7 +13772,13 @@
 	{
 		"id": "hq-case-lists/translatable-text-over-a-parent-property",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does",
+		"entry": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-to-no-declared",
+		"standing": "not-yet",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -13942,19 +13948,7 @@
 					"useXpathExpression": false
 				}
 			]
-		},
-		"holds": [
-			{
-				"key": [
-					"module",
-					{
-						"$menu": 0
-					}
-				],
-				"pointer": "/caseListConfig/columns/5/kind",
-				"value": "calculated"
-			}
-		]
+		}
 	},
 	{
 		"id": "hq-case-lists/translatable-text-over-a-parent-property-beside-search",
@@ -15779,6 +15773,59 @@
 				"key": "app",
 				"pointer": "/localization/generatedSourceWording/tu1:9:generated3:app9:caseTitle/value",
 				"value": "Client details"
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/translatable-text-over-a-parent-property",
+		"base": "hq-case-management",
+		"entry": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/case_details/short/columns/-",
+			"value": {
+				"format": "translatable-enum",
+				"header": {
+					"en": "Household note"
+				},
+				"field": "parent/note",
+				"model": "case",
+				"useXpathExpression": false,
+				"grid_x": null,
+				"grid_y": null,
+				"enum": [
+					{
+						"key": "follow_up",
+						"value": {
+							"en": "Follow up"
+						},
+						"alt_text": {},
+						"doc_type": "MappingItem"
+					}
+				],
+				"graph_configuration": {
+					"config": {},
+					"locale_specific_config": {},
+					"annotations": [],
+					"series": [],
+					"doc_type": "GraphConfiguration"
+				},
+				"late_flag": 30,
+				"time_ago_interval": 365.25,
+				"date_format": "%d/%m/%y",
+				"doc_type": "DetailColumn"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/columns/1/kind",
+				"value": "calculated"
 			}
 		]
 	},
