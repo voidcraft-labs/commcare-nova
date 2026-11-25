@@ -207,9 +207,9 @@ describe("CommCare HQ's column formats", () => {
 		});
 	});
 	it("names translated text over a parent's property when the app declares no parent type", async () => {
-		// HQ's build walks `index/parent` to whatever case it reaches; Nova holds the column as a
-		// calculation over the property, which reads no case the app declares no type for yet.
-		// The reading names the column instead of holding a calculation with an empty value.
+		// HQ's build walks `index/parent` to whatever case it reaches; the calculation Nova would
+		// hold the column as reads no relation as HQ's build does yet, so the reading names the
+		// column instead of holding a calculation with an empty value.
 		const read = await readDetails((short, long) => {
 			for (const detail of [short, long])
 				Object.assign(detail.columns[1], {
@@ -219,8 +219,10 @@ describe("CommCare HQ's column formats", () => {
 					enum: [{ key: "north", value: { en: "North" } }],
 				});
 		}, false);
+		// One finding a detail: the list's column and the case detail's.
 		expect(closedCodes(read)).toEqual([
-			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-through-a-case-link`,
+			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
+			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
 		]);
 	});
 	it("keeps a distance order on a translated saved property bound to the real row", async () => {

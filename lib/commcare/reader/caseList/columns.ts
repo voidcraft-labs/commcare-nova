@@ -362,12 +362,8 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-offers`,
 		"schema:DetailColumn.format",
 	),
-	translatableEnumRelationDoes: take(
+	translatableEnumRelationDoes: refuse(
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
-		"schema:DetailColumn.format",
-	),
-	translatableEnumRelationUnreached: refuse(
-		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-through-a-case-link`,
 		"schema:DetailColumn.format",
 	),
 	graph: refuse(`${A}22-graph`, "schema:DetailColumn.format"),
@@ -1530,9 +1526,6 @@ function readOwnTranslatableEnum(
 	const relation = readRelationField(field, options);
 	const source = relation ?? classifyField(field);
 	const keysOk = calculationKeysAreEditable(column);
-	const claim = relation
-		? C.translatableEnumRelationDoes
-		: C.translatableEnumOwn;
 	// A search fetches the related cases a non-calculated relation path names
 	// (`case_search/utils.py::get_search_detail_relationship_paths` reads only
 	// non-calculated columns), which the calculated spelling Nova keeps
@@ -1546,7 +1539,14 @@ function readOwnTranslatableEnum(
 		column.refuse("format", C.translatableEnumRelationOffers, { name: field });
 		return undefined;
 	}
-	column.take("format", claim, String).value;
+	// Over any other relation the calculation Nova would hold the column as does not read what
+	// HQ's build reads yet (the row's own disposition cell says why): not yet held.
+	if (relation?.kind === "property") {
+		claimPropertySource(ctx, column, field, relation, options.offersSearch);
+		column.refuse("format", C.translatableEnumRelationDoes, { name: field });
+		return undefined;
+	}
+	column.take("format", C.translatableEnumOwn, String).value;
 	if (source.kind === "finding") {
 		column.refuse(
 			"field",
@@ -1555,16 +1555,9 @@ function readOwnTranslatableEnum(
 		);
 		return undefined;
 	}
-	if (relation?.kind === "property")
-		claimPropertySource(ctx, column, field, relation, options.offersSearch);
-	else column.take("field", C.field, String).value;
+	column.take("field", C.field, String).value;
 	if (!keysOk) return undefined;
-	const name = source.name;
-	const property = imageMapPropertyText(
-		name,
-		relation?.kind === "property" ? relation.via : undefined,
-		relation?.kind === "property" ? relation : undefined,
-	);
+	const property = imageMapPropertyText(source.name);
 	return readGeneralCalculation(
 		ctx,
 		column,
@@ -1572,7 +1565,7 @@ function readOwnTranslatableEnum(
 		header,
 		base,
 		others,
-		relation ? C.translatableEnumRelationDoes : C.translatableEnumOwn,
+		C.translatableEnumOwn,
 		false,
 	);
 }
