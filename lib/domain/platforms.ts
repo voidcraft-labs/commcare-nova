@@ -28,7 +28,7 @@ const connectFormLocation =
 export const CONNECT_LOCATION_ON_ENABLE = `Once the Connect version is installed on Android, ${connectFormLocation}.`;
 
 export const CONNECT_LOCATION_ON_DISABLE =
-	"Turning off Connect leaves Auto Capture Location as it is in each app on CommCare HQ. To stop automatic capture, turn it off in the app's Android Settings and on any forms that have it on, then build and release a new version for workers to install.";
+	"After Connect is turned off, Android follows this app's location settings. Workers see the change after installing the next released version.";
 
 export const PLATFORMS = ["web-apps", "android"] as const;
 export type Platform = (typeof PLATFORMS)[number];
@@ -246,6 +246,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"after-submit-home",
 	"after-submit-several-destinations",
 	"app-logo",
+	"required-android-apps",
 	"saved-forms",
 	"incomplete-forms",
 	"connect-location-capture",
@@ -969,6 +970,18 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "runs" },
 		android: { reading: "ignored", note: "the app shows no logo" },
 	},
+	"required-android-apps": {
+		label: "Required Android apps",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "workers can open the app in a browser",
+		},
+		android: {
+			reading: "runs",
+			note: "workers need every selected app installed",
+		},
+	},
 	"saved-forms": {
 		label: "Saved forms",
 		channel: "structure",
@@ -991,12 +1004,12 @@ export const PLATFORM_FEATURES: Readonly<
 		android: { reading: "runs" },
 	},
 	"connect-location-capture": {
-		label: "Connect location capture",
+		label: "Automatic location",
 		channel: "structure",
 		webApps: { reading: "ignored", note: "forms are sent with no location" },
 		android: {
 			reading: "runs",
-			note: connectFormLocation,
+			note: "includes the device location if the worker allows access and the device gets a fix",
 		},
 	},
 };

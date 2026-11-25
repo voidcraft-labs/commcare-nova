@@ -206,7 +206,7 @@ describe("the classifier", () => {
 		).toEqual({ kind: "not-yet" });
 		expect(verdicts({ kind: "read" })).toEqual([
 			{ kind: "not-yet" },
-			{ kind: "not-yet" },
+			{ kind: "inert" },
 		]);
 		// A blank override is dropped by HQ's build whatever the key reads.
 		expect(

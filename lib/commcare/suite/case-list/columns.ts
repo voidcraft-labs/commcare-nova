@@ -154,6 +154,10 @@ import type { CaseListOrderPlan } from "@/lib/domain/caseListOrder";
 import type { CaseMappingRow } from "@/lib/domain/caseMappingRows";
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import {
+	columnWordingRole,
+	imageDescriptionWordingId,
+} from "@/lib/domain/generatedWording";
+import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../../multimedia/assetWirePath";
@@ -1004,6 +1008,42 @@ export function imageMapEnumKey(value: string, match?: "exact"): string {
 	}).text;
 }
 
+/** The exact locale id for each image rule is independent of whether this
+ * particular compilation carries the media bytes. The importer uses these
+ * identities even when its table omits media. Each rule's `id` is this view's
+ * own description override (`imageDescriptionWordingId`). */
+export function imageDescriptions(
+	column: Column,
+	position: number,
+	ctx: CaseListEmitContext,
+) {
+	if (column.kind !== "image-map") return [];
+	const idBase = detailColumnLocaleBase(
+		ctx.target,
+		ctx.detailKind,
+		ctx.moduleIndex,
+		columnFieldText(column),
+		position,
+		heldWord(column, ctx),
+	);
+	const role = columnWordingRole(
+		ctx.target === "search",
+		ctx.detailKind === "long",
+	);
+	const wireKeys = suiteMappingKeys(column.uuid, column.mapping, ctx);
+	return column.mapping.map((entry, index) => {
+		const key = wireKeys[index];
+		const name = keyAsVariable(key);
+		return {
+			entry,
+			key,
+			id: imageDescriptionWordingId(column.uuid, role, entry),
+			name,
+			localeId: `${idBase}.alt_text.${name}`,
+		};
+	});
+}
+
 /**
  * The `<alt_text>` HQ's build gives an image-map field at CommCare 2.54 or
  * later (`detail_screen.py::EnumImage.alt_text`, `feature_support.py::
@@ -1038,26 +1078,11 @@ function imageMapAltText(
 		return undefined;
 	}
 	const field = columnPropertyPath(column, instanceRootFor(ctx));
-	const idBase = detailColumnLocaleBase(
-		ctx.target,
-		ctx.detailKind,
-		ctx.moduleIndex,
-		columnFieldText(column),
-		position,
-		heldWord(column, ctx),
-	);
-	const wireKeys = suiteMappingKeys(column.uuid, column.mapping, ctx);
-	const keys = column.mapping.map((entry, index) => {
-		const key = wireKeys[index];
-		const name = keyAsVariable(key);
-		return {
-			entry,
-			condition: suiteMappingCondition(column.uuid, entry, field, ctx),
-			variable: w.imageMappingVariable(key),
-			name,
-			localeId: `${idBase}.alt_text.${name}`,
-		};
-	});
+	const keys = imageDescriptions(column, position, ctx).map((key) => ({
+		...key,
+		condition: suiteMappingCondition(column.uuid, key.entry, field, ctx),
+		variable: w.imageMappingVariable(key.key),
+	}));
 	const xpath = keys.reduceRight<WireExpr>(
 		(elseArm, key) => w.call("if", [key.condition, key.variable, elseArm]),
 		w.str(""),

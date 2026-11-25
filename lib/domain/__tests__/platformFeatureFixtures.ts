@@ -1332,6 +1332,24 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })]),
 		use: slotUse("app-logo", { kind: "app" }, "logo"),
 	},
+	"required-android-apps": {
+		with: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				appSettings: {
+					...NEW_APP_SETTINGS,
+					requiredAndroidApps: ["commcare-toolkit"],
+				},
+			}),
+		without: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				appSettings: { ...NEW_APP_SETTINGS },
+			}),
+		use: slotUse(
+			"required-android-apps",
+			{ kind: "app" },
+			"appSettings.requiredAndroidApps",
+		),
+	},
 	"saved-forms": {
 		with: () =>
 			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {

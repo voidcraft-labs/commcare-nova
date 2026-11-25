@@ -3520,6 +3520,15 @@ def vellum_case_references(xform):
     return found
 
 
+def repeated_android_app(use, manifest):
+    at = _json(use)
+    if at is None or use.key != "setting:features.dependencies":
+        return None
+    choices = (manifest.items.get(use.key) or {}).get("values") or []
+    value = ((at.app.doc.get("profile") or {}).get("features") or {}).get("dependencies")
+    return isinstance(value, list) and all(isinstance(item, str) and item in choices for item in value) and len(set(value)) < len(value)
+
+
 def setting_outside_choices(use, manifest):
     """``application-and-settings/profile-properties-or-features-dependencies-value-outside-its``: a stored
     setting whose value is none of the setting's own choices (the ``values`` of its ``setting:properties.<key>``
@@ -3528,7 +3537,16 @@ def setting_outside_choices(use, manifest):
     GPS accuracy is the row before's (``within-choices-or-numeric-10``), so it is no use of this class. A custom
     property is no setting the page shows; a feature, and a use outside an app JSON, the export leaves open."""
     at = _json(use)
-    if at is None or not use.key.startswith("setting:properties."):
+    if at is None:
+        return None
+    if use.key == "setting:features.dependencies":
+        choices = (manifest.items.get(use.key) or {}).get("values") or []
+        value = ((at.app.doc.get("profile") or {}).get("features") or {}).get("dependencies")
+        return not (
+            isinstance(value, list)
+            and all(isinstance(item, str) and item in choices for item in value)
+        )
+    if not use.key.startswith("setting:properties."):
         return None
     if "/custom_properties/" in use.where:
         return False
@@ -10104,6 +10122,7 @@ VALUE_CLASSES = {
     ),
     "application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare": path_not_from_uploader,
     "application-and-settings/profile-custom-properties-any-other-entry-incl-formplayer-keys": custom_property_other,
+    "application-and-settings/repeated-android-app-dependency": repeated_android_app,
     "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": setting_outside_choices,
     "application-and-settings/profile-features-sense-true-or-profile-properties-cc-entry-mode": (
         sense_or_review_entry_mode

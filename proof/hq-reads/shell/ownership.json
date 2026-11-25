@@ -2,5 +2,5 @@
 	"addOns": [],
 	"profileProperties": [],
 	"profileCustomProperties": [],
-	"autoGpsCapture": false
+	"autoGpsCapture": true
 }

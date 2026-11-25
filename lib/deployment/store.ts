@@ -4967,10 +4967,15 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 	const addOns = stringList(stored.addOns);
 	const profileProperties = stringList(stored.profileProperties);
 	const profileCustomProperties = stringList(stored.profileCustomProperties);
+	const profileFeatures =
+		stored.profileFeatures === undefined
+			? undefined
+			: stringList(stored.profileFeatures);
 	if (
 		addOns === null ||
 		profileProperties === null ||
 		profileCustomProperties === null ||
+		profileFeatures === null ||
 		typeof stored.autoGpsCapture !== "boolean"
 	)
 		return null;
@@ -4978,6 +4983,7 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		addOns,
 		profileProperties,
 		profileCustomProperties,
+		...(profileFeatures !== undefined && { profileFeatures }),
 		autoGpsCapture: stored.autoGpsCapture,
 	};
 }

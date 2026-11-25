@@ -1,4 +1,5 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 /**
  * BlueprintDoc → HqApplication expansion.
  *
@@ -38,6 +39,7 @@ import {
 	type WireIdentity,
 } from "@/lib/commcare";
 import { addOnsNeededBy } from "@/lib/commcare/addOns";
+import { requiredAndroidPackages } from "@/lib/commcare/androidAppDependencies";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import {
@@ -84,6 +86,7 @@ import { buildConnectSlugMap } from "./connectSlugs";
 import {
 	caseListFormLabelUnit,
 	caseListMenuItemLabelUnit,
+	type EmissionPlan,
 	emissionPlan,
 	searchAnswersOf,
 } from "./emissionPlan";
@@ -98,6 +101,11 @@ import {
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "./formLinkProjection";
+import {
+	generatedWordingKeys,
+	generatedWordingOverrides,
+	hasOutputOverrides,
+} from "./generatedWording";
 import { emptyListDetailPair, projectCaseListForHq } from "./hqJson/caseList";
 import {
 	type HqAdvancedFormTree,
@@ -466,6 +474,7 @@ export function* expandDocSteps(
 					? formShellObj.requires === "case"
 					: caseWire.kind === "advanced" &&
 						caseWire.loads.some((load) => !load.worker);
+			formShellObj.auto_gps_capture = form.captureLocation === true;
 			formShellObj.session_endpoint_id = form.entryPoint?.id ?? "";
 			formShellObj.respect_relevancy =
 				form.entryPoint?.ignoreDisplayConditions !== true;
@@ -764,8 +773,11 @@ export function* expandDocSteps(
 	const serialized = serializeHqApplication(
 		applicationShell(doc.appName, modules, attachments, {
 			cloudcareEnabled: declaresWebApps(doc),
-			...appLevelValues(doc, localization),
+			...appLevelValues(authoredDoc, localization, { options: opts, plan }),
 			profileProperties: appProfileProperties(authoredDoc),
+			androidPackages: requiredAndroidPackages(
+				authoredDoc.appSettings.requiredAndroidApps,
+			).map(({ id }) => id),
 			...(Object.keys(derivedProfile).length > 0 && {
 				profileCustomProperties: derivedProfile,
 			}),
@@ -828,11 +840,19 @@ function advancedActions(
 function appLevelValues(
 	doc: BlueprintDoc,
 	localization: CommCareLocalization,
+	projection?: { options: ExpandOptions; plan: EmissionPlan },
 ): {
-	readonly autoGpsCapture?: boolean;
+	readonly autoGpsCapture: boolean;
 	readonly langs: string[];
 	readonly translations: Record<string, Record<string, string>>;
 } {
+	const overrides =
+		projection && hasOutputOverrides(doc)
+			? generatedWordingOverrides(
+					doc,
+					generatedWordingKeys(doc, projection.plan, projection.options),
+				)
+			: {};
 	const appNameByLanguage = localization.textMap(
 		makeTranslationUnitId("app", "name"),
 	);
@@ -840,7 +860,7 @@ function appLevelValues(
 		// A Connect app captures location on every form. Over an app brought
 		// in from CommCare HQ that left it off, the first-publish register
 		// declares the change (`connect-app-captures-location`).
-		...(doc.connectType && { autoGpsCapture: true }),
+		autoGpsCapture: capturesDeviceLocation(doc),
 		langs: [...localization.languages],
 		translations: Object.fromEntries(
 			localization.languages.map((language) => {
@@ -859,6 +879,7 @@ function appLevelValues(
 								localization.languageName(code),
 							]),
 						),
+						...overrides[language],
 					},
 				];
 			}),
@@ -895,8 +916,7 @@ export type HqAppShell = Pick<HqApplication, AppShellKey>;
  * fills it: no menus, no attachments, no `add_ons`, no `profile` and no
  * `location_fixture_restore`, which the update writes over the shell's
  * source read, and no `build_spec`, `logo_refs` or `multimedia_map`, which
- * Nova never sends. `auto_gps_capture` is there only
- * for a Connect app. With no form there is
+ * Nova never sends. The shell carries the app-wide location choice. With no form there is
  * no form id for HQ to re-mint, and HQ refuses to build an app with no menus
  * (`helpers/validators.py::ApplicationValidator._check_modules`), so no
  * build can hold an id the update did not write.

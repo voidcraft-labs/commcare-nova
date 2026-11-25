@@ -315,8 +315,23 @@ export function platformFeatureUses(
 		if (wanted("connect-location-capture"))
 			appUses.push(slotUse("connect-location-capture", app, "connectType"));
 	}
+	if (
+		doc.connectType === null &&
+		doc.appSettings.captureLocation &&
+		wanted("connect-location-capture")
+	)
+		appUses.push(
+			slotUse("connect-location-capture", app, "appSettings.captureLocation"),
+		);
 	if (doc.logo !== undefined && wanted("app-logo"))
 		appUses.push(slotUse("app-logo", app, "logo"));
+	if (
+		doc.appSettings.requiredAndroidApps?.length &&
+		wanted("required-android-apps")
+	)
+		appUses.push(
+			slotUse("required-android-apps", app, "appSettings.requiredAndroidApps"),
+		);
 	if (doc.appSettings.showSavedForms && wanted("saved-forms"))
 		appUses.push(slotUse("saved-forms", app, "appSettings.showSavedForms"));
 	if (doc.appSettings.showIncompleteForms && wanted("incomplete-forms"))
@@ -354,6 +369,10 @@ export function platformFeatureUses(
 			)
 				formUses.push(
 					slotUse("after-submit-several-destinations", formOwner, "formLinks"),
+				);
+			if (form.captureLocation && wanted("connect-location-capture"))
+				formUses.push(
+					slotUse("connect-location-capture", formOwner, "captureLocation"),
 				);
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));

@@ -86,8 +86,6 @@ const LISTED_WHEN: Readonly<
 	"language-names": (facts) => facts.languageNames !== null,
 	"android-logos": (facts) => facts.androidLogos.length > 0,
 	"mobile-report-version": (facts) => facts.mobileReportVersion !== "2.0",
-	"location-with-every-form": (facts) =>
-		facts.autoGpsCapture && !facts.novaOwnsAutoGpsCapture,
 	"persistent-menu": (facts) => facts.persistentMenu,
 	"web-apps-breadcrumbs": (facts) => !facts.breadcrumbs,
 	"secure-submissions": (facts) => facts.secureSubmissions,
@@ -114,12 +112,15 @@ export function keptListFor(facts: TargetFacts): readonly KeptLabelId[] {
  * digest is what tells them apart (`keptChanged`).
  */
 export function deploymentKeptOf(facts: TargetFacts): DeploymentKept {
-	const { novaOwnsAutoGpsCapture, ...values } = facts;
+	const {
+		novaOwnsAutoGpsCapture: _ownership,
+		autoGpsCapture: _location,
+		...values
+	} = facts;
 	return {
 		labels: keptListFor(facts),
 		valuesDigest: canonicalJsonDigest({
 			...values,
-			autoGpsCapture: facts.autoGpsCapture && !novaOwnsAutoGpsCapture,
 			observedAt: null,
 		}),
 		observedAt: facts.observedAt,

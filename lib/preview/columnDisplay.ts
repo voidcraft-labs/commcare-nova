@@ -49,6 +49,12 @@ export type CalculatedTemporalType = "date" | "datetime";
 export type ColumnDisplayContext = {
 	/** Worker platform labels; omitted by authoring callers. */
 	readonly language?: LanguageTag;
+	/** Per-output option text and screen-reader descriptions. */
+	readonly columnProperties?: ReadonlyMap<Column["uuid"], CaseProperty>;
+	readonly imageDescription?: (
+		column: Column["uuid"],
+		row: CaseMappingRow,
+	) => string | undefined;
 	readonly caseProperties: readonly CaseProperty[];
 	/** The catalog entry of the property each column read through a relation
 	 *  shows, from the case type its walk reaches, by column. Absent or
@@ -198,6 +204,7 @@ export function projectColumnDisplay(
 				columnProperty(column, context),
 				context.projectProse,
 				context.readsCaseImageDescriptions !== false,
+				(row) => context.imageDescription?.(column.uuid, row),
 			);
 		case "calculated":
 			return projectCalculatedValue(
@@ -213,6 +220,8 @@ function columnProperty(
 	column: PropertyColumn,
 	context: ColumnDisplayContext,
 ): CaseProperty | undefined {
+	const projected = context.columnProperties?.get(column.uuid);
+	if (projected) return projected;
 	if (column.via !== undefined || column.readFrom)
 		return context.relatedProperties?.get(column.uuid);
 	return context.caseProperties.find(
@@ -421,6 +430,7 @@ function projectImageMappedValue(
 	property: CaseProperty | undefined,
 	projectProse: ProseProjector,
 	readsDescription: boolean,
+	description: (row: CaseMappingRow) => string | undefined,
 ): PreviewFormattedValue {
 	const index = firstMatchingRuleIndex(mapping, source, row);
 	if (index === undefined) return unsupportedStoredValue();
@@ -428,18 +438,21 @@ function projectImageMappedValue(
 	const option = property?.options?.find(
 		(candidate) => candidate.value === match?.value,
 	);
+	// This view's own description replaces the rule's description.
+	const altText = !readsDescription
+		? undefined
+		: match && (description(match) ?? match.altText);
 	return match?.assetId === undefined
 		? {
 				kind: "value",
-				text: readsDescription && match ? match.altText || "\u00a0" : "",
+				text: readsDescription && match ? altText || "\u00a0" : "",
 			}
 		: {
 				kind: "image",
 				text: option
 					? projectProse(option.label)
 					: (match.value ?? match.altText ?? ""),
-				...(readsDescription &&
-					match.altText !== undefined && { altText: match.altText }),
+				...(altText !== undefined && { altText }),
 				assetId: match.assetId,
 			};
 }

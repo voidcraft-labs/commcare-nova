@@ -97,6 +97,8 @@ import {
 	addLanguageTool,
 	getTranslatableContentInputSchema,
 	getTranslatableContentTool,
+	removeLanguageTool,
+	updateLanguageTool,
 	updateTranslationsInputSchema,
 	updateTranslationsTool,
 } from "../lib/agent/tools/localization";
@@ -500,6 +502,20 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: addLanguageInputSchema,
 		prompt:
 			"Use addLanguage to add Mandarin Chinese written in the Simplified script with Singapore conventions: language cmn, script Hans, region SG. Omit copyFrom so it seeds from the source language.",
+	},
+	{
+		name: "removeLanguage",
+		description: removeLanguageTool.description,
+		schema: removeLanguageTool.inputSchema,
+		prompt:
+			'Use removeLanguage to remove the project language with the exact code "qaa".',
+	},
+	{
+		name: "updateLanguage",
+		description: updateLanguageTool.description,
+		schema: updateLanguageTool.inputSchema,
+		prompt:
+			"Use updateLanguage to move French (fra) just after Spanish (spa) in the app's language order.",
 	},
 	{
 		name: "getTranslatableContent",

@@ -632,7 +632,11 @@ character XML 1.0 cannot carry, which the gate admits in no app text (`APP_TEXT_
 under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`. A generated key
 folded over one is refused
 (`assemble.ts::decideGeneratedKeys`); every other fold is held as a device shows it, a choice
-label's too. The app's `name` is also the profile's `name`, which Android's list of the apps on a
+label's too. A constant or one of several outputs of an authored slot can instead carry independent wording.
+The generated-key reader takes its exact control identity and output role from the string registry.
+Each case and search column registers its own positions while producing its short and long detail.
+A source or target override is held as the word the device reads for that language, including
+escaped line breaks and number signs. The app's `name` is also the profile's `name`, which Android's list of the apps on a
 phone shows (a carriage return or a line break there as a space), and the name Web Apps' list of
 apps shows as stored, so one holding `\n`, `\#` or a carriage return, which the app's own screens
 show otherwise, is refused at the app under
@@ -662,15 +666,19 @@ app's own id, so a test that reads Nova's export whole passes `matchingResolver(
 
 ## The source language
 
-The app's first language is its default. Its source language, whose text the document's own
-slots hold, is the first language, in `langs` order, that a reading with it as the source prints
-back at every place Nova's emitter writes the source's text apart from a translation
-(`languages.ts::readingSourceCode`); where nothing in the app tells the languages apart it is the
-first, and the first too where no language passes. `languages.ts::sourceLanguageAsRead` applies
-the rule to the values Nova's emitter writes for a document (`expander.ts::expandAppShell` and
-`hqJson/caseList.ts::projectCaseListForHq`), so the canonical row `source-language-is-as-read`
-moves a document only to a language whose text at both places is its source's, and the two print
-one export.
+The first language opens by default. A first reading chooses the first
+language that agrees with the app name and generated system sentences, or
+the first language when there is no evidence. On a later read the known
+source keeps its place when it still satisfies that evidence. If HQ's edits
+select a different source, the same conversion used by document replay
+assigns the effective texts to the new source and its overlays. Each
+retained language keeps a value held only in the previous source.
+
+The reader reserves all known wire-code bindings before identifying new
+codes. Among codes naming the same registered language, its preferred wire
+spelling wins, then the lexically first spelling. A remaining code, and a
+code with no registered match, becomes a distinct project language. Its
+selector wording from HQ stays in the deployment overlay.
 
 The places that tell, each held by a pair in `__tests__/readingSource.test.ts`:
 
@@ -970,3 +978,11 @@ Relative dates retain the selected signed period and overdue markers retain
 their integer day threshold. These are independent of Nova’s authored
 interval wording. The marker’s short header is empty and its long header
 keeps the app’s localized heading.
+
+A generated Search check has a stable wording unit even while no current filter
+would produce it. A hidden case list entry, disabled registration action, registration form taken off its hidden menu, column hidden from a view and disabled Search keep
+their saved wording under the same owner. Only the wire comparison erases
+these unprinted values. Reading HQ over the published reference can replace a local
+worker-visible edit in the reviewed change list. When the original language
+changes, that same review preserves the head's dormant checks and the saved
+review metadata for generated wording that the resulting app still shows.

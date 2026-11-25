@@ -1274,7 +1274,10 @@ function readValidation(
 		test,
 		sourceFirst(ctx).map((code) => text[code] ?? ""),
 	);
-	if (authored.kind === "guard") return { kind: "guard" };
+	if (authored.kind === "guard") {
+		guardTexts(ctx);
+		return { kind: "guard" };
+	}
 	const guarded =
 		authored.kind === "whole"
 			? undefined
@@ -1341,25 +1344,10 @@ const GUARD_TEXTS = new WeakMap<
 	ReadonlyMap<string, ReadonlyMap<string, string>>
 >();
 
-/**
- * Each runtime guard's text in each language, read over every Search field of the app: the
- * guard's message is one translation unit of the app (`system/search-validation/<key>`), joined
- * after each field's own message (`searchPrompts.ts::buildValidation`). In the reading's source
- * language the unit's text is its source, the catalog sentence, whatever the stored texts say: a
- * document holds no other text there, and a field whose stored text does not end with it keeps
- * its whole text, which the menu's projection then does not print back. The source is a
- * language that holds Nova's sentence wherever another does (`languages.ts::readingSourceCode`),
- * which may be other than the first. In any other language the text is `guardSplit.ts::readGuardText`'s: a
- * text that is the guard alone as it stands; else, where every text that joins it ends with the
- * source sentence, untranslated; else the longest text after a space that every joined text of
- * that language ends with and that leaves each field a message of its own, a split whose sides
- * meet the space with no space of their own first (`guardSplit.ts::sharedGuardText`). Each text
- * is held as every app string is (`heldText.ts::holdText`). The stored bytes are
- * the join alone, so the last is the reading's choice of where one field's message ends, which
- * the canonical choice `joined-search-guards-split-as-read` makes of a Nova-born document; the
- * whole menu's projection holds every choice. Each text read is written as the unit's
- * translation.
- */
+/** Recover all languages of a guard recognized by a catalog sentence. A prompt carrying
+ * it alone supplies its exact wording. Otherwise all joins for that guard must allow the
+ * same split, just as the canonical wire comparison splits them. Once the search rows
+ * are placed, settleUntoldChecks also recognizes fully customized guards by their test. */
 function guardTexts(
 	ctx: ReadContext,
 ): ReadonlyMap<string, ReadonlyMap<string, string>> {
@@ -1398,16 +1386,12 @@ function guardTexts(
 		}
 	}
 	const out = new Map<string, ReadonlyMap<string, string>>();
-	const source = sourceCode(ctx);
 	for (const [key, entry] of entries) {
 		const byCode = new Map<string, string>();
 		for (const code of codes) {
 			const given = alone.get(key)?.get(code);
 			const texts = joined.get(key)?.get(code) ?? [];
-			const read =
-				code === source
-					? entry.message
-					: readGuardText(entry.message, given, texts);
+			const read = readGuardText(entry.message, given, texts);
 			// A text split from a join is held as every app string is (`heldText.ts::holdText`).
 			const held = read === undefined ? undefined : holdText(read);
 			if (held !== undefined) byCode.set(code, held);
@@ -1416,7 +1400,7 @@ function guardTexts(
 		ctx.translations.set(
 			makeTranslationUnitId("system", "search-validation", key),
 			"text",
-			translatedTexts(ctx, recordFromEntries(byCode)),
+			translatedTexts(ctx, recordFromEntries(byCode), true),
 		);
 	}
 	GUARD_TEXTS.set(ctx, out);
@@ -1445,23 +1429,25 @@ function requiredDefaultTexts(
 	const cached = REQUIRED_TEXTS.get(ctx);
 	if (cached !== undefined) return cached ?? undefined;
 	const source = sourceCode(ctx);
-	const carrier =
+	const codes = appCodes(ctx);
+	const messages =
 		source === undefined
-			? undefined
-			: storedPrompts(ctx.app.peek("modules"))
-					.map((prompt) =>
-						isJsonObject(prompt.required)
-							? heldTextsIn(
-									prompt.required.text ?? NO_ENTRIES,
-									appCodes(ctx),
-									source,
-									"search-input-required-message",
-								)?.texts
-							: undefined,
-					)
-					.find(
-						(text) => text?.[source] === SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
-					);
+			? []
+			: storedPrompts(ctx.app.peek("modules")).map((prompt) =>
+					isJsonObject(prompt.required)
+						? heldTextsIn(
+								prompt.required.text ?? NO_ENTRIES,
+								codes,
+								source,
+								"search-input-required-message",
+							)?.texts
+						: undefined,
+				);
+	const defaults = (value?: string) =>
+		value === SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE;
+	const carrier =
+		(source && messages.find((text) => defaults(text?.[source]))) ||
+		messages.find((text) => codes.some((code) => defaults(text?.[code])));
 	if (carrier === undefined) {
 		REQUIRED_TEXTS.set(ctx, null);
 		return undefined;
@@ -1473,7 +1459,7 @@ function requiredDefaultTexts(
 	ctx.translations.set(
 		makeTranslationUnitId("system", "search-required", "default"),
 		"text",
-		translatedTexts(ctx, recordFromEntries(out)),
+		translatedTexts(ctx, recordFromEntries(out), true),
 	);
 	return out;
 }

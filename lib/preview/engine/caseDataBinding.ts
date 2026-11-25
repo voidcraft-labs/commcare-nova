@@ -2154,6 +2154,9 @@ function submissionResultFromEnvelope(
 		return {
 			kind: "survey",
 			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+			...(result.submissionLocation !== undefined && {
+				submissionLocation: result.submissionLocation,
+			}),
 		};
 	}
 	if (result.primaryCaseIds.length === 0) {
@@ -2180,6 +2183,9 @@ function submissionResultFromEnvelope(
 				? { createdChildren: result.createdChildren }
 				: {}),
 			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+			...(result.submissionLocation !== undefined && {
+				submissionLocation: result.submissionLocation,
+			}),
 		};
 	}
 	return {
@@ -2193,6 +2199,9 @@ function submissionResultFromEnvelope(
 			? { createdChildren: result.createdChildren }
 			: {}),
 		...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+		...(result.submissionLocation !== undefined && {
+			submissionLocation: result.submissionLocation,
+		}),
 	};
 }
 

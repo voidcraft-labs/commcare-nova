@@ -21,11 +21,17 @@ export function pruneOrphanTranslationEntries(
 			(unit) => unit.id,
 		),
 	);
-	for (const translations of Object.values(draft.localization.translations)) {
+	for (const translations of [
+		...Object.values(draft.localization.translations),
+		draft.localization.generatedSourceWording,
+	]) {
+		if (!translations) continue;
 		for (const unitId of Object.keys(translations)) {
 			if (!liveUnitIds.has(unitId)) delete translations[unitId];
 		}
 	}
+	if (!Object.keys(draft.localization.generatedSourceWording ?? {}).length)
+		delete draft.localization.generatedSourceWording;
 }
 
 /**

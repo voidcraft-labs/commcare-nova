@@ -299,6 +299,12 @@ export interface PreviewPlatformRules {
 	 *  commcare-android holds no reader of `Detail.getNoItemsText` or
 	 *  `getSelectText`, so its list keeps its own wording. */
 	readonly caseListDetailWording: boolean;
+	/** A form that requests the device location when it opens. Android
+	 *  registers the `pollsensor` action (`engine/extensions/PollSensorExtensionParser.java`,
+	 *  `android/javarosa/PollSensorAction.java`) and sends the fix it gets;
+	 *  Formplayer registers no reader of it, so Web Apps sends the form with
+	 *  no location. */
+	readonly automaticLocation: boolean;
 	/** Manifest `application-and-settings/logo-refs-hq-logo-web-apps`
 	 *  (Android ignores it). */
 	readonly logo: boolean;
@@ -475,6 +481,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		capture: "attach",
 		submitLabel: "submit",
 		caseListDetailWording: true,
+		automaticLocation: false,
 		logo: true,
 		caseListActionMedia: "text-only",
 		listFilter: Object.freeze({
@@ -548,6 +555,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		capture: "device",
 		submitLabel: "finish",
 		caseListDetailWording: false,
+		automaticLocation: true,
 		logo: false,
 		caseListActionMedia: "shown",
 		listFilter: Object.freeze({

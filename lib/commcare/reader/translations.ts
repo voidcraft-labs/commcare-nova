@@ -24,6 +24,9 @@ export interface TranslationSink {
 		kind: "text" | "prose",
 		byLanguage: ReadonlyMap<LanguageTag, LocalizedValue>,
 	): void;
+	/** How many times a value was given: a reading of the sink at one revision
+	 *  reads what any other reading at that revision reads. */
+	revision(): number;
 	/** Every unit given, in the order first given. */
 	units(): readonly {
 		readonly unit: TranslationUnitId;
@@ -38,8 +41,10 @@ export function translationSink(): TranslationSink {
 		TranslationUnitId,
 		{ kind: "text" | "prose"; byLanguage: Map<LanguageTag, LocalizedValue> }
 	>();
+	let revision = 0;
 	return {
 		set(unit, kind, byLanguage) {
+			revision += 1;
 			const known = units.get(unit);
 			if (known === undefined) {
 				units.set(unit, { kind, byLanguage: new Map(byLanguage) });
@@ -49,6 +54,7 @@ export function translationSink(): TranslationSink {
 			for (const [language, value] of byLanguage)
 				known.byLanguage.set(language, value);
 		},
+		revision: () => revision,
 		units: () =>
 			[...units].map(([unit, { kind, byLanguage }]) => ({
 				unit,

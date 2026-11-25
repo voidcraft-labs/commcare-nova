@@ -43,6 +43,7 @@ import {
 	updateFormMutations,
 	updateSearchInputMutation,
 } from "@/lib/agent/blueprintHelpers";
+import { qualifiedLanguageWireCode } from "@/lib/commcare/languageWire";
 import {
 	alwaysOfferedRegistrationChoices,
 	alwaysOfferedRegistrationMutations,
@@ -182,6 +183,7 @@ import {
 	sessionUser,
 	term,
 } from "@/lib/domain/expression";
+import { parseLanguageTag } from "@/lib/domain/localization";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	docAfter,
@@ -793,6 +795,93 @@ const setDefaultLanguage: KindGenerator = (ctx) => {
 			batch([
 				addLanguageMutation(heldLanguageWireCodes(ctx.doc), language),
 				{ kind: "setDefaultLanguage", code: languageTag(language) },
+			]),
+		);
+};
+
+/* A language's code changes only where CommCare HQ's Languages page renamed it
+ * and Nova brings that in (`diffDocsToMutations`); no Nova editor recodes a
+ * language. The batch is that recode: the first registered language takes
+ * another spelling a person can give it there, its ISO 639-3 code where it
+ * holds the shorter one, else its qualified one, and never a code the app
+ * already holds, its own among them. */
+const rebindLanguageCodes: KindGenerator = (ctx) => {
+	const loc = effectiveAppLocalization(ctx.doc.localization);
+	const registered = loc.languageOrder.find(
+		(tag) => !tag.startsWith("project:"),
+	);
+	if (!registered) return [];
+	const held = heldLanguageWireCodes(ctx.doc);
+	const identity = parseLanguageTag(registered);
+	const to = [identity.language, qualifiedLanguageWireCode(identity)].find(
+		(code) => !held.has(code),
+	);
+	if (to === undefined) return [];
+	return [
+		batch([
+			{
+				kind: "rebindLanguageCodes",
+				changes: [
+					{ language: registered, from: loc.wireCodes[registered], to },
+				],
+			},
+		]),
+	];
+};
+
+const rebaseSourceLanguage: KindGenerator = (ctx) => {
+	const before = effectiveAppLocalization(ctx.doc.localization);
+	return targetLanguages(ctx).map(({ prefix, tag }) =>
+		batch([
+			...prefix,
+			{ kind: "rebaseSourceLanguage", from: before.sourceLanguage, to: tag },
+		]),
+	);
+};
+
+const setProjectLanguageDirection: KindGenerator = (ctx) => {
+	const before = effectiveAppLocalization(ctx.doc.localization);
+	const existing = before.languageOrder.find((code) =>
+		code.startsWith("project:"),
+	);
+	if (existing !== undefined)
+		return [
+			batch([
+				{
+					kind: "setProjectLanguageDirection",
+					code: existing,
+					direction: before.rtlProjectLanguages?.[existing] ? "ltr" : "rtl",
+				},
+			]),
+		];
+	const held = heldLanguageWireCodes(ctx.doc);
+	const code = ["qq", "qq-local"].find((code) => !held.has(code));
+	if (code === undefined) return [];
+	const language: AppLanguageIdentity = { kind: "project", language: code };
+	return [
+		batch([
+			addLanguageMutation(held, language),
+			{
+				kind: "setProjectLanguageDirection",
+				code: languageTag(language),
+				direction: "rtl",
+			},
+		]),
+	];
+};
+
+const moveLanguage: KindGenerator = (ctx) => {
+	const [first, second] = effectiveAppLocalization(
+		ctx.doc.localization,
+	).languageOrder;
+	if (second !== undefined)
+		return [batch([{ kind: "moveLanguage", code: first, after: second }])];
+	return freshLanguages(ctx)
+		.slice(0, 1)
+		.map((language) =>
+			batch([
+				addLanguageMutation(heldLanguageWireCodes(ctx.doc), language),
+				{ kind: "moveLanguage", code: first, after: languageTag(language) },
 			]),
 		);
 };
@@ -3101,6 +3190,10 @@ export const EDIT_KIND_GENERATORS = {
 	addLanguage,
 	removeLanguage,
 	setDefaultLanguage,
+	moveLanguage,
+	rebindLanguageCodes,
+	rebaseSourceLanguage,
+	setProjectLanguageDirection,
 	setTranslation,
 	reviewTranslation,
 	renameCaseProperties,

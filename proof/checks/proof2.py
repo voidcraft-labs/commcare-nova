@@ -155,6 +155,9 @@ def document_build_equivalence(document, records):
             a, b = _offered(held.a), _offered(held.b)
             if a is not None and b is not None:
                 found += offered_add_ons(document.id, saved, a, b)
+    from proof.checks.discards import discarded
+
+    found = discarded("proof2", document.id, document.hq_side, found)
     return judged(document, found) + observations.soft_assertion_differences(records, "proof2")
 
 

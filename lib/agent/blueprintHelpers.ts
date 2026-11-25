@@ -584,6 +584,7 @@ export interface NewFormInput {
 	purpose?: string;
 	postSubmit?: PostSubmitDestination;
 	/** Text formatting off for the whole form. */
+	captureLocation?: true;
 	plainText?: true;
 }
 
@@ -618,6 +619,7 @@ export function addFormMutations(
 		type: input.type,
 		...(input.purpose !== undefined && { purpose: input.purpose }),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
+		...(input.captureLocation === true && { captureLocation: true }),
 		...(input.plainText === true && { plainText: true }),
 		...(own !== undefined && { caseOperations: [own] }),
 	};
@@ -660,6 +662,7 @@ export function updateFormMutations(
 		closeCondition: Form["closeCondition"] | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
+		captureLocation: true | null;
 		plainText: true | null;
 	}>,
 ): Mutation[] {
@@ -684,6 +687,8 @@ export function updateFormMutations(
 	if (patch.purpose !== undefined) {
 		reducerPatch.purpose = patch.purpose === null ? null : patch.purpose;
 	}
+	if (patch.captureLocation !== undefined)
+		reducerPatch.captureLocation = patch.captureLocation;
 	if (patch.plainText !== undefined) reducerPatch.plainText = patch.plainText;
 	if (Object.keys(reducerPatch).length > 0) {
 		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });

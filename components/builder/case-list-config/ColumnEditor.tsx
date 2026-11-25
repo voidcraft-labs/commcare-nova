@@ -20,6 +20,7 @@ import {
 	CONSOLE_TRIGGER_CLS,
 	InspectorSection,
 } from "@/components/builder/inspector/inspectorChrome";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { EditorVocabularyProvider } from "@/components/builder/shared/editorContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import {
@@ -283,6 +284,7 @@ export function ColumnEditor({
 					errors={applicabilityErrors}
 				/>
 				<PlatformNoteRow features={noteFeatures} />
+				{moduleUuid && <ControlWording owner={value.uuid} />}
 			</InspectorSection>
 		</EditorVocabularyProvider>
 	);

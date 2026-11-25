@@ -17,12 +17,18 @@
  */
 
 import { z } from "zod";
+import { ownRecordSchema } from "@/lib/domain/records";
+import { REQUIRED_ANDROID_APPS } from "@/lib/domain/requiredAndroidApps";
 
 export const previewTargetFactsSchema = z.strictObject({
 	/** The project space's `cc-fuzzy-search-enabled` is `yes`. */
 	fuzzyListSearch: z.boolean(),
 	/** The project space's `cc-label-required-questions-with-asterisk` is `yes`. */
 	markRequiredQuestions: z.boolean(),
+	androidAppLabels: ownRecordSchema(
+		z.string(),
+		z.partialRecord(z.enum(REQUIRED_ANDROID_APPS), z.string()),
+	).optional(),
 });
 
 export type PreviewTargetFacts = z.infer<typeof previewTargetFactsSchema>;

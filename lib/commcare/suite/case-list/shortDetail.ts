@@ -127,6 +127,7 @@ import {
 	buildCalculatedSortField,
 	buildCarrierField,
 	buildColumnField,
+	imageDescriptions,
 	instanceRootFor,
 	mergeFieldStrings,
 	rawColumnHeaderLocale,
@@ -148,6 +149,7 @@ import type {
 	CaseListEmitContext,
 	DetailTarget,
 } from "./types";
+import { columnOutputWordings } from "./wording";
 
 /**
  * Optional search-action context passed by the orchestrator at
@@ -311,6 +313,7 @@ export function buildShortDetail(args: {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly wordingUnits: Record<string, TranslationUnitId>;
 	readonly instances: readonly InstanceDecl[];
 } {
 	const { module: mod, moduleIndex, doc } = args;
@@ -367,6 +370,7 @@ export function buildShortDetail(args: {
 			),
 			strings: { ...texts.strings, ...register?.strings },
 			translationUnits: { ...texts.translationUnits },
+			wordingUnits: {},
 			instances: instances.declarations(),
 		};
 	}
@@ -424,6 +428,7 @@ export function buildShortDetail(args: {
 	const translationUnits: Record<string, TranslationUnitId> = {
 		...texts.translationUnits,
 	};
+	const wordingUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk the plan's fields, which keep the config's exact Results UUID
 	// permutation. A shown field's header locale takes its 1-based position
@@ -479,7 +484,23 @@ export function buildShortDetail(args: {
 			});
 		}
 		fields.push(emission.element);
+		if (!field.hidden)
+			for (const key of imageDescriptions(
+				field.column,
+				field.position + 1,
+				ctx,
+			))
+				wordingUnits[key.localeId] = key.id;
 		mergeFieldStrings(strings, translationUnits, emission);
+		Object.assign(
+			wordingUnits,
+			columnOutputWordings(
+				field.rule?.label?.column ?? field.column.uuid,
+				target,
+				"short",
+				emission.translationUnits,
+			),
+		);
 	}
 	for (const carrier of sortNodes.carriers) {
 		const emission = buildCarrierField(
@@ -492,6 +513,16 @@ export function buildShortDetail(args: {
 			namedFields.push({ element: emission.element, format: "invisible" });
 		fields.push(emission.element);
 		mergeFieldStrings(strings, translationUnits, emission);
+		if (carrier.label)
+			Object.assign(
+				wordingUnits,
+				columnOutputWordings(
+					carrier.label.column,
+					target,
+					"short",
+					emission.translationUnits,
+				),
+			);
 	}
 
 	for (const calc of plan.calculations) {
@@ -523,6 +554,7 @@ export function buildShortDetail(args: {
 		),
 		strings,
 		translationUnits,
+		wordingUnits,
 		instances: instances.declarations(),
 	};
 }

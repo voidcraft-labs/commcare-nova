@@ -1719,6 +1719,12 @@ def _settings_and_forms():
                 "/logo_refs",
             ),
         ),
+        "application-and-settings/repeated-android-app-dependency": (
+            refused("app", app(profile={"features": {"dependencies": ["org.rdtoolkit", "org.rdtoolkit"]}}),
+                    "setting:features.dependencies", "/profile/features/dependencies"),
+            accepted("app", app(profile={"features": {"dependencies": ["org.rdtoolkit", "com.simprints.id"]}}),
+                     "setting:features.dependencies", "/profile/features/dependencies"),
+        ),
         "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": (
             refused(
                 "app",

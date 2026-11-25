@@ -30,33 +30,13 @@ determinism operation of its own labelled ``matrix:<base>:<step>``:
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
+from proof.matrix.authoring import Authoring
+
 # The web user every base's reads are made as.
 READER = "matrix-reader@example.org"
-
-
-@dataclass(frozen=True)
-class Authoring:
-    """What a base's builder and a variant's change are handed."""
-
-    # The open HQ check's state, as every operation takes it.
-    state: object
-    # The corpus documents ``proof/matrix/conftest.py::DOCUMENTS`` names, by id.
-    documents: Mapping[str, object]
-    # The base's id, which names each operation the builder opens.
-    base: str = ""
-    # The editor driver HQ's form builder and pages run in.
-    driver: object = None
-    # Opens one determinism operation labelled ``matrix:<base>:<step>``, keyed by ``digest``.
-    operation: Callable = field(default=None, repr=False)
-
-    def step(self, name: str, digest: bytes | None = None):
-        """An operation of the unit labelled ``matrix:<base>:<name>``, keyed by ``digest`` (the name's bytes where
-        none is given)."""
-        return self.operation(name, digest if digest is not None else name.encode())
 
 
 @dataclass

@@ -1,8 +1,7 @@
 /**
  * What a person keeps in HQ between Nova's publishes, and Nova's next publish
- * over it (the rows "4, translations", "4, `auto_gps_capture`", "4, add-ons",
- * finding 40's setting saved in HQ, and "1, language codes" with its build
- * profiles).
+ * over it (the rows "4, translations", "4, add-ons", finding 40's setting
+ * saved in HQ, and "1, language codes" with its build profiles).
  *
  * `targeted-hq-side-state` is a survey in English and Simplified Mandarin.
  * Over Nova's first publish (A), a person saves in HQ (`hqSide`,
@@ -12,13 +11,6 @@
  *   (`views/apps.py::edit_app_ui_translations`), a key the target owns,
  *   which Nova's next update carries back as HQ held it, so
  *   `app_strings.txt` keeps it (defect 4, translations);
- * - "Auto Capture Location" on the settings page
- *   (`views/settings.py::edit_commcare_settings`, through
- *   `views/apps.py::edit_app_attr`), a key Nova's update leaves out for an
- *   app that is not a Connect app, so HQ keeps it and each form's meta keeps
- *   its location (`xform.py::XForm._add_meta_2`; defect 4,
- *   `auto_gps_capture`), which the local archive of an app that is not a
- *   Connect app cannot hold (`proof/checks/proof3.py::stated_hq_side_values`);
  * - Menu Mode on in the add-ons section, which posts every add-on HQ lists
  *   at the value the section shows (`app_manager/js/add_ons.js`,
  *   `EditAddOns`), and HQ stores each slug posted
@@ -44,7 +36,11 @@
  *   `xform.py::XForm.exclude_languages`; defect 1, language codes).
  *
  * None of the saves is a value Nova owns, so the republish proceeds with no
- * discard (`republish: "proceeds"`). Its republish and its edit both hold the
+ * discard (`republish: "proceeds"`). Automatic location is not among them:
+ * Nova owns that switch and writes it on every publish, so a person's save of
+ * it is a change Nova reviews (`targeted-kept-values` saves the value the
+ * document holds, and `proof/checks/test_hq_side.py` the switches HQ's own
+ * pages save). Its republish and its edit both hold the
  * build profile the person saved to the languages they write
  * (`lib/commcare/targetBuildProfiles.ts::buildProfileLanguageGaps`), over a
  * profile the capture peer serves as HQ stores it, and neither stops: the
@@ -160,7 +156,6 @@ export function hqSideState() {
 		rows: [
 			"1, language codes (a build profile)",
 			"4, translations",
-			"4, auto_gps_capture",
 			"4, add-ons",
 			"40 (a setting saved in HQ)",
 		],
@@ -172,7 +167,6 @@ export function hqSideState() {
 		privileges: ["BUILD_PROFILES"],
 		hqSide: {
 			uiTranslations: { en: { "home.start": "Begin a visit" } },
-			appAttributes: { auto_gps_capture: true },
 			buildProfiles: [
 				{ id: "mandarin-only", name: "Mandarin", langs: ["zho"] },
 			],

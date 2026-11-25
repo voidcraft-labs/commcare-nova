@@ -26,7 +26,8 @@ export type PlanFeatureId =
 	| "form-links"
 	| "advanced-case-actions"
 	| "organization"
-	| "data-forwarding";
+	| "data-forwarding"
+	| "required-android-apps";
 
 export interface PlanFeatureDefinition {
 	readonly id: PlanFeatureId;
@@ -90,6 +91,13 @@ export const PLAN_FEATURES: Readonly<
 		plans: "Advanced and Enterprise",
 		consequence:
 			"Without it, forms that read your places don't open on the phone, and CommCare HQ turns away the places Nova sends.",
+	},
+	"required-android-apps": {
+		id: "required-android-apps",
+		label: "App Dependencies",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"Without it, CommCare HQ builds this app without checking which other apps workers have installed.",
 	},
 	"data-forwarding": {
 		id: "data-forwarding",
