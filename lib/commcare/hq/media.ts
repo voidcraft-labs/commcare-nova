@@ -42,6 +42,8 @@ export {
 export const HQ_MEDIA_FILE_DEADLINE_MS = 60_000;
 /** A streamed file's deadline, through its last byte: `HQ_MEDIA_STREAM_MAX_BYTES` at a slow link. */
 export const HQ_MEDIA_STREAM_DEADLINE_MS = 10 * 60_000;
+/** The rate a known file's digest read is given time for beyond the file deadline: a slow link. */
+const HQ_MEDIA_DIGEST_BYTES_PER_SECOND = 2 * 1024 * 1024;
 /** How many media files Nova asks CommCare HQ for at once. */
 export const HQ_MEDIA_READ_CONCURRENCY = 4;
 
@@ -231,6 +233,9 @@ export function readHqMediaDigest(
 				return unanswered(signal, error);
 			}
 		},
+		/* A file brought in past its kind's cap is given the time its size takes. */
+		HQ_MEDIA_FILE_DEADLINE_MS +
+			Math.ceil((maxBytes / HQ_MEDIA_DIGEST_BYTES_PER_SECOND) * 1000),
 	);
 }
 

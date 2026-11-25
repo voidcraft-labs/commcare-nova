@@ -270,7 +270,10 @@ import {
 	adoptedMediaFiles,
 	type ReadingMediaPlan,
 } from "@/lib/deployment/reading/projectData/media";
-import { judgeReadingMedia } from "@/lib/deployment/reading/projectData/mediaStore";
+import {
+	judgeReadingMedia,
+	memoryMediaStaging,
+} from "@/lib/deployment/reading/projectData/mediaStore";
 import {
 	type ReadingProjectSide,
 	readReadingProjectData,
@@ -3161,12 +3164,15 @@ async function reviewOverPeer(input: {
 	let judged: Pick<ReadingMediaPlan, "verdicts" | "staged" | "published"> =
 		union;
 	if (union.files.length > 0) {
+		/* A file past its kind's cap streams as a review's does, here into memory. */
+		const spill = memoryMediaStaging();
 		const read = await judgeReadingMedia({
 			creds: CREDENTIALS,
 			plan: union,
+			spill,
 			fetched: settledReads,
 			onProgress: () => {},
-		});
+		}).finally(() => spill.discard());
 		if (read.kind === "failed") {
 			throw new Error(
 				`A review of ${prepared.source.id} could not read a file the capture peer maps (${JSON.stringify(read.failure)}), and the peer serves every file it maps.`,

@@ -3941,6 +3941,11 @@ async function uploadMediaBytes(
 			hqAppId,
 			streamZip(mediaMembers(prepared.assets)),
 			{
+				bytes: [...prepared.assets.values()].reduce(
+					(sum, asset) =>
+						sum + (asset.byteSource?.size ?? asset.bytes?.length ?? 0),
+					0,
+				),
 				onAccepted: async (processingId) => {
 					jobId = processingId;
 					await settleRemoteWrites([writeId], {

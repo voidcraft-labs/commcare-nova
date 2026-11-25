@@ -1081,6 +1081,19 @@ function matchedMediaFiles(
 const MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS = 60_000;
 const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
 const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
+/**
+ * The time a bundle's size adds to each: its bytes sent at 1 MiB/s, and read
+ * whole by HQ's task (`hqmedia/tasks.py::process_bulk_upload_zip` reads each
+ * member into memory and stores it) at 4 MiB/s. A batch of ordinary files adds
+ * seconds; a file brought in from CommCare HQ past Nova's per-kind cap
+ * travels alone (`uploadBatches.ts`) and is given the time its size takes.
+ */
+const MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND = 1024 * 1024;
+const MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND = 4 * 1024 * 1024;
+
+function secondsFor(bytes: number, perSecond: number): number {
+	return Math.ceil((bytes / perSecond) * 1000);
+}
 
 /**
  * Upload an app's media as one bulk ZIP to CommCare HQ's
@@ -1119,8 +1132,12 @@ export async function uploadAppMediaBundle(
 		 * the job may run, and the caller holds the id it is polled by.
 		 */
 		readonly onAccepted?: (processingId: string) => void | Promise<void>;
+		/** The bytes of the files in the bundle, which lengthen the upload's and the
+		 *  task's deadlines. */
+		readonly bytes?: number;
 	} = {},
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
+	const bytes = options.bytes ?? 0;
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
@@ -1128,7 +1145,8 @@ export async function uploadAppMediaBundle(
 	const controller = new AbortController();
 	const timer = setTimeout(
 		() => controller.abort(),
-		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS,
+		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS +
+			secondsFor(bytes, MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND),
 	);
 	let started: unknown;
 	try {
@@ -1178,7 +1196,8 @@ export async function uploadAppMediaBundle(
 		domain,
 		base,
 		started.processing_id,
-		MEDIA_BUNDLE_POLL_TIMEOUT_MS,
+		MEDIA_BUNDLE_POLL_TIMEOUT_MS +
+			secondsFor(bytes, MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND),
 	);
 }
 
