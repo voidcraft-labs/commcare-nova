@@ -169,7 +169,8 @@ export interface ReadHqAppSourceOptions {
 	readonly cancel?: AbortSignal;
 	/**
 	 * `plain`, the default: every menu holds a string `unique_id` and a string `case_type` and
-	 * every form a string `xmlns`, and anything else is `malformed`. This is a publish's check.
+	 * every form but a shadow form a string `xmlns`, and anything else is `malformed`. This is a
+	 * publish's check.
 	 * `any`: a null `case_type` and a null `xmlns` are read as null, and a menu's absent, null or
 	 * `""` `unique_id` is read as null. This is a bring-in's.
 	 */
@@ -396,8 +397,14 @@ export function parseHqAppSource(
 			if (!isRecord(form) || typeof form.unique_id !== "string") {
 				return refuse("modules[].forms[]");
 			}
-			const xmlns = textOrNull(form.xmlns, admitAny);
 			const formDocType = docTypeOf(form.doc_type, admitAny);
+			/* A shadow form stores no namespace and takes its parent's
+			 * (`ShadowForm.xmlns`); every reading reads it as none. */
+			const xmlns =
+				formDocType === "ShadowForm" &&
+				(form.xmlns === null || form.xmlns === undefined)
+					? null
+					: textOrNull(form.xmlns, admitAny);
 			if (xmlns === undefined || formDocType === null) {
 				return refuse("modules[].forms[]");
 			}
