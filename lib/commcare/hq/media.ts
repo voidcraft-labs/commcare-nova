@@ -33,13 +33,22 @@ import {
 	unansweredRead,
 } from "./http";
 
-export {
-	HQ_MEDIA_IN_FLIGHT_MAX_BYTES,
-	HQ_MEDIA_STREAM_MAX_BYTES,
-} from "./bounds";
+export { HQ_MEDIA_IN_FLIGHT_MAX_BYTES } from "./bounds";
+
+/**
+ * The most of one media file Nova streams past its kind's limit
+ * (`streamHqMediaFile`). It is no body bound of `bounds.ts`: no byte of it is
+ * held, each chunk going on to a staged object as it arrives. The bound is the
+ * time one file may take: a gibibyte at the 2 MiB/s a slow link to CommCare HQ
+ * gives arrives in about eight and a half minutes, inside
+ * `HQ_MEDIA_STREAM_DEADLINE_MS`.
+ */
+export const HQ_MEDIA_STREAM_MAX_BYTES = 1024 * 1024 * 1024;
 
 /** Each file's own deadline, through its last byte: a file can be 50 MiB. */
 export const HQ_MEDIA_FILE_DEADLINE_MS = 60_000;
+/** The bytes `HQ_MEDIA_FILE_DEADLINE_MS` is fitted to: the largest per-kind cap. */
+const HQ_MEDIA_FILE_DEADLINE_BYTES = 50 * 1024 * 1024;
 /** A streamed file's deadline, through its last byte: `HQ_MEDIA_STREAM_MAX_BYTES` at a slow link. */
 export const HQ_MEDIA_STREAM_DEADLINE_MS = 10 * 60_000;
 /** The rate a known file's digest read is given time for beyond the file deadline: a slow link. */
@@ -233,9 +242,14 @@ export function readHqMediaDigest(
 				return unanswered(signal, error);
 			}
 		},
-		/* A file brought in past its kind's cap is given the time its size takes. */
+		/* A file brought in past its kind's cap is given the time its bytes past the
+		 * file deadline's take. */
 		HQ_MEDIA_FILE_DEADLINE_MS +
-			Math.ceil((maxBytes / HQ_MEDIA_DIGEST_BYTES_PER_SECOND) * 1000),
+			Math.ceil(
+				(Math.max(0, maxBytes - HQ_MEDIA_FILE_DEADLINE_BYTES) /
+					HQ_MEDIA_DIGEST_BYTES_PER_SECOND) *
+					1000,
+			),
 	);
 }
 

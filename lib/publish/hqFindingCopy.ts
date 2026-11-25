@@ -322,10 +322,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"This uses a picture or sound that differs by language, which Nova can't hold yet.",
 	},
-	"media-files": {
-		"not-yet":
-			"A media file here is larger than Nova takes, or this app has more media than Nova takes.",
-	},
+	"media-files": {},
 	"menu-badges": {
 		"not-yet":
 			"This uses a badge on a menu or form, which Nova can't hold yet.",

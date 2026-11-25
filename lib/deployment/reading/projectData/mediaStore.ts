@@ -133,8 +133,8 @@ export function projectMediaStaging(projectId: string): MediaStaging {
 				},
 			};
 		},
-		body: stagedMediaBody,
-		type: setStagedContentType,
+		body: (object, sizeBytes) => stagedMediaBody(object, sizeBytes),
+		type: (object, contentType) => setStagedContentType(object, contentType),
 		async release(object) {
 			const at = written.indexOf(object);
 			if (at !== -1) written.splice(at, 1);

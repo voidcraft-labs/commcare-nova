@@ -71,6 +71,7 @@ import {
 import { isHqObject, readHqCollection } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
 import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
+import { TARGET_BATCH_BYTES } from "./multimedia/uploadBatches";
 /** Project flag slugs are resolved from the pinned domain-scoped gate definitions. */
 import type {
 	HqPrivateFeatureFlagRequirement,
@@ -1082,17 +1083,19 @@ const MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS = 60_000;
 const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
 const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
 /**
- * The time a bundle's size adds to each: its bytes sent at 1 MiB/s, and read
- * whole by HQ's task (`hqmedia/tasks.py::process_bulk_upload_zip` reads each
- * member into memory and stores it) at 4 MiB/s. A batch of ordinary files adds
- * seconds; a file brought in from CommCare HQ past Nova's per-kind cap
- * travels alone (`uploadBatches.ts`) and is given the time its size takes.
+ * The time a bundle past an ordinary batch's bytes adds to each deadline above,
+ * which are fitted to an ordinary batch (`uploadBatches.ts::TARGET_BATCH_BYTES`):
+ * the bytes past it sent at 1 MiB/s, and read whole by HQ's task
+ * (`hqmedia/tasks.py::process_bulk_upload_zip` reads each member into memory
+ * and stores it) at 4 MiB/s. Such a bundle is one file travelling alone: a
+ * video near its upload cap, or a file brought in from CommCare HQ past it.
  */
 const MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND = 1024 * 1024;
 const MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND = 4 * 1024 * 1024;
 
-function secondsFor(bytes: number, perSecond: number): number {
-	return Math.ceil((bytes / perSecond) * 1000);
+function millisecondsFor(bytes: number, perSecond: number): number {
+	const past = Math.max(0, bytes - TARGET_BATCH_BYTES);
+	return Math.ceil((past / perSecond) * 1000);
 }
 
 /**
@@ -1146,7 +1149,7 @@ export async function uploadAppMediaBundle(
 	const timer = setTimeout(
 		() => controller.abort(),
 		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS +
-			secondsFor(bytes, MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND),
+			millisecondsFor(bytes, MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND),
 	);
 	let started: unknown;
 	try {
@@ -1197,7 +1200,7 @@ export async function uploadAppMediaBundle(
 		base,
 		started.processing_id,
 		MEDIA_BUNDLE_POLL_TIMEOUT_MS +
-			secondsFor(bytes, MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND),
+			millisecondsFor(bytes, MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND),
 	);
 }
 
