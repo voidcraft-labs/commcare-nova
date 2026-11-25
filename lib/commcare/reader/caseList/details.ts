@@ -187,6 +187,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		"schema:Detail.persistent_case_tile_from_module",
 	),
 	pullDown: take(`${A}detail-pull-down-tile`, "schema:Detail.pull_down_tile"),
+	persistForPullDown: take(
+		`${A}detail-persistent-case-tile-from-module`,
+		"schema:Detail.persist_tile_on_forms",
+	),
 	persistContext: take(
 		`${A}detail-persist-case-context-persistent-case-context-xml`,
 		"schema:Detail.persist_case_context",
@@ -795,6 +799,42 @@ const READINGS = new WeakMap<ReadContext, Map<Uuid, CaseListReading>>();
  *  tile: Core's `EntriesHelper` finds that menu, then uses the selecting menu's own tile or line,
  *  so the setting changes no build (`existing-form-context-source-with-no-tile`, INERT). A menu
  *  that is missing is no such source: HQ raises on it. */
+/**
+ * Whether a short detail shows another menu's tile above its forms, expanded into that menu's
+ * case detail, with the `persist_tile_on_forms` HQ's Case List page keeps beside it: the page
+ * offers the source menu and the pull-down only with this menu's own persistence switched on,
+ * and its save writes the pull-down off where that switch is off
+ * (`details/bootstrap5/screen.js`, `enableTilePullDown`). HQ's build reads the source menu
+ * first (`entries.py::get_detail_persistent_attr`, `get_detail_inline_attr`), so the switch is
+ * the source's setting there, never this menu's own tile persisting.
+ */
+export function persistHeldByExternalPullDown(
+	ctx: ReadContext,
+	module: DraftModule,
+	short: JsonCursor,
+): boolean {
+	const sourceId = short.peek("persistent_case_tile_from_module");
+	if (
+		short.peek("persist_tile_on_forms") !== true ||
+		short.peek("pull_down_tile") !== true ||
+		typeof sourceId !== "string" ||
+		!sourceId ||
+		dormantFormContextSource(ctx, sourceId)
+	)
+		return false;
+	const source = ctx.draft.modules.find((menu) => menu.uniqueId === sourceId);
+	const details = source?.json.peek("case_details");
+	const sourceShort =
+		isJsonObject(details) && isJsonObject(details.short)
+			? details.short
+			: undefined;
+	return (
+		source !== undefined &&
+		!!sourceShort?.case_tile_template &&
+		source.module.caseType === module.module.caseType
+	);
+}
+
 export function dormantFormContextSource(
 	ctx: ReadContext,
 	sourceId: unknown,
@@ -1796,6 +1836,18 @@ export function readCaseDetails(
 	if (inline) {
 		if (external || ownPersistent) {
 			short.take("pull_down_tile", D.pullDown, Boolean).value;
+			if (external && persistHeldByExternalPullDown(ctx, module, short))
+				short.take("persist_tile_on_forms", D.persistForPullDown, Boolean)
+					.value;
+			else if (external)
+				// HQ's build expands the source menu's tile with this menu's persistence off too;
+				// Nova writes it on, as HQ's Case List page keeps the pull-down.
+				sameState(
+					ctx,
+					D.persistForPullDown.entry,
+					`${short.pointer}/persist_tile_on_forms`,
+					"list-settings-respelled",
+				);
 			if (!external)
 				config.contextAboveForm = { kind: "own-tile", expandDetails: true };
 		} else {

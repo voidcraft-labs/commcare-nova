@@ -946,7 +946,16 @@ function listDifference(
 				? null
 				: stored;
 		const b = pair.short[key];
-		if ((a ?? null) !== (b ?? null) && !(off(a) && off(b)))
+		// Another menu's tile expanded above the forms: Nova switches this menu's persistence on
+		// beside it, which builds the same (`details.ts::persistHeldByExternalPullDown`); a stored
+		// one switched off is respelled, recorded where the reading took the pull-down.
+		const respelledSwitch =
+			key === "persist_tile_on_forms" &&
+			off(a) &&
+			b === true &&
+			pair.short.pull_down_tile === true &&
+			!!pair.short.persistent_case_tile_from_module;
+		if ((a ?? null) !== (b ?? null) && !(off(a) && off(b)) && !respelledSwitch)
 			return `schema:Detail.${key}`;
 	}
 	if (caseContextLine(mod.caseListConfig?.contextAboveForm)) {
@@ -1139,6 +1148,7 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		)
 			return;
 		const site = ctx.pending.site(index).at;
+		if (!("json" in site)) return;
 		ctx.accounting.findingAt(
 			COLUMN_CLAIMS.translatableEnumRelationUnreached,
 			registration.place,

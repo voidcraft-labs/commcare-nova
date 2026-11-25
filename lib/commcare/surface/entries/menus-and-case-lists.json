@@ -3568,11 +3568,12 @@
 		"surfaceKeys": [
 			"parser:SessionDatumParser/datum@detail-persistent",
 			"parser:SessionDatumParser/instance-datum@detail-persistent",
+			"schema:Detail.persist_tile_on_forms",
 			"schema:Detail.persistent_case_tile_from_module"
 		],
 		"valueClass": "persists-another-module-s-tile",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: contextAboveForm names the menu whose Results tile shows the selected case",
+		"dispositionCell": "**HELD**: contextAboveForm names the menu whose Results tile shows the selected case; expanded into that menu's case detail, the menu's own `persist_tile_on_forms` is on beside it, as HQ's Case List page keeps the pull-down only with that switch on (`details/bootstrap5/screen.js`, `enableTilePullDown`) and its build reads the source menu first (`entries.py::get_detail_persistent_attr`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

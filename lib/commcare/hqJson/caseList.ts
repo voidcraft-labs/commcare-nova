@@ -1458,6 +1458,13 @@ export function projectCaseListForHq(
 		);
 	if (context && context.kind !== "line" && context.expandDetails)
 		pair.short.pull_down_tile = true;
+	// HQ's Case List page keeps another menu's tile expanded above the forms only with this
+	// menu's persistence switched on: its save writes the pull-down off otherwise
+	// (`details/bootstrap5/screen.js`, `enableTilePullDown`). Its build reads the source menu
+	// first (`entries.py::get_detail_persistent_attr`, `get_detail_inline_attr`), so the switch
+	// changes nothing it builds.
+	if (context?.kind === "menu-tile" && context.expandDetails)
+		pair.short.persist_tile_on_forms = true;
 	const expression = caseContextLine(context);
 	if (expression) {
 		pair.short.persist_case_context = true;

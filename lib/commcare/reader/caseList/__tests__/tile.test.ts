@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { tileFixture } from "@/lib/commcare/__tests__/tileFixture";
 import { prop, toExpression } from "@/lib/domain/expression";
 import {
 	type CaseTileLayout,
@@ -15,7 +16,13 @@ import {
 	tileCell,
 } from "@/lib/domain/modules";
 import { patients, uuid } from "./fixtures";
-import { codes, comparableList, listOf, readLists } from "./listReading";
+import {
+	closedCodes,
+	codes,
+	comparableList,
+	listOf,
+	readLists,
+} from "./listReading";
 
 describe("tiles", () => {
 	it("reads cells, grouping and persistence", async () => {
@@ -168,6 +175,26 @@ describe("tiles", () => {
 			expandDetails: true,
 			expression: toExpression(prop("patient", "notes")),
 		});
+	});
+
+	it("keeps another menu's tile expanded above the forms as HQ's Case List page keeps it", async () => {
+		// HQ's page keeps the pull-down only with this menu's persistence switched on (its save
+		// writes the pull-down off otherwise), and its build reads the source menu first, so Nova
+		// writes the switch on and reads it back as the source's setting, not this tile persisting.
+		const doc = tileFixture("persistent-external");
+		const reading = await readLists(doc, { firstPassOnly: false });
+		const short = reading.app.modules[0]?.case_details.short;
+		expect(short).toMatchObject({
+			persist_tile_on_forms: true,
+			pull_down_tile: true,
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const list = listOf(reading);
+		expect(list.contextAboveForm).toMatchObject({
+			kind: "menu-tile",
+			expandDetails: true,
+		});
+		expect(list.tile?.persistOnForms).toBeUndefined();
 	});
 
 	it("reads a grouping by its identifier and header rows", async () => {

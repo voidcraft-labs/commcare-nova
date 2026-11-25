@@ -39,7 +39,7 @@ import { externalKey } from "../identity";
 import { reReadUuidOf } from "../identityMap";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { storedColumnKind } from "./columnIdentity";
-import type { JoinedDetails } from "./details";
+import { type JoinedDetails, persistHeldByExternalPullDown } from "./details";
 import { claimRestUnderFinding } from "./refusedWhole";
 
 const A = "menus-and-case-lists/";
@@ -381,7 +381,7 @@ function tabGroupOf(long: JsonCursor): (index: number) => number {
  */
 export function readTile(
 	ctx: ReadContext,
-	_module: DraftModule,
+	module: DraftModule,
 	short: JsonCursor,
 	long: JsonCursor,
 	joined: JoinedDetails,
@@ -478,7 +478,12 @@ export function readTile(
 		})
 		.map(([slot]) => slot);
 	if (rawSlots.length) config.rawSlots = rawSlots;
-	if (short.peek("persist_tile_on_forms") === true) {
+	// Beside another menu's tile expanded above the forms, the switch is that source's setting
+	// (`details.ts::persistHeldByExternalPullDown`), read there, never this tile persisting.
+	if (
+		short.peek("persist_tile_on_forms") === true &&
+		!persistHeldByExternalPullDown(ctx, module, short)
+	) {
 		short.take("persist_tile_on_forms", T.persist, Boolean).value;
 		config.persistOnForms = true;
 	}
