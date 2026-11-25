@@ -4908,6 +4908,23 @@ The rules whose readers reach past HQ's build and Core:
   client's screens alike; Android's is
   `predicates.py::test_a_form_reads_a_field_list_group_alike_in_either_letter_case`.
 
+- **`repeat-row-count-without-a-repeat`** (`repeat_row_count_without_a_repeat`): a
+  group's appearance made only of `<n>-per-row-repeat` over a group that holds no
+  repeat, taken away in Core's trace (a group event's `appearance`, where no repeat
+  event of the same step stands directly under the group) and in Formplayer's
+  answers (a group's `style`, where none of its children is a repeat). Nova holds a
+  repeat row count only on a group that holds a repeat and drops it elsewhere
+  (`question-display-respelled`). The Web Apps client lays the count onto the
+  group's repeats alone (`form_entry/form_ui.js::processNPerRowRepeatStyle`), and
+  the group's own row layout reads `<n>-per-row` followed by a space or the end;
+  Core reads a group's appearance only as `field-list`, and Android as
+  `field-list` or `compact`. Its test publishes `targeted-plain-help` with that
+  form's last control in a group with no appearance, `2-per-row-repeat` and
+  `2-per-row`, holds Core's sessions apart only at the event's appearance, erased
+  for the count and kept for `2-per-row`, and Formplayer's walk and the client's
+  screens alike; Android's is
+  `predicates.py::test_a_form_reads_a_group_alike_with_and_without_a_repeat_row_count`.
+
 Formplayer's traces take the rules for an `instance` (each XML document a
 trace holds).
 

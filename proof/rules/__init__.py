@@ -114,6 +114,7 @@ from proof.rules import (  # noqa: E402
     profile_features_dependencies_empty,
     profile_features_users,
     profile_unread_properties,
+    repeat_row_count_without_a_repeat,
     required_condition,
     runtime_url_app_id,
     select_string_type,
@@ -170,6 +171,7 @@ RULES: tuple[SpellingRule, ...] = (
     menu_image_without_media.RULE,
     media_path_of_a_shared_file.RULE,
     field_list_appearance_case.RULE,
+    repeat_row_count_without_a_repeat.RULE,
     hidden_sort_header.RULE,
 )
 

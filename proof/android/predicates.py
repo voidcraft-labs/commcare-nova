@@ -1463,6 +1463,29 @@ class Predicates(unittest.TestCase):
         self.assertEqual(mixed, lower)
         self.assertIn("PROMPT_NEW_REPEAT", [screen["event"] for screen in other])
 
+    def test_a_form_reads_a_group_alike_with_and_without_a_repeat_row_count(self):
+        """The spelling rule ``repeat-row-count-without-a-repeat``. Contract: Android reads a group's whole appearance
+        for ``field-list`` (through Core's ``FormEntryController.isHostWithAppearance``) and ``compact``, and no word
+        of ``<n>-per-row-repeat``, so the survey's question inside a group of plain questions shows the worker the
+        same screens whether the group holds no appearance or ``2-per-row-repeat``. Failure it catches: Android
+        reading the repeat row count on a group that holds no repeat."""
+        form = "modules-0/forms-0.xml"
+
+        def screens(archive):
+            return self.walked(archive, commands=["m0-f0"])["walks"]["m0-f0"]["steps"][0]["form"]["screens"]
+
+        def grouped(name, attributes):
+            replacements = [
+                ('<h:body><input ref="/data/head">', f'<h:body><group{attributes}><input ref="/data/head">'),
+                ("</input></h:body>", "</input></group></h:body>"),
+            ]
+            return edited(SURVEY, self.work / f"{name}.ccz", form, replacements)
+
+        plain = screens(grouped("group-plain", ""))
+        counted = screens(grouped("group-repeat-row-count", ' appearance="2-per-row-repeat"'))
+        self.assertTrue(plain)
+        self.assertEqual(counted, plain)
+
     def root_menu_except_image(self, archive, menu_id, expected_image):
         """Check the named root item's image, then return the entire menu with only that image omitted."""
         answer = self.reader.request("nav", archive=str(archive), paths=[[]])
