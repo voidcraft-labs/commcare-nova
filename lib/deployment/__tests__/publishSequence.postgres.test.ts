@@ -4169,6 +4169,44 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 		});
 	});
 
+	it("sends nothing past a request once the publisher's CommCare HQ key changed under the publish", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
+			let rekeyed = false;
+			const hq = jsonLookupPeer(peer, {
+				/* The publisher saves another key once the first row is there: the
+				 * connection the publish was planned under is no longer theirs. */
+				after: async (method, path) => {
+					if (method !== "POST" || path !== rowsPath || rekeyed) return;
+					rekeyed = true;
+					await h
+						.db()
+						.updateTable("user_settings")
+						.set({ commcare_api_key: "another-ciphertext" })
+						.where("user_id", "=", ACTOR)
+						.execute();
+				},
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			await publish(doc).catch((error: unknown) => error);
+			expect(rekeyed).toBe(true);
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table/v1/",
+				`POST ${rowsPath}`,
+			]);
+			/* The refused request was never journaled. */
+			expect(
+				await h
+					.db()
+					.selectFrom("lookup_json_operations")
+					.select("state")
+					.execute(),
+			).toEqual([{ state: "applied" }, { state: "applied" }]);
+		});
+	});
+
 	it("puts a changed row and a removed row there by their ids on the next publish", async () => {
 		const doc = await seed(await typesDocument());
 		await withPeer(async (peer) => {
