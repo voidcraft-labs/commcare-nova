@@ -3,5 +3,5 @@
 	"headers": {
 		"Content-Type": "application/json; charset=utf-8"
 	},
-	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"label.1\": \"Garden\", \"site.id\": \"garden\"}, \"fixture_type\": \"meeting.1\", \"id\": \"e2856a9ba41e48a3ae9006efbe067f4d\", \"resource_uri\": \"\"}, {\"fields\": {\"label.1\": \"Library\", \"site.id\": \"library\"}, \"fixture_type\": \"meeting.1\", \"id\": \"f37dda5bb67b42db952b8ab20c008f77\", \"resource_uri\": \"\"}]}"
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"label.1\": \"Garden\", \"site.id\": \"garden\"}, \"fixture_type\": \"meeting.1\", \"id\": \"36642626138f4fb6a05d967e4d235e76\", \"resource_uri\": \"\"}, {\"fields\": {\"label.1\": \"Library\", \"site.id\": \"library\"}, \"fixture_type\": \"meeting.1\", \"id\": \"c64c791918354917ab5938d3737e6039\", \"resource_uri\": \"\"}]}"
 }

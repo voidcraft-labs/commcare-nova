@@ -64,72 +64,6 @@
 				"is_indexed": false
 			},
 			{
-				"name": "code.1",
-				"properties": [],
-				"is_indexed": false
-			},
-			{
-				"name": "zone.name",
-				"properties": [],
-				"is_indexed": false
-			}
-		],
-		"item_attributes": [],
-		"rows": [
-			{
-				"fields": {
-					"code": [
-						{
-							"value": "upland",
-							"properties": {}
-						}
-					],
-					"code.1": [
-						{
-							"value": "on",
-							"properties": {}
-						}
-					],
-					"zone.name": [
-						{
-							"value": "Upper zone",
-							"properties": {}
-						}
-					]
-				},
-				"item_attributes": {}
-			},
-			{
-				"fields": {
-					"code": [
-						{
-							"value": "lowland",
-							"properties": {}
-						}
-					],
-					"code.1": [
-						{
-							"value": "off",
-							"properties": {}
-						}
-					],
-					"zone.name": [
-						{
-							"value": "Lower zone",
-							"properties": {}
-						}
-					]
-				},
-				"item_attributes": {}
-			}
-		]
-	},
-	{
-		"tag": "ζωνες",
-		"is_global": true,
-		"description": "",
-		"fields": [
-			{
 				"name": "clé",
 				"properties": [],
 				"is_indexed": false
@@ -165,6 +99,12 @@
 							"properties": {}
 						}
 					],
+					"code": [
+						{
+							"value": "upland",
+							"properties": {}
+						}
+					],
 					"code.1": [
 						{
 							"value": "on",
@@ -195,6 +135,12 @@
 			{
 				"fields": {
 					"clé": [
+						{
+							"value": "lowland",
+							"properties": {}
+						}
+					],
+					"code": [
 						{
 							"value": "lowland",
 							"properties": {}
