@@ -12,7 +12,16 @@ import {
 	type CaseMappingRow,
 	caseMappingTextUnit,
 } from "@/lib/domain/caseMappingRows";
-import type { LanguageTag, TranslationUnitId } from "@/lib/domain/localization";
+import {
+	columnWordingRole,
+	generatedWordingId,
+	imageDescriptionWordingId,
+} from "@/lib/domain/generatedWording";
+import {
+	effectiveAppLocalization,
+	languageEntries,
+	type TranslationUnitId,
+} from "@/lib/domain/localization";
 
 type ColumnContent = NonNullable<
 	Extract<Mutation, { kind: "updateColumn" }>["column"]
@@ -235,8 +244,9 @@ function stripGranularSlots(column: Column): unknown {
  * condition) or changing that value moves its label, and an image row's description, to
  * another unit; the row is the same row, and so are its words in every language. Rows are
  * paired by place, and only where both lists hold the same number of rows and neither unit is
- * another row's. `before` clears each old entry while its unit still exists; `after` writes it
- * under the new unit once the column's update has made that unit, so the batch is
+ * another row's. Each view's own wording of the row (its generated override, in the original
+ * language too) moves with it. `before` clears each old entry while its unit still exists; `after`
+ * writes it under the new unit once the column's update has made that unit, so the batch is
  * `[...before, ...columnSnapshotMutations(...), ...after]`.
  */
 export function mappingRowTranslationCarry(
@@ -258,21 +268,51 @@ export function mappingRowTranslationCarry(
 		next.mapping,
 		role,
 	);
-	const translations = doc.localization?.translations ?? {};
-	for (const { from, to } of moves.values()) {
-		for (const [language, entries] of Object.entries(translations)) {
-			const entry = entries?.[from];
+	// Each moved row's own unit, and each view's own wording of it
+	// (`generatedWording.ts`): an image rule's description by the rule, a
+	// label by the unit it overrides.
+	const pairs: { from: TranslationUnitId; to: TranslationUnitId }[] = [];
+	for (const [index, move] of moves) {
+		pairs.push(move);
+		for (const search of [false, true])
+			for (const detail of [false, true]) {
+				const view = columnWordingRole(search, detail);
+				pairs.push(
+					current.kind === "image-map" && next.kind === "image-map"
+						? {
+								from: imageDescriptionWordingId(
+									current.uuid,
+									view,
+									current.mapping[index],
+								),
+								to: imageDescriptionWordingId(
+									current.uuid,
+									view,
+									next.mapping[index],
+								),
+							}
+						: {
+								from: generatedWordingId(current.uuid, view, move.from),
+								to: generatedWordingId(current.uuid, view, move.to),
+							},
+				);
+			}
+	}
+	const localization = effectiveAppLocalization(doc.localization);
+	for (const { from, to } of pairs) {
+		if (from === to) continue;
+		for (const language of localization.languageOrder) {
+			const entry = languageEntries(localization, language)?.[from];
 			if (entry === undefined) continue;
-			const tag = language as LanguageTag;
 			before.push({
 				kind: "setTranslation",
-				language: tag,
+				language,
 				unitId: from,
 				entry: null,
 			});
 			after.push({
 				kind: "setTranslation",
-				language: tag,
+				language,
 				unitId: to,
 				entry: structuredClone(entry),
 			});

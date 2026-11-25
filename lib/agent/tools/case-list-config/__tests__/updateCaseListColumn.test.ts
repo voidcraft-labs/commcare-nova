@@ -1,15 +1,19 @@
 /** Schema-admitted shared tool calls through the real workspace and reducer.
  * Controlled host receipts prove local state transitions, not SQL commits. */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	type Column,
+	collectTranslationUnits,
 	idMappingColumn,
 	plainColumn,
 } from "@/lib/domain";
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -103,6 +107,70 @@ describe("updateCaseListColumn", () => {
 		// A row with a new comparison is a new row with its own identity.
 		expect(rows[2]?.uuid).toBeDefined();
 		expect(rows[2]?.uuid).not.toBe(ROW);
+	});
+
+	it("carries a row's translation and each view's own wording to the unit a new value moves it to", async () => {
+		// A row saved before rows carried identities is keyed by its value, so a new value moves
+		// its label to another unit; the row is the same row, and so are its words in every
+		// language, as the Builder's column editor keeps them (`mappingRowTranslationCarry`).
+		const base = produce(fixtureWithMapping(), (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+			]);
+		});
+		const work = mappingOf(base).mapping[1];
+		const from = caseMappingTextUnit(SIBLING_UUID, work ?? {}, "mapping");
+		const unit = collectTranslationUnits(base).find((one) => one.id === from);
+		if (unit === undefined) throw new Error("The row's label has no unit.");
+		const entry = (value: string) => ({
+			value,
+			sourceFingerprint: unit.sourceFingerprint,
+			origin: "human" as const,
+			review: "reviewed" as const,
+			translatedFrom: "eng",
+		});
+		const view = (id: string) =>
+			generatedWordingId(SIBLING_UUID, "caseRows", id);
+		const doc = produce(base, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "setTranslation",
+					language: "spa",
+					unitId: from,
+					entry: entry("Trabajo"),
+				},
+				{
+					kind: "setTranslation",
+					language: "spa",
+					unitId: view(from),
+					entry: entry("Oficina"),
+				},
+			]);
+		});
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(updateCaseListColumnTool, {
+			moduleUuid: MOD_A,
+			columnUuid: SIBLING_UUID,
+			column: {
+				kind: "id-mapping",
+				field: "phone",
+				header: "Phone",
+				mapping: [
+					{ value: "home", label: "Home" },
+					{ value: "office", label: "Work" },
+				],
+			},
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		const after = h.currentDoc();
+		const moved = mappingOf(after).mapping[1];
+		const to = caseMappingTextUnit(SIBLING_UUID, moved ?? {}, "mapping");
+		expect(to).not.toBe(from);
+		const spanish = after.localization?.translations.spa ?? {};
+		expect(spanish[to]?.value).toBe("Trabajo");
+		expect(spanish[view(to)]?.value).toBe("Oficina");
+		expect(spanish[from]).toBeUndefined();
+		expect(spanish[view(from)]).toBeUndefined();
 	});
 
 	it("replaces the column body in place and preserves the existing uuid", async () => {

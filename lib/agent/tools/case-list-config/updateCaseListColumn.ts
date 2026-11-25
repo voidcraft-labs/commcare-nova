@@ -25,6 +25,7 @@
  */
 
 import type { z } from "zod";
+import { mappingRowTranslationCarry } from "@/lib/doc/caseListColumnMutations";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { updateColumnMutation } from "../../blueprintHelpers";
 import type { ToolInvocationContext } from "../../workspace/types";
@@ -122,9 +123,22 @@ export const updateCaseListColumnTool = {
 				};
 			}
 
+			// A mapping row keyed by its saved value keeps its translations, and
+			// each view's own wording, as it gains an identity or a new value,
+			// as the Builder's column editor does.
+			const current = mod.caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === columnUuid,
+			);
+			const carry =
+				current === undefined
+					? { before: [], after: [] }
+					: mappingRowTranslationCarry(doc, current, {
+							...replacement,
+							uuid: columnUuid,
+						});
 			const commit = await guardedMutate(
 				ctx,
-				result.mutations,
+				[...carry.before, ...result.mutations, ...carry.after],
 				`module:${moduleUuid}:caseList:column:update`,
 			);
 			if (!commit.ok) {
