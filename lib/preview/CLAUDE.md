@@ -89,7 +89,10 @@ label's place on both platforms exactly where the label shows as typed (no
 platform rule, since both read `getLongText()` where no markdown form is
 present), the QR code takes the label image's place under `rules.labelQrCode`,
 and the spoken text's speaker button shows where the label has no audio under
-`rules.labelSpeech`. Preview names the QR code and its text rather than drawing
+`rules.labelSpeech`. A label's inline video (`label_media.videoInline`) plays
+in the media pane under `rules.labelInlineVideo`, in the place of the QR code
+and the image alike, as Android's `MediaLayout.setAVT` orders them; Web Apps
+shows none. Preview names the QR code and its text rather than drawing
 a code, and the speaker button reads the text through the browser's speech.
 The engine resolves each text's values into `FieldState.resolvedLabelTexts`.
 A Text question with a number keypad follows `rules.numberKeypad`. Its
