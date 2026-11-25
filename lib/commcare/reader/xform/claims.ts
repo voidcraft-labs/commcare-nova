@@ -926,6 +926,8 @@ export const X = {
 	userRepeat: under("take", Q("repeat-group-user-controlled"), {
 		node: "mug:Repeat",
 		control: "xform:repeat",
+		container: "jr-control:group",
+		childNamespace: "xform:repeat/*@xmlns",
 		nodeset: "xform:repeat@nodeset",
 		template: "xform:model/instance//*@jr:template",
 		templateTop: "xform:model/instance/*/*@jr:template",
@@ -936,6 +938,8 @@ export const X = {
 		{
 			node: "mug:Repeat",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
@@ -948,6 +952,8 @@ export const X = {
 		{
 			node: "mug:Repeat",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
@@ -960,6 +966,8 @@ export const X = {
 		{
 			node: "mug:Repeat",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
@@ -972,6 +980,8 @@ export const X = {
 		{
 			node: "mug:Repeat",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			count: "xform:repeat@jr:count",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
@@ -987,6 +997,8 @@ export const X = {
 			node: "mug:Repeat",
 			role: "vellum-markup:model/instance//*@vellum:role",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			count: "xform:repeat@jr:count",
 			noAddRemove: "xform:repeat@jr:noAddRemove",

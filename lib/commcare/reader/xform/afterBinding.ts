@@ -1,4 +1,5 @@
 import { VELLUM_NS } from "../../xmlNamespaces";
+import { ownNamespace } from "./join";
 import { attributeNameIn } from "./model";
 /**
  * Stage 10: what the bound document decides for a form. A case choices
@@ -1294,6 +1295,37 @@ function moveContainerConditions(
 	});
 }
 
+/** The entry a data node's namespace is held under where the node inherits the form's own. */
+const FORM_NAMESPACE =
+	"forms-and-case-writes/xmlns-form-json-and-xform-data-node";
+
+/**
+ * Each data node's namespace, which Core reads of every node of the main instance
+ * (`XFormParser.buildInstanceStructure`), where the node declares none of its own: the form's
+ * data namespace, held as the form's `xmlns` is. A node declaring its own is claimed where it is
+ * read (`join.ts::claimNode`, a Hidden Value's receiving namespace), and one no reading claimed
+ * stays unclaimed. Claimed last, so every reading's own claim of a namespace stands first.
+ */
+function claimInheritedNamespaces(
+	ctx: ReadContext,
+	form: DraftForm,
+	xform: ReadXForm,
+): void {
+	for (const node of xform.nodes.values()) {
+		if (node.path.length === 0 || ownNamespace(node, xform.parsed)) continue;
+		// A refused thing is claimed whole, nothing inside it apart.
+		if (xform.refusals.over({ element: node.element }) !== undefined) continue;
+		ctx.accounting.claimEntry(
+			{ element: node.element, attribute: "xmlns" },
+			FORM_NAMESPACE,
+			"xform:model/instance//*@xmlns",
+			form.place,
+			undefined,
+			{ unlessClaimed: true },
+		);
+	}
+}
+
 /** Stage 10: the checks of each form that need the bound document. */
 export function finishForms(ctx: ReadContext): void {
 	if (ctx.doc !== undefined) ctx.doc = connectDefaultsUnset(ctx.doc);
@@ -1314,6 +1346,7 @@ export function finishForms(ctx: ReadContext): void {
 			checkCountFeedback(ctx, bound, form.uuid, xform);
 			checkModelIterations(ctx, bound, form.uuid, xform);
 			moveContainerConditions(ctx, form, xform, ctx.doc ?? bound);
+			claimInheritedNamespaces(ctx, form, xform);
 			checkLoadOrder(ctx, bound, form.uuid, form.place, xform);
 			checkDatetimeSiblings(ctx, bound, xform, types);
 		}

@@ -264,6 +264,7 @@ function modelIteration(
 	for (const name of ["id", "index"])
 		cursor.partOf({ element: row.element, attribute: name }, sites.node);
 	cursor.take({ element: input.repeat.element }, sites.control).value;
+	claimRepeatContainer(input.accounting, input.repeat, input.place, sites);
 	cursor.take(
 		{ element: input.repeat.element, attribute: "nodeset" },
 		sites.nodeset,
@@ -319,6 +320,38 @@ function secondaryInstancePath(text: string): boolean {
 	while (at?.kind === "child" || at?.kind === "filter")
 		at = at.kind === "child" ? at.left : at.base;
 	return at?.kind === "call" && at.name === "instance";
+}
+
+/**
+ * What Core reads of a held repeat beside the repeat itself, under the repeat's own entry: the
+ * group wrapping it, which Core parses as a container group (`XFormParser.parseGroup`,
+ * `jr-control:group`), and each child's namespace, which `parseGroup` reads of every child of a
+ * repeat (`xform:repeat/*@xmlns`), of each control it holds.
+ */
+function claimRepeatContainer(
+	accounting: Accounting,
+	repeat: ControlNode,
+	place: HqPlace,
+	sites: {
+		readonly container: Claim<"take">;
+		readonly childNamespace: Claim<"take">;
+	},
+): void {
+	// The wrapper's own node is the wrapper entry's (`readRepeat`), so the
+	// container read is a further key there, as each child's namespace is.
+	const claim = (
+		site: { readonly element: Element; readonly attribute?: string },
+		{ entry, key }: Claim<"take">,
+	) => {
+		if (key !== null) accounting.claimEntry(site, entry, key, place);
+	};
+	const wrapper = repeat.parent;
+	if (wrapper !== null && wrapper.tag === "group")
+		claim({ element: wrapper.element }, sites.container);
+	// Each control the repeat holds; an action inside it is read, and refused, on its own
+	// (`actions.ts`).
+	for (const child of repeat.children)
+		claim({ element: child.element, attribute: "xmlns" }, sites.childNamespace);
 }
 
 /**
@@ -386,6 +419,7 @@ export function readRepeat(
 		const sites = X.userRepeat;
 		cursor.take({ element: node.element }, sites.node).value;
 		cursor.take({ element: repeat.element }, sites.control).value;
+		claimRepeatContainer(input.accounting, repeat, place, sites);
 		cursor.take(
 			{ element: repeat.element, attribute: "nodeset" },
 			sites.nodeset,
@@ -457,6 +491,7 @@ export interface SettleCountInput {
 	readonly generatedCount?: BindFacts;
 	readonly parsed: ParsedXForm;
 	readonly cursor: XmlCursor;
+	readonly accounting: Accounting;
 	readonly place: HqPlace;
 }
 
@@ -509,6 +544,7 @@ export function settleRepeatCount(input: SettleCountInput): boolean {
 	}
 	cursor.take({ element: read.node.element }, sites.node).value;
 	cursor.take({ element: repeat.element }, sites.control).value;
+	claimRepeatContainer(input.accounting, repeat, place, sites);
 	cursor.take({ element: repeat.element, attribute: "nodeset" }, sites.nodeset)
 		.value;
 	cursor.take(

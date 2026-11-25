@@ -201,7 +201,7 @@ function controlFact(tag: ControlNode["tag"]): FieldKindFacts["control"] {
 }
 
 /** The node's namespace differs from its parent's by a default declaration of its own. */
-function ownNamespace(node: DataNode, parsed: ParsedXForm): boolean {
+export function ownNamespace(node: DataNode, parsed: ParsedXForm): boolean {
 	if (!Object.hasOwn(node.element.attribs, "xmlns")) return false;
 	if (splitName(node.element.name).prefix !== "") return false;
 	const parent = node.element.parent;
@@ -1217,6 +1217,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 					: undefined,
 			parsed,
 			cursor,
+			accounting,
 			place: field.place,
 		});
 	}
