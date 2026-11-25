@@ -146,7 +146,10 @@ import {
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
 import { SORT_DIRECTION_WIRE_MAP } from "../suite/case-list/sortKeys";
-import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
+import {
+	storedTileCell,
+	TILE_VERTICAL_ALIGN_WIRE,
+} from "../suite/case-list/tileStyle";
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
 import {
 	type RuntimeCsqlPromptValidation,
@@ -1679,8 +1682,11 @@ function writeTileCell(
 	target.horizontal_align = cell.horizontalAlign;
 	target.vertical_align = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
 	target.font_size = cell.fontSize;
-	if (cell.showBorder !== undefined) target.show_border = cell.showBorder;
-	if (cell.showShading !== undefined) target.show_shading = cell.showShading;
+	// A switch that is off is no switch, as HQ keeps it (`storedTileCell`).
+	const stored = storedTileCell(cell);
+	if (stored.showBorder !== undefined) target.show_border = stored.showBorder;
+	if (stored.showShading !== undefined)
+		target.show_shading = stored.showShading;
 }
 
 // Re-export the per-column projection so tests can pin per-kind

@@ -178,7 +178,7 @@ import {
 	distanceSortXpath,
 	type ResolvedSortDirective,
 } from "./sortKeys";
-import { buildTileStyleBlock } from "./tileStyle";
+import { buildTileStyleBlock, storedTileCell } from "./tileStyle";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
@@ -1566,7 +1566,7 @@ function tileStyleChildren(
 			? ctx.detailTile?.cells[column.uuid]
 			: tileCellFor(column, ctx.tileLayout);
 	if (cell === undefined) return [];
-	return [buildTileStyleBlock(cell)];
+	return [buildTileStyleBlock(storedTileCell(cell))];
 }
 
 /**

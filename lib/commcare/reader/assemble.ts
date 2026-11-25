@@ -28,6 +28,7 @@ import {
 	operationCaseType,
 	ownCaseOperationId,
 	type SelectOption,
+	type TileCell,
 	type TranslationUnitId,
 	translationSourceFingerprintsEqual,
 	type Uuid,
@@ -793,6 +794,40 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 							delete column.tile;
 				}
 			}),
+	},
+	{
+		/** A tile cell's border or shading switched off, and none: HQ keeps an off switch as no
+		 *  switch and both wires write neither (`suite/case-list/tileStyle.ts::storedTileCell`), so
+		 *  the reader returns none, on the case list's cells and the case detail's alike. */
+		id: "tile-switches-off-are-absent",
+		kind: "one-wire",
+		apply: (doc) => {
+			const off = (cell: TileCell | undefined) =>
+				cell !== undefined &&
+				(cell.showBorder === false || cell.showShading === false);
+			const holds = Object.values(doc.modules).some((module) => {
+				const config = module.caseListConfig;
+				return (
+					config !== undefined &&
+					(config.columns.some((column) => off(column.tile)) ||
+						Object.values(config.detailTile?.cells ?? {}).some(off))
+				);
+			});
+			if (!holds) return doc;
+			const clear = (cell: TileCell | undefined) => {
+				if (cell?.showBorder === false) delete cell.showBorder;
+				if (cell?.showShading === false) delete cell.showShading;
+			};
+			return withCandidate(doc, (draft) => {
+				for (const module of Object.values(draft.modules)) {
+					const config = module.caseListConfig;
+					if (config === undefined) continue;
+					for (const column of config.columns) clear(column.tile);
+					for (const cell of Object.values(config.detailTile?.cells ?? {}))
+						clear(cell);
+				}
+			});
+		},
 	},
 	{
 		/** A list filter that simplifies to `match-all`, and none: `effectiveFilterForEmission` is

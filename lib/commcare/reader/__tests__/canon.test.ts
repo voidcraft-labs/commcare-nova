@@ -1301,6 +1301,11 @@ const PAIRS: readonly Pair[] = [
 		other: () => tileCells(true),
 	},
 	{
+		id: "tile-switches-off-are-absent",
+		name: "case detail tile cells whose border is switched off",
+		other: () => tileFixture("detail-layout"),
+	},
+	{
 		id: "match-all-list-filter-is-absent",
 		name: "a list filter that simplifies to match-all",
 		other: () =>
