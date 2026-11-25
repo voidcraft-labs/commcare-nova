@@ -2269,21 +2269,21 @@
 		"item": "relevance bound on a model-iteration repeat’s container node (the node holding `@ids`, `@count` and `@current_index`) rather than on its rows (`…/item`)",
 		"surfaceKeys": ["xform:model/bind@relevant"],
 		"valueClass": "on-a-model-iteration-container",
-		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum discards it (`parser.js::parseBindElement`: the model iteration's question is its rows, `modeliteration.js::getPathName`, so no question stands at the container)",
-		"subject": "repeats",
-		"reasons": [
-			{
-				"kind": "not-hq-editable",
-				"named": "Vellum discards it (`parser.js::parseBindElement`: the model iteration's question is its rows, `modeliteration.js::getPathName`, so no question stands at the container)"
-			}
-		],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the condition is the repeat’s, joined to one its rows hold; the first publish writes it on the rows, where the form builder keeps a model iteration’s condition (`parser.js::parseBindElement` discards a bind on the container, `modeliteration.js::getPathName`), and lists the move (`model-iteration-conditions-moved-to-rows`): while it is false the submission now holds the container and its ids",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "none",
-			"cell": "—"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "— (in-envelope: a model iteration's condition is written on its rows, `…/item`)",
+			"cell": "the condition on the rows’ bind (`…/item`), as a model iteration’s condition is written",
 			"markers": []
 		},
 		"gates": []

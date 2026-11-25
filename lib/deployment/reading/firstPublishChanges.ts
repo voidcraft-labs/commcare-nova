@@ -1807,6 +1807,26 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/_attachments/*"],
 	},
 	/**
+	 * A model iteration's display condition on its container's bind, which the
+	 * form builder discards (`parser.js::parseBindElement`: its question is the
+	 * rows, `modeliteration.js::getPathName`). The publish writes it on the rows
+	 * (`buildQueryRepeat`), so while it is false the submission holds the
+	 * container and its ids where the source left both out
+	 * (`XFormSerializingVisitor.serializeNode`). Recorded by
+	 * `reader/xform/afterBinding.ts::moveContainerConditions`.
+	 */
+	"model-iteration-conditions-moved-to-rows": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: sameStateRecorded("model-iteration-conditions-moved-to-rows"),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) =>
+				recordedPlaces(facts, "model-iteration-conditions-moved-to-rows"),
+		},
+		paths: ["/_attachments/*"],
+	},
+	/**
 	 * A case list's `invisible` column whose sort element has display text, under
 	 * a header blank in every language: CommCare HQ's build gives the column a
 	 * header (`detail_screen.py::Invisible.header`) whose app string it writes as

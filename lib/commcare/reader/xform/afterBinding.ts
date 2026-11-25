@@ -26,12 +26,16 @@ import {
 	type ProseTemplate,
 	type Uuid,
 } from "@/lib/domain";
+import { and } from "@/lib/domain/expression/builders";
 import {
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
-import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
+import type {
+	Expression,
+	ExpressionSlotRef,
+} from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	effectiveAppLocalization,
@@ -1219,6 +1223,77 @@ function recordHiddenAnswerSpellings(
 	}
 }
 
+/**
+ * A model iteration's display condition on its container's bind (the node
+ * holding `@ids`, `@count` and `@current_index`), which the form builder never
+ * writes: its question is the rows (`modeliteration.js::getPathName`), so it
+ * discards a bind on the container (`parser.js::parseBindElement`). The
+ * condition is the repeat's, and the next publish writes it on the rows, as
+ * the form builder and Nova's export write a model iteration's condition
+ * (`buildQueryRepeat`); a condition the rows hold as well is joined to it,
+ * since Core hides a row where either is false. While it is false Core leaves
+ * the container and its rows out of the submission
+ * (`XFormSerializingVisitor.serializeNode`), and after the publish the
+ * container with its ids, so the reading records the move for the first
+ * publish's list.
+ */
+function moveContainerConditions(
+	ctx: ReadContext,
+	form: DraftForm,
+	xform: ReadXForm,
+	doc: BlueprintDoc,
+): void {
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	const joined = new Map<Uuid, Expression>();
+	for (const repeat of xform.modelIterations) {
+		const container = xform.binds.get(repeat.node);
+		if (container?.logic.relevant === undefined || repeat.uuid === undefined)
+			continue;
+		if (doc.fields[repeat.uuid] === undefined) continue;
+		const claim = X.modelIterationContainerCondition;
+		ctx.accounting.claimEntryClass(
+			{ element: container.element, attribute: "relevant" },
+			claim.entry,
+			"xform:model/bind@relevant",
+			repeat.place,
+		);
+		const steps = [
+			"_attachments",
+			`${readId ?? form.xmlns}.xml`,
+			"data",
+			...repeat.node.path,
+			":bind",
+			"@relevant",
+		];
+		ctx.facts.sameStateRewrites.push({
+			entry: claim.entry,
+			path: `/${steps.map(pointerToken).join("/")}`,
+			register: "model-iteration-conditions-moved-to-rows",
+		});
+		const row = [...xform.roles].find(
+			([, role]) => role.kind === "query-row" && role.repeat === repeat,
+		)?.[0];
+		const rowBind = row === undefined ? undefined : xform.binds.get(row);
+		if (rowBind?.logic.relevant === undefined) continue;
+		const own = ctx.pending.firstAt(container.element, "relevant");
+		const rows = ctx.pending.firstAt(rowBind.element, "relevant");
+		const ownTree =
+			own === undefined ? undefined : ctx.pending.outcome(own).expression;
+		const rowTree =
+			rows === undefined ? undefined : ctx.pending.outcome(rows).expression;
+		if (ownTree !== undefined && rowTree !== undefined)
+			joined.set(repeat.uuid, and(ownTree, rowTree));
+	}
+	if (joined.size === 0) return;
+	ctx.doc = withCandidate(doc, (draft) => {
+		for (const [uuid, condition] of joined) {
+			const held = draft.fields[uuid];
+			if (held?.kind === "repeat") held.relevant = condition;
+		}
+	});
+}
+
 /** Stage 10: the checks of each form that need the bound document. */
 export function finishForms(ctx: ReadContext): void {
 	if (ctx.doc !== undefined) ctx.doc = connectDefaultsUnset(ctx.doc);
@@ -1238,6 +1313,7 @@ export function finishForms(ctx: ReadContext): void {
 				settleProtectedMessage(ctx, bound, xform, message);
 			checkCountFeedback(ctx, bound, form.uuid, xform);
 			checkModelIterations(ctx, bound, form.uuid, xform);
+			moveContainerConditions(ctx, form, xform, ctx.doc ?? bound);
 			checkLoadOrder(ctx, bound, form.uuid, form.place, xform);
 			checkDatetimeSiblings(ctx, bound, xform, types);
 		}

@@ -445,29 +445,35 @@ describe("a model-iteration repeat Nova writes", () => {
 		).toEqual([]);
 	});
 
-	it("refuses a condition on the container's own bind, which the form builder discards", async () => {
-		const doc = queryDoc({ rowTiming: "on-open" });
+	it("reads a condition on the container's own bind as the repeat's, beside the one its rows hold", async () => {
+		const doc = queryDoc({
+			relevant: "#form/asked = 'yes'",
+			rowTiming: "on-open",
+		});
 		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
 			xmlns: XMLNS,
 		});
-		expect(source).toContain("<bind ");
-		// The condition stands on the container, where the publish could not
-		// keep it: it would move to the rows and keep `@ids` in the submission.
+		// A condition the form builder never writes stands on the container
+		// too; both are the repeat's, joined once the form's expressions bind
+		// (`afterBinding.ts::moveContainerConditions`).
 		const reading = await readForm(
 			source.replace(
 				"<bind ",
-				`<bind nodeset="/data/visits" relevant="/data/asked = 'yes'"/><bind `,
+				`<bind nodeset="/data/visits" relevant="/data/asked != ''"/><bind `,
 			),
 		);
-		expect(codesAt(reading, "visits")).toContain(
+		expect(codesAt(reading, "visits")).not.toContain(
 			Q("relevance-bound-on-a-model-iteration-repeat-s-container"),
 		);
 		const visits = readFields(reading.xform ?? ({} as never)).find(
 			(field) => field.id === "visits",
 		);
-		expect(visits?.expressions.map((one) => one.slot)).not.toContain(
-			"relevant",
-		);
+		expect(
+			visits?.expressions
+				.filter((one) => one.slot === "relevant")
+				.map((one) => one.text)
+				.sort(),
+		).toEqual(["/data/asked != ''", "/data/asked = 'yes'"]);
 	});
 
 	it("leaves a wrapper missing a setvalue unclaimed", async () => {

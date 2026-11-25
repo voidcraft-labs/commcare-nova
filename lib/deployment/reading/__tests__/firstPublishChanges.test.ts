@@ -3017,6 +3017,34 @@ const PAIRS: Readonly<Record<CurrentFirstPublishChangeId, Pair>> = {
 		},
 	),
 
+	// A repeat listing its rows when the form opens, whose condition stands on its container's
+	// bind, where the form builder never writes it, and not on its rows'.
+	"model-iteration-conditions-moved-to-rows": editedPair(openingRowsDoc, {
+		xml: (xml) => {
+			const root = parseXml(xml);
+			const rows = findOne(
+				(element) =>
+					element.name === "bind" &&
+					element.attribs.nodeset === "/data/visits/item",
+				root.children.filter(isTag),
+				true,
+			);
+			if (rows === null) throw new Error("Missing the rows' bind");
+			const condition = rows.attribs.relevant;
+			if (condition === undefined) throw new Error("Missing the condition");
+			delete rows.attribs.relevant;
+			delete rows.attribs["vellum:relevant"];
+			const container = new Element("bind", {
+				nodeset: "/data/visits",
+				relevant: condition,
+			});
+			if (rows.parent === null) throw new Error("Missing the binds' parent");
+			const siblings = rows.parent.children;
+			siblings.splice(siblings.indexOf(rows), 0, container);
+			container.parent = rows.parent;
+			return serializeXml(root);
+		},
+	}),
 	// A label beside a column shown nowhere whose header is blank in every language, which
 	// CommCare HQ's build lists in Android's Sort by as an entry that shows blank.
 	"sort-by-entry-with-a-blank-name-dropped": editedPair(
@@ -3041,6 +3069,48 @@ const PAIRS: Readonly<Record<CurrentFirstPublishChangeId, Pair>> = {
 		xml: withDeclaredReports,
 	}),
 };
+
+/** A repeat of visits whose rows the form lists once when it opens, shown when `asked` is yes. */
+function openingRowsDoc(relevant = "#form/asked = 'yes'"): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				uuid: testUuid("opening-rows-menu"),
+				name: "Visits",
+				forms: [
+					{
+						uuid: testUuid("opening-rows-form"),
+						name: "Rounds",
+						type: "survey",
+						fields: [
+							f({
+								uuid: testUuid("opening-rows-asked"),
+								kind: "text",
+								id: "asked",
+							}),
+							f({
+								uuid: testUuid("opening-rows-visits"),
+								kind: "repeat",
+								id: "visits",
+								repeat_mode: "query_bound",
+								data_source: { ids_query: "'a b'" },
+								rowTiming: "on-open",
+								relevant,
+								children: [
+									f({
+										uuid: testUuid("opening-rows-note"),
+										kind: "text",
+										id: "note",
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
 
 /** A media map item as CommCare HQ stores one for an image. */
 function mediaMapItem(id: string): Record<string, unknown> {
@@ -3071,6 +3141,14 @@ const READER_RECORDED: readonly CurrentFirstPublishChangeId[] =
 				"unused-media-entries-removed",
 			].includes(id),
 	);
+
+it("places a moved repeat condition on its container's bind alone", async () => {
+	const id = "model-iteration-conditions-moved-to-rows";
+	const [change] = firstPublishChangePlaces(await PAIRS[id].on(), [id]);
+	expect(change?.places).toEqual([
+		"/form/0.0/xform/data/visits/:bind/@relevant",
+	]);
+});
 
 it("places a hidden type rewrite on that question’s type attribute alone", async () => {
 	const id = "hidden-answer-types-respelled";
@@ -3227,6 +3305,59 @@ describe("each entry", () => {
 		expect(
 			applies("form-text-characters-written-as-outputs", factsOf(on)),
 		).toBe(true);
+	});
+
+	it("reads a repeat's condition on its container as the one its rows hold, joined to theirs", {
+		timeout: 60_000,
+	}, async () => {
+		const withContainer =
+			(container: string, keepRows: boolean) => (xml: string) => {
+				const root = parseXml(xml);
+				const rows = findOne(
+					(element) =>
+						element.name === "bind" &&
+						element.attribs.nodeset === "/data/visits/item",
+					root.children.filter(isTag),
+					true,
+				);
+				if (rows?.parent == null) throw new Error("Missing the rows' bind");
+				if (!keepRows) {
+					delete rows.attribs.relevant;
+					delete rows.attribs["vellum:relevant"];
+				}
+				const bind = new Element("bind", {
+					nodeset: "/data/visits",
+					relevant: container,
+				});
+				const siblings = rows.parent.children;
+				siblings.splice(siblings.indexOf(rows), 0, bind);
+				bind.parent = rows.parent;
+				return serializeXml(root);
+			};
+		const moved = (reading: RegisterReading) =>
+			reading.draft.facts.sameStateRewrites.filter(
+				(record) =>
+					record.register === "model-iteration-conditions-moved-to-rows",
+			);
+		const alone = await readAs(openingRowsDoc(), {
+			xml: withContainer("/data/asked = 'yes'", false),
+		});
+		expect(moved(alone)).toHaveLength(1);
+		expect(moved(alone).every(coveredByItsEntry)).toBe(true);
+		expect(alone.draft.doc.fields).toEqual(
+			(await readExport(openingRowsDoc(), TARGET)).draft.doc.fields,
+		);
+		// Core hides a row where either condition is false, so the repeat holds both.
+		const both = await readAs(openingRowsDoc(), {
+			xml: withContainer("/data/asked != ''", true),
+		});
+		expect(moved(both)).toHaveLength(1);
+		const joined = openingRowsDoc("#form/asked != '' and #form/asked = 'yes'");
+		expect(both.draft.doc.fields).toEqual(
+			(await readExport(joined, TARGET)).draft.doc.fields,
+		);
+		// Nova's own export, with the condition on the rows, records nothing.
+		expect(moved(await readAs(openingRowsDoc()))).toEqual([]);
 	});
 
 	it("reads a Save to Case value in the spelling Nova wrote before as the same write, holding the document the current spelling gives", async () => {

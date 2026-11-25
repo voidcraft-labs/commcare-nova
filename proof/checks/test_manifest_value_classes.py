@@ -5102,10 +5102,6 @@ def _data_binds_and_itext():
           <bind nodeset="/data/node/@attr" calculate="1"/>""",
         body='<input ref="/data/q"/><input ref="/data/shown"/>',
     )
-    containers = form(
-        data=f"""<{iteration.format(name="rounds")}</rounds>""",
-        model="""<bind nodeset="/data/rounds" relevant="true()"/><bind nodeset="/data/rounds/item" relevant="true()"/>""",
-    )
     users = form(
         data=f"""<u1 vellum:role="SaveToCase"
           vellum:case_type="commcare-user">{case}<create><case_name/></create></case>
@@ -5502,10 +5498,6 @@ def _data_binds_and_itext():
         "questions/relevance-bound-on-the-savetocase-node-itself": (
             refused("form", binds, "xform:model/bind@relevant", "bind[1]/@relevant"),
             accepted("form", binds, "xform:model/bind@relevant", "bind[2]/@relevant"),
-        ),
-        "questions/relevance-bound-on-a-model-iteration-repeat-s-container": (
-            refused("form", containers, "xform:model/bind@relevant", "bind[1]/@relevant"),
-            accepted("form", containers, "xform:model/bind@relevant", "bind[2]/@relevant"),  # its rows'
         ),
         "questions/constraint-on-savetocase-case-leaves": (
             refused("form", binds, "xform:model/bind@constraint", "bind[3]/@constraint"),

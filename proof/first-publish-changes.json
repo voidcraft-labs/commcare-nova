@@ -2500,6 +2500,13 @@
 		]
 	},
 	{
+		"change": "model-iteration-conditions-moved-to-rows",
+		"placeKinds": ["form-node"],
+		"rows": [
+			{ "check": "source", "artifact": "app.json", "path": "/_attachments/*" }
+		]
+	},
+	{
 		"change": "sort-by-entry-with-a-blank-name-dropped",
 		"placeKinds": ["menu"],
 		"rows": [

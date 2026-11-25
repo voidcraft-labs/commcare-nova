@@ -116,6 +116,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"When Nova brought in this app, it kept a hidden value’s calculation and left its starting value in CommCare HQ. You can copy the starting value into the hidden value in Nova to keep it when you publish.",
 	"hidden-answer-types-respelled":
 		"A hidden answer’s type will be written in the form builder’s usual spelling. Where the old name was unrecognized, the answer will still be kept as entered.",
+	"model-iteration-conditions-moved-to-rows":
+		"A repeat that lists rows when its form opens will keep its display condition on its rows, where CommCare HQ's form builder keeps it, so you can edit the condition there. While the condition is false, the form now sends the repeat's list of rows with no rows in it, where it sent nothing for the repeat before.",
 	"sort-by-entry-with-a-blank-name-dropped":
 		"On Android, a case list's Sort by no longer lists a choice with no name. CommCare HQ listed a hidden column there whose name was blank in every language, so workers saw an empty choice. You can give its sort rule a name in Nova to list it again.",
 	"form-titles-written":

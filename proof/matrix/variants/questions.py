@@ -419,7 +419,7 @@ def model_iteration_outside_rule(authoring, app_id):
 
 def model_iteration_container_condition(authoring, app_id):
     """A display condition (``true()``) on the model-iteration repeat ``rounds``' container node, a bind the form
-    builder discards (its question is the rows)."""
+    builder discards (its question is the rows): the repeat's condition, which the first publish writes on the rows."""
     _model(
         authoring,
         app_id,

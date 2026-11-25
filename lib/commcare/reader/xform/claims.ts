@@ -1080,8 +1080,10 @@ export const X = {
 		Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
 		"vellum-markup:model/instance//*@vellum:role",
 	),
+	/** A model iteration's condition on its container's bind, read as the
+	 *  repeat's and written on its rows (`afterBinding.ts::moveContainerConditions`). */
 	modelIterationContainerCondition: one(
-		"refuse",
+		"take",
 		Q("relevance-bound-on-a-model-iteration-repeat-s-container"),
 		"xform:model/bind@relevant",
 	),
