@@ -43,6 +43,8 @@ DOCUMENTS = (
     "targeted-styled-value",
     "targeted-submitted-groups",
     "targeted-tile-hidden-order",
+    "targeted-connect-recipient-repeat",
+    "targeted-connect-section-order",
 )
 
 

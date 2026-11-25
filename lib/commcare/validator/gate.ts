@@ -124,7 +124,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	EMPTY_APP_NAME: "soundness",
 	APP_TEXT_UNREPRESENTABLE: "soundness",
 	NO_MODULES: "completeness",
-	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
 	PLATFORM_FEATURE_UNAVAILABLE: "soundness",
 	BLUEPRINT_TOPOLOGY_INVALID: "soundness",
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: "soundness",
@@ -333,9 +332,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CONNECT_MODE_MISMATCH: "soundness",
 	CONNECT_ID_INVALID_FORMAT: "soundness",
 	CONNECT_ID_TOO_LONG: "soundness",
-	CONNECT_ID_DUPLICATE: "soundness",
 	// Connect turns away the visit in a form that also completes a task.
 	CONNECT_DELIVER_FORM_HOLDS_TASK: "soundness",
+	CONNECT_DUPLICATE_DELIVERY: "soundness",
+	CONNECT_REPEATED_ASSESSMENT: "soundness",
+	CONNECT_REPEATED_LEARNING_MODULE: "soundness",
 	// HQ's build reads a form's name or a Connect block's text as an instance
 	// read, and stops the build or adds a source no formula reads. It binds
 	// every target: HQ builds every form it is sent, and a `.ccz` is made only
@@ -372,7 +373,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	DUPLICATE_FIELD_ID: "soundness",
 	// A root field and a Connect block of one form would be two elements of
 	// one name in the form's data root.
-	FIELD_ID_NAMES_CONNECT_BLOCK: "soundness",
 	CASE_OPERATION_DUPLICATE_UUID: "soundness",
 	CASE_OPERATION_INVALID_ID: "soundness",
 	CASE_OPERATION_DUPLICATE_ID: "soundness",

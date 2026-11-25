@@ -39,12 +39,7 @@ import {
 } from "@/lib/publish/planFeatures";
 import { fieldTakesCaseChoices } from "./caseOptions";
 import { planFormCaseWire } from "./casePlacementPlan";
-import { deliverUnitTakesDefaultEntity } from "./connectDefaults";
-import {
-	buildConnectSlugMap,
-	connectConfigWritesBlocks,
-	type ResolvedConnectConfig,
-} from "./connectSlugs";
+import { formConnectActivities } from "./connectSlugs";
 import { expandDoc } from "./expander";
 import { formLinkProjectionContext } from "./formLinkProjection";
 import { formsReadingLocationsFixture } from "./locations/readsLocationsFixture";
@@ -80,10 +75,10 @@ export interface HqPlanPrivilegeUse {
 }
 
 /**
- * Each form's Connect blocks, as `buildConnectSlugMap` resolves them. Several
+ * Each form's Connect blocks, as `formConnectActivities` resolves them. Several
  * rules read it, so one derivation builds it once and hands it to each.
  */
-export type ConnectBlocks = ReadonlyMap<Uuid, ResolvedConnectConfig>;
+export type ConnectBlocks = ReturnType<typeof formConnectActivities>;
 
 /** What this publish sends besides the app, from Nova's own data. */
 export interface PlanPrivilegePushes {
@@ -142,35 +137,15 @@ function formsInOrder(
 
 /**
  * The forms that use the worker's own record, in the document's form order:
- * the forms `workerRecordRequirements` names, and each form whose Connect
- * deliver unit leaves its entity id or name to the emitter, whose defaults
- * read the worker's username (`connectDefaults.ts::effectiveDeliverEntities`)
- * and count as a read. The `worker-record-access` preflight edge, the setup
+ * a positioned delivery counts when its recipient expressions read a
+ * worker property. The worker-record-access preflight edge, the setup
  * artifact's `worker-record` section and the `user_case` confirmation's
  * reasons all read this one list.
  */
 export function formsUsingWorkerRecord(
 	doc: BlueprintDoc,
-	connect: ConnectBlocks = buildConnectSlugMap(doc),
 ): WorkerRecordRequirement[] {
-	const byForm = new Map(
-		workerRecordRequirements(doc).map((form) => [form.formUuid, form]),
-	);
-	const forms: WorkerRecordRequirement[] = [];
-	for (const { formUuid } of formsInOrder(doc)) {
-		const own = byForm.get(formUuid);
-		const deliverUnit = connect.get(formUuid)?.deliver_unit;
-		const readsDefault =
-			deliverUnit !== undefined && deliverUnitTakesDefaultEntity(deliverUnit);
-		if (own === undefined && !readsDefault) continue;
-		forms.push({
-			formUuid,
-			name: own?.name ?? formName(doc, formUuid),
-			reads: (own?.reads ?? false) || readsDefault,
-			writes: own?.writes ?? false,
-		});
-	}
-	return forms;
+	return workerRecordRequirements(doc);
 }
 
 /** "Lesson sends a learn module and an assessment to CommCare Connect." */
@@ -180,14 +155,22 @@ function connectFormReasons(
 ): string[] {
 	return formsInOrder(doc).flatMap(({ formUuid }) => {
 		const blocks = connect.get(formUuid);
-		if (!connectConfigWritesBlocks(blocks)) return [];
-		const named = [
-			...(blocks.learn_module ? ["a learn module"] : []),
-			...(blocks.assessment ? ["an assessment"] : []),
-			...(blocks.deliver_unit ? ["a deliver unit"] : []),
-			...(blocks.task ? ["a task"] : []),
-		];
-		if (named.length === 0) return [];
+		if (blocks === undefined) return [];
+		const counts = new Map<string, number>();
+		for (const {
+			field: { activity },
+		} of blocks)
+			counts.set(activity.kind, (counts.get(activity.kind) ?? 0) + 1);
+		const names = [
+			["learning-module", "a learn module", "learn modules"],
+			["assessment", "an assessment", "assessments"],
+			["delivery", "a deliver unit", "deliver units"],
+			["assigned-task", "a task", "tasks"],
+		] as const;
+		const named = names.flatMap(([kind, one, plural]) => {
+			const count = counts.get(kind) ?? 0;
+			return count === 0 ? [] : [count === 1 ? one : `${count} ${plural}`];
+		});
 		return [
 			`${formName(doc, formUuid)} sends ${named.join(" and ")} to CommCare Connect.`,
 		];
@@ -243,7 +226,7 @@ export function requiredPlanPrivileges(
 	doc: BlueprintDoc,
 	pushes: PlanPrivilegePushes,
 	attachmentTarget: AttachmentUrlTarget | null,
-	connect: ConnectBlocks = buildConnectSlugMap(doc),
+	connect: ConnectBlocks = formConnectActivities(doc),
 ): HqPlanPrivilegeUse[] {
 	const uses: HqPlanPrivilegeUse[] = [];
 	const add = (id: HqPlanPrivilegeId, reasons: readonly string[]): void => {
@@ -271,7 +254,7 @@ export function requiredPlanPrivileges(
 	 * value a form reads from it is blank. */
 	add(
 		"user_case",
-		formsUsingWorkerRecord(doc, connect).map(
+		formsUsingWorkerRecord(doc).map(
 			(form) =>
 				`${form.name} ${
 					form.reads && form.writes
@@ -407,7 +390,7 @@ export function requiredPlanFeatures(
 	doc: BlueprintDoc,
 	pushes: PlanPrivilegePushes,
 	attachmentTarget: AttachmentUrlTarget | null,
-	connect: ConnectBlocks = buildConnectSlugMap(doc),
+	connect: ConnectBlocks = formConnectActivities(doc),
 ): PlanFeatureUse[] {
 	return requiredPlanPrivileges(doc, pushes, attachmentTarget, connect).map(
 		(use) => planFeatureUse(PLAN_FEATURE_FOR_PRIVILEGE[use.id], use.reasons),
@@ -421,7 +404,7 @@ export function requiredPlanFeatures(
  */
 export function connectForwarderReasons(
 	doc: BlueprintDoc,
-	connect: ConnectBlocks = buildConnectSlugMap(doc),
+	connect: ConnectBlocks = formConnectActivities(doc),
 ): string[] {
 	return connectFormReasons(doc, connect);
 }

@@ -17,7 +17,7 @@
  * besides the app; it asks CommCare HQ nothing.
  */
 
-import { buildConnectSlugMap } from "@/lib/commcare/connectSlugs";
+import { formConnectActivities } from "@/lib/commcare/connectSlugs";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	commtrackReasons,
@@ -75,7 +75,7 @@ export function requiredConfirmations(
 	attachmentTarget: AttachmentUrlTarget | null,
 	lookupNaming: LookupWireNaming | undefined,
 ): DeploymentConfirmationNeeded[] {
-	const connect = buildConnectSlugMap(doc);
+	const connect = formConnectActivities(doc);
 	const needed: DeploymentConfirmationNeeded[] = requiredPlanFeatures(
 		doc,
 		pushes,

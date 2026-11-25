@@ -26,8 +26,7 @@ import { assertAnswerDataReachesReceiver } from "./submittedData";
  *
  * Walkers consume `doc.fieldOrder[parentUuid]` and `doc.fields[fieldUuid]`,
  * using `doc.fieldOrder[fieldUuid]` being defined as the "this field is a
- * container" marker. The caller supplies the random xmlns and optional
- * Connect config via `BuildXFormOptions`.
+ * container" marker. The caller supplies the random xmlns and runtime context via `BuildXFormOptions`.
  *
  * Every CommCare wire invariant this file encodes — the dual `vellum:*`
  * attribute pattern, markdown-form itext duplication, hashtag-prose
@@ -39,14 +38,15 @@ import { assertAnswerDataReachesReceiver } from "./submittedData";
 
 import { type ChildNode, type Element, isTag } from "domhandler";
 import { findOne } from "domutils";
+import type { ConnectActivityField } from "@/lib/domain/fields/connectActivity";
 import {
-	effectiveAssessmentUserScore,
-	effectiveDeliverEntities,
-} from "@/lib/commcare/connectDefaults";
-import {
-	connectConfigWritesBlocks,
-	type ResolvedConnectConfig,
-} from "@/lib/commcare/connectSlugs";
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+	CONNECT_XMLNS,
+} from "./connectActivity";
+
+export { CONNECT_BLOCK_SHAPES, CONNECT_XMLNS } from "./connectActivity";
+
 import {
 	el,
 	text,
@@ -306,48 +306,6 @@ export function buildLabelNodes(
 	return nodes;
 }
 
-/** The namespace each Connect block's own element is in. */
-export const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
-
-/**
- * Each Connect block as `buildConnectBlocks` writes it: the wrapper's
- * `vellum:role`, the block's own element, and its leaves in order, the
- * layout HQ's form builder gives each Connect question
- * (`commcareConnect.js`, each mug's `childNodes`). The reader of CommCare
- * HQ's forms reads a block against this same layout.
- */
-export const CONNECT_BLOCK_SHAPES = {
-	learn_module: {
-		role: "ConnectLearnModule",
-		element: "module",
-		leaves: ["name", "description", "time_estimate"],
-	},
-	assessment: {
-		role: "ConnectAssessment",
-		element: "assessment",
-		leaves: ["user_score"],
-	},
-	deliver_unit: {
-		role: "ConnectDeliverUnit",
-		element: "deliver",
-		leaves: ["name", "entity_id", "entity_name", "work_area_id"],
-	},
-	task: {
-		role: "ConnectTask",
-		element: "task",
-		leaves: ["name", "description"],
-	},
-} as const satisfies Readonly<
-	Record<
-		string,
-		{
-			readonly role: string;
-			readonly element: string;
-			readonly leaves: readonly string[];
-		}
-	>
->;
-
 /** A Connect block's wrapper named `id`, its own element and its leaves in the order its
  *  shape gives, each leaf holding the text `texts` gives it, or nothing. The reader of CommCare
  *  HQ's forms holds a stored block only where this builds it whole. */
@@ -371,208 +329,58 @@ export function connectBlockData(
 	]);
 }
 
-/**
- * Build the Connect data blocks + matching binds for a form.
- *
- * Each Connect entity uses a two-level wrapper Vellum recognizes via the
- * `vellum:role` attribute: without it, HQ treats the wrapper as a plain
- * hidden XForm node and the child binds (user_score, entity_id, etc.)
- * fail at runtime. Each wrapper gets its own `vellum:nodeset` bind plus
- * a bind per declared sub-node so CommCare has paths to write to.
- */
-export function buildConnectBlocks(
-	connect: ResolvedConnectConfig | undefined,
+/** Vellum writes a wrapper bind and one bind for each calculated child.
+ * An unconfigured delivery value has a bare bind and an empty data leaf. */
+function buildActivityParts(
+	field: ConnectActivityField,
+	path: FormPath,
+	data: Element[],
+	binds: Element[],
 	context: WireElementContext,
 	expressions: FormExpressionEmission,
-): { dataElements: Element[]; binds: Element[] } {
-	const dataElements: Element[] = [];
-	const binds: Element[] = [];
-
-	if (!connectConfigWritesBlocks(connect)) return { dataElements, binds };
-
-	if (connect.learn_module) {
-		const lm = connect.learn_module;
-		// `lm.id` is the connect block's id — already a valid, unique, ≤50
-		// slug (forced correct at the source; the resolver only passed it
-		// through). It threads identically into the wrapper element name, the
-		// `id=` attribute, and the bind nodeset below, so all three references
-		// to this block always agree.
-		const lmId = lm.id;
-		const lmPath = FormPath.root(context.mode.formRootName).child(lmId);
-		dataElements.push(
-			connectBlockData(CONNECT_BLOCK_SHAPES.learn_module, lmId, {
-				name: lm.name,
-				description: lm.description,
-				time_estimate: String(lm.time_estimate),
-			}),
-		);
+): void {
+	const content = activityWireContent(field.activity);
+	const shape = CONNECT_BLOCK_SHAPES[content.block];
+	data.push(connectBlockData(shape, field.id, content.texts));
+	const wrapper: NonNullable<WireElementSpec<"bind">["xpath"]> = {
+		"vellum:nodeset": path.toWire("hashtag"),
+		nodeset: path.toWire(),
+	};
+	if (field.relevant !== undefined) {
+		const relevant = expressions.lower(field.relevant, {
+			entity: "field",
+			uuid: field.uuid,
+			slot: "relevant",
+		});
+		wrapper.relevant = relevant;
+		wrapper["vellum:relevant"] = relevant;
+	}
+	binds.push(xel("bind", { xpath: wrapper }, context));
+	for (const { leaf, expression, slot } of content.calculations) {
+		const nodeset = path.child(shape.element).child(leaf).toWire();
+		const calculate =
+			expression === undefined
+				? undefined
+				: expressions.lower(expression, {
+						entity: "field",
+						uuid: field.uuid,
+						slot,
+					});
 		binds.push(
 			xel(
 				"bind",
-				{
-					xpath: {
-						"vellum:nodeset": lmPath.toWire("hashtag"),
-						nodeset: lmPath.toWire(),
-					},
-				},
+				{ xpath: { nodeset, ...(calculate && { calculate }) } },
 				context,
 			),
 		);
 	}
-
-	if (connect.assessment) {
-		const assessId = connect.assessment.id;
-		// `user_score` is optional in the domain. `effectiveAssessmentUserScore`
-		// resolves it against the canonical default — same helper the
-		// session-preload builder calls, so the bind XML and the
-		// case-references load map agree on which XPath actually runs at
-		// form-fill time.
-		const userScore = effectiveAssessmentUserScore(connect.assessment);
-		const assessPath = FormPath.root(context.mode.formRootName).child(assessId);
-		dataElements.push(
-			connectBlockData(CONNECT_BLOCK_SHAPES.assessment, assessId, {}),
-		);
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						"vellum:nodeset": assessPath.toWire("hashtag"),
-						nodeset: assessPath.toWire(),
-					},
-				},
-				context,
-			),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: assessPath
-							.child("assessment")
-							.child("user_score")
-							.toWire(),
-						calculate: expressions.lower(userScore, {
-							entity: "form",
-							uuid: expressions.form.formUuid,
-							slot: "assessment_user_score",
-						}),
-					},
-				},
-				context,
-			),
-		);
-	}
-
-	if (connect.deliver_unit) {
-		const du = connect.deliver_unit;
-		const duId = du.id;
-		// `entity_id` / `entity_name` are optional in the domain.
-		// `effectiveDeliverEntities` resolves them against the canonical
-		// defaults — same helper the session-preload builder calls, so
-		// the bind XML and the case-references load map agree on which
-		// XPaths actually run at form-fill time.
-		const { entityId, entityName } = effectiveDeliverEntities(du);
-		const duPath = FormPath.root(context.mode.formRootName).child(duId);
-		// HQ's form builder lists `work_area_id` after `entity_name` and writes
-		// it with a bare bind (`commcareConnect.js`,
-		// `ConnectDeliverUnit.childNodes`); Connect reads the empty value as no
-		// work area (`form_receiver/processor.py::process_deliver_unit`).
-		dataElements.push(
-			connectBlockData(CONNECT_BLOCK_SHAPES.deliver_unit, duId, {
-				name: du.name,
-			}),
-		);
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						"vellum:nodeset": duPath.toWire("hashtag"),
-						nodeset: duPath.toWire(),
-					},
-				},
-				context,
-			),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: duPath.child("deliver").child("entity_id").toWire(),
-						calculate: expressions.lower(entityId, {
-							entity: "form",
-							uuid: expressions.form.formUuid,
-							slot: "deliver_entity_id",
-						}),
-					},
-				},
-				context,
-			),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: duPath.child("deliver").child("entity_name").toWire(),
-						calculate: expressions.lower(entityName, {
-							entity: "form",
-							uuid: expressions.form.formUuid,
-							slot: "deliver_entity_name",
-						}),
-					},
-				},
-				context,
-			),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: duPath.child("deliver").child("work_area_id").toWire(),
-					},
-				},
-				context,
-			),
-		);
-	}
-
-	if (connect.task) {
-		const t = connect.task;
-		const taskId = t.id;
-		const taskPath = FormPath.root(context.mode.formRootName).child(taskId);
-		dataElements.push(
-			connectBlockData(CONNECT_BLOCK_SHAPES.task, taskId, {
-				name: t.name,
-				description: t.description,
-			}),
-		);
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						"vellum:nodeset": taskPath.toWire("hashtag"),
-						nodeset: taskPath.toWire(),
-					},
-				},
-				context,
-			),
-		);
-	}
-
-	return { dataElements, binds };
 }
 
-/**
- * Options threaded into `buildXForm`. `xmlns` is the random instance
- * namespace HQ expects on every form (generated once per form by the
- * expander); `connect` is the resolved Connect config to embed (the
- * pass-through output of `buildConnectSlugMap`, whose ids are valid by
- * construction at the source) — omitted when the app-level `connectType` is
- * unset or the form carries no Connect block.
- */
+/** The form namespace and each external context used by its emitter. */
 export interface BuildXFormOptions {
 	/** A reading compares even a form whose submitted answers are being refused. The export and device paths check the emitted primary data. */
 	readonly readingComparison?: true;
 	xmlns: string;
-	connect?: ResolvedConnectConfig;
 	/**
 	 * The owning module's case type — the form's own loaded case. Drives the
 	 * reachable-case-type depth map so `#<case_type>/<prop>` refs resolve to the
@@ -1096,11 +904,6 @@ export function buildXFormSource(
 	}
 	bodyElements.push(...orderedControls(doc, formUuid, controls));
 
-	// Connect data + binds are data-only (no body elements).
-	const connectParts = buildConnectBlocks(opts.connect, context, expressions);
-	dataElements.push(...connectParts.dataElements);
-	binds.push(...connectParts.binds);
-
 	// `<h:title>` and the data node's `name` both carry the form's name in
 	// the app's default language, the name HQ's form builder writes into both
 	// on a save in that editing language.
@@ -1316,6 +1119,17 @@ function buildFieldParts(
 		);
 	}
 	const nodePath = parentPath.child(field.id);
+	if (field.kind === "connect_activity") {
+		buildActivityParts(
+			field,
+			nodePath,
+			dataElements,
+			binds,
+			context,
+			expressions,
+		);
+		return;
+	}
 	// Itext identity follows logical authored ancestry, shared with parsing
 	// and expression printing even when physical repeats add an item node.
 	const textId = fieldTextIds(expressions.form, fieldUuid);

@@ -47,7 +47,6 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CasePlacement,
-	formConnectIds,
 	type Module,
 	orderedCaseOperations,
 	placementIneligibilitySentence,
@@ -316,8 +315,8 @@ function blockPathFindings(
 	const scopes = new Set(saveToCase.map((held) => held.repeat));
 	for (const repeat of scopes) {
 		const here = saveToCase.filter((held) => held.repeat === repeat);
-		// The scope's own namespace: its authored questions and, at the root,
-		// the form's Connect blocks, beside each held path's first segment.
+		// The scope's own namespace: its authored questions and activities,
+		// beside each held path's first segment.
 		const questionUuids =
 			caseSlotFacts(doc, formUuid).submittedChildren.get(repeat ?? formUuid) ??
 			[];
@@ -325,15 +324,12 @@ function blockPathFindings(
 			const field = doc.fields[uuid];
 			return field === undefined ? [] : [field];
 		});
-		const connectIds =
-			repeat === undefined ? [...formConnectIds(doc, formUuid)] : [];
 		const firstSegments = new Map<string, Hold>();
 		for (const held of here)
 			if (!firstSegments.has(held.path[0]))
 				firstSegments.set(held.path[0], held.hold);
 		const scopeTaken = new Set<string>([
 			...questions.map((field) => field.id),
-			...connectIds,
 			...firstSegments.keys(),
 		]);
 		for (const field of questions) {
@@ -341,7 +337,12 @@ function blockPathFindings(
 			if (hold === undefined) continue;
 			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
 			const suggestion = suffixUntilFree(
-				editorSafeQuestionId(field.id),
+				editorSafeQuestionId(
+					field.id,
+					field.kind === "connect_activity"
+						? RESERVED_CONNECT_BLOCK_IDS
+						: undefined,
+				),
 				scopeTaken,
 			);
 			errors.push(
@@ -361,36 +362,7 @@ function blockPathFindings(
 						held: JSON.stringify(hold.subject),
 						name: field.id,
 						suggestion,
-						takenBy: "question",
-						subjectWords,
-					},
-				),
-			);
-		}
-		for (const id of connectIds) {
-			const hold = firstSegments.get(id);
-			if (hold === undefined) continue;
-			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
-			const suggestion = suffixUntilFree(
-				editorSafeQuestionId(id, RESERVED_CONNECT_BLOCK_IDS),
-				scopeTaken,
-			);
-			errors.push(
-				validationError(
-					"HELD_BLOCK_PATH_TAKEN",
-					"form",
-					heldBlockPathTakenMessage(id, subjectWords, suggestion),
-					{
-						moduleUuid: ctx.moduleUuid,
-						moduleName: ctx.moduleName,
-						formUuid,
-						formName: ctx.formName,
-					},
-					{
-						held: JSON.stringify(hold.subject),
-						name: id,
-						suggestion,
-						takenBy: "connect",
+						takenBy: field.kind === "connect_activity" ? "connect" : "question",
 						subjectWords,
 					},
 				),
@@ -521,11 +493,8 @@ function appendedNameFindings(
 			const field = doc.fields[uuid];
 			return field === undefined ? [] : [field];
 		});
-		const connectIds =
-			repeat === undefined ? [...formConnectIds(doc, formUuid)] : [];
 		const scopeTaken = new Set<string>([
 			...questions.map((field) => field.id),
-			...connectIds,
 			...names.keys(),
 		]);
 		for (const field of questions) {
@@ -533,7 +502,12 @@ function appendedNameFindings(
 			if (hold === undefined) continue;
 			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
 			const suggestion = suffixUntilFree(
-				editorSafeQuestionId(field.id),
+				editorSafeQuestionId(
+					field.id,
+					field.kind === "connect_activity"
+						? RESERVED_CONNECT_BLOCK_IDS
+						: undefined,
+				),
 				scopeTaken,
 			);
 			errors.push(
@@ -553,36 +527,7 @@ function appendedNameFindings(
 						held: JSON.stringify(hold.subject),
 						name: field.id,
 						suggestion,
-						takenBy: "question",
-						subjectWords,
-					},
-				),
-			);
-		}
-		for (const id of connectIds) {
-			const hold = names.get(id);
-			if (hold === undefined) continue;
-			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
-			const suggestion = suffixUntilFree(
-				editorSafeQuestionId(id, RESERVED_CONNECT_BLOCK_IDS),
-				scopeTaken,
-			);
-			errors.push(
-				validationError(
-					"HELD_BLOCK_PATH_TAKEN",
-					"form",
-					heldBlockPathTakenMessage(id, subjectWords, suggestion),
-					{
-						moduleUuid: ctx.moduleUuid,
-						moduleName: ctx.moduleName,
-						formUuid,
-						formName: ctx.formName,
-					},
-					{
-						held: JSON.stringify(hold.subject),
-						name: id,
-						suggestion,
-						takenBy: "connect",
+						takenBy: field.kind === "connect_activity" ? "connect" : "question",
 						subjectWords,
 					},
 				),

@@ -119,8 +119,6 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"EMPTY_APP_NAME",
 	"APP_TEXT_UNREPRESENTABLE",
 	"CASE_PROPERTY_OPTION_VALUE_INVALID",
-	"CONNECT_ID_DUPLICATE",
-	"CONNECT_NO_PARTICIPATING_FORMS",
 	"PLATFORM_FEATURE_UNAVAILABLE",
 	// A move scoped to another module can strand a case list registration
 	// slot, so its backstop runs as an app rule.
@@ -415,12 +413,6 @@ function runDeepValidation(
 						},
 					);
 
-				case "connect-xpath":
-					return presentFormLogicFinding(
-						doc,
-						{ entity: "form", uuid: deep.formUuid, slot: deep.slot },
-						deep.error,
-					);
 				case "form-link-xpath": {
 					const entry = formLinkEntries(doc.forms[deep.formUuid])[
 						deep.indices[0]

@@ -24,7 +24,7 @@ import {
 	type AppSettings,
 	type BlueprintDoc,
 	type Column,
-	type ConnectType,
+	type ConnectRole,
 	calculatedColumn,
 	columnSort,
 	type FormBehaviorRole,
@@ -99,7 +99,7 @@ const INPUT_OWNER = {
 function survey(
 	fields: FieldSpec[],
 	options: {
-		readonly connectType?: ConnectType;
+		readonly role?: ConnectRole;
 		readonly appSettings?: AppSettings;
 		readonly configure?: (doc: BlueprintDoc) => void;
 		readonly postSubmit?: "firstMenu";
@@ -109,9 +109,7 @@ function survey(
 	return buildDoc(
 		{
 			appName: "Platforms",
-			...(options.connectType === undefined
-				? {}
-				: { connectType: options.connectType }),
+			...(options.role === undefined ? {} : { connectRoles: [options.role] }),
 			...(options.appSettings === undefined
 				? {}
 				: { appSettings: options.appSettings }),
@@ -124,21 +122,6 @@ function survey(
 							uuid: FIXTURE_FORM,
 							name: "Intake",
 							type: "survey",
-							...(options.connectType === undefined
-								? {}
-								: {
-										connect:
-											options.connectType === "learn"
-												? {
-														learn_module: {
-															id: "lesson",
-															name: "Lesson",
-															description: "Read it",
-															time_estimate: 5,
-														},
-													}
-												: { deliver_unit: { id: "visit", name: "Visit" } },
-									}),
 							...(options.postSubmit === undefined
 								? {}
 								: { postSubmit: options.postSubmit }),
@@ -387,11 +370,11 @@ const COLUMN_USE = (feature: PlatformFeatureId): PlatformFeatureUse => ({
 const CONNECT: PlatformFeatureFixture = {
 	with: () =>
 		survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
-			connectType: "learn",
+			role: "learn",
 		}),
 	without: () =>
 		survey([f({ kind: "text", id: "answer", label: proseText("Answer") })]),
-	use: slotUse("connect-app", { kind: "app" }, "connectType"),
+	use: slotUse("connect-app", { kind: "app" }, "connectRoles"),
 };
 
 const tiled =
@@ -1123,7 +1106,7 @@ export const PLATFORM_FEATURE_FIXTURES = {
 	},
 	"connect-location-capture": {
 		...CONNECT,
-		use: slotUse("connect-location-capture", { kind: "app" }, "connectType"),
+		use: slotUse("connect-location-capture", { kind: "app" }, "connectRoles"),
 	},
 } as const satisfies Readonly<
 	Record<PlatformFeatureId, PlatformFeatureFixture>

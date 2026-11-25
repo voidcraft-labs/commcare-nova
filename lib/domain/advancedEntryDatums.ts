@@ -46,7 +46,6 @@ import {
 } from "./basicCaseSlots";
 import type { BlueprintDoc } from "./blueprint";
 import { caseWriteValueField } from "./caseWriteViews";
-import { formConnectIds } from "./connectIds";
 import { entrySelections, rootSelectionAlignment } from "./entryDatumSupplies";
 import { CASE_TYPE_PATTERN, type Expression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
@@ -925,7 +924,7 @@ function advancedRootNames(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): ReadonlySet<string> {
-	const names = new Set<string>(formConnectIds(doc, formUuid));
+	const names = new Set<string>();
 	for (const uuid of doc.fieldOrder[formUuid] ?? []) {
 		const field = doc.fields[uuid];
 		if (field !== undefined) names.add(field.id);

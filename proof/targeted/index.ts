@@ -37,6 +37,8 @@ import {
 	connectDeliverRename,
 	connectLearnHyphenIds,
 	connectLearnRename,
+	connectRecipientRepeat,
+	connectSectionOrder,
 } from "./documents/connectApps";
 import { csqlComposition } from "./documents/csqlComposition";
 import { customTile, tileHiddenOrder } from "./documents/customTile";
@@ -216,6 +218,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formLinkHiddenTarget,
 	emptyListNoEnglish,
 	connectDeliverRename,
+	connectRecipientRepeat,
+	connectSectionOrder,
 	connectLearnRename,
 	saveToCaseRead,
 	saveToCaseShapes,

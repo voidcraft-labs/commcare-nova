@@ -69,7 +69,7 @@ function platformFeatureError(
 				"app",
 				message("This app"),
 				{},
-				{ ...base, connectType: doc.connectType ?? "" },
+				{ ...base, connectRoles: doc.connectRoles.join(",") },
 			);
 		case "module": {
 			const moduleName = doc.modules[owner.moduleUuid]?.name ?? "";

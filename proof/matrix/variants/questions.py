@@ -2115,6 +2115,30 @@ def connect_long_id(authoring, app_id):
     _change(authoring, app_id, "connect-long-id", ("intro_module", "m" * 51, 5))
 
 
+def connect_receiver_id_changed(authoring, app_id):
+    """The module's submitted ID differs from the question ID that Vellum saves."""
+    _change(authoring, app_id, "connect-receiver-id-changed", ('id="intro_module"', 'id="prior_lesson"', 1))
+
+
+def connect_work_area_photo(authoring, app_id):
+    """Vellum's work-area shape including the photo leaf the HQ forwarder sends as a filename."""
+    leaves = ("work_area_id", "status", "reason", "additional_details", "photo_evidence")
+    data = "".join(f"<{leaf}/>" for leaf in leaves)
+    binds = "".join(f"""<bind nodeset="/data/area/work_area_update/{leaf}" calculate="'value'"/>""" for leaf in leaves)
+    _edit(
+        authoring, app_id, "connect-work-area-photo",
+        lambda text: _connect_block(text, f'<area vellum:role="ConnectWorkAreaUpdate"><work_area_update {LEARN_XMLNS} id="area">{data}</work_area_update></area>',
+                                    '<bind vellum:nodeset="#form/area" nodeset="/data/area" />' + binds),
+    )
+
+
+def constant_work_area_calculation(authoring, app_id):
+    """A stable source form puts the constant in a calculate bind."""
+    _change(authoring, app_id, "constant-work-area-calculation",
+            ('nodeset="/data/visit_unit/deliver/work_area_id"',
+             """nodeset="/data/visit_unit/deliver/work_area_id" calculate="'5b2f7d1e-8c3a-4e6b-9d0f-1a2b3c4d5e6f'" """.rstrip(), 1))
+
+
 def connect_work_area_update(authoring, app_id):
     """A work area update block (``vellum:role="ConnectWorkAreaUpdate"``) in the learn form."""
     _edit(

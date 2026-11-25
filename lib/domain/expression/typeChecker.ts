@@ -3235,11 +3235,7 @@ function inferTerm(
 					several,
 				);
 			}
-			if (
-				term.node.kind === "form-root" ||
-				term.node.role === "block" ||
-				term.node.role === "content"
-			)
+			if (term.node.kind === "form-root" || term.node.role === "content")
 				return {
 					data: { nodes: "text", cardinality: "one", container: true },
 					held: { nodes: "string" },
@@ -3264,27 +3260,31 @@ function inferTerm(
 			if (term.node.kind === "connect-assessment" && term.node.role === "score")
 				return generatedCalculation(
 					{
-						entity: "form",
-						uuid: form.formUuid,
+						entity: "field",
+						uuid: term.node.activity,
 						slot: "assessment_user_score",
 					},
 					ctx,
+					several,
 				);
-			if (
-				term.node.kind === "connect-delivery" &&
-				(term.node.role === "entity-id" || term.node.role === "entity-name")
-			)
-				return generatedCalculation(
-					{
-						entity: "form",
-						uuid: form.formUuid,
-						slot:
-							term.node.role === "entity-id"
-								? "deliver_entity_id"
-								: "deliver_entity_name",
-					},
-					ctx,
-				);
+			if (term.node.kind === "connect-delivery") {
+				const slot = {
+					"entity-id": "deliver_entity_id",
+					"entity-name": "deliver_entity_name",
+					"work-area-id": "deliver_work_area_id",
+				} as const;
+				const role = term.node.role;
+				if (
+					role === "entity-id" ||
+					role === "entity-name" ||
+					role === "work-area-id"
+				)
+					return generatedCalculation(
+						{ entity: "field", uuid: term.node.activity, slot: slot[role] },
+						ctx,
+						several,
+					);
+			}
 			return nodes("text", "string");
 		}
 		case "table-column": {
@@ -3494,8 +3494,9 @@ function structuralSeveral(
 
 const resolvingGenerated = new WeakMap<ExpressionContext, Set<string>>();
 function generatedCalculation(
-	slot: import("./types").FormExpressionSlotRef,
+	slot: import("./types").FieldExpressionSlotRef,
 	ctx: ExpressionContext,
+	several: StructuralSource | undefined,
 ): NodeType | undefined {
 	const key = `${slot.uuid}:${slot.slot}`;
 	let resolving = resolvingGenerated.get(ctx);
@@ -3518,7 +3519,7 @@ function generatedCalculation(
 				: type.held === "sequence"
 					? "string"
 					: type.held;
-		return nodes(data, held);
+		return severalNodes(nodes(data, held), several);
 	} finally {
 		resolving.delete(key);
 	}

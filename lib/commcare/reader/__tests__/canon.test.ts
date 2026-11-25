@@ -106,7 +106,6 @@ import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValida
 import type { CorpusDocument } from "@/proof/corpus/documents";
 import { producerDocuments } from "@/proof/corpus/producers";
 import { compileCcz } from "../../compiler";
-import { DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION } from "../../connectDefaults";
 import { expandDoc } from "../../expander";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { withCandidate } from "../candidate";
@@ -927,11 +926,16 @@ const PAIRS: readonly Pair[] = [
 			]),
 	},
 	{
-		id: "connect-defaults-are-unset",
-		name: "a Connect assessment's score holding the default an unset one prints",
+		id: "active-connect-roles-as-read",
+		name: "a learning form in an app configured for learning and delivery",
 		other: () =>
 			buildDoc({
-				connectType: "learn",
+				connectRoles: ["learn", "deliver"],
+				appSettings: {
+					showSavedForms: false,
+					showIncompleteForms: false,
+					runsOnlyOn: "android",
+				},
 				modules: [
 					{
 						name: "Learn",
@@ -939,13 +943,14 @@ const PAIRS: readonly Pair[] = [
 							{
 								name: "Lesson",
 								type: "survey",
-								connect: {
-									assessment: {
+								fields: [
+									f({ kind: "int", id: "points" }),
+									f({
+										kind: "connect_activity",
 										id: "quiz",
-										user_score: DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
-									},
-								},
-								fields: [f({ kind: "int", id: "points" })],
+										activity: { kind: "assessment", score: "#form/points" },
+									}),
+								],
 							},
 						],
 					},

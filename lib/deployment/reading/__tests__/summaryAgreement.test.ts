@@ -29,6 +29,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import { sourceIdentity } from "@/lib/commcare/hq/sourceIdentity";
@@ -413,6 +414,58 @@ describe("the text rule", () => {
 });
 
 describe("documentSummary", () => {
+	it("compares the submitted activity leaves inside their actual group", () => {
+		const doc = buildDoc({
+			connectRoles: ["deliver"],
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "person" }),
+								f({
+									kind: "group",
+									id: "visit",
+									children: [
+										f({
+											kind: "connect_activity",
+											id: "service",
+											relevant: "#form/person != ''",
+											activity: {
+												kind: "delivery",
+												name: "Visit",
+												entityId: "#form/person",
+											},
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const form = Object.values(doc.forms)[0];
+		if (form === undefined) throw new Error("Expected the visit form.");
+		expect(
+			documentSummary(doc, form.uuid).map((row) => [
+				row.path,
+				row.hasCalculate,
+				row.hasRelevant,
+			]),
+		).toEqual([
+			["/data/person", false, false],
+			["/data/visit", false, false],
+			["/data/visit/service/deliver/name", false, false],
+			["/data/visit/service/deliver/entity_id", true, false],
+			["/data/visit/service/deliver/entity_name", false, false],
+			["/data/visit/service/deliver/work_area_id", false, false],
+		]);
+	});
+
 	it("gives a query repeat in the count placement a row at its wrapper and one at its row path", {
 		timeout: 120_000,
 	}, () => {

@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 // Submission-program acceptance: the ENGINE's collected answers flow
 // through the PURE program builder into the REAL storage executor —
 // proving the production supplier produces executor-compatible programs
@@ -193,6 +194,93 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it("checks Connect's submitted delivery before case effects and replays the committed worker facts", async () => {
+		const formUuid = testUuid("connect-visit-followup");
+		const activity = testUuid("connect-visit-delivery");
+		const doc = buildDoc({
+			connectRoles: ["deliver"],
+			appSettings: {
+				runsOnlyOn: "android",
+				showSavedForms: false,
+				showIncompleteForms: false,
+			},
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "visit_note", label: proseText("Visit note") }],
+				},
+			],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Follow up",
+							uuid: formUuid,
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "person", label: "Person" }),
+								f({
+									kind: "text",
+									id: "note",
+									label: "Visit note",
+									caseWrite: { caseType: "patient", property: "visit_note" },
+								}),
+								f({
+									kind: "connect_activity",
+									id: "visit",
+									uuid: activity,
+									activity: {
+										kind: "delivery",
+										name: "Visit",
+										entityId: "#form/person",
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const store = makeStore();
+		await seedSessionCase(store, doc);
+		const engine = engineFor(doc, formUuid);
+		engine.setValue("/data/note", "Reached the household");
+		engine.setValue("/data/person", "🌿".repeat(256));
+		await expect(submit(doc, engine, store)).rejects.toThrow("255 characters");
+		expect((await loadCase(store, SESSION_CASE))?.properties).toEqual({});
+		const entries = await sql<{
+			count: number;
+		}>`SELECT count(*)::int AS count FROM form_submission_intents WHERE entry_key = ${ENTRY_KEY}`.execute(
+			dbHandle.db,
+		);
+		expect(entries.rows[0]?.count).toBe(0);
+		const entityId = "🌿".repeat(255);
+		engine.setValue("/data/person", entityId);
+		const result = await submit(doc, engine, store);
+		expect(result.activities).toEqual([
+			{
+				fieldUuid: activity,
+				rows: [],
+				kind: "delivery",
+				id: "visit",
+				name: "Visit",
+				entityId,
+				entityName: "",
+				workAreaId: "",
+			},
+		]);
+		expect((await loadCase(store, SESSION_CASE))?.properties).toMatchObject({
+			visit_note: "Reached the household",
+		});
+		const replay = await submit(doc, engine, store);
+		expect(replay.activities).toEqual(result.activities);
+	});
+
 	it.each([false, true])(
 		"operation reads and repeated effects inherit relevance: %s",
 		async (participates) => {

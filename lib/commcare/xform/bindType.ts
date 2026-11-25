@@ -60,6 +60,7 @@ const BIND_TYPE_BY_KIND = {
 	secret: "xsd:string",
 	single_select: "xsd:string",
 	multi_select: "xsd:string",
+	connect_activity: null,
 	label: null,
 	group: null,
 	repeat: null,

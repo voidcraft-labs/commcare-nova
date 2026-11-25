@@ -202,6 +202,7 @@ function editPatchToFieldPatch(
 	// projected options source is the one exception, supplied separately after
 	// its identity bridge.
 	const scalarKeys = [
+		"activity",
 		"id",
 		"label",
 		"hint",

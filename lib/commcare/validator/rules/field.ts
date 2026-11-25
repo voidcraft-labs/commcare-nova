@@ -21,7 +21,6 @@ import {
 	effectiveAppLocalization,
 	fieldKindCarriesValidation,
 	filledProse,
-	formConnectIds,
 	makeTranslationUnitId,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
@@ -421,10 +420,6 @@ function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 				return id === undefined ? [] : [id];
 			}),
 	);
-	// A root field's element shares the form's data root with its Connect
-	// blocks' wrappers.
-	if (parentKey === ctx.formUuid)
-		for (const id of formConnectIds(ctx.doc, ctx.formUuid)) siblings.add(id);
 	const suggestedId = freeQuestionId(field.id, siblings);
 	return [
 		...namespaceFindings,

@@ -28,7 +28,6 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import { caseWriteValueField } from "./caseWriteViews";
-import { formConnectIds } from "./connectIds";
 import type { Expression } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
 import { type Field, isCaptureField, isContainer } from "./fields";
@@ -211,7 +210,7 @@ export function appendedNameTaken(
 ): boolean {
 	for (const uuid of f.submittedChildren.get(repeat ?? f.formUuid) ?? [])
 		if (f.doc.fields[uuid]?.id === name) return true;
-	return repeat === undefined && formConnectIds(f.doc, f.formUuid).has(name);
+	return false;
 }
 
 // ── Values and conditions ───────────────────────────────────────────────

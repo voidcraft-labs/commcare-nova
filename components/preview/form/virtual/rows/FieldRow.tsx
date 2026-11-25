@@ -168,7 +168,13 @@ export const FieldRow = memo(function FieldRow({
 	// input-producing kind that exposes `label` + optional `hint`.
 	// Narrow on `kind` instead of the legacy wire `type` discriminant.
 	const content =
-		q.kind === "hidden" ? (
+		q.kind === "connect_activity" ? (
+			<span className="text-xs text-nova-text-muted">
+				{q.activity.kind === "assessment"
+					? "Connect assessment"
+					: q.activity.name}
+			</span>
+		) : q.kind === "hidden" ? (
 			<HiddenField field={q} />
 		) : isContainer(q) ? null : (
 			<div className="block space-y-1.5">

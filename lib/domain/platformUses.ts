@@ -310,14 +310,14 @@ export function platformFeatureUses(
 	const out: PlatformFeatureUse[] = [];
 	const app: PlatformFeatureOwner = { kind: "app" };
 	const appUses: PlatformFeatureUse[] = [];
-	if (doc.connectType !== null) {
+	if (doc.connectRoles.length > 0) {
 		if (wanted("connect-app"))
-			appUses.push(slotUse("connect-app", app, "connectType"));
+			appUses.push(slotUse("connect-app", app, "connectRoles"));
 		if (wanted("connect-location-capture"))
-			appUses.push(slotUse("connect-location-capture", app, "connectType"));
+			appUses.push(slotUse("connect-location-capture", app, "connectRoles"));
 	}
 	if (
-		doc.connectType === null &&
+		doc.connectRoles.length === 0 &&
 		doc.appSettings.captureLocation &&
 		wanted("connect-location-capture")
 	)

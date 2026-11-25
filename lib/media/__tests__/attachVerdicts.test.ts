@@ -79,7 +79,7 @@ function emptyDoc(): BlueprintDoc {
 	return {
 		appId: "app-1",
 		appName: "App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},

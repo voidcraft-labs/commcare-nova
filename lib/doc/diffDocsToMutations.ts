@@ -29,7 +29,7 @@ import { wordingSourceUnit } from "./localizationWorkspace";
  * The emission order is dictated by the reducer's semantics, not by the
  * mutation union's declaration order:
  *
- *   1. App-level scalars (`setAppName` / `setConnectType` / `setAppLogo` /
+ *   1. App-level scalars (`setAppName` / `setConnectRoles` / `setAppLogo` /
  *      `setAppSettings`). No entity side effects, so they can lead.
  *   2. Module + form ADDS and module relocations — parents and final sibling
  *      anchors before dependents. Added entities land before removes so an
@@ -701,8 +701,8 @@ function* diffGranularSteps(
 	if (prev.appName !== next.appName) {
 		appLevel.push({ kind: "setAppName", name: next.appName });
 	}
-	if (prev.connectType !== next.connectType) {
-		appLevel.push({ kind: "setConnectType", connectType: next.connectType });
+	if (!deepEqual(prev.connectRoles, next.connectRoles)) {
+		appLevel.push({ kind: "setConnectRoles", roles: next.connectRoles });
 	}
 	if (prev.logo !== next.logo) {
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });

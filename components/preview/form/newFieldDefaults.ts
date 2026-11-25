@@ -24,6 +24,48 @@ import {
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
 
+import type {
+	ConnectActivity,
+	ConnectActivityField,
+} from "@/lib/domain/fields/connectActivity";
+
+export function newConnectActivity(
+	id: string,
+	kind: ConnectActivity["kind"],
+): Omit<ConnectActivityField, "uuid"> {
+	switch (kind) {
+		case "learning-module":
+			return {
+				kind: "connect_activity",
+				id,
+				activity: {
+					kind,
+					name: "New learning module",
+					description: "",
+					estimatedHours: 0,
+				},
+			};
+		case "assessment":
+			return {
+				kind: "connect_activity",
+				id,
+				activity: { kind, score: term(literal(0)) },
+			};
+		case "delivery":
+			return {
+				kind: "connect_activity",
+				id,
+				activity: { kind, name: "New delivery" },
+			};
+		case "assigned-task":
+			return {
+				kind: "connect_activity",
+				id,
+				activity: { kind, name: "New assigned task", description: "" },
+			};
+	}
+}
+
 function defaultSelectOptions() {
 	return DEFAULT_SELECT_OPTIONS.map((option) => ({
 		...option,
@@ -102,6 +144,7 @@ export const NEW_FIELD_BUILDERS: {
 	// slot, a valid hidden value that stays blank. The inspector's Value
 	// control opens a fresh field in keep-in-step and commits the
 	// calculation the person types as `calculate`.
+	connect_activity: (id) => newConnectActivity(id, "learning-module"),
 	hidden: (id) => ({ kind: "hidden", id }),
 };
 

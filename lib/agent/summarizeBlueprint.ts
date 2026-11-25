@@ -162,7 +162,7 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
 	const afterSubmit = afterSubmitLine(doc, formUuid);
 	if (afterSubmit !== undefined) extras.push(afterSubmit);
-	if (form.connect) extras.push("    [Connect enabled]");
+
 	// The conditions print as the form logic `updateForm` accepts, through
 	// the printer, with field names projected from their identities.
 	if (form.type === "registration" && form.openCondition !== undefined)
@@ -541,9 +541,10 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	const lines: string[] = [];
 
 	lines.push(`### App: "${doc.appName}"`);
-	if (doc.connectType) lines.push(`Connect type: ${doc.connectType}`);
+	if (doc.connectRoles.length)
+		lines.push(`Connect roles: ${doc.connectRoles.join(", ")}`);
 	lines.push(
-		`Automatic location on Android: ${doc.connectType !== null ? "on for all forms through Connect" : doc.appSettings.captureLocation ? "on for all forms" : "chosen by each form"}`,
+		`Automatic location on Android: ${doc.connectRoles.length > 0 ? "on for all forms through Connect" : doc.appSettings.captureLocation ? "on for all forms" : "chosen by each form"}`,
 		`Form lists: saved forms ${doc.appSettings.showSavedForms ? "on" : "off"}, incomplete forms ${doc.appSettings.showIncompleteForms ? "on" : "off"}`,
 	);
 	if (doc.appSettings.requiredAndroidApps?.length)

@@ -582,7 +582,7 @@ describe("the register", () => {
 		};
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "android",
 					showIncompleteForms: false,
@@ -591,7 +591,7 @@ describe("the register", () => {
 		).not.toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "web-apps",
 					showIncompleteForms: false,
@@ -600,13 +600,13 @@ describe("the register", () => {
 		).toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showIncompleteForms: true },
 			}).ids,
 		).not.toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showIncompleteForms: false },
 			}).ids,
 		).toContain(id);
@@ -1785,7 +1785,7 @@ describe("over CommCare HQ's retained sources", () => {
 				);
 				for (const runsOnlyOn of ["android", "web-apps", undefined] as const) {
 					const other = firstPublishViewFromStored(stored, {
-						connectType: facts.doc.connectType,
+						connectRoles: facts.doc.connectRoles,
 						appSettings: { ...facts.doc.appSettings, runsOnlyOn },
 					});
 					expect(other.ids.filter((id) => !moving.has(id))).toEqual(
@@ -1814,7 +1814,7 @@ describe("over CommCare HQ's retained sources", () => {
 		} as const;
 		expect(
 			firstPublishViewFromStored(next, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,
@@ -1827,7 +1827,7 @@ describe("over CommCare HQ's retained sources", () => {
 		});
 		expect(
 			firstPublishViewFromStored(next, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "android",
 					showIncompleteForms: false,
@@ -1887,7 +1887,7 @@ describe("over CommCare HQ's retained sources", () => {
 		} as const;
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "web-apps",
 					showIncompleteForms: false,
@@ -1896,7 +1896,7 @@ describe("over CommCare HQ's retained sources", () => {
 		).not.toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "android",
 					showIncompleteForms: false,
@@ -1905,7 +1905,7 @@ describe("over CommCare HQ's retained sources", () => {
 		).toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,

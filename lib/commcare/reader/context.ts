@@ -51,7 +51,7 @@ export interface DraftApp {
 	/** The project space's levels (`levelsFromHq`). */
 	levels: readonly OrganizationLevel[];
 	/** The app's Connect kind, set once every form is read (`xform/connect.ts::readConnectType`). */
-	connectType: BlueprintDoc["connectType"];
+	connectRoles: BlueprintDoc["connectRoles"];
 	/** What the app reads of the worker and of places (`worldEntitiesFromReads`). */
 	userProperties: readonly UserProperty[];
 	locationProperties: readonly LocationProperty[];
@@ -175,7 +175,7 @@ export function createReadContext(
 			logo: undefined,
 			modules: [],
 			levels: [],
-			connectType: null,
+			connectRoles: [],
 			userProperties: [],
 			locationProperties: [],
 			caseTypes: null,

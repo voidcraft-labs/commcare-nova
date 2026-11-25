@@ -23,7 +23,11 @@ another phone session with the needed apps installed. Web Apps skips that check.
 identity/language choices; omission creates `default`. The first session is
 primary. Each ordered action may address `sessionId`; omission uses primary.
 An unknown ID refuses before identity materialization, navigation or submission,
-and a duplicate ID refuses before namespace admission. Session IDs are opaque
+and a duplicate ID refuses before namespace admission. Version 20 uses the completed round-trip document and worker settings. Members
+can read stored observations from earlier versions. The owner can finish an
+older test without a session ID, which disposes its namespace without executing
+its old checkpoint. New actions start from a new test of the saved app.
+Session IDs are opaque
 labels, not entity names or invented Preview workers. Identity, language,
 navigation, ancestor selections, record catalog and open-form entry/checkpoint
 belong to that session. Advancing another session never retires them. The step,

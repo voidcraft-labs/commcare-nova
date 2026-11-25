@@ -9,8 +9,7 @@ import { attributeNameIn } from "./model";
  * values whose order a save in HQ's form builder changes, where one reads the
  * node the other sets; a hidden answer type Nova's automatic type writes, and
  * the spellings of hidden answer types; and a protected validation message's composed
- * expression and its text's own forms; and a Connect slot that holds the default the
- * emitter writes for an unset one, read as unset. Each is compared with the production rule
+ * expression and its text's own forms. Each is compared with the production rule
  * over the document as the expression stage bound it. A check whose inputs a
  * finding withheld is skipped: that finding already sends the person to the
  * question or the form. A Hidden Value holding both a calculate and a
@@ -45,11 +44,7 @@ import {
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { caseOptionsNodeset } from "../../caseOptions";
-import {
-	DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
-	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
-	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
-} from "../../connectDefaults";
+
 import { el, text as textNode } from "../../elementBuilders";
 import { planLanguageWire } from "../../languageWire";
 import { commCareLocalization } from "../../localization";
@@ -1083,60 +1078,6 @@ function sameFormValues(
 	);
 }
 
-/** Each Connect slot the emitter fills from its default where the slot is unset
- *  (`connectDefaults.ts::effectiveAssessmentUserScore`, `effectiveDeliverEntities`). */
-const CONNECT_DEFAULTS = [
-	{
-		block: "assessment",
-		slot: "user_score",
-		value: DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
-	},
-	{
-		block: "deliver_unit",
-		slot: "entity_id",
-		value: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
-	},
-	{
-		block: "deliver_unit",
-		slot: "entity_name",
-		value: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
-	},
-] as const;
-
-/**
- * The document with each Connect slot that holds its default unset: the emitter writes the
- * default's calculate for an unset slot, so an unset slot and one holding the default print one
- * block, and the reading returns the unset one (`finishForms`).
- */
-export function connectDefaultsUnset(doc: BlueprintDoc): BlueprintDoc {
-	const unset: { form: Uuid; block: string; slot: string }[] = [];
-	for (const [formUuid, form] of Object.entries(doc.forms) as [
-		Uuid,
-		BlueprintDoc["forms"][Uuid],
-	][]) {
-		const connect = form.connect as
-			| Record<string, Record<string, unknown> | undefined>
-			| undefined;
-		if (connect === undefined) continue;
-		for (const { block, slot, value } of CONNECT_DEFAULTS) {
-			const held = connect[block]?.[slot];
-			if (held !== undefined && sameJson(held, value))
-				unset.push({ form: formUuid, block, slot });
-		}
-	}
-	if (unset.length === 0) return doc;
-	return withCandidate(doc, (draft) => {
-		for (const { form, block, slot } of unset) {
-			const config = (
-				draft.forms[form]?.connect as
-					| Record<string, Record<string, unknown> | undefined>
-					| undefined
-			)?.[block];
-			if (config !== undefined) delete config[slot];
-		}
-	});
-}
-
 /** The bind type a Hidden Value's export writes, with the bound document's
  * writes: its chosen type's, or its automatic one. */
 function emittedHiddenBind(
@@ -1328,7 +1269,6 @@ function claimInheritedNamespaces(
 
 /** Stage 10: the checks of each form that need the bound document. */
 export function finishForms(ctx: ReadContext): void {
-	if (ctx.doc !== undefined) ctx.doc = connectDefaultsUnset(ctx.doc);
 	const types = lookupTypes(expressionEnvOf(ctx));
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {

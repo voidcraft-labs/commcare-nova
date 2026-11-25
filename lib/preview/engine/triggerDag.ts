@@ -1,4 +1,8 @@
 import {
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+} from "@/lib/commcare/xform/connectActivity";
+import {
 	type FormNodeProjection,
 	formNodeProjection,
 } from "@/lib/commcare/xpath/formNodeProjection";
@@ -921,6 +925,39 @@ export class TriggerDag {
 					this.settleFreeEdges.push([dependency, path]);
 			}
 		};
+		if (field.kind === "connect_activity") {
+			const content = activityWireContent(field.activity);
+			const shape = CONNECT_BLOCK_SHAPES[content.block];
+			const blockPath = `${path}/${shape.element}`;
+			// References to an activity's ID, literal wording and calculated values all
+			// lose their nodes when the activity or its containing row becomes irrelevant.
+			this.addEdge(path, blockPath);
+			this.addEdge(blockPath, `${blockPath}/@id`);
+			for (const leaf of shape.leaves)
+				this.addEdge(blockPath, `${blockPath}/${leaf}`);
+			for (const { slot, leaf, expression } of content.calculations) {
+				if (!expression) continue;
+				const target = `${blockPath}/${leaf}`;
+				const ref = { entity: "field", uuid: field.uuid, slot } as const;
+				const dependencies = formReadPaths(
+					expression,
+					runtime.projection,
+					runtime.readPath,
+				);
+				this.recordFilteredReads(target, expression);
+				this.nodes.set(target, {
+					path: target,
+					expressions: [
+						{
+							type: "calculate",
+							expr: runtime.lower(expression, ref),
+							dependencies,
+						},
+					],
+				});
+				for (const dependency of dependencies) this.addEdge(dependency, target);
+			}
+		}
 		add("relevant", "relevant", "trigger");
 		add("calculate", "calculate", "trigger");
 		add("required", "required", "metadata");
@@ -1141,6 +1178,9 @@ export class TriggerDag {
 				if (ref.slot === "relevant" || ref.slot === "calculate") {
 					const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
 					if (target !== undefined) add(expression, target, ref.slot);
+				} else if (field.kind === "connect_activity") {
+					const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
+					if (target !== undefined) add(expression, target, "calculate");
 				} else if (!countFeedback && ref.slot === "default_value")
 					add(expression, row, "calculate", false);
 				else if (ref.slot === "lookup_options_source")
@@ -1249,19 +1289,6 @@ export class TriggerDag {
 				};
 				descend(row);
 			}
-		}
-		for (const { ref, expression } of expressionSlotValues(doc, {
-			entity: "form",
-			uuid: formUuid,
-		})) {
-			if (
-				ref.slot !== "assessment_user_score" &&
-				ref.slot !== "deliver_entity_id" &&
-				ref.slot !== "deliver_entity_name"
-			)
-				continue;
-			const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
-			if (target !== undefined) add(expression, target, "calculate");
 		}
 		for (const [uuid, field] of form.fields) {
 			if (field.kind !== "group" && field.kind !== "repeat") continue;

@@ -117,7 +117,7 @@ async function persistedAppReferencesInTransaction(
 				.onRef("app.id", "=", "edge.app_id")
 				.onRef("app.project_id", "=", "edge.project_id"),
 		)
-		.select(["app.id", "app.app_name", "app.connect_type", "app.logo"])
+		.select(["app.id", "app.app_name", "app.connect_roles", "app.logo"])
 		.select(
 			sql<string | null>`${sql.ref("app.case_types")}::text`.as(
 				"case_types_text",
@@ -158,7 +158,7 @@ async function persistedAppReferencesInTransaction(
 			app.id,
 			{
 				app_name: app.app_name,
-				connect_type: app.connect_type,
+				connect_roles: app.connect_roles,
 				case_types_text: app.case_types_text,
 				localization_text: app.localization_text,
 				app_settings_text: app.app_settings_text,

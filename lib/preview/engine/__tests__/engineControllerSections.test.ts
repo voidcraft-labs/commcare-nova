@@ -62,7 +62,7 @@ function makeDoc(): PersistableDoc {
 	return {
 		appId: "test-app",
 		appName: "Test App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {

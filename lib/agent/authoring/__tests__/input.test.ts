@@ -604,21 +604,33 @@ it("binds named Connect participants and their score expressions to each form", 
 			fieldUuid: "fixture_placeholder",
 		});
 	}
-	await h.call("configureConnect", {
-		mode: "learn",
-		participants: ["First assessment", "Second assessment"].map((formUuid) => ({
-			formUuid,
-			connect: { assessment: { user_score: "#form/score" } },
-		})),
-	});
+	await h.call("configureConnect", { roles: ["learn"] });
+	for (const formUuid of ["First assessment", "Second assessment"]) {
+		expect(
+			await h.call("addFields", {
+				formUuid,
+				fields: [
+					{
+						kind: "connect_activity",
+						id: "quiz",
+						activity: { kind: "assessment", score: "#form/score" },
+					},
+				],
+			}),
+		).toMatchObject({ ok: true });
+	}
 	const doc = h.currentDoc();
 	for (const form of Object.values(doc.forms).filter((form) =>
 		form.name.endsWith("assessment"),
 	)) {
-		const scoreUuid = doc.fieldOrder[form.uuid][0];
-		expect(form.connect).toMatchObject({
-			assessment: {
-				user_score: { kind: "term", term: { kind: "field", uuid: scoreUuid } },
+		const [score, quiz] = doc.fieldOrder[form.uuid];
+		expect(doc.fields[quiz]).toMatchObject({
+			activity: {
+				kind: "assessment",
+				score: {
+					kind: "term",
+					term: { kind: "field", uuid: score },
+				},
 			},
 		});
 	}

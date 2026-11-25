@@ -347,19 +347,6 @@ async function prepareInput<S extends z.ZodType>(args: {
 			})),
 		];
 	}
-	if (toolName === "configureConnect" && input.participants !== undefined) {
-		const participants = records.parse(input.participants);
-		for (const [index, participant] of participants.entries()) {
-			const address = { formUuid: participant.formUuid };
-			bindToolAddress("getForm", address, doc);
-			participant.formUuid = address.formUuid;
-			scopes.push({
-				path: ["participants", index],
-				options: formScope(doc, uuidSchema.parse(participant.formUuid)),
-			});
-		}
-		input.participants = participants;
-	}
 	if (toolName === "addAutomations") {
 		for (const [index, automation] of records
 			.parse(input.automations)

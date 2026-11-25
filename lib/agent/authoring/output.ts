@@ -50,6 +50,7 @@ import {
 } from "@/lib/domain/expression/types";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import { referenceNames } from "@/lib/domain/referenceNames";
+import { FIELD_REFERENCE_SLOTS } from "@/lib/domain/referenceSlots";
 import { log } from "@/lib/logger";
 import {
 	type AuthoringScopeOptions,
@@ -128,33 +129,14 @@ export function authoringEncoders(
 		const content = record.parse(source);
 		const uuid = uuidSchema.safeParse(content.uuid);
 		if (uuid.success && options.doc.fields[uuid.data] !== undefined) {
-			const slot =
-				path.length === 1
-					? path[0]
-					: path[0] === "data_source" && path[1] === "ids_query"
-						? "ids_query"
-						: undefined;
-			if (
-				slot === "relevant" ||
-				slot === "validate" ||
-				slot === "calculate" ||
-				slot === "default_value" ||
-				slot === "required" ||
-				slot === "repeat_count" ||
-				slot === "ids_query"
-			)
-				return { entity: "field", uuid: uuid.data, slot };
+			const entry = FIELD_REFERENCE_SLOTS.find(
+				(entry) => entry.kind === "expression" && entry.path === path.join("."),
+			);
+			if (entry?.kind === "expression")
+				return { entity: "field", uuid: uuid.data, slot: entry.slot };
 		}
 		if (options.formUuid !== undefined) {
 			const uuid = options.formUuid;
-			if (path[0] === "connect") {
-				if (path[1] === "assessment" && path[2] === "user_score")
-					return { entity: "form", uuid, slot: "assessment_user_score" };
-				if (path[1] === "deliver_unit" && path[2] === "entity_id")
-					return { entity: "form", uuid, slot: "deliver_entity_id" };
-				if (path[1] === "deliver_unit" && path[2] === "entity_name")
-					return { entity: "form", uuid, slot: "deliver_entity_name" };
-			}
 			const otherwise = options.doc.forms[uuid]?.otherwise;
 			if (
 				path[0] === "otherwise" &&

@@ -6,6 +6,7 @@ import type {
 	ProseTemplate,
 	Uuid,
 } from "@/lib/domain";
+import { fieldHasWorkerControl } from "@/lib/domain/fieldForm";
 import { isProseTemplate } from "@/lib/domain/prose";
 import { runtimeMessage } from "../runtimeMessages";
 import { controlValuePath, type FieldTreeNode } from "./fieldTree";
@@ -85,7 +86,7 @@ export function fieldHasWorkerPresentation(
 	const { field, children = [] } = node;
 	const state = source.stateAt(field, path);
 	if (
-		field.kind === "hidden" ||
+		!fieldHasWorkerControl(field.kind) ||
 		!state.visible ||
 		source.workerRelevant?.has(path) === false
 	)

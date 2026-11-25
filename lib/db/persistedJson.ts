@@ -21,7 +21,7 @@ import {
 import type {
 	AppLocalization,
 	AppSettings,
-	ConnectType,
+	ConnectRole,
 	MediaAssetId,
 	PersistableDoc,
 	Uuid,
@@ -48,7 +48,7 @@ type JsonRecord = Record<string, unknown>;
 
 export interface PersistedBlueprintRootText {
 	readonly app_name: string;
-	readonly connect_type: ConnectType | null;
+	readonly connect_roles: ConnectRole[] | null;
 	readonly case_types_text: string | null;
 	readonly localization_text?: string | null;
 	/** `apps.app_settings` as text. A NULL leaves the required root out, so
@@ -512,7 +512,7 @@ export function assemblePersistedBlueprintJsonText(
 		appId,
 		{
 			app_name: root.app_name,
-			connect_type: root.connect_type,
+			connect_roles: root.connect_roles,
 			case_types:
 				root.case_types_text === null
 					? null

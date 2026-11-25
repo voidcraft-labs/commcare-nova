@@ -280,7 +280,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: configureConnectTool.description,
 		schema: configureConnectTool.inputSchema,
 		prompt:
-			"Use configureConnect to make the app a learn app whose one participating form is formUuid 22222222-2222-4222-8222-222222222222, with a learn module named 'Hand washing', described as 'Why and when to wash hands', with a time estimate of 1 hour.",
+			"Use configureConnect to make this Android app serve both learning and delivery roles.",
 	},
 	{
 		name: "addEntryPoint",

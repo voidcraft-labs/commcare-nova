@@ -227,6 +227,7 @@ const RELEVANT_KINDS = [
 	"secret",
 	"group",
 	"repeat",
+	"connect_activity",
 ] as const satisfies readonly FieldKind[];
 
 /** Every kind with a display label — all but `hidden` (never shown,
@@ -286,6 +287,34 @@ export const FIELD_REFERENCE_SLOTS = [
 		// makes a control read-only, so visible kinds carry `default_value`
 		// (a one-shot seed) instead.
 		appliesTo: ["hidden"],
+	},
+	{
+		entity: "field",
+		slot: "assessment_user_score",
+		path: "activity.score",
+		kind: "expression",
+		appliesTo: ["connect_activity"],
+	},
+	{
+		entity: "field",
+		slot: "deliver_entity_id",
+		path: "activity.entityId",
+		kind: "expression",
+		appliesTo: ["connect_activity"],
+	},
+	{
+		entity: "field",
+		slot: "deliver_entity_name",
+		path: "activity.entityName",
+		kind: "expression",
+		appliesTo: ["connect_activity"],
+	},
+	{
+		entity: "field",
+		slot: "deliver_work_area_id",
+		path: "activity.workAreaId",
+		kind: "expression",
+		appliesTo: ["connect_activity"],
 	},
 	{
 		entity: "field",
@@ -477,27 +506,6 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "form_link_datum_xpath",
 		path: "otherwise.datums[].xpath",
-		kind: "expression",
-		formTypes: FORM_TYPES,
-	},
-	{
-		entity: "form",
-		slot: "assessment_user_score",
-		path: "connect.assessment.user_score",
-		kind: "expression",
-		formTypes: FORM_TYPES,
-	},
-	{
-		entity: "form",
-		slot: "deliver_entity_id",
-		path: "connect.deliver_unit.entity_id",
-		kind: "expression",
-		formTypes: FORM_TYPES,
-	},
-	{
-		entity: "form",
-		slot: "deliver_entity_name",
-		path: "connect.deliver_unit.entity_name",
 		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
@@ -830,9 +838,12 @@ export type FieldProseSlotId = Extract<
 /** Connect-block XPath slot ids — the registry side of the validator's
  *  `ConnectXPathSlot` union. */
 export type ConnectExpressionSlotId = Extract<
-	FormSlotEntry,
-	{ path: `connect.${string}` }
->["slot"];
+	FieldSlotEntry["slot"],
+	| "assessment_user_score"
+	| "deliver_entity_id"
+	| "deliver_entity_name"
+	| "deliver_work_area_id"
+>;
 
 /** Form-link XPath slot ids — fan-out form carriers validated and emitted
  *  once per link (and, for datum XPath, once per datum). */
@@ -1013,9 +1024,6 @@ function expressionRefForEntry(
 		case "form_display_condition":
 		case "form_open_condition":
 		case "form_close_condition":
-		case "assessment_user_score":
-		case "deliver_entity_id":
-		case "deliver_entity_name":
 			return { entity: "form", uuid, slot: entry.slot };
 		case "form_link_condition": {
 			const link = form.formLinks?.[indices[0] ?? -1];
@@ -1543,6 +1551,10 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	uuid: "identity",
 	id: "declaration",
 	kind: "discriminator",
+	"activity.kind": "discriminator",
+	"activity.name": "display-text",
+	"activity.description": "display-text",
+	"activity.estimatedHours": "config",
 	repeat_mode: "discriminator",
 	// A query repeat's held placement: a closed enum, naming nothing.
 	placement: "config",
@@ -1632,16 +1644,6 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].placement.row": "config",
 	"ownClosePlacement.kind": "discriminator",
 	"ownClosePlacement.path": "wire-token",
-	"connect.learn_module.id": "declaration",
-	"connect.learn_module.name": "display-text",
-	"connect.learn_module.description": "display-text",
-	"connect.learn_module.time_estimate": "config",
-	"connect.assessment.id": "declaration",
-	"connect.deliver_unit.id": "declaration",
-	"connect.deliver_unit.name": "display-text",
-	"connect.task.id": "declaration",
-	"connect.task.name": "display-text",
-	"connect.task.description": "display-text",
 	icon: "media",
 	audioLabel: "media",
 };

@@ -30,6 +30,10 @@ import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { fieldBindType } from "@/lib/commcare/xform/bindType";
 import {
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+} from "@/lib/commcare/xform/connectActivity";
+import {
 	type XFormDataRootRuntimeAttributes,
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
@@ -67,6 +71,7 @@ import {
 	prepareCaseScalarTextValue,
 	proseSource,
 } from "@/lib/domain";
+import type { SubmittedActivity } from "@/lib/domain/connectSubmissionFacts";
 import { isMatchAll, isMatchNone } from "@/lib/domain/expression/builders";
 import {
 	compilerBugMessage,
@@ -77,6 +82,7 @@ import type {
 	FieldExpressionSlotRef,
 	ProseSlotRef,
 } from "@/lib/domain/expression/types";
+import { fieldHasWorkerControl } from "@/lib/domain/fieldForm";
 import { formRootName } from "@/lib/domain/formAnswerRoot";
 import {
 	effectiveQueryRepeatPlacement,
@@ -2124,7 +2130,7 @@ export class FormEngine {
 			const path = controlValuePath(node, prefix);
 			if (!effectivelyVisible.has(path)) continue;
 			if (!isContainer(node.field)) {
-				if (node.field.kind !== "hidden") return true;
+				if (fieldHasWorkerControl(node.field.kind)) return true;
 				continue;
 			}
 			if (node.field.kind === "repeat") {
@@ -2330,7 +2336,7 @@ export class FormEngine {
 					});
 					continue;
 				}
-				if (isContainer(field) || field.kind === "hidden") continue;
+				if (isContainer(field) || !fieldHasWorkerControl(field.kind)) continue;
 				screens.push({
 					kind: "question",
 					uuid: field.uuid,
@@ -2571,7 +2577,7 @@ export class FormEngine {
 				const structural = isContainer(node.field);
 				if (
 					!structural &&
-					node.field.kind !== "hidden" &&
+					fieldHasWorkerControl(node.field.kind) &&
 					states[instancePath]?.valid === false &&
 					onScreen(instancePath)
 				) {
@@ -2802,10 +2808,12 @@ export class FormEngine {
 				? this.store.getState()
 				: { ...this.store.getState(), ...stateOverrides });
 		const { visible, rows } = this.effectiveRelevance(states);
-		return new Map([
+		const relevance = new Map([
 			...Object.keys(states).map((path) => [path, visible.has(path)] as const),
 			...rows,
 		]);
+		this.instance.addActivityRelevance(relevance);
+		return relevance;
 	}
 
 	/** The one form this engine's input slice is rooted at. */
@@ -2907,6 +2915,76 @@ export class FormEngine {
 				field.uuid,
 			) ?? []
 		);
+	}
+
+	/** The worker instance drops irrelevant rows and elements before forwarding the form. */
+	private submittedActivities(): SubmittedActivity[] | undefined {
+		if (!this.instance.hasActivities()) return undefined;
+		const facts: SubmittedActivity[] = [];
+		const visible = this.effectivelyVisiblePaths();
+		const visit = (
+			nodes: readonly FieldTreeNode[],
+			prefix: string,
+			rows: SubmittedActivity["rows"],
+		) => {
+			for (const node of nodes) {
+				const field = node.field;
+				const path = `${prefix}/${field.id}`;
+				if (!visible.has(path)) continue;
+				if (field.kind === "repeat") {
+					const state = this.store.getState()[path];
+					for (
+						let index = 0;
+						index < this.instance.getRepeatCount(path);
+						index++
+					) {
+						if (!this.repeatRowRelevant(field, path, index, state)) continue;
+						visit(node.children ?? [], `${path}[${index}]`, [
+							...rows,
+							{ repeat: field.uuid, index },
+						]);
+					}
+				} else if (field.kind === "group" || field.kind === "section") {
+					visit(node.children ?? [], path, rows);
+				} else if (field.kind === "connect_activity") {
+					const { block, calculations } = activityWireContent(field.activity);
+					const element = CONNECT_BLOCK_SHAPES[block].element;
+					const value = (slot: (typeof calculations)[number]["slot"]) => {
+						const child = calculations.find(
+							(calculation) => calculation.slot === slot,
+						);
+						return child
+							? (this.instance.get(`${path}/${element}/${child.leaf}`) ?? "")
+							: "";
+					};
+					const occurrence = { fieldUuid: field.uuid, rows };
+					switch (field.activity.kind) {
+						case "assessment":
+							facts.push({
+								...occurrence,
+								kind: "assessment",
+								score: value("assessment_user_score"),
+							});
+							break;
+						case "delivery":
+							facts.push({
+								...occurrence,
+								kind: "delivery",
+								entityId: value("deliver_entity_id"),
+								entityName: value("deliver_entity_name"),
+								workAreaId: value("deliver_work_area_id"),
+							});
+							break;
+						case "learning-module":
+						case "assigned-task":
+							facts.push({ ...occurrence, kind: field.activity.kind });
+							break;
+					}
+				}
+			}
+		};
+		visit(this.tree, "/data", []);
+		return facts;
 	}
 
 	/**
@@ -3188,6 +3266,7 @@ export class FormEngine {
 		entryKey: string;
 	}): SubmissionMutation {
 		const operationAnswers = this.computeOperationAnswers();
+		const activities = this.submittedActivities();
 		const protocol = {
 			formUuid: this.activeFormUuid() as string,
 			entryKey: args.entryKey,
@@ -3196,6 +3275,7 @@ export class FormEngine {
 			// this entry.
 			attachmentRefs: this.collectAttachmentReferences(),
 			...(operationAnswers !== undefined && { operationAnswers }),
+			...(activities !== undefined && { activities }),
 		};
 		switch (this.formType) {
 			case "survey":
@@ -3423,6 +3503,14 @@ export class FormEngine {
 			state.resolvedAddLabel !== undefined ||
 			state.resolvedOptionLabels !== undefined
 		);
+	}
+
+	/** A generated Connect bind has its own XPath context and no question state. */
+	private activityCalculation(path: string): string | undefined {
+		if (!this.instance.hasActivityCalculation(path)) return undefined;
+		return this.dag
+			.getExpressions(path)
+			.find(({ type }) => type === "calculate")?.expr;
 	}
 
 	private expressionsForEvaluation(path: string, state: FieldState) {
@@ -4135,7 +4223,15 @@ export class FormEngine {
 			return;
 		}
 		const current = updates[path] ?? this.store.getState()[path];
-		if (!current) return;
+		if (!current) {
+			const calculation = phase === "values" && this.activityCalculation(path);
+			if (calculation)
+				this.instance.set(
+					path,
+					xpathToString(await evaluateAsync(calculation, path)),
+				);
+			return;
+		}
 		const expressions = this.expressionsForEvaluation(path, current).filter(
 			({ type }) => inPhase(type, phase),
 		);
@@ -4428,7 +4524,17 @@ export class FormEngine {
 			return;
 		}
 		const current = updates[path] ?? this.store.getState()[path];
-		if (!current) return;
+		if (!current) {
+			const calculation = phase === "values" && this.activityCalculation(path);
+			if (calculation)
+				this.instance.set(
+					path,
+					xpathToString(
+						evaluate(calculation, this.createEvalContext(path, updates)),
+					),
+				);
+			return;
+		}
 
 		const expressions = this.expressionsForEvaluation(path, current).filter(
 			({ type }) => inPhase(type, phase),
@@ -5207,9 +5313,13 @@ export class FormEngine {
 				attribute: "ids",
 			},
 		};
-		return isAsyncNodesetValues(result)
-			? result.values
-			: javaRosaSplitOnSpaces(xpathToString(result));
+		// The emitted ids bind joins the nodes into ONE space-separated
+		// value. A case ID containing a space participates in that spelling.
+		return javaRosaSplitOnSpaces(
+			isAsyncNodesetValues(result)
+				? result.values.join(" ")
+				: xpathToString(result),
+		);
 	}
 
 	/** Vellum's model iteration writes @ids, then separately assigns

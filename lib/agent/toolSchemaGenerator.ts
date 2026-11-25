@@ -1,3 +1,4 @@
+import { connectActivitySchema } from "@/lib/domain/fields/connectActivity";
 import { caseOptionsSourceSchema as storedCaseOptionsSourceSchema } from "@/lib/domain/fields/selectOptionsSource";
 
 const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
@@ -465,6 +466,7 @@ const ADD_GATED_KEYS = [
 	"answerType",
 	"askForConfirmation",
 	"maxDimension",
+	"activity",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -524,6 +526,11 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 				.nullable()
 				.optional()
 				.describe(FIELD_DOCS.maxDimension),
+			activity: connectActivitySchema
+				.optional()
+				.describe(
+					"The Connect activity this position submits. Replacing an activity replaces all of its settings. A delivery value left out submits empty text.",
+				),
 			hint: hintField(),
 			help: helpField(),
 			addFirstLabel: proseTemplateSchema
@@ -552,6 +559,12 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			repeat: repeatConfigDiscriminated().nullable().optional(),
 		})
 		.superRefine((item, ctx) => {
+			if (item.kind === "connect_activity" && item.activity === undefined)
+				ctx.addIssue({
+					code: "custom",
+					path: ["activity"],
+					message: "Choose the Connect activity this part of the form records.",
+				});
 			for (const key of ADD_GATED_KEYS) {
 				if (item[key] != null && !fieldKindDeclaresKey(item.kind, key)) {
 					undeclaredSlotIssue(ctx, item.kind, key);
@@ -657,6 +670,11 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				.nullable()
 				.optional()
 				.describe(FIELD_DOCS.maxDimension),
+			activity: connectActivitySchema
+				.optional()
+				.describe(
+					"The Connect activity this position submits. Replacing an activity replaces all of its settings. A delivery value left out submits empty text.",
+				),
 			hint: hintField(),
 			help: helpField(),
 			addFirstLabel: proseTemplateSchema

@@ -1,5 +1,6 @@
 import type { BlueprintDoc } from "../blueprint";
 import type { FieldKind, RepeatMode } from "../fields";
+import type { ConnectActivity } from "../fields/connectActivity";
 import {
 	type FormBehaviorTexts,
 	type FormLinkTarget,
@@ -40,6 +41,7 @@ export interface FormStructureField {
 	readonly kind: FieldKind;
 	readonly parent: Uuid;
 	readonly repeatMode?: RepeatMode;
+	readonly activityKind?: ConnectActivity["kind"];
 	/** A query repeat's held placement (its stored `placement`), absent where
 	 * it holds none. */
 	readonly heldQueryPlacement?: QueryRepeatPlacement;
@@ -57,15 +59,6 @@ export interface FormStructureField {
 	)[];
 }
 
-export type FormStructureConnect = Readonly<
-	Partial<
-		Record<
-			"learn_module" | "assessment" | "deliver_unit" | "task",
-			{ readonly id: string }
-		>
-	>
->;
-
 export interface FormStructure extends FormBehaviorTexts {
 	readonly dataRootName?: string;
 	readonly formUuid: Uuid;
@@ -73,8 +66,6 @@ export interface FormStructure extends FormBehaviorTexts {
 	readonly type: FormType;
 	readonly fields: ReadonlyMap<Uuid, FormStructureField>;
 	readonly fieldOrder: ReadonlyMap<Uuid, readonly Uuid[]>;
-	/** Only blocks active in the saved or pending app mode. */
-	readonly connect: FormStructureConnect;
 	/** Every link of the form (`forms.ts::formLinkEntries`): its
 	 *  destinations, and the otherwise when it is a link (`role:
 	 *  "otherwise"`, which has no condition slot). */
@@ -123,6 +114,9 @@ export function formStructure(
 				uuid,
 				id: field.id,
 				kind: field.kind,
+				...(field.kind === "connect_activity" && {
+					activityKind: field.activity.kind,
+				}),
 				parent: layout.parents.get(uuid) ?? parent,
 				proseSlots: [
 					...("label" in field && field.label !== undefined
@@ -177,26 +171,6 @@ export function formStructure(
 		}
 	};
 	visit(formUuid);
-	const connect: Partial<
-		Record<keyof FormStructureConnect, { readonly id: string }>
-	> = {};
-	if (doc.connectType === "learn" && form.connect !== undefined) {
-		if (
-			"learn_module" in form.connect &&
-			form.connect.learn_module !== undefined
-		)
-			connect.learn_module = { id: form.connect.learn_module.id };
-		if ("assessment" in form.connect && form.connect.assessment !== undefined)
-			connect.assessment = { id: form.connect.assessment.id };
-	} else if (doc.connectType === "deliver" && form.connect !== undefined) {
-		if (
-			"deliver_unit" in form.connect &&
-			form.connect.deliver_unit !== undefined
-		)
-			connect.deliver_unit = { id: form.connect.deliver_unit.id };
-		if ("task" in form.connect && form.connect.task !== undefined)
-			connect.task = { id: form.connect.task.id };
-	}
 	const result: FormStructure = {
 		formUuid,
 		...(form.dataRootName !== undefined && { dataRootName: form.dataRootName }),
@@ -205,7 +179,6 @@ export function formStructure(
 		...formBehaviorTextsOf(form),
 		fields,
 		fieldOrder: layout.children,
-		connect,
 		links: new Map(
 			formLinkEntries(form).map(({ role, link }) => [
 				link.uuid,

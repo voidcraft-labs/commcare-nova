@@ -1665,6 +1665,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	assessment_user_score: formSlot(C["connect-assessment"].entry),
 	deliver_entity_id: formSlot(C["connect-deliver-unit"].entry),
 	deliver_entity_name: formSlot(C["connect-deliver-unit"].entry),
+	deliver_work_area_id: formSlot(C["connect-deliver-unit"].entry),
 	// A form whose destinations hold two or more conditions, any two of which may hold together:
 	// every destination whose condition holds runs, in author order.
 	form_link_condition: {

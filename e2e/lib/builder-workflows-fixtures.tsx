@@ -36,7 +36,6 @@ import {
 } from "@/components/shadcn/popover";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { PEER_PALETTE, type Peer } from "@/lib/collab/presence";
-import { connectIdError } from "@/lib/commcare/connectSlugs";
 import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -44,6 +43,7 @@ import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
 import { useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
+import { fieldIdFormatVerdict } from "@/lib/doc/identifierVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
@@ -661,7 +661,10 @@ export function InlineValidationFixture() {
 					setValue(next);
 					return undefined;
 				}}
-				validate={connectIdError}
+				validate={(id) => {
+					const verdict = fieldIdFormatVerdict(id, "learning-module");
+					return verdict.ok ? null : verdict.userMessage;
+				}}
 			/>
 			<Button>Next field</Button>
 			<output aria-label="Saved Connect code">{value}</output>

@@ -24,7 +24,6 @@ import {
 	type Form,
 	fieldCaseWriteViews,
 	fieldPreload,
-	formConnectIds,
 	type LanguageTag,
 	type Module,
 	makeTranslationUnitId,
@@ -195,15 +194,9 @@ function locate(
 	return undefined;
 }
 
-/** The ids beside `parentUuid`'s children: theirs, plus the form's Connect
- *  block ids when the parent is the form root (the sibling rule of
- *  `identifierVerdicts.ts`). */
+/** Data node names already used by this parent's children. */
 function takenIds(doc: BlueprintDoc, parentUuid: Uuid): Set<string> {
-	const taken = new Set<string>(
-		ownRecordValue(doc.forms, parentUuid) === undefined
-			? []
-			: formConnectIds(doc, parentUuid),
-	);
+	const taken = new Set<string>();
 	for (const sibling of ownRecordValue(doc.fieldOrder, parentUuid) ?? []) {
 		const id = ownRecordValue(doc.fields, sibling)?.id;
 		if (id !== undefined) taken.add(id);

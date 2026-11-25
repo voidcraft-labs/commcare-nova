@@ -46,7 +46,7 @@ export interface ToolCallSummary {
 	 * mode switch alike, so the transcript's verb stays honest without knowing
 	 * the prior state.
 	 */
-	connect?: "learn" | "deliver" | "off";
+	connect?: "learn" | "deliver" | "both" | "off";
 	/**
 	 * For a call that changed the app's form-list settings: each setting it
 	 * changed, at its new value. Absent when it changed none, so a row

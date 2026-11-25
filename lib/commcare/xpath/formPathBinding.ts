@@ -1117,7 +1117,11 @@ function bindFormNodePath(
 			if (
 				logical &&
 				!named.attribute &&
-				(current.kind === "field" || current.kind === "form-root")
+				(current.kind === "field" || current.kind === "form-root") &&
+				!(
+					current.kind === "field" &&
+					form.fields.get(current.uuid)?.kind === "connect_activity"
+				)
 			) {
 				const parent = current.kind === "field" ? current.uuid : current.form;
 				logicalPath = [...logicalPath, named.name];
@@ -1200,7 +1204,11 @@ function bindFormNodePath(
 			},
 			whole,
 		);
-	if (spelling !== "relative" && spelling !== "current")
+	if (
+		spelling !== "relative" &&
+		spelling !== "current" &&
+		!(spelling === "absolute" && "activity" in current)
+	)
 		refuse(
 			"unknown-field",
 			whole,

@@ -9,11 +9,9 @@ import {
 	setFormHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { formRecordNameMutations } from "@/lib/doc/formRecordName";
-import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
+import type { PostSubmitDestination } from "@/lib/domain";
 import {
 	afterEmptySearchRegistrationFormOf,
-	appConnectIds,
-	formRootFieldIds,
 	moduleFormsReadSearch,
 	POST_SUBMIT_DESTINATIONS,
 } from "@/lib/domain";
@@ -22,11 +20,7 @@ import { formLogicSchema } from "@/lib/domain/expression/types";
 import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { behaviorTextSchema, formBehaviorRoles } from "@/lib/domain/forms";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
-import {
-	refineFormConnectMutations,
-	updateFormMutations,
-} from "../blueprintHelpers";
-import { connectFormPatchSchema } from "../planningSchemas";
+import { updateFormMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,
@@ -39,8 +33,6 @@ import {
 	caseListRegistrationEntry,
 	caseListRegistrationInputSchema,
 } from "./shared/caseListRegistration";
-import { enforceConnectIds } from "./shared/connectIds";
-import { buildConnectConfig } from "./shared/connectInput";
 import {
 	formAddressSchema,
 	resolveFormAddress,
@@ -92,12 +84,6 @@ export const updateFormInputSchema = formAddressSchema
 			.optional()
 			.describe(
 				'Post-submit destination: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (its normal opening screen), "parentMenu" (the parent module, with its selection kept), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, its forms read the search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. A form that is its menu\'s registration from the case list returns to the results after submit, or goes to "firstMenu" when that is set, which a menu choosing several cases requires. A form with after-submit destinations takes no post_submit; set where it goes when none runs with setFormOtherwise/set_form_otherwise.',
-			),
-		connect: connectFormPatchSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Refine this already-participating form after the app has a Connect mode: omitted sub-configs keep their current value, null removes one sub-config only while another remains, and a stated one replaces it. Use configureConnect/configure_connect for enable, mode switch, participant-set changes, or disable; whole-slot null is refused here.",
 			),
 		displayCondition: conditionSchema
 			.nullable()
@@ -172,7 +158,7 @@ export type UpdateFormResult =
 
 export const updateFormTool = {
 	description:
-		"Edit a form's name, purpose, record naming rule, open and close conditions, automatic submission, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
+		"Edit a form's name, purpose, record naming rule, open and close conditions, automatic submission, after-submit navigation, or whether it is its menu's registration from the case list.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -189,7 +175,6 @@ export const updateFormTool = {
 			open_condition,
 			close_condition,
 			post_submit,
-			connect,
 			displayCondition,
 			hiddenFromMenu,
 			capture_location,
@@ -216,7 +201,6 @@ export const updateFormTool = {
 			// domain vocabulary. Omitted = leave unchanged; `null` = clear
 			// (a `null` patch entry — the reducer deletes the key).
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
-			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
 			if (answerRoot !== undefined)
 				patch.dataRootName = answerRoot === "data" ? null : answerRoot;
@@ -297,87 +281,11 @@ export const updateFormTool = {
 					};
 				}
 			}
-			if (connect !== undefined) {
-				if (doc.connectType === null) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error:
-								"CommCare Connect is not enabled. Use configureConnect/configure_connect with the complete nonempty participant set.",
-						},
-					};
-				}
-				if (existing.connect === undefined) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error:
-								"This form is not a Connect participant. Use configureConnect/configure_connect to replace the complete participant set.",
-						},
-					};
-				}
-				if (connect === null) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error:
-								"Removing a form from Connect changes the app-wide participant set. Use configureConnect/configure_connect with the complete target.",
-						},
-					};
-				}
-				// Structural partial-update merge of exact XPath AST slots. Per
-				// sub-config: omitted keeps the existing one, an explicit
-				// null REMOVES it, a stated one replaces it.
-				const merged = buildConnectConfig(connect, existing.connect);
-				if (
-					!merged.learn_module &&
-					!merged.assessment &&
-					!merged.deliver_unit &&
-					!merged.task
-				) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error:
-								"Removing the form's final Connect section changes the app-wide participant set. Use configureConnect/configure_connect with the complete target.",
-						},
-					};
-				} else {
-					// Force connect ids correct at the source: autofill omitted
-					// ids, reject explicit-invalid ids (fail the call, write
-					// nothing). `existingIds` excludes this form's own ids so a
-					// re-patch of an unchanged id doesn't read as a self-conflict.
-					const enforced = enforceConnectIds(
-						merged,
-						doc.connectType,
-						module.name,
-						name ?? existing.name,
-						appConnectIds(doc, formUuid),
-						formRootFieldIds(doc, formUuid),
-					);
-					if (!enforced.ok) {
-						return {
-							kind: "mutate" as const,
-							mutations: [],
-							result: { error: enforced.error },
-						};
-					}
-					refinedConnect = enforced.config;
-				}
-			}
-
 			// Compute the mutations, apply via Immer, and persist through
 			// the shared context so both surfaces write the same stream +
 			// log + Postgres trio.
 			const mutations = [
 				...updateFormMutations(doc, formUuid, patch),
-				...(refinedConnect === undefined
-					? []
-					: refineFormConnectMutations(doc, formUuid, refinedConnect)),
 				/* Omission keeps the current condition; an explicit null clears it.
 				 * The mutation spells the clear as null so it survives JSONB, SSE,
 				 * and replay — `undefined` would be dropped and the stale condition

@@ -35,7 +35,6 @@ import {
 	collectTranslationUnits,
 	duplicateSelectOptionValues,
 	hasGeneratedWording,
-	isConnectLearnConfig,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
 	proseTemplateText,
@@ -413,118 +412,6 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 }
 
 /**
- * Connect ids must be unique across the whole app.
- *
- * A connect id (`learn_module` / `assessment` / `deliver_unit` / `task`)
- * becomes both a per-kind DB slug key (`(app, slug)`) on the Connect side
- * and an XForm element name; two blocks sharing one id collide on either.
- * The scope is flat app-wide (every connect id on every form, regardless of
- * kind), matching the source guards (`enforceConnectIds` /
- * `connectIdConflictError`) and the emit tripwire in `buildConnectSlugMap` —
- * one shared notion of "taken" everywhere.
- *
- * A separate form rule rejects a dormant block or a block whose family does
- * not match the app mode. This rule therefore runs only for an enabled mode
- * and inventories every final stored block; app scope gives the user a
- * fixable error before export when the collision spans forms.
- */
-function duplicateConnectIds(doc: BlueprintDoc): ValidationError[] {
-	if (!doc.connectType) return [];
-	const errors: ValidationError[] = [];
-
-	// First occurrence of each id (in document order) wins; every later
-	// occurrence is the duplicate that gets flagged.
-	const firstSite = new Map<string, string>();
-	for (const moduleUuid of doc.moduleOrder) {
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const form = doc.forms[formUuid];
-			const connect = form?.connect;
-			if (!connect) continue;
-			const blocks = isConnectLearnConfig(connect)
-				? [
-						{ block: connect.learn_module, label: "learn-module" },
-						{ block: connect.assessment, label: "assessment" },
-					]
-				: [
-						{ block: connect.deliver_unit, label: "deliver-unit" },
-						{ block: connect.task, label: "task" },
-					];
-			for (const { block, label } of blocks) {
-				if (block === undefined) continue;
-				const id = block.id;
-				const site = `"${form.name}" (${label})`;
-				const prior = firstSite.get(id);
-				if (prior) {
-					errors.push(
-						validationError(
-							"CONNECT_ID_DUPLICATE",
-							"app",
-							`Connect id "${id}" is used by two blocks: ${prior} and ${site}. Each Connect id must be unique across the app: it becomes the block's database slug and its XForm element name, so a shared id collapses the two blocks into one. Rename one of them.`,
-							{ moduleUuid, formUuid, formName: form.name },
-							{ connectId: id },
-						),
-					);
-				} else {
-					firstSite.set(id, site);
-				}
-			}
-		}
-	}
-	return errors;
-}
-
-/**
- * A Connect app needs at least one PARTICIPATING form — one whose connect
- * block carries a sub-config of the app's mode family (learn →
- * learn_module / assessment; deliver → deliver_unit / task).
- *
- * Participation is per form and optional: CommCare Connect's ingestion is
- * coverage-blind (`commcare_connect/opportunity/app_xml.py::extract_modules`
- * scans each form for connect-namespace blocks and silently skips forms
- * without them), and `opportunity/tasks.py::
- * create_learn_modules_and_deliver_units` upserts whatever was found with
- * no coverage validation — so a blockless form is simply auxiliary, never
- * an error. What Connect cannot survive is ZERO participation: learn
- * progress is a percentage over the ingested learn-module rows
- * (`opportunity/models.py::OpportunityAccess.learn_progress`) and payment
- * groups submissions by the ingested deliver units, so an app contributing
- * no rows of its mode produces an opportunity that can never progress or
- * pay. That floor is this rule.
- *
- * The floor binds immediately. Connect mode and the complete nonempty
- * participant set are configured in one atomic target-state command, so a
- * mode-only intermediate is neither needed nor valid.
- */
-function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
-	if (!doc.connectType) return [];
-	const isLearn = doc.connectType === "learn";
-	for (const moduleUuid of doc.moduleOrder) {
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const connect = doc.forms[formUuid]?.connect;
-			if (!connect) continue;
-			const participates = isLearn
-				? isConnectLearnConfig(connect)
-				: !isConnectLearnConfig(connect);
-			if (participates) return [];
-		}
-	}
-	const detail = isLearn
-		? "no form carries a learn module or an assessment, so there is nothing for workers to complete and learning progress can never move"
-		: "no form carries a deliver unit or a task, so there is nothing payable to deliver";
-	const fix = isLearn
-		? "Configure the complete target with at least one participating form (a learn_module for educational content, an assessment for a quiz, or both)"
-		: "Configure the complete target with at least one participating form (a deliver_unit, and optionally a task)";
-	return [
-		validationError(
-			"CONNECT_NO_PARTICIPATING_FORMS",
-			"app",
-			`This is a Connect ${doc.connectType} app, but ${detail}. A Connect app needs at least one participating form, a form without a connect block simply stays out of Connect, which is fine for the rest. ${fix} through configureConnect/configure_connect, or turn Connect off there with mode null.`,
-			{},
-		),
-	];
-}
-
-/**
  * Each deep link's ID is one CommCare HQ saves as written
  * (`entryPointIdProblem`), unique in the app, and its destination is one
  * the link can open. An ID HQ won't save is offered a replacement free
@@ -653,8 +540,6 @@ export const APP_RULES = [
 	noModules,
 	emptyAppName,
 	validTranslationOverlays,
-	duplicateConnectIds,
-	connectNoParticipatingForms,
 	// A case list registration slot naming a form outside its module.
 	caseListRegistrationFormInModule,
 	// Every other finding of both case list registration arms: the `always`

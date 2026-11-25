@@ -76,7 +76,7 @@ function fixture(fields: Field[], fieldOrder: Record<string, Uuid[]>) {
 		admittedControllerDoc({
 			appId: APP_ID,
 			appName: "Attachment migration",
-			connectType: null,
+			connectRoles: [],
 			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {

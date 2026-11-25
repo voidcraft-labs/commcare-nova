@@ -64,10 +64,7 @@ export function formNodeProjection(
 			);
 		return names;
 	};
-	const blockStep = (
-		block: { readonly id: string } | undefined,
-	): FormNodeStep | undefined =>
-		block === undefined ? undefined : { name: block.id };
+
 	function step(node: FormNodeRef): FormNodeStep | undefined {
 		if (!graph.has(node)) return undefined;
 		switch (node.kind) {
@@ -118,35 +115,29 @@ export function formNodeProjection(
 				};
 			}
 			case "connect-learn":
-				return node.role === "block"
-					? blockStep(form.connect.learn_module)
-					: node.role === "content"
-						? { name: "module" }
-						: node.role === "id"
-							? { name: "id", attribute: true }
-							: {
-									name:
-										node.role === "time-estimate" ? "time_estimate" : node.role,
-								};
+				return node.role === "content"
+					? { name: "module" }
+					: node.role === "id"
+						? { name: "id", attribute: true }
+						: {
+								name:
+									node.role === "time-estimate" ? "time_estimate" : node.role,
+							};
 			case "connect-assessment":
-				return node.role === "block"
-					? blockStep(form.connect.assessment)
-					: node.role === "content"
-						? { name: "assessment" }
-						: node.role === "id"
-							? { name: "id", attribute: true }
-							: { name: "user_score" };
+				return node.role === "content"
+					? { name: "assessment" }
+					: node.role === "id"
+						? { name: "id", attribute: true }
+						: { name: "user_score" };
 			case "connect-delivery":
-				return node.role === "block"
-					? blockStep(form.connect.deliver_unit)
-					: node.role === "content"
-						? { name: "deliver" }
-						: node.role === "id"
-							? { name: "id", attribute: true }
-							: { name: node.role.replaceAll("-", "_") };
+				return node.role === "content"
+					? { name: "deliver" }
+					: node.role === "id"
+						? { name: "id", attribute: true }
+						: { name: node.role.replaceAll("-", "_") };
 			case "connect-task":
-				return node.role === "block"
-					? blockStep(form.connect.task)
+				return node.role === "id"
+					? { name: "id", attribute: true }
 					: { name: node.role === "content" ? "task" : node.role };
 		}
 	}

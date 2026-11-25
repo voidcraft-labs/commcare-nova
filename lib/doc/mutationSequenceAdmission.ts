@@ -1100,7 +1100,7 @@ export function mutationSequenceAdmissionIssue(
 			case "updateEntryPoint":
 			case "removeEntryPoint":
 			case "setAppName":
-			case "setConnectType":
+			case "setConnectRoles":
 			case "setAppLogo":
 			case "setAppSettings":
 			case "relabelSourceLanguage":

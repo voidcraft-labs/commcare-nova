@@ -1,7 +1,7 @@
 // Blueprint ⇄ entity rows — the persistence projection behind `apps`.
 //
 // There is no blueprint blob: an app's current state is scalar columns on its
-// `apps` row (name, connectType, caseTypes, localization, appSettings, logo)
+// `apps` row (name, connectRoles, caseTypes, localization, appSettings, logo)
 // plus one `blueprint_entities`
 // row per hierarchical or flat authored entity. `assembleBlueprint` reconstructs the exact
 // `PersistableDoc` (records + membership arrays by stored `ordinal`);
@@ -104,7 +104,7 @@ const FLAT_COLLECTIONS = [
 /** The `apps`-row scalar slice of the doc (everything that isn't an entity). */
 export interface BlueprintScalars {
 	app_name: string;
-	connect_type: PersistableDoc["connectType"];
+	connect_roles: PersistableDoc["connectRoles"] | null;
 	case_types: PersistableDoc["caseTypes"];
 	localization: PersistableDoc["localization"];
 	/** `null` for a row that holds none, which the strict parse refuses. */
@@ -115,7 +115,7 @@ export interface BlueprintScalars {
 export function blueprintScalars(doc: PersistableDoc): BlueprintScalars {
 	return {
 		app_name: doc.appName,
-		connect_type: doc.connectType,
+		connect_roles: doc.connectRoles,
 		case_types: doc.caseTypes,
 		localization: doc.localization,
 		app_settings: doc.appSettings,
@@ -358,7 +358,7 @@ export function assembleBlueprint(
 	return blueprintDocSchema.parse({
 		appId,
 		appName: scalars.app_name,
-		connectType: scalars.connect_type,
+		connectRoles: scalars.connect_roles,
 		caseTypes: scalars.case_types,
 		...(scalars.localization !== undefined && {
 			localization: scalars.localization,

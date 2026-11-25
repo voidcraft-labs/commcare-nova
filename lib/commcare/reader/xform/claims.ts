@@ -427,10 +427,15 @@ export const X = {
 		Q("default-data-value-datavalue-instance-text"),
 		"xform:model/instance//*",
 	),
+	connectWorkAreaPhotoNotForwarded: one(
+		"refuse",
+		Q("connect-work-area-update-photo-not-forwarded"),
+		"vellum-markup:model/instance//*@vellum:role",
+	),
 	connectWorkAreaUpdate: one(
 		"refuse",
 		Q("connect-work-area-update"),
-		"mug:ConnectWorkAreaUpdate",
+		"vellum-markup:model/instance//*@vellum:role",
 	),
 	bindNoNode: one(
 		"drop",

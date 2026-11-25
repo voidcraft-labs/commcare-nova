@@ -6238,7 +6238,241 @@ def _submitted_answers():
     }
 
 
+def _connect_activities():
+    ns = "http://commcareconnect.com/data/v1/learn"
+    role_key = "vellum-markup:model/instance//*@vellum:role"
+    node_key = "xform:model/instance//*"
+
+    def block(name, role, operation, content, identifier=None):
+        return f'<{name} vellum:role="{role}"><{operation} xmlns="{ns}" id="{identifier or name}">{content}</{operation}></{name}>'
+
+    def point(name, own=None, leaf=None):
+        path = f"{{http://example.org/t}}{name}[1]"
+        if own is None:
+            return role_key, path + "/@vellum:role"
+        path += f"/{{{ns}}}{own}[1]"
+        return node_key, path + (f"/{{{ns}}}{leaf}[1]" if leaf else "")
+
+    def pair(name, own, leaf, bad, good):
+        key, where = point(name, own, leaf)
+        return refused("form", bad, key, where), accepted("form", good, key, where)
+
+    def lesson(estimate, identifier="lesson", description=""):
+        return _form(
+            block(
+                "lesson",
+                "ConnectLearnModule",
+                "module",
+                f"<name>Visit</name><description>{description}</description><time_estimate>{estimate}</time_estimate>",
+                identifier,
+            )
+        )
+
+    score = block("score", "ConnectAssessment", "assessment", "<user_score/>")
+    with_score = _form(score, '<bind nodeset="/data/score/assessment/user_score" calculate="0"/>')
+    unit = lambda value: _form(
+        block(
+            "visit",
+            "ConnectDeliverUnit",
+            "deliver",
+            f"<name>Visit</name><entity_id>{value}</entity_id><entity_name/><work_area_id/>",
+        )
+    )
+    names = ["work_area_id", "status", "reason", "additional_details", "photo_evidence"]
+    update = _form(block("area", "ConnectWorkAreaUpdate", "work_area_update", "".join(f"<{name}/>" for name in names)))
+    malformed = _form(block("area", "ConnectWorkAreaUpdate", "work_area", ""))
+    long = "a" * 51
+    long_module = _form(
+        block(long, "ConnectLearnModule", "module", "<name>M</name><description/><time_estimate>0</time_estimate>")
+    )
+    long_delivery = _form(
+        block(long, "ConnectDeliverUnit", "deliver", "<name>D</name><entity_id/><entity_name/><work_area_id/>")
+    )
+
+    def in_row(role, kind, leaves, *, count=None, recipient=False):
+        field = block("activity", role, kind, leaves)
+        data = f'<rows jr:template=""><person/>{field}</rows>'
+        count_attribute = f' jr:count="{count}" jr:noAddRemove="true"' if count is not None else ""
+        body = f'<group ref="/data/rows"><repeat nodeset="/data/rows"{count_attribute}><input ref="/data/rows/person"><label>Recipient</label></input></repeat></group>'
+        binds = ""
+        if recipient:
+            values = "/data/rows[true()]/person"
+            binds = f"""<bind nodeset="/data/rows/person" type="string" required="true()" constraint="string-length(join('|', {values})) = string-length(join('|', distinct-values({values})))"/>
+                <bind nodeset="/data/rows/activity/deliver/entity_id" calculate="../../../person"/>"""
+        return _form(data, binds, body)
+
+    def iteration(delivered, expression, ids, *, outer_count=None, stored_index=None):
+        base = "/data/visits" if outer_count is None else "/data/rounds/visits"
+        row = base + "/item"
+        delivery = block("activity", "ConnectDeliverUnit", "deliver", delivered)
+        data = f'<visits vellum:role="Repeat" ids="" count="" current_index=""><item jr:template="" id="" index="">{delivery}</item></visits>'
+        body = f'<repeat nodeset="{row}" jr:count="{base}/@count" jr:noAddRemove="true()"/>'
+        if outer_count is not None:
+            data = f'<rounds jr:template="">{data}</rounds>'
+            body = f'<repeat nodeset="/data/rounds" jr:count="{outer_count}" jr:noAddRemove="true()">{body}</repeat>'
+        event = "xforms-ready" if outer_count is None else "jr-insert"
+        index = stored_index or f"int({base}/@current_index)"
+        binds = f"""<bind nodeset="{base}/@current_index" calculate="count({row})"/>
+            <setvalue event="{event}" ref="{base}/@ids" value="join(' ', '{ids}')"/>
+            <setvalue event="{event}" ref="{base}/@count" value="count-selected({base}/@ids)"/>
+            <setvalue event="jr-insert" ref="{row}/@index" value="{index}"/>
+            <setvalue event="jr-insert" ref="{row}/@id" value="selected-at({base}/@ids, ../@index)"/>
+            <bind nodeset="{row}/activity/deliver/entity_id" calculate="../../../@{expression}"/>"""
+        return _form(data, binds, body)
+
+    def count_placement(delivered, member, ids, index="position(..)", outer_count=None):
+        wrapper = "/data/" + ("outer/" if outer_count else "") + "visits"
+        item = wrapper + "/item"
+        data = (
+            f'<visits><members/><total/><item jr:template=""><person/><at/>'
+            + block("activity", "ConnectDeliverUnit", "deliver", delivered)
+            + "</item></visits>"
+        )
+        body = f'<repeat nodeset="{item}" jr:count="{wrapper}/total" jr:noAddRemove="true()"/>'
+        if outer_count is not None:
+            data = f'<outer jr:template="">{data}</outer>'
+            body = f'<repeat nodeset="/data/outer" jr:count="{outer_count}">{body}</repeat>'
+        model = f"""
+            <bind nodeset="{wrapper}/members" calculate="join(' ', '{ids}')"/>
+            <bind nodeset="{wrapper}/total" type="xsd:int" calculate="count-selected(../members)"/>
+            <bind nodeset="{item}" relevant="position() &lt; ../total"/>
+            <bind nodeset="{item}/person" calculate="if(../at &lt; ../../total, selected-at(../../members, ../at), '')"/>
+            <bind nodeset="{item}/at" type="xsd:int"/>
+            <setvalue event="jr-insert" ref="{item}/person" value="if(position(..) &lt; int(../../total), selected-at(../../members, position(..)), '')"/>
+            <setvalue event="jr-insert" ref="{item}/at" value="{index}"/>
+            <bind nodeset="{item}/activity/deliver/entity_id" calculate="../../../{member}"/>"""
+        return _form(data, model, body)
+
+    module_content = "<name>Visit</name><description/><time_estimate>0</time_estimate>"
+    delivered = "<name>Visit</name><entity_id/><entity_name/><work_area_id/>"
+    common = block("delivery", "ConnectDeliverUnit", "deliver", delivered) + block(
+        "task", "ConnectTask", "task", "<name>Call</name><description/>"
+    )
+    condition = """<bind nodeset="/data/delivery" relevant="/data/action = 'visit'"/>
+        <bind nodeset="/data/task" relevant="/data/action = 'call'"/>"""
+    prompt = '<input ref="/data/action"><label>Action</label></input>'
+
+    def rewritten(source, old, new):
+        assert old.encode() in source
+        return source.replace(old.encode(), new.encode())
+
+    custody = "/data/rows[true()]/person"
+    required = in_row("ConnectDeliverUnit", "deliver", delivered, recipient=True)
+    # A supporting field condition and a differently quoted separator preserve
+    # the whole-set comparison. The disjunction and row-local path don't.
+    xml_constraint = (
+        "string-length(join('|', " + custody + ")) = string-length(join('|', distinct-values(" + custody + ")))"
+    )
+    conjunction = "regex(., 'x') and (" + xml_constraint.replace("'|'", "&quot;::&quot;") + ")"
+    weak = rewritten(required, xml_constraint, "regex(., 'x') or (" + xml_constraint + ")")
+    row_local = rewritten(required, custody, "/data/rows/person")
+    counted = in_row("ConnectLearnModule", "module", module_content, count="/data/maximum")
+    counted = rewritten(counted, "<rows", "<maximum/><rows")
+    bounded = rewritten(counted, "<model>", '<model><bind nodeset="/data/maximum" type="xsd:int" calculate="1"/>')
+    assert bounded != counted
+    guarded = _form("<action/>" + common, condition, prompt)
+    negate = rewritten(guarded, "/data/action = 'call'", "not((/data/action = 'visit'))")
+    guarded_and = rewritten(guarded, "/data/action = 'visit'", "((/data/action = 'visit') and true())")
+    guarded_or = rewritten(guarded, "/data/action = 'visit'", "(/data/action = 'visit' and true()) or true()")
+    return {
+        "questions/connect-deliveries-share-receiver-key": (
+            *pair("activity", None, None, in_row("ConnectDeliverUnit", "deliver", delivered), required),
+            *pair("activity", None, None, weak, rewritten(required, xml_constraint, conjunction)),
+            *pair("activity", None, None, row_local, required),
+            *pair("activity", None, None, iteration(delivered, "id", "A A"), iteration(delivered, "id", "A B")),
+            *pair(
+                "activity",
+                None,
+                None,
+                iteration(delivered, "index", "A A", stored_index="0"),
+                iteration(delivered, "index", "A A"),
+            ),
+            *pair(
+                "activity",
+                None,
+                None,
+                iteration(delivered, "id", "A B", outer_count="2"),
+                iteration(delivered, "id", "A B", outer_count="1"),
+            ),
+            *(
+                replace(shape, readings=True)
+                for shape in pair(
+                    "activity",
+                    None,
+                    None,
+                    count_placement(delivered, "person", "A A"),
+                    count_placement(delivered, "person", "A B"),
+                )
+            ),
+            *pair(
+                "activity",
+                None,
+                None,
+                count_placement(delivered, "at", "A A", index="0"),
+                count_placement(delivered, "at", "A A"),
+            ),
+            *(
+                replace(shape, readings=True)
+                for shape in pair(
+                    "activity",
+                    None,
+                    None,
+                    count_placement(delivered, "person", "A B", outer_count="2"),
+                    count_placement(delivered, "person", "A B", outer_count="1"),
+                )
+            ),
+        ),
+        "questions/connect-repeats-module-completion-key": (
+            *pair(
+                "activity",
+                None,
+                None,
+                in_row("ConnectLearnModule", "module", module_content),
+                in_row("ConnectLearnModule", "module", module_content, count="1"),
+            ),
+            *pair("activity", None, None, counted, bounded),
+        ),
+        "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a": pair(
+            "activity",
+            None,
+            None,
+            in_row("ConnectAssessment", "assessment", "<user_score/>"),
+            in_row("ConnectAssessment", "assessment", "<user_score/>", count="0"),
+        ),
+        "questions/connect-deliver-unit-and-task-in-one-form": (
+            *pair("delivery", None, None, _form("<action/>" + common, body=prompt), guarded),
+            *pair("delivery", None, None, guarded_or, guarded_and),
+            *pair("delivery", None, None, guarded_or, negate),
+        ),
+        "questions/connect-unit-id-changed-by-form-editor": pair(
+            "lesson", "module", None, lesson("0", "earlier"), lesson("0")
+        ),
+        "questions/connect-assessment-without-score": pair(
+            "score", "assessment", "user_score", _form(score), with_score
+        ),
+        "questions/connect-value-that-the-editor-clears": pair(
+            "visit", "deliver", "entity_id", unit("stable"), unit("")
+        ),
+        "questions/connect-estimate-outside-receiver-range": pair(
+            "lesson", "module", "time_estimate", lesson("2147483648"), lesson("0000")
+        ),
+        "questions/connect-block-text-read-as-an-instance": pair(
+            "lesson",
+            "module",
+            "description",
+            lesson("7", description="instance('casedb')"),
+            lesson("7", description="instance ('casedb')"),
+        ),
+        "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or": pair(
+            long, None, None, long_module, long_delivery
+        ),
+        "questions/connect-work-area-update-photo-not-forwarded": pair("area", None, None, update, malformed),
+        "questions/connect-work-area-update": pair("area", None, None, malformed, update),
+    }
+
+
 SHAPES = {
+    **_connect_activities(),
     **_questions(),
     **_settings_and_forms(),
     **_advanced_actions(),
@@ -6558,13 +6792,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/report-context-tile-true",
         "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1",
         "questions/a-choice-bind-type-contradicting-the-control-listitem-select1-on",
-        "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
-        # Its keys are a Connect block's mug types and Vellum's Connect plugin, and the extraction makes a use of
-        # neither: HQ's reader types a question from its body control (``xform.py::_infer_vellum_type``), and a
-        # Connect block is data with none, whose leaves ``get_questions`` lists as ``DataBindOnly``; no family reads
-        # a ``vellum-plugin:`` key.
-        "questions/connect-block-text-read-as-an-instance",
-        "questions/connect-deliver-unit-and-task-in-one-form",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
         # Their one key is ``mug:SaveToCase``, of which the extraction makes no use: HQ's reader types a question
@@ -6579,7 +6806,6 @@ KNOWN_GAPS = frozenset(
         "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes",
         "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form",
         "questions/send-submission",
-        "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a",
         "questions/unknown-body-control-vellum-readonly-e-g-range",
     }
 )

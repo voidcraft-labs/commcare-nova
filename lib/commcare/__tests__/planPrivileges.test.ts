@@ -1131,8 +1131,20 @@ describe("a Connect app", () => {
 
 	it("names an assessment a learn form sends alone", () => {
 		const doc = fixture("learn-default");
-		const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
-		form.connect = { assessment: { id: "quiz" } };
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const lesson = doc.fieldOrder[formUuid].find((uuid) => {
+			const field = doc.fields[uuid];
+			return (
+				field?.kind === "connect_activity" &&
+				field.activity.kind === "learning-module"
+			);
+		});
+		if (!lesson) throw new Error("Missing learning module.");
+		doc.fieldOrder[formUuid] = doc.fieldOrder[formUuid].filter(
+			(uuid) => uuid !== lesson,
+		);
+		delete doc.fieldParent[lesson];
+		delete doc.fields[lesson];
 		expect(reasonsOf(doc, "data_forwarding")).toEqual([
 			"Activity sends an assessment to CommCare Connect.",
 		]);

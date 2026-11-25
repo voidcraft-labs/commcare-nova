@@ -18276,13 +18276,14 @@
 		"holds": [
 			{
 				"key": [
-					"form",
+					"field",
 					{
 						"$xmlns": [0, 1]
-					}
+					},
+					["follow_up_task"]
 				],
-				"pointer": "/connect/task/id",
-				"value": "follow_up_task"
+				"pointer": "/activity/kind",
+				"value": "assigned-task"
 			}
 		]
 	},
@@ -18292,11 +18293,12 @@
 		"entry": "questions/connect-deliver-unit-and-task-in-one-form",
 		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Household visits",
-			"name": "Deliver visit"
+			"formName": "Deliver visit",
+			"path": "visit_task"
 		},
 		"change": {
 			"op": "named",
@@ -18307,30 +18309,36 @@
 		"id": "hq-connect-deliver/deliver-work-area-expression",
 		"base": "hq-connect-deliver",
 		"entry": "questions/connect-deliver-unit-work-area-id-expression",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Household visits",
-			"name": "Deliver visit"
-		},
 		"change": {
 			"op": "named",
 			"name": "deliver_work_area_expression"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_unit"]
+				],
+				"pointer": "/activity/workAreaId/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-connect-deliver/deliver-work-area-fixed-id",
 		"base": "hq-connect-deliver",
-		"entry": "questions/connect-deliver-unit-work-area-id-expression",
-		"standing": "not-yet",
+		"entry": "questions/connect-value-that-the-editor-clears",
+		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Household visits",
-			"name": "Deliver visit"
+			"formName": "Deliver visit",
+			"path": "visit_unit"
 		},
 		"change": {
 			"op": "named",
@@ -18341,14 +18349,34 @@
 		"id": "hq-connect-learn/connect-learn-and-deliver",
 		"base": "hq-connect-learn",
 		"entry": "questions/connect-learn-and-deliver-blocks-in-one-app",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
 		"change": {
 			"op": "named",
 			"name": "connect_learn_and_deliver"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_unit"]
+				],
+				"pointer": "/activity/kind",
+				"value": "delivery"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro_module"]
+				],
+				"pointer": "/activity/kind",
+				"value": "learning-module"
+			}
+		]
 	},
 	{
 		"id": "hq-connect-learn/connect-long-id",
@@ -18356,11 +18384,12 @@
 		"entry": "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
 		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Training",
-			"name": "Hand washing"
+			"formName": "Hand washing",
+			"path": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
 		},
 		"change": {
 			"op": "named",
@@ -18388,18 +18417,23 @@
 		"id": "hq-connect-learn/connect-time-estimate-zero",
 		"base": "hq-connect-learn",
 		"entry": "questions/connect-blocks-beyond-one-of-each-kind",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Training",
-			"name": "Hand washing"
-		},
 		"change": {
 			"op": "named",
 			"name": "connect_time_estimate_zero"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro_module"]
+				],
+				"pointer": "/activity/estimatedHours",
+				"value": 0
+			}
+		]
 	},
 	{
 		"id": "hq-connect-learn/connect-two-assessments",
@@ -18407,11 +18441,12 @@
 		"entry": "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a",
 		"standing": "fix-in-hq",
 		"place": {
-			"kind": "form",
+			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Training",
-			"name": "Hand washing"
+			"formName": "Hand washing",
+			"path": "final_check"
 		},
 		"change": {
 			"op": "named",
@@ -18419,10 +18454,68 @@
 		}
 	},
 	{
+		"id": "hq-connect-learn/connect-receiver-id-changed",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-unit-id-changed-by-form-editor",
+		"change": {
+			"op": "named",
+			"name": "connect_receiver_id_changed"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "intro_module"
+		}
+	},
+	{
+		"id": "hq-connect-learn/connect-work-area-photo",
+		"base": "hq-connect-learn",
+		"entry": "questions/connect-work-area-update-photo-not-forwarded",
+		"change": {
+			"op": "named",
+			"name": "connect_work_area_photo"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Training",
+			"formName": "Hand washing",
+			"path": "area"
+		}
+	},
+	{
+		"id": "hq-connect-deliver/constant-work-area-calculation",
+		"base": "hq-connect-deliver",
+		"entry": "questions/connect-deliver-unit-work-area-id-expression",
+		"change": {
+			"op": "named",
+			"name": "constant_work_area_calculation"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_unit"]
+				],
+				"pointer": "/activity/workAreaId/term/value",
+				"value": "5b2f7d1e-8c3a-4e6b-9d0f-1a2b3c4d5e6f"
+			}
+		]
+	},
+	{
 		"id": "hq-connect-learn/connect-work-area-update",
 		"base": "hq-connect-learn",
 		"entry": "questions/connect-work-area-update",
-		"standing": "not-yet",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,

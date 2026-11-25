@@ -104,7 +104,6 @@ import { exactSearchModeIsAbsent } from "../search/prompts";
 import { emptySearchSettingsBesideFieldsAreAbsent } from "../search/settings";
 import type { AppStringTable } from "../types";
 import { levelsAsPublished } from "../worldEntities";
-import { connectDefaultsUnset } from "../xform/afterBinding";
 import { X } from "../xform/claims";
 import { blankOptionalTextAbsent } from "../xform/prose";
 import { exportedBody, inputFor } from "./novaExport";
@@ -1395,14 +1394,6 @@ describe("the reader's canonical choices", () => {
 		// export and its reading.
 		expect(choice("columns-off-a-screen-last-in-its-order").apply).toBe(
 			columnsOffAScreenLast,
-		);
-	});
-
-	it("unsets a Connect slot that holds the default an unset one prints", () => {
-		// `xform/__tests__/connect.test.ts` holds the pair, its export and its
-		// reading.
-		expect(choice("connect-defaults-are-unset").apply).toBe(
-			connectDefaultsUnset,
 		);
 	});
 

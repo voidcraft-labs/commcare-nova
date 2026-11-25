@@ -4319,7 +4319,7 @@
 		],
 		"valueClass": "connect-learn-module",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Form.connect.learn_module`; narrow (all four Connect blocks): no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block",
+		"dispositionCell": "**HELD**: A positioned learning module keeps its ID, name, description and estimated hours. Its ID follows the question ID grammar.",
 		"slotChanges": [
 			{
 				"direction": "narrow",
@@ -4348,12 +4348,15 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a Connect block with an id over 50 characters, a display condition, a blank entity expression or a `time_estimate` of 0; several blocks of one kind in a form; a block inside a group or a repeat",
-		"surfaceKeys": ["mug:ConnectLearnModule", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*"
+		],
 		"valueClass": "beyond-one-of-each-kind",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: Connect blocks as questions at authored positions",
-		"subject": "connect-blocks",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Positioned Connect activities share the form's tree and display conditions. Worker submission checks use the activity ID, row and recipient for each reachable activity.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4365,17 +4368,206 @@
 			}
 		},
 		"emission": {
-			"cell": "`vellum:role=\"ConnectLearnModule\"`; COMMCARE_CONNECT",
+			"cell": "A Connect role at its original data path with its display condition and submitted values.",
 			"markers": []
 		},
-		"gates": ["toggle/COMMCARE_CONNECT"]
+		"gates": ["toggle/COMMCARE_CONNECT"],
+		"slotChanges": []
+	},
+	{
+		"id": "questions/connect-assessment-without-score",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect assessment with no calculated score",
+		"surfaceKeys": [
+			"mug:ConnectAssessment",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance//*"
+		],
+		"valueClass": "connect-assessment-without-score",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Connect reads the submitted score as an integer. This assessment has no calculation to supply a score.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Connect reads the submitted score as an integer. This assessment has no calculation to supply a score."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-repeats-module-completion-key",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a learning module that can be submitted twice in one form",
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
+		"valueClass": "connect-repeats-module-completion-key",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Connect records each learning module once per submission. Give each module its own ID or keep the two activities in separate submissions.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Connect records each learning module once per submission. Give each module its own ID or keep the two activities in separate submissions."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-deliveries-share-receiver-key",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a delivery that can send the same recipient twice for one unit in one submission",
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
+		"valueClass": "connect-deliveries-share-receiver-key",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Connect uses the unit and recipient ID to file each visit in a submission. Give each row a distinct recipient ID or send each visit in a separate form.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Connect uses the unit and recipient ID to file each visit in a submission. Give each row a distinct recipient ID or send each visit in a separate form."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-unit-id-changed-by-form-editor",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect activity whose stored inner ID differs from its question ID",
+		"surfaceKeys": [
+			"xform:model/instance//*",
+			"mug:ConnectLearnModule",
+			"mug:ConnectAssessment",
+			"mug:ConnectDeliverUnit",
+			"mug:ConnectTask",
+			"vellum-plugin:commcareConnect"
+		],
+		"valueClass": "connect-unit-id-changed-by-form-editor",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: The form editor uses the outer question ID for the activity on save. Match that question ID to the saved activity ID and update its form references in CommCare HQ before bringing it in again.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The form editor uses the outer question ID for the activity on save. Match that question ID to the saved activity ID and update its form references in CommCare HQ before bringing it in again."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-value-that-the-editor-clears",
+		"area": "questions",
+		"section": "Question types",
+		"item": "inline text in a Connect score, recipient or work area that the form editor clears",
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"mug:ConnectAssessment",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance//*"
+		],
+		"valueClass": "connect-value-that-the-editor-clears",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: CommCare HQ’s form editor clears inline text from a calculated Connect value when it saves the form. Set the value as a calculation in the source form, then bring it in again.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "CommCare HQ’s form editor clears inline text from a calculated Connect value when it saves the form. Set the value as a calculation in the source form, then bring it in again."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-estimate-outside-receiver-range",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a learning module with an estimate the form editor or Connect cannot keep",
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance//*"
+		],
+		"valueClass": "connect-estimate-outside-receiver-range",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: The form editor saves hours as decimal digits and Connect stores them in a signed 32-bit integer.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The form editor saves hours as decimal digits and Connect stores them in a signed 32-bit integer."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a",
 		"area": "questions",
 		"section": "Question types",
 		"item": "several Connect assessment blocks in one form, or one inside a repeat (a block per row)",
-		"surfaceKeys": ["mug:ConnectAssessment", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectAssessment",
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
 		"valueClass": "several-connect-assessments",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Connect stores one assessment per submission and raises \"Learn Assessment is already completed\" for the second block (commcare-connect `form_receiver/processor.py::process_assessments`)",
@@ -4412,7 +4604,7 @@
 		],
 		"valueClass": "connect-assessment",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connect.assessment`",
+		"dispositionCell": "**HELD**: A positioned assessment keeps its ID and score calculation. Each reachable submission supplies at most one assessment.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4446,7 +4638,7 @@
 		],
 		"valueClass": "connect-deliver-unit",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connect.deliver_unit`, with an empty `work_area_id`",
+		"dispositionCell": "**HELD**: A positioned delivery keeps its unit ID and name, recipient ID and name, and work area. A deliberately empty recipient remains empty.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4459,7 +4651,7 @@
 			}
 		},
 		"emission": {
-			"cell": "with an empty `<work_area_id/>` (Vellum adds it; equivalent)",
+			"cell": "The recipient and work area leaves remain at the delivery’s saved data path.",
 			"markers": []
 		},
 		"gates": []
@@ -4469,12 +4661,14 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Connect Deliver Unit with a `work_area_id` expression or a fixed id",
-		"surfaceKeys": ["mug:ConnectDeliverUnit", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"vellum-plugin:commcareConnect",
+			"xform:model/bind@calculate"
+		],
 		"valueClass": "work-area-id-expression",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a `work_area_id` expression or a fixed id",
-		"subject": "connect-blocks",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A delivery keeps its work area as an expression, including a fixed ID written as a literal calculation.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4486,10 +4680,11 @@
 			}
 		},
 		"emission": {
-			"cell": "with an empty `<work_area_id/>` (Vellum adds it; equivalent)",
+			"cell": "A calculation supplies the delivery’s work_area_id.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/connect-task",
@@ -4506,7 +4701,7 @@
 		],
 		"valueClass": "connect-task",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connect.task`",
+		"dispositionCell": "**HELD**: A positioned assigned task keeps its ID, name and description.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4529,7 +4724,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a Connect Deliver Unit and a Connect Task in one form",
-		"surfaceKeys": ["mug:ConnectDeliverUnit", "mug:ConnectTask"],
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"mug:ConnectTask",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
 		"valueClass": "deliver-unit-beside-task",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Connect processes the form's deliver units before its tasks (`commcare-connect` `form_receiver/processor.py::process_deliver_form`), and Nova's gate refuses the pair (`CONNECT_DELIVER_FORM_HOLDS_TASK`)",
@@ -4555,12 +4754,14 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Connect learn blocks and Connect deliver blocks in one app",
-		"surfaceKeys": ["mug:ConnectLearnModule", "mug:ConnectDeliverUnit"],
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"mug:ConnectDeliverUnit",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
 		"valueClass": "learn-beside-deliver",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an app that is both a learn app and a deliver app; Nova holds one `connectType`",
-		"subject": "connect-blocks",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: An app keeps both configured roles and every positioned learning and delivery activity.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4572,10 +4773,11 @@
 			}
 		},
 		"emission": {
-			"cell": "same",
+			"cell": "Each activity keeps its role and its own submission values.",
 			"markers": []
 		},
-		"gates": ["toggle/COMMCARE_CONNECT"]
+		"gates": ["toggle/COMMCARE_CONNECT"],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/connect-block-text-read-as-an-instance",
@@ -4586,7 +4788,8 @@
 			"mug:ConnectLearnModule",
 			"mug:ConnectDeliverUnit",
 			"mug:ConnectTask",
-			"vellum-plugin:commcareConnect"
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance//*"
 		],
 		"valueClass": "text-read-as-an-instance",
 		"disposition": "REFUSED",
@@ -4623,7 +4826,8 @@
 			"mug:ConnectLearnModule",
 			"mug:ConnectTask",
 			"mug:ConnectDeliverUnit",
-			"vellum-plugin:commcareConnect"
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "connect-id-over-column-length",
 		"disposition": "REFUSED",
@@ -4646,34 +4850,64 @@
 		"gates": []
 	},
 	{
+		"id": "questions/connect-work-area-update-photo-not-forwarded",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect work-area update whose required photo reaches CommCare HQ",
+		"surfaceKeys": [
+			"mug:ConnectWorkAreaUpdate",
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
+		"valueClass": "connect-work-area-update-photo-not-forwarded",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare HQ's Connect forwarder retains the work-area photo filename but drops the attachment map that Connect requires to process the request.",
+		"subject": "connect-work-area-requests",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": ["toggle/COMMCARE_CONNECT"],
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "CommCare HQ's Connect forwarder retains the work-area photo filename but drops the attachment map that Connect requires to process the request."
+			}
+		]
+	},
+	{
 		"id": "questions/connect-work-area-update",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Connect Work Area Update",
+		"item": "a malformed Connect work-area update whose element or children the form editor replaces",
 		"surfaceKeys": [
 			"mug:ConnectWorkAreaUpdate",
-			"vellum-plugin:commcareConnect"
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "connect-work-area-update",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `connect.work_area_update`",
-		"subject": "connect-blocks",
-		"owner": "xform",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: The form editor rebuilds the work-area update with its expected element and children on save. Review the update in CommCare HQ before bringing the app in again.",
+		"subject": "connect-work-area-requests",
 		"platforms": {
-			"kind": "each",
-			"cell": "RUNS / RUNS",
-			"webApps": {
-				"reading": "runs"
-			},
-			"android": {
-				"reading": "runs"
-			}
+			"kind": "none",
+			"cell": "—"
 		},
 		"emission": {
-			"cell": "same",
+			"cell": "—",
 			"markers": []
 		},
-		"gates": ["toggle/COMMCARE_CONNECT"]
+		"gates": ["toggle/COMMCARE_CONNECT"],
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The form editor rebuilds the work-area update with its expected element and children on save. Review the update in CommCare HQ before bringing the app in again."
+			}
+		]
 	},
 	{
 		"id": "questions/unknown-body-control-vellum-readonly-e-g-range",

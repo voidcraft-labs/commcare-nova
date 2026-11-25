@@ -7839,6 +7839,478 @@ def choice_value_refused_by_vellum(use, manifest):
 INSTANCE_READ = re.compile(r"""instance\(\s*['"][^'"]+['"]\s*\)""")
 
 
+CONNECT_NAMESPACE = "http://commcareconnect.com/data/v1/learn"
+CONNECT_ROLES = {
+    "ConnectLearnModule": "module",
+    "ConnectAssessment": "assessment",
+    "ConnectDeliverUnit": "deliver",
+    "ConnectTask": "task",
+    "ConnectWorkAreaUpdate": "work_area_update",
+}
+
+
+def _connect_part(use):
+    """Locate the particular datum read, retaining its role-bearing wrapper and the receiver's own element."""
+    form, element = _form_element(use)
+    if form is None or element not in form.paths:
+        return None
+    wrapper = element
+    while wrapper is not form.data_root:
+        role = wrapper.get(f"{{{VELLUM}}}role")
+        if role in CONNECT_ROLES:
+            own = wrapper.find(f"{{{CONNECT_NAMESPACE}}}{CONNECT_ROLES[role]}")
+            return form, element, wrapper, role, own
+        wrapper = wrapper.getparent()
+    return None
+
+
+def connect_id_changes(use, manifest):
+    part = _connect_part(use)
+    return bool(part and part[1] is part[4] and part[4].get("id") is not None and part[4].get("id") != _local(part[2]))
+
+
+def connect_id_over_width(use, manifest):
+    part = _connect_part(use)
+    if not part or part[1] is not part[2] or part[4] is None:
+        return False
+    width = {"ConnectLearnModule": 50, "ConnectTask": 50, "ConnectDeliverUnit": 100}.get(part[3])
+    return width is not None and len(part[4].get("id", "")) > width
+
+
+def _connect_leaf(use, roles, names):
+    part = _connect_part(use)
+    if part and part[3] in roles and part[1].getparent() is part[4] and _local(part[1]) in names:
+        return part[0], part[1]
+    return None, None
+
+
+def connect_inline_calculation(use, manifest):
+    form, leaf = _connect_leaf(
+        use, {"ConnectAssessment", "ConnectDeliverUnit"}, {"user_score", "entity_id", "entity_name", "work_area_id"}
+    )
+    return leaf is not None and (leaf.text or "") != ""
+
+
+def connect_missing_score(use, manifest):
+    form, leaf = _connect_leaf(use, {"ConnectAssessment"}, {"user_score"})
+    if leaf is None or leaf.text:
+        return False
+    bind = form.bind(form.paths[leaf])
+    return bind is None or not (bind.get("calculate") or "").strip()
+
+
+def connect_estimate_outside_column(use, manifest):
+    form, leaf = _connect_leaf(use, {"ConnectLearnModule"}, {"time_estimate"})
+    if leaf is None:
+        return False
+    text = leaf.text or ""
+    # Vellum keeps the string, and the receiver writes a PostgreSQL nonnegative integer.
+    significant = text.lstrip("0") or "0"
+    return (
+        not (text.isascii() and text.isdecimal())
+        or len(significant) > 10
+        or (len(significant) == 10 and significant > "2147483647")
+    )
+
+
+def connect_text_instance(use, manifest):
+    form, leaf = _connect_leaf(
+        use, {"ConnectLearnModule", "ConnectTask", "ConnectDeliverUnit"}, {"name", "description"}
+    )
+    return leaf is not None and INSTANCE_READ.search(leaf.text or "") is not None
+
+
+def _connect_work_area(use):
+    part = _connect_part(use)
+    if not part or part[1] is not part[2] or part[3] != "ConnectWorkAreaUpdate":
+        return None
+    wrapper, own = part[2], part[4]
+    if own is None or len(_children(wrapper)) != 1 or own.get("id") != _local(wrapper):
+        return False
+    fields = ["work_area_id", "status", "reason", "additional_details", "photo_evidence"]
+    return [child.tag for child in _children(own)] == [f"{{{CONNECT_NAMESPACE}}}{key}" for key in fields] and all(
+        not _children(child) for child in _children(own)
+    )
+
+
+def connect_photo_not_forwarded(use, manifest):
+    return _connect_work_area(use) is True
+
+
+def connect_work_area_changed_by_editor(use, manifest):
+    return _connect_work_area(use) is False
+
+
+def _bind_text(form, node, key):
+    bind = form.bind(form.paths.get(node))
+    return (bind.get(key) or "").strip() if bind is not None else ""
+
+
+def _token_texts(expression):
+    found = xpath_tokens(expression)
+    return tuple(token.text for token in found) if found is not None else ()
+
+
+def _connect_count_limit(form, count):
+    # Nova materializes a literal count in a typed calculate which jr:count
+    # names. A worker answer, a variable expression or a mutable setvalue
+    # doesn't prove a fixed maximum for a submitted repeat.
+    tokens = xpath_tokens(count) or ()
+    if len(tokens) > 1 and tokens[0].kind == "SLASH":
+        path = "".join(t.text for t in tokens)
+        node = form.node(path)
+        if node is None or isinstance(node, tuple) or form.question_controls(path):
+            return 2
+        bind = form.bind(path)
+        if bind is None or (bind.get("type") or "").split(":")[-1] != "int":
+            return 2
+        if any(_held_ref(action) == path for action in form.model.iter(f"{{{XFORMS}}}setvalue")):
+            return 2
+        tokens = xpath_tokens(_bind_text(form, node, "calculate")) or ()
+    if len(tokens) == 1 and tokens[0].kind == "NUM" and tokens[0].text.isdecimal():
+        return min(2, int(tokens[0].text)) if len(tokens[0].text) < 10 else 2
+    return 2
+
+
+def _connect_limits(form, wrapper):
+    counts = dict(form.counted_repeats)
+    path = form.paths[wrapper]
+    # The model iteration's named wrapper and its body's item repeat describe
+    # the very same rows. Nested physical repeats still count independently.
+    iterations = {form.paths[n] + "/item" for n in form.model_repeats}
+    repeats = tuple(sorted((p for p in form.repeat_paths if p not in iterations and path.startswith(p + "/")), key=len))
+    limits = [_connect_count_limit(form, counts.get(repeat, "")) for repeat in repeats]
+    return repeats, 0 if 0 in limits else 2 if 2 in limits else 1
+
+
+def _connect_top_level(tokens):
+    depth = 0
+    for index, token in enumerate(tokens):
+        if token.kind in ("RPAREN", "RBRACK"):
+            depth -= 1
+        if depth == 0:
+            yield index, token
+        if token.kind in ("LPAREN", "LBRACK"):
+            depth += 1
+
+
+def _connect_ungroup(tokens):
+    while tokens and tokens[0].kind == "LPAREN" and tokens[-1].kind == "RPAREN":
+        if [i for i, _ in _connect_top_level(tokens)] != [0, len(tokens) - 1]:
+            break
+        tokens = tokens[1:-1]
+    return tokens
+
+
+def _connect_conjuncts(tokens):
+    tokens = _connect_ungroup(tokens)
+    top = list(_connect_top_level(tokens))
+    if any(t.kind == "OR" for _, t in top):
+        return (tokens,)
+    positions = [i for i, t in top if t.kind == "AND"]
+    if not positions:
+        return (tokens,)
+    clauses = []
+    for start, end in zip([-1, *positions], [*positions, len(tokens)], strict=True):
+        clauses.extend(_connect_conjuncts(tokens[start + 1 : end]))
+    return clauses
+
+
+def _connect_guard_fact(form, tokens):
+    negated = bool(tokens and tokens[0].text == "not" and tokens[1:2] and tokens[1].kind == "LPAREN")
+    if negated:
+        inner = _connect_ungroup(tokens[1:])
+        if inner == tokens[1:]:
+            return None
+        tokens = inner
+    operators = [(i, t) for i, t in _connect_top_level(tokens) if t.kind in {"EQ", "NEQ"}]
+    if len(operators) != 1:
+        return None
+    split, operator = operators[0]
+    if negated and operator.kind != "EQ":
+        return None
+    left, right = _connect_ungroup(tokens[:split]), _connect_ungroup(tokens[split + 1 :])
+    if len(left) == 1 and left[0].kind == "STR":
+        left, right = right, left
+    if len(right) != 1 or right[0].kind != "STR" or not left or len(left) % 2:
+        return None
+    if any(t.kind != ("SLASH" if i % 2 == 0 else "QNAME") for i, t in enumerate(left)):
+        return None
+    path = "".join(t.text for t in left)
+    if form.in_repeat(path) or not any(_local(q) in {"input", "select1"} for q in form.question_controls(path)):
+        return None
+    bind = form.bind(path)
+    if bind is not None and (bind.get("type") or "string").split(":")[-1] not in {"string", "select1"}:
+        return None
+    return path, right[0].text[1:-1], (operator.kind == "EQ") != negated
+
+
+def _connect_guards(form, wrapper):
+    """Only a scalar answer shared by the whole form rules out a pair of placements."""
+    guards = []
+    for node in (wrapper, *wrapper.iterancestors()):
+        if node not in form.paths:
+            break
+        expr = _bind_text(form, node, "relevant")
+        if not expr:
+            continue
+        for clause in _connect_conjuncts(xpath_tokens(expr) or ()):
+            if tuple(t.text for t in clause) == ("false", "(", ")"):
+                return None
+            guard = _connect_guard_fact(form, clause)
+            if guard is not None:
+                guards.append(guard)
+    return guards
+
+
+def _connect_exclusive(guards):
+    for i, (path, value, equal) in enumerate(guards):
+        for other, v, eq in guards[i + 1 :]:
+            if path == other and ((equal and eq and value != v) or (equal != eq and value == v)):
+                return True
+    return False
+
+
+def _connect_entity(form, wrapper):
+    leaf = wrapper.find(f"{{{CONNECT_NAMESPACE}}}deliver/{{{CONNECT_NAMESPACE}}}entity_id")
+    if leaf is None:
+        return None, None
+    text = _bind_text(form, leaf, "calculate")
+    parsed = xpath_tokens(text) or ()
+    if not text:
+        return leaf.text or "", leaf
+    if len(parsed) == 1 and parsed[0].kind == "STR":
+        return parsed[0].text[1:-1], leaf
+    return None, leaf
+
+
+def _connect_query_is_injective(form, value):
+    """The worker's joined list is injective only where spaces cannot split an ID."""
+    tokens = xpath_tokens(value) or ()
+    if len(tokens) >= 6 and tuple(t.text for t in tokens[:2]) == ("join", "(") and tokens[2].kind == "STR":
+        if tokens[2].text[1:-1] != " " or tokens[3].text != "," or tokens[-1].text != ")":
+            return False
+        tokens = _connect_ungroup(tokens[4:-1])
+    if len(tokens) == 1 and tokens[0].kind == "STR":
+        ids = tokens[0].text[1:-1].split(" ")
+        return all(ids) and len(ids) == len(set(ids))
+    tree = form.tree(value)
+    joined = _call_of(tree, "join", 2)
+    if joined is not None and joined[0] == ["text", " "]:
+        tree = joined[1]
+    if not isinstance(tree, list) or tree[:2] != ["path", "instance:casedb"]:
+        return False
+    case_type, start, end = _case_predicate_scope(tree)
+    if case_type is None or len(tree[4]) != 3 or list(tree[4][-1]) != ["attribute", "case_id", 0]:
+        return False
+    for predicate in tree[3][start:end]:
+        negated = _call_of(predicate, "not", 1)
+        args = _call_of(negated[0], "contains", 2) if negated else None
+        if args and _bare_read(args[0], "attribute") == "case_id" and args[1] == ["text", " "]:
+            return True
+    return False
+
+
+def _connect_initial_value(form, path, event):
+    writes = [action for action in _model_setvalues(form) if _held_ref(action) == path]
+    if len(writes) == 1 and (writes[0].get("event") or "").split() == [event]:
+        return writes[0].get("value") or ""
+    return ""
+
+
+def _connect_iteration_unique(form, container, row, attribute, repeats):
+    outer = [p for p in repeats if p != form.paths[container]]
+    counts = dict(form.counted_repeats)
+    if any(_connect_count_limit(form, counts.get(p, "")) > 1 for p in outer) or _bind_text(form, row, "relevant"):
+        return False
+    base, item = form.paths[container], form.paths[row]
+    current = form.bind(base + "/@current_index")
+    if current is None or _token_texts(current.get("calculate") or "") != _token_texts(f"count({item})"):
+        return False
+    if _token_texts(_connect_initial_value(form, item + "/@index", "jr-insert")) != _token_texts(
+        f"int({base}/@current_index)"
+    ):
+        return False
+    if attribute == "index":
+        return True
+    if attribute != "id" or _token_texts(_connect_initial_value(form, item + "/@id", "jr-insert")) != _token_texts(
+        f"selected-at({base}/@ids, ../@index)"
+    ):
+        return False
+    return _connect_query_is_injective(
+        form, _connect_initial_value(form, base + "/@ids", "jr-insert" if outer else "xforms-ready")
+    )
+
+
+def _connect_count_placement_unique(form, row, member, repeats):
+    """A count-placement row stores its index at insertion. Its ID selects
+    the same index from a space-separated query result. Inspect the row guard,
+    the count's source and both writers of the ID before relying on either."""
+    row_path = form.paths[row]
+    wrapper = row.getparent()
+    if wrapper not in form.paths or row_path not in repeats or _local(row) != "item":
+        return False
+    counts = dict(form.counted_repeats)
+    if any(_connect_count_limit(form, counts.get(path, "")) > 1 for path in repeats if path != row_path):
+        return False
+    controls = [c for c in form.controls.get(row_path, ()) if _local(c) == "repeat"]
+    if len(controls) != 1 or _token_texts(controls[0].get(f"{{{JAVAROSA}}}noAddRemove") or "") != ("true", "(", ")"):
+        return False
+    count_path = counts.get(row_path)
+    count_node = form.node(count_path) if count_path else None
+    if count_node is None or isinstance(count_node, tuple) or count_node.getparent() is not wrapper:
+        return False
+    count_bind = form.bind(count_path)
+    if count_bind is None or (count_bind.get("type") or "").split(":")[-1] != "int":
+        return False
+    if _token_texts(_bind_text(form, row, "relevant")) != _token_texts(f"position() < ../{_local(count_node)}"):
+        return False
+    ids = _token_texts(count_bind.get("calculate") or "")
+    if len(ids) != 6 or ids[:4] != ("count-selected", "(", "..", "/") or ids[-1] != ")":
+        return False
+    ids_node = form.node(form.paths[wrapper] + "/" + ids[4])
+    if ids_node is None or isinstance(ids_node, tuple) or form.question_controls(form.paths[ids_node]):
+        return False
+    members = [node for node in row if isinstance(node.tag, str) and _local(node) == member]
+    if len(members) != 1:
+        return False
+    node = members[0]
+    path = form.paths[node]
+    if form.question_controls(path) or (node.text or "").strip():
+        return False
+    bind = form.bind(path)
+    if bind is None:
+        return False
+
+    def is_stored_index(node):
+        bind = form.bind(form.paths[node])
+        return (
+            bind is not None
+            and (bind.get("type") or "").split(":")[-1] == "int"
+            and not bind.get("calculate")
+            and not form.question_controls(form.paths[node])
+            and _token_texts(_connect_initial_value(form, form.paths[node], "jr-insert"))
+            == _token_texts("position(..)")
+        )
+
+    if is_stored_index(node):
+        return True
+    defaults = [action for action in _model_setvalues(form) if _held_ref(action) == path]
+    if not _count_placement_row_id(form, node, path, bind, defaults):
+        return False
+    branches = _call_of(form.tree(bind.get("calculate")), "if", 3)
+    selected = _call_of(branches[1], "selected-at", 2)
+    actual_ids = _relative_read(selected[0], path)
+    index_path = _relative_read(selected[1], path)
+    index = form.node(index_path) if index_path else None
+    return (
+        actual_ids == form.paths[ids_node]
+        and index is not None
+        and not isinstance(index, tuple)
+        and is_stored_index(index)
+        and _connect_query_is_injective(form, _bind_text(form, ids_node, "calculate"))
+    )
+
+
+def _connect_recipient_unique(form, wrapper, repeats):
+    """Read the native all-row constraint and bind from their wire addresses.
+    Vellum's model iteration index is unique in the repeat that supplied it.
+    A second varying outer repeat restarts those indices."""
+    _, leaf = _connect_entity(form, wrapper)
+    if leaf is None or not repeats:
+        return False
+    tokens = _token_texts(_bind_text(form, leaf, "calculate"))
+    target = leaf
+    while tokens[:2] == ("..", "/"):
+        if target is None:
+            return False
+        target = target.getparent()
+        tokens = tokens[2:]
+    if target is None or target not in form.paths:
+        return False
+    parent = target.getparent()
+    if len(tokens) == 2 and tokens[0] == "@" and parent in form.model_repeats and _local(target) == "item":
+        return _connect_iteration_unique(form, parent, target, tokens[1], repeats)
+    if len(tokens) == 1 and _connect_count_placement_unique(form, target, tokens[0], repeats):
+        return True
+    if len(repeats) != 1:
+        return False
+    repeat = form.node(repeats[0])
+    if target is not repeat or len(tokens) != 1 or repeat.getparent() is not form.data_root:
+        return False
+    path = f"{repeats[0]}/{tokens[0]}"
+    node = form.node(path)
+    if node is None or node.text or _bind_text(form, repeat, "relevant") or _bind_text(form, node, "relevant"):
+        return False
+    bind = form.bind(path)
+    if bind is None or (bind.get("type") or "string").split(":")[-1] != "string" or bind.get("calculate"):
+        return False
+    if any(_held_ref(action) == path for action in _model_setvalues(form)):
+        return False
+    if not any(_local(q) == "input" for q in form.question_controls(path)):
+        return False
+    if _token_texts(_bind_text(form, node, "required")) != ("true", "(", ")"):
+        return False
+    values = f"{repeats[0]}[true()]/{tokens[0]}"
+    constraint = xpath_tokens(_bind_text(form, node, "constraint")) or ()
+
+    # Normalize quote choice at the token level. Every nonempty separator
+    # works, but both sides must use the same string and the same all-row path.
+    def normalized(tokens):
+        return tuple((t.kind, t.text[1:-1] if t.kind == "STR" else t.text) for t in tokens)
+
+    for clause in _connect_conjuncts(constraint):
+        literals = [t for t in clause if t.kind == "STR"]
+        if len(literals) != 2 or not literals[0].text[1:-1] or literals[0].text[1:-1] != literals[1].text[1:-1]:
+            continue
+        separator = literals[0].text
+        left = f"string-length(join({separator}, {values}))"
+        right = f"string-length(join({separator}, distinct-values({values})))"
+        alternatives = [normalized(xpath_tokens(f"{l} = {r}")) for l, r in ((left, right), (right, left))]
+        if normalized(clause) in alternatives:
+            return True
+    return False
+
+
+def connect_colliding_activities(kinds):
+    """Classify the particular reached wrapper against the other occurrences in this submitted form."""
+
+    def applies(use, manifest):
+        part = _connect_part(use)
+        if not part or part[1] is not part[2] or part[3] not in kinds or part[4] is None:
+            return False
+        form, node, wrapper, role, own = part
+        repeats, limit = _connect_limits(form, wrapper)
+        guards = _connect_guards(form, wrapper)
+        if not limit or guards is None or _connect_exclusive(guards):
+            return False
+        for candidate in form.paths:
+            other_role = candidate.get(f"{{{VELLUM}}}role")
+            if other_role not in kinds or (len(kinds) > 1 and other_role == role):
+                continue
+            other = candidate.find(f"{{{CONNECT_NAMESPACE}}}{CONNECT_ROLES[other_role]}")
+            if other is None:
+                continue
+            if candidate is wrapper:
+                if limit == 1 or (role == "ConnectDeliverUnit" and _connect_recipient_unique(form, wrapper, repeats)):
+                    continue
+            _, other_limit = _connect_limits(form, candidate)
+            other_guards = _connect_guards(form, candidate)
+            if not other_limit or other_guards is None or _connect_exclusive(guards + other_guards):
+                continue
+            if len(kinds) == 1 and role != "ConnectAssessment" and own.get("id") != other.get("id"):
+                continue
+            if len(kinds) == 1 and role == "ConnectDeliverUnit" and candidate is not wrapper:
+                first, _ = _connect_entity(form, wrapper)
+                second, _ = _connect_entity(form, candidate)
+                if first is not None and second is not None and first != second:
+                    continue
+            return True
+        return False
+
+    return applies
+
+
 def form_name_read_as_an_instance(use, manifest):
     """``forms-and-case-writes/form-name-read-as-an-instance``: a form whose name in the app's default language
     (``Application.default_language``: the first of ``langs``, ``en`` where there is none) holds text CommCare HQ's
@@ -9751,6 +10223,18 @@ VARIANTS = {
 
 VALUE_CLASSES = {
     # Questions
+    "questions/connect-deliveries-share-receiver-key": connect_colliding_activities({'ConnectDeliverUnit'}),
+    "questions/connect-repeats-module-completion-key": connect_colliding_activities({'ConnectLearnModule'}),
+    "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a": connect_colliding_activities({'ConnectAssessment'}),
+    "questions/connect-deliver-unit-and-task-in-one-form": connect_colliding_activities({'ConnectDeliverUnit', 'ConnectTask'}),
+    "questions/connect-unit-id-changed-by-form-editor": connect_id_changes,
+    "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or": connect_id_over_width,
+    "questions/connect-value-that-the-editor-clears": connect_inline_calculation,
+    "questions/connect-assessment-without-score": connect_missing_score,
+    "questions/connect-estimate-outside-receiver-range": connect_estimate_outside_column,
+    "questions/connect-block-text-read-as-an-instance": connect_text_instance,
+    "questions/connect-work-area-update-photo-not-forwarded": connect_photo_not_forwarded,
+    "questions/connect-work-area-update": connect_work_area_changed_by_editor,
     "questions/other-h-head-children-whose-local-name-or-a-descendant-s-core-or": head_child,
     "questions/authored-orx-pollsensor": authored_pollsensor,
     "questions/type-on-a-savetocase-property-leaf-a-create-update-or-index": savetocase_leaf_type,

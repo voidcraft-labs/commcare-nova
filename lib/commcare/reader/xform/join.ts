@@ -1,3 +1,4 @@
+import { CONNECT_XMLNS } from "../../xform/connectActivity";
 /**
  * The join of a form's model and body, as HQ's form builder makes it
  * (Vellum `parser.js`): every data node takes one `NodeRole`, in this order,
@@ -54,6 +55,7 @@ import {
 	wrapsRepeat,
 } from "./body";
 import { type KindSites, X } from "./claims";
+import { connectRoleSite } from "./connect";
 import {
 	absolutePath,
 	type CaseRegionContainer,
@@ -169,6 +171,7 @@ export interface JoinedForm {
 	/** Reads a candidate the case management stage did not settle as generated: the node becomes
 	 *  the Hidden Value it is, with the claims any Hidden Value takes. */
 	settleField(node: DataNode): DraftField;
+	attachActivity(node: DataNode, activity: Record<string, unknown>): DraftField;
 }
 
 /**
@@ -287,9 +290,36 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (node.role === "SaveToCase") under(node, { kind: "case-region" });
 		else if (block !== undefined) under(node, { kind: "connect", block });
 		else if (node.role === "ConnectWorkAreaUpdate") {
-			cursor.refuseSubtree(
+			const [update] = node.children;
+			const leaves = [
+				"work_area_id",
+				"status",
+				"reason",
+				"additional_details",
+				"photo_evidence",
+			];
+			const forwardingLosesPhoto =
+				node.children.length === 1 &&
+				update?.name === "work_area_update" &&
+				elementNamespace(update.element, parsed.scope(update.element)) ===
+					CONNECT_XMLNS &&
+				update.element.attribs.id === node.name &&
+				update.children.length === leaves.length &&
+				update.children.every(
+					(child, index) =>
+						child.name === leaves[index] &&
+						elementNamespace(child.element, parsed.scope(child.element)) ===
+							CONNECT_XMLNS &&
+						child.children.length === 0,
+				);
+			cursor.refuseSubtreeAt(
 				node.element,
-				X.connectWorkAreaUpdate,
+				connectRoleSite(node.element, parsed.scope) ?? {
+					element: node.element,
+				},
+				forwardingLosesPhoto
+					? X.connectWorkAreaPhotoNotForwarded
+					: X.connectWorkAreaUpdate,
 				placeOf(node),
 			);
 			const cover = (at: DataNode) => {
@@ -1285,6 +1315,18 @@ export function joinForm(input: JoinInput): JoinedForm {
 		modelIterations,
 		generated,
 		generatedValues,
+		attachActivity(node, activity) {
+			const field = make(
+				node,
+				dataParent(node),
+				undefined,
+				"connect_activity",
+				false,
+				{ activity },
+			);
+			ordered = undefined;
+			return field;
+		},
 		settleField(node) {
 			const field = readQuestion(node, undefined, dataParent(node));
 			ordered = undefined;

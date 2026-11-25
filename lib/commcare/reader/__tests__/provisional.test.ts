@@ -248,7 +248,7 @@ function fingerprint(ctx: ReadContext): string {
 		appSettings: draft.appSettings,
 		logo: draft.logo,
 		levels: draft.levels,
-		connectType: draft.connectType,
+		connectRoles: draft.connectRoles,
 		userProperties: draft.userProperties,
 		locationProperties: draft.locationProperties,
 		caseTypes: draft.caseTypes,

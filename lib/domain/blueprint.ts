@@ -16,6 +16,13 @@ import {
 	casePropertyDataTypes,
 } from "./casePropertyTypes";
 import { fieldSchema, isContainer } from "./fields";
+import {
+	CONNECT_ROLES,
+	type ConnectRole,
+	connectActivityIdLimit,
+	connectActivityRole,
+	missingConnectRoleMessage,
+} from "./fields/connectActivity";
 import { formSchema } from "./forms";
 import { appLocalizationSchema } from "./localization";
 import { projectedModulePreorder } from "./moduleHierarchy";
@@ -69,11 +76,10 @@ export const caseTypeSchema = z.strictObject({
 });
 export type CaseType = z.infer<typeof caseTypeSchema>;
 
-export const CONNECT_TYPES = ["learn", "deliver"] as const;
-export type ConnectType = (typeof CONNECT_TYPES)[number];
+export { CONNECT_ROLES, type ConnectRole };
 
-/** The one user-facing name of each Connect mode, shared by every surface. */
-export const CONNECT_TYPE_LABELS: Readonly<Record<ConnectType, string>> = {
+/** The one user-facing name of each Connect role, shared by every surface. */
+export const CONNECT_ROLE_LABELS: Readonly<Record<ConnectRole, string>> = {
 	learn: "Learn",
 	deliver: "Deliver",
 };
@@ -136,10 +142,19 @@ export const NEW_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
 	showIncompleteForms: false,
 });
 
+export const connectRolesSchema = z
+	.array(z.enum(CONNECT_ROLES))
+	.max(2)
+	.refine(
+		(roles) =>
+			roles.length < 2 || (roles[0] === "learn" && roles[1] === "deliver"),
+		{ error: "Each Connect role can be selected once." },
+	);
+
 const blueprintDocObjectSchema = z.strictObject({
 	appId: z.string(),
 	appName: z.string(),
-	connectType: z.enum(CONNECT_TYPES).nullable(),
+	connectRoles: connectRolesSchema,
 	caseTypes: z.array(caseTypeSchema).nullable(),
 	/**
 	 * Optional app-level target-language overlay. Absence is the exact legacy
@@ -419,42 +434,23 @@ export function blueprintTopologyIssues(
 		}
 	}
 
-	const connectIds = new Map<string, string>();
-	const connectKinds = [
-		"learn_module",
-		"assessment",
-		"deliver_unit",
-		"task",
-	] as const;
-	for (const [formUuid, form] of Object.entries(doc.forms)) {
-		const connect = form.connect;
-		if (connect === undefined) continue;
-		const isLearn = "learn_module" in connect || "assessment" in connect;
-		if (doc.connectType === null || (doc.connectType === "learn") !== isLearn) {
+	for (const field of Object.values(doc.fields)) {
+		if (field.kind !== "connect_activity") continue;
+		const kind = field.activity.kind;
+		const role = connectActivityRole(kind);
+		if (!doc.connectRoles.includes(role))
 			topologyIssue(
 				issues,
-				["forms", formUuid, "connect"],
-				"Form Connect configuration must match the app Connect mode.",
+				["fields", field.uuid, "activity"],
+				missingConnectRoleMessage(field.id, role),
 			);
-		}
-		const blocks = connect as Partial<
-			Record<(typeof connectKinds)[number], { readonly id: string }>
-		>;
-		for (const kind of connectKinds) {
-			const block = blocks[kind];
-			if (block === undefined) continue;
-			const site = `forms.${formUuid}.connect.${kind}`;
-			const previous = connectIds.get(block.id);
-			if (previous !== undefined) {
-				topologyIssue(
-					issues,
-					["forms", formUuid, "connect", kind, "id"],
-					`Connect id ${block.id} appears in both ${previous} and ${site}.`,
-				);
-			} else {
-				connectIds.set(block.id, site);
-			}
-		}
+		const limit = connectActivityIdLimit(kind);
+		if (limit !== undefined && field.id.length > limit)
+			topologyIssue(
+				issues,
+				["fields", field.uuid, "id"],
+				`This Connect activity can use an ID up to ${limit} characters long.`,
+			);
 	}
 
 	const exactSequence = (

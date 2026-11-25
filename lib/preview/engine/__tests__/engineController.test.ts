@@ -85,7 +85,7 @@ function makeDoc(
 	return {
 		appId: "test-app",
 		appName: "Test App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
@@ -970,7 +970,7 @@ describe("EngineController", () => {
 			const doc: ControllerDocSource = {
 				appId: "test-app",
 				appName: "Test App",
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [patientCaseType, noteCaseType],
 				modules: {
@@ -2016,7 +2016,7 @@ describe("EngineController", () => {
 			const doc: ControllerDocSource = {
 				appId: "test-app",
 				appName: "Test App",
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [patientCaseType],
 				modules: {

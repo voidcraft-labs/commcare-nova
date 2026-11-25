@@ -90,6 +90,7 @@ export const SUBJECTS = [
 	"child-cases",
 	"commcare-version",
 	"connect-blocks",
+	"connect-work-area-requests",
 	"custom-assertions",
 	"custom-device-properties",
 	"data-registry",

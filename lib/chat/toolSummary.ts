@@ -128,6 +128,7 @@ const HISTORICAL_TOOL_ACTIONS: Record<string, ActionPhrases> = {
 const CONNECT_ACTIONS: Record<string, string> = {
 	learn: "Set CommCare Connect to Learn",
 	deliver: "Set CommCare Connect to Deliver",
+	both: "Enabled Connect learning and delivery",
 	off: "Turned off CommCare Connect",
 };
 

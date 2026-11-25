@@ -2,6 +2,10 @@ import {
 	fieldBindType,
 	fieldKindBindType,
 } from "@/lib/commcare/xform/bindType";
+import {
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+} from "@/lib/commcare/xform/connectActivity";
 import type { XFormDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
 import type { Field } from "@/lib/domain";
 import { wireTimeOfDay } from "@/lib/domain/temporalValues";
@@ -111,6 +115,7 @@ interface XPathTemplateNode {
 	readonly queryWrapper?: true;
 	/** The data type Core gives the node, which decides how it reads. */
 	readonly answerType: CoreAnswerType;
+	readonly initialText?: string;
 	readonly repeat: boolean;
 	readonly children: readonly XPathTemplateNode[];
 	readonly attributes?: Readonly<Record<string, string>>;
@@ -156,6 +161,31 @@ export class DataInstance {
 		Readonly<Record<string, string>>
 	>();
 	private xpathTemplate: readonly XPathTemplateNode[] = [];
+	private activityShapes = new Map<
+		string,
+		(typeof CONNECT_BLOCK_SHAPES)[keyof typeof CONNECT_BLOCK_SHAPES]
+	>();
+	private boundActivityLeaves = new Set<string>();
+
+	/** Every generated element inherits its activity's relevance at this particular repeat row. */
+	addActivityRelevance(relevance: Map<string, boolean>): void {
+		if (!this.activityShapes.size) return;
+		for (const [path, shown] of relevance) {
+			const shape = this.activityShapes.get(stripIndices(path));
+			if (!shape) continue;
+			const block = `${path}/${shape.element}`;
+			relevance.set(block, shown);
+			for (const leaf of shape.leaves) relevance.set(`${block}/${leaf}`, shown);
+		}
+	}
+
+	hasActivities(): boolean {
+		return this.activityShapes.size > 0;
+	}
+
+	hasActivityCalculation(path: string): boolean {
+		return this.boundActivityLeaves.has(stripIndices(path));
+	}
 	/** The index-free paths of the query repeats, whose wrappers hold
 	 * `@ids`, `@count` and the computed `@current_index`. */
 	private queryRepeatPaths = new Set<string>();
@@ -218,10 +248,21 @@ export class DataInstance {
 		bindTypeOf: FieldBindTypeOf = kindBindType,
 	): void {
 		this.xpathTemplate = xpathTemplateFromFields(tree, bindTypeOf);
+		const priorActivityLeaves = this.boundActivityLeaves;
+		this.activityShapes.clear();
+		this.boundActivityLeaves = new Set();
 		this.queryRepeatPaths = new Set();
 		const walk = (nodes: readonly FieldTreeNode[], prefix: string): void => {
 			for (const node of nodes) {
 				const path = `${prefix}/${node.field.id}`;
+				if (node.field.kind === "connect_activity") {
+					const content = activityWireContent(node.field.activity);
+					const shape = CONNECT_BLOCK_SHAPES[content.block];
+					this.activityShapes.set(path, shape);
+					for (const { leaf, expression } of content.calculations)
+						if (expression)
+							this.boundActivityLeaves.add(`${path}/${shape.element}/${leaf}`);
+				}
 				if (
 					node.field.kind === "repeat" &&
 					node.field.repeat_mode === "query_bound"
@@ -231,6 +272,16 @@ export class DataInstance {
 			}
 		};
 		walk(tree, this.rootPath);
+		if (priorActivityLeaves.size > 0) {
+			for (const path of this.data.keys()) {
+				const leaf = stripIndices(path);
+				if (
+					priorActivityLeaves.has(leaf) &&
+					!this.boundActivityLeaves.has(leaf)
+				)
+					this.delete(path);
+			}
+		}
 	}
 
 	/** The rows of a repeat that are relevant: a query wrapper's
@@ -591,6 +642,28 @@ function kindBindType(field: Field): ReturnType<typeof fieldBindType> {
 	return fieldBindType(field, [], []);
 }
 
+function activityChildren(
+	field: Extract<Field, { kind: "connect_activity" }>,
+): readonly XPathTemplateNode[] {
+	const content = activityWireContent(field.activity);
+	const shape = CONNECT_BLOCK_SHAPES[content.block];
+	return [
+		{
+			name: shape.element,
+			answerType: "untyped",
+			repeat: false,
+			attributes: { id: field.id },
+			children: shape.leaves.map((leaf) => ({
+				name: leaf,
+				answerType: "untyped",
+				repeat: false,
+				children: [],
+				initialText: content.texts[leaf] ?? "",
+			})),
+		},
+	];
+}
+
 function xpathTemplateFromFields(
 	tree: readonly FieldTreeNode[],
 	bindTypeOf: FieldBindTypeOf,
@@ -602,7 +675,10 @@ function xpathTemplateFromFields(
 			name: node.field.id,
 			answerType: coreAnswerType(bindTypeOf(node.field), node.field.kind),
 			repeat: node.field.kind === "repeat",
-			children: xpathTemplateFromFields(node.children ?? [], bindTypeOf),
+			children:
+				node.field.kind === "connect_activity"
+					? activityChildren(node.field)
+					: xpathTemplateFromFields(node.children ?? [], bindTypeOf),
 			...(query ? { attributes: { id: "", index: "" } } : {}),
 		};
 		if (!query) return [own];
@@ -688,7 +764,8 @@ class FormXPathNode implements XPathNode {
 	value(): XPathValue {
 		if (this.template === undefined || this.childTemplates.length > 0)
 			return "";
-		const raw = this.instance.data.get(this.path) ?? "";
+		const raw =
+			this.instance.data.get(this.path) ?? this.template.initialText ?? "";
 		return (
 			this.instance.data.calculatedScalar(this.path) ??
 			answerXPathValue(this.template.answerType, raw)

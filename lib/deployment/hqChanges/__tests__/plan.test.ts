@@ -703,6 +703,67 @@ describe("an answer stored beside a yes/no condition", () => {
 	});
 });
 
+describe("Connect roles inferred from HQ activities", () => {
+	it("adds the role of a new HQ activity alongside a role already selected in Nova, then keeps both after the activity is removed", async () => {
+		const form = id("role-visit");
+		const ref = buildDoc({
+			appId: APP_ID,
+			appName: "Visits",
+			connectRoles: ["learn"],
+			appSettings: {
+				showSavedForms: false,
+				showIncompleteForms: false,
+				runsOnlyOn: "android",
+			},
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							uuid: form,
+							name: "Visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+					],
+				},
+			],
+		});
+		const delivered = committed(ref, [
+			{ kind: "setConnectRoles", roles: ["learn", "deliver"] },
+			{
+				kind: "addField",
+				parentUuid: form,
+				field: {
+					uuid: id("role-activity"),
+					id: "visit",
+					kind: "connect_activity",
+					activity: { kind: "delivery", name: "Visit" },
+				},
+			},
+		]);
+		const first = changesOf(await planOf(ref, delivered));
+		expect(first.target.connectRoles).toEqual(["learn", "deliver"]);
+		const firstCommit = admitted(ref, first.batch);
+		if (!firstCommit.ok) throw new Error(JSON.stringify(firstCommit.findings));
+		const taken = firstCommit.nextDoc;
+		const activity = Object.values(taken.fields).find(
+			(field) => field.id === "visit",
+		);
+		if (activity?.kind !== "connect_activity")
+			throw new Error("The reviewed activity was not added.");
+		const removed = committed(taken, [
+			{ kind: "removeField", uuid: activity.uuid },
+		]);
+		const second = changesOf(await planOf(taken, removed));
+		expect(second.target.connectRoles).toEqual(["learn", "deliver"]);
+		const secondCommit = admitted(taken, second.batch);
+		if (!secondCommit.ok)
+			throw new Error(JSON.stringify(secondCommit.findings));
+		expect(secondCommit.nextDoc.fields[activity.uuid]).toBeUndefined();
+	});
+});
+
 // ── The worker setup ─────────────────────────────────────────────────
 
 describe("what a reading cannot say of the worker setup", () => {

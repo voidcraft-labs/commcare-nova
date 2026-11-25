@@ -25,7 +25,7 @@ const TOUCHED_ID = "operation-touched-extension";
 const blueprint: PersistableDoc = {
 	appId: APP_ID,
 	appName: "Relationship repair",
-	connectType: null,
+	connectRoles: [],
 	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: [
 		{ name: "household", properties: [] },

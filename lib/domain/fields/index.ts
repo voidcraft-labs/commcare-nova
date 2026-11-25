@@ -27,6 +27,11 @@ import {
 	barcodeFieldMetadata,
 	barcodeFieldSchema,
 } from "./barcode";
+import {
+	type ConnectActivityField,
+	connectActivityFieldMetadata,
+	connectActivityFieldSchema,
+} from "./connectActivity";
 import { type DateField, dateFieldMetadata, dateFieldSchema } from "./date";
 import {
 	type DatetimeField,
@@ -130,6 +135,7 @@ export const fieldKinds = [
 	"signature",
 	"label",
 	"hidden",
+	"connect_activity",
 	"secret",
 	"group",
 	"repeat",
@@ -230,6 +236,7 @@ const fieldUnionSchema = z.union([
 		signatureFieldSchema,
 		labelFieldSchema,
 		hiddenFieldSchema,
+		connectActivityFieldSchema,
 		secretFieldSchema,
 		groupFieldSchema,
 		sectionFieldSchema,
@@ -264,6 +271,7 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	signature: signatureFieldMetadata,
 	label: labelFieldMetadata,
 	hidden: hiddenFieldMetadata,
+	connect_activity: connectActivityFieldMetadata,
 	secret: secretFieldMetadata,
 	group: groupFieldMetadata,
 	repeat: repeatFieldMetadata,
@@ -313,6 +321,7 @@ const fieldKindKeySets: Record<FieldKind, ReadonlySet<string>> = {
 	signature: new Set(Object.keys(signatureFieldSchema.shape)),
 	label: new Set(Object.keys(labelFieldSchema.shape)),
 	hidden: new Set(Object.keys(hiddenFieldSchema.shape)),
+	connect_activity: new Set(Object.keys(connectActivityFieldSchema.shape)),
 	secret: new Set(Object.keys(secretFieldSchema.shape)),
 	group: new Set(Object.keys(groupFieldSchema.shape)),
 	section: new Set(Object.keys(sectionFieldSchema.shape)),
@@ -737,6 +746,9 @@ export const fieldPatchSchemaByKind = {
 	signature: partialOf(signatureFieldSchema),
 	label: partialOf(labelFieldSchema),
 	hidden: partialOf(hiddenFieldSchema),
+	connect_activity: partialOf(connectActivityFieldSchema).extend({
+		activity: connectActivityFieldSchema.shape.activity.optional(),
+	}),
 	secret: partialOf(secretFieldSchema),
 	group: partialOf(groupFieldSchema),
 	section: partialOf(sectionFieldSchema),
@@ -794,6 +806,7 @@ export {
 export type {
 	AudioField,
 	BarcodeField,
+	ConnectActivityField,
 	CountBoundRepeatField,
 	DateField,
 	DatetimeField,

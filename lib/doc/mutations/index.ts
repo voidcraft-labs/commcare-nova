@@ -76,7 +76,7 @@ function dispatchMutation(
 			applyEntryPointMutation(draft, mut);
 			return;
 		case "setAppName":
-		case "setConnectType":
+		case "setConnectRoles":
 		case "setAppLogo":
 		case "setAppSettings":
 		case "relabelSourceLanguage":

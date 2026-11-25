@@ -68,6 +68,7 @@ import type {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { entryPointByUuid } from "@/lib/domain/entryPoints";
+import { CONNECT_ROLES } from "@/lib/domain/fields/connectActivity";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import {
 	effectiveAppLocalization,
@@ -439,6 +440,17 @@ function narrowed(
 	};
 	for (const mutation of H) {
 		switch (mutation.kind) {
+			case "setConnectRoles": {
+				// HQ shows roles through submitted activities. Removing the last
+				// activity says nothing about the roles the Nova author selected.
+				const roles = CONNECT_ROLES.filter(
+					(role) =>
+						D.connectRoles.includes(role) || mutation.roles.includes(role),
+				);
+				if (roles.length !== D.connectRoles.length)
+					out.push({ kind: "setConnectRoles", roles });
+				break;
+			}
 			case "removeUserProperty":
 			case "updateUserProperty":
 			case "removeLocationProperty":
@@ -771,7 +783,7 @@ export function touchedBy(
 				}
 				break;
 			case "setAppName":
-			case "setConnectType":
+			case "setConnectRoles":
 			case "setAppLogo":
 			case "setAppSettings":
 			case "relabelSourceLanguage":

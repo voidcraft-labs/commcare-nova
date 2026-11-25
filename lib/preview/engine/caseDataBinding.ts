@@ -2119,6 +2119,9 @@ function submissionResultFromEnvelope(
 			...(result.submissionLocation !== undefined && {
 				submissionLocation: result.submissionLocation,
 			}),
+			...(result.activities === undefined
+				? {}
+				: { activities: result.activities }),
 		};
 	}
 	if (result.primaryCaseIds.length === 0) {
@@ -2148,6 +2151,9 @@ function submissionResultFromEnvelope(
 			...(result.submissionLocation !== undefined && {
 				submissionLocation: result.submissionLocation,
 			}),
+			...(result.activities === undefined
+				? {}
+				: { activities: result.activities }),
 		};
 	}
 	return {
@@ -2164,6 +2170,9 @@ function submissionResultFromEnvelope(
 		...(result.submissionLocation !== undefined && {
 			submissionLocation: result.submissionLocation,
 		}),
+		...(result.activities === undefined
+			? {}
+			: { activities: result.activities }),
 	};
 }
 

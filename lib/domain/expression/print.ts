@@ -283,6 +283,27 @@ function printWith(
 		const graph = ctx.graph;
 		if (spelling !== "relative" && spelling !== "current") {
 			if (target.kind !== "field" && target.kind !== "repeat-row") {
+				if (
+					spelling === "absolute" &&
+					"activity" in target &&
+					ctx.step &&
+					graph
+				) {
+					const coordinates = graph.path(target);
+					if (coordinates) {
+						emit("/data");
+						for (const node of coordinates.slice(1)) {
+							const step = ctx.step(node);
+							if (!step) {
+								missing(path, "context");
+								return;
+							}
+							emit(`/${step.attribute ? "@" : ""}${step.name}`);
+							filters(term, node, path, ctx);
+						}
+						return;
+					}
+				}
 				missing(path, "arm");
 				return;
 			}

@@ -58,7 +58,6 @@ import { enableCaseSearchMutation } from "@/lib/doc/caseSearchConfigMutations";
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { planCaseSelectionChange } from "@/lib/doc/caseSelectionMutations";
 import { planCaseTypeRetirementOnRemove } from "@/lib/doc/caseTypeRetirement";
-import { planConnectTargetState } from "@/lib/doc/connectTargetState";
 import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import {
 	setFormDisplayConditionMutation,
@@ -655,58 +654,25 @@ const setAppName: KindGenerator = (ctx) => [
 	batch([{ kind: "setAppName", name: edited(ctx.doc.appName) }]),
 ];
 
-const setConnectType: KindGenerator = (ctx) => {
-	if (ctx.doc.connectType !== null) {
-		const plan = planConnectTargetState(ctx.doc, { mode: null });
-		return [plan.ok ? batch(plan.mutations) : refusal("connect-target")];
-	}
-	return take(ctx, formsInOrder(ctx.doc)).map(({ formUuid }) => {
-		const learn = ctx.rng.next() < 0.5;
-		const plan = planConnectTargetState(
-			ctx.doc,
-			learn
-				? {
-						mode: "learn",
-						participants: [
-							{
-								formUuid,
-								connect: {
-									learn_module: {
-										id: ctx.mint.name("edit_learn"),
-										name: "Edited learning",
-										description: "Edited learning module",
-										time_estimate: 5,
-									},
-								},
-							},
-						],
-					}
-				: {
-						mode: "deliver",
-						participants: [
-							{
-								formUuid,
-								connect: {
-									deliver_unit: {
-										id: ctx.mint.name("edit_deliver"),
-										name: "Edited delivery",
-									},
-								},
-							},
-						],
-					},
-		);
-		if (!plan.ok) return refusal("connect-target");
-		// A Connect app runs on Android alone, so turning Connect on narrows
-		// the app in the same batch, as the builder's Connect dialogs commit
-		// it; a document whose content Android can't run is refused at the gate.
-		return ctx.doc.appSettings.runsOnlyOn === "android"
-			? batch(plan.mutations)
-			: batch([
-					{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
-					...plan.mutations,
-				]);
-	});
+const setConnectRoles: KindGenerator = (ctx) => {
+	const candidates = [
+		[],
+		["learn"],
+		["deliver"],
+		["learn", "deliver"],
+	] as const;
+	return candidates
+		.filter((roles) => roles.join() !== ctx.doc.connectRoles.join())
+		.map((roles) => {
+			const edits: Mutation[] = [];
+			if (roles.length > 0 && ctx.doc.appSettings.runsOnlyOn !== "android")
+				edits.push({
+					kind: "setAppSettings",
+					settings: { runsOnlyOn: "android" },
+				});
+			edits.push({ kind: "setConnectRoles", roles: [...roles] });
+			return batch(edits);
+		});
 };
 
 const setAppLogo: KindGenerator = (ctx) => [
@@ -3097,7 +3063,7 @@ export const EDIT_KIND_GENERATORS = {
 	updateField: hosted(FORM_HOST, updateField),
 	convertField: hosted(FORM_HOST, hosted(CONVERTIBLE_HOST, convertField)),
 	setAppName,
-	setConnectType: hosted(FORM_HOST, setConnectType),
+	setConnectRoles: hosted(FORM_HOST, setConnectRoles),
 	setAppLogo,
 	setAppSettings,
 	relabelSourceLanguage,

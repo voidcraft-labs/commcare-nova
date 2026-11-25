@@ -239,19 +239,25 @@ it("binds Connect scoring and record naming from their real pending evaluation n
 			fields: [{ kind: "int", id: "score", label: "Score" }],
 		}),
 	).toMatchObject({ ok: true });
+	expect(await h.call("configureConnect", { roles: ["learn"] })).toMatchObject({
+		ok: true,
+	});
 	expect(
-		await h.call("configureConnect", {
-			mode: "learn",
-			participants: [
+		await h.call("addFields", {
+			formUuid: "Visit",
+			fields: [
 				{
-					formUuid: "Visit",
-					connect: { assessment: { user_score: "../../../score" } },
+					kind: "connect_activity",
+					id: "quiz",
+					activity: { kind: "assessment", score: "../../../score" },
 				},
 			],
 		}),
 	).toMatchObject({ ok: true });
-	expect(await h.call("getForm", { formUuid: "Visit" })).toMatchObject({
-		form: { connect: { assessment: { user_score: "../../../score" } } },
+	expect(
+		await h.call("getField", { formUuid: "Visit", fieldUuid: "quiz" }),
+	).toMatchObject({
+		field: { activity: { kind: "assessment", score: "../../../score" } },
 	});
 	// The record name is the own case's name, read where the case changes
 	// are made, so it names an answer by its form path.

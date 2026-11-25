@@ -5939,7 +5939,7 @@ describe("the app-level keys of the HQ import file", () => {
 
 	it("sends the chosen automatic location setting even when clearing it", () => {
 		for (const { doc } of connectWireFixtures()) {
-			expect(expandDoc(doc).auto_gps_capture).toBe(doc.connectType !== null);
+			expect(expandDoc(doc).auto_gps_capture).toBe(doc.connectRoles.length > 0);
 			expect(
 				expandDoc({
 					...doc,

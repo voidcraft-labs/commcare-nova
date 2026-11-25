@@ -1132,7 +1132,7 @@ export function mutationTargetsInvalid(
 			}
 			// ── App-level scalars — no entity target, always safe ──────
 			case "setAppName":
-			case "setConnectType":
+			case "setConnectRoles":
 			case "setAppLogo":
 			case "setAppSettings":
 				break;

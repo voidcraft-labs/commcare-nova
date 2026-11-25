@@ -14,7 +14,7 @@ export function buildFixture(): BlueprintDoc {
 	return {
 		appId: "search-test",
 		appName: "Search Test",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {

@@ -16,7 +16,12 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	addFixtureField,
+	buildDoc,
+	caseListConfig,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import { availableLookupContext } from "@/lib/__tests__/lookupFixtures";
 import {
 	type BlueprintDoc,
@@ -115,7 +120,7 @@ function makeDoc(): BlueprintDoc {
 	const doc: BlueprintDoc = {
 		appId: "test-app",
 		appName: "Clinic",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: { [MOD]: mod },
@@ -346,18 +351,15 @@ describe("a form's Connect blocks share its root's names", () => {
 	 * whose wrapper sits beside the form's top-level fields. */
 	function connectDoc(): BlueprintDoc {
 		const doc = makeDoc();
-		return {
-			...doc,
-			connectType: "deliver",
-			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
-			forms: {
-				...doc.forms,
-				[F1]: {
-					...(doc.forms[F1] as Form),
-					connect: { deliver_unit: { id: "visit", name: "Visit" } },
-				},
-			},
-		};
+		doc.connectRoles = ["deliver"];
+		doc.appSettings = { ...NEW_APP_SETTINGS, runsOnlyOn: "android" };
+		addFixtureField(doc, F1, {
+			kind: "connect_activity",
+			uuid: testUuid("visit-activity"),
+			id: "visit",
+			activity: { kind: "delivery", name: "Visit" },
+		});
+		return doc;
 	}
 
 	it("refuses a top-level field named like the block, and admits it in a group or another form", () => {
@@ -368,7 +370,9 @@ describe("a form's Connect blocks share its root's names", () => {
 			newId: "visit",
 		});
 		expect(codeOf(rename)).toBe("sibling_conflict");
-		expect(rename.ok ? "" : rename.userMessage).toContain("Connect block");
+		expect(rename.ok ? "" : rename.userMessage).toContain(
+			'already named "visit"',
+		);
 		expect(
 			codeOf(fieldIdVerdict({ doc, parentUuid: F1, proposedId: "visit" })),
 		).toBe("sibling_conflict");
@@ -379,6 +383,18 @@ describe("a form's Connect blocks share its root's names", () => {
 		expect(
 			renameFieldIdVerdict({ doc, fieldUuid: TARGET_F2, newId: "visit" }),
 		).toEqual({ ok: true });
+	});
+
+	it("keeps the receiver width and reserved names in the field rename verdict", () => {
+		const doc = connectDoc();
+		const fieldUuid = testUuid("visit-activity");
+		expect(
+			renameFieldIdVerdict({ doc, fieldUuid, newId: "v".repeat(100) }),
+		).toEqual({ ok: true });
+		for (const newId of ["work_area_update", "v".repeat(101)])
+			expect(renameFieldIdVerdict({ doc, fieldUuid, newId })).toMatchObject({
+				ok: false,
+			});
 	});
 
 	it("offers a refused top-level id a name the block doesn't hold", () => {

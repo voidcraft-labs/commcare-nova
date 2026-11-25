@@ -241,7 +241,7 @@ export const storedFirstPublishSchema: z.ZodType<StoredFirstPublish> =
 
 export interface FirstPublishApp {
 	readonly appSettings: Pick<AppSettings, "runsOnlyOn" | "showIncompleteForms">;
-	readonly connectType: BlueprintDoc["connectType"];
+	readonly connectRoles: BlueprintDoc["connectRoles"];
 }
 
 /**
@@ -256,7 +256,7 @@ export function firstPublishViewFromStored(
 	stored: StoredFirstPublish,
 	{
 		appSettings: { runsOnlyOn, showIncompleteForms },
-		connectType,
+		connectRoles,
 	}: FirstPublishApp,
 ): FirstPublishView {
 	const present = new Set<FirstPublishChangeId>(stored.ids);
@@ -273,7 +273,8 @@ export function firstPublishViewFromStored(
 			if (platform !== runsOnlyOn) present.delete(id);
 	}
 	if (showIncompleteForms) present.delete("incomplete-forms-tile-hidden");
-	if (connectType === null) present.delete("connect-app-captures-location");
+	if (connectRoles.length === 0)
+		present.delete("connect-app-captures-location");
 	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => present.has(id));
 	return {
 		ids,

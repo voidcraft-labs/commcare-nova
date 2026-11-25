@@ -33,7 +33,6 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CasePlacement,
-	formConnectIds,
 	type PlacementIneligibility,
 	type SaveToCasePlacement,
 	sameCasePlacement,
@@ -553,7 +552,7 @@ interface ActionState {
  * Nova's generated names all start `nova_`, so none is a `case_` name.
  */
 function advancedRootNames(f: CaseSlotFacts): ReadonlySet<string> {
-	const names = new Set<string>(formConnectIds(f.doc, f.formUuid));
+	const names = new Set<string>();
 	for (const uuid of f.submittedChildren.get(f.formUuid) ?? []) {
 		const field = f.doc.fields[uuid];
 		if (field !== undefined) names.add(field.id);

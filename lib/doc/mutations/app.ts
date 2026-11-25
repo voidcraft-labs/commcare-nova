@@ -36,7 +36,7 @@ export function applyAppMutation(
 		{
 			kind:
 				| "setAppName"
-				| "setConnectType"
+				| "setConnectRoles"
 				| "setAppLogo"
 				| "setAppSettings"
 				| "relabelSourceLanguage"
@@ -62,8 +62,8 @@ export function applyAppMutation(
 		case "setAppName":
 			draft.appName = mut.name;
 			return;
-		case "setConnectType":
-			draft.connectType = mut.connectType;
+		case "setConnectRoles":
+			draft.connectRoles = [...mut.roles];
 			return;
 		case "setAppLogo":
 			// The doc's `logo` slot is `.optional()`, not `.nullable()`, so

@@ -990,7 +990,7 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 			}
 		}
 	const doc = settled.doc;
-	if (doc !== null && doc.connectType !== null)
+	if (doc !== null && doc.connectRoles.length > 0)
 		records.push(settledRecord("app.json", "", SETTLED.connect));
 	if (doc !== null) {
 		records.push(

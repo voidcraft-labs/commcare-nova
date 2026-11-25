@@ -28,8 +28,12 @@ import type { ReadDraft } from "@/lib/commcare/reader/types";
 import { literalOutputText } from "@/lib/commcare/reader/xform/prose";
 import { buildLabelNodes } from "@/lib/commcare/xform/builder";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
+import {
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+} from "@/lib/commcare/xform/connectActivity";
 import { isConsumerWhitespace } from "@/lib/commcare/xform/consumerWhitespace";
-import { FormPath } from "@/lib/commcare/xform/formPath";
+import type { FormPath } from "@/lib/commcare/xform/formPath";
 import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type {
@@ -44,7 +48,6 @@ import {
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
 } from "@/lib/domain/caseScalarTextGuard";
-import { formConnectIds } from "@/lib/domain/connectIds";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
@@ -308,6 +311,31 @@ export function documentSummary(
 			const location = locations.get(uuid);
 			if (field === undefined || location === undefined) continue;
 			const path = (location.path as FormPath).toXPath();
+			if (field.kind === "connect_activity") {
+				// HQ's get_questions enumerates the leaves of the submitted
+				// instance. The wrapper has no worker control of its own.
+				const content = activityWireContent(field.activity);
+				const shape = CONNECT_BLOCK_SHAPES[content.block];
+				for (const leaf of shape.leaves)
+					rows.push({
+						fieldUuid: uuid,
+						kind: field.kind,
+						path: `${path}/${shape.element}/${leaf}`,
+						repeat,
+						group,
+						alwaysRequired: false,
+						hasRelevant: false,
+						hasConstraint: false,
+						hasCalculate: content.calculations.some(
+							(calculation) =>
+								calculation.leaf === leaf &&
+								calculation.expression !== undefined,
+						),
+						label: NO_ENTRIES,
+						options: null,
+					});
+				continue;
+			}
 			if (field.kind === "repeat") {
 				const query = field.repeat_mode === "query_bound";
 				const counted =
@@ -496,10 +524,6 @@ function formSummaryDifferences(input: {
 	const explained = [
 		...(input.facts?.generated ?? []).map((node) => node.path),
 		...(input.facts?.caseRegionPaths ?? []),
-		...[...formConnectIds(doc, formUuid)].map(
-			(id) =>
-				`${FormPath.root(doc.forms[formUuid]?.dataRootName).toXPath()}/${id}`,
-		),
 	];
 	const isExplained = (path: string) =>
 		path.includes("/@") ||
@@ -524,6 +548,12 @@ function formSummaryDifferences(input: {
 		const field = doc.fields[row.fieldUuid];
 		const dataOnly = question.type === DATA_BIND_ONLY;
 		const place = at(path);
+		if (row.kind === "connect_activity" && !dataOnly)
+			differ(
+				["question", "activity-control"],
+				place,
+				`${path} has a control in HQ`,
+			);
 
 		if (!dataOnly && row.kind !== "hidden") {
 			if ((question.repeat ?? null) !== row.repeat)

@@ -368,6 +368,7 @@ export function flatFieldToField(
 		...(q.lockedInHq === true && { lockedInHq: true }),
 		...(q.answerNamespace != null && { answerNamespace: q.answerNamespace }),
 		...(q.maxDimension != null && { maxDimension: q.maxDimension }),
+		...(q.activity !== undefined && { activity: q.activity }),
 		...(q.required !== undefined &&
 			q.required !== null && { required: q.required }),
 		...(q.relevant !== undefined &&

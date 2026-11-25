@@ -1,6 +1,6 @@
 # lib/session — Builder ephemeral session store
 
-Transient UI state scoped to the builder route: preview mode, sidebar visibility, agent run status, active field, connect-mode stash, staged media uploads. None of it is undoable; none of it persists across page loads.
+Transient UI state scoped to the builder route: preview mode, sidebar visibility, agent run status, active field, staged media uploads. None of it is undoable; none of it persists across page loads.
 
 ## Boundary rule
 
@@ -201,25 +201,6 @@ retain the set. Home clears the current task's case facts and search context,
 without changing worker identity or authorization. Preview reset, persona change, Project boundary, or module
 removal clears it. A maximum change does not trim it: the running screen holds
 the over-limit set until the worker removes enough cases.
-
-## Connect UI state is not Connect document ownership
-
-The store owns only the form-settings convenience state: mode-specific draft
-stashes and `lastConnectType` as the next-dialog default. `switchConnectMode`
-never infers a target mode from that hint. Its caller supplies an explicit mode
-and, for learn/deliver, the complete desired participant blocks; the store
-delegates document planning to `lib/doc/connectTargetState.ts` and gates the
-returned batch once, under the Project lookup context the one
-`ConnectSwitchRequest` carries beside the target and blocks.
-`useSwitchConnectMode` first runs the shared `builderWriteAdmission` (a viewer,
-a lookup catalog still loading or failed) and then binds the builder's live
-context from `useLookupCommitState`, so a doc that carries a lookup-backed
-select can still switch modes; the store deliberately has no default for the
-context, because the gate is absolute and an unavailable one refuses every
-switch on such a doc. A null target clears the app mode and every form block;
-an enabled target clears every unlisted block. The stash is updated only after
-the document batch commits and can never make a dormant Connect configuration
-part of the blueprint.
 
 ## Lifecycle = events buffer + runCompletedAt + the run-start capture
 

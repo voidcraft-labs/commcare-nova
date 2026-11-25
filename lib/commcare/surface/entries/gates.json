@@ -2264,6 +2264,7 @@
 			"questions/connect-task",
 			"questions/connect-deliver-unit-and-task-in-one-form",
 			"questions/connect-learn-and-deliver-blocks-in-one-app",
+			"questions/connect-work-area-update-photo-not-forwarded",
 			"questions/connect-work-area-update"
 		],
 		"platforms": "n/a",

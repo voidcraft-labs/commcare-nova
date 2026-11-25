@@ -100,7 +100,7 @@ describe("assemblePersistedBlueprintJsonText", () => {
 			"historical-app",
 			{
 				app_name: "Historical app",
-				connect_type: null,
+				connect_roles: [],
 				case_types_text: null,
 				app_settings_text:
 					'{"showSavedForms":false,"showIncompleteForms":true}',
@@ -123,7 +123,7 @@ describe("assemblePersistedBlueprintJsonText", () => {
 				"unsettled-app",
 				{
 					app_name: "Unsettled app",
-					connect_type: null,
+					connect_roles: [],
 					case_types_text: null,
 					app_settings_text: null,
 					logo: null,

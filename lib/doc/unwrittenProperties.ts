@@ -221,6 +221,10 @@ const FIELD_SLOT_NOUNS: Readonly<Record<string, string>> = {
 	help: "the display text",
 	validate_msg: "the display text",
 	option_label: "the display text",
+	assessment_user_score: "the assessment score",
+	deliver_entity_id: "the delivery recipient ID",
+	deliver_entity_name: "the delivery recipient name",
+	deliver_work_area_id: "the delivery work area",
 } satisfies Partial<Record<FieldSlotId, string>>;
 
 /** Module-slot phrasing per audience. The builder column phrases stay
@@ -261,9 +265,6 @@ const MODULE_SLOT_PHRASES: Readonly<
 const FORM_SLOT_PHRASES: Readonly<Record<string, string>> = {
 	form_link_condition: "a form link condition on",
 	form_link_datum_xpath: "a form link datum on",
-	assessment_user_score: "the Connect settings of",
-	deliver_entity_id: "the Connect settings of",
-	deliver_entity_name: "the Connect settings of",
 } satisfies Partial<Record<FormSlotId, string>>;
 
 /**

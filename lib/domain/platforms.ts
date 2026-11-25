@@ -422,7 +422,7 @@ export const PLATFORM_FEATURES: Readonly<
 			why: "Connect workers open it only in the Connect app on Android: CommCare HQ gives them no password, so they can't sign in to Web Apps.",
 			alternative: "turn Connect off",
 			closing:
-				'You can set the app to run only on Android (updateApp/update_app, runs_only_on "android"), or turn Connect off (configureConnect/configure_connect, mode null).',
+				'You can set the app to run only on Android (updateApp/update_app, runs_only_on "android"), or remove the Connect activities and clear the app’s roles (configureConnect/configure_connect, roles []).',
 			pickerLine:
 				"Not available for a Connect app. You can turn off Connect, then choose this.",
 		},

@@ -45,7 +45,7 @@ const ANDROID_ONLY = { ...NEW_APP_SETTINGS, runsOnlyOn: "android" } as const;
 function doc(overrides: Partial<CompatibilityInput> = {}): CompatibilityInput {
 	return {
 		...buildDoc(),
-		connectType: null,
+		connectRoles: [],
 		modules: {},
 		forms: {},
 		fields: {},
@@ -250,7 +250,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 	it("derives CommCare Connect from the app mode", () => {
 		expect(
 			requiredProjectSpaceCapabilities(
-				doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+				doc({ connectRoles: ["learn"], appSettings: ANDROID_ONLY }),
 			).map((capability) => capability.id),
 		).toEqual(["commcare-connect"]);
 	});
@@ -644,7 +644,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 describe("project-space compatibility reports", () => {
 	it("keeps an unknown destination semantic and not checked", () => {
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "deliver", appSettings: ANDROID_ONLY }),
+			doc({ connectRoles: ["deliver"], appSettings: ANDROID_ONLY }),
 		);
 		expect(report.status).toBe("not_checked");
 		expect(report.required_capabilities).toMatchObject([
@@ -656,7 +656,7 @@ describe("project-space compatibility reports", () => {
 
 	it("blocks missing and unverified required capabilities", () => {
 		const uses = requiredProjectSpaceCapabilities(
-			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+			doc({ connectRoles: ["learn"], appSettings: ANDROID_ONLY }),
 		);
 		const report = projectSpaceCompatibilityForTarget(
 			"clinic-space",
@@ -727,7 +727,7 @@ describe("project-space compatibility reports", () => {
 
 	it("never serializes private flags, namespaces, or raw probe arrays", () => {
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+			doc({ connectRoles: ["learn"], appSettings: ANDROID_ONLY }),
 		);
 		const serialized = JSON.stringify(report);
 		expect(serialized).not.toContain("commcare_connect");
@@ -741,7 +741,7 @@ describe("project-space compatibility reports", () => {
 			decodeProjectSpaceCompatibilityReport(encodeURIComponent("{}")),
 		).toBeUndefined();
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+			doc({ connectRoles: ["learn"], appSettings: ANDROID_ONLY }),
 		);
 		expect(
 			decodeProjectSpaceCompatibilityReport(

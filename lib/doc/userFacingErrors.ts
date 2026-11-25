@@ -866,13 +866,11 @@ const USER_MESSAGE_BY_CODE: Record<
 				return "A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.";
 		}
 	},
-	CONNECT_ID_DUPLICATE: (e) =>
-		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
-	CONNECT_NO_PARTICIPATING_FORMS: () =>
-		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
 	PLATFORM_FEATURE_UNAVAILABLE: (e) => platformBuilderSentence(e),
-	CONNECT_MODE_MISMATCH: (e) =>
-		`${q(formName(e))}'s Connect setup doesn't match the app's Connect mode. Configure the app's complete Connect setup together.`,
+	CONNECT_MODE_MISMATCH: (e) => e.message,
+	CONNECT_DUPLICATE_DELIVERY: (e) => e.message,
+	CONNECT_REPEATED_ASSESSMENT: (e) => e.message,
+	CONNECT_REPEATED_LEARNING_MODULE: (e) => e.message,
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
 		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
 	BLUEPRINT_TOPOLOGY_INVALID: () =>
@@ -1455,7 +1453,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	FORM_SECTION_NOT_TOP_LEVEL: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a section sitting inside ${sectionParentPhrase(e)}. A section is a page of the form, so it belongs at the top level. Move it out.`,
 	FORM_SECTIONS_INCOMPLETE: (e) =>
-		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every field belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
+		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every question belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
 	FORM_SECTION_USER_REPEAT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} lets people add entries, but it sits inside section ${q(det(e, "sectionTitle", det(e, "sectionId", "")))}, and a section shows on one screen where entries can't be added. Move the repeat out of the sections, or give it a fixed count.`,
 	FIELD_LIST_USER_REPEAT: (e) => {
@@ -1537,8 +1535,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} can't carry its complete case selection straight into that form. Send people to the destination's form list so they can choose again, or give both forms the same case selection and limit.`,
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: (e) =>
 		`A Case change in ${q(formName(e))} can change the selected cases to another type before the next form opens. Send people to the destination's form list so they can choose matching cases, or keep every selected case as ${q(det(e, "expectedCaseType", "the destination's case type"))}.`,
-	CONNECT_ID_TOO_LONG: (e) =>
-		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
+	CONNECT_ID_TOO_LONG: (e) => e.message,
 	CONNECT_ID_INVALID_FORMAT: (e) => {
 		const id = det(e, "connectId", "");
 		const sentence = questionIdSentence(e, id, "connect");
@@ -1546,8 +1543,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `The Connect ID ${q(id)} in ${q(formName(e))} won't work. Letters, numbers, underscores and hyphens all work, with a letter first.`
 			: `The Connect ID ${q(id)} in ${q(formName(e))} needs a change. ${sentence}`;
 	},
-	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
-		`${q(formName(e))} holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
+	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) => e.message,
 	FORM_TEXT_READ_AS_INSTANCE: (e) => {
 		const match = det(e, "match", "some text");
 		const site = e.details?.site;
@@ -1676,14 +1672,6 @@ const USER_MESSAGE_BY_CODE: Record<
 				? "closes_case"
 				: "stops_form_builder",
 		)}`;
-	},
-	FIELD_ID_NAMES_CONNECT_BLOCK: (e) => {
-		const suggestedId = e.details?.suggestedId;
-		const offer =
-			typeof suggestedId === "string" && suggestedId.length > 0
-				? ` ${q(suggestedId)} is free for the field.`
-				: "";
-		return `${q(fieldName(e))} and a CommCare Connect block of ${q(formName(e))} share one name, so the form would hold two items CommCare can't tell apart. You can rename the field, or give the block another ID.${offer}`;
 	},
 	FIELD_SUBMISSION_PLACEMENT: (e) =>
 		`The submitted answer of ${q(fieldName(e))} is placed where ${q(formName(e))} can't keep it. ${det(e, "reason", "Choose a group in this form that sits in the same repeat entry as its question.")}`,

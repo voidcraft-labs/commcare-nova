@@ -9,7 +9,6 @@
 import type { Element } from "domhandler";
 import { cloneNode, isTag } from "domhandler";
 import type { FieldKind, Uuid } from "@/lib/domain";
-import type { FormStructureConnect } from "@/lib/domain/expression/formStructure";
 import type {
 	FieldExpressionSlotRef,
 	ItextUnit,
@@ -46,7 +45,7 @@ import type { XmlCursor } from "../xmlCursor";
 import type { AppearanceForm } from "./appearances";
 import { type ControlNode, readControls } from "./body";
 import { X } from "./claims";
-import { CONNECT_READS, readConnectBlocks, readConnectType } from "./connect";
+import { readConnectBlocks, readConnectRoles } from "./connect";
 import { labelCarriesMedia, readContainers, rootSections } from "./containers";
 import {
 	absolutePath,
@@ -145,11 +144,11 @@ export interface ReadSaveToCaseBlock {
 	readonly refusal?: NodeRefusal;
 }
 
-/** One Connect element, read here and listed for the case management stage's `connectType`. */
+/** A positioned Connect activity and the source wrapper used to account for its role. */
 export interface ReadConnectBlock {
 	readonly block: "learn_module" | "assessment" | "deliver_unit" | "task";
 	readonly id: string;
-	readonly path: readonly string[];
+	readonly node: DataNode;
 }
 
 /** One expression read from a field's source, registered once the field has its UUID. */
@@ -271,7 +270,6 @@ export interface ReadXForm {
 	/** Every Save to Case block of the form, in document order, wherever it stands. */
 	readonly saveToCaseBlocks: readonly ReadSaveToCaseBlock[];
 	readonly connectBlocks: readonly ReadConnectBlock[];
-	readonly connect: FormStructureConnect;
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<string, string>;
@@ -475,6 +473,18 @@ function readForm(
 		carrierRead: (id) => carrierInstances.add(id),
 		target: ctx.input.target,
 	});
+	const connectBlocks = readConnectBlocks({
+		parsed,
+		order: tree.order,
+		roles: joined.roles,
+		binds: binds.byNode,
+		cursor,
+		accounting,
+		formPlace,
+		attachActivity: joined.attachActivity,
+		refusals,
+	});
+
 	const sectioned = rootSections({
 		root: joined.childrenOf(null),
 		binds: binds.byNode,
@@ -576,18 +586,6 @@ function readForm(
 			return undefined;
 		},
 	});
-	const connect = readConnectBlocks({
-		parsed,
-		order: tree.order,
-		roles: joined.roles,
-		binds: binds.byNode,
-		cursor,
-		accounting,
-		formPlace,
-		formUuid: form.uuid,
-		refusals,
-	});
-
 	const caseRegion = tree.order.filter(
 		(node) => joined.roles.get(node)?.kind === "case-region",
 	);
@@ -765,8 +763,7 @@ function readForm(
 			binds.byNode,
 			setvalues,
 		),
-		connectBlocks: connect.blocks,
-		connect: connect.connect,
+		connectBlocks,
 		itext: itext ?? EMPTY_ITEXT_TABLE,
 		instanceSources,
 		carrierInstances,
@@ -775,7 +772,6 @@ function readForm(
 		caseChoices: joined.caseChoices,
 		modelIterations: new Set(joined.modelIterations.keys()),
 	};
-	CONNECT_READS.set(xform, connect);
 	if (text !== undefined) {
 		rememberFormText(xform, text);
 		readMediaForms(ctx, xform);
@@ -873,7 +869,7 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 				module.forms.splice(module.forms.indexOf(form), 1);
 			});
 		}
-	readConnectType(ctx);
+	readConnectRoles(ctx);
 }
 
 /** A field's ids from the form's root, a query repeat's row left out: its identity key's path. */

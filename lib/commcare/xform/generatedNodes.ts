@@ -81,7 +81,6 @@ import {
 	type Field,
 	fieldKindCarriesValidation,
 	formCaseWriteViews,
-	formConnectIds,
 	isCaptureField,
 	isContainer,
 	makeTranslationUnitId,
@@ -550,7 +549,6 @@ function allocateGeneratedNodes(
 		const scopeKey: Uuid | undefined = root ? undefined : parentUuid;
 		const scope = new Namespace([
 			...children.map((field) => field.id),
-			...(root ? formConnectIds(doc, formUuid) : []),
 			...held.firstSegments(scopeKey),
 		]);
 		heldContainerScopes.set(parentPath.toXPath(), scopeKey);

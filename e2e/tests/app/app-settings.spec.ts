@@ -223,107 +223,201 @@ test("a stated difference shows where the author works", {
 	await expect(note).toHaveCount(0);
 });
 
-test("turning on Connect says it sets the app to Android only", {
+test("choosing both Connect roles saves the Android declaration and preserves independent roles", {
 	tag: "@seed:open",
 }, async ({ scenario, page }) => {
 	const { openAppId } = seedFor(scenario, "open");
 	await openBuilder(page, `/build/${openAppId}`);
 	await openAppSettings(page);
-	await page.getByRole("button", { name: "Set up", exact: true }).click();
-	// App settings is itself a dialog and may stay open beneath this one.
-	const manager = page.getByRole("dialog", {
-		name: "CommCare Connect",
-		exact: true,
-	});
-	await expect(manager).toContainText(
-		"Connect workers open this app in the Connect app on Android, so turning on Connect sets it to run on Android only.",
+	const connect = page.getByRole("group", { name: "CommCare Connect" });
+	const learn = connect.getByRole("switch", { name: "Learn", exact: true });
+	const deliver = connect.getByRole("switch", { name: "Deliver", exact: true });
+	await expect(connect).toContainText(
+		"Choosing a Connect role sets this app to Android only.",
 	);
-	await expect(manager).toContainText(
-		"every form a worker submits includes the device's location if CommCare has location permission and the device gets a GPS fix",
-	);
+	await expect(connect).toContainText("if CommCare has location permission");
+	const first = savedWith(page, openAppId, [
+		'"runsOnlyOn":"android"',
+		'"roles":["learn"]',
+	]);
+	await learn.click();
+	expect((await first).ok()).toBe(true);
+	const both = savedWith(page, openAppId, ['"roles":["learn","deliver"]']);
+	await deliver.click();
+	expect((await both).ok()).toBe(true);
+	await reloadBuilder(page);
+	await openAppSettings(page);
+	await expect(learn).toBeChecked();
+	await expect(deliver).toBeChecked();
+	const onlyDelivery = savedWith(page, openAppId, ['"roles":["deliver"]']);
+	await learn.click();
+	expect((await onlyDelivery).ok()).toBe(true);
+	const off = savedWith(page, openAppId, ['"roles":[]']);
+	await deliver.click();
+	expect((await off).ok()).toBe(true);
+	await expect(
+		page.getByRole("radio", { name: /^Android only/ }),
+	).toBeChecked();
 });
 
-test("turning off Connect keeps the app on Android only", {
+test("a learning activity keeps its role and explains how to remove it", {
 	tag: "@seed:connect-learn",
 }, async ({ scenario, page }) => {
 	const { connectLearn } = seedFor(scenario, "connect-learn");
 	await openBuilder(page, `/build/${connectLearn.appId}`);
 	await openAppSettings(page);
-	await page.getByRole("button", { name: "Manage", exact: true }).click();
-	const manager = page.getByRole("dialog").filter({
-		hasText: "CommCare Connect",
+	const connect = page.getByRole("group", { name: "CommCare Connect" });
+
+	test("each form keeps its own location choice while the app requests every location", {
+		tag: "@seed:workspace",
+	}, async ({ scenario, page }) => {
+		const { caseWorkspace } = seedFor(scenario, "workspace");
+		await openBuilder(page, caseWorkspace.routes.tileForm);
+		const openForm = () =>
+			page.getByRole("button", { name: "Form settings", exact: true }).click();
+		const form = page.getByRole("switch", {
+			name: "Request location for this form",
+			exact: true,
+		});
+		const all = page.getByRole("switch", {
+			name: "Request location for every form",
+			exact: true,
+		});
+		const save = async (control: typeof all, needle: string) => {
+			const [response] = await Promise.all([
+				page.waitForResponse(
+					(r) =>
+						new URL(r.url()).pathname === `/api/apps/${caseWorkspace.appId}` &&
+						r.request().method() === "PUT" &&
+						(r.request().postData() ?? "").includes(needle),
+				),
+				control.click(),
+			]);
+			expect(response.ok()).toBe(true);
+		};
+		await openForm();
+		await expect(form).not.toBeChecked();
+		await save(form, '"captureLocation":true');
+		await page.getByRole("button", { name: "Close form settings" }).click();
+		await openAppSettings(page);
+		await expect(all).not.toBeChecked();
+		await save(all, '"captureLocation":true');
+		await page.getByRole("button", { name: "Close app settings" }).click();
+		await openForm();
+		await expect(form).toBeChecked();
+		await expect(
+			page.getByText("Your app requests location for every form.", {
+				exact: false,
+			}),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Close form settings" }).click();
+		await openAppSettings(page);
+		await save(all, '"captureLocation":false');
+		await reloadBuilder(page);
+		await openForm();
+		await expect(form).toBeChecked();
+		await expect(
+			page.getByText(
+				"On Android, opening this form requests the worker’s location.",
+			),
+		).toBeVisible();
 	});
-	await expect(manager).toContainText(
-		"Turning off Connect keeps this app running on Android only. You can change where it runs in App settings.",
-	);
-	await expect(manager).toContainText(
-		"After Connect is turned off, Android follows this app's location settings. Workers see the change after installing the next released version.",
-	);
-	const turnedOff = page.waitForResponse(
-		(response) =>
-			new URL(response.url()).pathname === `/api/apps/${connectLearn.appId}` &&
-			response.request().method() === "PUT",
-	);
-	await manager.getByRole("button", { name: "Turn off Connect" }).click();
-	expect((await turnedOff).ok()).toBe(true);
-	await expect(manager).toHaveCount(0);
-	const androidOnly = page.getByRole("radio", { name: /^Android only/ });
-	// The dialog may have taken App settings with it as it opened.
-	if (!(await androidOnly.isVisible())) await openAppSettings(page);
-	await expect(androidOnly).toBeChecked();
+	const learn = connect.getByRole("switch", { name: "Learn", exact: true });
+	await learn.click();
+	await expect(connect.getByRole("alert")).toContainText(/lesson_one.*role/);
+	await expect(learn).toBeChecked();
+	await reloadBuilder(page);
+	await openAppSettings(page);
+	await expect(learn).toBeChecked();
 });
 
-test("each form keeps its own location choice while the app requests every location", {
-	tag: "@seed:workspace",
-}, async ({ scenario, page }) => {
-	const { caseWorkspace } = seedFor(scenario, "workspace");
-	await openBuilder(page, caseWorkspace.routes.tileForm);
-	const openForm = () =>
-		page.getByRole("button", { name: "Form settings", exact: true }).click();
-	const form = page.getByRole("switch", {
-		name: "Request location for this form",
-		exact: true,
-	});
-	const all = page.getByRole("switch", {
-		name: "Request location for every form",
-		exact: true,
-	});
-	const save = async (control: typeof all, needle: string) => {
-		const [response] = await Promise.all([
-			page.waitForResponse(
-				(r) =>
-					new URL(r.url()).pathname === `/api/apps/${caseWorkspace.appId}` &&
-					r.request().method() === "PUT" &&
-					(r.request().postData() ?? "").includes(needle),
-			),
-			control.click(),
+test(
+	"a sectioned Learn form keeps its worker pages and submitted activity order after a Builder edit",
+	{
+		tag: "@seed:connect-learn",
+	},
+	async ({ scenario, page }, testInfo) => {
+		const {
+			connectLearn: { appId },
+		} = seedFor(scenario, "connect-learn");
+		await openBuilder(page, `/build/${appId}`);
+		await page
+			.getByRole("list", { name: "Training forms" })
+			.getByRole("button", { name: "Lesson one", exact: true })
+			.click();
+		await page.locator("[data-insertion-point] > button").last().click();
+		await expect(
+			page.getByRole("menuitem", { name: "Section", exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("menuitem", { name: "Input", exact: true }),
+		).toHaveCount(0);
+		await page
+			.getByRole("menuitem", { name: "CommCare Connect", exact: true })
+			.hover();
+		const save = savedWith(page, appId, [
+			'"kind":"addField"',
+			'"id":"new_learning_module"',
 		]);
+		await page
+			.getByRole("menuitem", { name: "Learning module", exact: true })
+			.click();
+		expect((await save).ok()).toBe(true);
+		await reloadBuilder(page);
+		await expect(
+			page.locator('[data-tree-field="new_learning_module"]'),
+		).toBeVisible();
+		const response = await page.request.get(`/api/apps/${appId}`);
 		expect(response.ok()).toBe(true);
-	};
-	await openForm();
-	await expect(form).not.toBeChecked();
-	await save(form, '"captureLocation":true');
-	await page.getByRole("button", { name: "Close form settings" }).click();
-	await openAppSettings(page);
-	await expect(all).not.toBeChecked();
-	await save(all, '"captureLocation":true');
-	await page.getByRole("button", { name: "Close app settings" }).click();
-	await openForm();
-	await expect(form).toBeChecked();
-	await expect(
-		page.getByText("Your app requests location for every form.", {
-			exact: false,
-		}),
-	).toBeVisible();
-	await page.getByRole("button", { name: "Close form settings" }).click();
-	await openAppSettings(page);
-	await save(all, '"captureLocation":false');
-	await reloadBuilder(page);
-	await openForm();
-	await expect(form).toBeChecked();
-	await expect(
-		page.getByText(
-			"On Android, opening this form requests the worker’s location.",
-		),
-	).toBeVisible();
-});
+		const { blueprint } = (await response.json()) as {
+			blueprint: {
+				moduleOrder: string[];
+				formOrder: Record<string, string[]>;
+				fieldOrder: Record<string, string[]>;
+				fields: Record<string, { id: string }>;
+			};
+		};
+		const form = blueprint.formOrder[blueprint.moduleOrder[0]][0];
+		const root = blueprint.fieldOrder[form];
+		expect(root.map((uuid) => blueprint.fields[uuid].id)).toEqual([
+			"lesson_one",
+			"practice",
+			"review",
+			"follow_up",
+			"completion",
+			"new_learning_module",
+		]);
+		expect(
+			blueprint.fieldOrder[root[1]].map((uuid) => blueprint.fields[uuid].id),
+		).toEqual(["reflection", "rehearsal"]);
+
+		await openBuilder(page, `/build/${appId}`);
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		const main = page.locator("main");
+		await main.getByRole("button", { name: "Start", exact: true }).click();
+		await main.getByRole("button", { name: /^Training\b/ }).click();
+		await main.getByRole("button", { name: "Lesson one", exact: true }).click();
+		const pages = main.getByRole("navigation", { name: "Sections" });
+		await expect(pages.getByRole("button")).toHaveCount(2);
+		await expect(
+			pages.getByRole("button", { name: /Practice/ }),
+		).toHaveAttribute("aria-current", "step");
+		await main
+			.getByRole("textbox", { name: "Reflection" })
+			.fill("Practice with a colleague");
+		await main.getByRole("button", { name: "Next", exact: true }).click();
+		await expect(
+			pages.getByRole("button", { name: /Follow up/ }),
+		).toHaveAttribute("aria-current", "step");
+		await expect(
+			main.getByRole("textbox", { name: "Next step" }),
+		).toBeVisible();
+		await expect(
+			main.getByRole("button", { name: "Finish", exact: true }),
+		).toBeEnabled();
+		await testInfo.attach("edited-learn-form-on-android", {
+			body: await page.screenshot({ animations: "disabled" }),
+			contentType: "image/png",
+		});
+	},
+);

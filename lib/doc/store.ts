@@ -336,7 +336,7 @@ export interface HistoryStepOutcome {
 const EMPTY_DOC: BlueprintDoc = {
 	appId: "",
 	appName: APP_GENESIS_FALLBACK_NAME,
-	connectType: null,
+	connectRoles: [],
 	caseTypes: null,
 	appSettings: { ...NEW_APP_SETTINGS },
 	modules: recordFromEntries([]),
@@ -485,7 +485,7 @@ function affectsCaseWriteProjection(
 		case "setAppLogo":
 		case "setAppSettings":
 		case "setAppName":
-		case "setConnectType":
+		case "setConnectRoles":
 		case "addModule":
 		case "moveModule":
 		case "renameModule":

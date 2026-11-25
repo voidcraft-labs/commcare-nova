@@ -36,6 +36,7 @@
  */
 
 "use client";
+
 import { memo, useId } from "react";
 import { useDeploymentTargetFacts } from "@/components/builder/DeploymentTargetProvider";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
@@ -242,7 +243,7 @@ const InteractiveField = memo(function InteractiveField({
 	// `hidden` fields are authoring-time only: they never render in
 	// interactive mode. The edit view keeps a compact card so authors
 	// can still edit them.
-	if (field.kind === "hidden") return null;
+	if (field.kind === "hidden" || field.kind === "connect_activity") return null;
 	if (!state.visible) return null;
 
 	const fieldId = field.id;

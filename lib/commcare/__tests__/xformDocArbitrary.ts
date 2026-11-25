@@ -12,13 +12,9 @@
  * are suffixed apart (`a`, `a_2`), labels/hints with XML special
  * chars (`<`, `&`, markdown), relevant/constraint/calculate XPath, the
  * four form types (registration / followup / close / survey), AND CommCare
- * Connect emission — a fraction of generated docs are Connect apps
- * (`connectType` "learn" / "deliver"), each form carrying a valid `connect`
- * block so the emitter's `buildConnectBlocks` path is exercised. The Connect
- * sub-config wire ids are minted globally-unique inline (the `runValidation`
- * guardrail does NOT run the validate-time autofill, so an id-less block would
- * trip the connect-id rules); the deliver `entity_id` / `entity_name` slots
- * are left unset on purpose so the wire-emit defaults in `builder.ts` run.
+ * Connect emission. The released generator's draws, including the exact
+ * wire IDs, are retained. Its participation records pass through the same
+ * activity conversion as an existing app before the form source is bound.
  */
 
 import * as fc from "fast-check";
@@ -44,8 +40,7 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	type CaseType,
-	type ConnectConfig,
-	type ConnectType,
+	type ConnectRole,
 	caseSelectionCardinality,
 	type Field,
 	type Form,
@@ -73,6 +68,7 @@ import {
 	localizeTranslationUnit,
 	snapshotTranslationUnits,
 } from "@/lib/domain/translationUnits";
+import { convert as convertReleasedActivities } from "@/scripts/migrations/step7-connect-activities.mjs";
 
 // ── Stable id minting ──────────────────────────────────────────────
 
@@ -1017,10 +1013,7 @@ const deliverFormArb: fc.Arbitrary<ConnectFormSpec> = subConfigPairArb.map(
  * that's the state the wire-emit default path in `builder.ts` fills, so
  * omitting them is what exercises it.
  */
-function buildConnectConfig(
-	minter: IdMinter,
-	spec: ConnectFormSpec,
-): UnparsedExpressions<ConnectConfig> {
+function buildConnectConfig(minter: IdMinter, spec: ConnectFormSpec) {
 	const connectId = (prefix: string): string => minter.wireId(prefix);
 
 	if (spec.connectType === "learn") {
@@ -1122,7 +1115,7 @@ type SubcaseShapeSpec = {
 };
 
 interface DocGenSpec {
-	connectType: ConnectType | null;
+	connectType: ConnectRole | null;
 	/** Whether the app carries an app-level logo. The id is minted at
 	 *  lowering time so it shares the global IdMinter sequence. */
 	hasLogo: boolean;
@@ -1235,7 +1228,7 @@ const moduleCoreArb = fc.record({
  */
 const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc
 	.record({
-		connectType: fc.constantFrom<ConnectType | null>(null, "learn", "deliver"),
+		connectType: fc.constantFrom<ConnectRole | null>(null, "learn", "deliver"),
 		modules: fc.array(moduleCoreArb, { minLength: 1, maxLength: 2 }),
 		hasLogo: fc.boolean(),
 	})
@@ -1484,22 +1477,28 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// content runs on (`declaredForContent`).
 	return declaredForContent(
 		mappedAsTheCutoverMaps(
-			resolveArbitraryDocument({
-				appId: "fuzz-app",
-				appName: "Fuzz App",
-				connectType: spec.connectType,
-				appSettings: { ...NEW_APP_SETTINGS },
-				caseTypes,
-				modules,
-				forms,
-				fields,
-				moduleOrder,
-				formOrder,
-				fieldOrder,
-				// Resolution builds ancestry before binding the drawn expression source.
-				fieldParent: {},
-				...(logo ? { logo } : {}),
-			}),
+			resolveArbitraryDocument(
+				convertReleasedActivities(
+					{
+						appId: "fuzz-app",
+						appName: "Fuzz App",
+						connectType: spec.connectType,
+						appSettings: { ...NEW_APP_SETTINGS },
+						caseTypes,
+						modules,
+						forms,
+						fields,
+						moduleOrder,
+						formOrder,
+						fieldOrder,
+						// Resolution builds ancestry before binding the drawn expression source.
+						fieldParent: {},
+						...(logo ? { logo } : {}),
+					},
+					{},
+					{ appId: "fuzz-app" },
+				),
+			),
 			caseWrites,
 		),
 	);

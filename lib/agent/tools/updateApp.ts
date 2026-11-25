@@ -9,9 +9,8 @@
  * without the check the refusal would first reach the model at `saveWork`.
  * A change that only removes a platform can strand nothing and skips both.
  *
- * Connect mode and participation are deliberately absent. The shared
- * `configureConnect` / `configure_connect` command owns that complete
- * app-wide target state atomically.
+ * The configureConnect tool owns app-wide roles. Field tools place and
+ * edit each Connect activity in its form.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolInvocationContext` interface.

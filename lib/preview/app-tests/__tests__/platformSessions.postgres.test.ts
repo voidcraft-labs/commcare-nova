@@ -370,4 +370,8 @@ it("refuses to continue a test started under the previous runtime", async () => 
 	await expect(run.step({ kind: "observe" })).rejects.toThrow(
 		"Nova's test runtime changed. Start a new test.",
 	);
+	await expect(run.step({ kind: "finish" }, "default")).rejects.toThrow(
+		"You can finish this test without selecting a worker session.",
+	);
+	expect(await run.step({ kind: "finish" })).toMatchObject({ ended: true });
 });

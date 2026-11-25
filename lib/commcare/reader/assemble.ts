@@ -36,6 +36,7 @@ import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { connectActivityRole } from "@/lib/domain/fields/connectActivity";
 import { formWireName } from "@/lib/domain/formWireName";
 import { languageEntries } from "@/lib/domain/localization";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
@@ -157,7 +158,7 @@ import {
 	namedWorkerReadsAreProperties,
 	worldPropertiesAsRead,
 } from "./worldEntities";
-import { connectDefaultsUnset } from "./xform/afterBinding";
+import { accountConnectSubmissionConflicts } from "./xform/connect";
 import {
 	blankItextFilled,
 	blankOptionalTextAbsent,
@@ -406,6 +407,28 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 				for (const field of automatic)
 					delete (draft.fields[field.uuid] as { answerType?: unknown })
 						.answerType;
+			});
+		},
+	},
+	{
+		id: "active-connect-roles-as-read",
+		kind: "one-wire",
+		apply: (doc) => {
+			const exercised = new Set(
+				Object.values(doc.fields).flatMap((field) =>
+					field.kind === "connect_activity"
+						? [connectActivityRole(field.activity.kind)]
+						: [],
+				),
+			);
+			// A configured role also enables GPS. Where an activity already
+			// requires it, an unused second role has no separate wire setting.
+			if (exercised.size === 0 || exercised.size === doc.connectRoles.length)
+				return doc;
+			return withCandidate(doc, (draft) => {
+				draft.connectRoles = doc.connectRoles.filter((role) =>
+					exercised.has(role),
+				);
 			});
 		},
 	},
@@ -690,14 +713,6 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "blank-optional-text-is-absent",
 		kind: "one-wire",
 		apply: blankOptionalTextAbsent,
-	},
-	{
-		/** A Connect assessment's score or a deliver unit's entity id or name holding the default
-		 *  an unset one takes, and unset: the emitter writes one calculate for both, and the reader
-		 *  returns unset (`xform/afterBinding.ts::connectDefaultsUnset`). */
-		id: "connect-defaults-are-unset",
-		kind: "one-wire",
-		apply: connectDefaultsUnset,
 	},
 	{
 		/** A document whose source language is not the one a reading of its export takes, and the
@@ -2123,7 +2138,7 @@ export function* assembleDocumentSteps(
 	ctx: ReadContext,
 ): Generator<void, void, void> {
 	// 1. The claims that waited for every form.
-	if (ctx.draft.connectType !== null)
+	if (ctx.draft.connectRoles.length > 0)
 		ctx.app.derived("auto_gps_capture", CLAIMS.autoGpsConnect);
 	else {
 		const capture = ctx.app.take(
@@ -2153,6 +2168,7 @@ export function* assembleDocumentSteps(
 			? withReadTexts(working, ctx.translations)
 			: undefined;
 	if (whole !== undefined && !parsesWhole(ctx, whole)) whole = undefined;
+	if (whole !== undefined) accountConnectSubmissionConflicts(ctx, whole);
 	yield;
 
 	// 4. The generated translation keys, in every reading.

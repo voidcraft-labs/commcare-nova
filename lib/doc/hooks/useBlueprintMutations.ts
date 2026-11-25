@@ -154,8 +154,9 @@ import {
 	type AutomationSchedule,
 	asUuid,
 	type CaseProperty,
+	CONNECT_ROLES,
 	type CommitOutcome,
-	type ConnectConfig,
+	type ConnectRole,
 	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
@@ -178,8 +179,13 @@ import {
 	type UserProperty,
 	type UserType,
 } from "@/lib/domain";
+import {
+	canAskConnectRecipient,
+	connectRecipientRule,
+} from "@/lib/domain/connectRecipientRule";
 import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
+import { freeQuestionId } from "@/lib/domain/questionId";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { pendingIdentityMoveSlot } from "@/lib/session/store";
 
@@ -388,11 +394,11 @@ export interface DuplicateFieldResult {
 
 type ModuleUpdatePatch = ModuleAuthoringPatch;
 type FormMutationPatch = Extract<Mutation, { kind: "updateForm" }>["patch"];
-type FormAuthoringPatch = Omit<FormMutationPatch, "connect"> & {
+type FormAuthoringPatch = FormMutationPatch & {
 	/** Form display names persist through the identity-specific rename kind. */
 	name?: Form["name"];
 };
-type NewFormAuthoringInput = Omit<Form, "uuid" | "connect"> & {
+type NewFormAuthoringInput = Omit<Form, "uuid"> & {
 	uuid?: string;
 };
 
@@ -426,6 +432,13 @@ export interface BlueprintMutations {
 			beforeUuid?: Uuid;
 			atIndex?: number;
 		},
+	) => AddCommitOutcome;
+	/** Insert a repeated delivery and the worker's required, unique recipient
+	 * question in one undoable edit. Both IDs are ordinary editable fields. */
+	addDeliveryWithRecipient: (
+		parentUuid: Uuid,
+		id: string,
+		atIndex: number,
 	) => AddCommitOutcome;
 	/**
 	 * Update fields on an existing field entity. Callers pass `undefined` for
@@ -533,12 +546,6 @@ export interface BlueprintMutations {
 		value: Expression,
 		prepared?: Pick<PreparedFormRecordName, "slot">,
 	) => CommitOutcome;
-	/**
-	 * Refine the complete configuration of a form that already participates
-	 * in Connect. This cannot add or remove participation; those membership
-	 * changes belong exclusively to the app-wide exact target planner.
-	 */
-	refineFormConnect: (uuid: Uuid, connect: ConnectConfig) => CommitOutcome;
 	/**
 	 * Set or clear form menu media via the dedicated null-carrying mutation
 	 * so clears survive JSON replay.
@@ -745,8 +752,7 @@ export interface BlueprintMutations {
 
 	// ── App-level ─────────────────────────────────────────────────────────
 	/**
-	 * App-name edit. The complete Connect target state has a separate
-	 * app-wide owner in `lib/doc/connectTargetState.ts`.
+	 * Change the app name.
 	 */
 	updateApp: (patch: { app_name: string }) => CommitOutcome;
 	/**
@@ -767,6 +773,7 @@ export interface BlueprintMutations {
 	 * changes, so a switch that sets one never writes over a peer's change to
 	 * the other.
 	 */
+	setConnectRole: (role: ConnectRole, enabled: boolean) => CommitOutcome;
 	setAppSettings: (settings: AppSettingsPatch) => CommitOutcome;
 	/**
 	 * Rename one or more case properties app-wide as one simultaneous,
@@ -1108,16 +1115,6 @@ export function createBlueprintMutations(
 		const toOutcome = (
 			applied: ReturnType<typeof guardedApply>,
 		): CommitOutcome => (applied.ok ? COMMITTED : applied);
-		const rejectConnectOwnership = (): {
-			ok: false;
-			messages: string[];
-		} => {
-			const messages = [
-				"Connect participation must be changed through the app-wide Connect configuration.",
-			];
-			if (announce) notifyRejectedCommit(messages);
-			return { ok: false, messages };
-		};
 		/* Removing a form a case list always offers is refused naming each
 		 * list. The toast's "Stop offering it" clears the offer on every named
 		 * list that still offers the form, in one gated batch on the
@@ -1235,6 +1232,62 @@ export function createBlueprintMutations(
 				]);
 				if (!applied.ok) return applied;
 				return { ok: true, uuid };
+			},
+
+			addDeliveryWithRecipient(parentUuid, id, atIndex) {
+				const doc = get();
+				if (!canAskConnectRecipient(doc, parentUuid))
+					return {
+						ok: false,
+						messages: ["This repeat changed. Open it again to add a delivery."],
+					};
+				const recipient = asUuid(uuidv4()),
+					delivery = asUuid(uuidv4());
+				const siblingIds = new Set(
+					(doc.fieldOrder[parentUuid] ?? []).map((uuid) => doc.fields[uuid].id),
+				);
+				siblingIds.add(id);
+				const applied = guardedApply([
+					{
+						kind: "addField",
+						parentUuid,
+						after: fieldSlotAfter(doc, parentUuid, { index: atIndex }),
+						field: {
+							uuid: recipient,
+							kind: "text",
+							id: freeQuestionId("recipient_id", siblingIds),
+							label: proseText("Recipient ID"),
+							required: { kind: "match-all" },
+							validate: connectRecipientRule(parentUuid, recipient),
+							validate_msg: proseText(
+								"Each delivery needs a different recipient ID of up to 255 characters.",
+							),
+						},
+					},
+					{
+						kind: "addField",
+						parentUuid,
+						after: recipient,
+						field: {
+							uuid: delivery,
+							kind: "connect_activity",
+							id,
+							activity: {
+								kind: "delivery",
+								name: "New delivery",
+								entityId: {
+									kind: "term",
+									term: {
+										kind: "field",
+										uuid: recipient,
+										spelling: "relative",
+									},
+								},
+							},
+						},
+					},
+				]);
+				return applied.ok ? { ok: true, uuid: delivery } : applied;
 			},
 
 			updateField(uuid, targetKind, patch) {
@@ -1555,12 +1608,6 @@ export function createBlueprintMutations(
 					warnUnresolved("addForm", { moduleUuid });
 					return NOOP_REJECTION;
 				}
-				/* Runtime backstop for untyped callers: the public input omits
-				 * `connect`, but a cast or stale bundle must not smuggle a new
-				 * participant through the generic form writer. */
-				if (Object.hasOwn(form, "connect")) {
-					return rejectConnectOwnership();
-				}
 				const maybeUuid = form.uuid;
 				const formUuid = asUuid(
 					typeof maybeUuid === "string" && maybeUuid.length > 0
@@ -1584,11 +1631,6 @@ export function createBlueprintMutations(
 				if (!form) {
 					warnUnresolved("updateForm", { uuid });
 					return NOOP_REJECTION;
-				}
-				/* The type omits `connect`; keep the same ownership invariant
-				 * at runtime for JavaScript, casts, and version-skewed clients. */
-				if (Object.hasOwn(patch, "connect")) {
-					return rejectConnectOwnership();
 				}
 				const { name, type, ...metadata } = patch;
 				const mutations: Mutation[] = [];
@@ -1633,31 +1675,6 @@ export function createBlueprintMutations(
 					if (announce) notifyRejectedCommit(messages);
 					return { ok: false, messages };
 				}
-			},
-
-			refineFormConnect(uuid, connect) {
-				const doc = get();
-				const form = doc.forms[uuid];
-				if (!form) {
-					warnUnresolved("refineFormConnect", { uuid });
-					return NOOP_REJECTION;
-				}
-				/* Refinement is intentionally narrower than membership:
-				 * a nonparticipant cannot be added here, and null/undefined
-				 * cannot remove one. The exact target planner is the only
-				 * owner of either transition. */
-				if (form.connect === undefined || connect == null) {
-					return rejectConnectOwnership();
-				}
-				return toOutcome(
-					guardedApply([
-						{
-							kind: "updateForm",
-							uuid,
-							patch: { connect },
-						},
-					]),
-				);
 			},
 
 			setFormMedia(uuid, media) {
@@ -2268,6 +2285,28 @@ export function createBlueprintMutations(
 				// explicit `MediaAssetId | null`; the reducer maps `null →
 				// undefined` so a clear drops the optional key off the doc.
 				return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
+			},
+
+			setConnectRole(role, enabled) {
+				const doc = get();
+				if (enabled && doc.appSettings.runsOnlyOn === "web-apps")
+					return {
+						ok: false,
+						messages: [
+							"Choose Android only under Where workers use this app. Nova will check that your forms and media work on Android.",
+						],
+					};
+				const roles = CONNECT_ROLES.filter((candidate) =>
+					candidate === role ? enabled : doc.connectRoles.includes(candidate),
+				);
+				const mutations: Mutation[] = [];
+				if (enabled && doc.appSettings.runsOnlyOn !== "android")
+					mutations.push({
+						kind: "setAppSettings",
+						settings: { runsOnlyOn: "android" },
+					});
+				mutations.push({ kind: "setConnectRoles", roles });
+				return toOutcome(guardedApply(mutations));
 			},
 
 			setAppSettings(settings) {

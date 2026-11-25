@@ -238,9 +238,8 @@ export function formExpressionRuntime(
 	): string => {
 		for (const { node } of formReads(expression)) {
 			if (
-				node.kind !== "field" &&
-				node.kind !== "repeat-row" &&
-				!(node.kind === "repeat" && node.role !== "count-result")
+				node.kind === "form-root" ||
+				(node.kind === "repeat" && node.role === "count-result")
 			)
 				throw new Error(
 					`Preview cannot yet evaluate the generated form node ${formNodeKey(node)}.`,

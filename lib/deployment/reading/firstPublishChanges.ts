@@ -1508,7 +1508,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: (facts) =>
-			facts.doc.connectType !== null &&
+			facts.doc.connectRoles.length > 0 &&
 			facts.source.raw.auto_gps_capture !== true,
 		at: {
 			kinds: ["app", "form-node"],

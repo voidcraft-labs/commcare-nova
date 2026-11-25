@@ -42,6 +42,7 @@ import {
 	useLayoutEffect,
 	useMemo,
 	useRef,
+	useState,
 } from "react";
 import type { CaseListWorkspaceTab } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
@@ -50,8 +51,10 @@ import { useAndroidAppName } from "@/components/builder/localization/useAndroidA
 import { Button } from "@/components/shadcn/button";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
 import { Spinner } from "@/components/shadcn/spinner";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import type { Uuid } from "@/lib/doc/types";
+import type { ActivityFact } from "@/lib/domain/connectSubmissionFacts";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { missingAndroidApps } from "@/lib/domain/requiredAndroidApps";
 import { caseListRegistrationEntryContinues } from "@/lib/preview/caseListRegistrationEntry";
@@ -67,6 +70,8 @@ import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection } from "@/lib/routing/types";
 import {
+	useAccessPhase,
+	useAppId,
 	useClearPreviewNavigation,
 	useEditMode,
 	usePreviewAtDeviceHome,
@@ -86,6 +91,7 @@ import {
 	useSetPreviewPersonaUuid,
 	useSetPreviewTaskContinuation,
 } from "@/lib/session/hooks";
+import { SubmittedActivitiesDialog } from "./SubmittedActivitiesDialog";
 import { HomeScreen } from "./screens/HomeScreen";
 import { PreviewDataRefusalScope } from "./shared/PreviewDataRefusal";
 
@@ -249,6 +255,31 @@ function BuilderScreens() {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const scopeEpoch = useProjectScopeEpoch();
+	const appId = useAppId();
+	const access = useAccessPhase();
+	const projectToast = useProjectToast();
+	const [activityReceipt, setActivityReceipt] = useState<{
+		facts: readonly ActivityFact[];
+		appId: string | undefined;
+		scopeEpoch: number;
+	} | null>(null);
+	const reportActivities = (facts: readonly ActivityFact[]) => {
+		const count = facts.length;
+		if (!count) return;
+		projectToast(
+			"info",
+			count === 1
+				? "One activity recorded in Preview"
+				: `${count} activities recorded in Preview`,
+			undefined,
+			{
+				action: {
+					label: "View activities",
+					onPress: () => setActivityReceipt({ facts, appId, scopeEpoch }),
+				},
+			},
+		);
+	};
 	const previousScopeEpochRef = useRef(scopeEpoch);
 	const mode = useEditMode();
 	const previewCaseTarget = usePreviewCaseTarget();
@@ -412,6 +443,7 @@ function BuilderScreens() {
 	useEffect(() => {
 		if (previousScopeEpochRef.current === scopeEpoch) return;
 		previousScopeEpochRef.current = scopeEpoch;
+		setActivityReceipt(null);
 		/* A case id is Project-scoped navigation state. A same-app Project
 		 * move must return to Results rather than trying that source id in the
 		 * destination Project. The row hook is epoch-keyed as well, so the
@@ -851,6 +883,7 @@ function BuilderScreens() {
 										: { back: () => navigate.openModule(formModuleUuid) })}
 								>
 									<FormScreen
+										onSubmittedActivities={reportActivities}
 										key={screenKey(formScreenRef.current)}
 										screen={formScreenRef.current}
 									/>
@@ -933,6 +966,15 @@ function BuilderScreens() {
 						/>
 					</Activity>
 				)}
+				{activityReceipt &&
+					activityReceipt.appId === appId &&
+					activityReceipt.scopeEpoch === scopeEpoch &&
+					access === "authorized" && (
+						<SubmittedActivitiesDialog
+							facts={activityReceipt.facts}
+							onClose={() => setActivityReceipt(null)}
+						/>
+					)}
 			</main>
 		</div>
 	);

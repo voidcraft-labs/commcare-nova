@@ -4,6 +4,7 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
+import tablerClipboardCheck from "@iconify-icons/tabler/clipboard-check";
 import tablerFolder from "@iconify-icons/tabler/folder";
 import tablerForms from "@iconify-icons/tabler/forms";
 import tablerPhone from "@iconify-icons/tabler/phone";
@@ -16,10 +17,18 @@ import {
 	landingFieldListOf,
 } from "@/lib/doc/formSectionVerdicts";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import {
+	useCanAskConnectRecipient,
+	useConnectRoles,
+} from "@/lib/doc/hooks/useConnectRoles";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { type FieldKind, fieldKinds, fieldRegistry } from "@/lib/domain";
+import {
+	type ConnectActivity,
+	connectActivityRole,
+} from "@/lib/domain/fields/connectActivity";
 import {
 	featureForFieldKind,
 	platformPickerLine,
@@ -37,6 +46,7 @@ import {
 } from "@/lib/styles";
 import {
 	NEW_FIELD_BUILDERS,
+	newConnectActivity,
 	newPageRepeat,
 	newPhoneNumber,
 } from "./newFieldDefaults";
@@ -59,18 +69,38 @@ import {
  * lives only at the root, and once a form has one the whole root is
  * pages), so the Structure submenu offers the page gestures
  * `sectionGestureItems` computes for the gap instead, and the gap at the
- * root of a sectioned form offers nothing but a new page. */
+ * root of a sectioned form offers pages and enabled Connect activities. */
 
 /** One row of the picker: a kind, or a kind born with a preset of its own
  *  settings. A preset is one stored thing: the Phone number row inserts a
  *  Text question holding `keypad: "numbers"`. */
 type FieldPickerItem = {
 	readonly kind: FieldKind;
-	readonly preset?: "phone-number";
+	readonly preset?: "phone-number" | ConnectActivity["kind"];
 };
 
 /** Each preset's row: its name, icon and the base of its new question's id. */
 const PRESET_ROWS = {
+	"learning-module": {
+		label: "Learning module",
+		icon: tablerClipboardCheck,
+		idBase: "learning_module",
+	},
+	assessment: {
+		label: "Assessment",
+		icon: tablerClipboardCheck,
+		idBase: "learning_assessment",
+	},
+	delivery: {
+		label: "Delivery",
+		icon: tablerClipboardCheck,
+		idBase: "delivery_unit",
+	},
+	"assigned-task": {
+		label: "Assigned task",
+		icon: tablerClipboardCheck,
+		idBase: "assigned_task",
+	},
 	"phone-number": {
 		label: "Phone number",
 		icon: tablerPhone,
@@ -108,6 +138,16 @@ const BOXED_CONTAINER_KINDS: readonly FieldKind[] = fieldKinds.filter(
 
 /** Grouped families: each becomes a submenu in the insertion menu. */
 const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
+	{
+		label: "CommCare Connect",
+		icon: tablerClipboardCheck,
+		types: [
+			{ kind: "connect_activity", preset: "learning-module" },
+			{ kind: "connect_activity", preset: "assessment" },
+			{ kind: "connect_activity", preset: "delivery" },
+			{ kind: "connect_activity", preset: "assigned-task" },
+		],
+	},
 	{
 		label: "Input",
 		icon: tablerForms,
@@ -217,12 +257,29 @@ export function FieldTypePickerPopup({
 }: FieldTypePickerPopupProps) {
 	const { setPending } = useScrollIntoView();
 	const select = useSelect();
-	const { addField, addDatetimeAsTwoQuestions, applyFormSectionPlan } =
-		useBlueprintMutations();
+	const {
+		addField,
+		addDeliveryWithRecipient,
+		addDatetimeAsTwoQuestions,
+		applyFormSectionPlan,
+	} = useBlueprintMutations();
 	const platforms = useDeclaredPlatforms();
 	/* A kind a platform the app runs on can't run stays in the menu, disabled
 	 * with that platform's picker line, never hidden. */
-	const kindRefusal = (kind: FieldKind): string | undefined => {
+	const roles = useConnectRoles();
+	const kindRefusal = ({
+		kind,
+		preset,
+	}: FieldPickerItem): string | undefined => {
+		if (
+			kind === "connect_activity" &&
+			preset !== undefined &&
+			preset !== "phone-number"
+		) {
+			const role = connectActivityRole(preset);
+			if (!roles.includes(role))
+				return `Turn on ${role === "learn" ? "Learn" : "Deliver"} in App settings to add this activity.`;
+		}
 		const feature = featureForFieldKind(kind);
 		const refusal =
 			feature === undefined ? undefined : platformRefusal(feature, platforms);
@@ -230,14 +287,24 @@ export function FieldTypePickerPopup({
 	};
 	const markNewField = useMarkNewField();
 	const docStore = useContext(BlueprintDocContext);
+	const offersRecipientQuestion = useCanAskConnectRecipient(parentUuid);
 
 	/* What THIS gap can do, read once per open (the popup mounts per open).
-	 * A sectioned root offers only a new page; a page offers the kinds plus
+	 * A sectioned root offers pages and enabled Connect activities; a page offers the kinds plus
 	 * a split; a sectionless root offers the kinds plus "Split into
 	 * sections". Reading the doc imperatively here matches `handleSelect`. */
 	const gestures = docStore
 		? sectionGestureItems(docStore.getState(), parentUuid, atIndex)
 		: undefined;
+
+	const pageGap = gestures?.context === "sectioned-root";
+	const categories = pageGap
+		? INSERTION_CATEGORIES.filter(
+				(category) =>
+					roles.length > 0 &&
+					category.types.every((item) => item.kind === "connect_activity"),
+			)
+		: INSERTION_CATEGORIES;
 
 	/** Apply a page gesture and land on the page it produced: the one
 	 *  section uuid that did not exist before the plan, else the first. */
@@ -309,14 +376,19 @@ export function FieldTypePickerPopup({
 			const newField =
 				preset === "phone-number"
 					? newPhoneNumber(newId, "New Phone Number")
-					: kind === "repeat" && onOneScreen
-						? newPageRepeat(newId, `New ${fieldRegistry.repeat.label}`)
-						: NEW_FIELD_BUILDERS[kind](
-								newId,
-								`New ${fieldRegistry[kind].label}`,
-							);
+					: preset !== undefined
+						? newConnectActivity(newId, preset)
+						: kind === "repeat" && onOneScreen
+							? newPageRepeat(newId, `New ${fieldRegistry.repeat.label}`)
+							: NEW_FIELD_BUILDERS[kind](
+									newId,
+									`New ${fieldRegistry[kind].label}`,
+								);
 
-			const outcome = addField(parentUuid, newField, { atIndex });
+			const outcome =
+				preset === "delivery" && offersRecipientQuestion
+					? addDeliveryWithRecipient(parentUuid, newId, atIndex)
+					: addField(parentUuid, newField, { atIndex });
 			/* A rejected insert (the commit gate refused the batch: the
 			 * rejection toast already names the findings) must not navigate:
 			 * there is no new field to mark, scroll to, or select, and
@@ -330,7 +402,17 @@ export function FieldTypePickerPopup({
 			setPending(outcome.uuid, "smooth", false);
 			select(outcome.uuid);
 		},
-		[parentUuid, atIndex, addField, markNewField, setPending, select, docStore],
+		[
+			parentUuid,
+			atIndex,
+			addField,
+			addDeliveryWithRecipient,
+			offersRecipientQuestion,
+			markNewField,
+			setPending,
+			select,
+			docStore,
+		],
 	);
 
 	/** Insert a date and a time as two questions joined in a hidden value,
@@ -371,93 +453,100 @@ export function FieldTypePickerPopup({
 						parentUuid={parentUuid}
 						onChange={onActiveTargetChange}
 					/>
-					{gestures !== undefined && !gestures.offersKinds ? (
-						/* ── Root of a sectioned form: a page break offers a page. ── */
+					{pageGap &&
 						gestures.items.map((item) => (
 							<GestureMenuItem
 								key={item.key}
 								item={item}
 								onSelect={handleGesture}
 							/>
-						))
-					) : (
-						<>
-							{/* ── Category submenus ── */}
-							{INSERTION_CATEGORIES.map((cat) => (
-								<Menu.SubmenuRoot key={cat.label}>
-									<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
-										<Icon
-											icon={cat.icon}
-											width="16"
-											height="16"
-											className="text-nova-text-muted shrink-0"
-										/>
-										<span className="flex-1 text-left">{cat.label}</span>
-										<Icon
-											icon={tablerChevronRight}
-											width="14"
-											height="14"
-											className="text-nova-text-muted shrink-0 -mr-0.5"
-										/>
-									</Menu.SubmenuTrigger>
-									<Menu.Portal>
-										<Menu.Positioner
-											className={`${FLOATING_LAYER_CLS} ${MENU_SUBMENU_POSITIONER_CLS}`}
-											sideOffset={4}
-										>
-											<Menu.Popup className={MENU_POPUP_CLS}>
-												{cat.types.map((item) => (
-													<Fragment key={itemKey(item)}>
-														<TypeMenuItem
-															item={item}
-															onSelect={handleSelect}
-															disabledReason={kindRefusal(item.kind)}
-														/>
-														{/* Where a declared platform can't ask a date and
-														 *  time as one question, it is offered as two. */}
-														{item.kind === "datetime" &&
-															kindRefusal(item.kind) !== undefined && (
-																<TwoQuestionsMenuItem
-																	onSelect={handleTwoQuestions}
-																/>
-															)}
-													</Fragment>
-												))}
-												{/* The page gestures ride in Structure: a split
-												 *  or a new page is structure, not a question. */}
-												{cat.label === STRUCTURE_LABEL &&
-													gestures !== undefined &&
-													gestures.items.length > 0 && (
-														<>
-															<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
-															{gestures.items.map((item) => (
-																<GestureMenuItem
-																	key={item.key}
-																	item={item}
-																	onSelect={handleGesture}
-																/>
-															))}
-														</>
-													)}
-											</Menu.Popup>
-										</Menu.Positioner>
-									</Menu.Portal>
-								</Menu.SubmenuRoot>
-							))}
-
-							<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
-
-							{/* ── Top-level items (no submenu) ── */}
-							{INSERTION_TOP_LEVEL.map((item) => (
-								<TypeMenuItem
-									key={itemKey(item)}
-									item={item}
-									onSelect={handleSelect}
-									disabledReason={kindRefusal(item.kind)}
+						))}
+					{/* ── Category submenus ── */}
+					{categories.map((cat) => (
+						<Menu.SubmenuRoot key={cat.label}>
+							<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
+								<Icon
+									icon={cat.icon}
+									width="16"
+									height="16"
+									className="text-nova-text-muted shrink-0"
 								/>
-							))}
-						</>
-					)}
+								<span className="flex-1 text-left">{cat.label}</span>
+								<Icon
+									icon={tablerChevronRight}
+									width="14"
+									height="14"
+									className="text-nova-text-muted shrink-0 -mr-0.5"
+								/>
+							</Menu.SubmenuTrigger>
+							<Menu.Portal>
+								<Menu.Positioner
+									className={`${FLOATING_LAYER_CLS} ${MENU_SUBMENU_POSITIONER_CLS}`}
+									sideOffset={4}
+								>
+									<Menu.Popup className={MENU_POPUP_CLS}>
+										{cat.types.map((item) => (
+											<Fragment key={itemKey(item)}>
+												<TypeMenuItem
+													item={item}
+													onSelect={handleSelect}
+													disabledReason={kindRefusal(item)}
+													labelOverride={
+														item.preset === "delivery" &&
+														offersRecipientQuestion
+															? "Delivery with recipient ID"
+															: undefined
+													}
+												/>
+												{/* Where a declared platform can't ask a date and
+												 *  time as one question, it is offered as two. */}
+												{item.kind === "datetime" &&
+													kindRefusal(item) !== undefined && (
+														<TwoQuestionsMenuItem
+															onSelect={handleTwoQuestions}
+														/>
+													)}
+											</Fragment>
+										))}
+										{/* The page gestures ride in Structure: a split
+										 *  or a new page is structure, not a question. */}
+										{cat.label === STRUCTURE_LABEL &&
+											gestures !== undefined &&
+											gestures.items.length > 0 && (
+												<>
+													<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
+													{gestures.items.map((item) => (
+														<GestureMenuItem
+															key={item.key}
+															item={item}
+															onSelect={handleGesture}
+														/>
+													))}
+												</>
+											)}
+									</Menu.Popup>
+								</Menu.Positioner>
+							</Menu.Portal>
+						</Menu.SubmenuRoot>
+					))}
+
+					{!pageGap && <Menu.Separator className="mx-2 h-px bg-white/[0.06]" />}
+
+					{/* ── Top-level items (no submenu) ── */}
+					{!pageGap &&
+						INSERTION_TOP_LEVEL.map((item) => (
+							<TypeMenuItem
+								key={itemKey(item)}
+								item={item}
+								onSelect={handleSelect}
+								disabledReason={kindRefusal(item)}
+								labelOverride={
+									item.preset === "delivery" && offersRecipientQuestion
+										? "Delivery with recipient ID"
+										: undefined
+								}
+							/>
+						))}
 				</Menu.Popup>
 			</Menu.Positioner>
 		</Menu.Portal>
@@ -524,11 +613,13 @@ function TypeMenuItem({
 	item,
 	onSelect,
 	disabledReason,
+	labelOverride,
 }: {
 	item: FieldPickerItem;
 	onSelect: (item: FieldPickerItem) => void;
 	/** Why the kind is withheld, shown on a second line, as a page gesture's. */
 	disabledReason?: string;
+	labelOverride?: string;
 }) {
 	const { icon, label } =
 		item.preset === undefined
@@ -548,7 +639,7 @@ function TypeMenuItem({
 				className="text-nova-text-muted shrink-0"
 			/>
 			<span className="flex min-w-0 flex-1 flex-col text-left">
-				<span>{label}</span>
+				<span>{labelOverride ?? label}</span>
 				{disabled && (
 					<span className="text-xs text-nova-text-muted">{disabledReason}</span>
 				)}

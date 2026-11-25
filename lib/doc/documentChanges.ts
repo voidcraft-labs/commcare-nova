@@ -196,7 +196,6 @@ export const FORM_KEY_PARTS = {
 	openCondition: "case-changes",
 	closeCondition: "case-changes",
 	ownClosePlacement: "case-changes",
-	connect: "settings",
 	postSubmit: "after-submit",
 	formLinks: "after-submit",
 	otherwise: "after-submit",
@@ -228,7 +227,7 @@ type RootPlace =
 export const ROOT_KEY_PLACES = {
 	appId: "settings",
 	appName: "name",
-	connectType: "settings",
+	connectRoles: "settings",
 	caseTypes: "case-types",
 	localization: "localization",
 	appSettings: "settings",

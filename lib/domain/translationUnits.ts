@@ -262,16 +262,17 @@ export function collectTranslationCoverageDiagnostics(
 				"These labels are record data. App translations don't change their saved wording.",
 			affectedCount: caseChoices,
 		});
-	const connectForms = Object.values(doc.forms).filter(
-		(form) => form.connect !== undefined,
+	const connectActivities = Object.values(doc.fields).filter(
+		(field) =>
+			field.kind === "connect_activity" && field.activity.kind !== "assessment",
 	).length;
-	if (connectForms > 0) {
+	if (connectActivities > 0) {
 		diagnostics.push({
 			code: "connect-text-has-no-locale-carrier",
 			title: "CommCare Connect names stay in one language",
 			explanation:
 				"CommCare Connect stores learn and delivery content in a single language, so names and descriptions there can't be translated per language.",
-			affectedCount: connectForms,
+			affectedCount: connectActivities,
 		});
 	}
 	const mediaRefs = collectAssetRefs(doc).size;

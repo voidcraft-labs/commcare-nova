@@ -53,7 +53,6 @@ import type {
 	BlueprintDoc,
 	CaseOperation,
 	Column,
-	ConnectConfig,
 	Field,
 	FieldKind,
 	FieldPatchFor,
@@ -636,12 +635,9 @@ export function removeFormMutations(
 }
 
 /**
- * Patch non-Connect form-level fields. Nullable fields (`openCondition`,
- * `closeCondition`, `postSubmit`, `purpose`) follow a convention: passing `null` clears the field (the
- * reducer stores `undefined`), passing a value replaces it, and omitting
- * the key leaves it untouched. Connect participation is deliberately absent;
- * the app-wide target planner owns membership, and a type change is absent
- * too: it carries the form's own case, so `planFormTypeChange` plans it.
+ * Patch form metadata. An explicit null clears an optional field. An omitted
+ * key preserves its value. A type change also changes the form's own case,
+ * so planFormTypeChange owns that edit. Connect activities are form nodes.
  */
 export function updateFormMutations(
 	doc: BlueprintDoc,
@@ -691,22 +687,6 @@ export function updateFormMutations(
 		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });
 	}
 	return mutations;
-}
-
-/**
- * Refine the complete Connect configuration of an existing participant.
- * This named helper cannot create or remove participation: a form without a
- * live block, or a nullish runtime value from an untyped caller, is refused
- * with an empty plan. App-wide membership transitions use
- * `planConnectTargetState` instead.
- */
-export function refineFormConnectMutations(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	connect: ConnectConfig,
-): Mutation[] {
-	if (doc.forms[formUuid]?.connect === undefined || connect == null) return [];
-	return [{ kind: "updateForm", uuid: formUuid, patch: { connect } }];
 }
 
 // ── Mutation builders — fields ──────────────────────────────────────────

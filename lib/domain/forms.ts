@@ -16,7 +16,6 @@ import {
 } from "./expression/types";
 import { formRootNameSchema } from "./formAnswerRoot";
 import { firstModuleListingForm } from "./formMembership";
-import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
 	type CasePlacement,
@@ -712,119 +711,6 @@ export function orderedCaseOperations(form: {
 	return [...(form.caseOperations ?? [])];
 }
 
-// Connect config. Persisted blocks are complete: partial sub-configs and
-// omitted ids belong only to builder/tool draft types and are finalized before
-// a Form is constructed. All four ids share this one stored bound; the exact
-// rule is the question-id grammar (`lib/commcare/connectSlugs.ts`), and
-// app-wide uniqueness and app-mode compatibility need the owning Blueprint
-// and are enforced by `blueprintTopologyIssues`.
-export const CONNECT_ID_MAX_LENGTH = 50;
-/** The stored bound of a Connect id; `connectSlugs.ts` holds the exact rule. */
-export const CONNECT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
-export const connectIdSchema = z
-	.string()
-	.min(1)
-	.max(CONNECT_ID_MAX_LENGTH)
-	.regex(CONNECT_ID_PATTERN);
-
-const connectLearnModuleSchema = z.strictObject({
-	id: connectIdSchema,
-	name: z.string(),
-	description: z.string(),
-	time_estimate: persistableJsonPositiveIntegerSchema,
-});
-const connectAssessmentSchema = z.strictObject({
-	id: connectIdSchema,
-	// An XPath expression consumed only by the XForm bind emitter. Either
-	// side may set it (the SA points it at a hidden score field; the UI
-	// panel lets a user override), but if absent the wire layer in
-	// `lib/commcare/xform/builder.ts` emits the canonical default at bind
-	// time — the same contract `deliver_unit.entity_id` / `entity_name`
-	// hold. Optional here matches what's true: the doc tracks what was
-	// set, the wire layer fills the rest.
-	user_score: formLogicSchema.optional(),
-});
-const connectDeliverUnitSchema = z.strictObject({
-	id: connectIdSchema,
-	name: z.string(),
-	// `entity_id` / `entity_name` are XPath expressions consumed only by
-	// the XForm bind emitter. Either side may set them (the SA can opt
-	// into custom expressions; a UI panel could let a user override),
-	// but if absent the wire layer in `lib/commcare/xform/builder.ts`
-	// emits the canonical defaults at bind time. Optional here matches
-	// what's true: the doc tracks what was set, the wire layer fills
-	// the rest.
-	entity_id: formLogicSchema.optional(),
-	entity_name: formLogicSchema.optional(),
-});
-const connectTaskSchema = z.strictObject({
-	id: connectIdSchema,
-	name: z.string(),
-	description: z.string(),
-});
-export const connectLearnConfigSchema = z
-	.strictObject({
-		learn_module: connectLearnModuleSchema.optional(),
-		assessment: connectAssessmentSchema.optional(),
-	})
-	.refine(
-		(config) =>
-			config.learn_module !== undefined || config.assessment !== undefined,
-		"Connect learn configuration must contain a learn module or assessment.",
-	);
-
-export const connectDeliverConfigSchema = z
-	.strictObject({
-		deliver_unit: connectDeliverUnitSchema.optional(),
-		task: connectTaskSchema.optional(),
-	})
-	.refine(
-		(config) => config.deliver_unit !== undefined || config.task !== undefined,
-		"Connect deliver configuration must contain a deliver unit or task.",
-	);
-
-export const connectConfigSchema = z.union([
-	connectLearnConfigSchema,
-	connectDeliverConfigSchema,
-]);
-
-export type ConnectLearnConfig = z.infer<typeof connectLearnConfigSchema>;
-export type ConnectDeliverConfig = z.infer<typeof connectDeliverConfigSchema>;
-export type ConnectConfig = z.infer<typeof connectConfigSchema>;
-
-export function isConnectLearnConfig(
-	config: ConnectConfig,
-): config is ConnectLearnConfig {
-	return "learn_module" in config || "assessment" in config;
-}
-
-/**
- * Whether a deliver config holds both a deliver unit and a task. Connect
- * reads a submission's deliver unit before its task and turns the delivery
- * away while the worker has a pending task (commcare-connect
- * `form_receiver/processor.py::process_deliver_form`,
- * `_has_blocking_pending_task`), so the visit made in the form that also
- * completes the task is never paid. A task goes in a form of its own. The
- * validator, the builder and the tools ask this one predicate;
- * it takes a stored config or a draft alike.
- */
-export function connectDeliverFormHoldsTask(
-	config:
-		| ConnectConfig
-		| { readonly deliver_unit?: unknown; readonly task?: unknown },
-): boolean {
-	return (
-		"deliver_unit" in config &&
-		config.deliver_unit !== undefined &&
-		"task" in config &&
-		config.task !== undefined
-	);
-}
-export type ConnectLearnModule = z.infer<typeof connectLearnModuleSchema>;
-export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>;
-export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
-export type ConnectTask = z.infer<typeof connectTaskSchema>;
-
 export const formSchema = z.strictObject({
 	dataRootName: formRootNameSchema.optional(),
 	entryPoint: formEntryPointSchema.optional(),
@@ -873,7 +759,6 @@ export const formSchema = z.strictObject({
 	 * mutation payload carries it.
 	 */
 	ownClosePlacement: ownClosePlacementSchema.optional(),
-	connect: connectConfigSchema.optional(),
 	/**
 	 * Where a form without destinations goes after submit. Refused beside
 	 * `formLinks` (`POST_SUBMIT_BESIDE_FORM_LINKS`); a form with destinations

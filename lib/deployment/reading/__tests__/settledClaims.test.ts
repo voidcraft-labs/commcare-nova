@@ -232,7 +232,7 @@ describe("settledClaims", () => {
 			data: DATA,
 			reads: readsOf({ villages: ["name"], "crop.types": ["name"] }),
 			doc: buildDoc({}, (doc) => {
-				doc.connectType = "learn";
+				doc.connectRoles = ["learn"];
 			}),
 			media: MEDIA,
 		});

@@ -40,7 +40,7 @@ import type {
 	AppLocalization,
 	AppSettings,
 	CaseType,
-	ConnectType,
+	ConnectRole,
 	MediaAssetId,
 	Uuid,
 } from "@/lib/domain";
@@ -80,7 +80,11 @@ export interface AppsTable {
 	project_id: string;
 	app_name: string;
 	app_name_lower: string;
-	connect_type: ConnectType | null;
+	connect_roles: ColumnType<
+		ConnectRole[] | null,
+		ConnectRole[] | undefined,
+		ConnectRole[]
+	>;
 	case_types: JSONColumnType<CaseType[] | null, string | null, string | null>;
 	localization: JSONColumnType<
 		AppLocalization | null,

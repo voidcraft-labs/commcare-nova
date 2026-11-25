@@ -547,7 +547,7 @@ describe("new-app Project handoff", () => {
 		const empty: BlueprintDoc = {
 			appId: "app-1",
 			appName: "",
-			connectType: null,
+			connectRoles: [],
 			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {},

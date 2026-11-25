@@ -9,7 +9,7 @@
 import {
 	afterEmptySearchRegistrationFormOf,
 	type BlueprintDoc,
-	CONNECT_TYPE_LABELS,
+	CONNECT_ROLE_LABELS,
 	caseListColumnTextShows,
 	caseWriteValueField,
 	effectiveCaseSearchConfig,
@@ -507,10 +507,10 @@ export function projectSpaceCompatibilityProbePlan(
 					event.content.kind === "connect-survey",
 			),
 	);
-	if (doc.connectType !== null) {
+	if (doc.connectRoles.length > 0) {
 		addReason(
 			"commcare-connect",
-			`The app uses CommCare Connect ${CONNECT_TYPE_LABELS[doc.connectType]}.`,
+			`The app uses CommCare Connect ${doc.connectRoles.map((role) => CONNECT_ROLE_LABELS[role]).join(" and ")}.`,
 		);
 	}
 	if (usesConnectAutomation) {

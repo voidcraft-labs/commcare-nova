@@ -28,7 +28,7 @@ export function appOverview(doc: BlueprintDoc) {
 	return {
 		appId: doc.appId,
 		name: doc.appName,
-		...(doc.connectType && { connect: doc.connectType }),
+		...(doc.connectRoles.length > 0 && { connectRoles: doc.connectRoles }),
 		settings: {
 			showSavedForms: doc.appSettings.showSavedForms,
 			showIncompleteForms: doc.appSettings.showIncompleteForms,

@@ -1,3 +1,5 @@
+import { connectActivitySites } from "@/lib/domain/connectActivitySites";
+import type { ConnectSubmissionProgram } from "@/lib/domain/connectSubmissionFacts";
 // lib/preview/engine/caseDataBindingHelpers.ts
 //
 // Server-only I/O helpers the running-app view's data binding wraps
@@ -1573,6 +1575,7 @@ export async function resetSampleCases(
  */
 export interface BuiltSubmissionOperations {
 	readonly submissionLocation?: ApplySubmissionArgs["submissionLocation"];
+	readonly connect?: ConnectSubmissionProgram;
 	readonly program?: CaseOperationProgram;
 	/** The selection the committed form type and module admit, with the
 	 * client's selected ids. It carries no case write. */
@@ -2047,7 +2050,11 @@ export function buildCaseOperationProgramFromDoc(args: {
 	const caseTypeSchemas = buildCaseTypeMap(blueprint);
 	const owningModule = owningModuleForForm(doc, formUuid);
 	const ordinaryAction = committedSelection(form, owningModule, mutation);
+	const sites = connectActivitySites(doc, formUuid);
 	const ordinaryStructure = {
+		...(sites.length || mutation.activities !== undefined
+			? { connect: { sites, occurrences: mutation.activities } }
+			: {}),
 		ordinaryAction,
 		ordinaryFormType: form.type,
 	};
@@ -2472,6 +2479,7 @@ export function submissionEnvelopeArgs(
 		...operations,
 		...submissionReceipt,
 		...captureIntent,
+		...(built.connect === undefined ? {} : { connect: built.connect }),
 	};
 }
 

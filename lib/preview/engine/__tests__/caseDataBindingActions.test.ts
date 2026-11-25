@@ -3703,7 +3703,7 @@ describe("loadFilterPreviewAction", () => {
 			blueprint: {
 				appId: 42,
 				appName: "Test app",
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [],
 				modules: {},

@@ -18,14 +18,9 @@ import type {
 } from "@/lib/deployment/workerProvisionPlan";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
-import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
-import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import type { PendingIdentityMove } from "@/lib/doc/pendingIdentityMove";
 import { docHasData } from "@/lib/doc/predicates";
-import { BlueprintEditableContext } from "@/lib/doc/provider";
-import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import type { Event } from "@/lib/log/types";
@@ -400,65 +395,6 @@ export function useSetSidebarOpen(): (
 	open: boolean,
 ) => void {
 	return useBuilderSession((s) => s.setSidebarOpen);
-}
-
-// ── Connect stash ────────────────────────────────────────────────────────
-
-/** Composite action: switch the app-level connect mode — one gated batch
- *  (`setConnectType` + each participating form's block), stash lifecycle
- *  included. Returns the commit outcome so the caller's UI can react to
- *  a rejection. Binds the builder's live Project lookup context into the
- *  gate, the same context every other builder write runs under, so a doc
- *  that carries a lookup-backed select can still switch modes. See
- *  `BuilderSessionState.switchConnectMode`. */
-export function useSwitchConnectMode(): (
-	type: ConnectType | null,
-	stagedBlocks?: Record<string, ConnectConfig>,
-	opts?: { announce?: boolean },
-) => CommitOutcome {
-	const switchConnectMode = useBuilderSession((s) => s.switchConnectMode);
-	const canEdit = useContext(BlueprintEditableContext);
-	const lookupCommitState = useLookupCommitState();
-	return useCallback(
-		(type, stagedBlocks, opts) => {
-			const announce = opts?.announce !== false;
-			/* The same admission every gated dispatch runs first — a viewer's
-			 * switch and a switch while the lookup catalog is loading or failed
-			 * refuse here, in the builder's voice, before the store plans and
-			 * verdicts anything. */
-			const admission = builderWriteAdmission({ canEdit, lookupCommitState });
-			if (!admission.ok) {
-				if (announce) notifyRejectedCommit(admission.messages);
-				return { ok: false, messages: admission.messages };
-			}
-			return switchConnectMode({
-				type,
-				blocks: stagedBlocks,
-				lookupContext: lookupCommitState.lookupContext,
-				announce,
-			});
-		},
-		[switchConnectMode, canEdit, lookupCommitState],
-	);
-}
-
-/** The last Connect mode the app was in before Connect was toggled off —
- *  what a bare re-enable resolves to (falling back to `'learn'`). The
- *  enable flow reads it to know which mode's blocks to collect BEFORE
- *  committing. */
-export function useLastConnectType(): ConnectType | undefined {
-	return useBuilderSession((s) => s.lastConnectType);
-}
-
-/** Read a single form's stashed connect config. Returns `undefined` when
- *  no config is stashed for that form+mode combination. Subscribes with
- *  a narrow selector so the component only re-renders when this specific
- *  stash entry changes. */
-export function useFormConnectStash(
-	mode: ConnectType,
-	formUuid: string,
-): ConnectConfig | undefined {
-	return useBuilderSession((s) => s.connectStash[mode]?.[formUuid]);
 }
 
 // ── Staged media uploads ──────────────────────────────────────────────────

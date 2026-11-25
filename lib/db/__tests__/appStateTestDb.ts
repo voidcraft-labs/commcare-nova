@@ -71,7 +71,7 @@ export interface SeedAppOptions {
 	recoverable_until?: Date | null;
 	module_count?: number;
 	form_count?: number;
-	connect_type?: "learn" | "deliver" | null;
+	connect_roles?: ("learn" | "deliver")[];
 	/** The credit-reservation marker, or null/omitted for none. */
 	reservation?: AppReservation | null;
 	/** The exclusive edit lease, or null/omitted for none. */
@@ -215,7 +215,7 @@ export function canonicalTestBlueprint(
 	const empty: BlueprintDoc = {
 		appId,
 		appName: APP_GENESIS_FALLBACK_NAME,
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
@@ -371,6 +371,13 @@ export function setupAppStateTestDb(
 		const owner = opts.owner ?? "owner-test";
 		const projectId = opts.project_id ?? "project-test";
 		const persistable = doc === null ? null : toPersistableDoc(doc);
+		const connectRoles = opts.connect_roles ?? persistable?.connectRoles ?? [];
+		const releasedRoles =
+			before !== undefined && before <= "20261208000000_connect_activity_roles";
+		if (releasedRoles && connectRoles.length > 1)
+			throw new Error(
+				"The selected historical schema stores only one Connect role.",
+			);
 		const formCount =
 			persistable?.moduleOrder.reduce(
 				(sum, moduleUuid) =>
@@ -389,7 +396,9 @@ export function setupAppStateTestDb(
 						project_id: projectId,
 						app_name: appName,
 						app_name_lower: appName.toLowerCase(),
-						connect_type: opts.connect_type ?? persistable?.connectType ?? null,
+						...(releasedRoles
+							? { connect_type: connectRoles[0] ?? null }
+							: { connect_roles: connectRoles }),
 						case_types:
 							persistable?.caseTypes == null
 								? null

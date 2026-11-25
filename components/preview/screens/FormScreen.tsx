@@ -63,6 +63,7 @@ import {
 	type PostSubmitDestination,
 	reachableCaseTypes,
 } from "@/lib/domain";
+import type { ActivityFact } from "@/lib/domain/connectSubmissionFacts";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import type { LanguageTag } from "@/lib/domain/localization";
@@ -485,6 +486,7 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 }
 
 interface FormScreenProps {
+	onSubmittedActivities?: (facts: readonly ActivityFact[]) => void;
 	/** Stable identity passed by PreviewShell so an Activity-retained form never
 	 * starts reading a newer route's module, form, or selected case. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
@@ -527,7 +529,7 @@ function stringArrayValuesEqual(
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
-export function FormScreen({ screen }: FormScreenProps) {
+export function FormScreen({ screen, onSubmittedActivities }: FormScreenProps) {
 	const explicitCases = screen.cases;
 	const loc = useLocation();
 	const navigate = useNavigate();
@@ -2904,6 +2906,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 				session
 					.getState()
 					.setPreviewSubmissionLocation(result.submissionLocation);
+				if (result.activities?.length)
+					onSubmittedActivities?.(result.activities);
 				await dispatchAfterSubmit({
 					submitted: {
 						...submitted,

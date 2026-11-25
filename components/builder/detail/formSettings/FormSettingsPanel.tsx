@@ -9,7 +9,6 @@ import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRe
 import { AfterSubmitSection } from "./AfterSubmitSection";
 import { AnswerRootSection } from "./AnswerRootSection";
 import { CaseChangesSection } from "./CaseChangesSection";
-import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
 import { FormBehaviorSection } from "./FormBehaviorSection";
 import { FormEntrySection } from "./FormEntrySection";
@@ -31,7 +30,7 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
  * chrome: a labeled header with a dismiss button and a scrollable
  * content region that composes the feature sections in a fixed vertical
  * order. Each section decides whether it renders (close forms only for
- * `OwnCaseSection`, non-null `connectType` for `ConnectSection`,
+ * `OwnCaseSection`,
  * registration forms with somewhere to be offered from for
  * `FormEntrySection`). A case list registration form has a restricted after-submit choice
  * and no menu section: it is on no menu, so it takes neither "Show on the
@@ -89,8 +88,6 @@ export function FormSettingsPanel({
 						onNavigateAway={onClose}
 					/>
 				)}
-
-				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormLocationSection formUuid={formUuid} />
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />

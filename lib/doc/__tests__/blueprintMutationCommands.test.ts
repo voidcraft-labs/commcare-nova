@@ -17,6 +17,8 @@ import { type Automation, fieldCaseWriteViews, uuidSchema } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import type { Choice } from "@/lib/domain/expression/types";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
+import { buildEngineInput } from "@/lib/preview/engine/engineInput";
+import { FormEngine } from "@/lib/preview/engine/formEngine";
 import { runHistoryStep } from "@/lib/routing/historyStep";
 import {
 	createBuilderSessionStore,
@@ -101,25 +103,27 @@ const bp = buildDoc({
 		},
 	],
 });
+const LESSON = testUuid("builder-connect-lesson");
 const connectBp: BlueprintDoc = {
 	...bp,
-	connectType: "learn",
-	// A Connect app runs on Android alone.
+	connectRoles: ["learn"],
 	appSettings: { ...bp.appSettings, runsOnlyOn: "android" },
-	forms: {
-		...bp.forms,
-		[FORM1]: {
-			...bp.forms[FORM1],
-			connect: {
-				learn_module: {
-					id: "intro",
-					name: "Introduction",
-					description: "Initial content",
-					time_estimate: 5,
-				},
+	fields: {
+		...bp.fields,
+		[LESSON]: {
+			uuid: LESSON,
+			id: "intro",
+			kind: "connect_activity",
+			activity: {
+				kind: "learning-module",
+				name: "Introduction",
+				description: "Initial content",
+				estimatedHours: 5,
 			},
 		},
 	},
+	fieldParent: { ...bp.fieldParent, [LESSON]: FORM1 },
+	fieldOrder: { ...bp.fieldOrder, [FORM1]: [...bp.fieldOrder[FORM1], LESSON] },
 };
 function setup(doc: BlueprintDoc = bp) {
 	assertAdmittedDoc(doc);
@@ -383,7 +387,7 @@ describe("Builder mutation commands", () => {
 		const peerDoc: BlueprintDoc = {
 			appId: "t",
 			appName: "Test",
-			connectType: null,
+			connectRoles: [],
 			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: [
 				{
@@ -656,73 +660,113 @@ describe("Builder mutation commands", () => {
 		]);
 		expect(JSON.parse(JSON.stringify(commands))).toEqual(commands);
 	});
-	it("confines Connect membership outside generic form add/update and permits only explicit existing-participant refinement", () => {
-		const { mutations, store } = setup(connectBp);
-		assert(store);
-		const initialParticipant = store.getState().forms[FORM1].connect;
-		/* Casts model a stale bundle or untyped JavaScript caller. The public
-		 * TypeScript signatures omit these slots; the runtime boundary must
-		 * still refuse them before the absolute gate can accept a valid
-		 * participant-bearing candidate. */
-		const addOutcome = mutations.inline.addForm(MOD1, {
-			id: "alternate",
-			name: "Alternate",
-			type: "survey",
-			connect: initialParticipant,
-		} as never);
-		const addParticipantOutcome = mutations.inline.updateForm(FORM2, {
-			connect: initialParticipant,
-		} as never);
-		const removeParticipantOutcome = mutations.inline.updateForm(FORM1, {
-			connect: null,
-		} as never);
-		for (const outcome of [
-			addOutcome,
-			addParticipantOutcome,
-			removeParticipantOutcome,
-		]) {
-			expect(outcome?.ok).toBe(false);
-			if (outcome?.ok === false) {
-				expect(outcome.messages[0]).toContain("app-wide Connect");
-			}
-		}
-		expect(store.getState().forms[FORM1].connect).toEqual(initialParticipant);
-		expect(store.getState().forms[FORM2].connect).toBeUndefined();
-		expect(store.getState().formOrder[MOD1]).toEqual([FORM1, FORM2]);
-		const refineOutcome = mutations.inline.refineFormConnect(FORM1, {
-			learn_module: {
-				id: "intro",
-				name: "Introduction",
-				description: "Refined content",
-				time_estimate: 9,
+	it("adds a delivery and its distinct recipient question together, and runs both repeat rows", () => {
+		const initial: BlueprintDoc = {
+			...bp,
+			connectRoles: ["deliver"],
+			appSettings: { ...bp.appSettings, runsOnlyOn: "android" },
+			fields: {
+				...bp.fields,
+				[Q_G]: {
+					uuid: Q_G,
+					kind: "repeat",
+					id: "visits",
+					label: proseText("Visits"),
+					repeat_mode: "user_controlled",
+				},
+				[Q_C]: {
+					uuid: Q_C,
+					kind: "text",
+					id: "recipient_id",
+					label: proseText("Old recipient"),
+				},
 			},
-		});
-		expect(refineOutcome).toEqual({
-			ok: true,
+		};
+		const { mutations, store } = setup(initial);
+		const created = mutations.addDeliveryWithRecipient(Q_G, "visit", 0);
+		assert(created.ok);
+		const [recipient, delivery, existing] = children(store, Q_G);
+		assert(
+			recipient.kind === "text" &&
+				delivery.kind === "connect_activity" &&
+				delivery.activity.kind === "delivery",
+		);
+		expect(existing).toEqual(initial.fields[Q_C]);
+		expect(recipient.id).not.toBe(existing.id);
+		expect(delivery.uuid).toBe(created.uuid);
+		expect(delivery.activity.entityId).toMatchObject({
+			kind: "term",
+			term: { kind: "field", uuid: recipient.uuid },
 		});
 		expect(
-			(
-				store.getState().forms[FORM1].connect as {
-					learn_module?: {
-						description: string;
-						time_estimate: number;
-					};
-				}
-			).learn_module,
-		).toMatchObject({
+			store
+				.getState()
+				.peekCommandBatches()
+				.map((batch) => batch.map((command) => command.kind)),
+		).toEqual([["addField", "addField"]]);
+		store.getState().undo();
+		expect(children(store, Q_G)).toEqual([initial.fields[Q_C]]);
+		store.getState().redo();
+		mutations.renameField(recipient.uuid, "person");
+		expect(store.getState().fields[recipient.uuid].id).toBe("person");
+
+		const input = buildEngineInput(store.getState(), FORM1, null);
+		assert(input);
+		const engine = new FormEngine(input);
+		engine.setValue("/data/visits[0]/person", "Mira");
+		engine.addRepeat("/data/visits");
+		expect(engine.validateAll()).toBe(false);
+		engine.setValue("/data/visits[1]/person", "Mira");
+		expect(engine.validateAll()).toBe(false);
+		engine.setValue("/data/visits[1]/person", "Amina");
+		expect(engine.validateAll()).toBe(true);
+		expect(
+			engine
+				.computeSubmissionMutation({
+					entryKey: "0fd69353-5355-4c2b-b46f-d44674d5e149",
+				})
+				.activities?.map(
+					(activity) => activity.kind === "delivery" && activity.entityId,
+				),
+		).toEqual(["Mira", "Amina"]);
+		engine.setValue("/data/visits[0]/person", "Amina");
+		expect(engine.validateAll()).toBe(false);
+		engine.removeRepeat("/data/visits", 1);
+		expect(engine.validateAll()).toBe(true);
+	});
+	it("edits an activity at its position and refuses a stale form-level Connect write", () => {
+		const { mutations, store } = setup(connectBp);
+		const activity = {
+			kind: "learning-module",
+			name: "Introduction",
 			description: "Refined content",
-			time_estimate: 9,
+			estimatedHours: 9,
+		} as const;
+		const stale = mutations.inline.updateForm(FORM1, {
+			connect: null,
+		} as never);
+		expect(stale.ok).toBe(false);
+		expect(store.getState().peekCommandBatches()).toEqual([]);
+		expect(
+			mutations.inline.updateField(LESSON, "connect_activity", { activity }),
+		).toEqual({ ok: true });
+		expect(store.getState().fields[LESSON]).toMatchObject({
+			id: "intro",
+			activity,
 		});
-		const nonparticipantRefine = mutations.inline.refineFormConnect(FORM2, {
-			learn_module: {
-				id: "other",
-				name: "Other",
-				description: "Should not land",
-				time_estimate: 5,
-			},
-		});
-		expect(nonparticipantRefine?.ok).toBe(false);
-		expect(store.getState().forms[FORM2].connect).toBeUndefined();
+		expect(store.getState().fieldOrder[FORM1]).toEqual(
+			connectBp.fieldOrder[FORM1],
+		);
+		expect(store.getState().peekCommandBatches()).toEqual([
+			[
+				{
+					kind: "updateField",
+					uuid: LESSON,
+					targetKind: "connect_activity",
+					patch: { activity },
+				},
+			],
+		]);
 	});
 	it("setFormMedia sets and clears form media through explicit nulls", () => {
 		const { mutations, store } = setup(bp);

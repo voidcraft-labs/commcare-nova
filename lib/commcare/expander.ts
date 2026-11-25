@@ -82,7 +82,6 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
-import { buildConnectSlugMap } from "./connectSlugs";
 import {
 	caseListFormLabelUnit,
 	caseListMenuItemLabelUnit,
@@ -305,13 +304,6 @@ export function* expandDocSteps(
 		...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
 	});
 
-	// Resolve the per-form Connect configs for emission. `buildConnectSlugMap`
-	// is a typed pass-through — connect ids are already valid + unique + ≤50
-	// by construction (creation autofill + the UI/tool guards), so it asserts
-	// each id is present and narrows the type without transforming. Both the XForm
-	// builder and the case-references load map below read the same per-form
-	// config so their data paths agree. Empty for non-Connect apps.
-	const connectSlugs = buildConnectSlugMap(doc);
 	yield;
 
 	const moduleShellOf = (moduleUuid: Uuid, mIdx: number) => {
@@ -343,9 +335,6 @@ export function* expandDocSteps(
 			}
 			const xmlns = identity.formXmlns(form);
 
-			// The admitted Connect config for this form. buildConnectSlugMap
-			// checks mode/config agreement and preserves authored identities.
-			const effectiveConnect = connectSlugs.get(formUuid);
 			const ownCaseDatum = selectedCaseSessionDatum(
 				doc,
 				linkContext,
@@ -398,7 +387,6 @@ export function* expandDocSteps(
 				...(multipleCaseDatum !== undefined && {
 					selectedCasesInstanceId: multipleCaseDatum.id,
 				}),
-				...(effectiveConnect && { connect: effectiveConnect }),
 				...(assets && { assets }),
 				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
 				...(opts.attachmentTarget && {
@@ -435,12 +423,7 @@ export function* expandDocSteps(
 			// Raw `mod.caseType` for the same reason as `buildXFormSource`'s
 			// `moduleCaseType` above: the depth map must match the deep
 			// validator's accept map.
-			const caseRefsLoad = buildCaseReferencesLoad(
-				doc,
-				formUuid,
-				effectiveConnect,
-				mod.caseType,
-			);
+			const caseRefsLoad = buildCaseReferencesLoad(doc, formUuid, mod.caseType);
 			const postFormWorkflowFallback =
 				projectedLinks?.fallback.kind === "built-in"
 					? toHqWorkflow(projectedLinks.fallback.destination)

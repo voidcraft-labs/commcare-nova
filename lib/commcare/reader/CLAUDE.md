@@ -782,10 +782,18 @@ A change that holds one removes its line.
   (`xform/model.ts::heldSetvalueRef`, `xform/logic.ts::readDefaults`). Core's reading of each is a
   default or an id Nova could hold, but not in the one spelling it prints, and a reading from the
   form builder's spelling would aim it elsewhere.
-- **A Connect deliver unit whose `work_area_id` holds a fixed id**: refused whole under
-  `questions/connect-deliver-unit-work-area-id-expression`, its record at the leaf
-  (`xform/connect.ts`). Connect files the visit under that work area
-  (`form_receiver/processor.py::process_deliver_unit`), and Nova's document holds no work area.
+- **A Connect delivery can identify the area visited** using a calculated `work_area_id`, including a
+  quoted fixed case ID. The delivery's calculation reads under
+  `questions/connect-deliver-unit-work-area-id-expression`. A fixed value written directly in the
+  submitted data is a different spelling: Vellum clears it on save.
+- **A Connect work-area request with photo evidence** stops under
+  `questions/connect-work-area-update-photo-not-forwarded`. HQ keeps the file. Its Connect forwarder
+  carries the filename, and Connect requires the attachment map as well. The receiver declines the
+  whole submission. The original malformed block remains under `questions/connect-work-area-update`:
+  Vellum replaces its element or children on save. The repaired form can link its delivery to the
+  area for a visit. Inaccessible-area requests stay in the opportunity's separate work-area process.
+  The forwarding stop can retire when the receiver commits the request with the file from the
+  original saved field, on both workers, under the same identity.
 - **A form expression no XPath grammar reads, outside a bind** (a setvalue's `value` of `((((`):
   `unrecognized` at the question under the slot's key, with the `expression-not-written-back`
   defect beside it (`expressions/findings.ts::parseIssueEntry`, `parse:syntax`, which names an
@@ -961,3 +969,4 @@ these unprinted values. Reading HQ over the published reference can replace a lo
 worker-visible edit in the reviewed change list. When the original language
 changes, that same review preserves the head's dormant checks and the saved
 review metadata for generated wording that the resulting app still shows.
+A form whose root questions are all qualifying Question Lists reads them as sections. Root Connect activities retain their own submitted data positions, including before or between those sections. A Connect activity inside a page keeps that page in its submitted path.

@@ -64,11 +64,13 @@ import type {
 	TimeField,
 	VideoField,
 } from "@/lib/domain";
+import type { ConnectActivityField } from "@/lib/domain/fields/connectActivity";
 import type {
 	FieldEditorComponentProps,
 	FieldEditorSchema,
 	FormExpressionKeys,
 } from "@/lib/domain/kinds";
+import type { ConnectActivityEditor as ConnectActivityEditorComponent } from "./fields/ConnectActivityEditor";
 import { HiddenAnswerNamespaceEditor } from "./fields/HiddenAnswerNamespaceEditor";
 import { HiddenAnswerTypeEditor } from "./fields/HiddenAnswerTypeEditor";
 import { ImageSizeEditor } from "./fields/ImageSizeEditor";
@@ -158,6 +160,12 @@ const XPathEditor = WarmXPathEditor as typeof XPathEditorComponent;
 /* The hidden field's calculation editor renders CodeMirror, so it rides
  * the same lazy boundary the XPath editor does rather than joining Builder
  * startup. */
+const ConnectActivityEditor = dynamic(() =>
+	import("./fields/ConnectActivityEditor").then(
+		(module) => module.ConnectActivityEditor,
+	),
+) as typeof ConnectActivityEditorComponent;
+
 const HiddenValueEditor = dynamic(
 	() =>
 		import("@/components/builder/editor/fields/HiddenValueEditor").then(
@@ -714,6 +722,15 @@ export const fieldEditorSchemas: {
 	signature: signatureFieldEditorSchema,
 	label: labelFieldEditorSchema,
 	hidden: hiddenFieldEditorSchema,
+	connect_activity: {
+		data: [
+			{ key: "activity", label: "Activity", component: ConnectActivityEditor },
+		],
+		logic: [
+			xpathEntry<ConnectActivityField, "relevant">("relevant", "Record when"),
+		],
+		ui: [],
+	},
 	secret: secretFieldEditorSchema,
 	group: groupFieldEditorSchema,
 	section: sectionFieldEditorSchema,

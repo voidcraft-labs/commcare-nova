@@ -82,6 +82,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"child-cases": "Child cases",
 	"commcare-version": "CommCare version",
 	"connect-blocks": "CommCare Connect",
+	"connect-work-area-requests": "Work-area requests",
 	"custom-assertions": "Custom assertions",
 	"custom-device-properties": "Custom device properties",
 	"data-registry": "Data registries",
@@ -248,10 +249,8 @@ export const FINDING_COPY: Readonly<
 			"This opens or closes a case under a condition Nova can't hold yet.",
 	},
 	"commcare-version": {},
-	"connect-blocks": {
-		"not-yet":
-			"A CommCare Connect block here is set up in a way Nova can't hold yet.",
-	},
+	"connect-blocks": {},
+	"connect-work-area-requests": {},
 	"custom-assertions": {
 		never: "This uses custom assertions, which Nova doesn't bring in.",
 	},
@@ -522,6 +521,12 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 	"commcare-version": {
 		"below-floor":
 			"This app is built for a CommCare version below 2.57, the earliest Nova publishes to.",
+	},
+	"connect-work-area-requests": {
+		"breaks-when-run":
+			"CommCare HQ keeps the photo but sends Connect only its filename. Connect declines the whole submission, including any delivery in it. To record a visit, the delivery can use the work area ID. For an inaccessible area, the worker can send the request through the opportunity's work-area process.",
+		"hq-refuses":
+			"CommCare HQ's form designer replaces part of this work-area request when it saves the form. The worker can send inaccessible-area requests through the opportunity's work-area process. If the form records a visit, its delivery can use the work area ID.",
 	},
 	expressions: {
 		"breaks-when-run":
