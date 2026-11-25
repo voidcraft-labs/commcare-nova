@@ -1009,6 +1009,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/itemset/instance_id"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/case_list/label"
 			},
 			{

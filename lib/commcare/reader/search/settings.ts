@@ -80,6 +80,7 @@ import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { sameSyntax, sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
+import { itemsetSource } from "./itemsetSource";
 import type { PromptReading } from "./prompts";
 import { searchPlace } from "./workflow";
 
@@ -1358,7 +1359,17 @@ function promptDifference(
 		return "schema:CaseSearchProperty.default_value";
 	const itemA = isJsonObject(stored.itemset) ? stored.itemset : NO_ENTRIES;
 	const itemB = isJsonObject(ours.itemset) ? ours.itemset : NO_ENTRIES;
-	if ((itemA.instance_id ?? null) !== (itemB.instance_id ?? null))
+	// The instance only HQ's Case List page reads: beside a nodeset that reads a table's item list,
+	// the field's table is that one whatever the stored instance names, and the projection names it
+	// (`prompts.ts::readPrompt`).
+	const storedTable = itemsetSource(itemA.nodeset)?.tag;
+	if (
+		!(
+			storedTable !== undefined &&
+			itemB.instance_id === `item-list:${storedTable}`
+		) &&
+		(itemA.instance_id ?? null) !== (itemB.instance_id ?? null)
+	)
 		return "schema:Itemset.instance_id";
 	for (const key of ["nodeset", "label", "value", "sort"] as const)
 		if (!sameXPathValue(itemA[key], itemB[key])) return `schema:Itemset.${key}`;

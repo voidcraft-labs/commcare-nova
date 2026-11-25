@@ -711,6 +711,7 @@ two kinds of `outside-predicate`, or request placement versus a device filter.
 | `case-search/search-field-over-a-property-of-another-type` | S3 |
 | `case-search/itemset-nodeset-filter-predicate-outside-predicate` | S3 |
 | `case-search/itemset-without-the-item-list-its-instance-id-names` | S3 |
+| `case-search/itemset-nodeset-other-than-a-table-s-item-list` | S3 |
 | `case-search/default-value-on-a-date-range-input` | S3 |
 | `case-search/default-value-outside-valueexpression` | S3 |
 | `case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no` | S3 |

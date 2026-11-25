@@ -251,36 +251,36 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a field whose choices name no instance",
+		title: "a field whose choices read other than a table's item list",
 		edit: (body) => {
 			const prompt = first(body);
 			prompt.input_ = "select1";
-			const unnamed: JsonObject = { ...TABLE };
-			delete unnamed.instance_id;
-			prompt.itemset = unnamed;
+			prompt.itemset = itemset(
+				"",
+				"instance('casedb')/casedb/case[@case_type = 't']",
+			);
 		},
 		findings: [
 			[
-				`${S}itemset-without-the-item-list-its-instance-id-names`,
+				`${S}itemset-nodeset-other-than-a-table-s-item-list`,
 				"search",
 				"case_name",
 			],
 		],
 	},
 	{
-		title:
-			"a field whose choices read another table than the one its instance names",
+		title: "a field whose choices read below a table's items",
 		edit: (body) => {
 			const prompt = first(body);
 			prompt.input_ = "select1";
 			prompt.itemset = itemset(
 				"item-list:t",
-				"instance('item-list:u')/u_list/u",
+				"instance('item-list:t')/t_list/t/code",
 			);
 		},
 		findings: [
 			[
-				`${S}itemset-without-the-item-list-its-instance-id-names`,
+				`${S}itemset-nodeset-other-than-a-table-s-item-list`,
 				"search",
 				"case_name",
 			],
@@ -800,6 +800,69 @@ describe("a Search field Nova cannot hold", () => {
 						"search",
 						"_xpath_query",
 					],
+				]);
+			},
+		);
+
+		// Neither runtime reads `instance_id`: HQ's build writes the nodeset alone and declares each
+		// instance it reads, so the field is the table its nodeset reads, whatever the instance
+		// names, and the first publish names that table.
+		const INSTANCE = `${S}itemset-without-the-item-list-its-instance-id-names`;
+		const readTold = async (edit: (body: JsonObject) => void) => {
+			const body = exportedBody(PROMPTS);
+			overTable(body);
+			first(body).itemset = { ...TABLE, label: "code", sort: "code" };
+			edit(body);
+			const told = withTable(await inputFor(body));
+			const outcome = readHqApp({
+				...told,
+				lookup: {
+					...told.lookup,
+					definitions: new Map([[TABLE_T.id, TABLE_T]]),
+				},
+			});
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "read")
+				throw new Error(JSON.stringify(outcome.findings));
+			return {
+				doc: outcome.draft.doc,
+				respelled: outcome.draft.facts.sameStateRewrites.map(
+					(one) => [one.entry, one.path, one.register] as const,
+				),
+			};
+		};
+		it.each([
+			[
+				"names no instance",
+				(itemset: JsonObject) => delete itemset.instance_id,
+			],
+			[
+				"names a blank instance",
+				(itemset: JsonObject) => {
+					itemset.instance_id = "";
+				},
+			],
+			[
+				"names another table's instance",
+				(itemset: JsonObject) => {
+					itemset.instance_id = "item-list:u";
+				},
+			],
+		])(
+			"choices whose itemset %s read as the table the nodeset reads",
+			async (_title, edit) => {
+				const named = await readTold(() => {});
+				const other = await readTold((body) =>
+					edit(first(body).itemset as JsonObject),
+				);
+				expect(other.doc).toEqual(named.doc);
+				expect(named.respelled).not.toContainEqual(
+					expect.arrayContaining([INSTANCE]),
+				);
+				expect(other.respelled).toContainEqual([
+					INSTANCE,
+					"/modules/0/search_config/properties/0/itemset/instance_id",
+					"list-settings-respelled",
 				]);
 			},
 		);

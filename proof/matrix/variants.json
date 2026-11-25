@@ -34090,10 +34090,64 @@
 		}
 	},
 	{
+		"id": "hq-search/choices-naming-another-table",
+		"base": "hq-search",
+		"entry": "case-search/itemset-without-the-item-list-its-instance-id-names",
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/5/type",
+				"value": "select"
+			}
+		],
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/5",
+			"value": {
+				"name": "district",
+				"label": {
+					"en": "District"
+				},
+				"hint": {},
+				"input_": "select1",
+				"itemset": {
+					"instance_id": "item-list:regions",
+					"nodeset": "instance('item-list:districts')/districts_list/districts",
+					"value": "id",
+					"sort": "name",
+					"label": "name",
+					"doc_type": "Itemset"
+				},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		}
+	},
+	{
 		"id": "hq-search/choices-naming-no-instance",
 		"base": "hq-search",
 		"entry": "case-search/itemset-without-the-item-list-its-instance-id-names",
-		"standing": "not-yet",
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/5/type",
+				"value": "select"
+			}
+		],
 		"place": {
 			"kind": "search",
 			"menu": 0,
@@ -34114,6 +34168,47 @@
 					"value": "id",
 					"sort": "name",
 					"label": "name",
+					"doc_type": "Itemset"
+				},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		}
+	},
+	{
+		"id": "hq-search/choices-read-from-open-cases",
+		"base": "hq-search",
+		"entry": "case-search/itemset-nodeset-other-than-a-table-s-item-list",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/5",
+			"value": {
+				"name": "district",
+				"label": {
+					"en": "District"
+				},
+				"hint": {},
+				"input_": "select1",
+				"itemset": {
+					"nodeset": "instance('casedb')/casedb/case[@case_type = 'client'][@status = 'open']",
+					"value": "case_name",
+					"sort": "case_name",
+					"label": "case_name",
 					"doc_type": "Itemset"
 				},
 				"hidden": false,

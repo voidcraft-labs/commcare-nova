@@ -2731,16 +2731,42 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "a lookup `itemset` with no `instance_id`, or an `item-list:<tag>` one whose `nodeset` is not `instance('item-list:<tag>')/<tag>_list/<tag>` with at most a filter",
-		"surfaceKeys": ["schema:Itemset.instance_id", "schema:Itemset.nodeset"],
-		"valueClass": "nodeset-other-than-the-named-item-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: lookup choices read from another place than the table's item list, or with no instance named. HQ's build writes the itemset where it holds a nodeset (`remote_requests.py::build_query_prompts`) and refuses only an `instance_id` of another scheme (`helpers/validators.py::validate_search_config`); Nova's lookup options carrier is the table's item list (`lookupOptionsSourceSchema`)",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"item": "a lookup `itemset` whose `nodeset` is a table's item list `instance('item-list:<tag>')/<tag>_list/<tag>` with at most a filter, and whose `instance_id` is absent or names another item list",
+		"surfaceKeys": ["schema:Itemset.instance_id"],
+		"valueClass": "absent-or-another-item-list-beside-an-item-list-nodeset",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: the field is the lookup options carrier over the table the nodeset reads (`lookupOptionsSourceSchema`). Neither runtime reads `instance_id`: HQ's build writes the nodeset alone and declares each instance it reads (`remote_requests.py::build_query_prompts`, `post_process/instances.py`); only HQ's Case List page shows the table by it (`case_claim.js::itemsetModel`), and its save refuses an itemset without it (`views/modules.py::_get_itemset`). The first publish names the nodeset's table (`list-settings-respelled`)",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/itemset-nodeset-other-than-a-table-s-item-list",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a lookup `itemset` whose `nodeset` is not a table's item list `instance('item-list:<tag>')/<tag>_list/<tag>` with at most a filter",
+		"surfaceKeys": ["schema:Itemset.nodeset"],
+		"valueClass": "nodeset-other-than-an-item-list",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: choices read from a typed node sequence of a declared or otherwise available instance, with item-relative label, value and sort. HQ's build writes the itemset where it holds a nodeset (`remote_requests.py::build_query_prompts`) and refuses only an `instance_id` of another scheme (`helpers/validators.py::validate_search_config`); Nova's lookup options carrier is a table's item list (`lookupOptionsSourceSchema`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
 			"cell": "omit",

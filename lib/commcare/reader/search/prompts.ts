@@ -66,6 +66,7 @@ import { manifestFindingOf } from "../languages";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
 import { readGuardText } from "./guardSplit";
+import { itemsetSource } from "./itemsetSource";
 import { BLANK_IS_ABSENT, spelledAsShown } from "./settings";
 import { storedPrompts, withoutRuntimeGuard } from "./systemSentences";
 import { searchPlace } from "./workflow";
@@ -185,8 +186,15 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}itemset-scheme-other-than-item-list-commcare-reports`,
 		"schema:Itemset.instance_id",
 	),
-	itemsetElsewhere: refuse(
+	/** An itemset whose nodeset reads a table's item list and that names no instance, or another
+	 *  item list: HQ's build writes the nodeset alone and declares the instance from it, and the
+	 *  first publish names the nodeset's (`readPrompt`). */
+	itemsetInstanceElsewhere: drop(
 		`${S}itemset-without-the-item-list-its-instance-id-names`,
+		"schema:Itemset.instance_id",
+	),
+	itemsetElsewhere: refuse(
+		`${S}itemset-nodeset-other-than-a-table-s-item-list`,
 		"schema:Itemset.nodeset",
 	),
 	/** A label, value or sort ref naming a column the told table lacks: a read of what is not
@@ -375,40 +383,6 @@ function fieldName(text: unknown): string | undefined {
 	)
 		return node.step.name;
 	return undefined;
-}
-
-/** An itemset's nodeset as `instance('item-list:<tag>')/<tag>_list/<tag>[filter]`: the tag and the
- *  filter's text, where it is that shape. */
-function itemsetSource(
-	text: unknown,
-): { tag: string; filter?: string } | undefined {
-	if (typeof text !== "string") return undefined;
-	let node = parse(text);
-	let filter: string | undefined;
-	if (node?.kind === "filter") {
-		filter = text.slice(node.where.from, node.where.to);
-		node = node.base;
-	}
-	if (node?.kind !== "child" || node.step.kind !== "name") return undefined;
-	const item = node.step.name;
-	const list = node.left;
-	if (
-		list?.kind !== "child" ||
-		list.step.kind !== "name" ||
-		list.step.name !== `${item}_list`
-	)
-		return undefined;
-	const root = list.left;
-	if (
-		root?.kind !== "call" ||
-		root.name !== "instance" ||
-		root.args.length !== 1
-	)
-		return undefined;
-	const id = root.args[0];
-	if (id?.kind !== "string" || id.value !== `item-list:${item}`)
-		return undefined;
-	return filter === undefined ? { tag: item } : { tag: item, filter };
 }
 
 /**
@@ -780,6 +754,29 @@ function readPrompt(
 			const source = isJsonObject(itemset)
 				? itemsetSource(itemset.nodeset)
 				: undefined;
+			// The instance HQ's Case List page shows the field's table by (`case_claim.js::itemsetModel`:
+			// `lookupTableNodeset` reads `instance_id`), which neither runtime reads: HQ's build writes
+			// the nodeset alone (`remote_requests.py::build_query_prompts`) and declares each instance
+			// the nodeset reads (`post_process/instances.py`). Where it names no instance, or another
+			// item list, the field's table is the one its nodeset reads, and the first publish names it.
+			const namesSource =
+				source !== undefined && instance === `item-list:${source.tag}`;
+			const readInstanceElsewhere = (cursor: JsonCursor) => {
+				cursor.drop("instance_id", P.itemsetInstanceElsewhere);
+				if (scheme === "item-list")
+					ctx.accounting.claimEntry(
+						{ json: cursor, key: "instance_id" },
+						"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
+						"instance-scheme:item-list",
+						place,
+					);
+				sameState(
+					ctx,
+					P.itemsetInstanceElsewhere.entry,
+					`${cursor.pointer}/instance_id`,
+					"list-settings-respelled",
+				);
+			};
 			const ITEMSET_KEYS = [
 				"instance_id",
 				"nodeset",
@@ -816,12 +813,9 @@ function readPrompt(
 					const raised = refuseWith("instance_id", P.itemsetScheme, cursor);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
-				} else if (
-					source === undefined ||
-					instance !== `item-list:${source.tag}`
-				) {
-					// No instance named, or a lookup table's instance whose nodeset reads elsewhere
-					// than its item list: HQ builds it, and Nova's choices are the table's item list.
+				} else if (source === undefined) {
+					// A nodeset that reads elsewhere than a table's item list: HQ builds it, and Nova's
+					// choices are a table's item list.
 					const raised = refuseWith("nodeset", P.itemsetElsewhere, cursor);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
@@ -838,7 +832,9 @@ function readPrompt(
 				} else if (table === undefined) {
 					// Project data's lookup table rules settle the read (`unreadTables`); the prompt's
 					// other keys are what Nova holds of a field over a table.
-					cursor.handOff("instance_id", "lookup-table-read", source.tag);
+					if (namesSource)
+						cursor.handOff("instance_id", "lookup-table-read", source.tag);
+					else readInstanceElsewhere(cursor);
 					ctx.facts.unreadTables.push({ tag: source.tag, place });
 					unreadTable = source.tag;
 					refused = true;
@@ -871,14 +867,16 @@ function readPrompt(
 				} else {
 					prompt.take("input_", widget, String).value;
 					itemsetCursor = cursor;
-					cursor.take("instance_id", P.itemsetInstance, String).value;
-					// The table the field's choices read, through Nova's typed carrier.
-					ctx.accounting.claimEntry(
-						{ json: cursor, key: "instance_id" },
-						"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
-						"instance-scheme:item-list",
-						place,
-					);
+					if (namesSource) {
+						cursor.take("instance_id", P.itemsetInstance, String).value;
+						// The table the field's choices read, through Nova's typed carrier.
+						ctx.accounting.claimEntry(
+							{ json: cursor, key: "instance_id" },
+							"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
+							"instance-scheme:item-list",
+							place,
+						);
+					} else readInstanceElsewhere(cursor);
 					// A filter's claim on the nodeset is the expression stage's, by the registration below.
 					if (source.filter === undefined)
 						cursor.take("nodeset", P.itemsetNodeset, String).value;
