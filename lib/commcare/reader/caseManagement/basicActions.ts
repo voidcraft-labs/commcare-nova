@@ -308,6 +308,12 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-keys-location-id-hq-user-id-category-state`,
 		"schema:ConditionalCaseUpdate.question_path",
 	),
+	/** The own case's location and worker id, which CommCare HQ's server keeps
+	 *  apart from its properties: recorded at the map, where the key sits. */
+	locationOrWorkerKey: take(
+		`${F}/update-keys-location-id-hq-user-id`,
+		"schema:UpdateCaseAction.update",
+	),
 	/** A key of the own case's update in Nova's grammar that no row above names:
 	 *  recorded at the map, where the key sits. */
 	asciiKey: take(
@@ -1593,7 +1599,9 @@ function readUpdateMap(
 								? BASIC_CLAIMS.categoryStateKey
 								: facet
 									? undefined
-									: BASIC_CLAIMS.asciiKey;
+									: property === "location_id" || property === "hq_user_id"
+										? BASIC_CLAIMS.locationOrWorkerKey
+										: BASIC_CLAIMS.asciiKey;
 		const read = readUpdate(r, cursor, property, ownWrite, pathClaim, keyClaim);
 		if (!read.ok || read.value === undefined) continue;
 		// A date-and-time question's day is saved straight only to a `date`
