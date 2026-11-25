@@ -18,6 +18,7 @@ import {
 	captureFieldKinds,
 	type Expression,
 	type FormType,
+	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
 	ownCaseOperationId,
 	type RelationStep,
@@ -847,8 +848,11 @@ function generatedShape(
 	owner: DraftField | undefined,
 ): boolean {
 	if (owner === undefined) return false;
+	// The trimmed value of every key the emitter guards
+	// (`caseScalarTextGuard.ts::isCaseScalarTextProperty`): a case's name, its
+	// external id, its location and the worker id copied into its external id.
 	if (purpose === "trimmed")
-		return property === "name" || property === "external_id";
+		return property === "name" || isCaseScalarTextProperty(property);
 	if (purpose === "url")
 		return (captureFieldKinds as readonly string[]).includes(owner.kind);
 	// A date-and-time question, or a Hidden Value that writes a date-and-time property.
