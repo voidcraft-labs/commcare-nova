@@ -167,7 +167,11 @@ describe("laterLoadReaders", () => {
 });
 
 /** A follow-up form whose stored `case_preload` maps `path` to `property`. */
-async function preloaded(fields: FieldSpec[], preload: Record<string, string>) {
+async function preloaded(
+	fields: FieldSpec[],
+	preload: Record<string, string>,
+	condition = "always",
+) {
 	return readCases(followup(fields), {
 		edit: (app) => {
 			const actions = app.modules[0]?.forms[0]?.actions as Record<
@@ -177,7 +181,7 @@ async function preloaded(fields: FieldSpec[], preload: Record<string, string>) {
 			actions.case_preload = {
 				doc_type: "PreloadAction",
 				preload,
-				condition: { type: "always", doc_type: "FormActionCondition" },
+				condition: { type: condition, doc_type: "FormActionCondition" },
 			};
 		},
 	});
@@ -288,6 +292,33 @@ describe("a case preload through `parent`, against the index the app links by", 
 });
 
 describe("case values assigned when a form opens", () => {
+	/**
+	 * HQ's build reads a preload by its map alone
+	 * (`form_actions.py::PreloadAction.is_active`), and a preload made with
+	 * HQ's model holds `never`. Nova writes the assignments back under
+	 * `always`, so the first publish's change of the condition is named.
+	 */
+	it.each([
+		["never", ["/modules/0/forms/0/actions/case_preload/condition"]],
+		["if", ["/modules/0/forms/0/actions/case_preload/condition"]],
+		["always", []],
+	])(
+		"names a stored `%s` condition the first publish writes as `always`",
+		async (condition, respelled) => {
+			const reading = await preloaded(
+				[f({ kind: "text", id: "q", uuid: Q })],
+				{ "/data/q": "dob" },
+				condition,
+			);
+			expect(reading.whole?.kind).toBe("read");
+			expect(
+				reading.ctx.facts.sameStateRewrites
+					.filter((row) => row.path.endsWith("/case_preload/condition"))
+					.map((row) => [row.path, row.register]),
+			).toEqual(respelled.map((path) => [path, "case-settings-respelled"]));
+		},
+	);
+
 	/**
 	 * HQ's property grammar admits any Unicode letter and a hyphen in an index
 	 * step; Nova's document does not. Such an entry stays out of the document

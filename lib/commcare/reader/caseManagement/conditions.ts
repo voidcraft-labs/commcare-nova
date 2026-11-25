@@ -94,9 +94,9 @@ const PRELOAD_CONDITION_ENTRY = `${F}/preload-action-condition`;
  *   serves no null for a condition Nova leaves out;
  * - a preload action's condition stored other than `never` (the Case
  *   Management page saves `case_preload` as `always` with or without a preload),
- *   which Nova writes as `never`, recorded at the condition whole, except an
- *   `always` case preload that assigns values, which Nova writes back as
- *   stored with the form's opening assignments;
+ *   which Nova writes as `never`, recorded at the condition whole; a case
+ *   preload that assigns values Nova writes `always` with the form's opening
+ *   assignments, so there any condition but `always` is recorded;
  * - a value of an action stored null where Nova writes the value a new action
  *   holds, which every reader reads alike: a `name_update` (Nova writes a
  *   `ConditionalCaseUpdate`, `casePlacementPlan.ts::planFormCaseWire`, whose
@@ -122,16 +122,16 @@ export function recordRespelledConditions(
 	for (const key of PRELOAD_ACTIONS) {
 		const action = actions[key];
 		if (!isObject(action) || !isObject(action.condition)) continue;
-		if (conditionType(action.condition) === "never") continue;
 		// A case preload that assigns values keeps them as the form's opening
 		// assignments, which Nova writes back as an `always` load
-		// (`casePlacementPlan.ts::buildPlan`): that spelling stands as stored.
-		if (
+		// (`casePlacementPlan.ts::buildPlan`). HQ's build reads a preload by its
+		// map alone (`form_actions.py::PreloadAction.is_active`), so any other
+		// stored condition is the same state, respelled.
+		const assigns =
 			key === "case_preload" &&
-			conditionType(action.condition) === "always" &&
 			isObject(action.preload) &&
-			Object.keys(action.preload).length > 0
-		)
+			Object.keys(action.preload).length > 0;
+		if (conditionType(action.condition) === (assigns ? "always" : "never"))
 			continue;
 		const at = `${pointer}/${key}/condition`;
 		whole.add(at);
