@@ -163,6 +163,10 @@
 		"reason": "stated-by-its-part",
 		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
 	},
+	"forms-and-case-writes/automatic-choice-with-an-unknown-mode": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's wrap of a load's auto_select refuses a mode outside its choices (AutoSelectCase.mode, BadValueError), so no app's source carries one; the row hq-advanced/automatic-load-in-an-unknown-mode holds that outcome."
+	},
 	"forms-and-case-writes/data-dictionary-caseproperty-data-type": {
 		"reason": "no-surface-key",
 		"note": "The entry names no surface key, and it allows what it describes."
@@ -226,6 +230,10 @@
 	"forms-and-case-writes/writers-saved-as-text": {
 		"reason": "no-surface-key",
 		"note": "The entry names no key: writers of one property that agree on no one type are a class of the whole form's writers, and no surface item holds it, so no claim of the reader counts it at a place."
+	},
+	"forms-and-case-writes/writers-single-select-multi-select": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
 	},
 	"forms-and-case-writes/writers-text-single-select": {
 		"reason": "no-surface-key",

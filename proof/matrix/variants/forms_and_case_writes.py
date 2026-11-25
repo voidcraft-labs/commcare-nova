@@ -209,25 +209,6 @@ def child_close_is_true_on_a_choice(authoring, app_id):
     ops.set_json(authoring, app_id, "/modules/0/forms/2/actions/subcases/0/close_condition/answer", None)
 
 
-def visit_kind_from_both_selects(authoring, app_id):
-    """``visit_kind`` of the household written by ``hq-case-management``'s first follow-up form from a new
-    multiple-choice question and by its second from the single-choice ``visited``."""
-    _change(
-        authoring,
-        app_id,
-        "visit-kind-question",
-        *_question("visit_kind", "Kind of visit", "select", None, items=(("home", "Home"), ("clinic", "Clinic"))),
-        menu=0,
-        form=1,
-    )
-    ops.set_json(
-        authoring, app_id, "/modules/0/forms/1/actions/update_case/update/visit_kind", _update("/data/visit_kind")
-    )
-    ops.set_json(
-        authoring, app_id, "/modules/0/forms/2/actions/update_case/update/visit_kind", _update("/data/visited")
-    )
-
-
 def members_written_as_number_and_text(authoring, app_id):
     """``members`` of the household opened by ``hq-case-management``'s first follow-up form in its whole-number
     question ``members`` (a load from the case on the Case Management tab) and written by its second from the text
