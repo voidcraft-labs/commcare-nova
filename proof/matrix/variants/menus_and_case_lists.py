@@ -1460,12 +1460,30 @@ def explicit_visit_rows(authoring, app_id):
     _visit_rows_detail(authoring, app_id, {"nodeset": "instance('casedb')/casedb/case[@case_type = 'visit']"})
 
 
-def child_visit_rows(authoring, app_id):
-    _visit_rows_detail(authoring, app_id, {"nodeset_case_type": "visit", "nodeset_filter": ""})
+def _member_rows_detail(authoring, app_id, tab, hidden=False):
+    """Households' case detail as one ordinary selected-case group and a separate Members group over its own rows:
+    the household registration adds members as child cases, so HQ's Case Detail page offers ``member`` as the
+    tab's child type (``Application.get_subcase_types``) and keeps it at its next save."""
+    root = "/modules/0/case_details/long"
+    fields = [
+        {"doc_type": "DetailColumn", "model": "case", "field": field, "format": fmt, "header": {"en": title}}
+        for field, title, fmt in (("name", "Household", "plain"), ("name", "Member", "plain"))
+    ]
+    if hidden:
+        fields.append({"doc_type": "DetailColumn", "model": "case", "field": "status_note",
+                       "format": "invisible", "header": {"en": "Member priority"}})
+    _set_each(authoring, app_id, (root + "/columns", fields), (root + "/tabs", [
+        {"doc_type": "DetailTab", "starting_index": 0, "header": {"en": "Household"}},
+        {"doc_type": "DetailTab", "starting_index": 1, "header": {"en": "Members"}, "has_nodeset": True, **tab},
+    ]))
 
 
-def hidden_child_visit_order(authoring, app_id):
-    _visit_rows_detail(authoring, app_id, {"nodeset_case_type": "visit"}, hidden=True)
+def child_member_rows(authoring, app_id):
+    _member_rows_detail(authoring, app_id, {"nodeset_case_type": "member", "nodeset_filter": ""})
+
+
+def hidden_child_member_order(authoring, app_id):
+    _member_rows_detail(authoring, app_id, {"nodeset_case_type": "member"}, hidden=True)
 
 
 def different_persistent_lines(authoring, app_id):
@@ -1494,9 +1512,9 @@ def unreadable_form_context_line(authoring, app_id):
               (root + "/persistent_case_context_xml", "instance('unknown-roster')/rows/row"))
 
 
-def explicit_visit_rows_with_related_cases(authoring, app_id):
-    _visit_rows_detail(authoring, app_id, {"nodeset": "instance('casedb')/casedb/case[@case_type = 'visit']",
-                                          "nodeset_case_type": "contact"})
+def explicit_member_rows_with_related_cases(authoring, app_id):
+    _member_rows_detail(authoring, app_id, {"nodeset": "instance('casedb')/casedb/case[@case_type = 'member']",
+                                           "nodeset_case_type": "member"})
 
 
 def calculation_loading_faster(authoring, app_id):

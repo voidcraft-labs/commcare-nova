@@ -7366,12 +7366,12 @@
 		]
 	},
 	{
-		"id": "hq-case-lists/detail-tab-over-child-cases",
-		"base": "hq-case-lists",
+		"id": "hq-case-management/detail-tab-over-child-cases",
+		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset",
 		"change": {
 			"op": "named",
-			"name": "child_visit_rows"
+			"name": "child_member_rows"
 		},
 		"holds": [
 			{
@@ -7392,7 +7392,7 @@
 					}
 				],
 				"pointer": "/caseListConfig/detailTabs/1/rowSource/caseType",
-				"value": "visit"
+				"value": "member"
 			}
 		]
 	},
@@ -38346,12 +38346,12 @@
 		]
 	},
 	{
-		"id": "hq-case-lists/child-visit-ordered-by-hidden-field",
-		"base": "hq-case-lists",
+		"id": "hq-case-management/child-member-ordered-by-hidden-field",
+		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/7pp-invisible-inside-a-data-tab-over-a-nodeset",
 		"change": {
 			"op": "named",
-			"name": "hidden_child_visit_order"
+			"name": "hidden_child_member_order"
 		},
 		"holds": [
 			{
@@ -38362,7 +38362,7 @@
 					}
 				],
 				"pointer": "/caseListConfig/detailTabs/1/rowSource/caseType",
-				"value": "visit"
+				"value": "member"
 			},
 			{
 				"key": [
@@ -38587,12 +38587,12 @@
 		}
 	},
 	{
-		"id": "hq-case-lists/explicit-tab-rows-with-related-cases",
-		"base": "hq-case-lists",
+		"id": "hq-case-management/explicit-tab-rows-with-related-cases",
+		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/related-child-type-beside-an-explicit-tab-collection",
 		"change": {
 			"op": "named",
-			"name": "explicit_visit_rows_with_related_cases"
+			"name": "explicit_member_rows_with_related_cases"
 		},
 		"holds": [
 			{
@@ -38613,7 +38613,7 @@
 					}
 				],
 				"pointer": "/caseListConfig/detailTabs/1/rowSource/includeChildrenOfType",
-				"value": "contact"
+				"value": "member"
 			}
 		]
 	}

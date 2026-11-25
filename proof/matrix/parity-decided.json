@@ -41,7 +41,6 @@
 		"hq-advanced/tag-starting-with-a-digit",
 		"hq-advanced/tag-with-a-hyphen",
 		"hq-advanced/tag-with-a-slash",
-		"hq-advanced/two-address-columns-in-an-advanced-list",
 		"hq-advanced/two-geo-columns-in-an-advanced-list",
 		"hq-advanced/two-opens-sharing-a-repeat-block"
 	],
@@ -63,7 +62,6 @@
 		"hq-case-lists/conditional-id-mapping-unparsed-key",
 		"hq-case-lists/date-format-with-an-unknown-escape",
 		"hq-case-lists/detail-tab-over-an-expression",
-		"hq-case-lists/detail-tab-over-child-cases",
 		"hq-case-lists/detail-tab-shown-when",
 		"hq-case-lists/detail-tabs",
 		"hq-case-lists/distance-column",
@@ -130,6 +128,7 @@
 		"hq-case-management/location-id-write",
 		"hq-case-management/non-ascii-update-key",
 		"hq-case-management/open-case-on-a-follow-up",
+		"hq-case-management/parent-property-column",
 		"hq-case-management/parent-write-on-a-registration",
 		"hq-case-management/preload-saved-as-always",
 		"hq-case-management/referral-on-a-follow-up",
