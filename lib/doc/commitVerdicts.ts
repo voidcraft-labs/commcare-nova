@@ -62,6 +62,7 @@ import {
 export { formLogicFinding } from "@/lib/commcare/validator/formLogicFindings";
 export { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 
+import { hqOfferedChildCaseTypes } from "@/lib/commcare/hqOfferedChildTypes";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import {
 	CASE_LIST_ORDER_RULES,
@@ -1035,4 +1036,16 @@ export function describeCommitFindings(
 	return `This change wasn't applied because the resulting app has ${plural}:\n${lines}\nNothing was changed. Fix ${
 		findings.length === 1 ? "this problem" : "these problems"
 	}, then try again.`;
+}
+
+/**
+ * The child case types a Details tab of a `caseType` menu can read, as the gate admits them: those
+ * a form of a menu of that case type adds as a child case (`hqOfferedChildTypes.ts`), the ones
+ * CommCare HQ's Case Detail page keeps. The Builder's tab editor offers exactly these, sorted.
+ */
+export function detailTabChildTypeChoices(
+	doc: BlueprintDoc,
+	caseType: string | undefined,
+): string {
+	return [...hqOfferedChildCaseTypes(doc, caseType)].sort().join("\n");
 }

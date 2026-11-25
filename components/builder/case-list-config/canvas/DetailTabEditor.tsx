@@ -29,6 +29,7 @@ import {
 } from "@/components/shadcn/select";
 import type { DetailTabGroup } from "@/lib/doc/caseDetailTabMutations";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { useDetailTabChildTypes } from "@/lib/doc/hooks/useDetailTabChildTypes";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type {
@@ -524,6 +525,13 @@ function TabRowEditor({
 	const catalog = useBuilderLookupCatalog();
 	const tables = catalog.kind === "ready" ? catalog.tables : [];
 	const source = group.rowSource;
+	// The child types a form of this menu's case type adds: the ones the gate admits, which
+	// CommCare HQ's Case Detail page keeps (`detailTabChildTypeChoices`).
+	const offered = useDetailTabChildTypes(currentCaseType);
+	const childTypeChoices = (held: string | undefined) =>
+		caseTypes.filter(
+			(type) => offered.includes(type.name) || type.name === held,
+		);
 	const first = group.fields[0] ?? group.newFields?.[0]?.uuid ?? firstShown;
 	const tableId =
 		source?.kind === "records" && source.rows.kind === "table-rows"
@@ -581,8 +589,8 @@ function TabRowEditor({
 					value={selectedSource}
 					onValueChange={(kind) => {
 						if (kind === "selected") onChange(null);
-						else if (kind === "children")
-							onChange({ kind, caseType: currentCaseType });
+						else if (kind === "children" && offered[0] !== undefined)
+							onChange({ kind, caseType: offered[0] });
 						else if (kind === "places")
 							onChange({
 								kind: "records",
@@ -626,7 +634,9 @@ function TabRowEditor({
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="selected">The selected case</SelectItem>
-						<SelectItem value="children">Open child cases</SelectItem>
+						<SelectItem value="children" disabled={offered.length === 0}>
+							Open child cases
+						</SelectItem>
 						<SelectItem value="records">Other cases</SelectItem>
 						<SelectItem value="places">Places</SelectItem>
 						{tables.map((table) => (
@@ -636,6 +646,12 @@ function TabRowEditor({
 						))}
 					</SelectContent>
 				</Select>
+				{offered.length === 0 && (
+					<p className="text-xs text-nova-text-muted">
+						Open child cases is available once a form adds child cases to these
+						cases.
+					</p>
+				)}
 			</div>
 			{source?.kind === "children" && (
 				<>
@@ -651,7 +667,7 @@ function TabRowEditor({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{caseTypes.map((type) => (
+								{childTypeChoices(source.caseType).map((type) => (
 									<SelectItem key={type.name} value={type.name}>
 										{type.name}
 									</SelectItem>
@@ -777,7 +793,7 @@ function TabRowEditor({
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="">No additional child cases</SelectItem>
-							{caseTypes.map((type) => (
+							{childTypeChoices(source.includeChildrenOfType).map((type) => (
 								<SelectItem key={type.name} value={type.name}>
 									{type.name}
 								</SelectItem>
