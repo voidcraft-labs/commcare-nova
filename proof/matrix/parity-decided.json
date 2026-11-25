@@ -324,6 +324,7 @@
 		"hq-questions/number-appearance-read-by-no-runtime",
 		"hq-questions/output-ref",
 		"hq-questions/pollsensor",
+		"hq-questions/qrcode-on-help",
 		"hq-questions/question-comment",
 		"hq-questions/question-id-grammar",
 		"hq-questions/question-id-script",
