@@ -27,6 +27,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"search-value-guards",
 	"search-today-device-day",
 	"case-settings-respelled",
+	"question-display-respelled",
 	"search-filter-rows-recut",
 	"sort-rule-kept-as-hidden-column",
 	"list-settings-respelled",
@@ -97,6 +98,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"search-value-guards": true,
 	"search-today-device-day": true,
 	"case-settings-respelled": false,
+	"question-display-respelled": false,
 	"search-filter-rows-recut": false,
 	"sort-rule-kept-as-hidden-column": false,
 	"list-settings-respelled": false,
@@ -133,6 +135,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 export const FIRST_PUBLISH_SAID_BY = {
 	"search-filter-rows-recut": "forms-and-settings-rewritten",
 	"list-settings-respelled": "forms-and-settings-rewritten",
+	"question-display-respelled": "forms-and-settings-rewritten",
 	"names-respelled": "forms-and-settings-rewritten",
 	"media-maps-respelled": "forms-and-settings-rewritten",
 } as const satisfies Partial<

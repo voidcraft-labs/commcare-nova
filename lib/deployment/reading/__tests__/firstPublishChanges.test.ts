@@ -2136,6 +2136,26 @@ function editBind(
 	};
 }
 
+/** `xml` with the attributes of the body control whose `ref` ends with `refEnding` edited. */
+function editControl(
+	refEnding: string,
+	edit: (attributes: Record<string, string>) => void,
+): (xml: string) => string {
+	return (xml) => {
+		const document = parseXml(xml);
+		const control = findOne(
+			(element: Element) =>
+				element.name !== "bind" &&
+				(element.attribs.ref ?? "").endsWith(refEnding),
+			document.children.filter(isTag),
+			true,
+		);
+		if (control === null) return xml;
+		edit(control.attribs);
+		return serializeXml(document);
+	};
+}
+
 /** `text` with every `from` written as `to`: an author's respelling of a read. */
 const respelled = (text: string | undefined, from: string, to: string) =>
 	(text ?? "").split(from).join(to);
@@ -2741,6 +2761,13 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 			};
 		}),
 	),
+	// A text question's Android number keypad stored in capitals, which Android
+	// reads ignoring case and Nova writes in lower case.
+	"question-display-respelled": editedPair(registrationDoc, {
+		xml: editControl("/name", (control) => {
+			control.appearance = "Numbers";
+		}),
+	}),
 	// The search's filter rows in another order.
 	"search-filter-rows-recut": editedPair(
 		() => {

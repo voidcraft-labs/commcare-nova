@@ -1437,7 +1437,8 @@ export function isInertAppearanceClaim(claim: Claim): boolean {
  * Applies a verdict's claim to a control's `appearance` attribute, its finding carrying the string
  * as written. A value no rule takes (rule 5) is `unrecognized` under that string, never under the
  * attribute's surface key, and the attribute stands behind that one finding. Answers whether the
- * claim's entry is inert, which `ReadFormFacts.inertAppearances` lists.
+ * claim's entry is inert, which `ReadFormFacts.inertAppearances` lists, and whether the settings
+ * it takes are written back in another spelling, which `ReadFormFacts.respelledAppearances` lists.
  */
 export function claimAppearance(
 	cursor: XmlCursor,
@@ -1446,17 +1447,19 @@ export function claimAppearance(
 	verdict: AppearanceVerdict,
 	place: HqPlace,
 	field?: { kind: FieldKind; field: Record<string, unknown> },
-): { readonly inert: boolean } {
+): { readonly inert: boolean; readonly respelled: boolean } {
 	const value = control.appearance;
-	if (value === undefined || verdict.kind === "held") return { inert: false };
+	if (value === undefined || verdict.kind === "held")
+		return { inert: false, respelled: false };
 	const node = { element: control.element, attribute: "appearance" };
 	if (verdict.kind === "unclaimed") {
 		const detail = { name: value };
 		accounting.circumstance("unrecognized", place, detail);
 		accounting.cover(node, circumstanceFinding("unrecognized", place, detail));
-		return { inert: false };
+		return { inert: false, respelled: false };
 	}
 	const claim = verdict.claim;
+	let respelled = false;
 	if (isUse(claim, "take")) {
 		const next =
 			field &&
@@ -1471,11 +1474,8 @@ export function claimAppearance(
 		 * (a lone `broadcast-…` on a text question with no address search,
 		 * which no entry sends from), so the value stands unrecognized rather
 		 * than vanish from the question. */
-		if (
-			!next ||
-			!field ||
-			writeFieldAppearance(field.kind, next) === undefined
-		) {
+		const written = next && field && writeFieldAppearance(field.kind, next);
+		if (!next || !field || written === undefined) {
 			const detail = { name: value };
 			accounting.circumstance("unrecognized", place, detail);
 			accounting.cover(
@@ -1485,12 +1485,13 @@ export function claimAppearance(
 		} else {
 			Object.assign(field.field, next);
 			cursor.take(node, claim).value;
+			respelled = written !== value;
 		}
 	} else if (isUse(claim, "refuse"))
 		cursor.refuse(node, claim, place, { name: value });
 	else if (isUse(claim, "account"))
 		cursor.account(node, claim, place, { name: value });
-	return { inert: isInertAppearanceClaim(claim) };
+	return { inert: isInertAppearanceClaim(claim), respelled };
 }
 
 function isUse<U extends Claim["use"]>(

@@ -1905,6 +1905,7 @@ function formFacts(ctx: ReadContext): ReadFacts["forms"] {
 							xmlns: form.xmlns,
 							generated: [...form.xform.generated],
 							inertAppearances: [...form.xform.inertAppearances],
+							respelledAppearances: [...form.xform.respelledAppearances],
 							caseRegionPaths: [...form.xform.caseRegionPaths],
 							...formBlankTranslations(form.xform),
 						},

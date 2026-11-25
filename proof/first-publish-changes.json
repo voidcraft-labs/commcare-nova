@@ -869,6 +869,17 @@
 		]
 	},
 	{
+		"change": "question-display-respelled",
+		"placeKinds": ["form-node"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
 		"change": "search-filter-rows-recut",
 		"placeKinds": ["menu"],
 		"rows": [

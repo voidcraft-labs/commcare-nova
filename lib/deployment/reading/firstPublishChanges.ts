@@ -1351,6 +1351,40 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/modules/*/forms/*/actions", "/_attachments/*"],
 	},
+	/**
+	 * A question's or group's appearance written in Nova's spelling of the
+	 * display settings it read (`xform/appearance.ts::writeFieldAppearance`),
+	 * every runtime reading the two alike (`readDisplaySettings.ts::
+	 * readFieldAppearance`), or dropped where no runtime reads it on that
+	 * control: recorded by `xform/appearances.ts::claimAppearance`
+	 * (`ReadFormFacts.respelledAppearances`, `inertAppearances`).
+	 */
+	"question-display-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: (facts) =>
+			facts.facts.forms.some(
+				(form) =>
+					form.respelledAppearances.length > 0 ||
+					form.inertAppearances.length > 0,
+			),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) =>
+				facts.generatedByForm.flatMap(({ position, form }) =>
+					position === null
+						? []
+						: [...form.respelledAppearances, ...form.inertAppearances].map(
+								(path) =>
+									nodePlace(
+										position,
+										path.startsWith("/") ? path : `/data/${path}`,
+									),
+							),
+				),
+		},
+		paths: ["/_attachments/*"],
+	},
 	/** A search's filter rows cut another way (`hqJson/caseList.ts::projectCaseListForHq`), recorded by `search/rows.ts`. */
 	"search-filter-rows-recut": {
 		touchesWorkers: false,

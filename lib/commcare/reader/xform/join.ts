@@ -152,6 +152,8 @@ export interface JoinedForm {
 	/** The data path of every control whose appearance was accounted under an inert entry, in
 	 *  body order. */
 	readonly inertAppearances: readonly string[];
+	/** The data path of every control whose appearance's settings Nova writes in another spelling. */
+	readonly respelledAppearances: readonly string[];
 	/** Each select's case choices, decided once its filter is bound. */
 	readonly caseChoices: ReadonlyMap<DraftField, CaseChoicesProposal>;
 	/** The model-iteration repeats, by field. */
@@ -257,6 +259,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 	const controlField = new Map<ControlNode, DraftField>();
 	const groups: { field: DraftField; control: ControlNode }[] = [];
 	const inertAppearances: string[] = [];
+	const respelledAppearances: string[] = [];
 	const caseChoices = new Map<DraftField, CaseChoicesProposal>();
 	const modelIterations = new Map<
 		DraftField,
@@ -575,11 +578,18 @@ export function joinForm(input: JoinInput): JoinedForm {
 						{ element: control.element, attribute: "appearance" },
 						sites.appearance,
 					).value;
-			} else if (
-				claimAppearance(cursor, accounting, control, verdict, place, field)
-					.inert
-			)
-				inertAppearances.push(node.path.join("/"));
+			} else {
+				const claimed = claimAppearance(
+					cursor,
+					accounting,
+					control,
+					verdict,
+					place,
+					field,
+				);
+				if (claimed.inert) inertAppearances.push(node.path.join("/"));
+				if (claimed.respelled) respelledAppearances.push(node.path.join("/"));
+			}
 		}
 		if (control.tag === "upload") readImageDimension(control, row, place);
 		if (control.tag === "select" || control.tag === "select1") {
@@ -1158,6 +1168,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		childrenOf: (parent) => order().get(parent) ?? [],
 		groups,
 		inertAppearances,
+		respelledAppearances,
 		caseChoices,
 		modelIterations,
 		generated,

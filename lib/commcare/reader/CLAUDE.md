@@ -580,7 +580,10 @@ guard is read on its own, its refusal standing beside the message's where Nova c
 either (`search/index.ts::untoldRuleRefusal`). A
 respelling no worker meets is recorded under the surface's own id (`names-respelled`,
 `list-settings-respelled`), and one a worker meets under `text-spaces-dropped`
-(`heldText.ts::recordTextRewrite`). A text whose rest after a carriage return is a line that
+(`heldText.ts::recordTextRewrite`); a question's or group's appearance whose display settings Nova
+writes in another spelling, or drops where no runtime reads it on that control, is listed per form
+(`ReadFormFacts.respelledAppearances`, `inertAppearances`) and stands under
+`question-display-respelled` at each control's node. A text whose rest after a carriage return is a line that
 defines an app string (`keyDefinedAfterLineEnd`) is refused under
 `app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`: a held text where its
 rewrite is recorded (`heldText.ts::recordTextRewrite`, which every held text with a carriage return

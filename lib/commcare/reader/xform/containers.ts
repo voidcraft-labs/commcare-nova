@@ -146,6 +146,8 @@ export interface ReadContainersInput {
 	readonly intents: AppearanceForm;
 	/** Appends a control's data path where its appearance was accounted under an inert entry. */
 	readonly inertAppearance: (path: string) => void;
+	/** Appends a control's data path where its appearance's settings are written in another spelling. */
+	readonly respelledAppearance: (path: string) => void;
 }
 
 /**
@@ -212,8 +214,8 @@ export function readContainers(input: ReadContainersInput): void {
 					{ element: control.element, attribute: "appearance" },
 					sites.appearance,
 				).value;
-			else if (
-				claimAppearance(
+			else {
+				const claimed = claimAppearance(
 					cursor,
 					accounting,
 					control,
@@ -225,9 +227,11 @@ export function readContainers(input: ReadContainersInput): void {
 					),
 					place,
 					field,
-				).inert
-			)
-				input.inertAppearance(field.node.path.join("/"));
+				);
+				if (claimed.inert) input.inertAppearance(field.node.path.join("/"));
+				if (claimed.respelled)
+					input.respelledAppearance(field.node.path.join("/"));
+			}
 		}
 		if (fieldList) refuseUserRepeats(field, input, accounting);
 	}
