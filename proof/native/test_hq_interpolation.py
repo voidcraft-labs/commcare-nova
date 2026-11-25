@@ -245,20 +245,24 @@ def test_hq_suite_lookup_discovery_and_column_interpolation_have_distinct_bounda
     )
     from corehq.apps.app_manager.suite_xml.sections.entries import EntriesHelper
     from corehq.apps.app_manager.xpath import interpolate_xpath
+    from corehq.apps.app_manager.xpath_validator import validate_xpath
     import pytest
 
     from proof.checks import lookup_parity
 
     module = Module.new_module("Visits", "en")
     results = []
-    for tag, field, preserved, discovered in [
-        ("meeting", "site.id", False, True),
-        ("meeting", "a.1", True, True),
-        ("meeting", "a1.b", True, True),
-        ("meeting", "a.١", True, True),
-        ("a.1", "id", True, False),
-        ("a\N{COMBINING GREEK YPOGEGRAMMENI}", "id", True, False),
-        ("ζωνες", "région", True, True),
+    # The last element names each part HQ's own check of a form's display condition (js-xpath, unaccented names)
+    # refuses; that refusal stands in place of the suite's for the part it names.
+    tag_part, field_part = "lookup-model:LookupTable.tag", "lookup-model:TypeField.name"
+    for tag, field, preserved, discovered, unchecked in [
+        ("meeting", "site.id", False, True, ()),
+        ("meeting", "a.1", True, True, ()),
+        ("meeting", "a1.b", True, True, ()),
+        ("meeting", "a.١", True, True, (field_part,)),
+        ("a.1", "id", True, False, ()),
+        ("a\N{COMBINING GREEK YPOGEGRAMMENI}", "id", True, False, (tag_part,)),
+        ("ζωνες", "région", True, True, (tag_part, field_part)),
     ]:
         expression = f"instance('item-list:{tag}')/{tag}_list/{tag}/{field}"
         module.case_details.short.filter = expression
@@ -287,11 +291,17 @@ def test_hq_suite_lookup_discovery_and_column_interpolation_have_distinct_bounda
         def source(condition):
             return {"modules": [{"forms": [{"form_filter": condition}]}]}
         classified = list(lookup_parity.changed_form_condition_refusals(source("true()"), source(expression)))
-        expected = [] if discovered and preserved else [(
-            "lookup-model:TypeField.name" if discovered else "lookup-model:LookupTable.tag",
-            "/modules/0/forms/0/form_filter",
-            lookup_parity.INTERPOLATED_COLUMN if discovered else lookup_parity.OMITTED_INSTANCE,
-        )]
+        where = "/modules/0/forms/0/form_filter"
+        if unchecked:
+            assert not validate_xpath(expression, allow_case_hashtags=True).is_valid
+            expected = [(part, where, lookup_parity.HQ_CHECKED_NAME) for part in unchecked]
+        else:
+            assert validate_xpath(expression, allow_case_hashtags=True).is_valid
+            expected = [] if discovered and preserved else [(
+                field_part if discovered else tag_part,
+                where,
+                lookup_parity.INTERPOLATED_COLUMN if discovered else lookup_parity.OMITTED_INSTANCE,
+            )]
         assert classified == expected
         results.append(
             {

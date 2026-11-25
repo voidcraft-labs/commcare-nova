@@ -1,10 +1,10 @@
-"""A visit form selects rows from two HQ tables with names retained verbatim.
+"""A visit form selects rows from two HQ tables with names retained verbatim, beside a third table its variants'
+display conditions read.
 
 The table editor saves the exact definitions. Vellum saves the itemsets and their
 field references. Each selected row populates a different field, including when
 the two rows occupy the same position in their respective fixtures. The unused
 uncased column belongs to the data restored from HQ and needs no XPath token.
-Its variants set the form's display condition to read each table.
 """
 
 import json
@@ -29,7 +29,19 @@ TABLES = (
             ("lowland", "Lowland", "lower", "off", "Lower zone"),
         ),
     },
+    # The display-condition variants read this one: HQ checks a display condition with an XPath reader of
+    # unaccented names, so a condition naming ζωνες shows that check rather than the class its row names.
+    {
+        "tag": "zones",
+        "fields": ("code", "code.1", "zone.name"),
+        "rows": (
+            ("upland", "on", "Upper zone"),
+            ("lowland", "off", "Lower zone"),
+        ),
+    },
 )
+# The tables the visit form's selects read.
+SELECTED = ("meeting.1", "ζωνες")
 
 
 def visit_source(name):
@@ -45,8 +57,8 @@ def visit_source(name):
         label_field="label.1",
     )
     lookup_select(form, "zone", "Zone", "ζωνες", value_field="clé", label_field="région")
-    for table in TABLES:
-        source = f"item-list:{table['tag']}"
+    for tag in SELECTED:
+        source = f"item-list:{tag}"
         declare_instance(form, source, f"jr://fixture/{source}")
     return form.tostring(xml_declaration=True).decode("utf-8")
 
@@ -83,7 +95,8 @@ def build(authoring):
     _pages.new_survey_module(authoring, app_id, name="Visit")
     ops.upload_form_source(authoring, app_id, 0, 0, visit_source, "visit-source")
     # No display condition reads a table here: HQ checks one with an XPath reader of unaccented names alone, so a
-    # condition reading ζωνες fails HQ's own build (``hq-lookup-names/non-ascii-table-in-form-condition``).
+    # condition reading ζωνες fails HQ's own build (``hq-lookup-names/non-ascii-table-in-form-condition``), and
+    # the other variants' conditions read ``zones``.
     return app_id
 
 

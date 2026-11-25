@@ -21421,7 +21421,7 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/0/form_filter",
-			"value": "instance('item-list:ζωνες')/ζωνες_list/ζωνες[clé = 'upland']/code.1 = 'on'"
+			"value": "instance('item-list:zones')/zones_list/zones[code = 'upland']/code.1 = 'on'"
 		}
 	},
 	{
@@ -21439,7 +21439,7 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/0/form_filter",
-			"value": "instance('item-list:ζωνες')/ζωνες_list/ζωνες[clé = 'upland'][1]/zone.name = 'Upper zone'"
+			"value": "instance('item-list:zones')/zones_list/zones[code = 'upland'][1]/zone.name = 'Upper zone'"
 		}
 	},
 	{
