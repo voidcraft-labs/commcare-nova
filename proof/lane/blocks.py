@@ -125,13 +125,16 @@ DOCUMENT_KINDS = ("corpus:", "control:")
 # rules' own tests (the documents they spell two ways), the Connect proofs
 # (the Connect apps they run), the evidence store's guarded observation
 # of a document, the matrix of apps made in HQ (the corpus document a base
-# is built from, and the reader bundle the corpus carries). Like a
+# is built from, and the reader bundle the corpus carries), and Core's
+# session proofs (a document's app a form the form builder saved is built
+# into, ``test_session.py``). Like a
 # document's group, each runs in the main phase, once the corpus is in
 # place.
 CORPUS_PACKAGES = (
     "proof/android",
     "proof/checks",
     "proof/connect",
+    "proof/core",
     "proof/diagnostics",
     "proof/editors",
     "proof/formplayer",
