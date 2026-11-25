@@ -22,6 +22,9 @@
  *   `auto_gps_capture` from the Connect type
  *   (`lib/commcare/expander.ts::expandDoc` into
  *   `lib/commcare/hqShells.ts::applicationShell`);
+ * - an edit of the app's menu layouts (`setAppSettings` with
+ *   `firstMenuLayout` or `formMenuLayout`) reaches every module, whose
+ *   menu's style the layouts decide;
  * - a form reaches the module(s) holding it on either side, since a
  *   module's wire lists its forms;
  * - a case list registration form reaches the synthetic module the
@@ -1231,6 +1234,15 @@ export function batchFootprint(
 			applyMutations(draft, [mutation]);
 		});
 		for (const uuid of subjectsOf(mutation, state, next)) touched.add(uuid);
+		// The app's menu layouts style every menu's screen
+		// (`compiler.ts`, `menuScreens.ts::menuContributionLayout`).
+		if (
+			mutation.kind === "setAppSettings" &&
+			("firstMenuLayout" in mutation.settings ||
+				"formMenuLayout" in mutation.settings)
+		)
+			for (const doc of [state, next])
+				for (const uuid of Object.keys(doc.modules)) touched.add(uuid);
 		for (const uuid of movedDestinations(state, next)) touched.add(uuid);
 		for (const uuid of decidedEntities(mutation, d, dPrime)) {
 			decided.add(uuid);

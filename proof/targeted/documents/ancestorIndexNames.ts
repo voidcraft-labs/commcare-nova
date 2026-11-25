@@ -45,7 +45,7 @@ import {
 import { formField, term } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import type { Expectation } from "../expected";
-import { restoreXml } from "../restore";
+import { type RestoreCase, restoreXml } from "../restore";
 
 const ID = "targeted-ancestor-index-names";
 export const ancestorIndexNamesUuid = (name: string) => targetedUuid(ID, name);
@@ -343,70 +343,76 @@ const PLEDGE = "targeted-roof-pledge";
 /** Two households; Amina is linked to the Hill farm only as `home`, Bola as
  *  `home` to the Hill farm and as `parent` to the River farm, and the pledge
  *  extends the Hill farm as `host`. */
-const RESTORE = restoreXml({
-	cases: [
-		{
-			id: HILL,
-			type: "household",
-			name: "Hill farm",
-			properties: { remark: "Fenced" },
-		},
-		{
-			id: RIVER,
-			type: "household",
-			name: "River farm",
-			properties: { remark: "Flooded" },
-		},
-		{
-			id: AMINA,
-			type: "member",
-			name: "Amina",
-			indices: [{ identifier: "home", caseType: "household", caseId: HILL }],
-		},
-		{
-			id: BOLA,
-			type: "member",
-			name: "Bola",
-			indices: [
-				{ identifier: "home", caseType: "household", caseId: HILL },
-				{ identifier: "parent", caseType: "household", caseId: RIVER },
-			],
-		},
-		{
-			id: "targeted-cleo",
-			type: "member",
-			name: "Cleo",
-			indices: [
-				{
-					identifier: "home",
-					caseType: "household",
-					caseId: HILL,
-					relationship: "extension",
-				},
-			],
-		},
-		{
-			id: "targeted-dara",
-			type: "member",
-			name: "Dara",
-			indices: [
-				{ identifier: "neighbor", caseType: "household", caseId: HILL },
-			],
-		},
-		{
-			id: PLEDGE,
-			type: "pledge",
-			name: "Roof",
-			indices: [
-				{
-					identifier: "host",
-					caseType: "household",
-					caseId: HILL,
-					relationship: "extension",
-				},
-			],
-		},
-	],
+const CASES: readonly RestoreCase[] = [
+	{
+		id: HILL,
+		type: "household",
+		name: "Hill farm",
+		properties: { remark: "Fenced" },
+	},
+	{
+		id: RIVER,
+		type: "household",
+		name: "River farm",
+		properties: { remark: "Flooded" },
+	},
+	{
+		id: AMINA,
+		type: "member",
+		name: "Amina",
+		indices: [{ identifier: "home", caseType: "household", caseId: HILL }],
+	},
+	{
+		id: BOLA,
+		type: "member",
+		name: "Bola",
+		indices: [
+			{ identifier: "home", caseType: "household", caseId: HILL },
+			{ identifier: "parent", caseType: "household", caseId: RIVER },
+		],
+	},
+	{
+		id: "targeted-cleo",
+		type: "member",
+		name: "Cleo",
+		indices: [
+			{
+				identifier: "home",
+				caseType: "household",
+				caseId: HILL,
+				relationship: "extension",
+			},
+		],
+	},
+	{
+		id: "targeted-dara",
+		type: "member",
+		name: "Dara",
+		indices: [{ identifier: "neighbor", caseType: "household", caseId: HILL }],
+	},
+	{
+		id: PLEDGE,
+		type: "pledge",
+		name: "Roof",
+		indices: [
+			{
+				identifier: "host",
+				caseType: "household",
+				caseId: HILL,
+				relationship: "extension",
+			},
+		],
+	},
+];
+const RESTORE = restoreXml({ cases: CASES });
+
+/** The cases a member list is searched over: Bola is left out, since she
+ *  holds two child indices and the basic list's filter, HQ's own
+ *  `index/*[not(@relationship='extension')] = …`
+ *  (`entries.py::EntriesHelper.get_parent_filter`), is a comparison Core
+ *  unpacks to one value (`XPathEqExpr`), raising on a case with two. */
+const MEMBERS_RESTORE = restoreXml({
+	cases: CASES.filter((one) => one.id !== BOLA),
 });
 
 /**
@@ -451,7 +457,7 @@ function selectedMember(advanced: boolean, name: "Cleo" | "Dara"): Expectation {
 		id: `${advanced ? "named" : "direct"}-index-${name.toLowerCase()}`,
 		export: "local",
 		form: uuid(advanced ? "visit-member" : "check-member"),
-		restore: "restore.xml",
+		restore: "restore-members.xml",
 		request: {
 			session: {
 				command: advanced ? "m2-f0" : "m1-f0",
@@ -520,6 +526,9 @@ export function ancestorIndexNames() {
 				}),
 			],
 		},
-		files: { "restore.xml": RESTORE },
+		files: {
+			"restore.xml": RESTORE,
+			"restore-members.xml": MEMBERS_RESTORE,
+		},
 	});
 }
