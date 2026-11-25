@@ -112,9 +112,11 @@ export function FieldLanguageMedia({
 						value={shown?.videoInline}
 						onChange={(video) => edit(withInlineVideo(shown, video))}
 						removalLabel={
-							lens.isSource || own?.videoInline === undefined
+							lens.isSource
 								? undefined
-								: "Use shared inline video"
+								: own?.videoInline === undefined
+									? null
+									: "Use shared inline video"
 						}
 						slotKey={`${slotKey}:inline-video:${lens.language}`}
 						ariaLabel={`${ariaLabel} inline video`}
