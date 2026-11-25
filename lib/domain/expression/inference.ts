@@ -61,6 +61,7 @@ import { caseDataTypeForFieldKind } from "../caseTypes";
 import { formOfField } from "../fieldForm";
 import type { Field, HiddenField } from "../fields";
 import { fieldValueType } from "../fieldValueType";
+import { openingAssignmentPropertyType } from "../formOpeningAssignments";
 import { orderedCaseOperations } from "../forms";
 import { moduleUuidOfForm } from "../postSubmit";
 import { proseText } from "../prose";
@@ -776,6 +777,24 @@ class Inference {
 			const readers = this.preloadReaders.get(key) ?? [];
 			readers.push(field);
 			this.preloadReaders.set(key, readers);
+		}
+		// A form's opening assignment fills its field from a case's property as
+		// a preload does (`casePreload.ts::fieldPreload`), through the same
+		// answer class, so its field reads that property too.
+		for (const form of Object.values(doc.forms)) {
+			for (const assignment of form.openingAssignments ?? []) {
+				const field = doc.fields[assignment.field];
+				const caseType = openingAssignmentPropertyType(
+					doc,
+					form.uuid as Uuid,
+					assignment,
+				);
+				if (field === undefined || caseType === undefined) continue;
+				const key = propertyKey(caseType, assignment.property);
+				const readers = this.preloadReaders.get(key) ?? [];
+				if (!readers.includes(field)) readers.push(field);
+				this.preloadReaders.set(key, readers);
+			}
 		}
 		this.hiddenWrites = hiddenWrites;
 		this.fieldWriters = fieldWriters;
