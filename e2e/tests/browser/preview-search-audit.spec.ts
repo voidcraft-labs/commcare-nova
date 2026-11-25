@@ -384,6 +384,45 @@ test("Web Apps offers a search for blank under a field that allows it, and Andro
 	}
 });
 
+test("Web Apps holds a search for a requirement with no message and shows CommCare's sentence for a check with none, and Android searches", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.goto(`${peer.origin}/?platform=web-apps&unmessaged`);
+		const barcode = page.getByLabel("Barcode", { exact: true });
+		const search = page.getByRole("button", { name: "Search", exact: true });
+		const submitted = async () =>
+			JSON.parse(await page.getByLabel("Submitted search").innerText());
+		await barcode.fill("999");
+		await search.click();
+		await expect(
+			page.getByText("Sorry, this response is invalid!"),
+		).toBeVisible();
+		await barcode.fill("123");
+		await search.click();
+		await expect(
+			page.getByText("Sorry, this response is invalid!"),
+		).toHaveCount(0);
+		// The name is still required and has no message: the search waits, and says nothing.
+		await expect(
+			page.getByText("Fill in this answer before searching."),
+		).toHaveCount(0);
+		await expect.poll(submitted).toEqual({});
+		await page.getByLabel("Patient name", { exact: true }).fill("Amina");
+		await search.click();
+		await expect
+			.poll(submitted)
+			.toEqual({ barcode: "123", case_name: "Amina" });
+		await page.goto(`${peer.origin}/?platform=android&unmessaged`);
+		await page.getByLabel("Barcode", { exact: true }).fill("999");
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect.poll(submitted).toEqual({ barcode: "999" });
+	} finally {
+		await peer.close();
+	}
+});
+
 test("Web Apps searches with a hidden field's starting value without drawing it, and Android draws it", async ({
 	page,
 }) => {

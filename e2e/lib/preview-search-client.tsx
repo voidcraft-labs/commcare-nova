@@ -11,6 +11,7 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { plainColumn, proseText, simpleSearchInputDef } from "@/lib/domain";
+import { eq, input, literal } from "@/lib/domain/expression";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import {
 	previewAsMe,
@@ -48,6 +49,11 @@ const searchesForBlank = new URLSearchParams(window.location.search).has(
 );
 /* `?hidden` adds a region field Web Apps does not draw, starting at north. */
 const hiddenField = new URLSearchParams(window.location.search).has("hidden");
+/* `?unmessaged` requires the name with no message and checks the barcode with
+ * no message of its own. */
+const unmessaged = new URLSearchParams(window.location.search).has(
+	"unmessaged",
+);
 const inputs = [
 	simpleSearchInputDef(
 		testUuid("search-barcode"),
@@ -55,6 +61,13 @@ const inputs = [
 		"Barcode",
 		"barcode",
 		"barcode",
+		unmessaged
+			? {
+					validation: {
+						rule: eq(input(testUuid("search-barcode")), literal("123")),
+					},
+				}
+			: undefined,
 	),
 	simpleSearchInputDef(
 		testUuid("search-name"),
@@ -65,6 +78,7 @@ const inputs = [
 		{
 			...(platform !== undefined && { hint: "First or last name" }),
 			...(searchesForBlank && { allowBlank: true as const }),
+			...(unmessaged && { required: { noMessage: true as const } }),
 		},
 	),
 	simpleSearchInputDef(
