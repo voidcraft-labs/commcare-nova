@@ -844,6 +844,8 @@ function menuFormSourceLine(e: ValidationError): string {
 			return `Choose forms to hide in ${route} from the forms ${owner} lists now.`;
 		case "form-links":
 			return `Each deep link in ${route} needs its own form from ${owner}.`;
+		case "survey-form-links":
+			return `CommCare HQ can't save ${route} while it holds deep links to single forms and ${owner} tracks no cases. You can give each form its deep link in ${owner} instead.`;
 		case "stranded-submenu":
 			return `Show a form in ${route} so workers can reach ${child} inside it.`;
 		case "case-list-item":

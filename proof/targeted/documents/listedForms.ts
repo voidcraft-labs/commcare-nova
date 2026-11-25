@@ -1,5 +1,5 @@
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { proseText } from "@/lib/domain";
+import { plainColumn, proseText } from "@/lib/domain";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -32,18 +32,49 @@ export function listedForms() {
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Field visits",
+		caseTypes: [{ name: "site", properties: [] }],
 		modules: [
 			{
+				/* A menu that tracks cases: CommCare HQ's menu settings page
+				 * can save deep links to single forms only on a menu listing
+				 * such a menu's forms (`basicCaseSlots.ts::listedFormLinksSavable`). */
 				uuid: source,
 				name: "Visits",
+				caseType: "site",
+				caseListConfig: {
+					columns: [plainColumn(uuid("visits-name"), "case_name", "Name")],
+					searchInputs: [],
+				},
 				forms: [
 					survey("archive", "Archive"),
 					survey("visit", "Visit notes"),
 					survey("check", "Check supplies"),
 					survey("hidden", "Private notes"),
+					{
+						uuid: uuid("register"),
+						name: "Register a site",
+						type: "registration" as const,
+						fields: [
+							f({
+								kind: "text",
+								uuid: uuid("register-name"),
+								id: "case_name",
+								label: proseText("Site name"),
+								caseWrite: { caseType: "site", property: "case_name" },
+							}),
+						],
+					},
 				],
 			},
-			{ uuid: clinic, name: "Clinic", forms: [] },
+			{
+				uuid: clinic,
+				name: "Clinic",
+				caseListConfig: {
+					columns: [plainColumn(uuid("clinic-name"), "case_name", "Name")],
+					searchInputs: [],
+				},
+				forms: [],
+			},
 		],
 	});
 	doc.forms[visit].entryPoint = { uuid: uuid("visit-link"), id: "visit" };

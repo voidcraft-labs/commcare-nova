@@ -1276,6 +1276,20 @@ def child_menus_listing_the_same_forms(authoring, app_id):
         )
 
 
+def form_links_on_a_menu_listing_survey_forms(authoring, app_id):
+    """The Tools / Calculators pair of listing menus, the Tools mirror holding a deep link to Tools' survey. HQ's
+    menu settings page cannot save it: it sends the link with every save, but renders the deep link field its save
+    reads only in the Advanced panel, which it hides on a menu that tracks no cases
+    (``views/modules.py::get_module_view_context``, ``edit_module_attr``)."""
+    child_menus_listing_the_same_forms(authoring, app_id)
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/5/form_session_endpoints",
+        [{"doc_type": "ShadowFormEndpoint", "form_id": {"$form": [3, 0]}, "session_endpoint_id": "tools-survey"}],
+    )
+
+
 def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False, stored_case_type=None):
     """A second route to the hq-plain forms. HQ resolves the actual source form ids before saving."""
     owner = _held(authoring, app_id)["modules"][0]

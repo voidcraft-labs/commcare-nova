@@ -8,6 +8,7 @@ import {
 	menuScreenOf,
 	moduleShowsFormsInMenuAbove,
 } from "@/lib/domain";
+import { listedFormLinksSavable } from "@/lib/domain/basicCaseSlots";
 import { menuFormUuidsOf } from "@/lib/domain/listedForms";
 import {
 	createEntryPointRequirements,
@@ -74,7 +75,15 @@ function destinationFromRequirements(
 	// The gate names a frame that opens with the first menu's chosen case
 	// ahead of the destination's own unavailability
 	// (`rules/app.ts::validEntryPoints`), so its sentence leads here too.
+	const owner = module?.formsFromMenu
+		? doc.modules[module.formsFromMenu.menuUuid]
+		: undefined;
 	const issue =
+		(target.kind === "form" &&
+		module !== undefined &&
+		!listedFormLinksSavable(doc, module.uuid)
+			? `CommCare HQ can't save “${module.name}” with deep links to single forms while “${owner?.name ?? "the menu it lists"}” tracks no cases. You can give this form its deep link in “${owner?.name ?? "that menu"}” instead.`
+			: undefined) ??
 		menuAboveIssue(doc, target) ??
 		(form &&
 		afterEmptySearchRegistrationFormOf(doc, target.moduleUuid) === form.uuid

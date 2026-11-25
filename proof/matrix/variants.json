@@ -25451,6 +25451,21 @@
 		}
 	},
 	{
+		"id": "hq-menus/form-links-on-a-menu-listing-survey-forms",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 5,
+			"name": "Tools mirror"
+		},
+		"change": {
+			"op": "named",
+			"name": "form_links_on_a_menu_listing_survey_forms"
+		}
+	},
+	{
 		"id": "hq-menus/link-to-a-child-menu",
 		"base": "hq-menus",
 		"entry": "forms-and-case-writes/form-links-target-any-other-module",

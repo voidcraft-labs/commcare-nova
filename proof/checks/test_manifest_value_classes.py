@@ -6321,6 +6321,39 @@ def _listed_forms_and_first_menu():
     }
     registration = _module([{**_form_json("none", open_case={"condition": ALWAYS}), "unique_id": "reg"}], unique_id="r")
     return {
+        "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms": (
+            refused(
+                "app",
+                _app(
+                    [
+                        {**source, "case_type": ""},
+                        shadow(
+                            form_session_endpoints=[
+                                {"doc_type": "ShadowFormEndpoint", "form_id": "visit", "session_endpoint_id": "visit"}
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowModule.form_session_endpoints",
+                "/modules/1/form_session_endpoints",
+            ),
+            # The same links on a menu listing a case menu's forms, whose Advanced panel the page shows.
+            accepted(
+                "app",
+                _app(
+                    [
+                        source,
+                        shadow(
+                            form_session_endpoints=[
+                                {"doc_type": "ShadowFormEndpoint", "form_id": "visit", "session_endpoint_id": "visit"}
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowModule.form_session_endpoints",
+                "/modules/1/form_session_endpoints",
+            ),
+        ),
         # HQ's default version is no use, so the class takes none (``DEFAULT_ONLY``).
         "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": (
             accepted(

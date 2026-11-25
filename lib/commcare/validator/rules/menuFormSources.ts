@@ -5,6 +5,7 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
+import { listedFormLinksSavable } from "@/lib/domain/basicCaseSlots";
 import { listedMenuIsEmpty, menuFormUuidsOf } from "@/lib/domain/listedForms";
 import { type ValidationError, validationError } from "../errors";
 
@@ -128,6 +129,12 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 			issue(
 				`Choose a different form from “${owner.name}” for each of this menu’s form links.`,
 				"form-links",
+				{ owner: owner.name },
+			);
+		if (links.length > 0 && !listedFormLinksSavable(doc, route.uuid))
+			issue(
+				`CommCare HQ can't save the menu settings of “${route.name}” while it holds deep links to single forms and “${owner.name}” tracks no cases. Give each form its deep link in “${owner.name}” instead.`,
+				"survey-form-links",
 				{ owner: owner.name },
 			);
 		// HQ's build writes no menu for a route without a command, so a

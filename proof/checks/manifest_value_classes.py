@@ -9990,6 +9990,25 @@ def badge_calculation_untyped(use, manifest):
     return None if at.app.authored and not at.app.read else False
 
 
+def mirror_form_links_on_survey_listing(use, manifest):
+    """``menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms``: a menu listing another menu's
+    forms (``ShadowModule``) holding deep links to single forms (``form_session_endpoints``) where the menu it lists
+    tracks no cases (``case_type`` empty, HQ's ``is_surveys``). HQ's menu settings page sends those links with every
+    save but renders the ``session_endpoint_id`` field its save reads only in the Advanced panel, which
+    ``views/modules.py::get_module_view_context`` hides on such a menu, so ``edit_module_attr`` raises. None where the
+    listed menu is no menu of the app."""
+    at = _json(use)
+    if at is None or at.key != "form_session_endpoints":
+        return None
+    links = at.value
+    if not isinstance(links, list) or not links:
+        return False
+    source = at.app.modules_by_id.get(at.owner.get("source_module_id"))
+    if source is None:
+        return None
+    return not source.get("case_type")
+
+
 def shadow_version_one(use, manifest):
     """``menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1``: a menu listing another menu's
     forms (``ShadowModule``) whose ``shadow_module_version`` is 1, the retiring version HQ's model defaults to
@@ -10326,6 +10345,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/badge-calculation-outside-typed-values": badge_calculation_untyped,
     "menus-and-case-lists/navigation-condition-outside-typed-worker-context": navigation_condition_untyped,
     "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": shadow_version_one,
+    "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms": mirror_form_links_on_survey_listing,
     "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": shadow_endpoint_id_padded,
     # Expressions and data
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,

@@ -835,6 +835,26 @@ export function moduleCaseTypeForActions(
 	return hasCases ? mod.caseType : "";
 }
 
+/**
+ * Whether a menu listing another menu's forms can hold deep links of its own
+ * to single forms. CommCare HQ's menu settings page always sends those links
+ * with a save but shows the deep link field its save reads beside them only
+ * on a menu that tracks cases (`views/modules.py`, `show_advanced_settings`
+ * is false for `is_surveys`; `edit_module_attr` then reads the absent
+ * `session_endpoint_id` and fails), so on a menu listing a survey menu's
+ * forms no save of its settings in CommCare HQ would succeed.
+ */
+export function listedFormLinksSavable(
+	doc: BlueprintDoc,
+	routeUuid: Uuid,
+): boolean {
+	const route = doc.modules[routeUuid];
+	if (!route?.formsFromMenu) return true;
+	// The case type HQ holds for the listed menu, which Nova writes
+	// (`moduleCaseTypeForActions`): none where its forms are all surveys.
+	return moduleCaseTypeForActions(doc, route.formsFromMenu.menuUuid) !== "";
+}
+
 const slotPlans = new WeakMap<BlueprintDoc, Map<string, BasicCaseSlots>>();
 
 /**

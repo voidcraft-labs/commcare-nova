@@ -2780,7 +2780,7 @@
 		],
 		"valueClass": "non-empty-with-unique-slug-ids",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the route menu holds a separate deep link for each listed source form",
+		"dispositionCell": "**HELD**: the route menu holds a separate deep link for each listed source form, where the menu it lists tracks cases",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -2798,6 +2798,32 @@
 			"markers": []
 		},
 		"gates": ["toggle/SESSION_ENDPOINTS"]
+	},
+	{
+		"id": "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`ShadowModule.form_session_endpoints` non-empty on a menu listing a survey menu's forms",
+		"surfaceKeys": ["schema:ShadowModule.form_session_endpoints"],
+		"valueClass": "on-a-menu-listing-survey-forms",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the menu settings page sends the form deep links with every save but renders the `session_endpoint_id` field its save then reads only in the Advanced panel, which it hides on a menu that tracks no cases (`views/modules.py::get_module_view_context`'s `show_advanced_settings`, `edit_module_attr`'s `request.POST['session_endpoint_id']`). Remove the menu's deep links to single forms in HQ, or give the menu it lists a case type, before checking again.",
+		"subject": "deep-links",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the menu settings page sends the form deep links with every save but renders the `session_endpoint_id` field its save then reads only in the Advanced panel, which it hides on a menu that tracks no cases (`views/modules.py::get_module_view_context`'s `show_advanced_settings`, `edit_module_attr`'s `request.POST['session_endpoint_id']`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/shadowmodule-case-type-stored-key",

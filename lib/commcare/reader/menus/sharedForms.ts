@@ -35,6 +35,10 @@ const C = defineClaims("menus.sharedForms", {
 	),
 	missingExclusion: refuse(bad, "schema:ShadowModule.excluded_form_ids"),
 	missingTarget: refuse(bad, "schema:ShadowModule.form_session_endpoints"),
+	surveyEndpoints: refuse(
+		`${M}mirror-form-deep-links-on-a-menu-listing-survey-forms`,
+		"schema:ShadowModule.form_session_endpoints",
+	),
 });
 
 /** The application resource returns the actual IDs saved on an owning menu. The source
@@ -164,6 +168,10 @@ export function readSharedFormMenus(
 			json.refuse("form_session_endpoints", C.missingTarget);
 		} else if (stored.length === 0) {
 			json.drop("form_session_endpoints", C.noEndpoints);
+		} else if (!owner.json.peek("case_type")) {
+			// HQ's menu settings page cannot save these links on a menu that
+			// tracks no cases (`basicCaseSlots.ts::listedFormLinksSavable`).
+			json.refuse("form_session_endpoints", C.surveyEndpoints);
 		} else {
 			const children = json.list(
 				"form_session_endpoints",
