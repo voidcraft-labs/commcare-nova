@@ -1,6 +1,5 @@
 """Worker controls in the Vellum-saved app and after Nova republishes over that app."""
 
-import base64
 import json
 from dataclasses import replace
 from contextlib import contextmanager
@@ -15,15 +14,10 @@ from proof.webapps.session import Session
 
 @contextmanager
 def _released(document, publication, runner, *, configure=None):
-    # HQ's Web Apps page supplies its Mapbox credential. The pinned SDK
-    # instantiates its widget only after parsing the public token payload.
-    # This synthetic unsigned configuration is confined to this witness;
-    # the browser driver fences all external requests.
-    from django.test import override_settings
-
-    payload = base64.urlsafe_b64encode(json.dumps({"u": "proof-worker"}).encode()).decode().rstrip("=")
-    with (override_settings(MAPBOX_ACCESS_TOKEN=f"pk.{payload}.synthetic"),
-          webapps_hq.authored_project(document, publication, configure=configure) as project,
+    # HQ's Web Apps page supplies the lane's synthetic public Mapbox token
+    # (proof/hq/localsettings.py), whose payload the pinned geocoder SDK
+    # parses before it draws; the browser driver fences all external requests.
+    with (webapps_hq.authored_project(document, publication, configure=configure) as project,
           project.released(runner) as release):
         yield release
 

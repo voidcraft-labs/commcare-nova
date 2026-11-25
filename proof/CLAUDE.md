@@ -135,9 +135,12 @@ harness keeps, each with its reason.
   - *HQ names a map layer with a placeholder token*
     (`proof/hq/localsettings.py::MAPBOX_ACCESS_TOKEN`). The client draws no
     map, and takes no answer to a location question, without one
-    (`entries.js::GeoPointEntry`); production names one. The token is no
-    credential, and the layer's pictures are on a host the browser does not
-    reach, so the map is drawn without them and moves and answers the same.
+    (`entries.js::GeoPointEntry`), and its address search reads the token's
+    public payload before it draws (`entries.js::AddressEntry`), so the
+    token has a public token's shape around a synthetic payload; production
+    names one. The token is no credential, and the provider's hosts are ones
+    the browser does not reach, so the map is drawn without its pictures and
+    moves and answers the same.
   - *A step waits for the client's own timers under a second*
     (`proof/editors/driver/steps/page/timers.js`). A worker acts once the
     page has settled (an answer's throttle, a dialog's transition), and a
