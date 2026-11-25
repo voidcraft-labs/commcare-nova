@@ -34333,7 +34333,13 @@
 		"id": "hq-search/date-range-over-a-text-property",
 		"base": "hq-search",
 		"entry": "case-search/search-field-over-a-property-of-another-type",
-		"standing": "not-yet",
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/4/matching",
+				"value": "project-space"
+			}
+		],
 		"place": {
 			"kind": "search",
 			"menu": 0,

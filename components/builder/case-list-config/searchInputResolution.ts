@@ -368,8 +368,10 @@ export function computeTypeCouplingErrors(
 		}
 	}
 
-	// Property-anchored gates. Skip when property is unresolved.
-	if (property === undefined) return errors;
+	// Property-anchored gates. Skip when property is unresolved, and where the
+	// project space's own matching rule matches the field, over any type
+	// (`nativeSearchFilters`), as the gate does.
+	if (property === undefined || row.matching === "project-space") return errors;
 	const dataType = effectiveDataType(property);
 
 	const typeAllowList = SEARCH_INPUT_TYPE_PROPERTY_TYPES[row.type];

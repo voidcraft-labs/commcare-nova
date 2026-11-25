@@ -1020,11 +1020,15 @@ function VisibleSearchInputEditor({
 
 				{value.kind === "simple" &&
 					(!value.via || value.via.kind === "self") &&
-					effectiveModeKind(value) === "exact" &&
 					(value.name === value.property ||
 						(value.name === "name" && value.property === "case_name")) &&
+					(effectiveModeKind(value) === "exact" ||
+						value.type === "date-range") &&
 					(value.type === "date" ||
-						["name", "case_id", "owner_id", "status"].includes(value.name)) && (
+						value.type === "date-range" ||
+						["name", "case_id", "owner_id", "status"].includes(value.name) ||
+						resolved.typeCouplingErrors.length > 0 ||
+						value.matching === "project-space") && (
 						<ToggleRow
 							label="Use project space matching"
 							description="Send the answer to the project space using this field’s name."

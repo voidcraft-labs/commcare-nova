@@ -366,8 +366,10 @@ describe("each Search field's slots and arm", () => {
 			expect(read.searchInputs).toEqual(asRead(inputs, reading));
 		});
 
-	it("raises a date range field over a property a text question saves", async () => {
-		const { reading } = await roundTrip([
+	// The field rides its bare key, which the project space matches by the date its index reads
+	// from the text, so it reads with the project space's matching, which the gate admits.
+	it("reads a date range field over a property a text question saves with the project space's matching", async () => {
+		const { reading, read } = await roundTrip([
 			{
 				uuid: uuid(9),
 				name: "notes",
@@ -378,11 +380,15 @@ describe("each Search field's slots and arm", () => {
 				mode: { kind: "range" },
 			},
 		]);
-		const finding = reading.findings.find(
-			(one) =>
-				one.code === "case-search/search-field-over-a-property-of-another-type",
-		);
-		expect(finding?.detail.name).toBe("notes");
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toMatchObject([
+			{
+				kind: "simple",
+				type: "date-range",
+				property: "notes",
+				matching: "project-space",
+			},
+		]);
 	});
 
 	it("declares a date range field's property `date` where no question types it", async () => {

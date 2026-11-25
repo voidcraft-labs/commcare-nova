@@ -24,6 +24,7 @@ import { recordFromEntries } from "@/lib/domain/records";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
+import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
 import { withCandidate } from "../candidate";
 import { appCodes } from "../caseList/columns";
 import { caseListReadings, sameState } from "../caseList/details";
@@ -159,10 +160,6 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	ownersTwice: refuse(
 		`${S}that-entry-together-with-blacklisted-owner-ids-expression`,
 		"schema:DefaultCaseSearchProperty.property",
-	),
-	fieldOfAnotherType: refuse(
-		`${S}search-field-over-a-property-of-another-type`,
-		"schema:CaseSearchProperty.input_",
 	),
 });
 
@@ -952,18 +949,28 @@ function takeBackWriterTypedDeclarations(
 	);
 }
 
-/** A simple field whose property the app's writers type as something its type does not admit
- *  (`SEARCH_INPUT_TYPE_PROPERTY_TYPES`, the table the gate refuses by). */
-function fieldOverAnotherType(ctx: ReadContext, reading: SearchReading): void {
+/**
+ * Each simple field that rides its bare prompt key (`simpleArmNeedsXPathQueryEmission`) whose
+ * property the app's writers type as something its type does not admit
+ * (`SEARCH_INPUT_TYPE_PROPERTY_TYPES`, the table the gate refuses Nova's own matching by), held
+ * with the project space's matching. The project space matches a bare key by its own rule
+ * whatever Nova names the field's matching, a date range over text by the date HQ's index reads
+ * from the stored text (`case_search.py::case_property_date_range`, the `.date` multifield), and
+ * the gate admits that matching over any type, which the projection writes alike. A field its
+ * search matches through a condition is derived only where its type fits
+ * (`rows.ts::typeFitsProperty`), and keeps its condition elsewhere.
+ */
+function fieldsOverAnotherType(ctx: ReadContext, reading: SearchReading): void {
 	const doc = ctx.doc;
 	const mod = doc?.modules[reading.module.uuid];
 	if (doc === undefined || mod === undefined) return;
 	const properties = propertyTypes(doc, mod.caseType);
+	const native = new Set<Uuid>();
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
 		if (
 			input.kind !== "simple" ||
 			input.matching === "project-space" ||
-			input.via !== undefined
+			simpleArmNeedsXPathQueryEmission(input)
 		)
 			continue;
 		const allowed = SEARCH_INPUT_TYPE_PROPERTY_TYPES[input.type];
@@ -971,12 +978,15 @@ function fieldOverAnotherType(ctx: ReadContext, reading: SearchReading): void {
 			(property) => property.name === input.property,
 		)?.data_type;
 		if (allowed !== undefined && type !== undefined && !allowed.includes(type))
-			ctx.accounting.finding(
-				C.fieldOfAnotherType,
-				searchPlace(reading.module),
-				{ name: input.name },
-			);
+			native.add(input.uuid);
 	}
+	if (native.size === 0) return;
+	ctx.doc = withCandidate(doc, (draft) => {
+		for (const input of draft.modules[reading.module.uuid]?.caseListConfig
+			?.searchInputs ?? [])
+			if (input.kind === "simple" && native.has(input.uuid))
+				input.matching = "project-space";
+	});
 }
 
 /**
@@ -1051,7 +1061,7 @@ function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
 			zeroInput: reading.zeroInput,
 			markersOnly: reading.markersOnly,
 		});
-		fieldOverAnotherType(ctx, reading);
+		fieldsOverAnotherType(ctx, reading);
 		settleUntoldChecks(ctx, reading);
 		settleSearchSettings(ctx, module, reading.cursor, reading.prompts);
 	}

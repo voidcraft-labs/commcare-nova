@@ -966,26 +966,34 @@ describe("a Search field Nova cannot hold", () => {
 			expect(blank.doc).toEqual(hidden.doc);
 		});
 
+		// `case_name` is text in the catalog: a date range over it rides its bare key, which the
+		// project space matches by the date its index reads from the text, so it reads with the
+		// project space's matching; the address appearance beside it is read as nothing.
 		it("an address appearance beside a date range is the date range, its requirement no address field's", async () => {
-			// `case_name` is text in the catalog, so the date range is its own finding; with the
-			// address appearance beside it, that finding stands alone.
-			const range = await account((body) => {
+			const range = await documentOf((body) => {
 				first(body).input_ = "daterange";
 			});
-			expect(range).toEqual([
-				[
-					`${S}search-field-over-a-property-of-another-type`,
-					"search",
-					"case_name",
-				],
-			]);
+			const under = await documentOf((body) => {
+				const prompt = first(body);
+				prompt.input_ = "daterange";
+				prompt.appearance = "address";
+			});
+			expect(under.doc).toEqual(range.doc);
+			const doc = range.doc;
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 			expect(
-				await account((body) => {
-					const prompt = first(body);
-					prompt.input_ = "daterange";
-					prompt.appearance = "address";
-				}),
-			).toEqual(range);
+				doc.modules[doc.moduleOrder[0]].caseListConfig?.searchInputs[0],
+			).toMatchObject({
+				kind: "simple",
+				type: "date-range",
+				property: "case_name",
+				matching: "project-space",
+			});
+			expect(under.respelled).toContainEqual([
+				UNDER,
+				`${AT}/appearance`,
+				"list-settings-respelled",
+			]);
 		});
 
 		it("an address appearance beside an excluded date range reads as that date range", async () => {

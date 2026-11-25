@@ -2519,17 +2519,16 @@
 			"parser:SessionDatumParser/prompt@key"
 		],
 		"valueClass": "field-type-the-property-s-writers-do-not-fit",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Search field whose type its property's writers do not fit; Nova's gate asks a date type of a date field (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`)",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a simple field with the project space's matching (`matching: \"project-space\"`), which the gate admits over any type: a prompt without `exclude` reaches HQ under its bare key, which HQ matches by its own rule whatever the property's type, a date range by the date its index reads from the stored text (`case_search.py::case_property_date_range`, the `.date` multifield; Preview's `nativeSearchMatching.ts::nativeRangeTruth`). A field the search matches through a condition keeps the condition where its type does not fit (`rows.ts::typeFitsProperty`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the prompt as its type's row writes it",
+			"markers": []
 		},
 		"gates": []
 	},

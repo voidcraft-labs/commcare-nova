@@ -104,11 +104,20 @@ export function searchInputTypeMatchesPropertyType(
 
 		if (allowed.includes(dataType)) continue;
 
+		// A field that searches its own property under the same name with exact
+		// or range matching can take the project space's own matching, which
+		// matches any type (`nativeSearchFilters`).
+		const projectSpaceCanMatch =
+			(!input.via || input.via.kind === "self") &&
+			(input.name === "name" ? "case_name" : input.name) === input.property &&
+			(!input.mode ||
+				input.mode.kind === "exact" ||
+				(input.type === "date-range" && input.mode.kind === "range"));
 		errors.push(
 			validationError(
 				"CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH",
 				"module",
-				`Search input "${input.label || input.name}" (input #${index + 1}) on module "${mod.name}" uses a "${input.type}" widget against case property "${input.property}" on case type "${destinationCaseType}" (data type "${dataType}"). The "${input.type}" widget only admits properties of type ${formatAllowedTypes(allowed)}; on a "${dataType}" property the runtime cannot render a meaningful input UI (for example a calendar picker against text, or a barcode scanner against an integer). Either change the input's \`type\` to one that admits "${dataType}", change the property's \`data_type\` to one the widget admits, or point the input at a different property.`,
+				`Search input "${input.label || input.name}" (input #${index + 1}) on module "${mod.name}" uses a "${input.type}" widget against case property "${input.property}" on case type "${destinationCaseType}" (data type "${dataType}"). The "${input.type}" widget only admits properties of type ${formatAllowedTypes(allowed)}; on a "${dataType}" property the runtime cannot render a meaningful input UI (for example a calendar picker against text, or a barcode scanner against an integer). Either change the input's \`type\` to one that admits "${dataType}", change the property's \`data_type\` to one the widget admits, ${projectSpaceCanMatch ? 'set `matching` to "project-space" so the project space matches the answer by its own rule, ' : ""}or point the input at a different property.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					index: String(index),
@@ -118,6 +127,7 @@ export function searchInputTypeMatchesPropertyType(
 					property: input.property,
 					destinationCaseType,
 					dataType,
+					...(projectSpaceCanMatch && { projectSpaceCanMatch: "true" }),
 				},
 			),
 		);

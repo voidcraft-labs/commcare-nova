@@ -327,6 +327,28 @@ it("leaves malformed or ambiguous walks unresolved instead of borrowing origin p
 	).toEqual({ kind: "dangling", destination: undefined });
 });
 
+// The Builder's type check agrees with the gate: a date range over text is
+// refused under Nova's own matching and admitted under the project space's,
+// which matches the answer its own way over any type.
+it("holds a date range over text to the gate's verdict for each matching", () => {
+	const range = (matching?: "project-space") =>
+		simpleSearchInputDef(
+			testUuid("range-name"),
+			"case_name",
+			"Name",
+			"date-range",
+			"case_name",
+			{ mode: { kind: "range" }, ...(matching && { matching }) },
+		);
+	const errors = (row: SimpleSearchInputDef) =>
+		resolveRows([row], caseTypes, "patient", proseTemplateText)[0]
+			.typeCouplingErrors;
+	expect(errors(range())).not.toEqual([]);
+	expect(errors(range("project-space"))).toEqual([]);
+	// Admitted by the gate with the project space's matching.
+	workspace(range("project-space"));
+});
+
 // A custom condition keeps Also find blank (an advanced field may carry it),
 // and picking a standard match turns it back into a simple field: the
 // replacement keeps the search for blank only where the gate admits it.

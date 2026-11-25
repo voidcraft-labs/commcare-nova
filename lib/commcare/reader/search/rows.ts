@@ -20,6 +20,7 @@ import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { literalInstantMicros } from "@/lib/domain/expression/instantOperand";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import {
@@ -34,6 +35,7 @@ import {
 import {
 	effectiveCaseSearchConfig,
 	moduleFormsReadSearch,
+	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type SearchInputMode,
 	type SimpleSearchInputDef,
 } from "@/lib/domain/modules";
@@ -346,6 +348,32 @@ const SCALAR_MODES: readonly (SearchInputMode | undefined)[] = [
 	{ kind: "exact" },
 ];
 
+/**
+ * Whether a simple field's type admits the type the app's writers give the property it matches
+ * (`SEARCH_INPUT_TYPE_PROPERTY_TYPES`, at the relation's destination, the table the gate refuses
+ * Nova's own matching by): a condition a field of another type would derive to is Nova's
+ * comparison of a value the property does not hold, so the field keeps its condition.
+ */
+function typeFitsProperty(
+	doc: BlueprintDoc,
+	caseType: string,
+	candidate: SimpleSearchInputDef,
+): boolean {
+	const allowed = SEARCH_INPUT_TYPE_PROPERTY_TYPES[candidate.type];
+	if (allowed === undefined) return true;
+	const caseTypes = effectiveCaseTypes(doc);
+	const destination = resolveRelationDestination(
+		candidate.via,
+		caseType,
+		caseTypes,
+	);
+	if (!destination.ok) return true;
+	const type = caseTypes
+		.find((one) => one.name === destination.caseType)
+		?.properties.find((one) => one.name === candidate.property)?.data_type;
+	return type === undefined || allowed.includes(type);
+}
+
 /** The simple field whose derivation, in `doc`'s own types, is `conjunct`, for the visible field
  *  `input` it waits for; undefined where no property, path and mode derive it. The two trees are
  *  compared as the field's condition slot prints them (`canonicalExpression` there): a derivation
@@ -417,6 +445,7 @@ function derivedField(
 				...(mode !== undefined && { mode }),
 			} as SimpleSearchInputDef;
 			if (!simpleArmNeedsXPathQueryEmission(candidate)) continue;
+			if (!typeFitsProperty(doc, caseType, candidate)) continue;
 			let derived: Expression;
 			try {
 				derived = deriveSimpleArmPredicate(candidate, caseType, context);
