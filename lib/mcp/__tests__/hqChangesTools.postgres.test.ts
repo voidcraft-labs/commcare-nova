@@ -49,6 +49,7 @@ import { log } from "@/lib/logger";
 import { driftDate } from "@/lib/publish/driftReference";
 import {
 	broughtInLine,
+	HQ_CHANGES_OWNER_RULE_NOT_OFFERED,
 	hqChangesLead,
 	hqChangesMovedLine,
 	hqChangesUnavailableLine,
@@ -476,6 +477,35 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 						message: NOTHING_TO_DISCARD,
 						app_id: appId,
 					},
+				});
+			});
+		});
+		expect(await head(appId)).toEqual(before);
+		expect(await hqChangeRows(appId)).toEqual([]);
+	});
+
+	it("hands owner_rule_choices to the bring-in, which refuses an answer the review does not ask for and takes nothing", async () => {
+		const appId = await broughtIn();
+		const before = await head(appId);
+		await withHttpPeer(async (peer) => {
+			serveRead(peer, renamed(), { tables: true, times: 2 });
+			await withTools(async (client) => {
+				const listed = await readChanges(client, appId);
+				expect(listed.owner_rules).toEqual([]);
+				/* Dropped on the way, the answer would leave a review that asks nothing, and the
+				 * changes would come in. */
+				expect(
+					await call(client, "bring_in_hq_changes", {
+						app_id: appId,
+						reading_id: listed.reading_id,
+						review_digest: listed.review_digest,
+						discard_nova_changes: false,
+						table_choices: {},
+						owner_rule_choices: { clinic: "worker" },
+					}),
+				).toEqual({
+					isError: false,
+					body: { kind: "refused", message: HQ_CHANGES_OWNER_RULE_NOT_OFFERED },
 				});
 			});
 		});
