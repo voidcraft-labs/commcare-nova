@@ -292,6 +292,31 @@ describe("a menu's and a form's media read as HQ shows them", () => {
 		expect(mod.mediaByLanguage?.spa?.icon).toBe(testMediaAssetId("other-icon"));
 		expect(mod.icon).toBe(testMediaAssetId("menu-icon"));
 	});
+
+	it("reads a map whose file goes to the media plan by the paths it shows", async () => {
+		const missing = "jr://file/commcare/image/missing.png";
+		const entriesAt = (outcome: ReturnType<typeof readHqApp>, where: string) =>
+			[...outcome.claims.records()]
+				.filter((one) => one.artifact === "app.json" && one.where === where)
+				.map((one) => `${one.key} ${one.entry}`);
+		const one = await readWithMedia(app(), (json) => {
+			(json.modules[0] as AppJson["modules"][number]).media_image = {
+				en: missing,
+			};
+		});
+		expect(entriesAt(one, "/modules/0/media_image")).toEqual([
+			"schema:Module.media_image menus-and-case-lists/media-image-media-audio-same-asset-in-every-language",
+		]);
+		const two = await readWithMedia(app(), (json) => {
+			(json.modules[0] as AppJson["modules"][number]).media_image = {
+				en: missing,
+				es: MENU_ICON,
+			};
+		});
+		expect(entriesAt(two, "/modules/0/media_image")).toEqual([
+			"schema:Module.media_image menus-and-case-lists/media-image-media-audio-differing-by-language",
+		]);
+	});
 });
 
 const registerForm = {

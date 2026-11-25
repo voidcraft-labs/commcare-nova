@@ -148,8 +148,9 @@ Four rules hold everywhere here:
   under `schema:Application.profile`, a language's key under `schema:Application.translations`)
   is recorded at that key (`jsonCursor.ts::recordedAt`), as is a whole object read past under
   such a key (`refuseWhole` with `account`: a language the app does not hold) and a media
-  reference with no file, at the app's `multimedia_map` (`lib/deployment/reading/gather.ts`), and
-  so is a part of a value refused
+  reference with no file, at the app's `multimedia_map` (`lib/deployment/reading/gather.ts`),
+  while the menu or form map naming it is read at its own key by the paths it shows
+  (`menus/navMedia.ts::readMap`), and so is a part of a value refused
   beside the key's own claim (`refusePart`, a `logo_refs` slot); a claim on an element that names
   one of its attributes is recorded at the attribute, and one naming an itext form at the
   `<value>`'s `form` (`xmlCursor.ts::recordedNode`, a media form's hand-off too), while the

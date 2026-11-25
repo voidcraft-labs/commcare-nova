@@ -316,7 +316,13 @@ function readMap(
 			});
 		}
 	}
-	if (missing.size) return {};
+	if (missing.size) {
+		/* The files go to the media plan; the map itself is read here, by the
+		 * paths it shows, as the map of one file or of a file a language. */
+		const paths = new Set(Object.values(shown).filter(Boolean));
+		node.take(key, paths.size > 1 ? differs : same, () => undefined).value;
+		return {};
+	}
 	const asset = resolved.get(shown[languages.source] ?? "");
 	const translations = new Map<string, string | null>();
 	const printed = recordFromEntries<string>([]);

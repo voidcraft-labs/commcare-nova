@@ -2138,6 +2138,8 @@
 		"section": "Module fields",
 		"item": "`Module.referral_list`",
 		"surfaceKeys": [
+			"schema:CaseList.media_audio",
+			"schema:CaseList.media_image",
 			"schema:Module.referral_list",
 			"schema:ShadowModule.referral_list"
 		],
@@ -2191,6 +2193,8 @@
 		"item": "`Module.task_list.show: false`",
 		"surfaceKeys": [
 			"schema:CaseList",
+			"schema:CaseList.media_audio",
+			"schema:CaseList.media_image",
 			"schema:CaseList.show",
 			"schema:Module.task_list",
 			"schema:ShadowModule.task_list"
