@@ -739,6 +739,9 @@ SHORTHANDS = ("#session/", "#user", "#case", "#parent", "#host")
 FIXTURE_SHORTHAND = "$fixture_value"
 # The instances a search's ``_xpath_query`` reads while the device builds the query: the Search fields' answers.
 QUERY_BUILD_SCHEMES = frozenset({"search-input"})
+# The filter keys HQ's search reads as a marker of the request rather than a value to match: a filter's value under
+# one is no expression of the app's (Nova's reader holds it as the marker it is).
+SEARCH_MARKER_KEYS = frozenset({"include_closed", "x_commcare_tag_module_name"})
 
 
 def _slot_expression(cls, key, value, at, manifest, artifact, found, slot):
@@ -912,6 +915,17 @@ def _object_uses(cls, value, pointer, manifest, artifact, found, at):
                 at=JsonAt(at.app, at.scope, "defaultValue"),
                 schemes_only=True,
                 schemes=QUERY_BUILD_SCHEMES,
+            )
+        elif name not in SEARCH_MARKER_KEYS and isinstance(value.get("defaultValue"), str):
+            # Any other filter is sent under its key with the value the device works out from it: HQ's build
+            # writes it as a ``<data>`` whose ``ref`` is the value (``remote_requests.py``, ``QueryData``), which
+            # Core parses and evaluates as an expression of its own.
+            found.expression(
+                artifact,
+                f"{pointer}/defaultValue",
+                value["defaultValue"],
+                grammar=True,
+                at=JsonAt(at.app, at.scope, "defaultValue"),
             )
     elif cls == "CaseSearchProperty":
         _search_key(value.get("name"), manifest, artifact, f"{pointer}/name", found, JsonAt(at.app, at.scope, "name"))

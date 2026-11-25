@@ -118,6 +118,8 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}default-properties-entry-keyed-by-a-plain-property-property-p`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
+	/** A filter keyed `owner_id`, which HQ's search reads as the case's owner. */
+	ownerFilterKey: take(`${S}a-search-key-named-owner-id`, "csql-key:owner_id"),
 	ancestorKey: take(
 		`${S}default-properties-entry-keyed-by-an-ancestor-path-parent-p`,
 		"schema:DefaultCaseSearchProperty.property",
@@ -389,6 +391,13 @@ function readDefaultFilters(
 							? C.plainKey
 							: C.projectKey;
 				row.take("property", claim, String).value;
+				if (property === "owner_id")
+					accounting.claimEntry(
+						{ json: row, key: "property" },
+						C.ownerFilterKey.entry,
+						"csql-key:owner_id",
+						row.place,
+					);
 				const uuid = accounting.identity(
 					ctx.identities.claim(
 						externalKey.searchFilter(module.uniqueId, property, occurrence),

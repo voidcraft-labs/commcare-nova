@@ -1185,6 +1185,32 @@ describe("a menu whose forms do not read the search", () => {
 			),
 		).toBe(true);
 	});
+
+	// HQ's Case List page saves a filter keyed `owner_id`, which HQ's search reads as the case's
+	// owner: the key is that `csql-key` item where it sits, as the lane's manifest check reads it.
+	it("records a filter keyed owner_id as the search key HQ reads as the case's owner", async () => {
+		let index = 0;
+		const reading = await readLists(oneOfEach(), {
+			edit: (app) => {
+				const rows = rowsOf(app);
+				index = rows.length;
+				rows.push({
+					doc_type: "DefaultCaseSearchProperty",
+					property: "owner_id",
+					defaultValue: "instance('commcaresession')/session/context/userid",
+				});
+			},
+		});
+		const records = [...reading.ctx.close().claims.records()].filter(
+			(record) =>
+				record.where ===
+				`/modules/0/search_config/default_properties/${index}/property`,
+		);
+		expect(records.map((record) => [record.key, record.entry])).toContainEqual([
+			"csql-key:owner_id",
+			"case-search/a-search-key-named-owner-id",
+		]);
+	});
 });
 
 describe("a menu whose forms read the search", () => {
