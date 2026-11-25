@@ -125,7 +125,7 @@ function read(
 }
 
 describe("readReadingProjectData", () => {
-	it("holds a table tagged __proto__ to both bounds of one inline copy", async () => {
+	it("measures a table tagged __proto__ against both bounds of one inline copy, and refuses its tag", async () => {
 		const measure = {
 			dataBytes: LOOKUP_MAX_CHANGE_BYTES + 1,
 			largestRowBytes: LOOKUP_MAX_ROW_BYTES + 1,
@@ -176,7 +176,11 @@ describe("readReadingProjectData", () => {
 				measure,
 			),
 		).toHaveLength(2);
-		expect(proto.findings).toEqual([]);
+		// HQ's form builder cannot open a form reading a table every JavaScript
+		// object's member names, so the table comes in refused.
+		expect(proto.findings.map((finding) => finding.code)).toEqual([
+			"expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit",
+		]);
 		expect(proto.read.rows).toEqual([]);
 		expect(proto.read.canonical.source?.inventory).toBe("unavailable");
 	});

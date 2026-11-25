@@ -63,20 +63,23 @@ const runtimeInstanceIds = new Set([
 	"case-search-fixture",
 ]);
 
-export function lookupXformInstanceId(tag: string): string {
+/** Whether a tag, as a form's local instance id, would name an instance
+ * CommCare provides. A tag every JavaScript object inherits, which HQ's form
+ * builder cannot hold, is refused before a form reads it
+ * (`lib/lookup/constants.ts::FORM_EDITOR_RESERVED_TAGS`). */
+export function lookupTagCollidesWithInstanceName(tag: string): boolean {
 	const id = tag.toLowerCase();
-	// Vellum indexes instance metadata in ordinary objects and calls each
-	// index’s own hasOwnProperty (form.js::updateKnownInstances/parseInstanceRefs).
-	// It keeps a declaration its own XPath reader finds a read of, or one
-	// whose id is a data source HQ hands it (`item_lists_by_app`: the table's
-	// `item-list:<tag>`, form.js::loadXML). A tag outside that reader's names
-	// (js-xpath `NCName`) is a path step it cannot read, so only the fixture
-	// id keeps the declaration through a save in HQ's form builder.
-	return tag === "__proto__" ||
-		tag === "hasOwnProperty" ||
-		runtimeInstanceIds.has(id) ||
-		id.includes("selected_cases") ||
-		!isFormBuilderXPathName(tag)
+	return runtimeInstanceIds.has(id) || id.includes("selected_cases");
+}
+
+export function lookupXformInstanceId(tag: string): string {
+	// HQ's form builder drops a declaration whose reads its own XPath reader
+	// (js-xpath, `NCName`) cannot lex, so a save there loses the instance of a
+	// tag outside those names. HQ's build declares a missing instance again
+	// only where its id names a scheme it knows (`XForm.add_missing_instances`,
+	// the `item-list` factory in suite_xml/post_process/instances.py), so such
+	// a tag is declared under its fixture id.
+	return lookupTagCollidesWithInstanceName(tag) || !isFormBuilderXPathName(tag)
 		? lookupFixtureId(tag)
 		: tag;
 }

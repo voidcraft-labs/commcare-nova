@@ -23,11 +23,7 @@ def resource_entries(manifest, table):
     """Held name classes of this observed definition, each at its resource pointer."""
     tag = table["tag"]
     # HQ registers the schemes in the extracted manifest. The Search input root is another reserved name in Core.
-    if (
-        tag in {"__proto__", "hasOwnProperty"}
-        or tag.lower() == "input"
-        or manifest.item(f"instance-scheme:{instance_scheme(tag.lower())}") is not None
-    ):
+    if tag.lower() == "input" or manifest.item(f"instance-scheme:{instance_scheme(tag.lower())}") is not None:
         yield "lookup-model:LookupTable.tag", f"/{pointer_token(tag)}/tag", ALIAS_ENTRY
     names = [(tag, "lookup-model:LookupTable.tag", "tag")]
     names.extend(

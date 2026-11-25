@@ -34,7 +34,7 @@ import {
 	publishedCaseBlocks,
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
-import { lookupXformInstanceId } from "@/lib/commcare/lookup/naming";
+import { lookupTagCollidesWithInstanceName } from "@/lib/commcare/lookup/naming";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import {
 	type ReadDraft,
@@ -885,7 +885,9 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 			continue;
 		const at = `/${pointerToken(tag)}`;
 		const nameClass = lookupNameClass(tag);
-		const alias = lookupXformInstanceId(tag) !== tag;
+		// A tag a form declares under its fixture id only because HQ's form
+		// builder cannot read it as a name is its name class, not this alias.
+		const alias = lookupTagCollidesWithInstanceName(tag);
 		if (alias)
 			records.push(
 				settledRecord(

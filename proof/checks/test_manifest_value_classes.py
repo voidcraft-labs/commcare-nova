@@ -6587,6 +6587,7 @@ KNOWN_GAPS = frozenset(
         "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",
+        "expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit",
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
         "forms-and-case-writes/custom-assertions-form-non-empty",
         "forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes",

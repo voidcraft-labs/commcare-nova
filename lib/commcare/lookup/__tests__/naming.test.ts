@@ -41,11 +41,11 @@ describe("lookupFixtureId / lookupFixtureSrc", () => {
 });
 
 describe("lookupXformInstanceId", () => {
-	// HQ's form builder keeps a declaration its XPath reader (js-xpath, names
-	// of unaccented letters, digits, `_`, `.` and `-`) finds a read of, or one
-	// named by a data source HQ hands it: `item-list:<tag>`. It dropped the
-	// bare `ζωνες` on save (proof4 on hq-lookup-names) and kept HQ's own
-	// `item-list:ζωνες`.
+	// HQ's form builder drops the declaration of a tag its XPath reader
+	// (js-xpath: unaccented letters, digits, `_`, `.` and `-`) cannot lex, and
+	// HQ's build declares a missing `item-list:<tag>` again but not a bare
+	// `ζωνες` (proof4 on hq-lookup-names: "missing some instance declarations
+	// that can't be automatically added").
 	it("declares a tag the form builder cannot read under the fixture id", () => {
 		expect(lookupXformInstanceId("ζωνες")).toBe("item-list:ζωνες");
 		expect(lookupXformInstanceId("régions")).toBe("item-list:régions");

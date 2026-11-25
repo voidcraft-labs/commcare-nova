@@ -4927,7 +4927,7 @@
 		],
 		"valueClass": "reserved-instance-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the Project table keeps its tag. A form binds each read to its declared fixture source and assigns a distinct local instance id when the tag coincides with a runtime instance or with Vellum’s dictionary keys `hasOwnProperty` and `__proto__` (form.js::parseInstanceRefs, updateKnownInstances).",
+		"dispositionCell": "**HELD**: the Project table keeps its tag. A form binds each read to its declared fixture source and assigns a distinct local instance id when the tag coincides with a runtime instance. A tag every JavaScript object inherits is refused (`expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4941,6 +4941,32 @@
 		},
 		"emission": {
 			"cell": "the table tag in the workbook and fixture source, the allocated id at each form read",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` equal to a name every JavaScript object inherits (`__proto__`, `constructor`, `hasOwnProperty`, `isPrototypeOf`, `propertyIsEnumerable`, `toLocaleString`, `toString`, `valueOf`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`)",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "form-builder-object-member-tag",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum keys plain objects by a table's names (`datasources.js`: `nodeMap[node.hashtag || node.xpath]`, then `nodeMap.hasOwnProperty`), and the row element is named by the tag, so a form reading such a table does not open in HQ's form builder (`t2.hasOwnProperty is not a function`, proof 4 on `targeted-lookup-reserved-tags`)",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum keys plain objects by a table's names (`datasources.js`: `nodeMap[node.hashtag || node.xpath]`, then `nodeMap.hasOwnProperty`), and the row element is named by the tag, so a form reading such a table does not open in HQ's form builder (`t2.hasOwnProperty is not a function`, proof 4 on `targeted-lookup-reserved-tags`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -4960,7 +4986,7 @@
 		],
 		"valueClass": "non-ascii-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values. A condition HQ checks with its own XPath reader refuses such a name (`expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks`). A form declares a table whose tag HQ's form builder cannot read under the table's `item-list:` fixture id, the id HQ's form builder knows it by, so the builder keeps the declaration.",
+		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values. A condition HQ checks with its own XPath reader refuses such a name (`expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks`). A form declares a table whose tag HQ's form builder cannot read under the table's `item-list:` fixture id: the builder drops that declaration on save, and HQ's build declares a missing `item-list:` instance again (`XForm.add_missing_instances`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

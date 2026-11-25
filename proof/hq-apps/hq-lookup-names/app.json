@@ -145,9 +145,9 @@
 						"doc_type": "FormActions"
 					},
 					"doc_type": "Form",
-					"unique_id": "26c413b2219c4312aacca5cc3361bf3e",
+					"unique_id": "bc5dd19fca46416bb1e482507c15ada0",
 					"show_count": false,
-					"xmlns": "http://openrosa.org/formdesigner/de99cfd8-5917-4ab6-bad5-8a7c47187c58",
+					"xmlns": "http://openrosa.org/formdesigner/636fa5e0-91a5-4633-bcfd-af8de3bef0e9",
 					"version": null,
 					"post_form_workflow": "default",
 					"post_form_workflow_fallback": null,
@@ -171,8 +171,7 @@
 					"media_audio": {},
 					"custom_icons": [],
 					"use_default_image_for_all": false,
-					"use_default_audio_for_all": false,
-					"form_filter": "instance('item-list:ζωνες')/ζωνες_list/ζωνες[clé = 'upland'][1]/code.1 = 'on'"
+					"use_default_audio_for_all": false
 				}
 			],
 			"case_type": "",
@@ -423,7 +422,7 @@
 			"lazy_load_case_list_fields": false,
 			"show_case_list_optimization_options": false,
 			"doc_type": "Module",
-			"unique_id": "bc038b61cc6548bdb00c5e61c01b6093",
+			"unique_id": "68ea31f8e87e4a29847332b55edff32c",
 			"case_list_form": {
 				"form_id": null,
 				"label": {},
@@ -489,7 +488,7 @@
 	"doc_type": "Application",
 	"recipients": "",
 	"copy_of": null,
-	"version": 9,
+	"version": 8,
 	"short_odk_url": null,
 	"short_odk_media_url": null,
 	"build_spec": {
@@ -546,8 +545,8 @@
 	"logo_refs": {},
 	"archived_media": {},
 	"_id": "d753ed80-c0a3-11f1-8d04-a9dd841610b1",
-	"_rev": "9-dd49ce80-c0a3-11f1-a70b-45d850145f87",
+	"_rev": "8-dd49ce80-c0a3-11f1-89f9-1993cdf53168",
 	"_attachments": {
-		"26c413b2219c4312aacca5cc3361bf3e.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n\t<h:head>\n\t\t<h:title>Survey</h:title>\n\t\t<model>\n\t\t\t<instance>\n\t\t\t\t<data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/de99cfd8-5917-4ab6-bad5-8a7c47187c58\" uiVersion=\"1\" version=\"3\" name=\"Survey\">\n\t\t\t\t\t<site />\n\t\t\t\t\t<zone />\n\t\t\t\t</data>\n\t\t\t</instance>\n\t\t\t<instance src=\"jr://fixture/item-list:meeting.1\" id=\"item-list:meeting.1\" />\n\t\t\t<bind vellum:nodeset=\"#form/site\" nodeset=\"/data/site\" />\n\t\t\t<bind vellum:nodeset=\"#form/zone\" nodeset=\"/data/zone\" />\n\t\t\t<itext>\n\t\t\t\t<translation lang=\"en\" default=\"\">\n\t\t\t\t\t<text id=\"site-label\">\n\t\t\t\t\t\t<value>Meeting site</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"zone-label\">\n\t\t\t\t\t\t<value>Zone</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t</itext>\n\t\t</model>\n\t</h:head>\n\t<h:body>\n\t\t<select1 vellum:ref=\"#form/site\" ref=\"/data/site\">\n\t\t\t<label ref=\"jr:itext('site-label')\" />\n\t\t\t<itemset nodeset=\"instance('item-list:meeting.1')/meeting.1_list/meeting.1\">\n\t\t\t\t<label ref=\"label.1\" />\n\t\t\t\t<value ref=\"site.id\" />\n\t\t\t</itemset>\n\t\t</select1>\n\t\t<select1 vellum:ref=\"#form/zone\" ref=\"/data/zone\">\n\t\t\t<label ref=\"jr:itext('zone-label')\" />\n\t\t\t<itemset nodeset=\"instance('item-list:ζωνες')/ζωνες_list/ζωνες\">\n\t\t\t\t<label ref=\"région\" />\n\t\t\t\t<value ref=\"clé\" />\n\t\t\t</itemset>\n\t\t</select1>\n\t</h:body>\n</h:html>"
+		"bc5dd19fca46416bb1e482507c15ada0.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n\t<h:head>\n\t\t<h:title>Survey</h:title>\n\t\t<model>\n\t\t\t<instance>\n\t\t\t\t<data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/636fa5e0-91a5-4633-bcfd-af8de3bef0e9\" uiVersion=\"1\" version=\"3\" name=\"Survey\">\n\t\t\t\t\t<site />\n\t\t\t\t\t<zone />\n\t\t\t\t</data>\n\t\t\t</instance>\n\t\t\t<instance src=\"jr://fixture/item-list:meeting.1\" id=\"item-list:meeting.1\" />\n\t\t\t<bind vellum:nodeset=\"#form/site\" nodeset=\"/data/site\" />\n\t\t\t<bind vellum:nodeset=\"#form/zone\" nodeset=\"/data/zone\" />\n\t\t\t<itext>\n\t\t\t\t<translation lang=\"en\" default=\"\">\n\t\t\t\t\t<text id=\"site-label\">\n\t\t\t\t\t\t<value>Meeting site</value>\n\t\t\t\t\t</text>\n\t\t\t\t\t<text id=\"zone-label\">\n\t\t\t\t\t\t<value>Zone</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t</itext>\n\t\t</model>\n\t</h:head>\n\t<h:body>\n\t\t<select1 vellum:ref=\"#form/site\" ref=\"/data/site\">\n\t\t\t<label ref=\"jr:itext('site-label')\" />\n\t\t\t<itemset nodeset=\"instance('item-list:meeting.1')/meeting.1_list/meeting.1\">\n\t\t\t\t<label ref=\"label.1\" />\n\t\t\t\t<value ref=\"site.id\" />\n\t\t\t</itemset>\n\t\t</select1>\n\t\t<select1 vellum:ref=\"#form/zone\" ref=\"/data/zone\">\n\t\t\t<label ref=\"jr:itext('zone-label')\" />\n\t\t\t<itemset nodeset=\"instance('item-list:ζωνες')/ζωνες_list/ζωνες\">\n\t\t\t\t<label ref=\"région\" />\n\t\t\t\t<value ref=\"clé\" />\n\t\t\t</itemset>\n\t\t</select1>\n\t</h:body>\n</h:html>"
 	}
 }

@@ -3,11 +3,13 @@
  * (`targeted-lookup-non-ascii-names`).
  *
  * CommCare HQ's form builder reads XPath with js-xpath, whose names are
- * unaccented letters, digits, `_`, `.` and `-`. It keeps an instance
- * declaration it finds a read of, or one whose id is a data source HQ hands
- * it (`item-list:<tag>`), and on `hq-lookup-names` it dropped a bare `ζωνες`
- * declaration on save while keeping HQ's own `item-list:ζωνες`. So Nova
- * declares a tag outside js-xpath's names under its fixture id
+ * unaccented letters, digits, `_`, `.` and `-`, and drops the declaration of
+ * an instance whose reads it cannot lex. HQ's build declares a missing
+ * instance again only where its id names a scheme HQ knows
+ * (`XForm.add_missing_instances`): it declared `item-list:ζωνες` again on
+ * `hq-lookup-names`, and refused a bare `ζωνες` ("missing some instance
+ * declarations that can't be automatically added"). So Nova declares a tag
+ * outside js-xpath's names under its fixture id
  * (`lib/commcare/lookup/naming.ts::lookupXformInstanceId`), and keeps a tag
  * inside them bare.
  *

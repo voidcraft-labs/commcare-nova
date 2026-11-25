@@ -41,6 +41,7 @@ import {
 	isReservedInstanceTag,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_TAG_LENGTH,
+	reservedInstanceTagCause,
 } from "@/lib/lookup/constants";
 import { formatLookupBytes } from "@/lib/lookup/format";
 import {
@@ -233,6 +234,8 @@ const CAPS_ENTRY =
 const TAG_TYPES_ENTRY = "expressions-and-data/tag-types";
 const RESERVED_WORD_ENTRY =
 	"expressions-and-data/tag-containing-casedb-or-ledgerdb";
+const FORM_EDITOR_TAG_ENTRY =
+	"expressions-and-data/tag-naming-a-member-the-form-builder-s-objects-inherit";
 /** Project data preserves the HQ spelling even when a worker's XPath cannot
  * address it. Only a path that actually reads that table or column needs the
  * narrower runtime grammar. Reserved fixture source tags are reported once
@@ -292,8 +295,17 @@ export function lookupTableFindings(
 	if (tag.toLowerCase() === TYPES_SHEET) {
 		findings.push(manifestFinding(TAG_TYPES_ENTRY, place, TYPES_SHEET));
 	}
-	if (isReservedInstanceTag(tag)) {
-		findings.push(manifestFinding(RESERVED_WORD_ENTRY, place, tag));
+	const reserved = reservedInstanceTagCause(tag);
+	if (reserved !== null) {
+		findings.push(
+			manifestFinding(
+				reserved.kind === "form-editor"
+					? FORM_EDITOR_TAG_ENTRY
+					: RESERVED_WORD_ENTRY,
+				place,
+				tag,
+			),
+		);
 	}
 	const tagFinding = nameFinding("tag", tag, place);
 	if (tagFinding !== null) findings.push(tagFinding);
