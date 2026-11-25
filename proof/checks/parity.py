@@ -22,7 +22,11 @@ For each configuration of an ``hq-authored`` document:
    first reading's media plan gives at each hand-off joined in.
 3. **The join** (``join``), on ``(artifact, where)``: each use the lane decides
    needs some record at that place naming an entry that names the use's key,
-   with a standing that projects to the lane's (``PROJECTS``).
+   with a standing that projects to the lane's (``PROJECTS``). An appearance is one value the inventory sorts
+   into one row by the whole of it, where the lane makes a use of the attribute's key and one of each token a
+   runtime reads in it: where the lane holds every use at an appearance attribute, a record naming an entry of
+   any of those keys claims them all; where it does not, the uses it does not hold are joined alone and stand for
+   the whole value (``_appearance_values``).
 4. **The other way**: every record whose ``key`` is not null is a use the lane
    extracted at that ``(artifact, where)`` with that key.
 
@@ -351,19 +355,62 @@ def _lane_json(decided: Decided):
             **({"at": decided.at} if decided.at is not None else {})}
 
 
+def _appearance_place(use) -> bool:
+    """Whether a use sits at a form control's ``appearance`` attribute (``manifest_usage._appearance_uses`` and the
+    XForm vocabulary's ``xform:<control>@appearance``)."""
+    return use.artifact.startswith("form:") and use.where.endswith("/@appearance")
+
+
+def _attribute_key(where: str) -> str:
+    """The XForm vocabulary's key of the appearance attribute at ``where`` (``xform:<control>@appearance``)."""
+    element = where.rsplit("/", 2)[-2].split("[", 1)[0]
+    return f"xform:{element}@appearance"
+
+
+def _appearance_values(uses) -> dict:
+    """Each appearance attribute's value as the inventory sorts it, by place: the keys of its uses where the lane
+    holds every one (``frozenset``), or ``None`` where it does not. The inventory sorts an appearance into one row
+    by the whole value: one word a runtime reads under that token's row (``questions/date-ethiopian`` names the
+    token's keys), several words under a row of the attribute's key (``questions/multi-token-strings-…``), a value
+    a refusing class takes under that class's row; while the lane makes a use of the attribute's key at every
+    appearance and one of each token a runtime reads in it."""
+    found = {}
+    for decided in uses:
+        if not _appearance_place(decided.use):
+            continue
+        # The attribute's own key is the value's wherever the lane decides it or not (a key a HELD-NEW class shares
+        # is left undecided, ``decides``).
+        keys = found.get(decided.place, frozenset({_attribute_key(decided.use.where)}))
+        if keys is None or decided.standing != manifest_usage.HELD or decided.at is not None:
+            found[decided.place] = None
+        else:
+            found[decided.place] = keys | {decided.use.key}
+    return found
+
+
 def join(uses, claims, *, document: str = "", held=None) -> list[Difference]:
     """The lane's decided uses (``Decided``) joined to the reader's claim log on ``(artifact, where)``: one
     difference a use whose place holds no record naming an entry of its key (``unclaimed``), whose records name
     only entries outside what its standing allows (``entry``), or whose records' standings do not project to it
-    (``standing``). ``held`` is the manifest the uses were decided over (the lane's, by default)."""
+    (``standing``). An appearance attribute's uses are one value (``_appearance_values``): where the lane holds
+    every one, a record naming an entry of any of their keys claims each; where it does not, the uses it does not
+    hold are joined alone, and the held ones beside them are the whole value's. ``held`` is the manifest the uses
+    were decided over (the lane's, by default)."""
     held = held or manifest()
     at_place = {}
     for record in records_of(claims):
         at_place.setdefault((record.artifact, record.where), []).append(record)
+    appearances = _appearance_values(uses)
     found = []
     for decided in uses:
         use = decided.use
-        naming_ids = {entry.id for entry in held.entries.get(use.key, ())}
+        keys = appearances.get(decided.place) or (use.key,)
+        whole = decided.place in appearances and appearances[decided.place] is None
+        if whole and decided.standing == manifest_usage.HELD:
+            # The value is in a class the lane does not hold, whose own use is joined: the reader's record of that
+            # class is its record of the whole value, and claims nothing of the words it holds.
+            continue
+        naming_ids = {entry.id for key in keys for entry in held.entries.get(key, ())}
         records = at_place.get(decided.place, [])
         naming = [record for record in records if record.entry in naming_ids]
         place = (use.key, use.artifact, use.where)
