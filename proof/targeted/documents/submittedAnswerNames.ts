@@ -97,7 +97,11 @@ function receivingAnswers(android: boolean) {
 					"/data/visit/script",
 					"Agreed to visit",
 					"local",
-					{ command: "m0-f0" },
+					// A registration's session gives the case it creates, as a device's does.
+					{
+						command: "m0-f0",
+						data: { case_id_new_household_0: "new-household" },
+					},
 				),
 			],
 		},

@@ -52,8 +52,10 @@ export function namedAnswerRoot() {
 		rows: ["questions/data-root-element-named-other-than-data"],
 		expected: {
 			intent: [
+				// A registration's session gives the case it creates, as a device's does.
 				answerHeld("household-name", form, "/survey/name", "Chen", "local", {
 					command: "m0-f0",
+					data: { case_id_new_household_0: "new-household" },
 				}),
 			],
 		},
