@@ -78,7 +78,13 @@ function retainedAnswers(base: RetainedHqApp): Map<string, string> {
 	]);
 	if (base.projectSpaces !== undefined) {
 		answers.set("projectSpaces:all", "project-spaces.json");
-		answers.set("projectSpaces:flagged", "project-spaces-flag.json");
+		if (base.projectSpaces.flagged !== undefined)
+			answers.set("projectSpaces:flagged", "project-spaces-flag.json");
+		if (base.projectSpaces.caseListActions !== undefined)
+			answers.set(
+				"projectSpaces:caseListActions",
+				"project-spaces-case-list-actions.json",
+			);
 	}
 	for (const tag of Object.keys(base.fixtureRows ?? {}))
 		answers.set(`fixtureRows:${tag}`, `fixture-rows-${tag}.json`);
