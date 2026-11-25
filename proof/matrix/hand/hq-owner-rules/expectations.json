@@ -1,0 +1,32 @@
+[
+	{
+		"id": "transfer-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f0",
+				"data": {
+					"case_id": "patient-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "moved"
+				}
+			],
+			"expressions": ["/data/note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "moved"
+			}
+		]
+	}
+]
