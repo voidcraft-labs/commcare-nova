@@ -5118,11 +5118,32 @@
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "a DateTime question, or a Hidden Value its bind types `xsd:dateTime`, saved straight to a case",
+		"item": "a DateTime question saved straight to a property of the action's own case, every other writer of which gives it a day",
+		"surfaceKeys": [],
+		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a `date` property the question saves its day to (`ruleSets.ts::isAnswerWriteAssignable`, `reader/caseManagement/catalog.ts::declareDays`): HQ's build binds the case block's leaf with no type, so Core keeps the day alone (`Recalculate.wrapData`), and Nova saves a date-and-time question to a `date` property straight too, with no `nova_datetime_<id>` sibling (`fieldValueType.ts::writesMoment`); the case store keeps the answer's day in the viewer's zone, as the device does (`postgres/submissionEnvelope.ts::storageValueFromEvaluation`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "untyped bind as HQ writes it",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "a Hidden Value its bind types `xsd:dateTime` saved straight to a case, and a DateTime question saved straight to a case's name, owner, external id, `location_id`, `hq_user_id`, `category` or `state`, or through an index segment (a property another writer gives something other than a day is `any-other-mixed-writer-pair`)",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a date-and-time writer writing its date to a `date` property: HQ's build binds the case block's leaf with no type, so Core keeps the day alone (`Recalculate.wrapData`) (Nova routes every date-and-time writer through the `nova_datetime_<id>` sibling, which stores the full instant, and its validator refuses a date-and-time field writing a `date` property, `FIELD_KIND_PROPERTY_TYPE_MISMATCH`)",
+		"dispositionCell": "**HELD-NEW**: the day of a date and time where Nova holds no `date` property for it: a Hidden Value's bind follows the property it writes (`fieldValueType.ts::fieldValueType`), so its own node would hold the day where HQ's holds the moment, and a case's name, owner and standard keys, and an ancestor's property are no `date` property the reading declares (`reader/caseManagement/catalog.ts::declareDays`)",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {

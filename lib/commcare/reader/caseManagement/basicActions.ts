@@ -280,7 +280,7 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		"schema:ConditionalCaseUpdate.question_path",
 	),
 	datetimeStraight: refuse(
-		`${F}/a-datetime-question-saved-straight-to-a-case`,
+		`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`,
 		null,
 	),
 	datetimeSibling: take(
@@ -571,6 +571,9 @@ const CASE_SETTINGS_RESPELLED = "case-settings-respelled";
 export interface ProposedValue {
 	readonly field: DraftField;
 	readonly link: boolean;
+	/** A date-and-time question's answer saved as it is, which CommCare keeps
+	 *  as its day: the property it writes is a `date` one. */
+	readonly day?: true;
 }
 
 interface ProposedWrite {
@@ -928,17 +931,45 @@ export function questionValue(
 	// A date and time, a question's or a Hidden Value's its bind types
 	// `xsd:dateTime`, named straight: HQ's build binds the leaf of the case block
 	// that copies it with no type, so Core keeps the day alone there
-	// (`Recalculate.wrapData` wraps a date of any other type as a date), while
-	// Nova saves every date and time to a case through its `nova_datetime_`
-	// sibling, which keeps the moment.
-	if (field.kind === "datetime" || boundDateTime(form, field))
+	// (`Recalculate.wrapData` wraps a date of any other type as a date). A
+	// question's is a write of its day to a `date` property, which Nova saves
+	// straight too (`ruleSets.ts::isAnswerWriteAssignable`); a Hidden Value's
+	// bind follows the property it writes (`fieldValueType.ts`), so Nova keeps
+	// it in no shape, nor a day as a case's name, owner or other standard key.
+	if (boundDateTime(form, field))
 		return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+	if (field.kind === "datetime") {
+		if (!DAY_PROPERTY_CLASS.test(property) || STANDARD_KEYS.has(property))
+			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+		return {
+			kind: "value",
+			value: { field, link: false, day: true },
+			datetimeSibling: false,
+		};
+	}
 	return {
 		kind: "value",
 		value: { field, link: false },
 		datetimeSibling: false,
 	};
 }
+
+/** The keys a day saved straight never names: the case's name and owner,
+ *  and the standard keys a property type cannot be given to
+ *  (`standardCaseProperties.ts`). */
+const STANDARD_KEYS: ReadonlySet<string> = new Set([
+	"name",
+	"case_name",
+	"owner_id",
+	"external_id",
+	"location_id",
+	"hq_user_id",
+	"category",
+	"state",
+]);
+
+/** A property name, no index segment before it. */
+const DAY_PROPERTY_CLASS = /^[^/]+$/;
 
 /** Whether `field` is a Hidden Value whose bind in `form`'s source is typed `xsd:dateTime`. */
 export function boundDateTime(
@@ -1561,6 +1592,18 @@ function readUpdateMap(
 									: BASIC_CLAIMS.asciiKey;
 		const read = readUpdate(r, cursor, property, ownWrite, pathClaim, keyClaim);
 		if (!read.ok || read.value === undefined) continue;
+		// A date-and-time question's day is saved straight only to a `date`
+		// property of the action's own case, which the catalog types.
+		if (via !== undefined && read.value.day === true) {
+			finding(
+				r.ctx,
+				BASIC_CLAIMS.datetimeStraight,
+				r.form.place,
+				`${cursor.pointer}/question_path`,
+				{ name: key },
+			);
+			continue;
+		}
 		// The own case and the worker's record are written once, from questions in no repeat.
 		if (!valueInScope(read.value, undefined)) {
 			finding(

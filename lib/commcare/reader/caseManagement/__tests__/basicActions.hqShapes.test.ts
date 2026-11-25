@@ -298,7 +298,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 				},
 			],
 		});
-		const STRAIGHT = `${F}/a-datetime-question-saved-straight-to-a-case`;
+		const STRAIGHT = `${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`;
 		const throughSibling = await readCases(doc);
 		expect(codes(throughSibling)).toEqual([]);
 		const straight = await readCases(doc, {

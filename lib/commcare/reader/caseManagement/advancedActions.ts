@@ -90,6 +90,7 @@ import type { DataNode } from "../xform/model";
 import { registrationOpenIndex } from "./advancedRegistration";
 import {
 	ancestorSteps,
+	BASIC_CLAIMS,
 	dropCreateNameRequired,
 	namesAttachment,
 	type PropertyNameClass,
@@ -1048,6 +1049,16 @@ function readProperties(
 		const read = questionValue(r.ctx, r.form, path, property);
 		if (read.kind === "finding") {
 			r.ctx.accounting.finding(advancedReadClaim(read.claim), r.form.place, {
+				name: key,
+			});
+			r.ok = false;
+			out.refused = true;
+			continue;
+		}
+		// A date-and-time question's day is saved straight only to a `date`
+		// property of the action's own case, which the catalog types.
+		if (via !== undefined && read.value.day === true) {
+			r.ctx.accounting.finding(BASIC_CLAIMS.datetimeStraight, r.form.place, {
 				name: key,
 			});
 			r.ok = false;

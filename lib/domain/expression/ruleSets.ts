@@ -141,6 +141,27 @@ export function isWriteAssignable(
 	);
 }
 
+/**
+ * Whether a question's answer, saved as it is, can be saved to a
+ * destination: `isWriteAssignable`, or a date-and-time question's answer
+ * saved to a `date` property, which CommCare saves as the answer's day where
+ * the device is. HQ's build and Nova's both print a date-and-time question
+ * saved to a day straight into an untyped case leaf, and Core wraps the
+ * moment a leaf of no date-and-time type calculates as `DateData`, its day
+ * alone (`Recalculate.java::wrapData`). A calculation's moment stays strict:
+ * a Hidden Value's bind follows the property it writes
+ * (`fieldValueType.ts::fieldValueType`), so its own node would hold the day.
+ */
+export function isAnswerWriteAssignable(
+	kindType: ResolvedType,
+	destinationType: CasePropertyDataType,
+): boolean {
+	return (
+		isWriteAssignable(kindType, destinationType, false) ||
+		(kindType === "datetime" && destinationType === "date")
+	);
+}
+
 export function isNumeric(t: ResolvedType): boolean {
 	return t === "int" || t === "decimal";
 }

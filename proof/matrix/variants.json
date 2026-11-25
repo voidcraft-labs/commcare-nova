@@ -16603,9 +16603,9 @@
 		}
 	},
 	{
-		"id": "hq-case-management/datetime-saved-straight",
+		"id": "hq-case-management/datetime-saved-straight-as-the-external-id",
 		"base": "hq-case-management",
-		"entry": "forms-and-case-writes/a-datetime-question-saved-straight-to-a-case",
+		"entry": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
 		"standing": "not-yet",
 		"place": {
 			"kind": "form",
@@ -16616,8 +16616,12 @@
 		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/forms/3/actions/update_case/update/seen_at/question_path",
-			"value": "/data/seen_at"
+			"pointer": "/modules/0/forms/3/actions/update_case/update/external_id",
+			"value": {
+				"question_path": "/data/seen_at",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
 		}
 	},
 	{

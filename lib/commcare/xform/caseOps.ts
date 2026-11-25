@@ -64,6 +64,7 @@ import {
 	caseSelectionCardinality,
 	caseWriteValueField,
 	effectiveCaseTypes,
+	formCaseWriteViews,
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
@@ -85,6 +86,7 @@ import type {
 	PropertyRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import { fieldValueType, writesMoment } from "@/lib/domain/fieldValueType";
 import { caseTypeHopMap } from "../caseTypeDepths";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
@@ -481,6 +483,9 @@ interface SharedOwnRow {
 	readonly value: Expression;
 	readonly condition?: Expression;
 	readonly slot: FormExpressionSlotRef;
+	/** A date-and-time question's answer saved to a `date` property, read as
+	 *  it is rather than through its moment's sibling (`writesMoment`). */
+	readonly day?: true;
 }
 
 /**
@@ -530,6 +535,9 @@ function sharedOwnRows(
 			property: write.property,
 			value: write.value,
 			...(write.condition !== undefined && { condition: write.condition }),
+			...(savesDay(doc, formUuid, own, write.property, write.value) && {
+				day: true as const,
+			}),
 			slot: {
 				entity: "form",
 				uuid: formUuid,
@@ -560,6 +568,30 @@ function sharedOwnRows(
 		.map(({ row }) => row);
 }
 
+/** Whether `operation`'s write of `property` saves a date-and-time
+ *  question's answer to a `date` property (`writesMoment`): no sibling. */
+function savesDay(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operation: CaseOperation,
+	property: string,
+	value: Expression,
+): boolean {
+	const source = caseWriteValueField(value);
+	const field = source === undefined ? undefined : doc.fields[source.field];
+	if (source === undefined || field === undefined || source.link) return false;
+	const views = formCaseWriteViews(doc, formUuid).get(source.field) ?? [];
+	const view = views.find(
+		(one) => one.operationUuid === operation.uuid && one.property === property,
+	);
+	const caseTypes = effectiveCaseTypes(doc);
+	return (
+		view !== undefined &&
+		fieldValueType(field, caseTypes, views) === "datetime" &&
+		!writesMoment(field, caseTypes, views, view)
+	);
+}
+
 /**
  * The generated sibling a shared row reads for a question it saves as it
  * is: a capture's link, the trimmed value of a case name or an external id,
@@ -587,7 +619,7 @@ function sharedRowSibling(
 			: undefined;
 	if (isCaseScalarTextProperty(row.property) && holds("trimmed"))
 		return trimmedValuePath(generatedNodes, source.field, location.path);
-	if (holds("datetime"))
+	if (row.day !== true && holds("datetime"))
 		return datetimeCaseValuePath(generatedNodes, source.field, location.path);
 	return undefined;
 }

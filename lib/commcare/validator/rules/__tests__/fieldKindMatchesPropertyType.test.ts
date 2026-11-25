@@ -106,6 +106,11 @@ describe("case writer type admission", () => {
 		// One choice is a list of choices holding it alone.
 		{ kind: "single_select", declared: "multi_select", fits: true },
 		{ kind: "date", declared: "datetime", fits: false },
+		// A date and time saved straight to a day keeps its day, as Core
+		// wraps it (`Recalculate.wrapData`); its text is no text a device
+		// keeps as it is.
+		{ kind: "datetime", declared: "date", fits: true },
+		{ kind: "datetime", declared: "text", fits: false },
 		{ kind: "int", declared: "text", fits: false },
 	] satisfies {
 		kind: FieldSpec["kind"];

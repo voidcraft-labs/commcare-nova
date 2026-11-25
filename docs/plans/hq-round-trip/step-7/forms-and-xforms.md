@@ -880,6 +880,7 @@ above keep explicit negative controls. The parent plan owns the shared release r
 | `forms-and-case-writes` | `writers-single-select-multi-select` | F3 |
 | `forms-and-case-writes` | `any-other-mixed-writer-pair` | F3 |
 | `forms-and-case-writes` | `a-datetime-question-saved-straight-to-a-case` | F3 |
+| `forms-and-case-writes` | `a-date-and-time-saved-straight-in-no-shape-nova-keeps` | F3 |
 | `forms-and-case-writes` | `advanced-form-loads-other-than-its-menu-s-one-chain` | F1 |
 | `forms-and-case-writes` | `load-changing-no-case-with-a-tag-nova-does-not-derive` | F1 |
 | `forms-and-case-writes` | `case-tag-holding-a-hyphen` | F1 |

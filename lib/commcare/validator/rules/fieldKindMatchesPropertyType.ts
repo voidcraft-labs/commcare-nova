@@ -64,7 +64,8 @@ import { type ValidationError, validationError } from "../errors";
 
 /** Whether a property declared `declared` holds the values a question of
  *  a kind giving `given` saves: its own type, an integer as a decimal, a
- *  choice as text. */
+ *  choice as text, and a date and time as its day
+ *  (`ruleSets.ts::isAnswerWriteAssignable`). */
 export function declaredTypeHolds(
 	given: CasePropertyDataType,
 	declared: CasePropertyDataType,
@@ -73,7 +74,8 @@ export function declaredTypeHolds(
 		given === declared ||
 		(given === "int" && declared === "decimal") ||
 		(given === "single_select" && declared === "text") ||
-		(given === "single_select" && declared === "multi_select")
+		(given === "single_select" && declared === "multi_select") ||
+		(given === "datetime" && declared === "date")
 	);
 }
 

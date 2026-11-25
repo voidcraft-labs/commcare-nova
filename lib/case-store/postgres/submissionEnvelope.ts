@@ -76,6 +76,8 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	caseDatetimeValue,
 	caseInstantText,
+	instantDatetimeValue,
+	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
 import {
@@ -830,7 +832,7 @@ export function storageValueFromEvaluation(
 		}
 		case "date": {
 			if (value instanceof Date) return localDayText(value);
-			return String(value);
+			return dayText(String(value), zone);
 		}
 		case "datetime": {
 			// A date and time on a case is the text CommCare HQ stores, UTC
@@ -876,6 +878,22 @@ export function storageValueFromEvaluation(
 			);
 		}
 	}
+}
+
+/**
+ * The day a `date` property keeps of a value's text. A date and time (a
+ * date-and-time question's answer saved to a day,
+ * `ruleSets.ts::isAnswerWriteAssignable`) keeps the day of its moment where
+ * the device is: Core wraps it as `DateData` (`Recalculate.java::wrapData`),
+ * which a device writes as its day in its own zone, the viewer's here
+ * (`zone`). Any other text is kept as it is, for the schema to judge.
+ */
+function dayText(text: string, zone: string): string {
+	const trimmed = text.trim();
+	if (!trimmed.includes("T")) return text;
+	const instant = Date.parse(storageDatetimeValue(trimmed, zone));
+	if (Number.isNaN(instant)) return text;
+	return instantDatetimeValue(instant, zone).slice(0, 10);
 }
 
 /** node-postgres parses a `date` column in LOCAL time; read the local

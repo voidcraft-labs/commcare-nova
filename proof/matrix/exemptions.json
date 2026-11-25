@@ -151,6 +151,10 @@
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
 	},
+	"forms-and-case-writes/a-datetime-question-saved-straight-to-a-case": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
 	"forms-and-case-writes/a-now-hidden-value-saved-straight-to-a-case": {
 		"reason": "no-surface-key",
 		"note": "The entry names no surface key, and it allows what it describes."

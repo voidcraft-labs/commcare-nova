@@ -94,9 +94,11 @@ that use `int()` or `substr()`.
 Two more things are listed with where they sit, since Nova would save or find
 something different from what CommCare HQ does today:
 
-- A date and time question, or a hidden value that works out a date and time,
-  saved straight to a case property. CommCare HQ keeps only its day there, and
-  Nova keeps the whole moment.
+- A hidden value that works out a date and time, saved straight to a case
+  property, or a date and time question saved straight as a case's name,
+  owner or external ID. CommCare HQ keeps only the day there. A date and time
+  question saved straight to any other property comes in: Nova makes that
+  property a date and keeps the day, as CommCare does.
 - A search filter Nova would keep as part of the case list's filter, in a menu
   whose forms read its search, where the phone would read it differently from
   CommCare HQ's search. A filter that compares a case property with `!=` or

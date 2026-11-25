@@ -31,7 +31,7 @@ import {
 import { chainLoadOfTarget } from "@/lib/domain/advancedEntryDatums";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression } from "@/lib/domain/expression/types";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { fieldValueType, writesMoment } from "@/lib/domain/fieldValueType";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import type {
 	CaseOperationLink,
@@ -295,7 +295,11 @@ function buildPlan(
 	 * sibling for a case name or an external id, its date-and-time text, or
 	 * a capture's link sibling. `null` where a link has no target to point at.
 	 */
-	const questionPath = (value: Expression, property: string): string | null => {
+	const questionPath = (
+		value: Expression,
+		property: string,
+		operationUuid?: Uuid,
+	): string | null => {
 		const source = caseWriteValueField(value);
 		if (source === undefined)
 			throw new Error(
@@ -314,11 +318,18 @@ function buildPlan(
 		// which the first-publish register declares (`case-names-checked`).
 		if (isCaseScalarTextProperty(property) && guarded.has(source.field))
 			return trimmedValuePath(nodes, source.field, path).toXPath();
+		// A date and time's moment is read from its sibling; a date-and-time
+		// question saved to a day is read as it is (`writesMoment`).
 		const field = doc.fields[source.field];
+		const views = writeViews.get(source.field) ?? [];
+		const view = views.find(
+			(one) => one.operationUuid === operationUuid && one.property === property,
+		);
 		if (
 			field !== undefined &&
-			fieldValueType(field, caseTypes, writeViews.get(source.field) ?? []) ===
-				"datetime"
+			(view === undefined
+				? fieldValueType(field, caseTypes, views) === "datetime"
+				: writesMoment(field, caseTypes, views, view))
 		)
 			return datetimeCaseValuePath(nodes, source.field, path).toXPath();
 		return path.toXPath();
@@ -346,7 +357,7 @@ function buildPlan(
 			property: string,
 			mode: ConditionalCaseUpdate["update_mode"],
 		) => {
-			const path = questionPath(value, property);
+			const path = questionPath(value, property, operation.uuid);
 			if (path !== null)
 				update[key] = { question_path: path, update_mode: mode };
 		};

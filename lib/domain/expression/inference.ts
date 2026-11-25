@@ -81,7 +81,12 @@ import {
 } from "./context";
 import { isIsoDateText } from "./datePattern";
 import { resolveRelationDestination } from "./relationDestination";
-import { agreedStorageType, isWriteAssignable, joinsAsText } from "./ruleSets";
+import {
+	agreedStorageType,
+	isAnswerWriteAssignable,
+	isWriteAssignable,
+	joinsAsText,
+} from "./ruleSets";
 import {
 	ANY_TYPE,
 	type CheckPath,
@@ -1593,7 +1598,7 @@ class Inference {
 					writer.property,
 					kindType !== undefined &&
 						destination !== undefined &&
-						isWriteAssignable(kindType, destination, false)
+						isAnswerWriteAssignable(kindType, destination)
 						? destination
 						: kindType,
 				);

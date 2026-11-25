@@ -1,6 +1,7 @@
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
 import type { CasePropertyDataType } from "../casePropertyTypes";
+import { caseDataTypeForFieldKind } from "../caseTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
 import {
 	FUNCTION_REGISTRY,
@@ -70,6 +71,7 @@ import {
 	coercedEquality,
 	describe,
 	type EqualityOperand,
+	isAnswerWriteAssignable,
 	isDateOrDatetime,
 	isNumeric,
 	isValueStorageAssignable,
@@ -3730,11 +3732,25 @@ function assignmentErrors(
 		const type = scalarDataType(node?.data);
 		if (type === undefined || type === ANY_TYPE) return;
 		const isoDateText = isIsoDateText(output);
+		// A question's answer saved as it is (`ruleSets.ts::isAnswerWriteAssignable`):
+		// a date-and-time question saved to a day.
+		const answerKind =
+			output.kind === "term" &&
+			output.term.kind === "field" &&
+			output.term.filters === undefined &&
+			output.term.role === undefined
+				? ctx.form?.fields.get(output.term.uuid)?.kind
+				: undefined;
+		const answerType =
+			answerKind === undefined || answerKind === "hidden"
+				? undefined
+				: caseDataTypeForFieldKind(answerKind);
 		for (const destination of new Set(destinations))
 			if (
 				identifierText
 					? !isValueStorageAssignable(type, destination)
-					: !isWriteAssignable(type, destination, isoDateText)
+					: !isWriteAssignable(type, destination, isoDateText) &&
+						!(answerType === type && isAnswerWriteAssignable(type, destination))
 			)
 				errors.push({
 					path,

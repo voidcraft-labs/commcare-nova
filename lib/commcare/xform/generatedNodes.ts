@@ -97,7 +97,7 @@ import {
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { writesMoment } from "@/lib/domain/fieldValueType";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
 import { planFormCaseWire } from "../casePlacementPlan";
@@ -594,9 +594,11 @@ function allocateGeneratedNodes(
 					field.uuid,
 					scope.allocate(generatedBaseName("url", field.id)),
 				);
+			const caseTypes = effectiveCaseTypes(doc);
 			if (
-				views.some((view) => !view.link) &&
-				fieldValueType(field, effectiveCaseTypes(doc), views) === "datetime"
+				views.some(
+					(view) => !view.link && writesMoment(field, caseTypes, views, view),
+				)
 			)
 				record(
 					"datetime",

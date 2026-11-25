@@ -123,6 +123,7 @@ const PATIENT: CaseType = {
 		{ name: "prior_age", label: proseText("Prior age"), data_type: "int" },
 		{ name: "meds", label: proseText("Meds"), data_type: "multi_select" },
 		{ name: "seen_at", label: proseText("Seen at"), data_type: "datetime" },
+		{ name: "seen_on", label: proseText("Seen on"), data_type: "date" },
 		{ name: "hq_user_id", label: proseText("Worker ID"), data_type: "text" },
 	],
 };
@@ -4448,6 +4449,42 @@ describe("a date and time saved to a case", () => {
 			});
 			const row = await patientRow(store, SESSION_CASE_ID);
 			expect(row?.properties.seen_at).toBe(stored);
+		},
+	);
+
+	// A date-and-time question saved to a `date` property keeps its day where
+	// the device is (`Recalculate.wrapData` wraps the moment as `DateData`):
+	// late evening in Los Angeles is already the next day in UTC.
+	it.for([
+		["2026-01-02T23:30:00.000", "2026-01-02"],
+		["2026-01-02T23:30:00.000-08:00", "2026-01-02"],
+		["2026-01-03T07:30:00.000Z", "2026-01-02"],
+	] as const)(
+		"stores %s saved to a day as its day in the viewer's zone",
+		async ([answer, stored]) => {
+			const store = makeStore();
+			await seedSessionPatient(store);
+			await submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: {
+					...ownProgram(
+						"followup",
+						[
+							ownOp({
+								writes: [
+									{ property: "seen_on", value: term(formField(SEEN_FIELD)) },
+								],
+							}),
+						],
+						{ formFields: [["seen-at-field", answer]] },
+					),
+					formFieldTypes: new Map([[SEEN_FIELD, "datetime"]]),
+					viewerTimeZone: "America/Los_Angeles",
+				},
+			});
+			const row = await patientRow(store, SESSION_CASE_ID);
+			expect(row?.properties.seen_on).toBe(stored);
 		},
 	);
 });

@@ -245,12 +245,7 @@ function declareSelectTypes(
 function declareToldTypes(
 	draft: Draft<Catalog>,
 	told: ReaderKnownCaseTypes | undefined,
-	writes: readonly {
-		readonly caseType: string;
-		readonly property: string;
-		readonly field?: DraftField;
-		readonly read?: true;
-	}[],
+	writes: readonly CatalogWrite[],
 ): void {
 	if (told === undefined) return;
 	for (const type of draft)
@@ -265,11 +260,82 @@ function declareToldTypes(
 					one.field === undefined
 				)
 					return false;
+				// A date-and-time question saves its moment through its sibling,
+				// which only a `datetime` property holds, or its day straight.
+				if (one.field.kind === "datetime")
+					return declared !== (one.day === true ? "date" : "datetime");
 				const given = caseDataTypeForFieldKind(one.field.kind);
 				return given !== undefined && !declaredTypeHolds(given, declared);
 			});
 			if (!contradicted) property.data_type = declared;
 		}
+}
+
+interface CatalogWrite {
+	readonly caseType: string;
+	readonly property: string;
+	readonly field?: DraftField;
+	readonly day?: true;
+	readonly read?: true;
+}
+
+/** The writers of `write`'s property, preloads left out. */
+function writersOf(
+	writes: readonly CatalogWrite[],
+	write: CatalogWrite,
+): CatalogWrite[] {
+	return writes.filter(
+		(other) =>
+			other.read !== true &&
+			other.caseType === write.caseType &&
+			other.property === write.property,
+	);
+}
+
+/** Whether a writer gives a property a day: a date-and-time question's
+ *  answer saved straight, or a date question's. */
+function writesDay(write: CatalogWrite): boolean {
+	return write.day === true || write.field?.kind === "date";
+}
+
+/**
+ * Declares `date` on each property a date-and-time question's answer is
+ * saved straight to, where every writer of it gives a day: HQ's build binds
+ * the case block's leaf with no type, so Core keeps the answer's day
+ * (`Recalculate.wrapData`), and Nova saves a date-and-time question to a
+ * `date` property straight (`ruleSets.ts::isAnswerWriteAssignable`). A
+ * property another writer gives something else is `mixedDays`'s.
+ */
+function declareDays(
+	draft: Draft<Catalog>,
+	writes: readonly CatalogWrite[],
+): void {
+	for (const one of writes) {
+		if (one.day !== true) continue;
+		if (!writersOf(writes, one).every(writesDay)) continue;
+		const property = draft
+			.find((type) => type.name === one.caseType)
+			?.properties.find((candidate) => candidate.name === one.property);
+		if (property !== undefined && property.data_type === undefined)
+			property.data_type = "date";
+	}
+}
+
+/** Each property a date-and-time question's day is saved straight to beside
+ *  a writer that gives it no day: a pair of writers no one type holds
+ *  (`any-other-mixed-writer-pair`), once per property. */
+function mixedDays(
+	writes: readonly CatalogWrite[],
+): { readonly caseType: string; readonly property: string }[] {
+	const mixed = new Map<string, { caseType: string; property: string }>();
+	for (const one of writes) {
+		if (one.day !== true || writersOf(writes, one).every(writesDay)) continue;
+		mixed.set(JSON.stringify([one.caseType, one.property]), {
+			caseType: one.caseType,
+			property: one.property,
+		});
+	}
+	return [...mixed.values()];
 }
 
 /** The `datetime` declarations each reading made before its expressions bound, by type and
@@ -467,6 +533,8 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 		field?: DraftField;
 		/** The writing question is a Hidden Value its bind types `xsd:dateTime`. */
 		dateTime?: true;
+		/** A date-and-time question's answer saved straight, its day. */
+		day?: true;
 		/** A preload, which reads the property and writes nothing. */
 		read?: true;
 	}[] = [];
@@ -484,6 +552,7 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 							property: write.property,
 							field: write.value.field,
 							...(boundDateTime(form, write.value.field) && { dateTime: true }),
+							...(write.value.day === true && { day: true }),
 						});
 				if (
 					op.linksOwn === true &&
@@ -508,6 +577,7 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 						property: write.property,
 						field: write.value.field,
 						...(boundDateTime(form, write.value.field) && { dateTime: true }),
+						...(write.value.day === true && { day: true }),
 					});
 				for (const link of op.links)
 					links.push({
@@ -603,15 +673,37 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 			noteChoices(property, inlineOptions(field.field));
 		}
 		declareSelectTypes(draft, selects);
+		declareDays(draft, writes);
 		declareToldTypes(draft, ctx.input.knownCaseTypes, writes);
 		DATETIME_DECLARATIONS.set(ctx, declareHiddenDateTimes(draft, writes));
 	});
+	for (const mixed of mixedDays(writes)) {
+		reportedPairs(ctx).add(JSON.stringify([mixed.caseType, mixed.property]));
+		const menu = app.modules.find(
+			(module) => module.module.caseType === mixed.caseType,
+		);
+		ctx.accounting.finding(WRITER_CLAIMS.otherPair, menu?.place ?? appPlace(), {
+			name: mixed.property,
+		});
+	}
 	/* An app with no case type holds no catalog, as a new app does
 	 * (`emptyBlueprintDoc`): an empty one prints the same bytes, and the
 	 * document a birth builds from the construction batch holds none. */
 	ctx.writeDraft(() => {
 		app.caseTypes = next.length === 0 ? null : (next as Catalog);
 	});
+}
+
+/** The properties whose writers a reading already found agree on no type. */
+const REPORTED_PAIRS = new WeakMap<ReadContext, Set<string>>();
+
+function reportedPairs(ctx: ReadContext): Set<string> {
+	let reported = REPORTED_PAIRS.get(ctx);
+	if (reported === undefined) {
+		reported = new Set();
+		REPORTED_PAIRS.set(ctx, reported);
+	}
+	return reported;
 }
 
 const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
@@ -648,7 +740,7 @@ export function settleWriterTypes(
 		rethrowWorkStop(error);
 		return;
 	}
-	const found = new Set<string>();
+	const found = reportedPairs(ctx);
 	const finding = (
 		caseType: string,
 		property: string,
