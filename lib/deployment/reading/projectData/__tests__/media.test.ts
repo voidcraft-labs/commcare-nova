@@ -788,15 +788,17 @@ describe("mediaFindings", () => {
 	it("words each verdict with its entry, standing and name", () => {
 		const cases: readonly [HqMediaVerdict, unknown][] = [
 			[
-				{ kind: "over-limit", mediaKind: "image", capBytes: 5 * 1024 * 1024 },
 				{
-					code: `${E}an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+					kind: "over-limit",
+					mediaKind: "image",
+					capBytes: 64 * 1024 * 1024,
+				},
+				{
+					code: "too-large",
 					standing: "not-yet",
 					place: { kind: "media", path: "jr://file/a.png" },
-					subject: "media-files",
-					detail: {
-						name: "jr://file/a.png (over 5 MB, the most Nova takes for a picture)",
-					},
+					subject: null,
+					detail: {},
 				},
 			],
 			[
@@ -1035,7 +1037,7 @@ describe("mediaFindings", () => {
 			runsOn: ["web-apps", "android"],
 		});
 		expect(out.findings.map((finding) => finding.code)).toEqual([
-			`${E}an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+			"too-large",
 			`${E}image-tiff-heif`,
 		]);
 		expect(out.complete).toBe(true);

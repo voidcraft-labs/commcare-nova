@@ -739,6 +739,21 @@ no longer accepts gets HQ's own refusal whether or not a Nova app holds the
 app; the advice still comes before any table, place or file is read. `read.ts` answers a stop, an account or a
 review with its digest.
 
+A reading holds no file past its kind's upload cap in memory: it reads the
+file again, streamed into a create-only object under the receiving Project's
+`pending/` prefix, and judges it there by range
+(`projectData/mediaStore.ts::judgeReadingMedia`, `lib/media/CLAUDE.md` § One
+gate). A create keeps a held streamed object as that content's staged object;
+a read, a changes review and a bring-in of changes that does not keep it
+delete it once judged, and every request discards what its staging wrote in a
+`finally`. Those writes come before `room.beginWrites()`: they are temporary
+objects no surface lists, under the bucket's `pending/` lifecycle rule. A file
+past `HQ_MEDIA_STREAM_MAX_BYTES` (1 GiB), or a picture past
+`WHOLE_PICTURE_MAX_BYTES` (64 MiB), is the `too-large` circumstance at its
+path. A publish sends such a file alone in its bulk upload
+(`uploadBatches.ts`), with the upload's and HQ's task's deadlines lengthened by
+its size (`client.ts::uploadAppMediaBundle`).
+
 An owner rule that gives a case to the place at a level below its owner, where
 the places read hold two such places or none below an owner, is no finding: it
 is a question of the review (`projectData/ownerRules.ts::managedPlacesOwnerRules`,

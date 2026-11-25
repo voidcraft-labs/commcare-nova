@@ -407,6 +407,55 @@ describe("settledClaims", () => {
 		]);
 	});
 
+	it("settles a held file past its kind's upload cap at its first path, and none at the cap", () => {
+		const at = "/multimedia_map/jr:~1~1file~1commcare~1image~1large.png";
+		for (const sizeBytes of [5 * 1024 * 1024, 5 * 1024 * 1024 + 1]) {
+			const records = settledClaims({
+				data: DATA,
+				reads: readsOf({}),
+				doc: null,
+				media: {
+					files: [
+						planFile("large", "image", ["jr://file/commcare/image/large.png"]),
+					],
+					verdicts: {
+						large: {
+							kind: "held",
+							file: {
+								...judged({
+									mediaFormat: "png",
+									kind: "image",
+									mimeType: "image/png",
+								}),
+								sizeBytes,
+							},
+						},
+					},
+					staged: new Map(),
+					published: {},
+				},
+			});
+			const large = records.filter(
+				(record) =>
+					record.entry ===
+					`${E}/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+			);
+			expect(large).toEqual(
+				sizeBytes > 5 * 1024 * 1024
+					? [
+							{
+								artifact: "app.json",
+								where: at,
+								key: null,
+								entry: `${E}/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+								standing: "held",
+							},
+						]
+					: [],
+			);
+		}
+	});
+
 	it("settles no file before its verdict, no path outside jr://file/, and no Connect entry for an app that is none", () => {
 		const records = settledClaims({
 			data: DATA,

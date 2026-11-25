@@ -212,8 +212,6 @@ const ENTRY = {
 		"expressions-and-data/multimedia-map-key-not-under-jr-file-that-the-build-keeps",
 	audioFiledAsVideo:
 		"expressions-and-data/audio-m4a-with-another-brand-isom-mp41-mp42-dash",
-	overLimit:
-		"expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
 	androidInstall:
 		"expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install",
 	runtimeDraws:
@@ -703,12 +701,6 @@ export function hqMediaRefusalEntry(
 	return null;
 }
 
-const KIND_NOUN: Readonly<Record<MediaKind, string>> = {
-	image: "a picture",
-	audio: "a sound",
-	video: "a video",
-};
-
 /** What the verdicts of a plan's files found. */
 export interface MediaVerdictFindings {
 	readonly findings: readonly Finding[];
@@ -759,13 +751,16 @@ export function mediaFindings(input: {
 		const place: HqPlace = { kind: "media", path };
 		switch (verdict.kind) {
 			case "over-limit":
-				findings.push(
-					manifestFinding(
-						ENTRY.overLimit,
-						place,
-						`${path} (over ${Math.round(verdict.capBytes / 1024 / 1024)} MB, the most Nova takes for ${KIND_NOUN[verdict.mediaKind]})`,
-					),
+				/* Past what Nova reads of one file however it reads it: a file streamed past
+				 * `HQ_MEDIA_STREAM_MAX_BYTES`, or a picture sharp would read whole past
+				 * `WHOLE_PICTURE_MAX_BYTES`. A file past its kind's upload cap alone comes in
+				 * (`expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+				 * HELD). The bound is Nova's, as the app source's is. */
+				log.warn(
+					"[bring-in:media] a media file was past what Nova reads of one file",
+					{ mediaKind: verdict.mediaKind, capBytes: verdict.capBytes },
 				);
+				findings.push(circumstanceFinding("too-large", place, {}));
 				break;
 			case "refused": {
 				const entry = hqMediaRefusalEntry(

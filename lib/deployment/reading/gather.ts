@@ -81,6 +81,7 @@ import {
 import { remapAssetRefs } from "@/lib/domain/mediaRefs";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import {
+	ASSET_SIZE_CAPS_BYTES,
 	type MediaAssetId,
 	type MediaFormatKey,
 	mediaFormatOf,
@@ -761,6 +762,11 @@ const SETTLED = {
 	/** CommCare HQ's ids of a table and its rows, for each table the document reads. */
 	tableIds:
 		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
+	/** A held file larger than Nova's upload cap for its kind: it came in streamed, and CommCare
+	 *  HQ, which caps no file it stores (`hqmedia/tasks.py::process_bulk_upload_zip`), takes it
+	 *  back as it took it. */
+	largeMedia:
+		"expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
 	/** A held file's path under `jr://file/`, the path the project space keeps it at. */
 	mediaPath: "expressions-and-data/media-path-jr-file",
 	/** A Connect app, which the document holds as its `connectType`. */
@@ -1017,6 +1023,8 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 				settledRecord("app.json", at(first), format.id),
 				settledRecord(BUILD_ARTIFACT, at(first), SETTLED.mediaSuite),
 			);
+			if (verdict.file.sizeBytes > ASSET_SIZE_CAPS_BYTES[verdict.file.kind])
+				records.push(settledRecord("app.json", at(first), SETTLED.largeMedia));
 			for (const path of file.paths) {
 				if (path.startsWith("jr://file/"))
 					records.push(settledRecord("app.json", at(path), SETTLED.mediaPath));
