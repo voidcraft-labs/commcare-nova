@@ -351,6 +351,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`,
 		"schema:DetailTab.starting_index",
 	),
+	tabsTileRowMixedTabs: refuse(
+		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`,
+		"schema:Detail.tabs",
+	),
 	tabsTileRowMixedAdvanced: take(
 		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-an-advanced`,
 		"schema:DetailTab.starting_index",
@@ -1212,8 +1216,16 @@ function readDetailKeys(
 	if (tabs.length > 0) {
 		// Every kind the tabs hold is a finding; the first kind of the tabs themselves claims the key.
 		const start = tabs[0]?.starting_index;
-		const kinds =
-			typeof start === "number" && start > 0 ? [D.tabsColumnsAbove] : [];
+		// A basic or shadow menu's tile row holding fields of two tabs, which HQ's build refuses.
+		const mixed =
+			screen === "long" &&
+			detail.peek("case_tile_template") === "custom" &&
+			tileRowMixesTabs(detail, tabs) &&
+			module.docType !== "AdvancedModule";
+		const kinds = [
+			...(typeof start === "number" && start > 0 ? [D.tabsColumnsAbove] : []),
+			...(mixed ? [D.tabsTileRowMixedTabs] : []),
+		];
 		// Each other kind, and a tab's display condition, is a class of the tabs too, so it stands
 		// at each key of them its entry names (`Accounting.findingAt`).
 		const tabsAt = `${detail.pointer}/tabs`;
@@ -1224,15 +1236,8 @@ function readDetailKeys(
 		if (primary !== undefined)
 			for (const tab of detail.coveredList("tabs", "DetailTab"))
 				registerTabFilter(ctx, module, tab);
-		if (
-			screen === "long" &&
-			detail.peek("case_tile_template") === "custom" &&
-			tileRowMixesTabs(detail, tabs) &&
-			module.docType !== "AdvancedModule"
-		) {
+		if (mixed)
 			ctx.accounting.findingAt(D.tabsTileRowMixed, detail.place, tabsAt);
-			ok = false;
-		}
 		if (primary !== undefined || screen !== "long") ok = false;
 	}
 	if (detail.peek("lookup_enabled") === true) {

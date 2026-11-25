@@ -8552,6 +8552,7 @@
 		"subsection": "Detail tabs",
 		"item": "a custom long tile row mixing fields of two tabs, in a basic or shadow module",
 		"surfaceKeys": [
+			"schema:Detail.tabs",
 			"schema:DetailColumn.grid_y",
 			"schema:DetailTab.starting_index"
 		],

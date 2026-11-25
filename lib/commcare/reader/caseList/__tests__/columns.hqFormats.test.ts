@@ -1150,6 +1150,37 @@ describe("a detail's callout and tabs", () => {
 			shown.map((c) => c?.kind === "calculated" && c.rowField === true),
 		).toEqual([true, false]);
 	});
+	it("refuses a basic menu's detail tile row that holds fields of two tabs, and claims its tabs under it", async () => {
+		// HQ's build refuses such a tile (`invalid tile configuration`); the tabs are a class of
+		// the same refusal, so no key of the detail is left unclaimed.
+		const result = await readDetails((_short, long) => {
+			long.case_tile_template = "custom";
+			for (const [index, column] of long.columns.entries())
+				Object.assign(column, {
+					grid_x: index * 6,
+					grid_y: 0,
+					width: 6,
+					height: 1,
+					horizontal_align: "left",
+					vertical_align: "start",
+					font_size: "medium",
+				});
+			long.tabs = [
+				{
+					doc_type: "DetailTab",
+					isTab: true,
+					header: { en: "Visit" },
+					starting_index: 0,
+				},
+				{ doc_type: "DetailTab", header: { en: "Notes" }, starting_index: 1 },
+			];
+		}, false);
+		const found = closedCodes(result);
+		expect(found).toContain(
+			`${M}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`,
+		);
+		expect(found.filter((code) => code.startsWith("unrecognized"))).toEqual([]);
+	});
 	it("places a refusal on a scalar that cannot supply records for a tab", async () => {
 		const result = await readDetails((_short, long) => {
 			long.tabs = [
