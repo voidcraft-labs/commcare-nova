@@ -7,7 +7,8 @@
  * A base's document is Nova's first reading of its retained answers
  * (`proof/reader/laneReading.ts::readForLane`), under the declaration the
  * base states or the reading's preselected one. A base whose reading is an
- * account, or whose stated declaration the reading does not offer, is no
+ * account, whose stated declaration the reading does not offer, or whose
+ * reading asks HQ for an answer the base was retained without, is no
  * document (`BaseSetAside`): a base is made only of what Nova holds. The
  * corpus sets such a base aside by name (`hqAuthoredDocuments`, written to
  * the corpus's `index.json` as `setAside`) rather than stopping, so the lane
@@ -42,6 +43,7 @@ import {
 	type LaneDeclaration,
 	type LaneMedia,
 	type LaneReadInput,
+	NoRetainedAnswer,
 	readForLane,
 } from "@/proof/reader/laneReading";
 import {
@@ -392,13 +394,14 @@ function didNotComeIn(
  * A base Nova's reading does not take as a document: its reading is an
  * account (`reading: "account"`, the message names its first finding) or
  * does not offer the declaration the base states
- * (`reading: "declaration-not-offered"`). `hqAuthoredDocument` throws it;
+ * (`reading: "declaration-not-offered"`), or asks HQ for an answer the base
+ * holds none of (`reading: "unretained"`). `hqAuthoredDocument` throws it;
  * `hqAuthoredDocuments` sets the base aside with it.
  */
 export class BaseSetAside extends Error {
 	constructor(
 		readonly base: string,
-		readonly reading: "account" | "declaration-not-offered",
+		readonly reading: "account" | "declaration-not-offered" | "unretained",
 		message: string,
 	) {
 		super(message);
@@ -544,7 +547,16 @@ export async function hqAuthoredDocument(
 	app: RetainedHqApp,
 	handRoot: string = join(WORKTREE, HQ_HAND),
 ): Promise<CorpusDocument> {
-	const reading = await readForLane(laneInputFor(app));
+	let reading: Awaited<ReturnType<typeof readForLane>>;
+	try {
+		reading = await readForLane(laneInputFor(app));
+	} catch (error) {
+		/* The reading now asks HQ for something the base was retained without:
+		 * the base is authored again to keep it. */
+		if (error instanceof NoRetainedAnswer)
+			throw new BaseSetAside(app.id, "unretained", error.message);
+		throw error;
+	}
 	if (reading.kind === "account")
 		throw new BaseSetAside(
 			app.id,

@@ -289,6 +289,17 @@ export type LaneReading =
 // Developer messages
 // ---------------------------------------------------------------------------
 
+/** A reading that asked for a request the lane retained no answer for (`noRetainedAnswer` is its message). */
+export class NoRetainedAnswer extends Error {
+	constructor(
+		readonly path: string,
+		message: string,
+	) {
+		super(message);
+		this.name = "NoRetainedAnswer";
+	}
+}
+
 /** A request the lane holds no retained answer for. `base` is the app the reading is of: a base's id, or a corpus document's app id. */
 export function noRetainedAnswer(path: string, base: string): string {
 	return `Nova's reader asked CommCare HQ for ${path} while it read ${base}, and the lane holds no answer for that request. The retained answers are every request Nova's client makes of an app; either the client now asks for something new, which the lane must read and keep (proof/matrix/retain.py), or it built an address HQ does not give.`;
@@ -997,7 +1008,10 @@ export async function readForLane(input: LaneReadInput): Promise<LaneReading> {
 		);
 	} catch (error) {
 		if (error instanceof RetainedAnswerMissing)
-			throw new Error(noRetainedAnswer(error.path, input.appId));
+			throw new NoRetainedAnswer(
+				error.path,
+				noRetainedAnswer(error.path, input.appId),
+			);
 		throw error;
 	}
 }
