@@ -214,9 +214,12 @@ def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(a
                 return set(last["list"]["order"])
 
             expected = {record.case_id for record in ordinary}
+            # The forms' choices read the list's filter, which leaves out a case of the list-only name (the
+            # document's own cases hold one); the standalone list item reads none.
+            chosen = {record.case_id for record in ordinary if record.name != only.name}
             assert last_list(own) == expected | {only.case_id, excluded.case_id}, name
-            assert last_list(first) == expected, name
-            assert last_list(second) == expected, name
+            assert last_list(first) == chosen, name
+            assert last_list(second) == chosen, name
             (instance,) = sent
             submitted = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
             assert [submitted.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
