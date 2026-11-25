@@ -227,6 +227,7 @@
 		"hq-new-app/vellum-case-management-off"
 	],
 	"hq-nova-then-builder": ["hq-nova-then-builder/close-on-a-survey"],
+	"hq-owner-rules": [],
 	"hq-places": [],
 	"hq-plain": [
 		"hq-plain/advanced-itemsets-turned-on",

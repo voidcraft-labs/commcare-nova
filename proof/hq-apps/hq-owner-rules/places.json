@@ -1,0 +1,64 @@
+{
+	"levels": [
+		{
+			"name": "region",
+			"code": "region",
+			"parent": null,
+			"shares_cases": true,
+			"view_descendants": false
+		},
+		{
+			"name": "district",
+			"code": "district",
+			"parent": "region",
+			"shares_cases": true,
+			"view_descendants": false
+		},
+		{
+			"name": "clinic",
+			"code": "clinic",
+			"parent": "district",
+			"shares_cases": true,
+			"view_descendants": false
+		}
+	],
+	"places": [
+		{
+			"location_id": "5328c202d2344c56a8c09da98b6fe4b5",
+			"name": "north",
+			"site_code": "north",
+			"level": "region",
+			"parent": null,
+			"metadata": {},
+			"archived": false
+		},
+		{
+			"location_id": "92901a86ab1f456fb615f6dff8dc2321",
+			"name": "north_district",
+			"site_code": "north_district",
+			"level": "district",
+			"parent": "north",
+			"metadata": {},
+			"archived": false
+		},
+		{
+			"location_id": "baedc4a3c2f94400b89c34caaab1767b",
+			"name": "first_clinic",
+			"site_code": "first_clinic",
+			"level": "clinic",
+			"parent": "north_district",
+			"metadata": {},
+			"archived": false
+		},
+		{
+			"location_id": "c978917520c14e768f8f481f73aa6f13",
+			"name": "second_clinic",
+			"site_code": "second_clinic",
+			"level": "clinic",
+			"parent": "north_district",
+			"metadata": {},
+			"archived": false
+		}
+	],
+	"fields": []
+}

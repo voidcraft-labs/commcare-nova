@@ -22,7 +22,8 @@ and the base answers as a person may: the worker who fills in the form
 worker in CommCare HQ too, the first-publish change
 ``owner-rule-given-to-worker``, which no reading gives alone. Its
 configuration is the document's minimum configuration, which the build holds
-the base's to.
+the base's to: its places need ``LOCATIONS``, its case block
+``VELLUM_SAVE_TO_CASE``, and it runs in Web Apps (``CLOUDCARE``).
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from proof.matrix import ops
 from proof.matrix.registry import Base
 
 DOCUMENT = "location-direct"
-CONFIGURATION = Configuration(privileges=frozenset({"LOCATIONS"}))
+CONFIGURATION = Configuration(privileges=frozenset({"CLOUDCARE", "LOCATIONS", "VELLUM_SAVE_TO_CASE"}))
 
 # Parents first: each level's name, code and parent's code, as ``location-direct`` holds them
 # (``lib/commcare/locations/__tests__/locationOwnerFixture.ts::LOCATION_LEVELS``).
