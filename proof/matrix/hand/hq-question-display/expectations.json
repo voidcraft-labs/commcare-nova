@@ -1364,5 +1364,95 @@
 				"value": "00300"
 			}
 		]
+	},
+	{
+		"id": "plain-place-worker-value",
+		"entry": "questions/select1-minimal",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/plain_place",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/plain_place)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "ranked-route-worker-value",
+		"entry": "questions/select1-combobox-fuzzy",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/ranked_route",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/ranked_route)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "attachment-worker-value",
+		"entry": "questions/broadcast-topic-an-address-entry-under-the-gates-above-and",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/attachment)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "last-column-typed",
+		"entry": "questions/n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/last_column"],
+			"answers": [
+				{
+					"path": "/data/last_column",
+					"value": "Corner"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Corner"
+			}
+		]
 	}
 ]
