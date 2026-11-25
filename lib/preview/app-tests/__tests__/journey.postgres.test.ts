@@ -4486,7 +4486,28 @@ it("uses the parent chosen on this visit for a conditional list action and follo
 		savedInTest: true,
 		screen: "menu",
 		name: "New members",
+		selected: [expect.objectContaining({ caseName: "New member" })],
 	});
+	/* HQ's return frame keys the households datum to the household this
+	 * form registered (`_find_best_match`), not the one chosen before the
+	 * list: the session now sits under "Second household". */
+	const held = await sql<{
+		households: { cases: { caseId: string; caseName?: string }[] } | null;
+	}>`
+		SELECT state #> ${`{sessions,default,selections,${id.households}}`}::text[] AS households
+		FROM app_test_sessions WHERE id = ${current.testId}`.execute(h.db());
+	expect(held.rows).toEqual([
+		{
+			households: expect.objectContaining({
+				cases: [
+					expect.objectContaining({
+						caseId: expect.not.stringMatching(/^(closed|open)-to-new-members$/),
+						caseName: "Second household",
+					}),
+				],
+			}),
+		},
+	]);
 	await step({ kind: "home" });
 	await step({ kind: "menu", moduleUuid: id.parentList });
 	const parentAction = await step({
