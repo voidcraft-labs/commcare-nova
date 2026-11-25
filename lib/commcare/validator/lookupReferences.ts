@@ -14,6 +14,7 @@ import {
 	reservedInstanceTagCause,
 } from "@/lib/lookup/constants";
 import {
+	lookupNameSlotOf,
 	lookupPathNameIssue,
 	lookupPathNameSentence,
 } from "@/lib/lookup/pathNames";
@@ -174,17 +175,12 @@ export function validateLookupReferences(
 		name: string,
 		part: "tag" | "column",
 	): void {
-		const issue = lookupPathNameIssue(
-			name,
-			occurrence.registrySlot,
-			part,
-			platforms,
-		);
+		const slot = lookupNameSlotOf(occurrence.registrySlot, occurrence.subpath);
+		const issue = lookupPathNameIssue(name, slot, part, platforms);
 		if (issue === null) return;
 		const readableInWebApps =
 			issue === "unreadable-name" &&
-			lookupPathNameIssue(name, occurrence.registrySlot, part, ["web-apps"]) ===
-				null;
+			lookupPathNameIssue(name, slot, part, ["web-apps"]) === null;
 		errors.push(
 			validationError(
 				"LOOKUP_PATH_NAME_UNAVAILABLE",

@@ -1,5 +1,5 @@
-"""A visit form selects rows from two HQ tables with names retained verbatim, beside a third table its variants'
-display conditions read.
+"""A visit form selects rows from HQ tables with names retained verbatim: two with a period or Greek letters, and
+an ASCII one its variants' display conditions read.
 
 The table editor saves the exact definitions. Vellum saves the itemsets and their
 field references. Each selected row populates a different field, including when
@@ -30,7 +30,8 @@ TABLES = (
         ),
     },
     # The display-condition variants read this one: HQ checks a display condition with an XPath reader of
-    # unaccented names, so a condition naming ζωνες shows that check rather than the class its row names.
+    # unaccented names, so a condition naming ζωνες shows that check rather than the class its row names. A select
+    # reads it too, so the base's reading holds the table its variants' conditions read.
     {
         "tag": "zones",
         "fields": ("code", "code.1", "zone.name"),
@@ -41,7 +42,7 @@ TABLES = (
     },
 )
 # The tables the visit form's selects read.
-SELECTED = ("meeting.1", "ζωνες")
+SELECTED = ("meeting.1", "ζωνες", "zones")
 
 
 def visit_source(name):
@@ -57,6 +58,7 @@ def visit_source(name):
         label_field="label.1",
     )
     lookup_select(form, "zone", "Zone", "ζωνες", value_field="clé", label_field="région")
+    lookup_select(form, "area", "Area", "zones", value_field="code", label_field="zone.name")
     for tag in SELECTED:
         source = f"item-list:{tag}"
         declare_instance(form, source, f"jr://fixture/{source}")

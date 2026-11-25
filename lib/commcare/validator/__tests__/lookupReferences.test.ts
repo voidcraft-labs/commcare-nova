@@ -126,10 +126,15 @@ describe("lookup reference validation", () => {
 					one.details?.issue,
 				]);
 		// CommCare HQ checks a menu's display condition with js-xpath, whose
-		// names are unaccented, so only that slot refuses the accented tag; the
-		// select, the case list and the form logic read it.
+		// names are unaccented, and its form builder reads form logic (a
+		// select's row filter and a case change's value here) with it too, so
+		// those slots refuse the accented tag; the case list reads it.
 		expect(issues(doc, "clínicas", "code.1")).toEqual([
 			["module_display_condition", "tag", "hq-unreadable-name"],
+			["lookup_options_source", "tag", "form-builder-unreadable-name"],
+			["lookup_options_source", "tag", "form-builder-unreadable-name"],
+			["lookup_options_source", "tag", "form-builder-unreadable-name"],
+			["case_operation_write_value", "tag", "form-builder-unreadable-name"],
 		]);
 		expect(issues(doc, "clinicas", "code.1")).toEqual([]);
 		expect(issues(doc, "sites.1", "code")).toContainEqual([
@@ -154,13 +159,18 @@ describe("lookup reference validation", () => {
 			"column",
 			"unreadable-name",
 		]);
+		// Web Apps reads it in the select and the case list; HQ's form builder
+		// still reads form logic with unaccented names alone.
 		expect(
 			issues(
 				{ ...doc, appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" } },
 				"sites",
 				"Ა",
 			),
-		).toEqual([]);
+		).toEqual([
+			["lookup_options_source", "column", "form-builder-unreadable-name"],
+			["case_operation_write_value", "column", "form-builder-unreadable-name"],
+		]);
 	});
 
 	it("finds no lookup references in documents without lookup carriers", () => {

@@ -492,6 +492,44 @@ describe("a form slot's text read through the reading hook", () => {
 			});
 	});
 
+	it("refuses form logic reading a name HQ's form builder cannot read, and reads its ASCII neighbour", () => {
+		const doc = visitDoc();
+		const ref = {
+			entity: "field",
+			uuid: fieldNamed(doc, "q1"),
+			slot: "relevant",
+		} as const;
+		const judge = (tag: string, column: string) => {
+			const table = wireTable(tag, [{ name: column, type: "text" }]);
+			return readExpression(
+				doc,
+				registration(
+					doc,
+					ref,
+					`count(instance('${tag}')/${tag}_list/${tag}[${column} = 'upland']) > 0`,
+				),
+				readEnv({
+					lookup: new Map([[table.id, table]]),
+					instanceSources: new Map([
+						[onlyForm(doc), new Map([[tag, `jr://fixture/item-list:${tag}`]])],
+					]),
+				}),
+			);
+		};
+		for (const [tag, column, name] of [
+			["ζωνες", "code", "ζωνες"],
+			["zones", "clé", "clé"],
+		])
+			expect(judge(tag, column)).toMatchObject({
+				kind: "refused",
+				cause: {
+					entryId: "expressions-and-data/non-ascii-lookup-name-in-form-logic",
+					name,
+				},
+			});
+		expect(judge("zones", "code")).toMatchObject({ kind: "bound" });
+	});
+
 	it("reads an instance declared from jr://fixture/user-groups as the groups read Nova holds later", () => {
 		const doc = visitDoc();
 		const ref = {

@@ -14,11 +14,14 @@
  * inside them bare.
  *
  * Two tables hold the same two columns, `clé` and `région`: `ζωνες`, whose
- * tag is Greek, and `zones_b`, whose tag is ASCII. Each is read by a select
- * whose choices come from it and by a calculation reading `région` by the
- * chosen `clé`, so the form builder's two saves (proof 4) meet a declaration
- * read only through names it cannot lex, and Core's session reads both
- * tables (intent).
+ * tag is Greek, and `zones_b`, whose tag is ASCII. A select's choices come
+ * from each, showing `région` and saving `clé`: the names HQ's form builder
+ * keeps as written. Form logic reading either table's names is refused
+ * (`expressions-and-data/non-ascii-lookup-name-in-form-logic`): before that
+ * refusal, this document's calculations reading `région` by the chosen `clé`
+ * came back from the form builder's save as `zones_b[clé = #form/area]`, which
+ * HQ's build refused. Proof 4 holds the two saves to the selects, and Core's
+ * session reads both tables (intent).
  *
  * Fixed values: the restore holds both tables as HQ's restore serves them.
  * The worker picks each table's second row.
@@ -30,12 +33,6 @@ import {
 	wireTable,
 } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { proseText } from "@/lib/domain";
-import {
-	eq,
-	formField,
-	tableColumn,
-	tableLookup,
-} from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
@@ -82,7 +79,7 @@ export function lookupNonAsciiNames() {
 						uuid: form,
 						name: "Visit",
 						type: "survey",
-						fields: tables.flatMap(({ definition, code, region, question }) => [
+						fields: tables.map(({ definition, code, region, question }) =>
 							f({
 								kind: "single_select",
 								uuid: uuid(question),
@@ -95,20 +92,7 @@ export function lookupNonAsciiNames() {
 									labelColumnId: region.id,
 								},
 							}),
-							f({
-								kind: "hidden",
-								uuid: uuid(`${question}_region`),
-								id: `${question}_region`,
-								calculate: tableLookup(
-									definition.id,
-									region.id,
-									eq(
-										tableColumn(definition.id, code.id),
-										formField(uuid(question)),
-									),
-								),
-							}),
-						]),
+						),
 					},
 				],
 			},
@@ -140,18 +124,13 @@ export function lookupNonAsciiNames() {
 				path: `/data/${question}`,
 				value: "2",
 			})),
-			expressions: tables.flatMap(({ question }) => [
-				`/data/${question}`,
-				`/data/${question}_region`,
-			]),
+			expressions: tables.map(({ question }) => `/data/${question}`),
 		},
 		expect: [
 			{ pointer: "/answers/0/result", value: "ok" },
 			{ pointer: "/answers/1/result", value: "ok" },
 			{ pointer: "/values/0/value", value: "bas" },
-			{ pointer: "/values/1/value", value: "Basses terres" },
-			{ pointer: "/values/2/value", value: "bas" },
-			{ pointer: "/values/3/value", value: "Basses terres" },
+			{ pointer: "/values/1/value", value: "bas" },
 		],
 	});
 	return targetedDocument({

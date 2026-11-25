@@ -4986,7 +4986,7 @@
 		],
 		"valueClass": "non-ascii-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values. A condition HQ checks with its own XPath reader refuses such a name (`expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks`). A form declares a table whose tag HQ's form builder cannot read under the table's `item-list:` fixture id: the builder drops that declaration on save, and HQ's build declares a missing `item-list:` instance again (`XForm.add_missing_instances`).",
+		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values. A select reads a table and shows and saves columns of such names. A condition HQ checks with its own XPath reader refuses them (`expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks`), and so does form logic, which HQ's form builder reads with that reader (`expressions-and-data/non-ascii-lookup-name-in-form-logic`). A form declares a table whose tag HQ's form builder cannot read under the table's `item-list:` fixture id: the builder drops that declaration on save, and HQ's build declares a missing `item-list:` instance again (`XForm.add_missing_instances`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -5076,6 +5076,35 @@
 			{
 				"kind": "not-hq-buildable",
 				"named": "HQ checks these conditions with js-xpath (`xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so its build validation (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`) and its search options save (`views/modules.py::_check_xpath`) refuse the expression"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/non-ascii-lookup-name-in-form-logic",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "form logic (a calculation, condition, default, validation, repeat count, label output, case change or a select's row filter) reading a lookup tag or column whose name holds anything but unaccented letters, digits, `_`, `.` and `-`",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name"
+		],
+		"valueClass": "form-logic-non-ascii-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's form builder reads form logic with js-xpath (`xpath.jisonlex`: `NCName`, unaccented names), and saves an expression it cannot read with its own `#form/` references left in, which HQ's build refuses (proof 4 on `targeted-lookup-non-ascii-names`: `zones_b[clé = #form/area]`, \"invalid calculate expression\"). A select's own table and the columns its choices show and save are kept as written",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's form builder reads form logic with js-xpath (`xpath.jisonlex`: `NCName`, unaccented names), and saves an expression it cannot read with its own `#form/` references left in, which HQ's build refuses (proof 4 on `targeted-lookup-non-ascii-names`: `zones_b[clé = #form/area]`, \"invalid calculate expression\")"
 			}
 		],
 		"platforms": {

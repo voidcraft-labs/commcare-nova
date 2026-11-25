@@ -38,6 +38,37 @@ const HQ_CHECKED_SLOTS: ReadonlySet<string> = new Set([
 	"excluded_owner_ids",
 ]);
 
+/** The slot a select's choices from a table hold: the table and the
+ * columns its choices show and save, which HQ's form builder keeps as
+ * written (`itemset.js`: the nodeset's instance by a pattern, the label and
+ * value refs compared with the table's names as text). */
+const ITEMSET_SLOT = "lookup_options_source";
+
+/** The row filter of a select's choices from a table, which HQ's form
+ * builder reads as XPath. The registry holds it under `lookup_options_source`
+ * (`lib/doc/lookupReferences.ts`: its references' subpath ends `filter`). */
+export const LOOKUP_OPTIONS_FILTER_SLOT = "lookup_options_filter";
+
+/** The slot whose name rule a lookup reference answers to: a select's row
+ * filter is read as form logic, the rest of its choices as the itemset. */
+export function lookupNameSlotOf(
+	registrySlot: string,
+	subpath: readonly unknown[],
+): string {
+	return registrySlot === ITEMSET_SLOT && subpath.includes("filter")
+		? LOOKUP_OPTIONS_FILTER_SLOT
+		: registrySlot;
+}
+
+/** Form logic: every slot a form's own XPath holds but the itemset's names.
+ * HQ's form builder reads each with js-xpath, and one it cannot read it saves
+ * with its own `#form/` references left in (proof 4 on
+ * `targeted-lookup-non-ascii-names`: a calculate went to
+ * `zones_b[clé = #form/area]`, and HQ's build refused it). */
+function isFormLogicSlot(registrySlot: string): boolean {
+	return !SUITE_SLOTS.has(registrySlot) && registrySlot !== ITEMSET_SLOT;
+}
+
 /** Whether CommCare HQ's own XPath reader, which its form builder and its
  * condition checks share (js-xpath `NCName`), reads `name` as a name. */
 export function isFormBuilderXPathName(name: string): boolean {
@@ -52,7 +83,8 @@ export type LookupPathNameIssue =
 	| "unreadable-name"
 	| "interpolated-period"
 	| "undeclared-instance"
-	| "hq-unreadable-name";
+	| "hq-unreadable-name"
+	| "form-builder-unreadable-name";
 
 export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 	switch (issue) {
@@ -64,6 +96,8 @@ export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 			return "CommCare HQ can't find this table by its export name when it builds this screen.";
 		case "hq-unreadable-name":
 			return "CommCare HQ checks this condition with its own reader, which takes only unaccented letters, digits, _, . and - in a name, and turns it down.";
+		case "form-builder-unreadable-name":
+			return "CommCare HQ's form builder reads form logic with a reader that takes only unaccented letters, digits, _, . and - in a name, so a save there would break this form.";
 	}
 }
 
@@ -72,6 +106,7 @@ const LOOKUP_PATH_NAME_ISSUES: readonly LookupPathNameIssue[] = [
 	"interpolated-period",
 	"undeclared-instance",
 	"hq-unreadable-name",
+	"form-builder-unreadable-name",
 ];
 
 /** The sentence a setting that reads a table or column by a name that
@@ -107,6 +142,8 @@ export function lookupPathNameIssue(
 	if (!isPortableName(name, platforms)) return "unreadable-name";
 	if (HQ_CHECKED_SLOTS.has(registrySlot) && !isFormBuilderXPathName(name))
 		return "hq-unreadable-name";
+	if (isFormLogicSlot(registrySlot) && !isFormBuilderXPathName(name))
+		return "form-builder-unreadable-name";
 	if (
 		part === "tag" &&
 		SUITE_SLOTS.has(registrySlot) &&
@@ -122,14 +159,16 @@ export function lookupPathNameIssue(
 }
 
 /** Project data can be used by apps on either platform. The case list
- * filter goes through every suite restriction, and a display condition
- * through CommCare HQ's own check besides. */
+ * filter goes through every suite restriction, a display condition through
+ * CommCare HQ's own check besides, and form logic through HQ's form
+ * builder's reader. */
 export function lookupNameNeedsUseCheck(
 	name: string,
 	part: "tag" | "column",
 ): boolean {
 	return (
 		lookupPathNameIssue(name, "case_list_filter", part) !== null ||
-		lookupPathNameIssue(name, "form_display_condition", part) !== null
+		lookupPathNameIssue(name, "form_display_condition", part) !== null ||
+		lookupPathNameIssue(name, LOOKUP_OPTIONS_FILTER_SLOT, part) !== null
 	);
 }

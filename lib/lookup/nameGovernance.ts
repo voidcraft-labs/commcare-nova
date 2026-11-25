@@ -22,6 +22,7 @@ import { hasLookupDesignProtection } from "./designProtection";
 import { LookupError } from "./errors";
 import {
 	lookupNameNeedsUseCheck,
+	lookupNameSlotOf,
 	lookupPathNameExplanation,
 	lookupPathNameIssue,
 } from "./pathNames";
@@ -77,7 +78,7 @@ function renameProblemInApp(
 			if (name === undefined) continue;
 			const issue = lookupPathNameIssue(
 				name,
-				use.registrySlot,
+				lookupNameSlotOf(use.registrySlot, use.subpath),
 				part,
 				platforms,
 			);

@@ -22,6 +22,14 @@ const claims = defineClaims("lookup-names", {
 		"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
 		"lookup-model:TypeField.name",
 	),
+	formLogicTag: refuse(
+		"expressions-and-data/non-ascii-lookup-name-in-form-logic",
+		"lookup-model:LookupTable.tag",
+	),
+	formLogicColumn: refuse(
+		"expressions-and-data/non-ascii-lookup-name-in-form-logic",
+		"lookup-model:TypeField.name",
+	),
 	interpolated: refuse(
 		"expressions-and-data/dotted-column-interpolated-in-suite",
 		"lookup-model:TypeField.name",
@@ -56,5 +64,7 @@ function nameClaim(issue: LookupPathNameIssue, part: "tag" | "column") {
 			return part === "tag"
 				? claims.hqUnreadableTag
 				: claims.hqUnreadableColumn;
+		case "form-builder-unreadable-name":
+			return part === "tag" ? claims.formLogicTag : claims.formLogicColumn;
 	}
 }
