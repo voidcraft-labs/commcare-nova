@@ -34,6 +34,8 @@ import { inlineOptionsOf } from "./fields/selectOptionsSource";
 import {
 	effectiveAppLocalization,
 	makeTranslationUnitId,
+	translationSourceFingerprint,
+	translationSourceFingerprintsEqual,
 } from "./localization";
 import {
 	caseSelectionCardinality,
@@ -48,6 +50,7 @@ import {
 	moduleSearchWorkflow,
 	type SearchInputDef,
 	searchOpensOnList,
+	searchScreenTitleText,
 	tileCellFor,
 } from "./modules";
 import {
@@ -414,12 +417,26 @@ type ExpressionUses = (
 
 /** Whether a language other than the source holds a search title text of its own. */
 function searchTitleTranslated(doc: BlueprintDoc, moduleUuid: Uuid): boolean {
+	const module = doc.modules[moduleUuid];
+	const search =
+		module === undefined ? undefined : effectiveCaseSearchConfig(module);
+	if (search === undefined) return false;
 	const unit = makeTranslationUnitId("module", moduleUuid, "search-title");
+	// Only a current translation shows: one of an older source shows the source's title.
+	const source = translationSourceFingerprint(
+		"text",
+		searchScreenTitleText(search) ?? "",
+	);
 	return Object.values(
 		effectiveAppLocalization(doc.localization).translations,
 	).some((entries) => {
-		const value = entries[unit]?.value;
-		return typeof value === "string" && value.trim() !== "";
+		const entry = entries[unit];
+		return (
+			entry !== undefined &&
+			typeof entry.value === "string" &&
+			entry.value.trim() !== "" &&
+			translationSourceFingerprintsEqual(entry.sourceFingerprint, source)
+		);
 	});
 }
 

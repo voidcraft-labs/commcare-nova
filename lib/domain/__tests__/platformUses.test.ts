@@ -20,11 +20,14 @@ import {
 	advancedSearchInputDef,
 	contentRunsOn,
 	type FormOtherwise,
+	makeTranslationUnitId,
+	NO_SEARCH_SCREEN_TITLE,
 	PLATFORM_FEATURE_IDS,
 	PLATFORMS,
 	type PlatformFeatureId,
 	platformFeatureUses,
 	proseText,
+	translationSourceFingerprint,
 	unavailablePlatform,
 } from "@/lib/domain";
 import {
@@ -63,6 +66,64 @@ describe("each feature's detector", () => {
 			expect(platformFeatureUses(fixture.without(), only(feature))).toEqual([]);
 		});
 	}
+});
+
+describe("a search title in another language", () => {
+	// A search with no title in its source language shows a title in a language that holds a
+	// current text of its own, which Android leaves out like any other; a translation of an
+	// older title shows the source's, which is none.
+	function untitled(fingerprintOf: string) {
+		const doc = PLATFORM_FEATURE_FIXTURES["search-screen-text"].without();
+		const unit = makeTranslationUnitId(
+			"module",
+			FIXTURE_MODULE,
+			"search-title",
+		);
+		const mod = doc.modules[FIXTURE_MODULE];
+		if (mod === undefined) throw new Error("The fixture holds a menu.");
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[FIXTURE_MODULE]: {
+					...mod,
+					caseSearchConfig: { searchScreenTitle: NO_SEARCH_SCREEN_TITLE },
+				},
+			},
+			localization: {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "spa"],
+				wireCodes: { eng: "en", spa: "es" },
+				translations: {
+					spa: {
+						[unit]: {
+							value: "Buscar",
+							sourceFingerprint: translationSourceFingerprint(
+								"text",
+								fingerprintOf,
+							),
+							origin: "human" as const,
+							review: "reviewed" as const,
+							translatedFrom: "eng",
+						},
+					},
+				},
+			},
+		};
+	}
+
+	it("is a use where that language's text is current, and none where it is stale", () => {
+		expect(
+			platformFeatureUses(untitled(""), only("search-screen-text")),
+		).toHaveLength(1);
+		expect(
+			platformFeatureUses(
+				untitled("Find a patient"),
+				only("search-screen-text"),
+			),
+		).toEqual([]);
+	});
 });
 
 describe("the search workflow and the case list menu entry", () => {
