@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -334,6 +335,63 @@ describe("case writer type admission", () => {
 				.find((type) => type.name === "patient")
 				?.properties.find((property) => property.name === "weight")?.data_type,
 		).toBeUndefined();
+	});
+	it("names a question an opening assignment fills from the property as one that opens on its value", () => {
+		const writer = (id: string) =>
+			f({
+				kind: "text",
+				id,
+				label: "Weight",
+				caseWrite: { caseType: "patient", property: "weight" },
+			});
+		const base = admittedCaseListDoc({
+			fields: [writer("initial")],
+			additionalForms: [
+				{ name: "Followup", type: "followup", fields: [writer("updated")] },
+			],
+		});
+		const later = Object.values(base.fields).find(
+			(field) => field.id === "updated",
+		);
+		const followup = Object.values(base.forms).find(
+			(form) => form.name === "Followup",
+		);
+		if (later === undefined || followup === undefined)
+			throw new Error("The follow-up asks the weight.");
+		// The whole-number question starts from the case's value through the
+		// form's opening assignment, not its default.
+		const { default_value: _, ...withoutDefault } = later as typeof later & {
+			default_value?: unknown;
+		};
+		const opened = checked({
+			...base,
+			fields: {
+				...base.fields,
+				[later.uuid]: {
+					...withoutDefault,
+					kind: "int" as const,
+				} as typeof later,
+			},
+			forms: {
+				...base.forms,
+				[followup.uuid]: {
+					...followup,
+					openingAssignments: [
+						{
+							uuid: testUuid("weight-opening"),
+							field: later.uuid,
+							source: { kind: "own" },
+							property: "weight",
+						},
+					],
+				},
+			},
+		});
+		const found = findings(opened).filter((error) => error.code === disagree);
+		expect(found.map((error) => error.details?.castBy)).toEqual([
+			"updated",
+			"updated",
+		]);
 	});
 	it("collects a nested group writer and leaves a calculate-driven hidden writer to expression typing", () => {
 		const base = admittedCaseListDoc({
