@@ -4,8 +4,10 @@
 which is what a stored outcome of the package is keyed by
 (``proof.store.queue.PACKAGE_DATA``): ``targeted-save-to-case-shapes``,
 whose captured first publish the base ``hq-nova-then-builder`` applies before
-it saves every form in HQ's form builder, so a change to that document's
-capture runs the package again.
+it saves every form in HQ's form builder, and ``location-direct``, whose
+captured first publish the base ``hq-owner-rules`` applies over an organization
+with two clinics, so a change to either document's capture runs the package
+again.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
-DOCUMENTS = ("targeted-save-to-case-shapes",)
+DOCUMENTS = ("location-direct", "targeted-save-to-case-shapes")
 
 
 class _Named(dict):

@@ -64,15 +64,18 @@ import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
 import {
 	type FirstPublishChangePlaces,
 	firstPublishChangePlaces,
+	withAnsweredChanges,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
 import { Pieces } from "@/lib/deployment/reading/pieces";
 import { boundAsItStands } from "@/lib/deployment/reading/projectData/lookupTables";
+import { workerOwnerMutations } from "@/lib/deployment/reading/projectData/ownerRules";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
 import {
 	mayUseProjectFactory,
 	sourceFactoryReads,
 } from "@/lib/deployment/reading/projectData/read";
+import { resolveOwnerRuleChoices } from "@/lib/deployment/reading/projectData/reviewTypes";
 import {
 	EMPTY_TARGET_IDENTITY,
 	observedTargetIdentity,
@@ -171,6 +174,9 @@ export interface LaneReadInput {
 	readonly servedMedia?: readonly ServedFile[];
 	/** A first reading's declaration: the base's own, or absent for the reading's preselected one. */
 	readonly declaration?: LaneDeclaration;
+	/** A first reading's answers to the review's owner-rule questions, by level code, as a person
+	 *  gives them to the create (`BringInInput.ownerRuleChoices`): the base's own, or none. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	/** `mint`: a base's first reading. `match`: a read back, which must give D's own UUIDs. */
 	readonly identity: "mint" | "match";
 	/** The reader's `claims` option. */
@@ -290,6 +296,16 @@ export type LaneReading =
 			readonly kind: "declaration-not-offered";
 			readonly stated: LaneDeclaration;
 			readonly offered: readonly LaneDeclaration[];
+			readonly asked: readonly string[];
+			readonly claims: string;
+	  }
+	/** A first reading whose owner-rule answers are not one for each question its review asks
+	 *  (`reviewTypes.ts::resolveOwnerRuleChoices`): the create refuses it, and so does the lane. */
+	| {
+			readonly kind: "owner-rules-not-answered";
+			readonly stated: Readonly<Record<string, string>>;
+			/** The level code of each question the review asks. */
+			readonly askedLevels: readonly string[];
 			readonly asked: readonly string[];
 			readonly claims: string;
 	  };
@@ -568,6 +584,32 @@ async function firstReading(
 			claims: claimsText,
 		};
 	}
+	/* The base's answers to the review's owner-rule questions, applied as the create applies them
+	 * (`reading/create.ts`), and the change they make named as the birth names it
+	 * (`reading/birth.ts::adoptedDeploymentWrite`). */
+	const stated = input.ownerRuleChoices ?? {};
+	const ownerRules = resolveOwnerRuleChoices(
+		result.gathered.review.ownerRules,
+		stated,
+	);
+	if (!ownerRules.ok)
+		return {
+			kind: "owner-rules-not-answered",
+			stated,
+			askedLevels: result.gathered.review.ownerRules.map((rule) => rule.level),
+			asked: asked(),
+			claims: claimsText,
+		};
+	const read = docUnder(draft.doc, chosen.mutations);
+	const doc = docUnder(read, workerOwnerMutations(read, ownerRules.levels));
+	const firstPublish = withAnsweredChanges(
+		chosen.firstPublish,
+		chosen.firstPublishFacts,
+		doc,
+	);
+	const answered = firstPublish.ids.filter(
+		(id) => !chosen.firstPublish.ids.includes(id),
+	);
 	const rows = adoptedIdentityRows(draft.identities, fetched.modules);
 	if (!rows.ok)
 		throw new Error(
@@ -575,7 +617,7 @@ async function firstReading(
 		);
 	return {
 		kind: "read",
-		doc: docUnder(draft.doc, chosen.mutations),
+		doc,
 		identity: rows.rows.map(
 			({ entityKind, novaEntityUuid, uniqueId, xmlns }) => ({
 				entityKind,
@@ -586,11 +628,21 @@ async function firstReading(
 		),
 		declaration: laneDeclarationOf(chosen.runsOnlyOn, chosen.splitDatetime),
 		offered,
-		firstPublish: [...chosen.firstPublish.ids],
-		firstPublishPlaces: firstPublishChangePlaces(
-			chosen.firstPublishFacts,
-			chosen.firstPublish.ids,
-		),
+		firstPublish: [...firstPublish.ids],
+		firstPublishPlaces: [
+			...firstPublishChangePlaces(
+				chosen.firstPublishFacts,
+				chosen.firstPublish.ids,
+			),
+			...firstPublishChangePlaces(
+				{
+					...chosen.firstPublishFacts,
+					read: chosen.firstPublishFacts.doc,
+					doc,
+				},
+				answered,
+			),
+		],
 		/* The record the birth writes (`reading/birth.ts::adoptedDeploymentWrite`). */
 		keyedCaseIds: result.gathered.targetIdentity.keyedCaseIds,
 		columnWords: result.gathered.targetIdentity.columnWords,

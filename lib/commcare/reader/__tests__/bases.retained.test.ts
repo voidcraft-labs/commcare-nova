@@ -210,6 +210,10 @@ function discrepancies(base: RetainedHqApp, reading: LaneReading): string[] {
 		return [
 			`The base ${base.id} is to be read under ${words(reading.stated)}, and its reading offers only ${reading.offered.map(words).join(", ")}.`,
 		];
+	if (reading.kind === "owner-rules-not-answered")
+		return [
+			`The base ${base.id} answers the owner rules ${JSON.stringify(reading.stated)}, and its reading asks about the levels ${JSON.stringify(reading.askedLevels)}. Give its ownerRuleChoices one answer a level it asks about (proof/matrix/bases/).`,
+		];
 	const expected = base.expected;
 	const changes = [
 		...(words(reading.declaration) === words(expected.declaration)

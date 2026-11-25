@@ -97,6 +97,10 @@ interface Answer {
 	readonly claims: string;
 	readonly declaration?: LaneDeclaration;
 	readonly offered?: readonly LaneDeclaration[];
+	/** Where the owner-rule answers a first reading states are not one for each question it asks:
+	 *  those answers, and the level of each question. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
+	readonly ownerRuleLevels?: readonly string[];
 	readonly firstPublish?: readonly string[];
 	readonly held?: readonly {
 		readonly key: string;
@@ -250,6 +254,12 @@ async function answer(request: Request): Promise<Answer> {
 		return { ...base, findings: reading.findings };
 	if (reading.kind === "declaration-not-offered")
 		return { ...base, declaration: reading.stated, offered: reading.offered };
+	if (reading.kind === "owner-rules-not-answered")
+		return {
+			...base,
+			ownerRuleChoices: reading.stated,
+			ownerRuleLevels: reading.askedLevels,
+		};
 	// Where two assets of the document are one file, the expected document names the one the read
 	// back names it by.
 	const expectedDoc =

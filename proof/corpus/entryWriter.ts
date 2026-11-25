@@ -305,6 +305,9 @@ function hqAuthoredJson(facts: HqAuthoredFacts) {
 	return {
 		identity: facts.identity,
 		declaration: facts.declaration,
+		...(facts.ownerRuleChoices !== undefined && {
+			ownerRuleChoices: facts.ownerRuleChoices,
+		}),
 		firstPublish: facts.firstPublish,
 		mediaPaths: Object.fromEntries(facts.mediaPaths),
 	};

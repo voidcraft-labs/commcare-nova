@@ -83,7 +83,8 @@ class Base:
     (``test_retained.py::test_a_base_exhibits_what_it_names``). ``vellum``
     names each ``(menu, form)`` position saved once in HQ's form builder
     after ``build``. ``declaration`` is the one it is read under, or None for
-    the reading's preselected one. ``worker_location`` is the site code of the
+    the reading's preselected one. ``owner_rule_choices`` answers the owner-rule
+    questions its reading asks, by level code. ``worker_location`` is the site code of the
     place its builder names as the worker's, or None. ``cases`` names each
     case its case database holds beside the generated ones, as ``(case type,
     ((property, value), ...))``, putting together values A gives one by one
@@ -100,6 +101,9 @@ class Base:
     worker_location: str | None = None
     # The cases the base names beside the generated ones, which the case seed records.
     cases: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
+    # The base's answers to its reading's owner-rule questions, ``(level code, answer)`` each, as a person gives
+    # them to the create (``BringInInput.ownerRuleChoices``); none where its reading asks none.
+    owner_rule_choices: tuple[tuple[str, str], ...] = ()
 
     def as_json(self):
         """The base as ``base.json`` records it: its configuration as one entry of a corpus document's
@@ -117,6 +121,7 @@ class Base:
                 "caseSearchEnabled": configuration.case_search_enabled,
             },
             "declaration": "preselected" if self.declaration is None else self.declaration.as_json(),
+            **({"ownerRuleChoices": dict(self.owner_rule_choices)} if self.owner_rule_choices else {}),
             "exhibits": sorted(self.exhibits),
         }
 
@@ -142,6 +147,7 @@ from proof.matrix.bases import (  # noqa: E402
     names,
     new_app,
     nova_then_builder,
+    owner_rules,
     places,
     plain,
     saved_pages,
@@ -170,6 +176,7 @@ BASES: tuple[Base, ...] = (
     lookup_names.BASE,
     lookup_data.BASE,
     places.BASE,
+    owner_rules.BASE,
     connect_deliver.BASE,
     connect_learn.BASE,
     hq_questions.BASE,

@@ -114,6 +114,9 @@ export interface HqAuthoredFacts {
 		readonly runsOnlyOn: "web-apps" | "android" | null;
 		readonly splitDatetime: boolean;
 	};
+	/** The base's answers to the reading's owner-rule questions, by level code, where it states
+	 *  any: D is the reading under them, as a create makes it. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	/** HQ's path for each asset D references, by asset id. Empty where A maps no file. */
 	readonly mediaPaths: ReadonlyMap<string, string>;
 	/**

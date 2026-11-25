@@ -91,6 +91,8 @@ export interface RetainedHqApp {
 			readonly caseSearchEnabled: boolean;
 		};
 		readonly declaration: "preselected" | LaneDeclaration;
+		/** The base's answers to its reading's owner-rule questions, by level code, where it states any. */
+		readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 		readonly exhibits: readonly string[];
 	};
 	/** `app-source.json`, `application.json` and `current-version.json`. */
@@ -383,6 +385,9 @@ export function laneInputFor(app: RetainedHqApp): LaneReadInput {
 		...(app.base.declaration !== "preselected" && {
 			declaration: app.base.declaration,
 		}),
+		...(app.base.ownerRuleChoices !== undefined && {
+			ownerRuleChoices: app.base.ownerRuleChoices,
+		}),
 		identity: "mint",
 		claims: "full",
 	};
@@ -429,7 +434,11 @@ function didNotComeIn(
 export class BaseSetAside extends Error {
 	constructor(
 		readonly base: string,
-		readonly reading: "account" | "declaration-not-offered" | "answer-missing",
+		readonly reading:
+			| "account"
+			| "declaration-not-offered"
+			| "answer-missing"
+			| "owner-rules-not-answered",
 		message: string,
 	) {
 		super(message);
@@ -597,6 +606,12 @@ export async function hqAuthoredDocument(
 			"declaration-not-offered",
 			declarationNotOffered(app.id, reading.stated, reading.offered),
 		);
+	if (reading.kind === "owner-rules-not-answered")
+		throw new BaseSetAside(
+			app.id,
+			"owner-rules-not-answered",
+			`The base ${app.id} states the owner-rule answers ${JSON.stringify(reading.stated)}, and its reading asks about the levels ${JSON.stringify(reading.askedLevels)}: a create takes one answer for each level it asks about and no other. Give the base's ownerRuleChoices one answer a level in proof/matrix/bases/, and author it again.`,
+		);
 	const { media, mediaPaths } = baseMedia(app, reading.media);
 	const hand = join(handRoot, app.id);
 	const hqAuthored: HqAuthoredFacts = {
@@ -605,6 +620,9 @@ export async function hqAuthoredDocument(
 		firstPublish: reading.firstPublish,
 		firstPublishPlaces: reading.firstPublishPlaces,
 		declaration: reading.declaration,
+		...(app.base.ownerRuleChoices !== undefined && {
+			ownerRuleChoices: app.base.ownerRuleChoices,
+		}),
 		mediaPaths,
 		keyedCaseIds: reading.keyedCaseIds,
 		columnWords: reading.columnWords,

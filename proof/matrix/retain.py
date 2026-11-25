@@ -376,6 +376,8 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
     }
     if base.declaration is not None:
         found["declaration"] = base.declaration.as_json()
+    if base.owner_rule_choices:
+        found["ownerRuleChoices"] = dict(base.owner_rule_choices)
     return found
 
 
@@ -453,6 +455,11 @@ def not_read_message(base_id, answer, kept) -> str:
         shown += f"; and {len(listed) - LISTED_FINDINGS} more"
     if answer.get("kind") == "declaration-not-offered":
         shown = f"it states {answer.get('declaration')}, and the reading offers {answer.get('offered')}"
+    if answer.get("kind") == "owner-rules-not-answered":
+        shown = (
+            f"it answers the owner rules {answer.get('ownerRuleChoices')}, and the reading asks about the levels"
+            f" {answer.get('ownerRuleLevels')}"
+        )
     return (
         f"Nova's reader did not read the base {base_id} the lane made in CommCare HQ ({answer.get('kind')}):"
         f" {shown or 'no finding'}. A base is made only of what Nova holds, so either the reader is wrong about that"
