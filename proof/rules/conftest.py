@@ -75,7 +75,6 @@ DOCUMENTS = (
     "standard-case-reads",
     "targeted-advanced-module",
     "targeted-hq-side-owned",
-    "targeted-lookup-non-ascii-names",
     "targeted-plain-help",
     "targeted-sync-on-form-entry",
     "tile-boxed",

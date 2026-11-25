@@ -103,7 +103,6 @@ from proof.rules import (  # noqa: E402
     hidden_sort_header,
     hint_validation_markdown_form,
     inactive_parent_select,
-    item_list_declarations,
     itext_value_order,
     lookup_fields_unshown,
     media_path_of_a_shared_file,
@@ -131,7 +130,6 @@ RULES: tuple[SpellingRule, ...] = (
     # A form, stored or built: Vellum's own markup first, then what Core reads alike in either spelling.
     vellum_attributes.RULE,
     vellum_hashtags.RULE,
-    item_list_declarations.RULE,
     required_condition.RULE,
     # Before empty_binds: a select's bind left with its node set alone is then an empty bind.
     select_string_type.RULE,

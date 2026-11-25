@@ -41,17 +41,14 @@ describe("lookupFixtureId / lookupFixtureSrc", () => {
 });
 
 describe("lookupXformInstanceId", () => {
-	// HQ's form builder drops the declaration of a tag its XPath reader
-	// (js-xpath: unaccented letters, digits, `_`, `.` and `-`) cannot lex, and
-	// HQ's build declares a missing `item-list:<tag>` again but not a bare
-	// `ζωνες` (proof4 on hq-lookup-names: "missing some instance declarations
-	// that can't be automatically added").
-	it("declares a tag the form builder cannot read under the fixture id", () => {
-		expect(lookupXformInstanceId("ζωνες")).toBe("item-list:ζωνες");
-		expect(lookupXformInstanceId("régions")).toBe("item-list:régions");
+	it("declares a tag that names an instance CommCare provides under the fixture id", () => {
+		expect(lookupXformInstanceId("locations")).toBe("item-list:locations");
+		expect(lookupXformInstanceId("search_selected_cases")).toBe(
+			"item-list:search_selected_cases",
+		);
 	});
 
-	it("keeps a tag the form builder reads, dotted and hyphenated ones included", () => {
+	it("keeps any other tag, dotted and hyphenated ones included", () => {
 		for (const tag of ["zones", "meeting.1", "health-facility-v2", "_x"])
 			expect(lookupXformInstanceId(tag)).toBe(tag);
 	});

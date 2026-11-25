@@ -126,14 +126,16 @@ describe("lookup reference validation", () => {
 					one.details?.issue,
 				]);
 		// CommCare HQ checks a menu's display condition with js-xpath, whose
-		// names are unaccented, and its form builder reads form logic (a
-		// select's row filter and a case change's value here) with it too, so
-		// those slots refuse the accented tag; the case list reads it.
+		// names are unaccented, and its form builder reads every form path with
+		// it too (each select's table, its row filter, a case change's value),
+		// so those slots refuse the accented tag; the case list reads it.
 		expect(issues(doc, "clínicas", "code.1")).toEqual([
 			["module_display_condition", "tag", "hq-unreadable-name"],
-			["lookup_options_source", "tag", "form-builder-unreadable-name"],
-			["lookup_options_source", "tag", "form-builder-unreadable-name"],
-			["lookup_options_source", "tag", "form-builder-unreadable-name"],
+			...Array.from({ length: 5 }, () => [
+				"lookup_options_source",
+				"tag",
+				"form-builder-unreadable-name",
+			]),
 			["case_operation_write_value", "tag", "form-builder-unreadable-name"],
 		]);
 		expect(issues(doc, "clinicas", "code.1")).toEqual([]);

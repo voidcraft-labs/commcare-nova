@@ -1,30 +1,24 @@
 /**
- * Lookup names with letters outside ASCII, read in a form
+ * Lookup column names with letters outside ASCII, shown and saved by a select
  * (`targeted-lookup-non-ascii-names`).
  *
- * CommCare HQ's form builder reads XPath with js-xpath, whose names are
- * unaccented letters, digits, `_`, `.` and `-`, and drops the declaration of
- * an instance whose reads it cannot lex. HQ's build declares a missing
- * instance again only where its id names a scheme HQ knows
- * (`XForm.add_missing_instances`): it declared `item-list:ζωνες` again on
- * `hq-lookup-names`, and refused a bare `ζωνες` ("missing some instance
- * declarations that can't be automatically added"). So Nova declares a tag
- * outside js-xpath's names under its fixture id
- * (`lib/commcare/lookup/naming.ts::lookupXformInstanceId`), and keeps a tag
- * inside them bare.
+ * CommCare HQ's form builder reads a form's expressions with js-xpath, whose
+ * names are unaccented letters, digits, `_`, `.` and `-`. It compares a
+ * select's label and value refs with the table's names as text, so a select
+ * over `zones_b` showing `région` and saving `clé` keeps them through its two
+ * saves (proof 4), and Core's session reads the table (intent).
  *
- * Two tables hold the same two columns, `clé` and `région`: `ζωνες`, whose
- * tag is Greek, and `zones_b`, whose tag is ASCII. A select's choices come
- * from each, showing `région` and saving `clé`: the names HQ's form builder
- * keeps as written. Form logic reading either table's names is refused
- * (`expressions-and-data/non-ascii-lookup-name-in-form-logic`): before that
- * refusal, this document's calculations reading `région` by the chosen `clé`
- * came back from the form builder's save as `zones_b[clé = #form/area]`, which
- * HQ's build refused. Proof 4 holds the two saves to the selects, and Core's
- * session reads both tables (intent).
+ * A form reading a table whose tag is outside those names, or form logic
+ * reading such a column, is refused
+ * (`expressions-and-data/non-ascii-lookup-name-a-form-reads`). Before that
+ * refusal this document also read a table tagged `ζωνες` in a select, and both
+ * tables in calculations: the form builder dropped the `item-list:ζωνες`
+ * declaration, so HQ refused the form ("Instance: item-list:ζωνες Does not
+ * exists"), and saved each calculation as `zones_b[clé = #form/area]`, which
+ * HQ's build refused.
  *
- * Fixed values: the restore holds both tables as HQ's restore serves them.
- * The worker picks each table's second row.
+ * Fixed values: the restore holds the table as HQ's restore serves it. The
+ * worker picks its second row.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -47,7 +41,7 @@ const ROWS = [
 ] as const;
 
 export function lookupNonAsciiNames() {
-	const tables = (["ζωνες", "zones_b"] as const).map((tag, index) => {
+	const tables = (["zones_b"] as const).map((tag) => {
 		const definition = wireTable(
 			tag,
 			COLUMNS.map((name) => ({ name, type: "text" as const })),
@@ -55,7 +49,7 @@ export function lookupNonAsciiNames() {
 		const [code, region] = definition.columns;
 		if (code === undefined || region === undefined)
 			throw new Error(`The ${tag} table has no ${COLUMNS.join(", ")} columns.`);
-		const question = index === 0 ? "zone" : "area";
+		const question = "area";
 		return {
 			definition,
 			code,
@@ -128,9 +122,7 @@ export function lookupNonAsciiNames() {
 		},
 		expect: [
 			{ pointer: "/answers/0/result", value: "ok" },
-			{ pointer: "/answers/1/result", value: "ok" },
 			{ pointer: "/values/0/value", value: "bas" },
-			{ pointer: "/values/1/value", value: "bas" },
 		],
 	});
 	return targetedDocument({

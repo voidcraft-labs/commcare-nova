@@ -23,11 +23,11 @@ const claims = defineClaims("lookup-names", {
 		"lookup-model:TypeField.name",
 	),
 	formLogicTag: refuse(
-		"expressions-and-data/non-ascii-lookup-name-in-form-logic",
+		"expressions-and-data/non-ascii-lookup-name-a-form-reads",
 		"lookup-model:LookupTable.tag",
 	),
 	formLogicColumn: refuse(
-		"expressions-and-data/non-ascii-lookup-name-in-form-logic",
+		"expressions-and-data/non-ascii-lookup-name-a-form-reads",
 		"lookup-model:TypeField.name",
 	),
 	interpolated: refuse(

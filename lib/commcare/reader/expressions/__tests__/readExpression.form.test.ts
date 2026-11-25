@@ -523,7 +523,7 @@ describe("a form slot's text read through the reading hook", () => {
 			expect(judge(tag, column)).toMatchObject({
 				kind: "refused",
 				cause: {
-					entryId: "expressions-and-data/non-ascii-lookup-name-in-form-logic",
+					entryId: "expressions-and-data/non-ascii-lookup-name-a-form-reads",
 					name,
 				},
 			});

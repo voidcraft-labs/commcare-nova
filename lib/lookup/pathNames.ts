@@ -39,9 +39,10 @@ const HQ_CHECKED_SLOTS: ReadonlySet<string> = new Set([
 ]);
 
 /** The slot a select's choices from a table hold: the table and the
- * columns its choices show and save, which HQ's form builder keeps as
- * written (`itemset.js`: the nodeset's instance by a pattern, the label and
- * value refs compared with the table's names as text). */
+ * columns its choices show and save. HQ's form builder compares the label
+ * and value refs with the table's names as text (`itemset.js`:
+ * `validateRefWidget`) and keeps them as written; it reads the nodeset's
+ * path, the table's tag, with its XPath reader. */
 const ITEMSET_SLOT = "lookup_options_source";
 
 /** The row filter of a select's choices from a table, which HQ's form
@@ -60,7 +61,7 @@ export function lookupNameSlotOf(
 		: registrySlot;
 }
 
-/** Form logic: every slot a form's own XPath holds but the itemset's names.
+/** Form logic: every slot a form's own XPath holds but a select's choices.
  * HQ's form builder reads each with js-xpath, and one it cannot read it saves
  * with its own `#form/` references left in (proof 4 on
  * `targeted-lookup-non-ascii-names`: a calculate went to
@@ -97,7 +98,7 @@ export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 		case "hq-unreadable-name":
 			return "CommCare HQ checks this condition with its own reader, which takes only unaccented letters, digits, _, . and - in a name, and turns it down.";
 		case "form-builder-unreadable-name":
-			return "CommCare HQ's form builder reads form logic with a reader that takes only unaccented letters, digits, _, . and - in a name, so a save there would break this form.";
+			return "CommCare HQ's form builder reads a form's expressions with a reader that takes only unaccented letters, digits, _, . and - in a name, so a save there would break this form.";
 	}
 }
 
@@ -142,7 +143,15 @@ export function lookupPathNameIssue(
 	if (!isPortableName(name, platforms)) return "unreadable-name";
 	if (HQ_CHECKED_SLOTS.has(registrySlot) && !isFormBuilderXPathName(name))
 		return "hq-unreadable-name";
-	if (isFormLogicSlot(registrySlot) && !isFormBuilderXPathName(name))
+	// A form reads a table through its tag in a path HQ's form builder reads,
+	// and the builder drops the declaration of an instance whose reads it
+	// cannot lex; HQ then refuses the form ("Instance: item-list:ζωνες Does not
+	// exists", proof 4 on targeted-lookup-non-ascii-names).
+	if (
+		(isFormLogicSlot(registrySlot) ||
+			(registrySlot === ITEMSET_SLOT && part === "tag")) &&
+		!isFormBuilderXPathName(name)
+	)
 		return "form-builder-unreadable-name";
 	if (
 		part === "tag" &&

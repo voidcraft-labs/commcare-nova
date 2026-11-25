@@ -1,5 +1,5 @@
-"""A visit form selects rows from HQ tables with names retained verbatim: two with a period or Greek letters, and
-an ASCII one its variants' display conditions read.
+"""A visit form selects rows from two HQ tables with names retained verbatim: one whose names hold a period, and
+one whose shown and saved columns hold letters outside ASCII, which its variants' display conditions read.
 
 The table editor saves the exact definitions. Vellum saves the itemsets and their
 field references. Each selected row populates a different field, including when
@@ -21,28 +21,18 @@ TABLES = (
         "fields": ("site.id", "label.1"),
         "rows": (("garden", "Garden"), ("library", "Library")),
     },
-    {
-        "tag": "ζωνες",
-        "fields": ("clé", "région", "名前", "code.1", "zone.name"),
-        "rows": (
-            ("upland", "Upland", "upper", "on", "Upper zone"),
-            ("lowland", "Lowland", "lower", "off", "Lower zone"),
-        ),
-    },
-    # The display-condition variants read this one: HQ checks a display condition with an XPath reader of
-    # unaccented names, so a condition naming ζωνες shows that check rather than the class its row names. A select
-    # reads it too, so the base's reading holds the table its variants' conditions read.
+    # A select shows région and saves clé, names HQ's form builder keeps as written; its variants' display
+    # conditions read code, code.1, zone.name and région. No form reads a table whose tag holds letters outside
+    # ASCII: HQ's form builder drops such a table's declaration on save, and HQ then refuses the form.
     {
         "tag": "zones",
-        "fields": ("code", "code.1", "zone.name"),
+        "fields": ("code", "clé", "région", "名前", "code.1", "zone.name"),
         "rows": (
-            ("upland", "on", "Upper zone"),
-            ("lowland", "off", "Lower zone"),
+            ("upland", "upland", "Upland", "upper", "on", "Upper zone"),
+            ("lowland", "lowland", "Lowland", "lower", "off", "Lower zone"),
         ),
     },
 )
-# The tables the visit form's selects read.
-SELECTED = ("meeting.1", "ζωνες", "zones")
 
 
 def visit_source(name):
@@ -57,10 +47,9 @@ def visit_source(name):
         value_field="site.id",
         label_field="label.1",
     )
-    lookup_select(form, "zone", "Zone", "ζωνες", value_field="clé", label_field="région")
-    lookup_select(form, "area", "Area", "zones", value_field="code", label_field="zone.name")
-    for tag in SELECTED:
-        source = f"item-list:{tag}"
+    lookup_select(form, "zone", "Zone", "zones", value_field="clé", label_field="région")
+    for table in TABLES:
+        source = f"item-list:{table['tag']}"
         declare_instance(form, source, f"jr://fixture/{source}")
     return form.tostring(xml_declaration=True).decode("utf-8")
 
@@ -97,8 +86,7 @@ def build(authoring):
     _pages.new_survey_module(authoring, app_id, name="Visit")
     ops.upload_form_source(authoring, app_id, 0, 0, visit_source, "visit-source")
     # No display condition reads a table here: HQ checks one with an XPath reader of unaccented names alone, so a
-    # condition reading ζωνες fails HQ's own build (``hq-lookup-names/non-ascii-table-in-form-condition``), and
-    # the other variants' conditions read ``zones``.
+    # condition reading région fails HQ's own build (``hq-lookup-names/non-ascii-column-in-form-condition``).
     return app_id
 
 

@@ -1,5 +1,4 @@
 import { lookupReadTypes } from "@/lib/domain/lookupRead";
-import { isFormBuilderXPathName } from "@/lib/lookup/pathNames";
 /**
  * Identity-to-wire-name resolution for lookup carriers.
  *
@@ -73,15 +72,7 @@ export function lookupTagCollidesWithInstanceName(tag: string): boolean {
 }
 
 export function lookupXformInstanceId(tag: string): string {
-	// HQ's form builder drops a declaration whose reads its own XPath reader
-	// (js-xpath, `NCName`) cannot lex, so a save there loses the instance of a
-	// tag outside those names. HQ's build declares a missing instance again
-	// only where its id names a scheme it knows (`XForm.add_missing_instances`,
-	// the `item-list` factory in suite_xml/post_process/instances.py), so such
-	// a tag is declared under its fixture id.
-	return lookupTagCollidesWithInstanceName(tag) || !isFormBuilderXPathName(tag)
-		? lookupFixtureId(tag)
-		: tag;
+	return lookupTagCollidesWithInstanceName(tag) ? lookupFixtureId(tag) : tag;
 }
 
 /** A session expression reads the suite's fixture, while form logic reads

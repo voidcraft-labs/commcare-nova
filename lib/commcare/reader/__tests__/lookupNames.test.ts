@@ -141,7 +141,7 @@ describe("reading an HQ form with named table data", () => {
 			["zones", "zone.name", "dotted-column-interpolated-in-suite"],
 			// HQ's build checks a form's display condition with js-xpath, whose
 			// names are unaccented ("form filter has xpath error" on
-			// hq-lookup-names/non-ascii-table-in-form-condition).
+			// hq-lookup-names/non-ascii-column-in-form-condition).
 			["ζωνες", "label", "non-ascii-lookup-name-in-a-condition-hq-checks"],
 			["zones", "région", "non-ascii-lookup-name-in-a-condition-hq-checks"],
 		]) {
