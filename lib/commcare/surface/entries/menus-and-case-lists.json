@@ -5573,11 +5573,11 @@
 		"gates": []
 	},
 	{
-		"id": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-to-no-declared",
+		"id": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-through-a-case-link",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column formats",
-		"item": "`translatable-enum` on a column that is not a calculated property, over a relation path whose link the app declares no case type for, in a module that does not offer search",
+		"item": "`translatable-enum` on a column that is not a calculated property, over a path through a case link (`parent/<property>`), in a module that does not offer search",
 		"surfaceKeys": [
 			"format:translatable-enum",
 			"schema:DetailColumn.enum",
@@ -5586,9 +5586,9 @@
 			"schema:MappingItem.key",
 			"schema:MappingItem.value"
 		],
-		"valueClass": "translatable-enum-on-a-non-calculated-column-over-a-relation-to-no-declared-case-type",
+		"valueClass": "translatable-enum-on-a-non-calculated-column-through-a-case-link",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: HQ's build walks the link to whatever case it reaches, as a plain column over the same path reads it (`parent-property-column-of-a-type-with-no-parent`, `PropertyRef.readReached`); the calculation Nova holds a translated column as reads a related case only through a link the app declares, and the record dialect has no spelling of a reached read",
+		"dispositionCell": "**HELD-NEW**: HQ's build walks the link to whatever case it reaches with no case-type test (`detail_screen.py::PropertyXpathGenerator`), as a plain column over the same path reads it (`PropertyRef.readReached`); the calculation Nova holds a translated column as prints a link the app declares with its case type, and reads none it does not declare, and the record dialect has no spelling of a reached read",
 		"subject": "case-list-columns",
 		"owner": "case-list-and-detail",
 		"platforms": {

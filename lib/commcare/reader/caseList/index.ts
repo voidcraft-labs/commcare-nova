@@ -1175,8 +1175,8 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 	const registrations = ctx.pending.list();
 	// A non-calculated `translatable-enum` Nova holds as a calculation over its property
 	// (`PendingExpression.readerClaimed`, whose node its read claims) and the expression stage
-	// held no tree for: its relation reaches no case type the app declares, which no calculation
-	// Nova holds yet reads, so the column stands under that class rather than as an empty value.
+	// held no tree for: a path through a case link, which no calculation Nova holds yet reads as
+	// HQ's build does, so the column stands under that class rather than as an empty value.
 	registrations.forEach((registration, index) => {
 		if (
 			registration.readerClaimed !== true ||

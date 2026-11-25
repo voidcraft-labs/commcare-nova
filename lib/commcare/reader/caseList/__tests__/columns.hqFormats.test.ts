@@ -220,7 +220,7 @@ describe("CommCare HQ's column formats", () => {
 				});
 		}, false);
 		expect(closedCodes(read)).toEqual([
-			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-to-no-declared`,
+			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-through-a-case-link`,
 		]);
 	});
 	it("keeps a distance order on a translated saved property bound to the real row", async () => {

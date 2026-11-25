@@ -372,7 +372,9 @@
 		"hq-questions/user-repeat-in-question-list"
 	],
 	"hq-saved-pages": [
+		"hq-saved-pages/case-tile-field-off-a-template-tile",
 		"hq-saved-pages/detail-with-a-print-template",
+		"hq-saved-pages/list-laid-out-as-a-tile",
 		"hq-saved-pages/tile-cell-bordered-and-shaded"
 	],
 	"hq-search": [

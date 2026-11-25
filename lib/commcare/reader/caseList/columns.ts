@@ -367,7 +367,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		"schema:DetailColumn.format",
 	),
 	translatableEnumRelationUnreached: refuse(
-		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-to-no-declared`,
+		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-through-a-case-link`,
 		"schema:DetailColumn.format",
 	),
 	graph: refuse(`${A}22-graph`, "schema:DetailColumn.format"),

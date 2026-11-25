@@ -137,6 +137,7 @@ def _usercase_reads(content):
         if condition:
             yield condition
     yield from _link_reads(content)
+    yield from _detail_usercase_reads(content)
     for root in _parsed_sources(content):
         for tag, attributes in _XPATH_ATTRIBUTES.items():
             for element in root.iter(tag):
@@ -144,6 +145,22 @@ def _usercase_reads(content):
                     value = element.get(attribute)
                     if value:
                         yield value
+
+
+def _detail_usercase_reads(content):
+    """Each case list or case detail column of a menu over the worker's record, as the XPath HQ's build gives it: a
+    column over ``user/<property>`` reads ``UsercaseXPath().case()`` (``detail_screen.py::PropertyXpathGenerator``),
+    which a worker reads blank where the space makes no record, as a form's read is. Nova asks for the privilege
+    for such a column (``lib/commcare/planPrivileges.ts::menusUsingWorkerRecord``)."""
+    from corehq.apps.app_manager.xpath import UsercaseXPath
+
+    for module in _modules(content):
+        details = getattr(module, "case_details", None)
+        for detail in (getattr(details, "short", None), getattr(details, "long", None)):
+            for column in getattr(detail, "columns", None) or []:
+                field = getattr(column, "field", None) or ""
+                if not getattr(column, "useXpathExpression", False) and field.split("/")[0] == "user" and "/" in field:
+                    yield str(UsercaseXPath().case())
 
 
 def _needs_usercase(content):
