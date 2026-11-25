@@ -15,6 +15,7 @@ import {
 	type DeclarationChoices,
 	planDeclarationChoices,
 } from "@/lib/doc/platformDeclaration";
+import { sourceSlotWriter } from "@/lib/doc/sourceLanguage";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -36,6 +37,7 @@ import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { formWireName } from "@/lib/domain/formWireName";
+import { languageEntries } from "@/lib/domain/localization";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -47,11 +49,19 @@ import {
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { submissionLayout } from "@/lib/domain/submissionLayout";
 import {
+	hasGeneratedWording,
+	localizeTranslationUnit,
 	snapshotTranslationUnits,
 	type TranslationUnit,
 } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import { syntheticModuleUuid } from "../emissionPlan";
+import {
+	effectiveWordingValue,
+	presentedSearchWording,
+	wordingSourceUnit,
+} from "../generatedSearchWording";
+import { outputLocaleRole } from "../localeFile";
 import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
 import { fieldBindType, hiddenAnswerTypeOf } from "../xform/bindType";
@@ -74,6 +84,7 @@ import {
 	orderPrioritiesAsRead,
 	rulesOnTheColumnsTheyLandOn,
 } from "./caseList/order";
+import { withReadTexts } from "./caseList/readTexts";
 import { tileColumnsShownNowhereAsRead } from "./caseList/tile";
 import { catalogAsRead } from "./caseManagement/catalog";
 import { caseManagementOperationsAsRead } from "./caseManagement/operationOrder";
@@ -97,6 +108,8 @@ import {
 	holdText,
 	hqDeviceText,
 	recordTextRewrite,
+	unheldRefusal,
+	unheldText,
 } from "./heldText";
 import { isJsonObject, pointerToken, sameJson } from "./jsonCursor";
 import { resourcedDocument, sourceLanguageAsRead } from "./languages";
@@ -137,7 +150,6 @@ import {
 	refuseFormNameReadAsInstance,
 	settleDeferredFormNames,
 } from "./structure";
-import type { TranslationSink } from "./translations";
 import { translationEntryFor } from "./translations";
 import type { AppStringTable, ReadDraft, ReadFacts } from "./types";
 import {
@@ -160,8 +172,8 @@ const AUTO_GPS = "schema:Application.auto_gps_capture";
 const CLAIMS = defineClaims("assemble", {
 	/** `auto_gps_capture` on a Connect app: Nova writes `true` from `connectType`. */
 	autoGpsConnect: derived(`${A}/45-hq-auto-gps-capture`, AUTO_GPS),
-	/** `auto_gps_capture` on any other app: kept at the project space's value. */
-	autoGpsOther: account(
+	/** On an ordinary app the author chooses the app-wide setting. */
+	autoGpsOther: take(
 		`${A}/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app`,
 		AUTO_GPS,
 	),
@@ -173,6 +185,7 @@ const CLAIMS = defineClaims("assemble", {
 		`${A}/translations-generated-key-over-one-text`,
 		TRANSLATIONS,
 	),
+	generatedWording: take(`${A}/translations-generated-wording`, TRANSLATIONS),
 	generatedAnythingElse: refuse(
 		`${A}/translations-generated-key-anything-else`,
 		TRANSLATIONS,
@@ -185,7 +198,10 @@ export interface ReaderCanonicalChoice {
 	readonly id: string;
 	/** `one-wire`: two documents print the same bytes. `not-carried`: content no export holds. */
 	readonly kind: "one-wire" | "not-carried";
-	readonly apply: (doc: BlueprintDoc) => BlueprintDoc;
+	readonly apply: (
+		doc: BlueprintDoc,
+		incumbentSource?: LanguageTag,
+	) => BlueprintDoc;
 }
 
 type DraftFields = Record<Uuid, Record<string, unknown>>;
@@ -205,15 +221,26 @@ function eachEntry(
 	const localization = doc.localization;
 	if (localization === undefined) return;
 	const units = snapshotTranslationUnits(doc);
-	for (const [language, entries] of Object.entries(localization.translations))
-		for (const unit of Object.keys(entries) as TranslationUnitId[]) {
-			const current = units.get(unit);
+	for (const language of localization.languageOrder)
+		for (const unit of Object.keys(
+			languageEntries(localization, language) ?? NO_ENTRIES,
+		) as TranslationUnitId[]) {
+			const raw = units.get(unit);
+			const current = raw && wordingSourceUnit(doc, raw);
 			visit(
 				language as LanguageTag,
 				unit,
 				current === undefined
 					? undefined
-					: { fingerprint: current.sourceFingerprint, source: current.source },
+					: {
+							fingerprint: current.sourceFingerprint,
+							source: current.generated
+								? (presentedSearchWording(
+										doc,
+										localizeTranslationUnit(doc, language, current),
+									).defaultText ?? current.source)
+								: current.source,
+						},
 			);
 		}
 }
@@ -416,6 +443,59 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
+		/** HQ sees each language's effective worker text. A stale draft may
+		 * carry a distinct fallback retained across a source-language change. */
+		id: "out-of-date-translation-is-absent",
+		kind: "one-wire",
+		apply: (doc) => {
+			/* An app holding no entry has none out of date. */
+			const held = doc.localization;
+			if (
+				held === undefined ||
+				(Object.keys(held.generatedSourceWording ?? {}).length === 0 &&
+					Object.values(held.translations).every(
+						(entries) => Object.keys(entries).length === 0,
+					))
+			)
+				return doc;
+			const units = snapshotTranslationUnits(doc);
+			return withCandidate(doc, (draft) => {
+				const loc = draft.localization;
+				if (!loc) return;
+				eachEntry(doc, (language, id, current) => {
+					const raw = units.get(id);
+					const unit = raw && wordingSourceUnit(doc, raw);
+					const entries =
+						language === loc.sourceLanguage
+							? loc.generatedSourceWording
+							: loc.translations[language];
+					const entry = entries?.[id];
+					if (!entry || !entries) return;
+					if (!unit) {
+						delete entries[id];
+						return;
+					}
+					if (entry.workerFallback) {
+						const effective = effectiveWordingValue(doc, language, unit);
+						if (sameJson(effective, current?.source)) delete entries[id];
+						else
+							entries[id] = {
+								value: structuredClone(effective),
+								sourceFingerprint: unit.sourceFingerprint,
+								origin: "human",
+								review: "reviewed",
+								translatedFrom: loc.sourceLanguage,
+							};
+					} else if (
+						localizeTranslationUnit(doc, language, unit).status ===
+						"out-of-date"
+					)
+						delete entries[id];
+				});
+			});
+		},
+	},
+	{
 		/** A form's text blank in one language beside another language's text, and the text a
 		 *  worker reads there in its place: the export writes every language's filled text, so the
 		 *  reader returns the second (`xform/prose.ts::blankItextFilled`). It runs before every
@@ -431,13 +511,27 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: (doc) => {
 			const equal: [LanguageTag, TranslationUnitId][] = [];
 			eachEntry(doc, (language, unit, current) => {
-				const entry = doc.localization?.translations[language]?.[unit];
-				if (current !== undefined && sameJson(entry?.value, current.source))
+				const entry = languageEntries(doc.localization, language)?.[unit];
+				if (
+					current !== undefined &&
+					(sameJson(entry?.value, current.source) ||
+						(entry?.value === "" &&
+							snapshotTranslationUnits(doc).get(unit)?.generated))
+				)
 					equal.push([language, unit]);
 			});
 			return withCandidate(doc, (draft) => {
-				for (const [language, unit] of equal)
-					delete draft.localization?.translations[language]?.[unit];
+				const loc = draft.localization;
+				if (!loc) return;
+				for (const [language, unit] of equal) {
+					const entries =
+						language === loc.sourceLanguage
+							? loc.generatedSourceWording
+							: loc.translations[language];
+					if (entries) delete entries[unit];
+				}
+				if (!Object.keys(loc.generatedSourceWording ?? {}).length)
+					delete loc.generatedSourceWording;
 			});
 		},
 	},
@@ -557,52 +651,34 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			const source = doc.localization?.sourceLanguage;
 			const current: [LanguageTag, TranslationUnitId, string][] = [];
 			eachEntry(doc, (language, unit, now) => {
-				const entry = doc.localization?.translations[language]?.[unit];
+				const entry = languageEntries(doc.localization, language)?.[unit];
+				const row = snapshotTranslationUnits(doc).get(unit);
 				if (
 					now !== undefined &&
 					entry !== undefined &&
-					translationSourceFingerprintsEqual(
+					(translationSourceFingerprintsEqual(
 						entry.sourceFingerprint,
 						now.fingerprint,
-					)
+					) ||
+						(row && hasGeneratedWording(row)))
 				)
 					current.push([language, unit, now.fingerprint]);
 			});
 			return withCandidate(doc, (draft) => {
 				if (source === undefined) return;
 				for (const [language, unit, fingerprint] of current) {
-					const entry = draft.localization?.translations[language]?.[unit];
+					const loc = draft.localization;
+					const entry = (
+						language === source
+							? loc?.generatedSourceWording
+							: loc?.translations[language]
+					)?.[unit];
 					if (entry === undefined) continue;
 					entry.sourceFingerprint = fingerprint;
 					entry.origin = "human";
 					entry.review = "reviewed";
 					entry.translatedFrom = source;
 				}
-			});
-		},
-	},
-	{
-		/** A translation entry whose source fingerprint is not the current source's, and none: the
-		 *  reader returns none, since Nova writes the source text for it. */
-		id: "out-of-date-translation-is-absent",
-		kind: "one-wire",
-		apply: (doc) => {
-			const stale: [LanguageTag, TranslationUnitId][] = [];
-			eachEntry(doc, (language, unit, now) => {
-				const entry = doc.localization?.translations[language]?.[unit];
-				if (
-					now === undefined ||
-					entry === undefined ||
-					!translationSourceFingerprintsEqual(
-						entry.sourceFingerprint,
-						now.fingerprint,
-					)
-				)
-					stale.push([language, unit]);
-			});
-			return withCandidate(doc, (draft) => {
-				for (const [language, unit] of stale)
-					delete draft.localization?.translations[language]?.[unit];
 			});
 		},
 	},
@@ -634,8 +710,8 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		 *  as one whose app name a language before the source translates, keeps its own. */
 		id: "source-language-is-as-read",
 		kind: "one-wire",
-		apply: (doc) => {
-			const source = sourceLanguageAsRead(doc);
+		apply: (doc, incumbentSource) => {
+			const source = sourceLanguageAsRead(doc, incumbentSource);
 			return source === undefined ? doc : resourcedDocument(doc, source);
 		},
 	},
@@ -1234,105 +1310,6 @@ function basicSlotOperationIdsAsRead(doc: BlueprintDoc): BlueprintDoc {
 
 // ── Translations ─────────────────────────────────────────────────────────
 
-/** `doc` with every unit the sink holds written as a translation entry, in each language other
- *  than the source that holds one, against the unit's current source. */
-function withTranslations(
-	doc: BlueprintDoc,
-	sink: TranslationSink,
-): BlueprintDoc {
-	const localization = doc.localization;
-	if (localization === undefined) return doc;
-	const units = snapshotTranslationUnits(doc);
-	const source = localization.sourceLanguage;
-	return withCandidate(doc, (draft) => {
-		const translations = draft.localization?.translations;
-		if (translations === undefined) return;
-		for (const { unit, byLanguage } of sink.units()) {
-			const current = units.get(unit);
-			if (current === undefined) continue;
-			for (const [language, value] of byLanguage) {
-				if (language === source) continue;
-				const targets = translations[language];
-				if (targets === undefined) continue;
-				const entry = translationEntryFor(
-					current.valueKind,
-					current.source,
-					value,
-					source,
-				);
-				if (entry === undefined) delete targets[unit];
-				else targets[unit] = entry;
-			}
-		}
-	});
-}
-
-/** The slot a unit's source text lives in, among the slots whose text a generated string can be
- *  made from in the source language: an app's, a menu's or a form's name, a case list menu
- *  item's or registration's label, a column's header, and a Search field's label or hint.
- *  Undefined for a unit of any other role, whose source-language override stays not yet held. */
-function sourceTextSlot(
-	doc: BlueprintDoc,
-	unit: TranslationUnitId,
-): ((draft: BlueprintDoc, value: string) => void) | undefined {
-	const found = snapshotTranslationUnits(doc).get(unit);
-	const owner = found?.owner;
-	if (found?.role === "app-name")
-		return (draft, value) => {
-			draft.appName = value;
-		};
-	if (found?.role === "module-name" && owner?.kind === "module")
-		return (draft, value) => {
-			draft.modules[owner.moduleUuid].name = value;
-		};
-	if (found?.role === "form-name" && owner?.kind === "form")
-		return (draft, value) => {
-			draft.forms[owner.formUuid].name = value;
-		};
-	if (
-		found?.role === "case-list-menu-item-label" &&
-		owner?.kind === "module" &&
-		doc.modules[owner.moduleUuid]?.caseListMenuItem !== undefined
-	)
-		return (draft, value) => {
-			const item = draft.modules[owner.moduleUuid].caseListMenuItem;
-			if (item !== undefined) item.label = value;
-		};
-	if (
-		found?.role === "case-list-registration-label" &&
-		owner?.kind === "module" &&
-		doc.modules[owner.moduleUuid]?.caseListRegistrationForm !== undefined
-	)
-		return (draft, value) => {
-			const registration =
-				draft.modules[owner.moduleUuid].caseListRegistrationForm;
-			if (registration !== undefined) registration.label = value;
-		};
-	if (found?.role === "case-list-header" && owner?.kind === "case-list-column")
-		return (draft, value) => {
-			const column = draft.modules[
-				owner.moduleUuid
-			].caseListConfig?.columns.find((one) => one.uuid === owner.columnUuid);
-			if (column !== undefined) column.header = value;
-		};
-	if (
-		(found?.role === "search-input-label" ||
-			found?.role === "search-input-hint") &&
-		owner?.kind === "search-input"
-	) {
-		const slot = found.role === "search-input-label" ? "label" : "hint";
-		return (draft, value) => {
-			const input = draft.modules[
-				owner.moduleUuid
-			].caseListConfig?.searchInputs?.find(
-				(one) => one.uuid === owner.searchInputUuid,
-			);
-			if (input !== undefined) (input as Record<string, unknown>)[slot] = value;
-		};
-	}
-	return undefined;
-}
-
 // ── Generated translation keys ───────────────────────────────────────────
 
 /** A key's place among the document's menus and forms: the position each stands at among those
@@ -1611,11 +1588,49 @@ function decideGeneratedKeys(
 		Map<LanguageTag, LocalizedValue>
 	>();
 	const foldedPointers: string[] = [];
+	let hasWording = false;
 	for (const { held } of left) {
 		const verdict = verdicts.get(`${held.language}\u0000${held.key}`) ?? {
 			kind: "not-yet",
 		};
 		const tag = languages.tagOf.get(held.language);
+		const wordingUnit =
+			verdict.kind === "wording" ? units.get(verdict.unit) : undefined;
+		if (verdict.kind === "wording" && tag !== undefined && wordingUnit) {
+			const refusal = unheldRefusal(
+				unheldText(
+					new Map([[held.language, verdict.value]]),
+					[held.language],
+					held.language,
+					outputLocaleRole(wordingUnit),
+				),
+			);
+			if (refusal) {
+				held.json.refuse(held.key, refusal.claim, { name: refusal.name });
+				continue;
+			}
+			const kept = holdText(verdict.value);
+			if (kept !== undefined) {
+				const wording = held.json.take(
+					held.key,
+					CLAIMS.generatedWording,
+					() => kept,
+				).value;
+				ctx.translations.set(verdict.unit, "text", new Map([[tag, wording]]));
+				if (hqDeviceText(verdict.value) !== hqDeviceText(kept))
+					recordTextRewrite(
+						ctx,
+						{
+							entry: CLAIMS.generatedWording.entry,
+							path: `${held.json.pointer}/${pointerToken(held.key)}`,
+						},
+						"list-settings-respelled",
+						true,
+					);
+				hasWording = true;
+				continue;
+			}
+		}
 		const unit = verdict.kind === "fold" ? units.get(verdict.unit) : undefined;
 		const source =
 			tag !== undefined && tag === doc.localization?.sourceLanguage;
@@ -1624,7 +1639,8 @@ function decideGeneratedKeys(
 			tag !== undefined &&
 			unit !== undefined &&
 			(!(source || doc.localization === undefined) ||
-				sourceTextSlot(doc, verdict.unit) !== undefined);
+				hasGeneratedWording(unit) ||
+				sourceSlotWriter(unit) !== undefined);
 		if (verdict.kind === "inert") {
 			held.json.account(held.key, CLAIMS.generatedNoEffect);
 			continue;
@@ -1683,8 +1699,15 @@ function decideGeneratedKeys(
 		foldValues.set(verdict.unit, byTag);
 		/* A fold in another language reaches the sink through `keepShownText`, with every other
 		 * language of its unit. */
-		if (source || doc.localization === undefined)
-			sourceFolds.set(verdict.unit, verdict.value);
+		if (source || doc.localization === undefined) {
+			if (hasGeneratedWording(unit))
+				ctx.translations.set(
+					verdict.unit,
+					unit.valueKind,
+					new Map([[tag, value]]),
+				);
+			else sourceFolds.set(verdict.unit, verdict.value);
+		}
 	}
 	const wireNames = keepShownText(
 		ctx,
@@ -1703,7 +1726,7 @@ function decideGeneratedKeys(
 		if (form !== undefined) refuseFormNameReadAsInstance(ctx, form, after);
 	}
 	ctx.facts.foldedTranslationKeys.push(...foldedPointers);
-	return foldedPointers.length > 0;
+	return hasWording || foldedPointers.length > 0;
 }
 
 /**
@@ -1877,13 +1900,14 @@ function keepShownText(
 			if (
 				typeof value === "string" &&
 				!sameJson(value, unit.source) &&
-				sourceTextSlot(doc, unitId) !== undefined
+				sourceSlotWriter(unit) !== undefined
 			)
 				sourceFolds.set(unitId, value);
 		}
 		const others = new Map<LanguageTag, LocalizedValue>();
 		for (const one of coded)
-			if (one.tag !== sourceTag) others.set(one.tag, shown(one));
+			if (one.tag !== sourceTag || hasGeneratedWording(unit))
+				others.set(one.tag, shown(one));
 		ctx.translations.set(unitId, unit.valueKind, others);
 		if (firstTag === undefined) continue;
 		const source = sourceFolds.get(unitId) ?? unit.source;
@@ -2026,8 +2050,15 @@ function withSourceFolds(
 ): BlueprintDoc {
 	if (folds.size === 0) return doc;
 	return withCandidate(doc, (draft) => {
-		for (const [unit, value] of folds)
-			sourceTextSlot(doc, unit)?.(draft as BlueprintDoc, value);
+		for (const [id, value] of folds) {
+			const unit = snapshotTranslationUnits(doc).get(id);
+			if (!unit) continue;
+			if (hasGeneratedWording(unit)) continue;
+			sourceSlotWriter(unit)?.(
+				draft,
+				unit.valueKind === "prose" ? proseText(value) : value,
+			);
+		}
 	});
 }
 
@@ -2094,7 +2125,22 @@ export function* assembleDocumentSteps(
 	// 1. The claims that waited for every form.
 	if (ctx.draft.connectType !== null)
 		ctx.app.derived("auto_gps_capture", CLAIMS.autoGpsConnect);
-	else ctx.app.account("auto_gps_capture", CLAIMS.autoGpsOther);
+	else {
+		const capture = ctx.app.take(
+			"auto_gps_capture",
+			CLAIMS.autoGpsOther,
+			(value) => value === true,
+		).value;
+		if (capture) {
+			ctx.writeDraft(() => {
+				ctx.draft.appSettings.captureLocation = true;
+			});
+			if (ctx.doc !== undefined)
+				ctx.doc = withCandidate(ctx.doc, (draft) => {
+					draft.appSettings.captureLocation = true;
+				});
+		}
+	}
 
 	// 2. The declaration, over the document as it stands, in every reading.
 	const working = ctx.doc ?? provisionalDocument(ctx);
@@ -2104,7 +2150,7 @@ export function* assembleDocumentSteps(
 	// 3. The document, where no finding stands yet.
 	let whole =
 		ctx.accounting.findings().length === 0
-			? withTranslations(working, ctx.translations)
+			? withReadTexts(working, ctx.translations)
 			: undefined;
 	if (whole !== undefined && !parsesWhole(ctx, whole)) whole = undefined;
 	yield;
@@ -2121,7 +2167,7 @@ export function* assembleDocumentSteps(
 	);
 	settleDeferredFormNames(ctx, foldedKeys);
 	if (folded && whole !== undefined) {
-		whole = withTranslations(
+		whole = withReadTexts(
 			withSourceFolds(working, sourceFolds),
 			ctx.translations,
 		);

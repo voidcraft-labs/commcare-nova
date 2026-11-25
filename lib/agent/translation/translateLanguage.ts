@@ -12,12 +12,17 @@ import {
 	addLanguageMutation,
 	heldLanguageWireCodes,
 } from "@/lib/doc/languageMutations";
+import {
+	presentedSearchWording,
+	wordingSourceUnit,
+} from "@/lib/doc/localizationWorkspace";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
 	collectLocalizedTranslationUnits,
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	hasGeneratedWording,
 	languageTag,
 	localizeTranslationUnit,
 	parseLanguageTag,
@@ -84,14 +89,33 @@ export async function translateLanguage(
 		};
 	const tag = languageTag(target);
 	const exists = localization.languageOrder.includes(tag);
-	const units = collectTranslationUnits(doc).filter((unit) => {
-		if (!exists) return true;
-		const localized = localizeTranslationUnit(doc, tag, unit);
-		return (
-			localized.status === "missing" ||
-			localized.status === "out-of-date" ||
-			(localized.explicit?.origin === "copied" && localized.status !== "ready")
+	const units = collectTranslationUnits(doc).flatMap((raw) => {
+		if (raw.generated?.dormant) return [];
+		const unit = wordingSourceUnit(doc, raw);
+		const sourceRow = localizeTranslationUnit(
+			doc,
+			localization.sourceLanguage,
+			unit,
 		);
+		const targetRow = exists
+			? localizeTranslationUnit(doc, tag, unit)
+			: undefined;
+		// Inherited controls continue to follow the translated ordinary slot.
+		// Translate independently only when someone gave this output its own text.
+		if (sourceRow.generated && !sourceRow.explicit && !targetRow?.explicit)
+			return [];
+		if (
+			targetRow &&
+			!(sourceRow.generated && sourceRow.explicit && !targetRow.explicit) &&
+			targetRow.status !== "missing" &&
+			targetRow.status !== "out-of-date" &&
+			!(targetRow.explicit?.origin === "copied" && targetRow.status !== "ready")
+		)
+			return [];
+		const value = hasGeneratedWording(sourceRow)
+			? presentedSearchWording(doc, sourceRow).effective
+			: sourceRow.source;
+		return [{ ...sourceRow, source: value }];
 	});
 	const mutations: Mutation[] = exists
 		? []
@@ -108,7 +132,11 @@ export async function translateLanguage(
 			},
 		};
 	const memory = new TranslationMemory(
-		exists ? collectLocalizedTranslationUnits(doc, tag) : [],
+		exists
+			? collectLocalizedTranslationUnits(doc, tag).map((row) =>
+					presentedSearchWording(doc, row),
+				)
+			: [],
 	);
 	const schema = strictStructuredSchema(translationBatchOutputSchema);
 	const schemaDefinition = await schema.jsonSchema;

@@ -68,6 +68,7 @@ NOVA_LABELS = {
     "locked_admin_questions": "Locked Admin Questions",
     "locations": "Locations",
     "data_forwarding": "Data Forwarding",
+    "app_dependencies": "App Dependencies",
 }
 
 

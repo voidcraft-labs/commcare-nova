@@ -1,3 +1,4 @@
+import { presentedSearchWording } from "@/lib/commcare/generatedSearchWording";
 import {
 	type BlueprintDoc,
 	collectLocalizedTranslationUnits,
@@ -32,7 +33,9 @@ export function createLocalizationWorkspace(
 	const unitsForLanguage = (language: LanguageTag) => {
 		let units = unitsByLanguage.get(language);
 		if (units === undefined) {
-			units = collectLocalizedTranslationUnits(doc, language);
+			units = collectLocalizedTranslationUnits(doc, language).map((row) =>
+				presentedSearchWording(doc, row),
+			);
 			unitsByLanguage.set(language, units);
 		}
 		return units;
@@ -66,3 +69,14 @@ export function createLocalizationWorkspace(
 		},
 	};
 }
+
+export {
+	effectiveWordingValue,
+	wordingSourceUnit,
+} from "@/lib/commcare/generatedSearchWording";
+export {
+	workerLocalizedValues,
+	workerOutputOverrides,
+	workerWording,
+} from "@/lib/commcare/workerWording";
+export { presentedSearchWording };

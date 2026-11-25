@@ -1,7 +1,11 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import {
-	collectLocalizedTranslationUnits,
+	workerLocalizedValues,
+	workerOutputOverrides,
+} from "@/lib/doc/localizationWorkspace";
+import {
 	effectiveCaseTypes,
+	moduleFormsReadSearch,
 	orderedColumns,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
@@ -19,11 +23,12 @@ import { previewSessionValues } from "../engine/identity";
 import { previewCaseStoreBindings } from "../engine/runtimeBindings";
 import { recordsReadSearch, searchedReading } from "../engine/serverSearchRead";
 import {
+	columnOutputWording,
 	projectLocalizedCaseProperties,
 	relatedColumnProperties,
 } from "../localizedCaseProperties";
 import { previewMenuCaseContext } from "../menuProjection";
-import { projectWorkerModule } from "../workerModule";
+import { projectWorkerColumn, projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { readingSurface } from "./dataRefusal";
 import { AppTestActionError } from "./errors";
@@ -121,22 +126,33 @@ export function appTestCellProjector(
 	// A Search's Results and its Details read results rows; a browse list
 	// and its Details read casedb rows.
 	const columnsReading = reading.columns;
-	const localizedValues = new Map(
-		collectLocalizedTranslationUnits(context.doc, context.language).map(
-			(unit) => [unit.id, unit.effective],
-		),
+	const localizedValues = workerLocalizedValues(context.doc, context.language);
+	const properties = projectLocalizedCaseProperties(
+		mod.caseType,
+		caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [],
+		localizedValues,
 	);
+	const related = relatedColumnProperties(
+		mod.caseListConfig,
+		mod.caseType,
+		caseTypes,
+		localizedValues,
+	);
+	const searchOutput =
+		reading.columns === "results" && !moduleFormsReadSearch(mod);
+	const detail = surface === "detail";
 	const display: ColumnDisplayContext = {
-		caseProperties: projectLocalizedCaseProperties(
-			mod.caseType,
-			caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [],
-			localizedValues,
-		),
-		relatedProperties: relatedColumnProperties(
+		caseProperties: properties,
+		relatedProperties: related,
+		...columnOutputWording(
 			mod.caseListConfig,
 			mod.caseType,
 			caseTypes,
-			localizedValues,
+			properties,
+			related,
+			workerOutputOverrides(context.doc, context.language),
+			searchOutput,
+			detail,
 		),
 		calculatedTemporalTypes: new Map(
 			columns.flatMap((column) => {
@@ -178,14 +194,22 @@ export function appTestCellProjector(
 	return (
 		row: import("../engine/caseDataBindingTypes").CaseRowWithCalculated,
 	) =>
-		columns.map((column) => ({
-			uuid: column.uuid,
-			label: caseColumnLabel(
-				column,
-				display.caseProperties,
-				display.projectProse,
-			),
-			format: column.kind,
-			...projectColumnDisplay(column, row, display),
-		}));
+		columns.map((col) => {
+			const column = projectWorkerColumn(
+				col,
+				searchOutput,
+				detail,
+				localizedValues,
+			);
+			return {
+				uuid: column.uuid,
+				label: caseColumnLabel(
+					column,
+					display.caseProperties,
+					display.projectProse,
+				),
+				format: column.kind,
+				...projectColumnDisplay(column, row, display),
+			};
+		});
 }

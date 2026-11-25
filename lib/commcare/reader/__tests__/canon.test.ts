@@ -1,3 +1,4 @@
+import { connectWireFixtures } from "../../__tests__/connectWireFixtures";
 /**
  * The canonical form of a document, and the pairs its rows name.
  *
@@ -785,6 +786,20 @@ const PAIRS: readonly Pair[] = [
 					calculate: "#form/code_entry",
 				}),
 			]),
+	},
+	{
+		id: "connect-requires-app-location",
+		name: "an ordinary app-wide location choice kept while Connect is on",
+		other: () => {
+			const fixture = connectWireFixtures().find(
+				({ name }) => name === "deliver-default",
+			);
+			if (!fixture) throw new Error("Missing delivery app.");
+			return {
+				...fixture.doc,
+				appSettings: { ...fixture.doc.appSettings, captureLocation: true },
+			};
+		},
 	},
 	{
 		id: "root-question-lists-are-sections",

@@ -320,6 +320,7 @@ export function applicationShell(
 			readonly key: string;
 			readonly value: string;
 		}[];
+		androidPackages?: readonly string[];
 		profileCustomProperties?: Readonly<Record<string, string>>;
 	},
 ): HqApplicationTree {
@@ -333,9 +334,9 @@ export function applicationShell(
 	 * app Settings page attributes) are deliberately NOT emitted. Three keys carry Nova's values beside the
 	 * target's own, `translations`, `add_ons` and `profile`; the update path
 	 * projects each onto the target's current value before import
-	 * (`targetOverlay.ts`). `auto_gps_capture` is written only `true`, for a
-	 * Connect app: an absent key keeps the Auto Capture Location a person
-	 * turned on in HQ. Every other omitted field was previously sent at
+	 * (`targetOverlay.ts`). `auto_gps_capture` is always written, false
+	 * included, so clearing the switch reaches HQ (an absent key on update keeps
+	 * HQ's earlier value). Every other omitted field was previously sent at
 	 * exactly HQ's own schema default, so create behaves identically (couch
 	 * `wrap` supplies the same default, and `_create_app_from_doc` sets
 	 * `cloudcare_enabled` itself from the domain's Web Apps privilege, which a
@@ -358,6 +359,9 @@ export function applicationShell(
 	const properties = options.profileProperties ?? [];
 	const customProperties = options.profileCustomProperties ?? {};
 	const profile = {
+		...(options.androidPackages?.length && {
+			features: { dependencies: options.androidPackages },
+		}),
 		...(properties.length > 0 && {
 			properties: Object.fromEntries(
 				properties.map(({ key, value }) => [key, value]),
@@ -377,7 +381,7 @@ export function applicationShell(
 		// Over an app brought in from CommCare HQ whose Connect app leaves
 		// location capture off, the first publish turns it on, a change the
 		// first-publish register declares (`connect-app-captures-location`).
-		...(options.autoGpsCapture === true && { auto_gps_capture: true }),
+		auto_gps_capture: options.autoGpsCapture === true,
 		// An app brought in that sends both location lists, or the flat one
 		// only, goes back to the project space's own setting, which the
 		// register declares (`location-list-setting-reset`); one that sends

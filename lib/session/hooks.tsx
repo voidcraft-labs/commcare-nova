@@ -128,12 +128,31 @@ export function usePreviewAtDeviceHome(): boolean {
 	return useBuilderSession((s) => s.previewAtDeviceHome);
 }
 
+export function usePreviewInstalledAndroidApps() {
+	return useBuilderSession((s) => s.previewInstalledAndroidApps);
+}
+
+export function useSetPreviewAndroidAppInstalled() {
+	return useBuilderSession((s) => s.setPreviewAndroidAppInstalled);
+}
+
 export function useSetPreviewPlatform(): (platform: Platform) => void {
 	return useBuilderSession((s) => s.setPreviewPlatform);
 }
 
 export function useSetPreviewAtDeviceHome(): (atHome: boolean) => void {
 	return useBuilderSession((s) => s.setPreviewAtDeviceHome);
+}
+
+export function usePreviewLocationFix() {
+	return useBuilderSession((state) => state.previewLocationFix);
+}
+export function usePreviewSubmissionLocation() {
+	return useBuilderSession((state) => state.previewSubmissionLocation);
+}
+
+export function useSetPreviewLocationFix() {
+	return useBuilderSession((state) => state.setPreviewLocationFix);
 }
 
 /** When this Preview run last synced on Android, epoch milliseconds. */

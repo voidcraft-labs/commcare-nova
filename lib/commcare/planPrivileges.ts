@@ -66,6 +66,7 @@ export const HQ_PLAN_PRIVILEGE_IDS = [
 	"locations",
 	"data_forwarding",
 	"locked_admin_questions",
+	"app_dependencies",
 ] as const;
 export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 
@@ -116,6 +117,7 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	locations: "organization",
 	data_forwarding: "data-forwarding",
 	locked_admin_questions: "locked-questions",
+	app_dependencies: "required-android-apps",
 } as const satisfies Record<HqPlanPrivilegeId, PlanFeatureId>;
 
 /** A form named as every reason names it: its name, trimmed, or its id. */
@@ -376,6 +378,12 @@ export function requiredPlanPrivileges(
 	 * (`corehq/motech/repeaters/models.py::domain_can_forward`), so its
 	 * receiver takes each form and nothing reaches CommCare Connect. */
 	add("data_forwarding", connectFormReasons(doc, connect));
+	add(
+		"app_dependencies",
+		doc.appSettings.requiredAndroidApps?.length
+			? ["Workers need other Android apps before opening this app."]
+			: [],
+	);
 
 	const lockedForms = new Set(
 		Object.values(doc.fields)

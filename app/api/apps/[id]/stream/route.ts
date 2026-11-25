@@ -680,7 +680,13 @@ function openStream(args: {
 							const factsText = canonicalJsonText(frame);
 							if (factsText !== announcedTargetFacts) {
 								announcedTargetFacts = factsText;
-								send("preview-target-facts", frame);
+								// An older tab has a strict two-setting schema. Keep its frame readable
+								// when target-specific worker wording needs a richer frame.
+								if (facts?.androidAppLabels !== undefined) {
+									const { androidAppLabels: _labels, ...settings } = facts;
+									send("preview-target-facts", { facts: settings });
+									send("preview-target-wording", frame);
+								} else send("preview-target-facts", frame);
 							}
 						},
 						onError(err) {

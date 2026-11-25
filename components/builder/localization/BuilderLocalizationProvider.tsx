@@ -15,6 +15,7 @@ import {
 	useLocalizedModule as useDocLocalizedModule,
 	useLocalizedTranslationUnit as useDocLocalizedTranslationUnit,
 	useLocalizedValues as useDocLocalizedValues,
+	useWorkerWordingOverride as useDocWorkerWordingOverride,
 } from "@/lib/doc/hooks/useLocalization";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -32,6 +33,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
+import { hasGeneratedWording } from "@/lib/domain/translationUnits";
 import {
 	pushBuilderLensHistory,
 	useBuilderSearch,
@@ -47,7 +49,9 @@ export interface BuilderLanguageState {
 	readonly languages: readonly {
 		readonly tag: LanguageTag;
 		readonly identity: AppLanguageIdentity;
+		readonly direction: "ltr" | "rtl";
 	}[];
+	readonly sourceDirection: "ltr" | "rtl";
 	readonly isSource: boolean;
 	readonly direction: "ltr" | "rtl";
 	selectLanguage(language: LanguageTag): void;
@@ -87,9 +91,11 @@ export function BuilderLocalizationProvider({
 			languages: effective.languageOrder.map((tag) => ({
 				tag,
 				identity: parseLanguageTag(tag),
+				direction: languageDirection(tag, effective),
 			})),
 			isSource: language === effective.sourceLanguage,
-			direction: languageDirection(identity),
+			direction: languageDirection(identity, effective),
+			sourceDirection: languageDirection(effective.sourceLanguage, effective),
 			selectLanguage,
 		};
 	}, [effective, language, selectLanguage]);
@@ -141,6 +147,14 @@ export function useLocalizedText(
 	return typeof value === "string" ? value : undefined;
 }
 
+/** A control can have a platform-specific default. Only authored wording
+ * replaces that platform's normal label. */
+export function useWorkerWordingOverride(
+	unitId: TranslationUnitId,
+): string | undefined {
+	return useDocWorkerWordingOverride(useBuilderLanguage().language, unitId);
+}
+
 export function useLocalizedValues(): ReadonlyMap<
 	TranslationUnitId,
 	LocalizedValue
@@ -170,7 +184,7 @@ export function useTranslationUnitEditor(
 	const { inline } = useBlueprintMutations();
 	const saveTarget = useCallback(
 		(value: LocalizedValue): CommitOutcome => {
-			if (isSource || unit === undefined) {
+			if (unit === undefined || (isSource && !hasGeneratedWording(unit))) {
 				return { ok: false, messages: ["This is the source language."] };
 			}
 			const mutation: Mutation = {

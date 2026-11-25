@@ -565,7 +565,7 @@ class VariantOutcome:
         self.answers = answers
         self.answer = answer
         self.base_source = base_source
-        # The row's holds as the bundle was asked them, each key the external key's text.
+        # The row's holds as the bundle was asked them, keyed by app or the entity's external key.
         self.holds = tuple(holds)
 
 

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { targetAndroidAppLabels } from "@/lib/commcare/androidAppDependencies";
 import { log } from "@/lib/logger";
 import {
 	previewProjectSpace,
@@ -76,12 +77,15 @@ export async function readPreviewDeploymentAnswer(
 	if (target === null || held === null)
 		return { projectSpace, targetFacts: null };
 	const facts = targetFactsOf(held);
+	const androidAppLabels =
+		facts === null ? undefined : targetAndroidAppLabels(facts.uiText);
 	return {
 		projectSpace,
 		targetFacts:
 			facts === null
 				? null
 				: {
+						...(androidAppLabels !== undefined && { androidAppLabels }),
 						fuzzyListSearch:
 							facts.profileProperties["cc-fuzzy-search-enabled"] === "yes",
 						markRequiredQuestions:

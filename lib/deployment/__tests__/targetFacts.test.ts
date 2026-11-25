@@ -155,7 +155,6 @@ const PLANTED: Readonly<Record<KeptLabelId, Partial<TargetFacts>>> = {
 	"language-names": { languageNames: { en: { en: "English" } } },
 	"android-logos": { androidLogos: ["login"] },
 	"mobile-report-version": { mobileReportVersion: "1.0" },
-	"location-with-every-form": { autoGpsCapture: true },
 	"persistent-menu": { persistentMenu: true },
 	"web-apps-breadcrumbs": { breadcrumbs: false },
 	"secure-submissions": { secureSubmissions: true },

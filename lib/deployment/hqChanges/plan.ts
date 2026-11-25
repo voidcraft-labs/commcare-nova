@@ -19,6 +19,10 @@
 
 import { Immer } from "immer";
 import { expandDocSteps } from "@/lib/commcare/expander";
+import {
+	effectiveWordingValue,
+	wordingSourceUnit,
+} from "@/lib/commcare/generatedSearchWording";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { ReadDraft, ReadOutcome } from "@/lib/commcare/reader";
 import {
@@ -27,6 +31,7 @@ import {
 	canonDocumentSteps,
 	type WithheldRewrite,
 } from "@/lib/commcare/reader/canon";
+import { unprintedSearchWording } from "@/lib/commcare/reader/search/guardSplit";
 import { rethrowWorkStop } from "@/lib/commcare/workMeter";
 import {
 	preparedCandidateHasAdmissionIssue,
@@ -36,7 +41,6 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	diffDocsToMutationsSteps,
 	HQ_READING_DELTA,
-	LocalizationEndpointNotRepresentableError,
 } from "@/lib/doc/diffDocsToMutations";
 import {
 	type DocumentChanges,
@@ -54,6 +58,7 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { DeclarationChoice } from "@/lib/doc/platformDeclaration";
+import { staleSourceTranslation } from "@/lib/doc/sourceLanguage";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -63,7 +68,25 @@ import type {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { entryPointByUuid } from "@/lib/domain/entryPoints";
-import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
+import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
+import {
+	effectiveAppLocalization,
+	languageEntries,
+	languageTag,
+	parseLanguageTag,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain/localization";
+import {
+	NO_ENTRIES,
+	ownRecordValue,
+	recordFromEntries,
+} from "@/lib/domain/records";
+import {
+	hasGeneratedWording,
+	snapshotTranslationUnits,
+	storedTranslationValue,
+	translationIsOutOfDate,
+} from "@/lib/domain/translationUnits";
 import { log } from "@/lib/logger";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import type {
@@ -143,7 +166,11 @@ export type HqChangePlan =
 	/** CommCare HQ's app now holds something Nova cannot hold. */
 	| { readonly kind: "account"; readonly findings: readonly Finding[] }
 	/** A change Nova names and cannot take as a change. */
-	| { readonly kind: "held"; readonly reason: HqChangeHeld }
+	| {
+			readonly kind: "held";
+			readonly reason: HqChangeHeld;
+			readonly translation?: import("@/lib/publish/hqChangesKinds").HqSourceTranslationRecovery;
+	  }
 	/** A defect of Nova's: the change did not fit, and nothing is taken. */
 	| {
 			readonly kind: "differs";
@@ -233,7 +260,11 @@ function* canonK(
 	withheld?: (rewrite: WithheldRewrite) => void,
 ): Steps<BlueprintDoc> {
 	const canon = toPersistableDoc(
-		yield* canonDocumentSteps(withSlugsBound(doc, givesWay), withheld),
+		yield* canonDocumentSteps(
+			withSlugsBound(doc, givesWay),
+			withheld,
+			doc.localization?.sourceLanguage,
+		),
 	) as Record<string, unknown>;
 	for (const key of KEYS_WITH_NO_EXTERNAL_KEY) delete canon[key];
 	const settings = canon.appSettings as PersistableDoc["appSettings"];
@@ -430,14 +461,67 @@ function narrowed(
 				break;
 			case "setTranslation": {
 				const before = ownRecordValue(
-					B.localization?.translations[mutation.language],
+					languageEntries(B.localization, mutation.language),
 					mutation.unitId,
 				);
 				const after = mutation.entry;
 				const held = ownRecordValue(
-					D.localization?.translations[mutation.language],
+					languageEntries(D.localization, mutation.language),
 					mutation.unitId,
 				);
+				if (
+					effectiveAppLocalization(B.localization).sourceLanguage !==
+						effectiveAppLocalization(T.localization).sourceLanguage &&
+					held
+				) {
+					const rawOriginal = snapshotTranslationUnits(D).get(mutation.unitId);
+					const rawIncoming = snapshotTranslationUnits(T).get(mutation.unitId);
+					const original = rawOriginal && wordingSourceUnit(D, rawOriginal);
+					const incoming = rawIncoming && wordingSourceUnit(T, rawIncoming);
+					if (
+						original &&
+						incoming &&
+						translationIsOutOfDate(
+							held,
+							original,
+							mutation.language,
+							mutation.language ===
+								effectiveAppLocalization(D.localization).sourceLanguage,
+						)
+					) {
+						const fallback = effectiveWordingValue(
+							T,
+							mutation.language,
+							incoming,
+						);
+						const { workerFallback: _prior, ...saved } = held;
+						out.push({
+							...mutation,
+							entry:
+								deepEqual(fallback, incoming.source) &&
+								!translationSourceFingerprintsEqual(
+									saved.sourceFingerprint,
+									incoming.sourceFingerprint,
+								)
+									? saved
+									: {
+											...saved,
+											workerFallback: {
+												value: fallback,
+												sourceFingerprint: incoming.sourceFingerprint,
+											},
+										},
+						});
+						break;
+					}
+				}
+				// Native strings carry no authorship. When the two readings
+				// agree on a generated output, keep its actual language entry.
+				// The source rebase already moved it to its new storage location.
+				if (before && after && held && deepEqual(before.value, after.value)) {
+					const original = snapshotTranslationUnits(D).get(mutation.unitId);
+					if (original && hasGeneratedWording(original)) break;
+				}
 				if (
 					before !== undefined &&
 					after !== null &&
@@ -693,6 +777,10 @@ export function touchedBy(
 			case "relabelSourceLanguage":
 			case "addLanguage":
 			case "removeLanguage":
+			case "rebindLanguageCodes":
+			case "rebaseSourceLanguage":
+			case "setProjectLanguageDirection":
+			case "moveLanguage":
 			case "setDefaultLanguage":
 			case "setTranslation":
 			case "reviewTranslation":
@@ -843,6 +931,58 @@ interface Target {
 	readonly hqOnly: BlueprintDoc;
 }
 
+/** A take over the published reference can replace unpublished worker text.
+ * HQ cannot replace the saved wording of a dormant control or check.
+ * On a change of source, keep the original provenance and review of any
+ * generated worker text that the take already retains. */
+function retainedGeneratedEdits(
+	head: BlueprintDoc,
+	target: BlueprintDoc,
+	sourceChanged: boolean,
+): Mutation[] {
+	const from = effectiveAppLocalization(head.localization),
+		to = effectiveAppLocalization(target.localization);
+	const current = snapshotTranslationUnits(head),
+		next = snapshotTranslationUnits(target);
+	let hidden: ReadonlySet<string> | undefined;
+	const edits: Mutation[] = [];
+	for (const language of to.languageOrder) {
+		if (!from.languageOrder.includes(language)) continue;
+		const before = languageEntries(head.localization, language) ?? NO_ENTRIES;
+		const after = languageEntries(target.localization, language) ?? NO_ENTRIES;
+		for (const id of new Set([...Object.keys(before), ...Object.keys(after)])) {
+			const prior = ownRecordValue(before, id),
+				planned = ownRecordValue(after, id);
+			const original = current.get(id),
+				unit = next.get(id);
+			if (
+				!unit ||
+				!original ||
+				!hasGeneratedWording(unit) ||
+				deepEqual(prior, planned)
+			)
+				continue;
+			hidden ??= unprintedSearchWording(target);
+			if (
+				!hidden.has(unit.id) &&
+				(!sourceChanged ||
+					!prior ||
+					!deepEqual(
+						effectiveWordingValue(head, language, original),
+						effectiveWordingValue(target, language, unit),
+					))
+			)
+				continue;
+			edits.push({
+				kind: "setTranslation",
+				language,
+				unitId: unit.id,
+				entry: prior ?? null,
+			});
+		}
+	}
+	return edits;
+}
 /**
  * The target over `D`: `H'` applied, and where the changes are applied to
  * the published document, each case property the head declares and the
@@ -858,7 +998,11 @@ function* targetOver(
 	if (!("doc" in taken)) return taken;
 	const hqOnly = taken.doc;
 	if (head === null) return { doc: hqOnly, hqOnly };
-	const additions: Mutation[] = [];
+	const additions = retainedGeneratedEdits(
+		head,
+		hqOnly,
+		Hn.some((mutation) => mutation.kind === "rebaseSourceLanguage"),
+	);
 	for (const type of taken.doc.caseTypes ?? []) {
 		const declared = head.caseTypes?.find((one) => one.name === type.name);
 		if (declared === undefined) continue;
@@ -1147,12 +1291,32 @@ function* plannedFromDocuments(
 
 	/* 5. The change, between readings that agree on every menu's and form's own id. */
 	const theirs = withIdsOf(B, T);
+	const newSource = effectiveAppLocalization(
+		theirs.localization,
+	).sourceLanguage;
+	const sourceChanged =
+		effectiveAppLocalization(B.localization).sourceLanguage !== newSource;
+	if (sourceChanged) {
+		const stale = staleSourceTranslation(now, newSource);
+		if (stale) {
+			const language = parseLanguageTag(newSource);
+			return {
+				kind: "held",
+				reason: "stale-source-translation",
+				translation: {
+					language,
+					languageName:
+						resolvedLanguageDisplayLabel(language) ?? languageTag(language),
+					unitId: stale.id,
+					breadcrumb: stale.breadcrumb,
+				},
+			};
+		}
+	}
 	let H: Mutation[];
 	try {
 		H = yield* diffDocsToMutationsSteps(B, theirs, HQ_READING_DELTA);
-	} catch (error) {
-		if (error instanceof LocalizationEndpointNotRepresentableError)
-			return { kind: "held", reason: "languages-reordered" };
+	} catch {
 		return differs({
 			check: "apply",
 			segments: ["threw", "diffDocsToMutations"],
@@ -1173,7 +1337,37 @@ function* plannedFromDocuments(
 		(nowK !== refK && documentDifferences(refK, nowK).length > 0) ||
 		slugRenamed(ref, now);
 	const appliedTo = unpublished ? "published" : "head";
-	const D = unpublished ? ref : now;
+	let D = unpublished ? ref : now;
+	// Recovery is performed on the current draft. The older published
+	// reference may still contain its stale copy. Only its wire reading,
+	// already checked above, can become the new canonical source.
+	if (unpublished && sourceChanged && staleSourceTranslation(ref, newSource)) {
+		D = UNFROZEN.produce(ref, (draft) => {
+			for (const [id, entry] of Object.entries(
+				ref.localization?.translations[newSource] ?? {},
+			)) {
+				const unit = snapshotTranslationUnits(ref).get(id);
+				const into = draft.localization?.translations[newSource];
+				if (
+					!unit ||
+					hasGeneratedWording(unit) ||
+					!into ||
+					!translationIsOutOfDate(entry, unit)
+				)
+					continue;
+				const text = storedTranslationValue(ref, newSource, unit);
+				if (deepEqual(text, unit.source)) delete into[id];
+				else
+					into[id] = {
+						value: structuredClone(text),
+						origin: "copied",
+						review: "needs-review",
+						sourceFingerprint: unit.sourceFingerprint,
+						translatedFrom: ref.localization?.sourceLanguage ?? "eng",
+					};
+			}
+		});
+	}
 	const head = unpublished ? now : null;
 	yield;
 

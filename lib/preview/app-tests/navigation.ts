@@ -1,3 +1,4 @@
+import { workerWording } from "@/lib/doc/localizationWorkspace";
 import {
 	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
@@ -12,7 +13,7 @@ import {
 	screenChoosesCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
-import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
@@ -167,11 +168,11 @@ export function appTestMenus(
 				? [
 						{
 							uuid: entry.moduleUuid,
-							name: projectLocalizedModule(
+							name: workerWording(
 								doc,
 								context.language,
-								entry.moduleUuid,
-							)?.name,
+								generatedWordingId(entry.moduleUuid, "menuTitle"),
+							),
 							visibility: visibility.get(entry.moduleUuid) ?? "hidden",
 						},
 					]

@@ -160,12 +160,17 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"forms-and-case-writes/two-or-more-form-links-conditions-true-at-once",
 	],
 	"app-logo": ["application-and-settings/logo-refs-hq-logo-web-apps"],
+	"required-android-apps": [
+		"application-and-settings/31-features-dependencies",
+	],
 	"saved-forms": ["application-and-settings/20-properties-cc-show-saved"],
 	"incomplete-forms": [
 		"application-and-settings/21-properties-cc-show-incomplete",
 	],
 	"connect-location-capture": [
 		"application-and-settings/45-hq-auto-gps-capture",
+		"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app",
+		"forms-and-case-writes/auto-gps-capture-form",
 		"questions/hq-generated-pollsensor",
 	],
 } as const satisfies Readonly<

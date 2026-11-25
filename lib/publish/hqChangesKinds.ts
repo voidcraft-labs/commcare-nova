@@ -40,13 +40,11 @@ export const HQ_CHANGES_UNAVAILABLE = [
 export type HqChangesUnavailable = (typeof HQ_CHANGES_UNAVAILABLE)[number];
 
 /**
- * The two changes Nova names and can't take as a change: the language the
- * app's own text is written in moved, or CommCare HQ's version runs on
- * fewer platforms than the app.
+ * An HQ change whose version runs on fewer platforms than the app requires.
  */
 export const HQ_CHANGE_HELD = [
-	"languages-reordered",
 	"runs-elsewhere",
+	"stale-source-translation",
 ] as const;
 export type HqChangeHeld = (typeof HQ_CHANGE_HELD)[number];
 
@@ -87,4 +85,12 @@ export function renameNamesReused(
 		destinations.add(destination);
 	}
 	return false;
+}
+
+/** The phrase whose saved translation needs a decision before it becomes source. */
+export interface HqSourceTranslationRecovery {
+	readonly language: import("@/lib/domain").AppLanguageIdentity;
+	readonly languageName: string;
+	readonly unitId: string;
+	readonly breadcrumb: readonly string[];
 }

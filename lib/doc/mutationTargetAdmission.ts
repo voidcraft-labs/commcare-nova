@@ -3,6 +3,7 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
 import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import { type Mutation, placementTargetKey } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -16,11 +17,17 @@ import {
 	languageTag,
 	ownRecordValue,
 	type TranslationEntry,
+	type TranslationUnitId,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
-import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import {
+	reboundLanguageCodes,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain/localization";
+import { hasGeneratedWording } from "@/lib/domain/translationUnits";
 import { assertNever } from "@/lib/utils/assertNever";
 import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
+import { wordingSourceUnit } from "./localizationWorkspace";
 
 /**
  * Whether any mutation in `mutations` targets an entity that no longer exists
@@ -383,8 +390,7 @@ export function mutationTargetsInvalid(
 	};
 	const initialLocalization = effectiveAppLocalization(doc.localization);
 	let sourceLanguage = initialLocalization.sourceLanguage;
-	let defaultLanguage = initialLocalization.defaultLanguage;
-	const languages = new Set(initialLocalization.languageOrder);
+	let languages = [...initialLocalization.languageOrder];
 	const wireCodes = new Map<string, string>(
 		Object.entries(initialLocalization.wireCodes),
 	);
@@ -393,20 +399,49 @@ export function mutationTargetsInvalid(
 			([language, entries]) => [language, new Map(Object.entries(entries))],
 		),
 	);
+	translations.set(
+		sourceLanguage,
+		new Map(Object.entries(initialLocalization.generatedSourceWording ?? {})),
+	);
 	let translationUnits = new Map(
 		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
 	);
 	const admittedPrefix: Mutation[] = [];
+	let translationDoc = doc;
 	let translationUnitsDirty = false;
-	const refreshTranslationUnits = (): void => {
-		if (!translationUnitsDirty) return;
-		const projected = produce(doc, (draft) => {
-			applyMutations(draft, admittedPrefix);
-		});
-		translationUnits = new Map(
-			collectTranslationUnits(projected).map((unit) => [unit.id, unit]),
-		);
-		translationUnitsDirty = false;
+	/* Units whose original wording an admitted mutation changed since the
+	 * inventory was last built. A generated unit's fingerprint reads its own
+	 * original and its base's, a saved original can make a system message a
+	 * unit, and a search check's default reads the shared guard, so a read
+	 * that could see one of these rebuilds; any other read keeps the
+	 * inventory, which a batch of many originals would otherwise rebuild once
+	 * per entry. */
+	const wordingChanged = new Set<TranslationUnitId>();
+	const sourceUnit = (unitId: TranslationUnitId) => {
+		if (!translationUnitsDirty && wordingChanged.size > 0) {
+			const held = translationUnits.get(unitId);
+			const base = held?.generated?.base;
+			if (
+				held === undefined ||
+				wordingChanged.has(unitId) ||
+				(base !== undefined && wordingChanged.has(base)) ||
+				held.generated?.role === "promptValidation"
+			)
+				translationUnitsDirty = true;
+		}
+		if (translationUnitsDirty) {
+			const projected = produce(doc, (draft) => {
+				applyMutations(draft, admittedPrefix);
+			});
+			translationDoc = projected;
+			translationUnits = new Map(
+				collectTranslationUnits(projected).map((unit) => [unit.id, unit]),
+			);
+			translationUnitsDirty = false;
+			wordingChanged.clear();
+		}
+		const raw = translationUnits.get(unitId);
+		return raw && wordingSourceUnit(translationDoc, raw);
 	};
 	for (const m of mutations) {
 		switch (m.kind) {
@@ -1102,73 +1137,144 @@ export function mutationTargetsInvalid(
 			case "setAppSettings":
 				break;
 			case "relabelSourceLanguage": {
-				if (languages.size !== 1) return true;
+				if (languages.length !== 1) return true;
 				const tag = languageTag(m.language);
-				languages.clear();
-				languages.add(tag);
+				if ("kind" in m.language && m.language.language !== m.wireCode)
+					return true;
+				languages = [tag];
+				const wording = translations.get(sourceLanguage);
 				translations.clear();
+				translations.set(tag, wording ?? new Map());
 				wireCodes.clear();
 				wireCodes.set(tag, m.wireCode);
 				sourceLanguage = tag;
-				defaultLanguage = tag;
 				break;
 			}
 			case "addLanguage": {
 				const tag = languageTag(m.language);
-				if (languages.has(tag)) return true;
+				if ("kind" in m.language && m.language.language !== m.wireCode)
+					return true;
+				if (languages.includes(tag)) return true;
 				// A wire code is an identity: one another language holds would
 				// give two languages one CommCare code.
 				if ([...wireCodes.values()].includes(m.wireCode)) return true;
-				languages.add(tag);
+				languages.push(tag);
 				translations.set(tag, new Map());
 				wireCodes.set(tag, m.wireCode);
 				break;
 			}
 			case "removeLanguage":
 				if (
-					!languages.has(m.code) ||
+					!languages.includes(m.code) ||
 					m.code === sourceLanguage ||
-					m.code === defaultLanguage
+					m.code === languages[0]
 				) {
 					return true;
 				}
-				languages.delete(m.code);
+				languages = languages.filter((tag) => tag !== m.code);
 				translations.delete(m.code);
 				wireCodes.delete(m.code);
 				break;
-			case "setDefaultLanguage":
-				if (!languages.has(m.code)) return true;
-				defaultLanguage = m.code;
+			case "setProjectLanguageDirection":
+				if (!m.code.startsWith("project:") || !languages.includes(m.code))
+					return true;
 				break;
-			case "setTranslation": {
-				refreshTranslationUnits();
-				const unit = translationUnits.get(m.unitId);
+			case "rebindLanguageCodes": {
+				const rebound = reboundLanguageCodes(wireCodes, m.changes);
+				if (!rebound) return true;
+				for (const { language, to } of m.changes) wireCodes.set(language, to);
+				break;
+			}
+			case "rebaseSourceLanguage": {
 				if (
-					m.language === sourceLanguage ||
-					unit === undefined ||
-					(m.entry !== null &&
-						(!translationSourceFingerprintsEqual(
-							m.entry.sourceFingerprint,
+					sourceLanguage !== m.from ||
+					m.from === m.to ||
+					!languages.includes(m.to)
+				)
+					return true;
+				const projected = produce(doc, (draft) => {
+					applyMutations(draft, [...admittedPrefix, m]);
+				});
+				const localization = effectiveAppLocalization(projected.localization);
+				if (localization.sourceLanguage !== m.to) return true;
+				sourceLanguage = localization.sourceLanguage;
+				translations.clear();
+				translations.set(
+					sourceLanguage,
+					new Map(Object.entries(localization.generatedSourceWording ?? {})),
+				);
+				for (const [tag, entries] of Object.entries(localization.translations))
+					translations.set(tag, new Map(Object.entries(entries)));
+				break;
+			}
+			case "setDefaultLanguage":
+			case "moveLanguage": {
+				const after = m.kind === "moveLanguage" ? m.after : null;
+				if (
+					!languages.includes(m.code) ||
+					after === m.code ||
+					(after !== null && !languages.includes(after))
+				)
+					return true;
+				languages = spliceAfter(languages, m.code, after);
+				break;
+			}
+			case "setTranslation": {
+				const unit = sourceUnit(m.unitId);
+				const target = translations.get(m.language);
+				if (
+					!unit ||
+					!target ||
+					(m.language === sourceLanguage && !hasGeneratedWording(unit))
+				)
+					return true;
+				if (m.entry === null) {
+					if (!target.delete(m.unitId)) return true;
+					if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
+					break;
+				}
+				const { workerFallback, ...saved } = m.entry;
+				const existing = target.get(m.unitId);
+				if (m.restoreAgainst) {
+					if (
+						!translationSourceFingerprintsEqual(
+							m.restoreAgainst.sourceFingerprint,
 							unit.sourceFingerprint,
 						) ||
-							translationValueIntegrityIssue(unit, m.entry.value) !==
-								undefined))
-				) {
-					return true;
-				}
-				const target = translations.get(m.language);
-				if (target === undefined) return true;
-				if (m.entry === null) {
-					if (!target.has(m.unitId)) return true;
-					target.delete(m.unitId);
+						!deepEqual(m.restoreAgainst.previous, existing ?? null)
+					)
+						return true;
 				} else {
-					target.set(m.unitId, m.entry);
+					const prior = existing && { ...existing };
+					if (prior) delete prior.workerFallback;
+					const preservesExistingDraft = !!prior && deepEqual(prior, saved);
+					if (
+						!preservesExistingDraft &&
+						(workerFallback ||
+							!translationSourceFingerprintsEqual(
+								saved.sourceFingerprint,
+								unit.sourceFingerprint,
+							) ||
+							translationValueIntegrityIssue(unit, saved.value) !== undefined)
+					)
+						return true;
 				}
+				if (
+					workerFallback &&
+					translationSourceFingerprintsEqual(
+						workerFallback.sourceFingerprint,
+						unit.sourceFingerprint,
+					) &&
+					translationValueIntegrityIssue(unit, workerFallback.value) !==
+						undefined
+				)
+					return true;
+				target.set(m.unitId, m.entry);
+				if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
 				break;
 			}
 			case "reviewTranslation": {
-				refreshTranslationUnits();
-				const unit = translationUnits.get(m.unitId);
+				const unit = sourceUnit(m.unitId);
 				if (
 					unit === undefined ||
 					!translationSourceFingerprintsEqual(
@@ -1192,8 +1298,10 @@ export function mutationTargetsInvalid(
 				) {
 					return true;
 				}
+				const { workerFallback: _fallback, ...saved } = entry;
+				if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
 				target.set(m.unitId, {
-					...entry,
+					...saved,
 					sourceFingerprint: m.sourceFingerprint,
 					review: "reviewed",
 				});
@@ -1250,6 +1358,9 @@ export function mutationTargetsInvalid(
 			m.kind !== "relabelSourceLanguage" &&
 			m.kind !== "addLanguage" &&
 			m.kind !== "removeLanguage" &&
+			m.kind !== "moveLanguage" &&
+			m.kind !== "setProjectLanguageDirection" &&
+			m.kind !== "rebindLanguageCodes" &&
 			m.kind !== "setDefaultLanguage" &&
 			m.kind !== "setTranslation" &&
 			m.kind !== "reviewTranslation"

@@ -1584,6 +1584,9 @@ def document_behavior(document, records, *, native_sites=None):
         compared,
         authored_app=None if authored is None else authored.app_json(),
     )
+    from proof.checks.discards import discarded
+
+    found = discarded(CHECK, document.id, document.hq_side, found, compared)
     return found + observations.soft_assertion_differences(records, CHECK)
 
 

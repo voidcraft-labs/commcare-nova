@@ -1093,6 +1093,20 @@ reader does cancels, and the difference is ordinary mutations keyed by Nova's
 UUIDs (`diffDocsToMutations` under `HQ_READING_DELTA`, a delta that moves no
 saved case rows). Nothing is ever rebuilt from CommCare HQ's app.
 
+The Android apps workers need (`profile.features.dependencies`) are the one
+setting whose baseline side a review may project before reading it
+(`androidAppDependencies.ts::androidRequirementsComparisonSource`). Where the
+baseline does not own the setting and CommCare HQ holds a selection the
+document lacks, the baseline side takes the document's selection, so the take
+brings HQ's in. Where the baseline holds a selection and the source now lacks
+the key outright, CommCare HQ deleted it because the project space lost App
+Dependencies (`views/settings.py::edit_commcare_profile` deletes it on every
+settings save there, while the settings page saves a cleared picker as `[]`;
+`androidRequirementsPrivilegeLost`): the baseline side drops it too, so no one
+clears the document's selection, and the review says why
+(`ANDROID_APPS_PRIVILEGE_LOST_LINE`). A present `[]` is a person's clear and
+comes in as one.
+
 It is offered only over a usable pair (`hqChanges/reference.ts::usablePair`):
 a baseline that holds a source that verifies (origin `push`, `read` or
 `changes`) and names a `nova_revision`, a `push` baseline's revision equal to
@@ -1363,11 +1377,11 @@ cell on a list that was no tile, a formatting flag under a form whose
 formatting was off, a registration form's place) takes the reader's spelling
 where it no longer fits.
 
-**What is held, and what is unavailable.** Two changes are named and not
-taken (`held`): a new first language that would change the source language of
-an app with several (`languages-reordered`: no mutation changes the source
-language there), and a version that does not offer the app's own declaration
-of where it runs (`runs-elsewhere`). A reading now that holds something Nova
+**What is held, and what is unavailable.** A version that cannot run on every
+platform the app selects is held for review (`runs-elsewhere`). When a stale saved translation would become canonical, `stale-source-translation` returns the language, unit and breadcrumb. The review links to that phrase. Marking it as reviewed, replacing it, or using the original text allows a fresh review; other stale drafts retain their authorship and exact effective worker text through the rebase. The language
+that opens first can move independently of the language holding the app’s
+original wording. A source change supported by HQ’s stored wording rebases
+each translation unit in the accepted edit. A reading now that holds something Nova
 cannot hold is an account, and nothing is taken. A review is `unavailable`
 where nothing in the project space is this app's (`not-published`: no
 deployment there, or none whose publish made the app; `publishing-stopped`:
@@ -2557,3 +2571,27 @@ previous and current HQ sources, and the reference and taken app still omit
 the starting answer. A successful content push clears the pending review.
 `scripts/scan-hidden-starting-values.ts` counts such stored notices by
 deployment state and first or next publish, without reading form contents.
+
+### Ordinary apps’ automatic location
+
+An ordinary app and each basic or advanced form own their independent switches.
+Every publish writes both values, including false. A target baseline from before
+Nova owned the app switch keeps its historical ownership and normalized source.
+Its passive comparison counts only HQ moving from the value that baseline's
+source holds as a change made in HQ; the document differing from HQ is not one.
+Preflight reads the target, names its old and intended location value when they
+differ, and offers the usual digest-bound bring-in or discard. The last read
+before the write also checks the observed location. One target's confirmation
+or source never establishes another target's value.
+
+The exact-source deployment conversion takes its location settings from the
+private output of `scripts/scan-location-capture.ts`. Run it against the
+read-only source under the same writer fence as the complete cutover scan.
+The scan verifies each retained source’s byte count and SHA-256. With no active
+target the app keeps the old default. Equal observed choices become the app's
+choice. Disagreement keeps the default and each target's own old value and
+digest. A released, missing, or unreadable mapping has an unknown prior value
+and requires a successful fresh read before writing. A private genesis starts
+without a prior setting. A private edit and each historical deployment
+comparison apply the converted owning app choice to their own source snapshot.
+The original source and ownership still establish the comparison's HQ standing.

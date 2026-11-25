@@ -2073,6 +2073,9 @@ export class PostgresCaseStore implements CaseStore {
 			);
 			const result: SubmissionEnvelopeResult = {
 				...effects,
+				...(args.submissionLocation !== undefined && {
+					submissionLocation: args.submissionLocation,
+				}),
 				blueprintDigest: args.submissionReceipt.blueprintDigest,
 				caseDatabasePatch,
 			};

@@ -1464,14 +1464,15 @@ async function editInEachKey(): Promise<void> {
  * A person's saves in HQ of values the target owns, one in each key the
  * overlays carry and one beside them: a UI translation, an add-on the app
  * does not need, a setting Nova seeds only where the target holds none, and
- * "Auto Capture Location", which an app that is not a Connect app leaves to
- * the target.
+ * secure submissions, an app setting Nova never writes. (Auto Capture Location
+ * is Nova's own now: a save of it is a change the next publish asks about, which
+ * `targeted-hq-side-owned` holds.)
  */
 const TARGETS_OWN = {
 	uiTranslations: { en: { "home.start": "Begin a visit" } },
 	addOns: { menu_mode: true },
 	profileProperties: { "cc-autoup-freq": "freq-daily" },
-	appAttributes: { auto_gps_capture: true },
+	appAttributes: { secure_submissions: true },
 } as const;
 
 /** The first import of `log` (`<what>` names it in the failure). */
@@ -1530,10 +1531,11 @@ it("captures a republish after an edit in each key, over a person's saves of the
 	expect(sent.profile).toMatchObject({
 		properties: { "cc-autoup-freq": "freq-daily", "cc-show-saved": "yes" },
 	});
-	expect(sent).not.toHaveProperty("auto_gps_capture");
+	expect(sent.auto_gps_capture).toBe(false);
+	expect(sent).not.toHaveProperty("secure_submissions");
 	expect(update.assumedSource).toMatchObject({
 		add_ons: TARGETS_OWN.addOns,
-		auto_gps_capture: true,
+		auto_gps_capture: false,
 	});
 });
 

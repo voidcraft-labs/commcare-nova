@@ -274,7 +274,7 @@ const FORM = defineClaims("structure.form", {
 	...perClass(
 		"autoGpsCapture",
 		FORM_CLASSES,
-		account,
+		take,
 		`${F}/auto-gps-capture-form`,
 		"auto_gps_capture",
 	),
@@ -905,7 +905,15 @@ function readFormKeys(
 	);
 	json.account("schedule_form_id", claim("scheduleFormId"));
 	json.account("custom_instances", claim("customInstances"));
-	json.account("auto_gps_capture", claim("autoGpsCapture"));
+	const capture = json.take(
+		"auto_gps_capture",
+		claim<"take">("autoGpsCapture"),
+		(value) => value === true,
+	).value;
+	if (capture)
+		ctx.writeDraft(() => {
+			draft.form.captureLocation = true;
+		});
 	const references = json.object(
 		"case_references_data",
 		"CaseReferences",

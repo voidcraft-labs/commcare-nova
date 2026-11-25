@@ -205,6 +205,9 @@ function markers(hq: HqApplication): {
 	let itemset = false;
 	/* Web Apps lists an app by its `cloudcare_enabled` (`get_web_apps_available_to_user`). */
 	if (hq.cloudcare_enabled === true) privileges.add("cloudcare");
+	const packages = hq.profile?.features?.dependencies;
+	if (Array.isArray(packages) && packages.length)
+		privileges.add("app_dependencies");
 	for (const module of hq.modules) {
 		for (const form of module.forms) {
 			if (
@@ -466,7 +469,22 @@ describe("requiredPlanPrivileges over the fuzz corpora", () => {
 });
 
 describe("plan features", () => {
-	it("maps each target privilege to exactly one plan feature", () => {
+	it("asks for Android app dependencies exactly when the emitted profile requires an app", () => {
+		const doc = buildDoc({ appName: "Visits" });
+		expect(derived(doc, TARGET).has("app_dependencies")).toBe(false);
+		doc.appSettings = {
+			...doc.appSettings,
+			requiredAndroidApps: ["simprints-id", "commcare-toolkit"],
+		};
+		const app = expandDoc(doc);
+		expect(app.profile?.features?.dependencies).toEqual([
+			"com.simprints.id",
+			"org.rdtoolkit",
+		]);
+		expect(markers(app).privileges.has("app_dependencies")).toBe(true);
+		expect(derived(doc, TARGET).has("app_dependencies")).toBe(true);
+	});
+	it("maps each publish privilege to its own plan feature", () => {
 		const features = HQ_PLAN_PRIVILEGE_IDS.map(
 			(id) => PLAN_FEATURE_FOR_PRIVILEGE[id],
 		);

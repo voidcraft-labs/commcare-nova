@@ -242,7 +242,8 @@ export interface Footprint {
 	 * profile properties Nova derives, or the add-ons the app needs.
 	 */
 	readonly app: boolean;
-	/** Every entity in the footprint: modules, forms, fields and the other carriers. */
+	/** Every entity in the footprint: modules, forms, fields and the other carriers, and the tag of each
+	 *  language the batch recodes. */
 	readonly entities: readonly string[];
 	/** The footprint's modules on either side's wire (synthetic ones by their derived uuid). */
 	readonly modules: readonly string[];
@@ -254,6 +255,10 @@ const APP_WIDE_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 	"addLanguage",
 	"removeLanguage",
 	"setDefaultLanguage",
+	"moveLanguage",
+	"rebindLanguageCodes",
+	"rebaseSourceLanguage",
+	"setProjectLanguageDirection",
 	"relabelSourceLanguage",
 	"setConnectType",
 ]);
@@ -1327,6 +1332,17 @@ export function batchFootprint(
 	);
 	for (const form of derived.forms) entities.add(form);
 	for (const reader of readersOf(derived.framed)) entities.add(reader);
+	/* A language the batch recodes keeps its tag and takes another code
+	 * (`rebindLanguageCodes`, and the temporary code a source-language rebase
+	 * passes through): its code on the wire is the batch's, and the identity
+	 * check pairs every other language with itself by its unchanged code. */
+	const codes = new Map(
+		wireLanguages(before).map((language) => [language.tag, language.code]),
+	);
+	for (const { tag, code } of wireLanguages(after)) {
+		const was = codes.get(tag);
+		if (was !== undefined && was !== code) entities.add(tag);
+	}
 
 	const modules = new Set<string>();
 	const forms = new Set<string>();

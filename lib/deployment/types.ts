@@ -782,6 +782,8 @@ export interface AppOwnership {
 	readonly addOns: readonly string[];
 	readonly profileProperties: readonly string[];
 	readonly profileCustomProperties: readonly string[];
+	/** Absent on baselines recorded before Nova authored profile features. */
+	readonly profileFeatures?: readonly string[];
 	readonly autoGpsCapture: boolean;
 }
 

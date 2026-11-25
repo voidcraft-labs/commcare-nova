@@ -8,6 +8,7 @@ import {
 } from "@/lib/domain";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
+import { wordingSourceUnit } from "../../generatedSearchWording";
 /**
  * App-level validation rules.
  *
@@ -18,6 +19,7 @@ import { entryPointProjectionIssue } from "../../entryPointProjection";
 
 import {
 	appStringValueIssue,
+	outputLocaleRole,
 	translationUnitUsesLocaleFile,
 } from "@/lib/commcare/localeFile";
 import {
@@ -27,6 +29,7 @@ import {
 	blueprintTopologyIssues,
 	collectTranslationUnits,
 	duplicateSelectOptionValues,
+	hasGeneratedWording,
 	isConnectLearnConfig,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
@@ -34,6 +37,7 @@ import {
 	repairSelectOptionValue,
 	selectOptionValueProblem,
 	type TranslationUnitRole,
+	translationIsOutOfDate,
 	translationValueIntegrityIssue,
 	type Uuid,
 } from "@/lib/domain";
@@ -245,7 +249,12 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 		breadcrumb: readonly string[],
 		value: string,
 	): void => {
-		const issue = appStringValueIssue(value, role);
+		const raw = units.get(unitId);
+		const unit = raw && wordingSourceUnit(doc, raw);
+		const issue = appStringValueIssue(
+			value,
+			unit ? outputLocaleRole(unit) : role,
+		);
 		if (issue === undefined) return;
 		errors.push(
 			validationError(
@@ -258,7 +267,9 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 		);
 	};
 	for (const unit of units.values()) {
-		if (!translationUnitUsesLocaleFile(unit.role)) continue;
+		// The inherited default was already checked at its ordinary owner.
+		// Only explicit generated wording introduces another author text.
+		if (unit.generated || !translationUnitUsesLocaleFile(unit.role)) continue;
 		flagLocaleValue(
 			"source-language",
 			unit.id,
@@ -270,12 +281,19 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 		);
 	}
 	if (doc.localization === undefined) return errors;
-	for (const [language, entries] of Object.entries(
-		doc.localization.translations,
-	)) {
+	for (const [language, entries] of Object.entries({
+		...doc.localization.translations,
+		[doc.localization.sourceLanguage]:
+			doc.localization.generatedSourceWording ?? {},
+	})) {
 		for (const [unitId, entry] of Object.entries(entries)) {
-			const unit = units.get(unitId);
-			if (unit === undefined) {
+			const raw = units.get(unitId);
+			const unit = raw && wordingSourceUnit(doc, raw);
+			if (
+				unit === undefined ||
+				(language === doc.localization.sourceLanguage &&
+					!hasGeneratedWording(unit))
+			) {
 				errors.push(
 					validationError(
 						"TRANSLATION_UNIT_UNKNOWN",
@@ -286,6 +304,40 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 					),
 				);
 				continue;
+			}
+			const fallback = entry.workerFallback;
+			if (
+				fallback &&
+				translationSourceFingerprintsEqual(
+					fallback.sourceFingerprint,
+					unit.sourceFingerprint,
+				)
+			) {
+				const problem = translationValueIntegrityIssue(unit, fallback.value);
+				if (problem)
+					errors.push(
+						validationError(
+							problem === "value-kind"
+								? "TRANSLATION_VALUE_KIND_MISMATCH"
+								: problem === "blank-content"
+									? "TRANSLATION_REQUIRED_CONTENT_BLANK"
+									: "TRANSLATION_PROTECTED_CONTENT_CHANGED",
+							"app",
+							`The worker text for ${unit.breadcrumb.join(" → ")} needs updating in Languages.`,
+							{},
+							{ language, unitId, role: unit.role },
+						),
+					);
+				else if (translationUnitUsesLocaleFile(unit.role))
+					flagLocaleValue(
+						language,
+						unitId,
+						unit.role,
+						unit.breadcrumb,
+						typeof fallback.value === "string"
+							? fallback.value
+							: projectProseTemplate(fallback.value, doc).text,
+					);
 			}
 			const issue = translationValueIntegrityIssue(unit, entry.value);
 			if (issue === "value-kind") {
@@ -331,9 +383,12 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 			}
 			if (
 				issue === undefined &&
-				translationSourceFingerprintsEqual(
-					entry.sourceFingerprint,
-					unit.sourceFingerprint,
+				!fallback &&
+				!translationIsOutOfDate(
+					entry,
+					unit,
+					language,
+					language === doc.localization.sourceLanguage,
 				) &&
 				translationUnitUsesLocaleFile(unit.role)
 			) {
