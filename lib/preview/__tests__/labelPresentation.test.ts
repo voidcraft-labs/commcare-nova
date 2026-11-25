@@ -138,4 +138,20 @@ describe("labelPresentation", () => {
 			labelPresentation(card(), false, WEB, {}, project).speech,
 		).toBeUndefined();
 	});
+
+	it("plays an inline video on Android in the place of the QR code and the image, and nowhere in Web Apps", () => {
+		const VIDEO = "asset-video" as MediaAssetId;
+		const film = card({ label_media: { image: IMAGE, videoInline: VIDEO } });
+		const android = labelPresentation(film, false, ANDROID, {}, project);
+		expect(android.media).toEqual({
+			image: undefined,
+			videoInline: VIDEO,
+		});
+		expect(android.qrCode).toBeUndefined();
+		// The speaker button is the audio's to suppress, not the video's.
+		expect(android.speech).toBe("Show the card");
+		const web = labelPresentation(film, false, WEB, {}, project);
+		expect(web.media).toEqual({ image: IMAGE, videoInline: undefined });
+		expect(web.qrCode).toBeUndefined();
+	});
 });
