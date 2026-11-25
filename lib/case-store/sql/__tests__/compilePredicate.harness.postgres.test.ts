@@ -2111,6 +2111,31 @@ test("a list of values matches each item as the exact text the case holds, a num
 	).toEqual(["absent", "empty", "five", "thirty"]);
 });
 
+test("a date or a number equal to text HQ's search does not convert finds the cases holding that exact text", async ({
+	db,
+}) => {
+	// HQ's search tests equality on the stored text whatever the property's
+	// type (`es/case_search.py::case_property_query`), so `dob = 'unknown'`
+	// finds a case some writer gave that text, and never a date.
+	await seedProperties(db, [
+		["text", { dob: "unknown", age: "unknown" }],
+		["dated", { dob: "2026-02-01", age: 5 }],
+		["absent", {}],
+	]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "dob"), literal("unknown"))),
+	).toEqual(["text"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), literal("unknown"))),
+	).toEqual(["text"]);
+	expect(
+		await matchedIds(db, neq(prop("patient", "dob"), literal("unknown"))),
+	).toEqual(["absent", "dated"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "dob"), literal("2026-02-01"))),
+	).toEqual(["dated"]);
+});
+
 test("a list of values matches a time by the wall clock Nova stores and a date by the text a device writes, as a single value does", async ({
 	db,
 }) => {

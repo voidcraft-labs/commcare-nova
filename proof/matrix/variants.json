@@ -34247,7 +34247,7 @@
 		}
 	},
 	{
-		"id": "hq-search/date-equal-to-text",
+		"id": "hq-search/date-equal-to-a-number",
 		"base": "hq-search",
 		"entry": "case-search/xpath-query-condition-nova-s-checker-refuses",
 		"standing": "not-yet",
@@ -34262,9 +34262,47 @@
 			"value": {
 				"property": "_xpath_query",
 				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "\"dob = 'abc'\""
+				"defaultValue": "\"dob = 3\""
 			}
 		}
+	},
+	{
+		"id": "hq-search/date-equal-to-text",
+		"base": "hq-search",
+		"entry": "case-search/xpath-query-condition-outside-what-nova-types",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "_xpath_query",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "\"dob = 'abc'\""
+			}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchCondition/clauses/2",
+				"value": {
+					"kind": "eq",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "dob"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "abc"
+						}
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/date-field-matched-by-hq",

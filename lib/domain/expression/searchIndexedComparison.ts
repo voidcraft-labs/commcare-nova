@@ -4,7 +4,7 @@ import {
 	SYSTEM_DATETIME_CASE_PROPERTIES,
 } from "../standardCaseProperties";
 import { isReadableTemporalValue } from "../temporalValues";
-import { literalShape } from "./ruleSets";
+import { canonicalIntegerText, literalShape } from "./ruleSets";
 import type { Expression } from "./types";
 
 /** HQ first attempts a decimal floating point number, then a date or an
@@ -27,6 +27,18 @@ export function searchIndexedValueKind(
 		return "datetime";
 }
 
+/** The property types whose equality with text HQ's search tests on the
+ * stored text (`es/case_search.py::case_property_query` →
+ * `exact_case_property_text_query`, whatever the property's type), where
+ * Nova's own rules would type the two values apart. A date and time takes it
+ * as well; text and a choice already compare as text. */
+const STORED_TEXT_EQUALITY_TYPES: ReadonlySet<string> = new Set([
+	"date",
+	"time",
+	"int",
+	"decimal",
+]);
+
 /** The native index compares the property’s stored spelling. Ordering
  * chooses the numeric or date index from the value on the right. */
 export function searchIndexedComparison(
@@ -48,8 +60,19 @@ export function searchIndexedComparison(
 			? right.term.value
 			: undefined;
 	if (equality) {
-		if (leftType === "datetime" && rightType === "text") return "exact-text";
-		return;
+		if (rightType !== "text") return;
+		if (leftType === "datetime") return "exact-text";
+		if (!STORED_TEXT_EQUALITY_TYPES.has(leftType)) return;
+		// A whole number written as text keeps Nova's own comparison of the
+		// two numbers (`ruleSets.ts::coercedEquality`), which the device reads
+		// the same way.
+		if (
+			leftType === "int" &&
+			typeof value === "string" &&
+			canonicalIntegerText(value) !== undefined
+		)
+			return;
+		return "exact-text";
 	}
 	if (leftType !== "text" && leftType !== "time") return;
 	if (rightType === "int" || rightType === "decimal") return "number";

@@ -1030,6 +1030,34 @@ describe("a menu whose forms do not read the search", () => {
 		}
 	});
 
+	it("holds a date or a number tested for equality with text HQ's search does not convert as a comparison on the stored text", async () => {
+		const converted =
+			"case-search/xpath-query-condition-outside-what-nova-types";
+		for (const [type, row] of [
+			["date", `"born = 'abc'"`],
+			["int", `"born != 'abc'"`],
+		] as const) {
+			const reading = await readLists(typed(doc(), { born: type }), {
+				edit: (app) => {
+					rowsOf(app).push({
+						property: "_xpath_query",
+						doc_type: "DefaultCaseSearchProperty",
+						defaultValue: row,
+					});
+				},
+			});
+			expect(closedCodes(reading), row).toEqual([]);
+			expect(
+				[...reading.ctx.close().claims.records()].some(
+					(record) =>
+						record.key === "schema:DefaultCaseSearchProperty.defaultValue" &&
+						record.entry === converted,
+				),
+				row,
+			).toBe(true);
+		}
+	});
+
 	it("keeps a comparison only HQ's search converts on the search condition, never on the list a device runs", async () => {
 		// The answered phone orders the notes as HQ's search alone does (`searchIndexedComparison`);
 		// a device's list filter would refuse it, so the list keeps its own filter.
