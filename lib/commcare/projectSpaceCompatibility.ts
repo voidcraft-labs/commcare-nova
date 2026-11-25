@@ -431,6 +431,25 @@ export function projectSpaceCompatibilityProbePlan(
 		reasonsByCapability.set(id, reasons);
 	};
 
+	/* A list action's condition and a selected parent's follow-up reach HQ's
+	 * build only under FOLLOWUP_FORMS_AS_CASE_LIST_FORM, whether or not the
+	 * menu searches (`details.py::get_case_list_form_action`,
+	 * `validators.py`'s case list form check). */
+	for (const module of Object.values(doc.modules)) {
+		const action = module.caseListRegistrationForm;
+		if (action?.kind !== "always") continue;
+		if (action.showWhen !== undefined)
+			addReason(
+				"registration-after-empty-search",
+				"A case list shows its form button when a condition holds.",
+			);
+		if (action.target?.kind === "chosen-parent")
+			addReason(
+				"registration-after-empty-search",
+				"A case list offers a form for its selected parent record.",
+			);
+	}
+
 	for (const module of Object.values(doc.modules)) {
 		if (effectiveCaseSearchConfig(module) === undefined) continue;
 		addReason(
@@ -450,24 +469,6 @@ export function projectSpaceCompatibilityProbePlan(
 			? relatedCaseSearchReasons(doc, module)
 			: []) {
 			addReason("related-case-search", reason);
-		}
-		if (
-			module.caseListRegistrationForm?.kind === "always" &&
-			module.caseListRegistrationForm.showWhen !== undefined
-		) {
-			addReason(
-				"registration-after-empty-search",
-				"A case list shows its form button when a condition holds.",
-			);
-		}
-		if (
-			module.caseListRegistrationForm?.kind === "always" &&
-			module.caseListRegistrationForm.target?.kind === "chosen-parent"
-		) {
-			addReason(
-				"registration-after-empty-search",
-				"A case list offers a form for its selected parent record.",
-			);
 		}
 		if (moduleRequiresCaseListRegistration(doc, module)) {
 			addReason(
