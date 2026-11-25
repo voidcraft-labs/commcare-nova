@@ -76,6 +76,7 @@ DOCUMENTS = (
     "targeted-advanced-module",
     "targeted-hq-side-owned",
     "targeted-plain-help",
+    "targeted-shared-visit-entries",
     "targeted-sync-on-form-entry",
     "tile-boxed",
 )

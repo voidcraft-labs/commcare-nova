@@ -2706,8 +2706,9 @@ EDITOR_TAG = re.compile(r"[a-zA-Z][\w_-]*(/[a-zA-Z][\w_-]*)*", re.ASCII)
 
 
 def _advanced_lists(form):
-    """A form's loads and open actions, or two empty lists for a form that holds neither."""
-    actions = _actions(form)
+    """A form's loads and open actions, or two empty lists for a form that holds neither. A shadow form's own are
+    its ``extra_actions`` (``ShadowForm.extra_actions``), each in the list a use of it sits in."""
+    actions = (form.get("extra_actions") or {}) if form.get("doc_type") == "ShadowForm" else _actions(form)
     loads = [action for action in actions.get("load_update_cases") or [] if isinstance(action, dict)]
     opens = [action for action in actions.get("open_cases") or [] if isinstance(action, dict)]
     return loads, opens
