@@ -15,7 +15,17 @@
 // - option buttons and check boxes: a click on each chosen label's first
 //   option, and on each label checked before that the value leaves out
 //   (options that share a label are one choice to the client);
-// - a drop-down: the chosen option selected, and its change event;
+// - a table's unlabelled option buttons (entry_choice_label.html under
+//   list-nolabel): the same, its own Clear pressed to clear it;
+// - a drop-down: the chosen option selected, and its change event; a
+//   multiple drop-down (entry_multidropdown.html) each chosen option
+//   selected and the rest not, and its change event, which knockout's
+//   selectedOptions binding reads;
+// - a button that steps through the choices (entry_button.html,
+//   entries.js::ButtonSelectEntry): pressed until it holds the chosen one,
+//   each press taking the next choice and the last back to the first, from
+//   `held`, the answer the question held as Formplayer last showed it, among
+//   its `choices` (how many it has);
 // - a date or a time: the value typed in the format the client's picker
 //   reads, and its change event, which the picker parses: a date as the
 //   picker's placeholder names its format (M/D/YYYY, cloudcare/js/utils.js::
@@ -44,7 +54,7 @@
 // or signature question is answered through media.js, with the driver's
 // "files" and "draw" steps. So what it answers is the client's, never a
 // time's.
-({ ix, value, twelveHour }) => {
+({ ix, value, twelveHour, held, choices }) => {
 	const ixOf = (question) => {
 		const shown = question.querySelector(":scope > .ix")?.textContent ?? "";
 		return shown.split(" :: ").pop().trim();
@@ -147,21 +157,33 @@
 		ethiopian.value = typed;
 		ethiopian.dispatchEvent(new Event("input", { bubbles: true }));
 		ethiopian.blur();
+		// The picker's popup, which focus opened, stays over the questions below until a click lands outside it
+		// (jquery.calendars.picker.js::_checkExternalClick, on the document's mousedown), as a worker's next click
+		// does.
+		document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
 		return refusedHere() ? "refused" : true;
 	}
 
-	const options = [
+	let options = [
 		...widget.querySelectorAll(
 			"input.form-check-input[type=radio], input.form-check-input[type=checkbox]",
 		),
 	];
+	// A table's unlabelled option buttons (entry_choice_label.html, which the client draws for a select whose
+	// style holds list-nolabel: entries.js::getEntry, ChoiceLabelEntry with hideLabel) carry no form-check-input;
+	// knockout's checkedValue writes each one's 1-based index as its value.
+	if (!options.length)
+		options = [...widget.querySelectorAll("input[type=radio]")];
 	if (options.length && clearing) {
 		const checked = options.filter((option) => option.checked);
 		if (!checked.length) return "unchanged";
 		if (checked[0].type === "radio") {
 			// A radio stays checked when clicked; the widget's own Clear, which the
-			// client shows once one is (entry_select.html, `onClear`), unchecks it.
-			const clear = widget.querySelector(".sel > button");
+			// client shows once one is (entry_select.html and entry_choice_label.html,
+			// `onClear`), unchecks it.
+			const clear = widget.querySelector(
+				".sel > button, button.multi-choice-clear",
+			);
 			if (!clear || clear.getClientRects().length === 0) return "unanswerable";
 			clear.click();
 			return true;
@@ -216,6 +238,41 @@
 		if (dropdown.value === option.value) return "unchanged";
 		dropdown.value = option.value;
 		dropdown.dispatchEvent(new Event("change", { bubbles: true }));
+		return true;
+	}
+
+	if (dropdown?.multiple) {
+		const chosen = new Set(
+			clearing
+				? []
+				: value
+						.split(" ")
+						.filter(Boolean)
+						.map((index) => Number(index) - 1),
+		);
+		const all = [...dropdown.options];
+		if (all.every((option, index) => option.selected === chosen.has(index)))
+			return "unchanged";
+		all.forEach((option, index) => {
+			option.selected = chosen.has(index);
+		});
+		dropdown.dispatchEvent(new Event("change", { bubbles: true }));
+		return true;
+	}
+
+	// A button that steps through the choices (entry_button.html): its press sets the answer after the one it
+	// holds, and the first after the last or after none (ButtonSelectEntry.onClick). It has no choice to clear to.
+	const stepping = widget.querySelector(":scope > button.btn[type=button]");
+	if (stepping && !widget.querySelector("input, select, textarea")) {
+		if (clearing) return "unanswerable";
+		const target = Number(value);
+		const holds = Number(held) || 0;
+		if (holds === target) return "unchanged";
+		if (!(target >= 1 && target <= choices)) return "unanswerable";
+		// Up from what it holds, or round past the last to the first.
+		const presses =
+			holds === 0 || target > holds ? target - holds : choices - holds + target;
+		for (let press = 0; press < presses; press++) stepping.click();
 		return true;
 	}
 
