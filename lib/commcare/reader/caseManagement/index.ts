@@ -96,7 +96,7 @@ import {
 } from "./catalog";
 import {
 	conditionFinding,
-	conditionNotYesNo,
+	effectiveBooleanConditions,
 	readActionCondition,
 	statedBack,
 } from "./conditions";
@@ -457,14 +457,6 @@ function settleConditions(
 			if (claim !== undefined)
 				ctx.accounting.findingAt(claim, condition.place, condition.pointer);
 			else unrecognized(ctx, form, "schema:FormActionCondition.question");
-			ok = false;
-			continue;
-		}
-		const notYesNo = condition.own
-			? undefined
-			: conditionNotYesNo(doc, form.uuid, read.expression);
-		if (notYesNo !== undefined) {
-			ctx.accounting.findingAt(notYesNo, condition.place, condition.pointer);
 			ok = false;
 			continue;
 		}
@@ -968,8 +960,8 @@ function* settleCaseManagementForms(
 	for (const module of app.modules)
 		for (const form of module.forms) settleDatetimeJoins(ctx, form);
 	if (ctx.doc !== undefined)
-		ctx.doc = carryRetypedProperties(
-			takeBackWriterTypedDateTimes(ctx, ctx.doc),
+		ctx.doc = effectiveBooleanConditions(
+			carryRetypedProperties(takeBackWriterTypedDateTimes(ctx, ctx.doc)),
 		);
 	yield;
 	const doc = ctx.doc;

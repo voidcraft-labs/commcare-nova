@@ -164,6 +164,16 @@ export function compilePredicate(
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	if (pred.kind === "term") return compileBareRead(pred.term, ctx);
+	// `boolean(...)` of one answer, the one call a record condition holds
+	// (`typeChecker.ts::effectiveBooleanOfAnswer`): Core's `boolean` reads its
+	// argument through `FunctionUtils.toBoolean`, as a bare read does.
+	if (
+		pred.kind === "call" &&
+		pred.fn === "boolean" &&
+		pred.args.length === 1 &&
+		pred.args[0]?.kind === "term"
+	)
+		return compileBareRead(pred.args[0].term, ctx);
 	if (!isConditionArm(pred))
 		return compileExpression(
 			pred,

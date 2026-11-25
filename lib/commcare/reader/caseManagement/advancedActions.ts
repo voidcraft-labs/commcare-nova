@@ -99,10 +99,11 @@ import {
 	repeatOfField,
 } from "./basicActions";
 import {
+	ANSWER_ALONE_CLAIMS,
 	conditionField,
 	conditionFinding,
-	conditionNotYesNo,
 	conditionQuestionPath,
+	conditionReadsAnswerAlone,
 	conditionType,
 	readActionCondition,
 	recordRespelledConditions,
@@ -1995,7 +1996,9 @@ function readOrdinaryAdvancedActions(
 		// is not the schema's default, so the claim is made whether or not it closes.
 		const closeClaim = last
 			? ADVANCED_CLAIMS.ownClose
-			: ADVANCED_CLAIMS.otherClose;
+			: conditionReadsAnswerAlone(form, closeStored)
+				? ANSWER_ALONE_CLAIMS.loadClose
+				: ADVANCED_CLAIMS.otherClose;
 		consume(L.take("close_condition", closeClaim, (value) => value));
 		noteBooleanAnswer(
 			ctx,
@@ -2258,30 +2261,28 @@ function readOrdinaryAdvancedActions(
 		}
 		const openStored = open.open_condition;
 		if (O.used("open_condition")) {
-			consume(
-				O.take(
-					"open_condition",
-					ADVANCED_CLAIMS.openCondition,
-					(value) => value,
-				),
-			);
+			const openClaim = conditionReadsAnswerAlone(form, openStored)
+				? ANSWER_ALONE_CLAIMS.openCondition
+				: ADVANCED_CLAIMS.openCondition;
+			consume(O.take("open_condition", openClaim, (value) => value));
 			noteBooleanAnswer(
 				ctx,
 				openStored,
-				ADVANCED_CLAIMS.openCondition.entry,
+				openClaim.entry,
 				`${O.pointer}/open_condition`,
 			);
 		}
 		const closeStored = open.close_condition;
 		const closes = activeCondition(closeStored);
 		// A close that never runs is read as no close, claimed as a load's is.
-		consume(
-			O.take("close_condition", ADVANCED_CLAIMS.openClose, (value) => value),
-		);
+		const openCloseClaim = conditionReadsAnswerAlone(form, closeStored)
+			? ANSWER_ALONE_CLAIMS.openClose
+			: ADVANCED_CLAIMS.openClose;
+		consume(O.take("close_condition", openCloseClaim, (value) => value));
 		noteBooleanAnswer(
 			ctx,
 			closeStored,
-			ADVANCED_CLAIMS.openClose.entry,
+			openCloseClaim.entry,
 			`${O.pointer}/close_condition`,
 		);
 		const condition = (
@@ -3619,16 +3620,6 @@ export function settleAdvancedForm(
 				ctx.accounting.circumstance("unrecognized", form.place, {
 					name: "schema:FormActionCondition.question",
 				});
-			refuseCreatesOf(proposal);
-			return;
-		}
-		// A case change's condition is a record rule; the form's own open and
-		// close conditions take Core's coercions.
-		const notYesNo = operationConditions.includes(proposal)
-			? conditionNotYesNo(doc, form.uuid, read.expression)
-			: undefined;
-		if (notYesNo !== undefined) {
-			ctx.accounting.findingAt(notYesNo, proposal.place, proposal.pointer);
 			refuseCreatesOf(proposal);
 			return;
 		}

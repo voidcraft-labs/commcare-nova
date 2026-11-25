@@ -392,19 +392,23 @@ export function valueExpressionKindResultClass(
 
 export type RecordPosition = "condition" | "value";
 /**
- * Whether an expression of `kind` stands in a record `position`. A condition
- * stands where a condition belongs and a value where a value belongs; `if`
- * and `switch` stand in either. One read stands as a condition too: a read
- * of a single node whose value CommCare holds as a yes or no (`heldYesNo`),
- * such as a Hidden Value calculated by a condition. Core holds a calculated
+ * Whether `expression` stands in a record `position`. A condition stands
+ * where a condition belongs and a value where a value belongs; `if` and
+ * `switch` stand in either. One read stands as a condition too: a read of a
+ * single node whose value CommCare holds as a yes or no (`heldYesNo`), such
+ * as a Hidden Value calculated by a condition. Core holds a calculated
  * `Boolean` as `BooleanData` whatever the node's bind
  * (`Recalculate.java::wrapData`) and reads it back as that `Boolean`
  * (`XPathPathExpr.java::unpackValue`), so its truth is the calculation's. A
  * read of text never stands as one: Core reads text as true when it is not
- * empty (`FunctionUtils.java::toBoolean`), so a stored `0` would hold.
+ * empty (`FunctionUtils.java::toBoolean`), so a stored `0` would hold. The
+ * explicit operation that reads it so, `boolean(...)` (Core's `boolean`
+ * function over `FunctionUtils.toBoolean`), stands as a condition: the one a
+ * CommCare HQ case action holds as a question alone (`boolean_true`) over an
+ * answer that is no yes or no.
  */
 export function recordPositionVerdict(
-	kind: Expression["kind"],
+	expression: Pick<Expression, "kind"> & { readonly fn?: unknown },
 	position: RecordPosition,
 	heldYesNo = false,
 ):
@@ -413,10 +417,13 @@ export function recordPositionVerdict(
 			readonly ok: false;
 			readonly reason: "value-expected" | "condition-expected";
 	  } {
+	const kind = expression.kind;
 	if (kind === "if" || kind === "switch") return { ok: true };
 	if (kind === "term" && position === "condition" && heldYesNo)
 		return { ok: true };
-	const condition = isConditionArm({ kind } as Expression);
+	const condition =
+		isConditionArm({ kind } as Expression) ||
+		(kind === "call" && expression.fn === "boolean");
 	return condition === (position === "condition")
 		? { ok: true }
 		: {

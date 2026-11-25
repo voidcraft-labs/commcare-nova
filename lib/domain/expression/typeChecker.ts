@@ -485,7 +485,7 @@ function infer(
 		// A read stands as a condition by what it holds, so the verdict reads
 		// the node's type once the walk has settled it.
 		const verdict = recordPositionVerdict(
-			expression.kind,
+			expression,
 			position,
 			holdsOneYesNo(type),
 		);
@@ -498,7 +498,7 @@ function infer(
 					verdict.reason === "value-expected"
 						? "This position takes a value."
 						: expression.kind === "term"
-							? "This position takes a condition, and this reads a value that isn't a yes or no. You can compare it with something, such as = 'yes', or read a Hidden Value calculated as a condition."
+							? "This position takes a condition, and this reads a value that isn't a yes or no. You can compare it with something, such as = 'yes', write boolean(...) around a question to mean it was answered at all, or read a Hidden Value calculated as a condition."
 							: "This position takes a condition. Compare this value with something.",
 			});
 	}
@@ -920,6 +920,29 @@ function refusal(
 		...(reason === undefined ? {} : { reason }),
 	};
 }
+/**
+ * A record condition that reads one form answer as CommCare reads it alone:
+ * `boolean(...)` of a question, true wherever the answer is not empty
+ * (`FunctionUtils.toBoolean`), the condition a CommCare HQ case action holds
+ * as `boolean_true` over an answer that is no yes or no
+ * (`xform.py::XForm.action_relevance` prints the question's path, which
+ * `XPathConditional.eval` reads through `toBoolean`). The one call a record
+ * rule admits, as a condition alone.
+ */
+function effectiveBooleanOfAnswer(
+	expression: Expression,
+	position: RecordPosition | undefined,
+): boolean {
+	return (
+		expression.kind === "call" &&
+		expression.fn === "boolean" &&
+		position === "condition" &&
+		expression.args.length === 1 &&
+		expression.args[0]?.kind === "term" &&
+		expression.args[0].term.kind === "field"
+	);
+}
+
 function admission(
 	expression: Expression,
 	ctx: TypingContext,
@@ -1067,7 +1090,8 @@ function admission(
 				"places-unavailable",
 			);
 		if (
-			["call", "cases", "table-rows", "project"].includes(expression.kind) ||
+			(["call", "cases", "table-rows", "project"].includes(expression.kind) &&
+				!effectiveBooleanOfAnswer(expression, position)) ||
 			(expression.kind === "count" && !isRelationPath(expression.via))
 		)
 			return refusal(

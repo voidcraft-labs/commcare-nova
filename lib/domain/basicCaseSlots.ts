@@ -319,10 +319,19 @@ interface ConditionShape {
  * The three shapes Case Management states (`xform.py::XForm.action_relevance`):
  * a question alone (`boolean_true`), a question equal to one value (`=`),
  * and a multi-select holding one value (`selected`). Anything else, a
- * `match-none` included, is no such shape.
+ * `match-none` included, is no such shape. A question alone is read either
+ * bare or through `boolean(...)`: HQ's build prints the question's path as
+ * the block's relevance, which Core reads through `FunctionUtils.toBoolean`
+ * (`XPathConditional.eval`), the operation `boolean` is.
  */
 function conditionShape(condition: Expression): ConditionShape | undefined {
-	const alone = bareRead(condition);
+	const alone =
+		bareRead(condition) ??
+		(condition.kind === "call" &&
+		condition.fn === "boolean" &&
+		condition.args.length === 1
+			? bareRead(condition.args[0])
+			: undefined);
 	if (alone !== undefined) return { question: alone, operator: "boolean_true" };
 	if (condition.kind === "eq") {
 		const left = bareRead(condition.left);

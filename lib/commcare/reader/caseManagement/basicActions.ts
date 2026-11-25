@@ -70,9 +70,11 @@ import type { DraftField, ReadXForm } from "../xform";
 import type { DataNode } from "../xform/model";
 import type { ParsedXForm } from "../xform/parse";
 import {
+	ANSWER_ALONE_CLAIMS,
 	CONDITION_CLAIMS,
 	conditionField,
 	conditionQuestionPath,
+	conditionReadsAnswerAlone,
 	conditionType,
 	readActionCondition,
 	recordRespelledConditions,
@@ -2227,13 +2229,14 @@ function readSubcases(
 			S.refuse("reference_id", BASIC_CLAIMS.subcaseReferenceOther);
 			ok = false;
 		}
-		consume(
-			S.take("condition", BASIC_CLAIMS.subcaseCondition, (value) => value),
-		);
+		const conditionClaim = conditionReadsAnswerAlone(form, conditionStored)
+			? ANSWER_ALONE_CLAIMS.subcaseCondition
+			: BASIC_CLAIMS.subcaseCondition;
+		consume(S.take("condition", conditionClaim, (value) => value));
 		noteConditionQuestion(
 			r,
 			conditionStored,
-			BASIC_CLAIMS.subcaseCondition.entry,
+			conditionClaim.entry,
 			`${S.pointer}/condition`,
 		);
 
@@ -2369,13 +2372,14 @@ function readSubcases(
 		if (closeType === "never")
 			S.drop("close_condition", BASIC_CLAIMS.subcaseCloseNever);
 		else {
-			consume(
-				S.take("close_condition", BASIC_CLAIMS.subcaseClose, (value) => value),
-			);
+			const closeClaim = conditionReadsAnswerAlone(form, closeStored)
+				? ANSWER_ALONE_CLAIMS.subcaseClose
+				: BASIC_CLAIMS.subcaseClose;
+			consume(S.take("close_condition", closeClaim, (value) => value));
 			noteConditionQuestion(
 				r,
 				closeStored,
-				BASIC_CLAIMS.subcaseClose.entry,
+				closeClaim.entry,
 				`${S.pointer}/close_condition`,
 			);
 		}

@@ -16503,19 +16503,22 @@
 		"id": "hq-case-management/child-close-is-true-on-a-choice",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/a-child-case-or-advanced-action-condition-boolean-true-on-a",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 2,
-			"menuName": "Households",
-			"formName": "Followup",
-			"path": "member_left"
-		},
 		"change": {
 			"op": "named",
 			"name": "child_close_is_true_on_a_choice"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 2]
+					}
+				],
+				"pointer": "/caseOperations/2/condition/fn",
+				"value": "boolean"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/child-close-on-a-text-answer",

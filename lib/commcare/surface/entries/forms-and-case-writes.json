@@ -4588,10 +4588,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "condition-is-true-not-yes-no",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a record condition that reads an answer alone as CommCare reads it, true wherever the answer is not empty (`FunctionUtils.toBoolean`); a hidden value a condition calculates is held as the condition it reads (`subcases[].condition: if`)",
-		"subject": "child-cases",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a case change's condition holding the explicit operation `boolean(...)` of the question (`reader/caseManagement/conditions.ts::effectiveBooleanConditions`), which reads an answer alone as CommCare reads it, true wherever the answer is not empty, `0` and the text `false` included (`FunctionUtils.toBoolean`, over `XPathConditional.eval` of the question's path HQ's build prints, `xform.py::XForm.action_relevance`), and which Case Management states back as `boolean_true` (`basicCaseSlots.ts::stateCondition`); a hidden value a condition calculates is held as the condition it reads (`subcases[].condition: if`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
