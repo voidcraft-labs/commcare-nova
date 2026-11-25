@@ -9,8 +9,6 @@ import {
 } from "@/lib/domain/forms";
 
 export type FormBehaviorTextIssue =
-	/** A title or a time window is set without a shared activity key. */
-	| { readonly reason: "needs-activity-key" }
 	/** The same text is chosen twice for one setting. */
 	| {
 			readonly reason: "chosen-twice";
@@ -50,8 +48,6 @@ const roleName = (role: FormBehaviorRole): string =>
 
 export function formBehaviorTextSentence(issue: FormBehaviorTextIssue): string {
 	switch (issue.reason) {
-		case "needs-activity-key":
-			return "Choose a shared activity key to use a title or time window, or remove those settings together.";
 		case "chosen-twice":
 			return `"${issue.text}" already uses ${roleName(issue.role)}. Choose it once.`;
 		case "held-by-another":
@@ -83,7 +79,6 @@ export function formBehaviorTextIssueFromDetails(
 ): FormBehaviorTextIssue | undefined {
 	if (!details) return undefined;
 	const { reason, role, heldBy, text, carrier, formName } = details;
-	if (reason === "needs-activity-key") return { reason };
 	if (!isRole(role)) return undefined;
 	switch (reason) {
 		case "chosen-twice":

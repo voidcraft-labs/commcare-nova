@@ -1275,8 +1275,13 @@ export const X = {
 		Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 		"xform:model/itext/translation/text@id",
 	),
-	pragmaKey: one(
+	pragmaPresence: one(
 		"take",
+		Q("a-question-text-whose-itext-id-is-a-web-apps-presence-pragma"),
+		"xform:model/itext/translation/text@id",
+	),
+	pragmaKey: one(
+		"refuse",
 		Q("a-question-text-label-hint-help-validation-message-repeat-add"),
 		"xform:model/itext/translation/text@id",
 	),

@@ -297,7 +297,10 @@ function searchFixture() {
 // ── The checks ────────────────────────────────────────────────────────
 
 export const PLATFORM_MODEL_CHECKS = {
-	"automatic-submit-on-open": () => {
+	/* Formplayer reads the presence pragmas, Android none: a Web Apps form
+	 * holding automatic submission submits once per entry when its submit is
+	 * offered, and an Android one waits for the worker. */
+	"presence-pragmas-on-web-apps-only": () => {
 		const opening = {
 			active: true,
 			enabled: true,

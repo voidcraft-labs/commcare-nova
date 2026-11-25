@@ -25,7 +25,8 @@ import {
 } from "./placements";
 import { type Uuid, uuidSchema } from "./uuid";
 
-/** One physical form text, even when several question or choice slots use it. */
+/** One physical form text, even when several question or choice slots use it:
+ *  the slot that carries it and every other slot that shares it. */
 export const behaviorTextSchema = z.strictObject({
 	carrier: itextUnitSchema,
 	alsoUsedBy: z.array(itextUnitSchema).min(1).optional(),
@@ -35,9 +36,6 @@ export const formBehaviorRoleNames = {
 	automaticSubmissionText: "Automatic submission",
 	skipAutomaticSyncText: "Skip automatic sync",
 	validateChangedAnswersText: "Check changed answers",
-	activityKeyText: "Shared activity key",
-	activityTitleText: "Shared activity title",
-	activityWindowText: "Shared activity window",
 } as const;
 export type FormBehaviorRole = keyof typeof formBehaviorRoleNames;
 export type FormBehaviorTexts = Partial<Record<FormBehaviorRole, BehaviorText>>;
@@ -834,9 +832,6 @@ export const formSchema = z.strictObject({
 	automaticSubmissionText: behaviorTextSchema.optional(),
 	skipAutomaticSyncText: behaviorTextSchema.optional(),
 	validateChangedAnswersText: behaviorTextSchema.optional(),
-	activityKeyText: behaviorTextSchema.optional(),
-	activityTitleText: behaviorTextSchema.optional(),
-	activityWindowText: behaviorTextSchema.optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),

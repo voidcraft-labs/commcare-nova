@@ -34,7 +34,7 @@ import {
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
-import { itextIdFor, itextProseSlot } from "@/lib/commcare/xform/itextIds";
+import { itextIdFor } from "@/lib/commcare/xform/itextIds";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
@@ -56,21 +56,16 @@ import type {
 import {
 	type ContainerField,
 	caseScalarTextGuardIsChecked,
-	effectiveAppLocalization,
-	type FormBehaviorRole,
 	fieldPreload,
 	fieldProseTemplate,
-	filledProse,
 	formCaseWriteViews,
 	instantDatetimeValue,
 	isCaptureFieldKind,
 	isContainer,
 	isReadableTemporalValue,
-	itextUnitTranslationId,
 	orderedCaseOperations,
 	prepareCaseScalarTextValue,
 	proseSource,
-	snapshotTranslationUnits,
 } from "@/lib/domain";
 import { isMatchAll, isMatchNone } from "@/lib/domain/expression/builders";
 import {
@@ -889,36 +884,6 @@ export class FormEngine {
 	}
 
 	// ── Public API ───────────────────────────────────────────────────
-
-	/** Read a behavior text from the initialized form root, as both native
-	 * readers do. A blank localized value is present and remains distinct
-	 * from a setting the form does not have. */
-	resolvedFormBehavior(role: FormBehaviorRole): string | null {
-		const carrier = this.printDoc.forms[this.inputFormUuid]?.[role]?.carrier;
-		if (!carrier) return null;
-		const unit = snapshotTranslationUnits(this.printDoc).get(
-			itextUnitTranslationId(carrier),
-		);
-		if (!unit) return null;
-		const localization = effectiveAppLocalization(this.printDoc.localization);
-		const language =
-			this.presentationLanguage &&
-			localization.languageOrder.includes(this.presentationLanguage)
-				? this.presentationLanguage
-				: localization.defaultLanguage;
-		const template = filledProse(this.printDoc, unit, language);
-		const slot = itextProseSlot(carrier);
-		const context = this.createEvalContext("/");
-		return template.parts
-			.map((part) =>
-				part.kind === "text"
-					? part.text
-					: xpathToString(
-							evaluate(this.expressions.prose(part, slot), context),
-						),
-			)
-			.join("");
-	}
 
 	/** Structured-clone projection for one evaluation: the world's instances
 	 * on its first request, then only the values and relevance that changed. */

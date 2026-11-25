@@ -141,8 +141,6 @@ export interface PublicTablePolicy {
 }
 
 const RUNTIME_READ_WRITE_TABLES = [
-	"preview_form_activity",
-	"preview_web_restores",
 	"app_test_sessions",
 	"case_indices",
 	"case_type_schemas",
@@ -677,7 +675,6 @@ const EXPECTED_PUBLIC_ROUTINES = [
 		name: "nova_reject_deployment_fold_reference_update",
 		identityArguments: "",
 	},
-	{ name: "nova_clear_moved_preview_activity", identityArguments: "" },
 	{ name: "nova_immutable_thread_source", identityArguments: "" },
 	...APP_TEST_RUNTIME_ROUTINES,
 	{ name: "nova_dispose_deleted_app_test", identityArguments: "" },

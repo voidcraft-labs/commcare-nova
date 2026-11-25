@@ -30,12 +30,6 @@ const descriptions: Record<FormBehaviorRole, string> = {
 		"Web Apps skips the usual sync after this form is sent.",
 	validateChangedAnswersText:
 		"Web Apps checks new answers and blanks. A previously accepted answer can stay accepted after another answer changes.",
-	activityKeyText:
-		"Workers opening this form in Web Apps see recent activity for the same key. The text can include a case identifier.",
-	activityTitleText:
-		"Workers see this title in activity notices. Its text can include a case name.",
-	activityWindowText:
-		"This text sets how long a notice lasts in seconds. The usual window is five minutes.",
 };
 
 /** The form's behaviors, each held by one of its own question or choice
@@ -47,22 +41,9 @@ export function FormBehaviorSection({ formUuid }: FormSettingsSectionProps) {
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [adding, setAdding] = useState<FormBehaviorRole | null>(null);
 	if (!form) return null;
-	const available = formBehaviorRoles.filter(
-		(role) =>
-			!form[role] &&
-			(form.activityKeyText ||
-				!["activityTitleText", "activityWindowText"].includes(role)),
-	);
+	const available = formBehaviorRoles.filter((role) => !form[role]);
 	const change = (role: FormBehaviorRole, next: BehaviorText | null) => {
-		const patch =
-			role === "activityKeyText" && next === null
-				? {
-						activityKeyText: null,
-						activityTitleText: null,
-						activityWindowText: null,
-					}
-				: { [role]: next };
-		const outcome = inline.updateForm(formUuid, patch);
+		const outcome = inline.updateForm(formUuid, { [role]: next });
 		setRefusal(outcome.ok ? null : outcome.messages.join(" "));
 		if (outcome.ok) setAdding(null);
 	};
@@ -200,12 +181,7 @@ export function FormBehaviorSection({ formUuid }: FormSettingsSectionProps) {
 							variant="ghost"
 							onClick={() => (setting ? change(role, null) : setAdding(null))}
 						>
-							{setting
-								? role === "activityKeyText" &&
-									(form.activityTitleText || form.activityWindowText)
-									? "Remove key and activity notices"
-									: "Remove setting"
-								: "Cancel"}
+							{setting ? "Remove setting" : "Cancel"}
 						</Button>
 					</div>
 				);

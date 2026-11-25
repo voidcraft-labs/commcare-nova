@@ -932,7 +932,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 | Tool | What it does |
 |---|---|
-| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, set what the menu opens on with `searchWorkflow` and whether its forms read the search with `formsReadSearch` (both as `set_case_search_advanced` takes them), and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs.  Use `calculatedSorts` to add or update independent order calculations. Each calculation supplies an expression, priority and direction. `removeCalculatedSorts` accepts the identities to remove. |
+| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, set what the menu opens on with `searchWorkflow` and whether its forms read the search with `formsReadSearch` (both as `set_case_search_advanced` takes them), and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. |
 | `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / link / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. A column that is not calculated may give `via`, the links to walk to a case above the listed one (`[{"identifier":"parent"}]`, or another link with the `throughCaseType` it reaches), to show that case's property. |
 | `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. |
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
@@ -956,10 +956,9 @@ order a list the same way:
 - Each column kind orders by its own key. A plain column orders by the saved
   value, as a number for a number property, and shown on Results over a choice
   property with options, by the option label it shows. A date column orders by
-  the saved date, whatever `pattern` shows it. An `image-map` orders by its first matching row’s position. An
-  `id-mapping` uses the same order by default. With `behavior: "first-match"`
-  it orders by the displayed label in the worker’s language. An unmatched value
-  counts as blank. An interval column shown
+  the saved date, whatever `pattern` shows it. An `id-mapping` or `image-map`
+  column shown on Results orders by the order of its `mapping` entries, never by
+  label, and a value with no entry counts as no value. An interval column shown
   on Results orders by the text it shows, compared as text. A link column orders
   by the saved value, and a calculated column by its result. A column hidden
   from Results orders by the saved value.
@@ -984,15 +983,8 @@ the list altogether: only Details shows it, and the list doesn't search or sort
 by it.
 
 A date column's `pattern` is a CommCare date pattern such as `%Y-%m-%d`; it
-can't hold a straight apostrophe (`'`), and a curved one (`’`) works. A default
-`id-mapping` accepts a blank or several words and matches the sequence
-between spaces. Its literal keys exclude `&`, `<`, `>`, `"` and `'`.
-For a whole saved value or a typed case condition, use `behavior: "first-match"`.
-Each rule has a `label` and either `value` or `when`. An `image-map` row has
-an `assetId` and can include `altText`. It matches `value` among the saved
-choices, compares the whole value with `match: "exact"`, or evaluates its
-`when` condition. Keep a row’s `uuid` when editing its rule or order so its
-translations follow it.
+can't hold a straight apostrophe (`'`), and a curved one (`’`) works. An
+`id-mapping` value is one word and can't hold `&`, `<`, `>`, `"` or `'`.
 
 A tile cell's `horizontalAlign` (`left`, `center` or `right`), `verticalAlign`
 (`top`, `middle` or `bottom`) and `fontSize` (`small`, `medium` or `large`) may
@@ -1025,8 +1017,6 @@ Case search is the search experience that surrounds the case list: the screen ti
 |---|---|
 | `set_case_search_display` | Set the search-screen title, subtitle, and the predicate that decides when to show the search button. |
 | `set_case_search_advanced` | Set the excluded-owner rule, what the menu opens on, and whether its forms read the search, all three in one call. `excludedOwnerIds` is an expression naming owner ids whose cases are left out of Results, or `null`. `searchWorkflow` is required: `searchFirst` opens on Search in Web Apps, with Results showing what the search finds; `skipToResults` opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; `listFirst` opens on the case list with Search from it, and only an app that runs only on Android can use it. Android opens a menu that searches on its case list under every choice. `formsReadSearch: true` runs the search again as each form in the menu opens, so the forms can read `#search/<name>` and what the search found, and a case the worker found is claimed when a form is chosen; it needs `searchFirst` or `skipToResults` in a menu whose forms all work on an existing case, or a case list with no forms, it refuses a Search button display condition and `previous` after submit, and it runs only in Web Apps. `null` turns it off. |
-
-For a Results image that performs an action, `getModule` lists each image column's eligible forms in `listIconDestinations`. An image column's `entryPointUuid` names the chosen form's deep link. Its eligible forms accept a single record of the type passed by the list and can submit automatically in Web Apps. `updateForm` accepts `automaticSubmissionText: true` to choose a question label or an explicit question or choice text identified by field and role. A list action needs a question label. A null value restores manual submission. `getForm` returns the setting and any other texts that share it.
 
 ## Working with deep links
 
@@ -1061,7 +1051,7 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | Tool | What it does |
 |---|---|
 | `create_form` | Add one empty form to `moduleUuid` and return its identity. Add questions with `add_fields`, then set its naming rule and its open and close conditions with `update_form`. `case_list_registration: { label? }` makes a registration form its menu's registration from the case list: the results offer it after a search finds nothing, and it is on no menu. It turns on `formsReadSearch` for the menu, so the form's fields can read `#search/<name>`; after submit it returns to the results, or to the first menu when `post_submit` is `firstMenu`, which a menu choosing several cases requires. It takes no after-submit destinations, otherwise, display condition or `hiddenFromMenu`. A label left out or `null` uses the form name. `plain_text: true` turns text formatting off for the whole form. |
-| `update_form` | Edit a form's name, purpose, `recordName` (after its questions exist), open and close conditions, CommCare Connect settings (one participant's block, after a mode exists), after-submit navigation, `displayCondition` and `hiddenFromMenu` (`true` takes the form off the menu, `null` puts it back), or whether it is its menu's registration from the case list, addressed by `moduleUuid` and `formUuid`. `open_condition` is for a registration: the case is created only when it holds, and `null` creates it on every submission. `close_condition` is for a registration or a close form: on a registration the case it creates also closes when it holds, `true()` closes it on every submission and `null` keeps it open; on a close form the case closes only when it holds, and `null` closes it on every submission. Both are form logic that reads answers as any form expression does, such as `#form/outcome = 'complete'`, and leaving one out keeps it. `case_list_registration` takes the same shape as on `create_form`; `null` makes the form a menu form again, turns `formsReadSearch` off and removes Search-based starting values. `plain_text: true` turns text formatting off for the whole form: every label shows as typed, and every choice and help text does on Android; `false` or `null` turns it back on. |
+| `update_form` | Edit a form's name, purpose, `recordName` (after its questions exist), open and close conditions, CommCare Connect settings (one participant's block, after a mode exists), after-submit navigation, `displayCondition` and `hiddenFromMenu` (`true` takes the form off the menu, `null` puts it back), or whether it is its menu's registration from the case list, addressed by `moduleUuid` and `formUuid`. `open_condition` is for a registration: the case is created only when it holds, and `null` creates it on every submission. `close_condition` is for a registration or a close form: on a registration the case it creates also closes when it holds, `true()` closes it on every submission and `null` keeps it open; on a close form the case closes only when it holds, and `null` closes it on every submission. Both are form logic that reads answers as any form expression does, such as `#form/outcome = 'complete'`, and leaving one out keeps it. `case_list_registration` takes the same shape as on `create_form`; `null` makes the form a menu form again, turns `formsReadSearch` off and removes Search-based starting values. `plain_text: true` turns text formatting off for the whole form: every label shows as typed, and every choice and help text does on Android; `false` or `null` turns it back on. `automaticSubmissionText`, `skipAutomaticSyncText` and `validateChangedAnswersText` each name a question or choice text of the form that holds that Web Apps behavior (`{ carrier: { field, role, option? }, alsoUsedBy? }`, as `get_form` lists them in `behaviorTextChoices`); `automaticSubmissionText: true` lets Nova choose a question label, and `null` removes a setting. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
 | `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, case operations with authored conditions and values, its `openCondition` and `closeCondition` as authored text, its after-submit `destinations` in the order they run (each one's `uuid` is the `linkUuid` the link tools take), and its `otherwise`: `{ kind: "destination", destination }` or `{ kind: "link", linkUuid, target, datums? }`. It also lists `offeredOnCaseListsOf`, the modules whose case lists always offer the form. |
 

@@ -426,34 +426,11 @@ function formBehaviorFixture(role?: FormBehaviorRole): BlueprintDoc {
 }
 
 export const PLATFORM_FEATURE_FIXTURES = {
-	"form-skip-automatic-sync": {
-		with: () => formBehaviorFixture("skipAutomaticSyncText"),
-		without: () => formBehaviorFixture(),
-		use: slotUse(
-			"form-skip-automatic-sync",
-			FORM_OWNER,
-			"skipAutomaticSyncText",
-		),
-	},
-	"form-check-changed-answers": {
-		with: () => formBehaviorFixture("validateChangedAnswersText"),
-		without: () => formBehaviorFixture(),
-		use: slotUse(
-			"form-check-changed-answers",
-			FORM_OWNER,
-			"validateChangedAnswersText",
-		),
-	},
-	"form-activity-notice": {
-		with: () => formBehaviorFixture("activityKeyText"),
-		without: () => formBehaviorFixture(),
-		use: slotUse("form-activity-notice", FORM_OWNER, "activityKeyText"),
-	},
-	"automatic-form-submission": {
+	"web-apps-form-behavior": {
 		with: () => formBehaviorFixture("automaticSubmissionText"),
 		without: () => formBehaviorFixture(),
 		use: slotUse(
-			"automatic-form-submission",
+			"web-apps-form-behavior",
 			FORM_OWNER,
 			"automaticSubmissionText",
 		),

@@ -13,6 +13,7 @@ import { isTag } from "domhandler";
 import type { LanguageTag } from "@/lib/domain";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import surface from "../../surface/surface.json";
+import { behaviorWireIds } from "../../xform/itextIds";
 import {
 	attributeNamespace,
 	elementNamespace,
@@ -43,6 +44,12 @@ export const PRAGMA_KEYS = [
 ] as const;
 
 const PRAGMAS: ReadonlySet<string> = new Set(PRAGMA_KEYS);
+
+/** The pragmas Formplayer reads by presence alone, which a form holds as its
+ *  behaviors (`Form.automaticSubmissionText` and the others). */
+const PRESENCE_PRAGMAS: ReadonlySet<string> = new Set(
+	Object.values(behaviorWireIds),
+);
 
 /** A text's slot on the field that references it. */
 export type TextSlot = Exclude<ItextRecipient["slot"], "option_label">;
@@ -477,7 +484,7 @@ function claimReferencedId(
 		else
 			cursor.refuse(
 				{ element: text, attribute: "id" },
-				claim as typeof X.pragmaFormDescriptor,
+				claim as typeof X.pragmaKey | typeof X.pragmaFormDescriptor,
 				place,
 			);
 	}
@@ -510,6 +517,7 @@ export function pragmaClaim(
 	| typeof X.pragmaMerged
 	| typeof X.pragmaVolatilityWithoutKey
 	| typeof X.pragmaFormDescriptor
+	| typeof X.pragmaPresence
 	| typeof X.pragmaKey {
 	const mine = reading.allValues(id);
 	const merged = reading.ids().some((other) => {
@@ -535,10 +543,11 @@ export function pragmaClaim(
 		(id === "Pragma-Volatility-Entity-Title" ||
 			id === "Pragma-Volatility-Window") &&
 		(!reading.owners("Pragma-Volatility-Key").length ||
-			pragmaClaim(reading, "Pragma-Volatility-Key").use !== "take")
+			pragmaClaim(reading, "Pragma-Volatility-Key") === X.pragmaMerged)
 	)
 		return X.pragmaVolatilityWithoutKey;
 	if (id === "Pragma-Form-Descriptor") return X.pragmaFormDescriptor;
+	if (PRESENCE_PRAGMAS.has(id)) return X.pragmaPresence;
 	return X.pragmaKey;
 }
 

@@ -137,24 +137,6 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"In Web Apps, recheck changed answers and blanks at submission. A previously accepted nonblank answer can stay accepted after a related answer changes. Choose an existing question or choice text by identity. Null removes the setting.",
 			),
-		activityKeyText: behaviorTextSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Show Web Apps workers recent activity on this form when the resolved key matches, for example a case identifier in a label. Choose an existing question or choice text by identity. Null removes the setting.",
-			),
-		activityTitleText: behaviorTextSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Name the shared activity in Web Apps, using localized text evaluated when the form opens. Requires a shared activity key. Choose an existing question or choice text by identity. Null removes the setting.",
-			),
-		activityWindowText: behaviorTextSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Set how many seconds the shared activity remains visible. Requires a shared activity key. The default is 300 seconds. Choose an existing question or choice text by identity. Null removes the setting.",
-			),
 		plain_text: z
 			.boolean()
 			.nullable()

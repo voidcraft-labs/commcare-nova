@@ -50,7 +50,12 @@ import {
 	type SlotContextRef,
 } from "./expression/types";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
-import { FORM_TYPES, type FormType, formBehaviorRoles } from "./forms";
+import {
+	FORM_TYPES,
+	type FormBehaviorRole,
+	type FormType,
+	formBehaviorRoles,
+} from "./forms";
 import type { ColumnKind, SearchInputDef } from "./modules";
 import { ownRecordValue } from "./records";
 import { isDeeplySettled } from "./settled";
@@ -372,6 +377,14 @@ export const FIELD_REFERENCE_SLOTS = [
 
 // ── Form slots ────────────────────────────────────────────────────
 
+/** Each form behavior's slot-name stem (`Form.<role>`'s carrier and shared
+ *  texts, by field and by choice). */
+const FORM_BEHAVIOR_SLOT_NAMES = {
+	automaticSubmissionText: "automatic_submission_text",
+	skipAutomaticSyncText: "skip_automatic_sync_text",
+	validateChangedAnswersText: "validate_changed_answers_text",
+} as const satisfies Record<FormBehaviorRole, string>;
+
 export const FORM_REFERENCE_SLOTS = [
 	{
 		entity: "form",
@@ -405,10 +418,7 @@ export const FORM_REFERENCE_SLOTS = [
 		(["carrier", "alsoUsedBy[]"] as const).flatMap((member) =>
 			(["field", "option"] as const).map((part) => ({
 				entity: "form" as const,
-				slot:
-					part === "field"
-						? ("form_behavior_text_field" as const)
-						: ("form_behavior_text_choice" as const),
+				slot: `${FORM_BEHAVIOR_SLOT_NAMES[role]}_${member === "carrier" ? "carrier" : "shared"}_${part}` as const,
 				path: `${role}.${member}.${part}`,
 				kind: "entity-uuid" as const,
 				formTypes: FORM_TYPES,

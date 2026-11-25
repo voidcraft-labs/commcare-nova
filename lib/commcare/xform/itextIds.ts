@@ -39,9 +39,6 @@ export const behaviorWireIds = {
 	automaticSubmissionText: "Pragma-Submit-Automatically",
 	skipAutomaticSyncText: "Pragma-Suppress-Autosync",
 	validateChangedAnswersText: "Pragma-Skip-Full-Form-Validation",
-	activityKeyText: "Pragma-Volatility-Key",
-	activityTitleText: "Pragma-Volatility-Entity-Title",
-	activityWindowText: "Pragma-Volatility-Window",
 } as const satisfies Record<FormBehaviorRole, string>;
 export const AUTOMATIC_SUBMISSION_TEXT_ID =
 	behaviorWireIds.automaticSubmissionText;

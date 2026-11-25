@@ -31,6 +31,7 @@ import { walkExpressionNodes } from "./expression/walk";
 import { fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
+import { formBehaviorRoles } from "./forms";
 import {
 	caseSelectionCardinality,
 	columnOnList,
@@ -394,37 +395,10 @@ export function platformFeatureUses(
 				formUses.push(
 					slotUse("connect-location-capture", formOwner, "captureLocation"),
 				);
-			if (form.automaticSubmissionText && wanted("automatic-form-submission"))
-				formUses.push(
-					slotUse(
-						"automatic-form-submission",
-						formOwner,
-						"automaticSubmissionText",
-					),
-				);
-			if (form.skipAutomaticSyncText && wanted("form-skip-automatic-sync"))
-				formUses.push(
-					slotUse(
-						"form-skip-automatic-sync",
-						formOwner,
-						"skipAutomaticSyncText",
-					),
-				);
-			if (
-				form.validateChangedAnswersText &&
-				wanted("form-check-changed-answers")
-			)
-				formUses.push(
-					slotUse(
-						"form-check-changed-answers",
-						formOwner,
-						"validateChangedAnswersText",
-					),
-				);
-			if (form.activityKeyText && wanted("form-activity-notice"))
-				formUses.push(
-					slotUse("form-activity-notice", formOwner, "activityKeyText"),
-				);
+			if (wanted("web-apps-form-behavior"))
+				for (const role of formBehaviorRoles)
+					if (form[role])
+						formUses.push(slotUse("web-apps-form-behavior", formOwner, role));
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(

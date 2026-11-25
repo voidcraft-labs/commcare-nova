@@ -31718,6 +31718,27 @@
 		}
 	},
 	{
+		"id": "hq-questions/pragma-presence-text",
+		"base": "hq-questions",
+		"entry": "questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
+		"change": {
+			"op": "named",
+			"name": "pragma_presence_text"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/automaticSubmissionText/carrier/role",
+				"value": "field-label"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/pragma-text-merged",
 		"base": "hq-questions",
 		"entry": "questions/a-question-text-whose-itext-id-is-a-pragma-key-hq-s-build-merges",

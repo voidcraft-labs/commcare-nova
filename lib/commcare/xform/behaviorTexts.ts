@@ -36,11 +36,6 @@ export function formBehaviorTextIssue(
 ): FormBehaviorTextIssue | undefined {
 	const form = doc.forms[formUuid];
 	if (!form || !formBehaviorRoles.some((role) => form[role])) return undefined;
-	if (
-		!form.activityKeyText &&
-		(form.activityTitleText || form.activityWindowText)
-	)
-		return { reason: "needs-activity-key" };
 	const structure = formStructure(doc, formUuid);
 	if (!structure) return undefined;
 	const ordinary = ordinaryFormItextUnits(structure);

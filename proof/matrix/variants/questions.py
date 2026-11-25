@@ -1147,11 +1147,22 @@ def pragma_entry(authoring, app_id):
 
 
 def pragma_question_text(authoring, app_id):
-    """``weight``'s label text given the itext id ``Pragma-Submit-Automatically``."""
+    """``weight``'s label text given the itext id ``Pragma-Volatility-Key``."""
     _change(
         authoring,
         app_id,
         "pragma-question-text",
+        ('"weight-label"', '"Pragma-Volatility-Key"', 1),
+        ("jr:itext('weight-label')", "jr:itext('Pragma-Volatility-Key')", 1),
+    )
+
+
+def pragma_presence_text(authoring, app_id):
+    """``weight``'s label text given the itext id ``Pragma-Submit-Automatically``."""
+    _change(
+        authoring,
+        app_id,
+        "pragma-presence-text",
         ('"weight-label"', '"Pragma-Submit-Automatically"', 1),
         ("jr:itext('weight-label')", "jr:itext('Pragma-Submit-Automatically')", 1),
     )

@@ -1,5 +1,3 @@
-import { formBehaviorRoles } from "@/lib/domain/forms";
-import { behaviorWireIds } from "../../../xform/itextIds";
 /**
  * Text read by reference and the forms of a text, over hand-built
  * sources read through the reader's own stages. A text is found by what
@@ -19,9 +17,10 @@ import { behaviorWireIds } from "../../../xform/itextIds";
 
 import { describe, expect, it } from "vitest";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
-import { expandDoc } from "../../../expander";
+import { formBehaviorRoles } from "@/lib/domain/forms";
 import { formBehaviorTextIssue } from "../../../xform/behaviorTexts";
-import { inputFor } from "../../__tests__/novaExport";
+import { behaviorWireIds } from "../../../xform/itextIds";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { retainedSourceBody } from "../../__tests__/readerInput";
 import { readHqApp } from "../../index";
 import type { ReadOutcome } from "../../types";
@@ -216,6 +215,7 @@ describe("pragma keys", () => {
 		);
 		expect(codes(reading).sort()).toEqual(
 			[
+				Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 				Q("itext-pragma-entries-pragma-form-descriptor-pragma-skip-full"),
 				Q("itext-entry-referenced-only-from-jr-itext-in-an-expression"),
 			].sort(),
@@ -637,9 +637,17 @@ describe("pragma rows", () => {
 			alsoUsedBy: [{ field: second, role: "field-label" }],
 		});
 		expect(formBehaviorTextIssue(doc, form.uuid)).toBeUndefined();
-		const [xml] = Object.values(expandDoc(doc)._attachments);
-		expect(xml.split(`<text id="${id}">`).length - 1).toBe(2);
-		expect(xml.split(`jr:itext('${id}')`).length - 1).toBe(2);
+		// Nova's export writes the text once under the pragma id with both
+		// labels reading it, so reading it back holds the same sharing.
+		const again = documentOf(
+			await readHqApp(await inputFor(exportedBody(doc))),
+		);
+		const back = Object.values(again.forms)[0];
+		const [firstBack, secondBack] = again.fieldOrder[back.uuid];
+		expect(back.automaticSubmissionText).toEqual({
+			carrier: { field: firstBack, role: "field-label" },
+			alsoUsedBy: [{ field: secondBack, role: "field-label" }],
+		});
 		const field = doc.fields[second];
 		const changed = {
 			...doc,
@@ -648,10 +656,12 @@ describe("pragma rows", () => {
 				[second]: { ...field, label: proseText("Different label") },
 			},
 		};
-		expect(formBehaviorTextIssue(changed, form.uuid)).toContain("must agree");
+		expect(formBehaviorTextIssue(changed, form.uuid)).toMatchObject({
+			reason: "shared-text-differs",
+		});
 	});
 
-	it("holds all seven behaviors on distinct localized questions through read, write and read-back", async () => {
+	it("holds each Web Apps behavior on its own localized question through read, write and read-back", async () => {
 		const bindings = Object.entries(behaviorWireIds);
 		const ids = bindings.map((_, index) => `q${index}`);
 		const xml = xformSource({
@@ -682,8 +692,9 @@ describe("pragma rows", () => {
 				.join(""),
 		});
 		const first = documentOf(await readApp(xml, ["en", "fr"]));
-		const exported = Object.values(expandDoc(first)._attachments)[0];
-		const second = documentOf(await readApp(exported, ["en", "fr"]));
+		const second = documentOf(
+			await readHqApp(await inputFor(exportedBody(first))),
+		);
 		for (const doc of [first, second]) {
 			const form = Object.values(doc.forms)[0];
 			expect(formBehaviorTextIssue(doc, form.uuid)).toBeUndefined();
@@ -731,6 +742,26 @@ describe("pragma rows", () => {
 		expect(codes(reading)).toEqual([
 			Q("itext-pragma-entries-pragma-form-descriptor-pragma-skip-full"),
 		]);
+	});
+
+	it("refuses an activity key and the title beside it, which Nova does not hold yet", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<a/><b/>",
+				model: `<bind nodeset="/data/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/>${itext(
+					{
+						en: `<text id="Pragma-Volatility-Key"><value>key</value></text>
+							<text id="Pragma-Volatility-Entity-Title"><value>Title</value></text>`,
+					},
+				)}`,
+				body: `<input ref="/data/a"><label ref="jr:itext('Pragma-Volatility-Key')"/></input>
+					<input ref="/data/b"><label ref="jr:itext('Pragma-Volatility-Entity-Title')"/></input>`,
+			}),
+		);
+		const activity = Q(
+			"a-question-text-label-hint-help-validation-message-repeat-add",
+		);
+		expect(codes(reading)).toEqual([activity, activity]);
 	});
 });
 

@@ -10358,11 +10358,11 @@
 		"id": "questions/a-question-text-label-hint-help-validation-message-repeat-add",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "a question text (label, hint, help, validation message, repeat add caption or choice label) whose itext id is one of those pragma keys other than `Pragma-Form-Descriptor`, and other than `Pragma-Volatility-Entity-Title` or `Pragma-Volatility-Window` in a form with no `Pragma-Volatility-Key` text, where HQ's build keeps the entry: no other itext entry has identical values in every language and form under an id that sorts before it, which HQ's build merges it into, keeping the first id and pointing every reference there (`XForm.normalize_itext`, run on every build by `FormBase.add_stuff_to_xform`; executed) (Vellum lets an author set a text's itext id, `javaRosa/itextWidget.js::iTextIDWidget`)",
+		"item": "a question text (label, hint, help, validation message, repeat add caption or choice label) whose itext id is `Pragma-Volatility-Key`, or `Pragma-Volatility-Entity-Title` or `Pragma-Volatility-Window` in a form with a `Pragma-Volatility-Key` text, where HQ's build keeps the entry: no other itext entry has identical values in every language and form under an id that sorts before it, which HQ's build merges it into, keeping the first id and pointing every reference there (`XForm.normalize_itext`, run on every build by `FormBase.add_stuff_to_xform`; executed) (Vellum lets an author set a text's itext id, `javaRosa/itextWidget.js::iTextIDWidget`)",
 		"surfaceKeys": ["xform:model/itext/translation/text@id"],
 		"valueClass": "pragma-key",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the form's pragma setting (auto-submit and the others); where `Pragma-Submit-Automatically` is the label of a question (not of a group, repeat or choice), HQ's editor also offers the form as a clickable icon's target (`Form.is_auto_submitting_form`), so which text carries the id is held; the validator refuses a Nova form where a pragma entry's text equals, in every language and form, that of an entry whose id sorts before it, since the build would merge it away (the presence-only pragmas, auto-submit, suppress autosync and skip validation, collide when two carry the same text), naming both",
+		"dispositionCell": "**HELD-NEW**: the form's Web Apps activity notice (its key, title and window), which needs Preview to keep each worker's opens and submissions of the form for the evaluated key and show the notice another worker reads",
 		"subject": "question-text",
 		"owner": "xform",
 		"platforms": {
@@ -10378,6 +10378,33 @@
 		},
 		"emission": {
 			"cell": "the text with that itext id",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "a question text (label, hint, help, validation message, repeat add caption or choice label) whose itext id is `Pragma-Submit-Automatically`, `Pragma-Suppress-Autosync` or `Pragma-Skip-Full-Form-Validation`, the pragmas Formplayer reads by their presence alone, where HQ's build keeps the entry (as above)",
+		"surfaceKeys": ["xform:model/itext/translation/text@id"],
+		"valueClass": "pragma-presence",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form's automatic submission, skipped autosync or changed-answer check (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `validateChangedAnswersText`), each the identity of the question or choice text that carries it and of every other slot that shares that text; the validator refuses a setting whose text HQ's build would merge into an equal text under an id that sorts before it, or whose sharing slots disagree in any language, format or media, naming both",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (`FormSession.getPragma`) / IGNORED",
+			"webApps": {
+				"reading": "runs",
+				"note": "`FormSession.getPragma`"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "the text with that itext id, written once and referenced by every slot that shares it",
 			"markers": []
 		},
 		"gates": []
