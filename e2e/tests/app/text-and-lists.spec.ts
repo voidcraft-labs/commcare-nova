@@ -141,7 +141,7 @@ test("Show a title turns a search's title off and on again", {
 		await expect(page).toHaveURL(`${setupPath}?lang=spa`);
 	});
 
-	await test.step("under that language, the switch turns the title off for every language", async () => {
+	await test.step("under that language, the switch turns the title off in the source too", async () => {
 		await openSearchPanel(`${seed.caseWorkspace.routes.search}?lang=spa`);
 		await expect(
 			page.getByRole("button", { name: "Worker language: Spanish" }),
@@ -158,30 +158,34 @@ test("Show a title turns a search's title off and on again", {
 		await expect(runningTitle).toHaveCount(0);
 		await backToEdit(page);
 
-		// No title is one setting, so the source language shows it off too.
+		// No title is the source's setting, so the source language shows it off too.
 		await selectLanguage(page, "English");
 		await editPanel.click();
 		await expect(toggle).not.toBeChecked();
 		await expect(titleBox).toHaveCount(0);
 	});
 
-	await test.step("under that language, on again gives every language a title", async () => {
+	await test.step("under that language, on again gives it a title of its own while the source keeps none", async () => {
 		await selectLanguage(page, "Español");
 		await editPanel.click();
-		const on = savedWith(page, appId, '"searchScreenTitle":null');
+		const on = savedWith(page, appId, '"kind":"setTranslation"');
 		await toggle.click();
 		expect((await on).ok()).toBe(true);
 		await expect(toggle).toBeChecked();
-		await expect(titleBox).toBeVisible();
+		await expect(titleBox).toHaveValue("Search");
 
 		await openPreviewSearch(page);
-		await expect(runningTitle).toHaveCount(1);
+		await expect(runningTitle).toHaveText("Search");
 		await backToEdit(page);
 
+		// English, the first language, still shows no title.
 		await selectLanguage(page, "English");
 		await editPanel.click();
-		await expect(toggle).toBeChecked();
-		await expect(titleBox).toHaveValue("Search");
+		await expect(toggle).not.toBeChecked();
+		await expect(titleBox).toHaveCount(0);
+		await openPreviewSearch(page);
+		await expect(runningTitle).toHaveCount(0);
+		await backToEdit(page);
 	});
 });
 
