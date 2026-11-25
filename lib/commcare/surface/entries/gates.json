@@ -664,7 +664,15 @@
 		"effects": [
 			{
 				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/action[*]"
+			},
+			{
+				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/action[*]/@relevant"
+			},
+			{
+				"artifact": "validate_app",
+				"path": "/modules/*/case list form not registration"
 			}
 		],
 		"source": {

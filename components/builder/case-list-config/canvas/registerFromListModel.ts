@@ -118,7 +118,12 @@ export function slotWith(
 		...(label !== undefined && { label }),
 		...(merged.icon !== undefined && { icon: merged.icon }),
 		...(merged.audioLabel !== undefined && { audioLabel: merged.audioLabel }),
-		afterSubmit: merged.afterSubmit,
+		// A selected parent's follow-up returns to the list (CommCare HQ
+		// offers no other return for a form that registers nothing).
+		afterSubmit:
+			merged.target?.kind === "chosen-parent"
+				? "case-list"
+				: merged.afterSubmit,
 	};
 }
 

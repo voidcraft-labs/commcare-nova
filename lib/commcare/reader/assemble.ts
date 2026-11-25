@@ -114,7 +114,10 @@ import {
 	searchLinkGuardsAreCarriedValues,
 } from "./menus/afterSubmit";
 import { shownBlockMedia } from "./menus/navMedia";
-import { registrationFormLast } from "./menus/registration";
+import {
+	parentFollowUpsReturnToTheList,
+	registrationFormLast,
+} from "./menus/registration";
 import { appPlace, placeOrder } from "./place";
 import { menuAndFormIdsAsRead, provisionalDocument } from "./provisional";
 import {
@@ -816,6 +819,14 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "order-rules-on-the-columns-they-land-on",
 		kind: "one-wire",
 		apply: rulesOnTheColumnsTheyLandOn,
+	},
+	{
+		/** A list action opening a selected parent's follow-up, storing either return, prints
+		 *  `case_list`; the reader returns `case-list`
+		 *  (`menus/registration.ts::parentFollowUpsReturnToTheList`). */
+		id: "parent-follow-ups-return-to-the-list",
+		kind: "one-wire",
+		apply: parentFollowUpsReturnToTheList,
 	},
 	{
 		/** A list whose one rule is the rule a list with no rule writes, and the list with no rule:

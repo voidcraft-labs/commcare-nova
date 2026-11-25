@@ -1172,3 +1172,35 @@ export function registrationFormLast(doc: BlueprintDoc): BlueprintDoc {
 	}
 	return changed ? { ...doc, formOrder } : doc;
 }
+
+/**
+ * A list action that opens a selected parent's follow-up returns to the list
+ * whatever it stores: CommCare HQ's menu settings page offers only "Go back to
+ * case list" for a form that registers nothing of the list's type
+ * (`module_view.js::caseListFormModel`), so Nova writes `case_list` for it
+ * (`expander.ts`), and HQ's build writes no return frame for it
+ * (`workflow.py::CaseListFormWorkflow`). A document storing `new-case` there
+ * prints what one storing `case-list` prints; the reader returns `case-list`.
+ */
+export function parentFollowUpsReturnToTheList(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	const held = (
+		slot: BlueprintDoc["modules"][string]["caseListRegistrationForm"],
+	) => slot?.kind === "always" && slot.target?.kind === "chosen-parent";
+	if (
+		!Object.values(doc.modules).some(
+			(module) =>
+				held(module.caseListRegistrationForm) &&
+				module.caseListRegistrationForm?.afterSubmit !== "case-list",
+		)
+	)
+		return doc;
+	return withCandidate(doc, (draft) => {
+		for (const module of Object.values(draft.modules)) {
+			const slot = module.caseListRegistrationForm;
+			if (slot?.kind === "always" && slot.target?.kind === "chosen-parent")
+				slot.afterSubmit = "case-list";
+		}
+	});
+}

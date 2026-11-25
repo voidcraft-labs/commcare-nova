@@ -739,8 +739,14 @@ export function* expandDocSteps(
 						alwaysOffered.formUuid,
 					),
 				),
+				// A selected parent's follow-up returns to the list: HQ's menu
+				// settings page offers only "Go back to case list" for a form that
+				// registers nothing (`module_view.js::caseListFormModel`).
 				post_form_workflow:
-					alwaysOffered.afterSubmit === "case-list" ? "case_list" : "default",
+					alwaysOffered.afterSubmit === "case-list" ||
+					alwaysOffered.target?.kind === "chosen-parent"
+						? "case_list"
+						: "default",
 				media_image: media.media_image,
 				media_audio: media.media_audio,
 			};
