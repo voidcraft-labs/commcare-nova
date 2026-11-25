@@ -146,7 +146,10 @@ export function qualifiedLookupValues() {
 				form: visit,
 				restore: "restore.xml",
 				request: {
-					answers: [{ path: "/data/clinic", value: "east" }],
+					// A select is answered by its choice's 1-based position, as Web Apps sends
+					// Formplayer: "east" is the second row's choice, so this also proves Core
+					// built the choice list from the attribute and the French occurrence.
+					answers: [{ path: "/data/clinic", value: "2" }],
 					expressions: [
 						"/data/clinic",
 						"/data/display",
