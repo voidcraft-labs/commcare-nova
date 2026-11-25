@@ -34100,11 +34100,6 @@
 				"value": "select"
 			}
 		],
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/5",
@@ -34148,11 +34143,6 @@
 				"value": "select"
 			}
 		],
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/5",
@@ -34340,11 +34330,6 @@
 				"value": "project-space"
 			}
 		],
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/4",
