@@ -240,8 +240,6 @@ export const FINDING_COPY: Readonly<
 	"child-cases": {
 		never:
 			"This form opens a case of its menu's own type, and this project space leaves out the link between the two.",
-		"not-yet":
-			"This opens or closes a case under a condition Nova can't hold yet.",
 	},
 	"commcare-version": {},
 	"connect-blocks": {
