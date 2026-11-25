@@ -166,15 +166,19 @@ write(
 		),
 	),
 );
+// The bilingual survey's form as a device installs it: the archive's, which carries none of the form
+// builder's own attributes (`vellum:nodeset` and the like), as HQ's build strips them.
 const bilingual = localizedMediaWireFixture();
 const bilingualApp = expandDoc(bilingual.doc, { assets: bilingual.assets });
-const source =
-	bilingualApp._attachments[
-		`${bilingualApp.modules[0].forms[0].unique_id}.xml`
-	];
-if (typeof source !== "string")
-	throw new Error("The bilingual survey is missing its source form.");
-write("localized-files.xml", source);
+const bilingualForm = new AdmZip(
+	compileCcz(bilingualApp, bilingual.doc.appName, bilingual.doc, {
+		assets: bilingual.assets,
+		runtimeTarget: NATIVE_RUNTIME_TARGET,
+	}),
+).readAsText("modules-0/forms-0.xml");
+if (!bilingualForm)
+	throw new Error("The bilingual survey's archive holds no form.");
+write("localized-files.xml", bilingualForm);
 const paths = [
 	"lib/commcare/__tests__/mediaWireFixtures.ts",
 	"lib/media/__tests__/bmpFixtures.ts",
