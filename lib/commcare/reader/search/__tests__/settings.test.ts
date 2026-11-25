@@ -93,10 +93,10 @@ describe("a search's settings", () => {
 		).toContain("list-settings-respelled");
 	});
 
-	it("raises a title shown blank in the source language beside another's text", async () => {
+	it("holds a title shown blank in the source language beside another's text as no title", async () => {
 		// A language with no title of its own shows the first language's, so a blank first
-		// language, here the source, shows blank beside another's text. The refusal stands alone:
-		// the search's rows, which the settle never reaches, stand under it.
+		// language, here the source, shows blank beside another's text: the search has no title in
+		// the source, and the other language's text is its translation (`hqSaves.test.ts`).
 		const reading = await readLists(doc({ searchScreenTitle: "Find" }), {
 			edit: (app) => {
 				(app as Record<string, unknown>).langs = ["en", "fra"];
@@ -105,9 +105,10 @@ describe("a search's settings", () => {
 					config.title_label = { en: "", fra: "Trouver" };
 			},
 		});
-		expect(closedCodes(reading)).toEqual([
-			"case-search/title-label-blank-in-some-languages",
-		]);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		});
 	});
 
 	it("reads an owner exclusion, and the list filter's clause for it leaves the filter", async () => {

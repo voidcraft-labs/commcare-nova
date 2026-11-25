@@ -1180,17 +1180,23 @@
 			"parser:SessionDatumParser/title"
 		],
 		"valueClass": "blank-in-some-languages",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a search title shown blank in the source language where another language shows text: a language with no title of its own shows the first language's (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`, `create_default_app_strings`), so the title shows blank there only where the first language's is blank too, or where a language holds only whitespace. Nova holds the source language's title as the search's own, text or no title in every language, so no document shows it blank in the source alone; a title blank in another language is held as the source's there, as every app string is (`text-spaces-dropped`)",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseSearchConfig.searchScreenTitle` `none` with the title unit's translations: a search with no title in the source language, and a title of its own in each language that shows one. A language with no title of its own shows the first language's (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`, `create_default_app_strings`), so a language shows none only where the first language shows none too, which Nova's gate holds (`searchTitleLanguages.ts`). A source title only whitespace beside the first language's text, which shows blank, is held as the first language's text (`text-spaces-dropped`), and a title blank in another language beside the source's text as the source's there, as every app string is",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / IGNORED (Android draws no search title)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored",
+				"note": "Android draws no search title"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`title_label`, blank in each language that shows none",
+			"markers": []
 		},
 		"gates": []
 	},

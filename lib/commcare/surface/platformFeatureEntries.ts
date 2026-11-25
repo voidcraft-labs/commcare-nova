@@ -124,6 +124,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"search-screen-text": [
 		"case-search/title-label-lang-non-empty",
+		"case-search/title-label-blank-in-some-languages",
 		"case-search/description-lang-markdown",
 		"case-search/hint-lang",
 	],

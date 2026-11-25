@@ -530,7 +530,7 @@ describe("projectBuilderLanguageMutations", () => {
 		).toBe("Encontrar pacientes");
 	});
 
-	it("turns a search's title off and on again under another language, on the source", () => {
+	it("turns a search's title off on the source under another language, and on again in that language alone", () => {
 		const doc = fixture();
 		const localized = projectLocalizedModule(doc, "spa", MODULE);
 		const before = localized?.caseSearchConfig;
@@ -546,13 +546,14 @@ describe("projectBuilderLanguageMutations", () => {
 		expect(untitled.modules[MODULE]?.caseSearchConfig).toMatchObject({
 			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
 		});
-		// No title has no text and no translation unit, in either lens.
+		// The title unit stays, blank in the source, and this language holds no title of its own.
+		const unit = makeTranslationUnitId("module", MODULE, "search-title");
 		expect(
-			collectTranslationUnits(untitled).some(
-				(unit) =>
-					unit.id === makeTranslationUnitId("module", MODULE, "search-title"),
-			),
-		).toBe(false);
+			collectTranslationUnits(untitled).find((one) => one.id === unit)?.source,
+		).toBe("");
+		expect(
+			effectiveAppLocalization(untitled.localization).translations.spa?.[unit],
+		).toBeUndefined();
 		const shown = projectLocalizedModule(
 			untitled,
 			"spa",
@@ -562,22 +563,24 @@ describe("projectBuilderLanguageMutations", () => {
 			throw new Error("Expected a localized search.");
 		expect(shown.searchScreenTitle).toEqual(NO_SEARCH_SCREEN_TITLE);
 
-		const { searchScreenTitle: _none, ...titled } = shown;
+		// Turned on in this language, the title is this language's own text: the source keeps none.
 		const on = project(
 			untitled,
-			caseSearchConfigPatchMutations(MODULE, shown, titled),
+			caseSearchConfigPatchMutations(MODULE, shown, {
+				...shown,
+				searchScreenTitle: "Buscar",
+			}),
 		);
 		expect(on).not.toHaveLength(0);
 		const restored = apply(untitled, on);
-		expect(
-			restored.modules[MODULE]?.caseSearchConfig &&
-				"searchScreenTitle" in restored.modules[MODULE].caseSearchConfig,
-		).toBe(false);
+		expect(restored.modules[MODULE]?.caseSearchConfig).toMatchObject({
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		});
 		expect(
 			searchScreenTitleText(
 				projectLocalizedModule(restored, "spa", MODULE)?.caseSearchConfig,
 			),
-		).toBe("Search");
+		).toBe("Buscar");
 	});
 
 	it("leaves source-lens mutations canonical and refuses a removed target", () => {

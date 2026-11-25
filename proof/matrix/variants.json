@@ -38127,12 +38127,13 @@
 		"id": "hq-search/title-blank-in-english",
 		"base": "hq-search",
 		"entry": "case-search/title-label-blank-in-some-languages",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseSearchConfig/searchScreenTitle/kind",
+				"value": "none"
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "title_blank_in_english"

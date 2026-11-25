@@ -32,6 +32,10 @@ import { fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
 import {
+	effectiveAppLocalization,
+	makeTranslationUnitId,
+} from "./localization";
+import {
 	caseSelectionCardinality,
 	columnOnList,
 	columnSortLabelShows,
@@ -328,7 +332,15 @@ export function platformFeatureUses(
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) continue;
-		out.push(...moduleUses(moduleUuid, module, wanted, expressionUses));
+		out.push(
+			...moduleUses(
+				moduleUuid,
+				module,
+				wanted,
+				expressionUses,
+				searchTitleTranslated(doc, moduleUuid),
+			),
+		);
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
@@ -400,11 +412,24 @@ type ExpressionUses = (
 	ownerOf: (ref: SlotContextRef) => PlatformFeatureOwner,
 ) => PlatformFeatureUse[];
 
+/** Whether a language other than the source holds a search title text of its own. */
+function searchTitleTranslated(doc: BlueprintDoc, moduleUuid: Uuid): boolean {
+	const unit = makeTranslationUnitId("module", moduleUuid, "search-title");
+	return Object.values(
+		effectiveAppLocalization(doc.localization).translations,
+	).some((entries) => {
+		const value = entries[unit]?.value;
+		return typeof value === "string" && value.trim() !== "";
+	});
+}
+
 function moduleUses(
 	moduleUuid: Uuid,
 	module: Module,
 	wanted: (feature: PlatformFeatureId) => boolean,
 	expressionUses: ExpressionUses,
+	/** Whether a language other than the source shows a search title of its own. */
+	titleTranslated: boolean,
 ): PlatformFeatureUse[] {
 	const owner: PlatformFeatureOwner = { kind: "module", moduleUuid };
 	const list = module.caseListConfig;
@@ -453,9 +478,10 @@ function moduleUses(
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
 	// A search with no title holds no text for Android to leave out, so only
-	// an authored title text is a use.
+	// an authored title text is a use, in the source language or another.
 	const authoredTitleText =
-		search !== undefined && typeof search.searchScreenTitle === "string";
+		search !== undefined &&
+		(typeof search.searchScreenTitle === "string" || titleTranslated);
 	if (
 		search !== undefined &&
 		(authoredTitleText || search.searchScreenSubtitle !== undefined) &&

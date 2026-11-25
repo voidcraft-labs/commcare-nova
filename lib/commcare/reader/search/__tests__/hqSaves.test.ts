@@ -29,7 +29,11 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import type { BlueprintDoc, SearchInputDef } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	NO_SEARCH_SCREEN_TITLE,
+	type SearchInputDef,
+} from "@/lib/domain";
 import {
 	eq,
 	input,
@@ -46,10 +50,12 @@ import {
 	type AppJson,
 	closedCodes,
 	codes,
+	emittedApp,
 	listOf,
 	readLists,
 	searchOf,
 } from "../../caseList/__tests__/listReading";
+import { withReadTexts } from "../../caseList/readTexts";
 import { csqlRow } from "../../expressions/__tests__/csqlVectors";
 
 const NOTES: SearchInputDef = {
@@ -589,10 +595,11 @@ describe("a search title held in only some app languages", () => {
 		expect(registers(reading)).toContain("text-spaces-dropped");
 	});
 
-	// The source language's title is the document's slot, which holds text or no title in every
-	// language, so a title the source shows blank beside another's text has no document. The
-	// refusal is the only finding: the search's rows, which the settle never reaches, stand under it.
-	it("is a finding where the source's is blank and another's is not", async () => {
+	// A language with no title of its own shows the first language's, so a blank first language,
+	// here the source, shows blank beside another's text. The source holds no title, the other
+	// language its own as a translation of the blank source, and Nova's export writes the map back
+	// as HQ held it: each language shows what it showed.
+	it("holds a title blank in the source beside another's text, and writes it back", async () => {
 		const status: SearchInputDef = {
 			uuid: uuid(10),
 			name: "status",
@@ -620,9 +627,45 @@ describe("a search title held in only some app languages", () => {
 				},
 			},
 		);
-		expect(closedCodes(reading)).toEqual([
-			"case-search/title-label-blank-in-some-languages",
-		]);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		});
+		expect(registers(reading)).not.toContain("text-spaces-dropped");
+		const doc = reading.ctx.doc;
+		if (doc === undefined) throw new Error("The reading bound no document.");
+		const exported = await emittedApp(
+			withReadTexts(doc, reading.ctx.translations),
+		);
+		expect(searchConfig(exported).title_label).toEqual({
+			en: "",
+			es: "Buscar",
+		});
+	});
+
+	// A source title only spaces beside the first language's text shows blank there, which Nova
+	// writes no title for: the source takes the first language's text, which a worker there then
+	// reads, so the reading records `text-spaces-dropped`.
+	it("holds a source title only spaces beside the first language's text as that text, and records the change", async () => {
+		const reading = await readLists(titled(), {
+			edit: (app) => {
+				const root = app as Record<string, unknown>;
+				root.langs = ["es", "en"];
+				const translations = (root.translations ?? {}) as Record<
+					string,
+					Record<string, string>
+				>;
+				translations.es = {
+					...translations.es,
+					"app.display.name": "Pacientes",
+				};
+				root.translations = translations;
+				searchConfig(app).title_label = { es: "Buscar", en: "  " };
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({ searchScreenTitle: "Buscar" });
+		expect(registers(reading)).toContain("text-spaces-dropped");
 	});
 });
 

@@ -838,21 +838,20 @@ export function collectTranslationUnits(
 		const search = effectiveCaseSearchConfig(module);
 		if (search !== undefined) {
 			const searchOwner = { kind: "module" as const, moduleUuid };
-			// A search with no title has no text to translate.
-			const title = searchScreenTitleText(search);
-			if (title !== null) {
-				out.push(
-					unit({
-						id: makeTranslationUnitId("module", moduleUuid, "search-title"),
-						valueKind: "text",
-						role: "search-screen-title",
-						source: title,
-						owner: searchOwner,
-						breadcrumb: [...moduleBreadcrumb, "Search", "title"],
-						context: { moduleName: module.name },
-					}),
-				);
-			}
+			// Every search has a title unit. A search with no title in its
+			// source language holds the unit blank there, and another language
+			// may show a heading of its own (`searchScreenTitleIn`).
+			out.push(
+				unit({
+					id: makeTranslationUnitId("module", moduleUuid, "search-title"),
+					valueKind: "text",
+					role: "search-screen-title",
+					source: searchScreenTitleText(search) ?? "",
+					owner: searchOwner,
+					breadcrumb: [...moduleBreadcrumb, "Search", "title"],
+					context: { moduleName: module.name },
+				}),
+			);
 			if (search.searchScreenSubtitle !== undefined) {
 				out.push(
 					unit({
@@ -1148,7 +1147,15 @@ function storedTranslation(
 	}
 	const explicit = localization.translations[language]?.[unitValue.id];
 	if (explicit === undefined) {
-		return { effective: unitValue.source, status: "missing" };
+		// A search with no title in its source language has nothing to
+		// translate: a language with no title of its own shows none either.
+		return {
+			effective: unitValue.source,
+			status:
+				unitValue.role === "search-screen-title" && unitValue.source === ""
+					? "ready"
+					: "missing",
+		};
 	}
 	const current =
 		translationSourceFingerprintsEqual(

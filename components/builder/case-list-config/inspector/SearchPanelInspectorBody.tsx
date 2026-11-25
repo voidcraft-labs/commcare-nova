@@ -5,7 +5,10 @@
 //
 //   1. `searchScreenTitle`: title above the search inputs. **Show a title**
 //      off writes `NO_SEARCH_SCREEN_TITLE` and hides the field; on clears
-//      the slot, which shows the default title in the field again.
+//      the slot, which shows the default title in the field again. In
+//      another language the switch is that language's own: off holds the
+//      title blank there, and on gives it the default title's words, since
+//      clearing would show the source's title, which may be none.
 //   2. `searchScreenSubtitle`: markdown subtitle below the title.
 //   3. `searchButtonDisplayCondition`: optional predicate gating the
 //      button's visibility at runtime. This rail only summarizes it
@@ -36,6 +39,7 @@ import { type ReactNode, useEffect, useId, useState } from "react";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
+import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
@@ -122,17 +126,26 @@ export function SearchPanelInspectorBody({
 					slot: "search_button_display_condition",
 				},
 	);
+	const showsSource = useShowsSourceLanguage();
 	const showsTitle = searchScreenTitleText(value) !== null;
 	const setShowTitle = (next: boolean) =>
 		onChange(
 			setOptionalSlot(
 				value,
 				"searchScreenTitle",
-				next ? undefined : NO_SEARCH_SCREEN_TITLE,
+				!next
+					? NO_SEARCH_SCREEN_TITLE
+					: showsSource
+						? undefined
+						: DEFAULT_CASE_SEARCH_TITLE,
 			),
 		);
 	const setTitle = (next: string | undefined) => {
-		const authored = next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
+		// The default title's words are the absent title in the source; in
+		// another language they are that language's own text, since clearing
+		// would show the source's title there.
+		const authored =
+			showsSource && next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
 		// Clearing an untouched default should only restore that default in the
 		// control; it must not materialize an empty search-settings object.
 		if (authored === undefined && value?.searchScreenTitle === undefined)

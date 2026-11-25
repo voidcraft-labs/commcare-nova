@@ -299,6 +299,9 @@ export const PLATFORM_CELLS: Readonly<
 	"case-search/title-label-lang-non-empty@android": browser(
 		"search-screen-text-android",
 	),
+	"case-search/title-label-blank-in-some-languages@android": browser(
+		"search-screen-text-android",
+	),
 	"case-search/description-lang-markdown@android": browser(
 		"search-screen-text-android",
 	),

@@ -106,7 +106,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}title-label-or-blank-hq-s-default`,
 		"schema:CaseSearch.title_label",
 	),
-	titleSome: refuse(
+	titleSome: take(
 		`${S}title-label-blank-in-some-languages`,
 		"schema:CaseSearch.title_label",
 	),
@@ -900,34 +900,48 @@ export function readSearchSettings(
 				`${cursor.pointer}/title_label`,
 				"list-settings-respelled",
 			);
-	} else if (source === undefined || blank.includes(source)) {
-		// The source language's title is the slot's, which Nova holds nonblank or not at all
-		// beside every language's: a title a device shows blank in the source language and not in
-		// another has no document that prints it.
-		cursor.refuse("title_label", T.titleSome);
-		ok = false;
 	} else {
-		// Held as every app string is (`heldText.ts::heldText`): no space at either end, and a
-		// language that shows a blank title beside the source's text shows the source's, which the
-		// reading records under `text-spaces-dropped`. Every title is one Nova's gate admits a
-		// spelling of (`unheld` above).
-		const held = heldTitles(title, codes, source);
+		// Each language shows its own title, else the first language's (`shownTitles`), so a
+		// language shows none where the first language shows none too, which Nova's gate holds
+		// (`searchTitleLanguages.ts`): the source language's title is the slot's, text or `none`,
+		// and each other language's text a translation of it. A source title a device shows blank
+		// beside the first language's text holds only spaces there (`titleShownBlank`), and Nova
+		// writes no such title: it is held as the first language's text, which the reading
+		// records under `text-spaces-dropped`. Otherwise held as every app string is
+		// (`heldText.ts::heldText`): no space at either end, and a language that shows a blank
+		// title beside the source's text shows the source's, which the reading records under
+		// `text-spaces-dropped` too. Every title is one Nova's gate admits a spelling of
+		// (`unheld` above).
+		// The codes are not all blank here, so there is a first language and a source.
+		const first = codes[0] ?? "";
+		const src = source ?? first;
+		const sourceShownBlank = blank.includes(src);
+		const firstShownBlank = blank.includes(first);
+		const held = heldTitles(title, codes, src);
 		if (
 			held === undefined ||
 			// A source title a device shows (U+FEFF alone) that Nova's content policy reads as
 			// blank has no document that prints it either.
-			(held.texts[source] ?? "").trim() === ""
+			(!sourceShownBlank && (held.texts[src] ?? "").trim() === "")
 		) {
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:CaseSearch.title_label",
 			});
 			ok = false;
 		} else {
-			cursor.take("title_label", T.title, languageMap).value;
-			// "Search" in the source language is the absent title, whose text is that word: a
-			// document holds its other languages as the title unit's translations either way.
+			const blankInSource = sourceShownBlank && firstShownBlank;
+			cursor.take(
+				"title_label",
+				blankInSource ? T.titleSome : T.title,
+				languageMap,
+			).value;
+			// "Search" in the source language is the absent title, whose text is that word, and a
+			// blank source title the `none` title: a document holds its other languages as the
+			// title unit's translations either way.
 			const text = sourceText(ctx, held.texts);
-			if (text !== DEFAULT_CASE_SEARCH_TITLE) config.searchScreenTitle = text;
+			if (text === "") config.searchScreenTitle = NO_SEARCH_SCREEN_TITLE;
+			else if (text !== DEFAULT_CASE_SEARCH_TITLE)
+				config.searchScreenTitle = text;
 			ctx.translations.set(
 				makeTranslationUnitId("module", module.uuid, "search-title"),
 				"text",
@@ -939,7 +953,10 @@ export function readSearchSettings(
 			)
 				recordTextRewrite(
 					ctx,
-					{ entry: T.title.entry, path: `${cursor.pointer}/title_label` },
+					{
+						entry: (blankInSource ? T.titleSome : T.title).entry,
+						path: `${cursor.pointer}/title_label`,
+					},
 					"list-settings-respelled",
 					held.workersSeeAnother,
 				);
@@ -1241,10 +1258,32 @@ function heldTitles(
 	source: string | undefined,
 ): HeldTexts | undefined {
 	if (source === undefined) return { texts: shown, workersSeeAnother: false };
-	const held = heldText(shown, codes, source, "search-screen-title");
+	// A source title a device shows blank beside the first language's text holds only spaces,
+	// which Nova writes no title for: the source takes the first language's text, which a worker
+	// there then reads.
+	const first = codes[0] ?? source;
+	const spacesOnly =
+		titleShownBlank(shown[source] ?? "") &&
+		!titleShownBlank(shown[first] ?? "");
+	const held = heldText(
+		spacesOnly
+			? recordFromEntries(
+					codes.map((code) => [
+						code,
+						code === source ? (shown[first] ?? "") : (shown[code] ?? ""),
+					]),
+				)
+			: shown,
+		codes,
+		source,
+		"search-screen-title",
+	);
 	return held === undefined
 		? undefined
-		: { texts: held.printed, workersSeeAnother: held.workersSeeAnother };
+		: {
+				texts: held.printed,
+				workersSeeAnother: held.workersSeeAnother || spacesOnly,
+			};
 }
 
 /**

@@ -23,6 +23,7 @@ import {
 	languageTag,
 	languageWireCodeSchema,
 	makeTranslationUnitId,
+	NO_SEARCH_SCREEN_TITLE,
 	parseLanguageTag,
 	type TranslationEntry,
 	translationSourceFingerprint,
@@ -684,7 +685,11 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 						module.caseSearchConfig = {
 							...module.caseSearchConfig,
 							...(unit.role === "search-screen-title"
-								? { searchScreenTitle: text(value) }
+								? {
+										// A title the language holds blank is the `none` title.
+										searchScreenTitle:
+											text(value) === "" ? NO_SEARCH_SCREEN_TITLE : text(value),
+									}
 								: { searchScreenSubtitle: text(value) }),
 						};
 					}

@@ -2152,18 +2152,17 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		: message(pageLocalFilter ? "showingResults" : "resultsFound", {
 				count: visibleResultCount,
 			});
-	const sourceSearchTitle = searchScreenTitleText(searchConfig);
+	// The title as the worker's language shows it: its own text, or none
+	// where that language holds the title blank, which a search with no title
+	// in its source language may leave beside a heading in another.
+	const localizedSearchTitle =
+		(localizedValues.get(
+			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-title"),
+		) as string | undefined) ??
+		searchScreenTitleText(searchConfig) ??
+		"";
 	const { title, subtitle } = searchScreenHeading(platformRules, {
-		title:
-			sourceSearchTitle === null
-				? null
-				: ((localizedValues.get(
-						makeTranslationUnitId(
-							"module",
-							moduleUuid ?? "missing",
-							"search-title",
-						),
-					) as string | undefined) ?? sourceSearchTitle),
+		title: localizedSearchTitle === "" ? null : localizedSearchTitle,
 		subtitle:
 			(localizedValues.get(
 				makeTranslationUnitId(

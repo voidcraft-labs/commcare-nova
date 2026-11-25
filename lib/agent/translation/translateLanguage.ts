@@ -85,6 +85,9 @@ export async function translateLanguage(
 	const tag = languageTag(target);
 	const exists = localization.languageOrder.includes(tag);
 	const units = collectTranslationUnits(doc).filter((unit) => {
+		// A text blank in the source has nothing to translate: a search with
+		// no title shows none in a language with no title of its own.
+		if (unit.valueKind === "text" && unit.source === "") return false;
 		if (!exists) return true;
 		const localized = localizeTranslationUnit(doc, tag, unit);
 		return (

@@ -18,7 +18,6 @@ import {
 	type TranslationUnitId,
 	translationUnitsById,
 	translationValueIntegrityIssue,
-	type Uuid,
 } from "@/lib/domain";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 
@@ -153,17 +152,13 @@ export function projectBuilderLanguageMutations(
 						if (!hasOwn(searchPatch, slot)) continue;
 						const id = makeTranslationUnitId("module", mutation.uuid, unitSlot);
 						const value = searchPatch[slot];
-						// No title is one setting for every language, with no translation
-						// unit: the source takes turning it off, and turning it back on
-						// (a `null` while the source holds the `none` arm).
-						if (
-							slot === "searchScreenTitle" &&
-							(isNoSearchScreenTitle(value) ||
-								(value === null &&
-									isNoSearchScreenTitle(
-										sourceSearchScreenTitle(doc, mutation.uuid),
-									)))
-						) {
+						// No title is the source's setting: the source takes turning it
+						// off, and this language drops a title of its own, so it shows none.
+						// Another language keeps a title of its own, which the source's
+						// `none` leaves standing (`searchTitleLanguages.ts`). A language
+						// gives itself a title as text, a translation of the blank source.
+						if (slot === "searchScreenTitle" && isNoSearchScreenTitle(value)) {
+							if (units.has(id)) redirectClear(id);
 							continue;
 						}
 						let handled = false;
@@ -505,12 +500,4 @@ export function projectBuilderLanguageMutations(
 function isNoSearchScreenTitle(value: unknown): boolean {
 	const parsed = searchScreenTitleSchema.safeParse(value);
 	return parsed.success && typeof parsed.data !== "string";
-}
-
-/** The source document's stored search title of a module, if any. */
-function sourceSearchScreenTitle(doc: BlueprintDoc, moduleUuid: Uuid): unknown {
-	const config = doc.modules[moduleUuid]?.caseSearchConfig;
-	return config !== undefined && "searchScreenTitle" in config
-		? config.searchScreenTitle
-		: undefined;
 }

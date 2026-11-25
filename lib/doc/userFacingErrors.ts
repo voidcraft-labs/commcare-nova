@@ -1145,6 +1145,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The search field ${q(det(e, "inputName", "in this module"))} is hidden in Web Apps. ${det(e, "reason", "A field Web Apps hides can't carry anything a worker there would need to see.")}`,
 	CASE_LIST_SEARCH_CHECK_MESSAGE_REFUSED: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} needs a different message. ${det(e, "reason", "Give its check a message.")}`,
+	CASE_LIST_SEARCH_TITLE_BLANK_BESIDE_FIRST: (e) =>
+		`The search screen has no title in ${det(e, "languages", "some languages")}, which would show the first language's title there instead. ${det(e, "reason", "Give the title text there, or leave it blank in the first language too.")}`,
 	CASE_LIST_SEARCH_FOR_BLANK_NEEDS_OWN_PROPERTY: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} can't search for blank. ${det(e, "reason", "Searching for blank needs a field that searches its own property directly.")} Turn off searching for blank, or change how the field searches.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>

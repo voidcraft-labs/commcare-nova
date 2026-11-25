@@ -398,12 +398,15 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// `searchScreenTitleText` gives the authored title, Nova's default where
 	// none is authored, or null for a search with no title, the same reading
 	// as the HQ-JSON projection
-	// (`lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`). A
-	// search with no title still writes the `<title>` element over a blank
-	// locale value, which every language's table writes as a non-breaking
-	// space (`localeFile.ts::hqLocaleFileValue`), as HQ's build writes
-	// the blank `title_label` (`models/case_search.py::get_search_title_label`).
-	// The Web Apps client trims it and draws no heading.
+	// (`lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`). Each
+	// language's table writes the title unit as that language shows it
+	// (`inlineSearch.ts::searchScreenTranslationUnits`). A search with no
+	// title still writes the `<title>` element over a blank locale value in
+	// each language that holds none of its own, which the table writes as a
+	// non-breaking space (`localeFile.ts::hqLocaleFileValue`), as HQ's build
+	// writes the blank `title_label`
+	// (`models/case_search.py::get_search_title_label`). The Web Apps client
+	// trims it and draws no heading.
 	const titleDisplay = searchScreenTitleText(caseSearchConfig) ?? "";
 
 	// Every search writes `<description>`, blank where no subtitle is

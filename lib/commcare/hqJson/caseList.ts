@@ -74,7 +74,6 @@ import {
 	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
-	searchScreenTitleText,
 	tileCellFor,
 } from "@/lib/domain";
 import {
@@ -945,13 +944,17 @@ function buildSearchConfigDocument(
 		if (caseSearchConfig.searchOnClear === true) config.search_on_clear = true;
 		// Use Nova's shared friendly default so a fresh search never inherits
 		// CCHQ's blank or case-type-derived chrome on either wire path. A
-		// search with no title keeps the shell's blank in every language, the
-		// map HQ's Case List page leaves where nothing was typed.
-		if (searchScreenTitleText(caseSearchConfig) !== null) {
-			config.title_label = localization.textMap(
-				makeTranslationUnitId("module", moduleUuid, "search-title"),
-			);
-		}
+		// search with no title is blank in every language that holds none of
+		// its own, the map HQ's Case List page leaves where nothing was typed;
+		// a language that shows a heading of its own writes it. HQ's build
+		// shows a language's own title, else the first language's
+		// (`app_strings.py::_create_case_search_app_strings`,
+		// `create_default_app_strings`), and Nova's gate admits a title blank
+		// in a language only where the first language's is blank too
+		// (`searchTitleBlankBesideFirst`), so each language shows what it holds.
+		config.title_label = localization.textMap(
+			makeTranslationUnitId("module", moduleUuid, "search-title"),
+		);
 		if (
 			caseSearchConfig.searchScreenSubtitle !== undefined &&
 			caseSearchConfig.searchScreenSubtitle !== ""

@@ -47,6 +47,7 @@ import { searchInputReservedName } from "./case-list/searchInputReservedName";
 import { searchInputScreenPredicateTypeCheck } from "./case-list/searchInputScreenPredicateTypeCheck";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
+import { searchTitleLanguages } from "./case-list/searchTitleLanguages";
 import { sortLabel } from "./case-list/sortLabel";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { sortPropertyOwnership } from "./case-list/sortPropertyOwnership";
@@ -342,6 +343,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	searchInputViaModeCompatibility,
 	hiddenSearchField,
 	searchCheckMessage,
+	searchTitleLanguages,
 	// Case-search-config rules. Slot-specific checks read authored config;
 	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
 	// markerless inputs receive the same validation as the remote request they
