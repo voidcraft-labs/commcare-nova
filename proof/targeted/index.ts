@@ -92,6 +92,7 @@ import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
 import { inlineSearchReads } from "./documents/inlineSearchReads";
 import { instanceReads } from "./documents/instanceReads";
 import { keptValues } from "./documents/keptValues";
+import { labelContent } from "./documents/labelContent";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupNames } from "./documents/lookupNames";
@@ -204,6 +205,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	saveToCaseRead,
 	saveToCaseShapes,
 	mediaSlots,
+	labelContent,
 	missingMedia,
 	captureWidgets,
 	noMatchesReturnIdentity,
