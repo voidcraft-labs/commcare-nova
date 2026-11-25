@@ -155,9 +155,13 @@ def test_hq_details_keep_novas_tile_contract(native):
             fields = native_contract["m0_case_long"]["fields"]
             assert [field["style"]["grid"]["grid-y"] for field in fields] == ["0", "1", "2"]
             assert [field["style"]["border"] for field in fields] == [True, False, False]
-        if record["scenario"] in {"persistent-line", "persistent-external"}:
+        if record["scenario"] == "persistent-line":
             [line] = native_contract["m0_persistent_case_context"]["fields"]
             assert line["style"]["horizontal"] == "center" and line["style"]["grid"]["grid-width"] == "12"
+        if record["scenario"] == "persistent-external":
+            # Beside another menu's tile expanded above the forms the menu's persistence is on, so HQ's build writes
+            # no fallback line for its tile list (``details.py::get_section_elements``), and neither does Nova's.
+            assert "m0_persistent_case_context" not in native_contract
         scenarios.append(
             {
                 "scenario": record["scenario"],
