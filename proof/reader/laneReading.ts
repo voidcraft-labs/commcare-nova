@@ -69,6 +69,7 @@ import {
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
 import { Pieces } from "@/lib/deployment/reading/pieces";
 import { boundAsItStands } from "@/lib/deployment/reading/projectData/lookupTables";
+import { memoryMediaStaging } from "@/lib/deployment/reading/projectData/mediaStore";
 import { workerOwnerMutations } from "@/lib/deployment/reading/projectData/ownerRules";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
 import {
@@ -533,6 +534,7 @@ async function firstReading(
 		readingId: LANE_READING_ID,
 		appId: input.appId,
 		stageMedia: null,
+		spillMedia: memoryMediaStaging(),
 		onEvent: () => {},
 		creds,
 		project: EMPTY_PROJECT,

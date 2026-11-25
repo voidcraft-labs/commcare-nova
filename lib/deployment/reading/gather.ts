@@ -157,7 +157,11 @@ import {
 	readingMediaIndex,
 	readingMediaRows,
 } from "./projectData/media";
-import { judgeReadingMedia, type MediaStaging } from "./projectData/mediaStore";
+import {
+	judgeReadingMedia,
+	type MediaStaging,
+	projectMediaStaging,
+} from "./projectData/mediaStore";
 import {
 	postgresProjectSide,
 	type ReadingProjectSide,
@@ -1270,6 +1274,10 @@ type GatherFromHqInput = Omit<GatherInput, "actor"> &
 	GatherSources & {
 		/** Counts alone by default, as every request keeps them. The proof lane asks `full`. */
 		readonly claims?: "counts" | "full";
+		/** In a read: where a file past its kind's cap streams while it is judged. The
+		 *  Project's own staging when absent; the proof lane, which has no bucket, passes one
+		 *  in memory. */
+		readonly spillMedia?: MediaStaging;
 		readonly actorUserId?: string;
 		readonly actorRole?: string;
 	};
@@ -1534,13 +1542,20 @@ async function gatherFromHqWith(
 	if (plan.files.length > 0) {
 		onEvent({ type: "stage", stage: "checking-media" });
 		onEvent({ type: "files", done: 0, total: plan.files.length });
+		/* A read streams a file past its kind's cap into objects of its own, deleted once
+		 * judged and again, whatever it left, before it answers. */
+		const spill =
+			input.stageMedia === null
+				? (input.spillMedia ?? projectMediaStaging(key.projectId))
+				: null;
 		const judged = await judgeReadingMedia({
 			creds,
 			plan,
-			...(input.stageMedia !== null && { stage: input.stageMedia.stage }),
+			...(input.stageMedia !== null && { stage: input.stageMedia }),
+			...(spill !== null && { spill }),
 			onProgress: (done, total) => onEvent({ type: "files", done, total }),
 			...(cancel !== undefined && { cancel }),
-		});
+		}).finally(() => spill?.discard());
 		if (judged.kind === "failed") return answer(failedRead(judged.failure));
 		plan = judged.plan;
 		onEvent({ type: "stage", stage: "checking" });

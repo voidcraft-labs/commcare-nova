@@ -142,6 +142,7 @@ import {
 import {
 	judgeReadingMedia,
 	type MediaStaging,
+	projectMediaStaging,
 } from "../reading/projectData/mediaStore";
 import {
 	postgresProjectSide,
@@ -1444,16 +1445,19 @@ async function computeWith(
 	if (union.files.length > 0) {
 		onEvent({ type: "stage", stage: "checking-media" });
 		onEvent({ type: "files", done: 0, total: union.files.length });
+		/* A review streams a file past its kind's cap into objects of its own, deleted
+		 * once judged and again, whatever it left, before it answers. */
+		const spill =
+			options.stageMedia === null ? projectMediaStaging(scope.projectId) : null;
 		const files = await judgeReadingMedia({
 			creds,
 			plan: union,
-			...(options.stageMedia !== null && {
-				stage: options.stageMedia.stage,
-			}),
+			...(options.stageMedia !== null && { stage: options.stageMedia }),
+			...(spill !== null && { spill }),
 			fetched: settledReads,
 			onProgress: (done, total) => onEvent({ type: "files", done, total }),
 			...(cancel !== undefined && { cancel }),
-		});
+		}).finally(() => spill?.discard());
 		if (files.kind === "failed") return answer(failedRead(files.failure));
 		judged = files.plan;
 		onEvent({ type: "stage", stage: "checking" });

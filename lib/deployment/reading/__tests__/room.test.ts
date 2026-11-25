@@ -31,7 +31,10 @@ import {
 } from "@/lib/commcare/hq/memoryMeter";
 import type { LookupRevision } from "@/lib/lookup/types";
 import { type GatherResult, gatherFromHq } from "../gather";
-import type { MediaStaging } from "../projectData/mediaStore";
+import {
+	type MediaStaging,
+	memoryMediaStaging,
+} from "../projectData/mediaStore";
 import type { ReadingProjectSide } from "../projectData/read";
 import {
 	holdChangesReadings,
@@ -42,6 +45,7 @@ import {
 
 /** A create's staging held in this test: each content is named, never written. */
 const TEST_STAGING: MediaStaging = {
+	...memoryMediaStaging(),
 	stage: async (file) => ({
 		gcsObjectKey: `pending/test/${file.contentHash}`,
 		generation: "1",

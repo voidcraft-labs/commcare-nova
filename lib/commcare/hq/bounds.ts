@@ -213,6 +213,16 @@ export const HQ_WORKER_WRITE_ACK_MAX_BYTES = 1 * MiB;
  */
 export const HQ_MEDIA_IN_FLIGHT_MAX_BYTES = 64 * MiB;
 
+/**
+ * The most of one media file Nova streams past its kind's limit
+ * (`media.ts::streamHqMediaFile`). No byte of it is held: each chunk goes on
+ * to a staged object as it arrives. The bound is the time one file may take,
+ * not memory: a gibibyte at the 2 MiB/s a slow link to CommCare HQ gives
+ * arrives in about eight and a half minutes, inside
+ * `media.ts::HQ_MEDIA_STREAM_DEADLINE_MS`.
+ */
+export const HQ_MEDIA_STREAM_MAX_BYTES = 1024 * MiB;
+
 /** Lookup supplements retain only one table from a worker's restore, under an
  * independent work bound for the entire streamed response. */
 export const HQ_LOOKUP_RESTORE_WORK_BYTES = 128 * MiB;
