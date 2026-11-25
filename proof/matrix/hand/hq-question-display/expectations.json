@@ -320,7 +320,7 @@
 					"value": "2"
 				},
 				{
-					"path": "/data/stops/places[2]/landmark",
+					"path": "/data/stops[1]/places[2]/landmark[1]",
 					"value": "Tree"
 				}
 			],
