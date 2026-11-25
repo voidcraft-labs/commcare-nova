@@ -461,17 +461,16 @@ async function observeScreen(
 						read.result.kind === "row" &&
 						appTestCanContinue(context, screen.source),
 					/* What `continue` presses here: Android's Done on a case list
-					 * menu entry's detail, which returns to the list. */
-					continueLabel:
-						(context.rules.caseListDetailWording
-							? controlText(context, screen.moduleUuid, "selectCase", true)
-							: undefined) ??
-						runtimeMessage(
-							context.language,
-							isCaseListMenuItemList(context, screen.source)
-								? caseListMenuItemDetailAction(context.rules).message
-								: "continue",
-						),
+					 * menu entry's detail, which returns to the list. The list's
+					 * own Continue wording labels only Web Apps' several-case
+					 * Continue (`multi_select_continue_button.html`), never a
+					 * single case's detail. */
+					continueLabel: runtimeMessage(
+						context.language,
+						isCaseListMenuItemList(context, screen.source)
+							? caseListMenuItemDetailAction(context.rules).message
+							: "continue",
+					),
 					title:
 						controlText(context, "app", "caseTitle", true) ??
 						((read.result.kind === "row" && read.result.row.case_name) ||

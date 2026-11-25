@@ -279,14 +279,14 @@ it("keeps a screen reader's secondary-language image description on just its own
 			projectColumnDisplay(column, patient, context(language, false)),
 		).toMatchObject({
 			kind: "image",
-			alt: words,
+			altText: words,
 			text: "a",
 		});
 		expect(
 			projectColumnDisplay(column, patient, context(language, true)),
 		).toMatchObject({
 			kind: "image",
-			alt: "\u00a0",
+			altText: "\u00a0",
 		});
 	}
 });
