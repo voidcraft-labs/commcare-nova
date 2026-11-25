@@ -769,9 +769,13 @@ describe("the rows a block meets after its own registration", () => {
 
 describe("the Register label", () => {
 	it("reads a label with no text in any language as HQ's words, with its record", async () => {
-		const reading = await readMenusOf(always(), (app) => {
-			block(app, 1).label = { en: "" };
-		});
+		const reading = await readMenusOf(
+			always(),
+			(app) => {
+				block(app, 1).label = { en: "" };
+			},
+			false,
+		);
 		expect(codesOf(reading)).toEqual([]);
 		expect(
 			moduleNamed(reading.doc as BlueprintDoc, "Patients")
@@ -780,10 +784,32 @@ describe("the Register label", () => {
 		expect(rewrites(reading)).toContain("registration-label-fixed");
 	});
 
-	it("reads a language whose label is empty as HQ's words there, never another language's text, with its record", async () => {
-		const reading = await readMenusOf(inSpanish(always(), new Map()), (app) => {
-			block(app, 1).label = { en: "New patient", es: "" };
+	it("reads a label with no text as HQ's words where the source space offers other forms from a list", async () => {
+		/* FOLLOWUP_FORMS_AS_CASE_LIST_FORM changes HQ's fallback to the
+		 * form's name after "Continue To". */
+		const reading = await readMenusOf(always(), (app) => {
+			block(app, 1).label = { en: "" };
 		});
+		expect(codesOf(reading)).toEqual([]);
+		const doc = reading.doc as BlueprintDoc;
+		const registration = moduleNamed(doc, "Patients").caseListRegistrationForm;
+		const formName =
+			registration === undefined
+				? undefined
+				: doc.forms[registration.formUuid]?.name;
+		expect(formName).toBeTruthy();
+		expect(registration?.label).toBe(`Continue To ${formName}`);
+		expect(rewrites(reading)).toContain("registration-label-fixed");
+	});
+
+	it("reads a language whose label is empty as HQ's words there, never another language's text, with its record", async () => {
+		const reading = await readMenusOf(
+			inSpanish(always(), new Map()),
+			(app) => {
+				block(app, 1).label = { en: "New patient", es: "" };
+			},
+			false,
+		);
 		expect(codesOf(reading)).toEqual([]);
 		const doc = reading.doc as BlueprintDoc;
 		const host = moduleNamed(doc, "Patients");

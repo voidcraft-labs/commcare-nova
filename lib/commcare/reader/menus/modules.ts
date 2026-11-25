@@ -490,7 +490,7 @@ function compareCodePoints(a: string, b: string): number {
 export function labelAsBuilt(
 	label: Readonly<Record<string, string | null>>,
 	langs: readonly string[],
-	fallback: string,
+	fallback: string | ((lang: string) => string),
 ): Readonly<Record<string, string>> {
 	const keys = Object.keys(label).sort(compareCodePoints);
 	const built = recordFromEntries<string>([]);
@@ -511,7 +511,12 @@ export function labelAsBuilt(
 			const value = label[keys[0] as string];
 			text = value === null || value === undefined ? "None" : value;
 		}
-		built[lang] = text === undefined || text === "" ? fallback : text;
+		built[lang] =
+			text === undefined || text === ""
+				? typeof fallback === "string"
+					? fallback
+					: fallback(lang)
+				: text;
 	}
 	return built;
 }

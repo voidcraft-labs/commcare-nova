@@ -1182,6 +1182,18 @@ function readOtherwiseAndLinks(
 	});
 }
 
+/** Each read link's own cursor, by the link's uuid: a later stage that
+ *  refuses a link records its refusal on the link's keys. */
+const LINK_CURSORS = new WeakMap<ReadContext, Map<Uuid, JsonCursor>>();
+
+/** The cursor of the stored link the reading gave `uuid`, if it read one. */
+export function linkCursorOf(
+	ctx: ReadContext,
+	uuid: Uuid,
+): JsonCursor | undefined {
+	return LINK_CURSORS.get(ctx)?.get(uuid);
+}
+
 /** One link's guards taken off, its condition and carried values registered. */
 function registerLink(
 	ctx: ReadContext,
@@ -1192,6 +1204,12 @@ function registerLink(
 	role: "destination" | "otherwise",
 ): ReadLink {
 	ctx.facts.formLinkOwners.push({ pointer: link.cursor.pointer, uuid });
+	let cursors = LINK_CURSORS.get(ctx);
+	if (cursors === undefined) {
+		cursors = new Map();
+		LINK_CURSORS.set(ctx, cursors);
+	}
+	cursors.set(uuid, link.cursor);
 	const xpath = textOf(link.value.xpath);
 	const guards = linkGuards(
 		snapshot,

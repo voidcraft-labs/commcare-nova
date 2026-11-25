@@ -8981,7 +8981,7 @@
 		"surfaceKeys": ["schema:CaseListForm.label"],
 		"valueClass": "with-text-beside-a-form-id",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the registration's label on the case list where it holds text in some language: the slot's `label`, else the form's name (`emissionPlan.ts::caseListFormLabelUnit`); a language whose value is an empty string is read as \"Create a new Case\" in that language, the text HQ's build writes there, and the first publish says so; a language the label holds no key for is no translation",
+		"dispositionCell": "**HELD**: the registration's label on the case list where it holds text in some language: the slot's `label`, else the form's name (`emissionPlan.ts::caseListFormLabelUnit`); a language whose value is an empty string is read as the text HQ's build writes there, \"Create a new Case\", or \"Continue To\" and the form's name where the source project space has FOLLOWUP_FORMS_AS_CASE_LIST_FORM, and the first publish says so; a language the label holds no key for is no translation",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -9007,7 +9007,7 @@
 		"surfaceKeys": ["schema:CaseListForm.label"],
 		"valueClass": "no-text-beside-a-form-id",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a label with no text in any language beside a `form_id` is read as the label \"Create a new Case\", the text HQ's build writes for it (`app_strings.py::_create_case_list_form_app_strings`); the first publish says the button's text is fixed at those words",
+		"dispositionCell": "**HELD**: a label with no text in any language beside a `form_id` is read as the text HQ's build writes for it (`app_strings.py::_create_case_list_form_app_strings`): \"Create a new Case\", or \"Continue To\" and the form's name where the source project space has FOLLOWUP_FORMS_AS_CASE_LIST_FORM; the first publish says the button's text is fixed at those words",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

@@ -35,6 +35,7 @@ import { provisionalDocument } from "../provisional";
 import { expressionEnvOf } from "../xform";
 import {
 	acceptAfterSubmit,
+	linkCursorOf,
 	readAfterSubmit,
 	settleAfterSubmit,
 	storedReturns,
@@ -337,11 +338,34 @@ export function* settleMenusSteps(
 		const form = app.modules
 			.flatMap((module) => module.forms)
 			.find((one) => one.uuid === error.location.formUuid);
-		if (form !== undefined)
-			ctx.accounting.finding(
-				form.docType === "AdvancedForm"
-					? CLAIMS.sharedFirstMenuCaseAdvanced
-					: CLAIMS.sharedFirstMenuCase,
+		if (form === undefined) continue;
+		const claim =
+			form.docType === "AdvancedForm"
+				? CLAIMS.sharedFirstMenuCaseAdvanced
+				: CLAIMS.sharedFirstMenuCase;
+		const linkUuid = error.details?.linkUuid;
+		const link =
+			typeof linkUuid === "string"
+				? linkCursorOf(ctx, linkUuid as Uuid)
+				: undefined;
+		if (link === undefined) {
+			// A built-in destination: no stored link carries the refusal.
+			ctx.accounting.finding(claim, form.place);
+			continue;
+		}
+		// The refused link's own keys are uses of the refusal, beside the
+		// ordinary link class the after-submit reading gave them.
+		ctx.accounting.claimEntryClass(
+			{ json: form.json, key: "form_links" },
+			claim.entry,
+			`schema:${form.docType}.form_links`,
+			form.place,
+		);
+		if (typeof link.peek("form_id") === "string")
+			ctx.accounting.claimEntryClass(
+				{ json: link, key: "form_id" },
+				claim.entry,
+				"schema:FormLink.form_id",
 				form.place,
 			);
 	}

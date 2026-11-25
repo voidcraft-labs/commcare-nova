@@ -216,6 +216,24 @@ defineClaims(
  *  (`app_strings.py::_create_case_list_form_app_strings`). */
 const CREATE_A_NEW_CASE = "Create a new Case";
 
+/**
+ * HQ's build's words, in each language, for a list button with no text of
+ * its own (`app_strings.py::_create_case_list_form_app_strings`): where the
+ * source project space has FOLLOWUP_FORMS_AS_CASE_LIST_FORM, "Continue To"
+ * and the form's name as that language's build reads it (`clean_trans`, the
+ * first of the language and the app's languages that holds a name, else the
+ * first held), and "Create a new Case" otherwise. Where the setting was never
+ * read, the reading keeps HQ's words without it.
+ */
+function emptyLabelText(
+	ctx: ReadContext,
+	formNames: unknown,
+): string | ((lang: string) => string) {
+	if (ctx.input.caseListActionsApplied !== true) return CREATE_A_NEW_CASE;
+	const names = labelAsBuilt(labelMap(formNames), appLanguageCodes(ctx), "");
+	return (lang) => `Continue To ${names[lang] ?? ""}`;
+}
+
 type JsonObject = Readonly<Record<string, unknown>>;
 
 function textOf(value: unknown): string {
@@ -547,7 +565,7 @@ function readLabel(
 		Object.values(stored).some((text) => textOf(text) !== "");
 	const claim = anyText ? REGISTRATION.label : REGISTRATION.labelEmpty;
 	cursor.take("label", claim, (value) => value).value;
-	const asBuilt = labelAsBuilt(stored, langs, CREATE_A_NEW_CASE);
+	const asBuilt = labelAsBuilt(stored, langs, emptyLabelText(ctx, formNames));
 	const held = heldLabel(ctx, asBuilt, "case-list-registration-label");
 	// A label Nova's gate admits no spelling of (`heldText.ts::unheldText`) is one finding at the
 	// case list, whose settle then compares nothing there, and is kept as built here.
@@ -1044,9 +1062,10 @@ export function settleRegistrations(
 			continue;
 		}
 		// Each label as the reading holds it (`modules.ts::heldLabel`).
+		const empty = emptyLabelText(ctx, block.form.json.peek("name"));
 		const builtSource = heldLabel(
 			ctx,
-			labelAsBuilt(labelMap(source.label), langs, CREATE_A_NEW_CASE),
+			labelAsBuilt(labelMap(source.label), langs, empty),
 			"case-list-registration-label",
 		);
 		const builtOurs = heldLabel(
@@ -1058,7 +1077,7 @@ export function settleRegistrations(
 					labelMap(emitted.label),
 				),
 				langs,
-				CREATE_A_NEW_CASE,
+				empty,
 			),
 			"case-list-registration-label",
 		);
