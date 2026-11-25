@@ -389,6 +389,25 @@ and no register entry may hold one. `proof/matrix/test_retained.py` joins each
 variant's added uses to its claim log with the same two functions
 (`added_uses`, `join`).
 
+An appearance is joined once, on its inventory row. The inventory sorts an
+appearance by its whole value, on the control it stands on, into exactly one
+row (a single word a runtime reads under that word's row, several words under
+the multi-token row, a per-row count, a case variant and so on), while the
+manifest check makes a use of the attribute's own key at every appearance and
+one of each token a runtime reads in it, which no single record can name. So
+parity puts each appearance attribute in its row with the lane's own
+classifier (`proof/checks/appearance_rows.py::row_of`), written from each
+row's predicate in `lib/commcare/surface/entries/questions.json` and the
+upstream readers it names (Web Apps' `form_ui.js::getMatchingStyles` and
+`entries.js::getEntry`, Android's `WidgetFactory.java` and `TriggerWidget`,
+Core's `isHostWithAppearance` and `collapseRepeatGroups`) and the lane's own
+value-class readers, never ported from Nova's reader, and needs the reader's
+record there under that row with the row's standing. The per-token uses stay
+the manifest and sensitivity checks' evidence of each runtime's reading. An
+appearance the classifier does not decide is listed by place and value in the
+check's evidence (`undecidedAppearances`), and
+`proof/checks/test_appearance_rows.py` fails where a retained base exhibits one.
+
 ### Configuration sensitivity
 
 Collection and aggregate audits share `proof/checks/eligibility.py`. Migration

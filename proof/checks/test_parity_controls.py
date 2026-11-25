@@ -320,33 +320,40 @@ def _appearance_log(key, entry, standing="held", where=APPEARANCE):
     )
 
 
-def test_an_appearance_the_lane_holds_whole_is_claimed_by_its_one_row():
-    # One word: the lane uses the attribute's key and the token's; the reader claims the token's row.
-    single = [_at_appearance(ATTRIBUTE_KEY), _at_appearance(TOKEN_KEY)]
-    assert parity.join(single, _appearance_log(TOKEN_KEY, TOKEN_ROW.id), held=APPEARANCES) == []
-    # Several words: the reader claims the attribute's row, which names no token's key.
-    several = [*single, _at_appearance(ROW_KEY)]
-    assert parity.join(several, _appearance_log(ATTRIBUTE_KEY, WHOLE_ROW.id), held=APPEARANCES) == []
-    # The attribute's own key is the value's where the lane leaves that use undecided.
-    tokens = [_at_appearance(TOKEN_KEY), _at_appearance(ROW_KEY)]
-    assert parity.join(tokens, _appearance_log(ATTRIBUTE_KEY, WHOLE_ROW.id), held=APPEARANCES) == []
-    # A record under a row naming none of the place's keys claims none of them.
-    elsewhere = _appearance_log(KEY, HELD_ENTRY.id)
-    assert _whats(parity.join(single, elsewhere, held=APPEARANCES)) == ["unclaimed", "unclaimed"]
-    # The reader refusing what the lane holds whole is no held claim of any of its uses.
+def _row(row):
+    return lambda use: row
+
+
+def test_an_appearance_is_joined_once_on_the_row_the_lane_puts_its_value_in():
+    uses = [_at_appearance(ATTRIBUTE_KEY), _at_appearance(TOKEN_KEY), _at_appearance(ROW_KEY)]
+    # The reader's record under that row claims the value, whatever keys the lane's token uses name.
+    token = _appearance_log(TOKEN_KEY, TOKEN_ROW.id)
+    assert parity.join(uses, token, held=APPEARANCES, row_of=_row(TOKEN_ROW.id)) == []
+    whole = _appearance_log(ATTRIBUTE_KEY, WHOLE_ROW.id)
+    assert parity.join(uses, whole, held=APPEARANCES, row_of=_row(WHOLE_ROW.id)) == []
+    # A record under another row, even one naming the same keys, is the wrong row: one difference for the attribute.
+    found = parity.join(uses, whole, held=APPEARANCES, row_of=_row(TOKEN_ROW.id))
+    assert [(d.path, _whats([d])) for d in found] == [(f"/{ATTRIBUTE_KEY}/entry", ["entry"])]
+    # No record at all is unclaimed.
+    assert _whats(parity.join(uses, "", held=APPEARANCES, row_of=_row(TOKEN_ROW.id))) == ["unclaimed"]
+    # A row refused where the reader holds the value, or the reverse, is the standing.
+    refusing = _appearance_log(ROW_KEY, REFUSED_ROW.id, "held")
+    assert _whats(parity.join(uses, refusing, held=APPEARANCES, row_of=_row(REFUSED_ROW.id))) == ["standing"]
     refused = _appearance_log(ROW_KEY, REFUSED_ROW.id, "never")
-    assert _whats(parity.join(several, refused, held=APPEARANCES)) == ["standing", "standing", "standing"]
-    # The rule is an appearance's alone: two held keys at any other place are each joined on their own.
-    other = [parity.Decided(Use(TOKEN_KEY, "app.json", WHERE), HELD, ()), _use()]
-    assert _whats(parity.join(other, _log((HELD_ENTRY.id, "held")), held=APPEARANCES)) == ["unclaimed"]
+    assert parity.join(uses, refused, held=APPEARANCES, row_of=_row(REFUSED_ROW.id)) == []
+    # The rule is an appearance's alone: a use at any other place is joined on its own key.
+    other = [parity.Decided(Use(TOKEN_KEY, "app.json", WHERE), HELD, ())]
+    assert _whats(parity.join(other, _log((HELD_ENTRY.id, "held")), held=APPEARANCES, row_of=_row(TOKEN_ROW.id))) == [
+        "unclaimed"
+    ]
 
 
-def test_a_use_the_lane_does_not_hold_at_an_appearance_stands_for_the_whole_value():
-    # The lane refuses the per-row token: its use needs the refusal's own record, which is the reader's record of
-    # the whole value, so the held uses beside it are not joined.
-    refused = _at_appearance(ROW_KEY, REFUSED, (REFUSED_ROW,))
-    uses = [_at_appearance(ATTRIBUTE_KEY), _at_appearance(TOKEN_KEY), refused]
-    assert _whats(parity.join(uses, _appearance_log(TOKEN_KEY, TOKEN_ROW.id), held=APPEARANCES)) == ["unclaimed"]
-    assert parity.join(uses, _appearance_log(ROW_KEY, REFUSED_ROW.id, "never"), held=APPEARANCES) == []
-    # The reader holding the value the lane refuses part of is that use's difference.
-    assert _whats(parity.join(uses, _appearance_log(ROW_KEY, PER_ROW_ROW.id), held=APPEARANCES)) == ["standing"]
+def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
+    undecided = []
+    uses = [_at_appearance(ATTRIBUTE_KEY), _at_appearance(TOKEN_KEY)]
+    assert parity.join(uses, "", held=APPEARANCES, row_of=_row(None), undecided=undecided) == []
+    assert undecided == [f"form:0.0{APPEARANCE}="]
+    # An appearance none of whose uses the lane decides is judged through the uses it extracted.
+    extracted = [Use(TOKEN_KEY, "form:0.0", APPEARANCE)]
+    found = parity.join([], "", held=APPEARANCES, row_of=_row(TOKEN_ROW.id), extracted=extracted)
+    assert _whats(found) == ["unclaimed"]

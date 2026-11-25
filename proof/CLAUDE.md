@@ -228,7 +228,14 @@ harness keeps, each with its reason.
   files held by name, `readerbundle.py::held_runtime`; built by
   `proof/reader/build.mjs` in the corpus job) under the image's Node, through
   `proof/checks/readerbundle.py`; the first-publish judge reads the claim log
-  parity's judge read (`parity.claim_places_of`). The bundle reads its requests file
+  parity's judge read (`parity.claim_places_of`). Parity joins an appearance
+  attribute once, on the inventory row the lane's own classifier puts its
+  whole value in (`proof/checks/appearance_rows.py`, written from the rows'
+  predicates and the upstream readers, never from Nova's reader), because the
+  inventory sorts an appearance into one row while the manifest check makes a
+  use of each token a runtime reads in it; an appearance the classifier does
+  not decide is listed in the evidence, and one a retained base exhibits
+  fails `test_appearance_rows.py`. The bundle reads its requests file
   and nothing else, and its digest is part of every corpus document's judged
   key (`proof/store/keys.py::judged_under`), so a judgment stands for the
   reader that made it. No other judge runs a product of Nova's while it
