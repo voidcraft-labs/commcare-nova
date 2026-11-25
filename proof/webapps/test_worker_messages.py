@@ -20,10 +20,12 @@ def test_web_client_confirms_messages_in_the_received_submission(
             submission, = session.hq.submissions
     assert not run.page_errors, run.page_errors
     questions = run.screens[0]["form"]["questions"]
-    assert [question["label"].rstrip(" *") for question in questions[:3]] == [
-        "Read the visit notes", "I reviewed the notes", "Optional follow-up",
-    ], questions
-    assert "Follow up after confirmation" not in [question["label"].rstrip(" *") for question in questions], questions
+    # A question's captured text holds its label with its hint, help and media's fallback text around it, as the
+    # client draws them, so each label is read as a part of its question's text.
+    shown = [question["label"] for question in questions]
+    expected = ["Read the visit notes", "I reviewed the notes", "Optional follow-up"]
+    assert len(shown) >= 3 and all(label in text for label, text in zip(expected, shown)), questions
+    assert not any("Follow up after confirmation" in text for text in shown), questions
     root = etree.fromstring(submission.instance)
     assert [root.findtext("{*}" + name) for name in ("notice", "confirmed", "optional")] == ["OK", "OK", "OK"]
     evidence("web-worker-confirmation", {"questions": questions, "submission": submission.instance.decode()})
