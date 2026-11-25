@@ -998,7 +998,10 @@ export class Accounting implements ClaimLedger {
 		const ledgerSite = this.#site(site);
 		if (ledgerSite === undefined) return;
 		const state = this.#state(ledgerSite);
-		const first = state.entries?.get(key);
+		// The first class is a claim by entry, or the claim a cursor declared there under that key.
+		const first =
+			state.entries?.get(key) ??
+			(state.declaredKey === key ? state.declared : undefined);
 		const entry = this.#index.entry(entryId);
 		const registered = claimNameForEntry(entryId);
 		if (

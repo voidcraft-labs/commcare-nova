@@ -157,6 +157,12 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}default-properties-entry-keyed-commcare-blacklisted-owner-ids`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
+	/** A prompt named for a property the field's type does not fit, held with the project
+	 *  space's matching (`fieldsOverAnotherType`). */
+	fieldOfAnotherType: take(
+		`${S}search-field-over-a-property-of-another-type`,
+		"schema:CaseSearchProperty.name",
+	),
 	ownersTwice: refuse(
 		`${S}that-entry-together-with-blacklisted-owner-ids-expression`,
 		"schema:DefaultCaseSearchProperty.property",
@@ -977,8 +983,19 @@ function fieldsOverAnotherType(ctx: ReadContext, reading: SearchReading): void {
 		const type = properties.find(
 			(property) => property.name === input.property,
 		)?.data_type;
-		if (allowed !== undefined && type !== undefined && !allowed.includes(type))
-			native.add(input.uuid);
+		if (allowed === undefined || type === undefined || allowed.includes(type))
+			continue;
+		native.add(input.uuid);
+		// The prompt's name is a use of this class too: it names a property the field's type does
+		// not fit.
+		const prompt = reading.prompts.find((one) => one.uuid === input.uuid);
+		if (prompt !== undefined)
+			ctx.accounting.claimEntryClass(
+				{ json: prompt.cursor, key: "name" },
+				C.fieldOfAnotherType.entry,
+				"schema:CaseSearchProperty.name",
+				searchPlace(reading.module),
+			);
 	}
 	if (native.size === 0) return;
 	ctx.doc = withCandidate(doc, (draft) => {
