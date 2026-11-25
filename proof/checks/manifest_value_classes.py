@@ -4923,6 +4923,41 @@ def overlapping_tile_cells(use, manifest):
     return any(index in covering for index, each in enumerate(columns) if any(each is one for one in targets))
 
 
+def _added_child_types(app, case_type):
+    """The child case types HQ's Case Detail page offers a data tab of ``case_type``'s menus: each type a basic
+    form of a menu of that case type adds as a child case it does not close (``Application.get_subcase_types``,
+    ``Form.get_subcase_types``)."""
+    return {
+        subcase.get("case_type")
+        for module in app.modules
+        if module.get("case_type") == case_type
+        for form in module.get("forms") or []
+        if isinstance(form, dict) and form.get("doc_type") == "Form"
+        for subcase in ((form.get("actions") or {}).get("subcases") or [])
+        if isinstance(subcase, dict)
+        and subcase.get("case_type")
+        and ((subcase.get("close_condition") or {}).get("type") or "never") == "never"
+    }
+
+
+def tab_child_type_no_form_adds(use, manifest):
+    """``menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds``: a data tab's
+    ``nodeset_case_type`` naming a type no basic form of a menu of the list's case type adds, which HQ's Case
+    Detail page clears at its next save. Nova's reader refuses it (``caseList/index.ts::
+    refuseTabChildTypesNoFormAdds``)."""
+    at = _json(use)
+    if at is None:
+        return None
+    tab = at.nearest("DetailTab")
+    module = at.nearest(*MODULES)
+    if tab is None or module is None:
+        return None
+    child = tab.get("nodeset_case_type")
+    if tab.get("has_nodeset") is not True or not isinstance(child, str) or not child:
+        return False
+    return child not in _added_child_types(at.app, module.get("case_type"))
+
+
 TILE_GRID = 12
 
 
@@ -10335,6 +10370,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/custom-tile-font-size-null": null_font_size_on_tile,
     "menus-and-case-lists/custom-tile-cells-covering-the-same-square": overlapping_tile_cells,
     "menus-and-case-lists/custom-tile-cell-outside-the-grid": tile_cell_outside_the_grid,
+    "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds": tab_child_type_no_form_adds,
     "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row": tile_cell_below_the_twelfth_row,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,
     "menus-and-case-lists/detail-case-tile-template-person-simple": person_simple_on_list,

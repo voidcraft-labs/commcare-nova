@@ -13154,6 +13154,35 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/data-tab-over-a-child-type-no-form-adds",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-detail",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/long/tabs",
+			"value": [
+				{
+					"doc_type": "DetailTab",
+					"header": {
+						"en": "Patient"
+					},
+					"starting_index": 0,
+					"relevant": "",
+					"has_nodeset": true,
+					"nodeset_case_type": "patient",
+					"nodeset": "",
+					"nodeset_filter": ""
+				}
+			]
+		}
+	},
+	{
 		"id": "hq-case-lists/tile-cells-overlapping",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/custom-tile-cells-covering-the-same-square",

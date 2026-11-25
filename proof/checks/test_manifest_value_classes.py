@@ -4295,6 +4295,53 @@ def _search_and_menus():
                 f"{long_}/columns/1/grid_x",
             ),
         ),
+        "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds": (
+            refused(
+                "app",
+                tabbed(tab(0, has_nodeset=True, nodeset_case_type="visit")),
+                "schema:DetailTab.nodeset_case_type",
+                f"{long_}/tabs/0/nodeset_case_type",
+            ),
+            # A basic form of a patient menu that adds visits: HQ's page offers the type.
+            accepted(
+                "app",
+                _app([
+                    _detail_module(
+                        long_columns=[_column(), _column("village"), _column("visits")],
+                        long={"tabs": [tab(0, has_nodeset=True, nodeset_case_type="visit")]},
+                        forms=[{
+                            "doc_type": "Form",
+                            "actions": {"subcases": [{"case_type": "visit", "close_condition": {"type": "never"}}]},
+                        }],
+                    )
+                ]),
+                "schema:DetailTab.nodeset_case_type",
+                f"{long_}/tabs/0/nodeset_case_type",
+            ),
+            # A subcase the form also closes is not offered.
+            refused(
+                "app",
+                _app([
+                    _detail_module(
+                        long_columns=[_column(), _column("village"), _column("visits")],
+                        long={"tabs": [tab(0, has_nodeset=True, nodeset_case_type="visit")]},
+                        forms=[{
+                            "doc_type": "Form",
+                            "actions": {"subcases": [{"case_type": "visit", "close_condition": {"type": "always"}}]},
+                        }],
+                    )
+                ]),
+                "schema:DetailTab.nodeset_case_type",
+                f"{long_}/tabs/0/nodeset_case_type",
+            ),
+            # A tab that lists no records reads no child type.
+            accepted(
+                "app",
+                tabbed(tab(0, has_nodeset=False, nodeset_case_type="visit")),
+                "schema:DetailTab.nodeset_case_type",
+                f"{long_}/tabs/0/nodeset_case_type",
+            ),
+        ),
         "menus-and-case-lists/custom-tile-cell-outside-the-grid": (
             refused(
                 "app",

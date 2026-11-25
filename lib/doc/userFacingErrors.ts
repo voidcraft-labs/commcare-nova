@@ -1163,6 +1163,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_DETAIL_TAB_MOVE_NEEDS_GROUP: () =>
 		"This move would change which tab shows a field. Open Edit tabs to choose where it belongs.",
 	CASE_DETAIL_TAB_ROWS_INVALID: (e) =>
+		(det(e, "reason", "") === "child-type-not-added"
+			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab reads ${q(String(e.details?.caseType ?? ""))} child cases, which no form adds to this menu's cases, so CommCare HQ would drop that type when the app is saved there. You can add a form that adds one, or choose another child type in Edit tabs.`
+			: undefined) ??
 		recordFindingCopy(
 			e,
 			`The records on ${q(String(e.details?.tabTitle ?? "this tab"))}`,

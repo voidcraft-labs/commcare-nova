@@ -1060,7 +1060,11 @@ describe("a detail's callout and tabs", () => {
 			];
 			Object.assign(long.columns[1], { format: "invisible" });
 		}, false);
-		expect(closedCodes(result)).toEqual([]);
+		// No form of this app adds that child type, which HQ's Case Detail page would clear; the
+		// tab itself reads as stored.
+		expect(closedCodes(result)).toEqual([
+			`${M}detail-tab-child-type-no-form-of-its-menu-s-case-type-adds`,
+		]);
 		const config = listOf(result);
 		expect(config.detailTabs?.[0]).toMatchObject({
 			rowSource: {
@@ -1086,7 +1090,11 @@ describe("a detail's callout and tabs", () => {
 				},
 			];
 		}, false);
-		expect(closedCodes(result)).toEqual([]);
+		// No form of this app adds that child type, which HQ's Case Detail page would clear; the
+		// tab itself reads as stored.
+		expect(closedCodes(result)).toEqual([
+			`${M}detail-tab-child-type-no-form-of-its-menu-s-case-type-adds`,
+		]);
 		expect(listOf(result).detailTabs?.[0]?.rowSource).toMatchObject({
 			kind: "records",
 			includeChildrenOfType: "other",
@@ -1197,6 +1205,23 @@ describe("a detail's callout and tabs", () => {
 			`${M}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`,
 		);
 		expect(found.filter((code) => code.startsWith("unrecognized"))).toEqual([]);
+	});
+	it("refuses a data tab's child type no form adds, which HQ's Case Detail page would clear", async () => {
+		const result = await readDetails((_short, long) => {
+			long.tabs = [
+				{
+					doc_type: "DetailTab",
+					isTab: true,
+					header: { en: "Visits" },
+					starting_index: 0,
+					has_nodeset: true,
+					nodeset_case_type: "visit",
+				},
+			];
+		}, false);
+		expect(closedCodes(result)).toContain(
+			`${M}detail-tab-child-type-no-form-of-its-menu-s-case-type-adds`,
+		);
 	});
 	it("places a refusal on a scalar that cannot supply records for a tab", async () => {
 		const result = await readDetails((_short, long) => {

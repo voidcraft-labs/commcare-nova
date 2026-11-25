@@ -197,6 +197,19 @@ describe("tiles", () => {
 		expect(list.tile?.persistOnForms).toBeUndefined();
 	});
 
+	it("reads a records tab's search child type a form of the menu's case type adds", async () => {
+		const reading = await readLists(
+			tileFixture("conditional-search-children"),
+			{
+				firstPassOnly: false,
+			},
+		);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(
+			listOf(reading).detailTabs?.map((tab) => tab.rowSource?.kind),
+		).toEqual([undefined, "records"]);
+	});
+
 	it("reads a grouping by its identifier and header rows", async () => {
 		const name = plainColumn(uuid(1), "case_name", "Name", {
 			tile: tileCell(0, 0, 12, 1),

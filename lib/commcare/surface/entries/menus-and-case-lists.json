@@ -4836,6 +4836,33 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail tabs",
+		"item": "a case detail data tab's `nodeset_case_type` naming a type no basic form of a menu of the list's case type adds as a child case",
+		"surfaceKeys": ["schema:DetailTab.nodeset_case_type"],
+		"valueClass": "child-type-no-form-of-the-case-type-adds",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's Case Detail page lists a tab's child types from the forms that add them (`views/modules.py`, `app.get_subcase_types`; `models/forms.py::Form.get_subcase_types`), and its next save clears any other (`details/bootstrap5/detail_tab_nodeset.js`, `dropdownOptions`)",
+		"subject": "case-detail-tabs",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's Case Detail page clears a child type no form adds"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written: the gate refuses a tab's child type no form adds (`CASE_DETAIL_TAB_ROWS_INVALID`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/horizontal-align-vertical-align",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

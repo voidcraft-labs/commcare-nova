@@ -331,6 +331,7 @@ HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixi
 | data tab over a custom `nodeset` XPath | **HELD-NEW**: `detailTabs[].rows: expression` (typed expression model) | RUNS / RUNS | `nodeset`; DETAIL_LIST_TAB_NODESETS |
 | columns above the first tab when tabs exist | **REFUSED**: not HQ-editable: "All properties must be below a tab" (`screen.js::save`) | — | — |
 | a custom long tile row mixing fields of two tabs, in a basic or shadow module | **REFUSED**: not HQ-buildable: `invalid tile configuration` | — | — |
+| a case detail data tab's `nodeset_case_type` naming a type no basic form of a menu of the list's case type adds as a child case | **REFUSED**: not HQ-editable: HQ's Case Detail page lists a tab's child types from the forms that add them (`views/modules.py`, `app.get_subcase_types`; `models/forms.py::Form.get_subcase_types`), and its next save clears any other (`details/bootstrap5/detail_tab_nodeset.js`, `dropdownOptions`) | — | — |
 | a custom long tile row mixing fields of two tabs, in an advanced module | **HELD-NEW**: a detail tile whose row holds cells of two tabs: HQ builds each tab with its cells at their stored positions (`suite_xml/sections/details.py`, `case_tiles.py::build_case_tile_detail`), and does not check the row there; holding it makes the module emitted as advanced ("Case writes") | RUNS / RUNS | the positions |
 
 ### Case list callout (`Detail.lookup_*`, CaseListLookupMixin)

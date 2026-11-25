@@ -27,6 +27,7 @@ import {
 	projectCaseListForHq,
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
+import { hqOfferedChildCaseTypes } from "../../hqOfferedChildTypes";
 import { hqMappingKeyIsExpression } from "../../suite/case-list/keyVariable";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
@@ -37,7 +38,12 @@ import { sameSlotText } from "../expressions/readExpression";
 import { detailSourceSpans } from "../fixtureRows";
 import { hqDeviceText } from "../heldText";
 import { dotInterpolate } from "../hqInterpolation";
-import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
+import {
+	isJsonObject,
+	type JsonCursor,
+	objectMembers,
+	sameJson,
+} from "../jsonCursor";
 import { handedOff, type PendingExpression } from "../pendingExpressions";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
 import { applyExpressionClaim, provisionalDocument } from "../provisional";
@@ -62,6 +68,7 @@ import {
 import {
 	type CaseListReading,
 	caseListReadings,
+	DETAIL_CLAIMS,
 	displayNames,
 	dormantFormContextSource,
 	readCaseDetails,
@@ -1126,6 +1133,35 @@ function withoutImplicitRule(
 }
 
 /**
+ * Each data tab of a menu's case detail whose stored `nodeset_case_type` names a type no basic form
+ * of a menu of the list's case type adds as a child case, a type CommCare HQ's Case Detail page
+ * clears at its next save (`hqOfferedChildTypes.ts`) and Nova's gate refuses: a finding at the key,
+ * read over the bound document, whose case operations say which forms add which children.
+ */
+function refuseTabChildTypesNoFormAdds(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	caseType: string,
+	long: JsonCursor,
+): void {
+	const tabs = long.peek("tabs");
+	if (!Array.isArray(tabs)) return;
+	let offered: ReadonlySet<string> | undefined;
+	tabs.forEach((tab, index) => {
+		if (!isJsonObject(tab) || tab.has_nodeset !== true) return;
+		const child = tab.nodeset_case_type;
+		if (typeof child !== "string" || child === "") return;
+		offered ??= hqOfferedChildCaseTypes(doc, caseType);
+		if (offered.has(child)) return;
+		ctx.accounting.findingAt(
+			DETAIL_CLAIMS.tabChildTypeNotAdded,
+			long.place,
+			`${long.pointer}/tabs/${index}/nodeset_case_type`,
+		);
+	});
+}
+
+/**
  * After the binding: each menu's case list accepted where the projection writes its stored details
  * back. A difference no row names is `unrecognized` at the list, under its surface key. The
  * declarations made before binding are taken back first, so each is made again only where the
@@ -1179,6 +1215,7 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		if (reading === undefined || caseType === undefined || !reading.whole)
 			continue;
 		ctx.doc = declareNumericSorts(ctx.doc, caseType, reading);
+		refuseTabChildTypesNoFormAdds(ctx, ctx.doc, caseType, reading.long);
 		const inputs = readProjectionInputs(ctx);
 		ctx.doc = retainSortComparisons(
 			ctx.doc,

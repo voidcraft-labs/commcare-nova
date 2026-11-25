@@ -1,6 +1,7 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { detailTabSearchChildType } from "@/lib/domain/detailTabs";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
+import { hqOfferedChildCaseTypes } from "../../../hqOfferedChildTypes";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -27,6 +28,26 @@ export function detailTabTypeCheck(
 					`Choose an existing child case type for tab "${tab.title}".`,
 					at,
 					{ tabUuid: tab.uuid, tabTitle: tab.title, caseType: childType },
+				),
+			);
+		} else if (
+			childType &&
+			!hqOfferedChildCaseTypes(doc, mod.caseType).has(childType)
+		) {
+			// CommCare HQ's Case Detail page lists a tab's child types from the forms that add
+			// them, and its next save clears any other.
+			findings.push(
+				validationError(
+					"CASE_DETAIL_TAB_ROWS_INVALID",
+					"module",
+					`Tab "${tab.title}" in menu "${mod.name}" reads "${childType}" child cases, and no form of a "${mod.caseType ?? ""}" menu adds a "${childType}" child case, so CommCare HQ's Case Detail page would drop that type on its next save. You can add a form that adds a "${childType}" child case to a "${mod.caseType ?? ""}" case, or choose a child type such a form adds.`,
+					at,
+					{
+						tabUuid: tab.uuid,
+						tabTitle: tab.title,
+						caseType: childType,
+						reason: "child-type-not-added",
+					},
 				),
 			);
 		}

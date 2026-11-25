@@ -214,6 +214,46 @@ export function tileFixture(scenario: TileScenario) {
 								},
 							],
 			},
+			// A visit menu whose form adds the visit's contacts, a child type HQ's Case Detail page
+			// then offers the search menu's data tab (`Application.get_subcase_types`).
+			...(scenario === "conditional-search-children"
+				? [
+						{
+							name: "Visit contacts",
+							caseType: "visit",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									name: "Add a contact",
+									type: "followup" as const,
+									fields: [
+										f({
+											kind: "text",
+											id: "contact_name",
+											label: proseText("Contact"),
+											caseWrite: {
+												caseType: "contact",
+												property: "case_name",
+											},
+										}),
+									],
+								},
+							],
+						},
+						// HQ's Case Management page offers a child type a menu lists.
+						{
+							name: "Contacts",
+							caseType: "contact",
+							caseListMenuItem: {},
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [],
+						},
+					]
+				: []),
 			...(scenario === "persistent-external"
 				? [
 						{
@@ -241,7 +281,7 @@ export function tileFixture(scenario: TileScenario) {
 			// The search's related child type, after the type the reader meets
 			// first, as a reading lists them.
 			...(scenario === "conditional-search-children"
-				? [{ name: "contact", properties: [] }]
+				? [{ name: "contact", parent_type: "visit", properties: [] }]
 				: []),
 		],
 	});

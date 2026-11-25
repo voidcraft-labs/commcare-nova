@@ -335,6 +335,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}related-child-type-beside-an-explicit-tab-collection`,
 		"schema:DetailTab.nodeset_case_type",
 	),
+	tabChildTypeNotAdded: refuse(
+		`${A}detail-tab-child-type-no-form-of-its-menu-s-case-type-adds`,
+		"schema:DetailTab.nodeset_case_type",
+	),
 	tabTypeInvalid: refuse(
 		`${A}detail-tab-without-a-resolvable-row-source`,
 		"schema:DetailTab.nodeset_case_type",
