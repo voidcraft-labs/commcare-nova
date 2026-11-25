@@ -282,7 +282,8 @@ def test_selected_case_context_in_android_form_entry(android_documents, hq, scen
             blobs = Blobs()
             found = observe.app(served, blobs, label=name, archive=archive, commands=["m0-f0"], views=True)
             walk = blobs.get_json(found["answer"])["walks"]["m0-f0"]
-            (opened,) = [step["form"] for step in walk["steps"] if "form" in step]
+            # The navigation step names the form it reaches as well; the entry's own read carries the context.
+            (opened,) = [step["form"] for step in walk["steps"] if "caseContext" in step.get("form", {})]
             tile = opened["caseContext"]
             assert tile["values"] == values, (name, tile)
             assert tile["expands"] is bool(expanded)
