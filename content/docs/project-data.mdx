@@ -68,7 +68,12 @@ start with lowercase `xml`, and a row or value detail can't be named `xmlns`.
 Some places in an app read only plain names: CommCare HQ changes a period in a
 case list filter or a display condition, a menu reads a table only by a tag of
 letters, digits, underscores and hyphens, and Android reads a narrower set of
-characters than Web Apps. A name like `site_code` works everywhere. CommCare treats the lowercase words
+characters than Web Apps. A form reads a table only by a tag of unaccented
+letters, digits, underscores, hyphens and periods, and so do a form's
+calculations, conditions and choice filters and a menu's or form's display
+condition when they name a column, since CommCare HQ's form builder and its
+own checks read those names alone. A select's choices can still show and save
+a column named `région`. A name like `site_code` works everywhere. CommCare treats the lowercase words
 `casedb` and `ledgerdb` anywhere in a tag as a request for case or stock data.
 You can use `case_db`, `ledger_db` or a spelling such as `CaseDB` for your table.
 Nova names a conflict when you create or rename a table. If an older table has a conflicting

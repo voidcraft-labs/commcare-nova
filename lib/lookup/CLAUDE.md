@@ -160,9 +160,15 @@ the places instance continues to read the worker’s assigned places.
 A Project can keep an export name that some formulas cannot address. The app
 gate checks the actual table and column names at the expression that uses them.
 Core reads a narrower alphabet than XML, and HQ rewrites periods between
-nondigits in certain list and display conditions. A refused formula names the
-affected source and use so the author can choose a compatible name or change
-the formula.
+nondigits in certain list and display conditions. HQ's form builder and HQ's
+own condition checks read XPath with js-xpath, whose names are unaccented
+letters, digits, `_`, `.` and `-` (`pathNames.ts::isFormBuilderXPathName`): a
+form reads a table only by such a tag, form logic (a select's row filter
+included, `LOOKUP_OPTIONS_FILTER_SLOT`) reads only such a column, and so does
+a menu or form display condition, a search button condition or the excluded
+owners. A select's label and value refs may name any column, since the
+builder compares them as text. A refused formula names the affected source and
+use so the author can choose a compatible name or change the formula.
 
 ## Reference edges and schema governance
 
@@ -226,9 +232,11 @@ identity and the old, still-referenced field keeps its identity and spelling.
 
 ## Values, ordering, and limits
 
-Tags that share a runtime or editor name retain their tag and table identity.
-The form writer assigns them a qualified local instance ID, including the
-`selected_cases` family and Vellum’s own dictionary keys. A formula reads
+Tags that share a runtime name retain their tag and table identity. The form
+writer assigns them a qualified local instance ID, including the
+`selected_cases` family. A tag every JavaScript object inherits
+(`FORM_EDITOR_RESERVED_TAGS`: `__proto__`, `hasOwnProperty`, …) is refused,
+since HQ's form builder keys plain objects by a table's names. A formula reads
 the table by its UUID; the writer derives the source and the local alias at
 export. The same spellings can name a column. A historical tag containing
 lowercase `ledgerdb` or `casedb` still needs an authorized rename because
