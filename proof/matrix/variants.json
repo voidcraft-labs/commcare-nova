@@ -13169,6 +13169,36 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/tile-cell-outside-the-grid",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/custom-tile-cell-outside-the-grid",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 1,
+			"name": "Follow-ups"
+		},
+		"change": {
+			"op": "named",
+			"name": "tile_cell_outside_the_grid"
+		}
+	},
+	{
+		"id": "hq-case-lists/tile-cell-below-the-twelfth-row",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row",
+		"standing": "not-yet",
+		"place": {
+			"kind": "case-list",
+			"menu": 1,
+			"name": "Follow-ups"
+		},
+		"change": {
+			"op": "named",
+			"name": "tile_cell_below_the_twelfth_row"
+		}
+	},
+	{
 		"id": "hq-case-lists/tile-cell-not-placed",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced",

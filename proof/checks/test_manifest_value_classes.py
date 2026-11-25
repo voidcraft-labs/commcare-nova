@@ -4295,6 +4295,87 @@ def _search_and_menus():
                 f"{long_}/columns/1/grid_x",
             ),
         ),
+        "menus-and-case-lists/custom-tile-cell-outside-the-grid": (
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(8, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(-1, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(6, 0, 0)), short=tile),
+                "schema:DetailColumn.width",
+                f"{short}/columns/1/width",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, -1, 6)), _column("notes", **cell(6, 0, 6)), where="long", long=tile),
+                "schema:DetailColumn.grid_y",
+                f"{long_}/columns/0/grid_y",
+            ),
+            # A cell that ends on the twelfth column is inside; one past the twelfth row is the other class.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(6, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(6, 12, 6)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            # A list that is no custom tile lays nothing out, and a filter column writes no field.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(8, 0, 6))),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", "filter", **cell(8, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+        ),
+        "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row": (
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 12, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            refused(
+                "app",
+                columns_app(
+                    _column(**cell(0, 0, 12)), _column("notes", **cell(0, 11, 12, 2)), where="long", long=tile,
+                ),
+                "schema:DetailColumn.height",
+                f"{long_}/columns/1/height",
+            ),
+            # The twelfth row is inside, and a cell past the twelfth column is the other class.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 11, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(8, 12, 6)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+        ),
         "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": (
             refused(
                 "app",

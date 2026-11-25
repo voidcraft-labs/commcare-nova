@@ -4923,6 +4923,55 @@ def overlapping_tile_cells(use, manifest):
     return any(index in covering for index, each in enumerate(columns) if any(each is one for one in targets))
 
 
+TILE_GRID = 12
+
+
+def _grid_fit(box):
+    """Where a stored cell stands against Nova's 12 by 12 grid (``caseList/tile.ts::gridFit``): ``outside`` for a
+    cell starting left of or above the grid, spanning less than one square, or running past the twelfth column;
+    ``below`` for one inside those bounds running past the twelfth row; ``fits`` otherwise."""
+    x, y, width, height = box
+    if x < 0 or y < 0 or width < 1 or height < 1 or x + width > TILE_GRID:
+        return "outside"
+    return "below" if y + height > TILE_GRID else "fits"
+
+
+def _tile_cell_fit(fit):
+    def reader(use, manifest):
+        at, column, detail, kind, module = _column(use)
+        if detail is None:
+            return None
+        pair = (module or {}).get("case_details")
+        if (
+            not _custom_tile(detail)
+            or kind not in ("short", "long")
+            or not isinstance(pair, dict)
+            or pair.get(kind) is not detail
+        ):
+            return False
+        targets = [column] if column is not None else _columns(detail)
+        return any(
+            _format(each) != "filter" and box is not None and _grid_fit(box) == fit
+            for each in targets
+            for box in [_tile_box(each)]
+        )
+
+    return reader
+
+
+tile_cell_outside_the_grid = _tile_cell_fit("outside")
+tile_cell_outside_the_grid.__doc__ = """``menus-and-case-lists/custom-tile-cell-outside-the-grid``: a placed cell of a
+menu's custom tile (its case list's or its case detail's, every column but a ``filter`` one) that starts left of or
+above the grid, spans less than one square, or runs past the twelfth column. Nova's reader refuses each such cell
+(``caseList/tile.ts::gridFit``). A detail HQ's build never lays out as a menu's tile is out of the class; a use on
+the detail reads each of its columns."""
+
+tile_cell_below_the_twelfth_row = _tile_cell_fit("below")
+tile_cell_below_the_twelfth_row.__doc__ = """``menus-and-case-lists/custom-tile-cell-below-the-twelfth-row``: a
+placed cell of a menu's custom tile, inside its twelve columns, that runs past the twelfth row (as
+``tile_cell_outside_the_grid`` reads its tile)."""
+
+
 def _detail_reader(test):
     def reader(use, manifest):
         at, column, detail, kind, module = _column(use)
@@ -10285,6 +10334,8 @@ VALUE_CLASSES = {
     "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": null_on_unplaced_tile,
     "menus-and-case-lists/custom-tile-font-size-null": null_font_size_on_tile,
     "menus-and-case-lists/custom-tile-cells-covering-the-same-square": overlapping_tile_cells,
+    "menus-and-case-lists/custom-tile-cell-outside-the-grid": tile_cell_outside_the_grid,
+    "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row": tile_cell_below_the_twelfth_row,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,
     "menus-and-case-lists/detail-case-tile-template-person-simple": person_simple_on_list,
     "menus-and-case-lists/long-detail-non-custom-tile": not_custom_on_detail,

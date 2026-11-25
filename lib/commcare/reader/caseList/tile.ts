@@ -21,6 +21,8 @@ import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import {
 	type CaseListConfig,
 	TILE_FONT_SIZES,
+	TILE_GRID_COLUMNS,
+	TILE_GRID_ROWS,
 	TILE_HORIZONTAL_ALIGNS,
 	type TileCell,
 	type TileVerticalAlign,
@@ -160,6 +162,14 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}custom-tile-cells-covering-the-same-square`,
 		"schema:DetailColumn.grid_x",
 	),
+	outsideGrid: refuse(
+		`${A}custom-tile-cell-outside-the-grid`,
+		"schema:DetailColumn.grid_x",
+	),
+	belowGrid: refuse(
+		`${A}custom-tile-cell-below-the-twelfth-row`,
+		"schema:DetailColumn.grid_y",
+	),
 });
 
 const T = TILE_CLAIMS;
@@ -242,6 +252,9 @@ function readCell(
 	)
 		return refused(T.alignNull);
 	if (font === null || font === undefined) return refused(T.fontNull);
+	const grid = gridFit(column);
+	if (grid === "outside") return refused(T.outsideGrid);
+	if (grid === "below") return refused(T.belowGrid);
 	if (overlapping) return refused(T.overlapping);
 	const verticalWord =
 		typeof vertical === "string" ? VERTICAL_FROM_WIRE.get(vertical) : undefined;
@@ -285,6 +298,33 @@ function readCell(
 	if (typeof shading === "boolean")
 		cell.showShading = column.take("show_shading", T.shading, Boolean).value;
 	return cell;
+}
+
+/**
+ * Where a stored cell stands against Nova's 12 by 12 grid (`TILE_GRID_COLUMNS`, `TILE_GRID_ROWS`).
+ * `outside`: a cell starting left of or above the grid, spanning less than one square, or
+ * running past the twelfth column. HQ's Case List page bounds its pickers to the twelve columns
+ * (`details/bootstrap5/column.js`, `tileColumnMax`), so only an imported app holds one, and
+ * Android does not draw it: a cell past the twelfth column stops the list
+ * (`views/EntityViewTile.java::coordinatesInvalid`, "grid coordinates out of bounds"), one left of
+ * or above the grid is skipped, and a span of none has no size (`getLayoutParamsForField`).
+ * `below`: a cell inside those bounds that runs past the twelfth row, which HQ's page offers to
+ * a list of more than eleven fields (`details/bootstrap5/screen.js`, `caseTileRowMax`) and both
+ * runtimes size the tile to (Core's `Detail.getMaxWidthHeight`, Android's `getMaxRows`); Nova's
+ * grid holds twelve rows. `fits` otherwise, and where a number is not there to judge.
+ */
+function gridFit(column: JsonCursor): "fits" | "outside" | "below" {
+	const box = storedBox(column);
+	if (box === undefined) return "fits";
+	if (
+		box.x < 0 ||
+		box.y < 0 ||
+		box.width < 1 ||
+		box.height < 1 ||
+		box.x + box.width > TILE_GRID_COLUMNS
+	)
+		return "outside";
+	return box.y + box.height > TILE_GRID_ROWS ? "below" : "fits";
 }
 
 /** A stored cell's square, where its four numbers are all there. */

@@ -273,6 +273,68 @@ describe("tiles", () => {
 		}
 	});
 
+	it("names a cell outside the 12 by 12 grid, on Results and on Details, and proposes none of them", async () => {
+		// Nova's gate refuses a cell past the grid (`CASE_LIST_TILE_CELL_OUT_OF_GRID`,
+		// `CASE_DETAIL_TILE_LAYOUT_INVALID`) and its schema a negative place or an empty span, so
+		// the reading names each such cell instead of proposing a document the gate refuses: past
+		// the twelfth column, left of the grid or with no span (Android does not draw it), or
+		// past the twelfth row (both runtimes draw it; Nova's grid holds twelve rows).
+		const outside = "menus-and-case-lists/custom-tile-cell-outside-the-grid";
+		const below = "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row";
+		const name = plainColumn(uuid(1), "case_name", "Name", {
+			tile: tileCell(0, 0, 6, 1),
+		});
+		const notes = plainColumn(uuid(2), "notes", "Notes", {
+			tile: tileCell(6, 0, 6, 1),
+		});
+		const doc = patients([name, notes], {
+			list: {
+				tile: {},
+				detailTile: {
+					cells: {
+						[name.uuid]: tileCell(0, 0, 6, 1),
+						[notes.uuid]: tileCell(6, 0, 6, 1),
+					},
+				},
+			},
+		});
+		expect(codes(await readLists(doc))).toEqual([]);
+		const at12 = await readLists(doc, {
+			edit: (app) => {
+				for (const detail of ["short", "long"] as const) {
+					const columns = app.modules[0]?.case_details[detail].columns;
+					if (columns?.[1] !== undefined)
+						Object.assign(columns[1], { grid_y: 11, height: 1 });
+				}
+			},
+		});
+		expect(codes(at12)).toEqual([]);
+		for (const detail of ["short", "long"] as const)
+			for (const [cell, entry] of [
+				[{ grid_x: 7, width: 6 }, outside],
+				[{ grid_x: -1 }, outside],
+				[{ width: 0 }, outside],
+				[{ grid_y: -1 }, outside],
+				[{ grid_y: 11, height: 2 }, below],
+				[{ grid_y: 12 }, below],
+			] as const) {
+				const label = `${detail} ${JSON.stringify(cell)}`;
+				const reading = await readLists(doc, {
+					edit: (app) => {
+						const columns = app.modules[0]?.case_details[detail].columns;
+						if (columns?.[1] !== undefined) Object.assign(columns[1], cell);
+					},
+				});
+				expect(codes(reading), label).toContain(entry);
+				const list = listOf(reading);
+				const notesCell =
+					detail === "short"
+						? list.columns.find((column) => column.uuid === notes.uuid)?.tile
+						: list.detailTile?.cells[notes.uuid];
+				expect(notesCell, label).toBeUndefined();
+			}
+	});
+
 	it("drops the cell of a column hidden from Results in a tile list", async () => {
 		const name = plainColumn(uuid(1), "case_name", "Name", {
 			tile: tileCell(0, 0, 12, 1),

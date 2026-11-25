@@ -4770,6 +4770,71 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/custom-tile-cell-outside-the-grid",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "a placed cell of a custom tile that starts left of or above the grid, spans less than one square, or runs past its twelfth column",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.width"
+		],
+		"valueClass": "custom-tile-cell-outside-the-grid",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's Case List page bounds its pickers to the twelve columns (`details/bootstrap5/column.js`, `tileColumnMax`), so only an imported app holds one, and Android does not draw it: a cell past the twelfth column stops the list (`views/EntityViewTile.java::coordinatesInvalid`, \"grid coordinates out of bounds\"), one left of or above the grid is skipped, and a span of none has no size (`getLayoutParamsForField`)",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android stops the list or leaves the field out"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written: the gate refuses a cell past the grid (`CASE_LIST_TILE_CELL_OUT_OF_GRID`, `CASE_DETAIL_TILE_LAYOUT_INVALID`), and the schema a negative place or an empty span",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "a placed cell of a custom tile, inside its twelve columns, that runs past the twelfth row",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.width"
+		],
+		"valueClass": "custom-tile-cell-below-the-twelfth-row",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a tile taller than the twelve rows of Nova's grid (`TILE_GRID_ROWS`); HQ's Case List page offers rows to a list of more than eleven fields (`details/bootstrap5/screen.js`, `caseTileRowMax`), and both runtimes size the tile to its tallest cell (Core's `Detail.getMaxWidthHeight`, Android's `EntityViewTile.getMaxRows`)",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/horizontal-align-vertical-align",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

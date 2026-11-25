@@ -822,45 +822,71 @@ def tile_cell_not_aligned(authoring, app_id):
     )
 
 
+def _tile_cell(field, x, width, y=0):
+    """A placed cell of a custom tile as HQ's Case List page stores it."""
+    return {
+        "model": "case",
+        "field": field,
+        "header": {"en": field},
+        "format": "plain",
+        "useXpathExpression": False,
+        "grid_x": x,
+        "grid_y": y,
+        "enum": [],
+        "graph_configuration": {
+            "config": {},
+            "locale_specific_config": {},
+            "annotations": [],
+            "series": [],
+            "doc_type": "GraphConfiguration",
+        },
+        "late_flag": 30,
+        "time_ago_interval": 365.25,
+        "date_format": "%d/%m/%y",
+        "doc_type": "DetailColumn",
+        "width": width,
+        "height": 1,
+        "horizontal_align": "left",
+        "vertical_align": "start",
+        "font_size": "medium",
+        "show_border": False,
+        "show_shading": False,
+    }
+
+
 def tile_cells_overlapping(authoring, app_id):
     """Follow-ups' list laid out as a tile whose ``village`` cell covers part of the name's row: both cells as the
     Case List page stores them, which no check of HQ's compares."""
-
-    def cell(field, x, width):
-        return {
-            "model": "case",
-            "field": field,
-            "header": {"en": field},
-            "format": "plain",
-            "useXpathExpression": False,
-            "grid_x": x,
-            "grid_y": 0,
-            "enum": [],
-            "graph_configuration": {
-                "config": {},
-                "locale_specific_config": {},
-                "annotations": [],
-                "series": [],
-                "doc_type": "GraphConfiguration",
-            },
-            "late_flag": 30,
-            "time_ago_interval": 365.25,
-            "date_format": "%d/%m/%y",
-            "doc_type": "DetailColumn",
-            "width": width,
-            "height": 1,
-            "horizontal_align": "left",
-            "vertical_align": "start",
-            "font_size": "medium",
-            "show_border": False,
-            "show_shading": False,
-        }
 
     _set_each(
         authoring,
         app_id,
         ("/modules/1/case_details/short/case_tile_template", "custom"),
-        ("/modules/1/case_details/short/columns", [cell("name", 0, 12), cell("village", 3, 6)]),
+        ("/modules/1/case_details/short/columns", [_tile_cell("name", 0, 12), _tile_cell("village", 3, 6)]),
+    )
+
+
+def tile_cell_outside_the_grid(authoring, app_id):
+    """Follow-ups' list laid out as a tile whose ``village`` cell runs past the twelfth column: a place HQ's Case
+    List page does not offer (its pickers stop at the twelfth column), as an imported app holds it."""
+
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        ("/modules/1/case_details/short/columns", [_tile_cell("name", 0, 6), _tile_cell("village", 8, 6)]),
+    )
+
+
+def tile_cell_below_the_twelfth_row(authoring, app_id):
+    """Follow-ups' list laid out as a tile whose ``village`` cell sits on the thirteenth row, inside the twelve
+    columns: a tile taller than Nova's grid, which both runtimes size to its tallest cell."""
+
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        ("/modules/1/case_details/short/columns", [_tile_cell("name", 0, 12), _tile_cell("village", 0, 12, y=12)]),
     )
 
 
