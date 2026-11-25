@@ -459,6 +459,9 @@ const SEARCH_FIELD_RESPELLED_KEYS: readonly string[] = [
 	"default_value",
 	"required",
 	"validations/*/text",
+	// The instance HQ's Case List page names an itemset's table by, which the first publish names
+	// as the nodeset's (`search/prompts.ts::readPrompt`).
+	"itemset/instance_id",
 ];
 
 const generatedAdds =
