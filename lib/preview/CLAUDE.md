@@ -2608,3 +2608,7 @@ guard. A generated wording override replaces that complete message.
 ### Android location at form entry
 
 The Preview phone supplies a simulated fix when a form opens. The committed form and platform decide whether the submission may carry it. `SubmissionEnvelopeResult.submissionLocation` records the point, null for a requested fix the platform did not provide, and no property for a form that requested none. The same receipt replays on retry. The geopoint question’s answer stays independent. A worker test session’s optional `locationFix` supplies the same evidence. An Android session takes its own fix or the test’s; a Web Apps session takes none, and a fix it names itself, or a test fix no Android session takes, is refused.
+
+### Form behaviors in Web Apps
+
+`PreviewPlatformRules.webAppsFormPragmas` is true on Web Apps only. There a form holding `automaticSubmissionText` submits once per entry as soon as its Submit is offered, through the same `handleSubmit` as the button (`submitOffer.ts::automaticSubmissionEntry`), and a form holding `validateChangedAnswersText` accepts an unchanged, previously accepted nonblank answer at submission without rechecking it, as Formplayer's `JsonActionUtils.questionAnswerToJson` does under `Pragma-Skip-Full-Form-Validation`; a blank or a changed answer is checked as usual. `skipAutomaticSyncText` changes nothing in Preview, which never syncs after a form. Android reads none of the three.

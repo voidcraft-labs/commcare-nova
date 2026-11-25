@@ -205,7 +205,9 @@ export function classifyIdentity(
 	if (
 		property === "optionUuid" ||
 		(property === "options" && discriminators.includes("choice")) ||
-		(property === "option" && discriminators.includes("itext"))
+		(property === "option" && discriminators.includes("itext")) ||
+		// A form behavior's carrier or shared text names its choice.
+		(property === "option" && tool === "update_form")
 	)
 		return "select-option";
 	if (

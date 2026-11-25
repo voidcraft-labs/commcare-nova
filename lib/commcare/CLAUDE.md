@@ -978,6 +978,10 @@ Once a save in HQ's form builder has written its own `#case/x` shadow and `x` la
 
 Reference-capable label/hint text is a typed `ProseTemplate`; only explicit atoms (a reference, or a calculated value, whose expression lowers in the text's prose slot) lower to dynamic `<output>` values, while hashtag-looking text remains literal. Whitespace-only text runs use literal outputs as described below. `lib/domain/hashtagSegments.ts` owns the segment vocabulary of prose chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps it in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens. Expression chips come from parse spans.
 
+### Form behavior pragmas
+
+A form behavior (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `validateChangedAnswersText`) is written as its carrier text under the pragma id (`xform/itextIds.ts::behaviorWireIds`: `Pragma-Submit-Automatically`, `Pragma-Suppress-Autosync`, `Pragma-Skip-Full-Form-Validation`), once per language, with every sharing slot's control reading that id (`fieldTextIds`, `builder.ts::addItext`). Formplayer reads each by presence (`FormSession.setAutoSubmitFlag` and its siblings). HQ's build merges itext groups equal in every language and form under the lexically first id (`xform.py::normalize_itext`), so `behaviorTexts.ts::formBehaviorTextIssue` refuses a setting an earlier equal text would absorb (`FORM_BEHAVIOR_TEXT_INVALID`, its sentence in `behaviorTextCopy.ts`). The reader takes a pragma HQ keeps (`reader/xform/itext.ts::pragmaClaim`, `X.pragmaPresence`) as the form's behavior, the first referencing slot its carrier; the activity notice's key, title and window and the saved-form descriptor stay refused.
+
 ### Markdown itext
 
 A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`, and a help text unless its question holds `plainHelp`; a form holding `plainText` writes none and carries `vellum:ignore="markdown"`. A hint and a validation message never write one: no runtime reads it. CommCare holds markdown per text across every language, so no setting is per language.
