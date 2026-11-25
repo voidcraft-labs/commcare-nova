@@ -48,6 +48,7 @@ import {
 	termSchema,
 	valueSchema,
 } from "@/lib/domain/expression/types";
+import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { referenceNames } from "@/lib/domain/referenceNames";
 import { log } from "@/lib/logger";
@@ -479,6 +480,7 @@ const readProjectors: {
 			openCondition,
 			closeCondition,
 			ownClosePlacement: _heldClose,
+			captureLocation,
 			plainText,
 			...form
 		} = data.form;
@@ -516,6 +518,11 @@ const readProjectors: {
 				}),
 				// Read under the name an edit takes, so a read sent back
 				// through `updateForm` keeps it.
+				capture_location: captureLocation === true,
+				captures_device_location_on_android: capturesDeviceLocation(
+					doc,
+					data.form,
+				),
 				...(plainText === true && { plain_text: true }),
 				...(closeCondition !== undefined && {
 					closeCondition: formCondition(

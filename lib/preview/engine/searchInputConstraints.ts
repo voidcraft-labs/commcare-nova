@@ -28,6 +28,7 @@
 // enforce, the same standing a lookup-bearing one has there.
 
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
+import { workerPromptCheck } from "@/lib/commcare/generatedSearchWording";
 import {
 	type SearchInputDef,
 	searchInputRequiredMessage,
@@ -39,6 +40,7 @@ import {
 	expressionUsesPattern,
 	walkExpressionTerms,
 } from "@/lib/domain/expression";
+import type { LanguageTag } from "@/lib/domain/localization";
 import type { PreviewPlatformRules } from "../platform";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -63,6 +65,7 @@ import {
 type SearchFieldCheckRules = Pick<PreviewPlatformRules, "searchFieldChecks">;
 
 export interface SearchInputConstraintOptions {
+	readonly language?: LanguageTag;
 	/**
 	 * Evaluate only constraints whose predicates read no authenticated session
 	 * data. The server action uses this pass before it has resolved the worker,
@@ -111,7 +114,17 @@ export function searchInputConstraintErrors(
 		if (
 			check.fires(judge(check.predicate, check.searchInputUuid, check.slot))
 		) {
-			errors.set(check.name, check.message);
+			errors.set(
+				check.name,
+				check.slot === "search_input_validation_rule" && options?.language
+					? (workerPromptCheck(
+							environment.doc,
+							environment.moduleUuid,
+							check.searchInputUuid,
+							options.language,
+						) ?? check.message)
+					: check.message,
+			);
 		}
 	}
 	return errors;
@@ -168,7 +181,18 @@ export async function searchInputConstraintErrorsOnDevice(
 		} else {
 			holds = judge(check.predicate, check.searchInputUuid, check.slot);
 		}
-		if (check.fires(holds)) errors.set(check.name, check.message);
+		if (check.fires(holds))
+			errors.set(
+				check.name,
+				check.slot === "search_input_validation_rule" && options?.language
+					? (workerPromptCheck(
+							environment.doc,
+							environment.moduleUuid,
+							check.searchInputUuid,
+							options.language,
+						) ?? check.message)
+					: check.message,
+			);
 	}
 	return errors;
 }

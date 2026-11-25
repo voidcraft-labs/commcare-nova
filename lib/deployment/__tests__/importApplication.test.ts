@@ -70,14 +70,12 @@ describe("hqImportApplication", () => {
 	it("sends the shell its own keys, with no add-on and no profile key in its ownership", () => {
 		const doc = buildDoc({ appName: "Visits" });
 		const { application, ownership } = hqImportApplication(shell(doc));
-		expect(Object.keys(application)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
-		);
+		expect(Object.keys(application)).toEqual(APP_SHELL_KEYS);
 		expect(ownership).toEqual({
 			addOns: [],
 			profileProperties: [],
 			profileCustomProperties: [],
-			autoGpsCapture: false,
+			autoGpsCapture: true,
 		});
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
 		const connectShell = hqImportApplication(shell(connect));
@@ -85,7 +83,7 @@ describe("hqImportApplication", () => {
 		expect(connectShell.ownership.autoGpsCapture).toBe(true);
 	});
 
-	it("fills the shell with the three keys over its source, and owns the two settings", () => {
+	it("fills the shell with the three keys over its source, and owns the form lists, the Android app selection and the location switch", () => {
 		const doc = buildDoc({
 			appName: "Visits",
 			appSettings: { showSavedForms: true, showIncompleteForms: false },
@@ -93,7 +91,7 @@ describe("hqImportApplication", () => {
 		const { application, ownership } = hqImportApplication(
 			update(doc, shellSource({ addOns: { menu_mode: false } })),
 		);
-		expect(Object.hasOwn(application, "auto_gps_capture")).toBe(false);
+		expect(application.auto_gps_capture).toBe(false);
 		expect(Object.hasOwn(application, "add_ons")).toBe(false);
 		expect(application.profile?.properties).toEqual(
 			Object.fromEntries(
@@ -105,8 +103,9 @@ describe("hqImportApplication", () => {
 			menuLayouts: true,
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
-			autoGpsCapture: false,
+			autoGpsCapture: true,
 		});
 	});
 

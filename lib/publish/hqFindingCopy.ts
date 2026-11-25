@@ -162,10 +162,7 @@ export const FINDING_COPY: Readonly<
 		never:
 			"This uses a destination after the form is sent, which Nova doesn't bring in.",
 	},
-	"android-app-dependencies": {
-		"not-yet":
-			"This uses a list of Android apps the phone must have, which Nova can't hold yet.",
-	},
+	"android-app-dependencies": {},
 	"app-document": {
 		never:
 			"A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by.",
@@ -303,9 +300,7 @@ export const FINDING_COPY: Readonly<
 			"This uses the older, nested list of places, which Nova doesn't bring in.",
 	},
 	"instance-text": {},
-	"language-codes": {
-		"not-yet": "A language code here is one Nova can't hold yet.",
-	},
+	"language-codes": {},
 	"list-and-search-filters": {
 		"not-yet":
 			"The case list here filters cases its search doesn't, which Nova can't hold yet.",

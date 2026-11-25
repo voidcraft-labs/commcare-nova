@@ -35,7 +35,12 @@ import type {
  * confirms exactly the state Nova read, known baseline or not.
  */
 export function appRemoteChange(input: {
+	/** Whether this publish replaces Android requirements CommCare HQ holds that Nova's baseline does not own. */
+	readonly replacesUnownedAndroidRequirements?: boolean;
 	readonly authority: ReturnType<typeof appConfirmationScope>;
+	/** The app's automatic-location line, when the target holds the other value
+	 * and its baseline predates Nova owning that switch. */
+	readonly locationChange?: string;
 	/** A completed review may disclose a removal the shorter publish preview cannot show. */
 	readonly discards?: readonly RemoteChangeDiscard[];
 	readonly appName: string;
@@ -154,7 +159,7 @@ export function appRemoteChange(input: {
 		};
 	}
 	if (baseline === null || baseline.origin === "unread") {
-		return change([], false);
+		return change(input.locationChange ? [input.locationChange] : [], false);
 	}
 	const parts = diffHqAppSource({
 		baseline: baseline.source,
@@ -164,7 +169,16 @@ export function appRemoteChange(input: {
 		languageNames: input.languageNames,
 		mediaChanged: input.mediaChanged,
 	});
-	return parts.length === 0 && lines.length === 0
+	const descriptions = parts.map(describeAppChange);
+	if (
+		!baseline.ownership.profileFeatures?.includes("dependencies") &&
+		input.replacesUnownedAndroidRequirements
+	) {
+		descriptions.push("Required Android apps already selected in CommCare HQ");
+	}
+	if (input.locationChange !== undefined)
+		descriptions.unshift(input.locationChange);
+	return descriptions.length === 0 && lines.length === 0
 		? null
-		: change(parts.map(describeAppChange), true);
+		: change(descriptions, true);
 }

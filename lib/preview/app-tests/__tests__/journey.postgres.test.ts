@@ -37,6 +37,7 @@ import {
 	NEW_APP_SETTINGS,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { proseText } from "@/lib/domain/prose";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
 import { sectionEntryDoc } from "../../engine/__tests__/fixtures/sectionEntry";
@@ -55,6 +56,148 @@ const stepSchema = z.object({
 	testId: z.string(),
 	step: z.number(),
 	observation: z.record(z.string(), z.unknown()),
+});
+
+it("shows shared worker wording for a menu, form, record choice and submit button in each language", async () => {
+	const initial = buildDoc({
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+					},
+					{
+						name: "Survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+					},
+				],
+			},
+		],
+		caseTypes: [{ name: "patient", properties: [] }],
+	});
+	const menu = initial.moduleOrder[0],
+		form = initial.formOrder[menu][0];
+	const labels = [
+		[generatedWordingId(menu, "menuTitle"), "Worker visits", "Visites"],
+		[generatedWordingId(form, "formTitle"), "Record visit", "Noter la visite"],
+		[
+			generatedWordingId(menu, "selectCase"),
+			"Use this patient",
+			"Choisir ce patient",
+		],
+		[
+			generatedWordingId(form, "submitButton"),
+			"Finish visit",
+			"Terminer la visite",
+		],
+	] as const;
+	/* A source-language override changes the source a translation is made
+	 * from, so French is recorded against the English wording it translates. */
+	const translate = (
+		from: import("@/lib/domain").BlueprintDoc,
+		language: "eng" | "fra",
+		head: readonly import("@/lib/doc/types").Mutation[] = [],
+	) => {
+		const units = new Map(
+			collectTranslationUnits(from).map((unit) => [unit.id, unit]),
+		);
+		const verdict = mutationCommitVerdict(
+			from,
+			[
+				...head,
+				...labels.map(([id, english, french]) => {
+					const unit = units.get(id);
+					if (!unit) throw Error(`Missing wording for ${id}`);
+					return {
+						kind: "setTranslation" as const,
+						language,
+						unitId: id,
+						entry: {
+							value: language === "fra" ? french : english,
+							sourceFingerprint: unit.sourceFingerprint,
+							origin: "human" as const,
+							review: "reviewed" as const,
+							translatedFrom: "eng",
+						},
+					};
+				}),
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw Error(JSON.stringify(verdict.findings));
+		return verdict.nextDoc;
+	};
+	const doc = translate(
+		translate(initial, "eng", [
+			{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fra" },
+		]),
+		"fra",
+	);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Check worker-facing labels",
+			platform: "web-apps",
+			scenario: { records: [{ id: "one", caseType: "patient", name: "Maya" }] },
+		}),
+	);
+	const step = async (action: AppTestAction) => {
+		current = stepSchema.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: current.step,
+				action,
+			}),
+		);
+		expect(current.observation.error).toBeUndefined();
+		return current.observation;
+	};
+	for (const [language, index] of [
+		["eng", 1],
+		["fra", 2],
+	] as const) {
+		expect(
+			await step({ kind: "language", language: { language } }),
+		).toMatchObject({
+			screen: "home",
+			menus: expect.arrayContaining([
+				expect.objectContaining({ uuid: menu, name: labels[0][index] }),
+			]),
+		});
+		expect(await step({ kind: "menu", moduleUuid: menu })).toMatchObject({
+			name: labels[0][index],
+			forms: expect.arrayContaining([
+				expect.objectContaining({ uuid: form, name: labels[1][index] }),
+			]),
+		});
+		expect(await step({ kind: "form", formUuid: form })).toMatchObject({
+			screen: "browse",
+		});
+		expect(await step({ kind: "select", caseIds: ["one"] })).toMatchObject({
+			screen: "details",
+			controls: { continue: labels[2][index] },
+		});
+		expect(await step({ kind: "continue" })).toMatchObject({
+			screen: "form",
+			controls: { submit: labels[3][index] },
+		});
+		await step({ kind: "home" });
+	}
+	await step({ kind: "finish" });
 });
 
 it("commits a registration and finishes in one batch with replayable evidence and no retained test records", async () => {

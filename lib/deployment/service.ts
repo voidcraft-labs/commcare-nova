@@ -1,3 +1,4 @@
+import { changesUnownedAndroidApps } from "@/lib/commcare/androidAppDependencies";
 import "server-only";
 
 import { gzipSync } from "node:zlib";
@@ -32,6 +33,7 @@ import {
 	readHqLookupTableRows,
 	uploadLookupTableWorkbook,
 } from "@/lib/commcare/hq/lookupTables";
+import { sourceCapturesLocation } from "@/lib/commcare/locationCapture";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
@@ -1628,7 +1630,17 @@ export async function publishAppToHq(
 				const moved = diffHqAppSource({
 					baseline: heldRead,
 					current: second.normalized,
-					ownership: comparedOwnership,
+					// The preflight decision covers the selection it showed, including an
+					// existing target whose old publish did not own Android requirements.
+					ownership: {
+						...comparedOwnership,
+						profileFeatures: [
+							...new Set([
+								...(comparedOwnership.profileFeatures ?? []),
+								"dependencies",
+							]),
+						],
+					},
 					importFiles: { published, recorded: appBaseline?.mediaFiles ?? null },
 					shell,
 					languageNames,
@@ -1651,6 +1663,8 @@ export async function publishAppToHq(
 						counter,
 						second.digest,
 					) ||
+					sourceCapturesLocation(heldRead) !==
+						sourceCapturesLocation(second.normalized) ||
 					(!shell && webAppsMovedDuringPush(source, read.source))
 				) {
 					return refused("upload", changedDuringPush);
@@ -4258,6 +4272,51 @@ async function compareWithHq(
 			))
 	)
 		return { kind: "changed-in-hq" };
+	if (
+		!baseline.ownership.profileFeatures?.includes("dependencies") &&
+		changesUnownedAndroidApps(read.source.profile.features)
+	) {
+		const settings = await withDeploymentReadSnapshot(
+			scope,
+			"edit",
+			async ({ db }) =>
+				(
+					await db
+						.selectFrom("apps")
+						.select("app_settings")
+						.where("id", "=", scope.appId)
+						.where("project_id", "=", scope.projectId)
+						.executeTakeFirstOrThrow()
+				).app_settings,
+		);
+		if (settings === null) throw new Error("The saved app has no settings.");
+		if (
+			changesUnownedAndroidApps(
+				read.source.profile.features,
+				settings.requiredAndroidApps,
+			)
+		)
+			return { kind: "changed-in-hq" };
+	}
+	/* A baseline from before Nova owned the app's location switch leaves it
+	 * out of the comparison above, and its source still names the value HQ
+	 * held then: only a move from that value is a change made in HQ. The
+	 * document's own value differing from HQ's is preflight's disclosure. */
+	if (
+		!baseline.ownership.autoGpsCapture &&
+		sourceCapturesLocation(read.source.raw) !==
+			sourceCapturesLocation(baseline.source)
+	) {
+		const app = await withDeploymentReadSnapshot(scope, "edit", ({ db }) =>
+			db
+				.selectFrom("apps")
+				.select("connect_type")
+				.where("id", "=", scope.appId)
+				.where("project_id", "=", scope.projectId)
+				.executeTakeFirstOrThrow(),
+		);
+		if (app.connect_type === null) return { kind: "changed-in-hq" };
+	}
 	return {
 		kind: "unchanged",
 		remote,

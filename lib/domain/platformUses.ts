@@ -327,8 +327,23 @@ export function platformFeatureUses(
 		if (doc.appSettings.formMenuLayout !== undefined)
 			appUses.push(slotUse("menu-layout", app, "appSettings.formMenuLayout"));
 	}
+	if (
+		doc.connectType === null &&
+		doc.appSettings.captureLocation &&
+		wanted("connect-location-capture")
+	)
+		appUses.push(
+			slotUse("connect-location-capture", app, "appSettings.captureLocation"),
+		);
 	if (doc.logo !== undefined && wanted("app-logo"))
 		appUses.push(slotUse("app-logo", app, "logo"));
+	if (
+		doc.appSettings.requiredAndroidApps?.length &&
+		wanted("required-android-apps")
+	)
+		appUses.push(
+			slotUse("required-android-apps", app, "appSettings.requiredAndroidApps"),
+		);
 	if (doc.appSettings.showSavedForms && wanted("saved-forms"))
 		appUses.push(slotUse("saved-forms", app, "appSettings.showSavedForms"));
 	if (doc.appSettings.showIncompleteForms && wanted("incomplete-forms"))
@@ -422,6 +437,10 @@ export function platformFeatureUses(
 				);
 			if (form.badge !== undefined && wanted("menu-badge"))
 				formUses.push(slotUse("menu-badge", formOwner, "badge"));
+			if (form.captureLocation && wanted("connect-location-capture"))
+				formUses.push(
+					slotUse("connect-location-capture", formOwner, "captureLocation"),
+				);
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(

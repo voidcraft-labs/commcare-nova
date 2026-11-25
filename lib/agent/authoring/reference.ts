@@ -111,7 +111,7 @@ lookup('Table','column',condition) reads a data-table value; #row/column inside 
 	languages:
 		() => `The conversation language, the app's source language, and its runtime default are separate choices. Source language describes the text authored in the app; the runtime default is what workers see first. For a new app, establish its source language before adding translation targets. Changing a language identity does not translate its content.
 
-Read the app's languages before changing them. A language identity contains language, with script when needed and an optional region; the tool resolves supported identifiers and names. Add a target by copying an existing language so every string has a value. Copying provides coverage, not a translation or a human review.
+Read the app's languages before changing them. A project language uses {kind:"project",language:"qaa"} with its exact code and manual translations. Other language identities contain language, with script when needed and an optional region; the tool resolves supported identifiers and names. Add a target by copying an existing language so every string has a value. Copying provides coverage, not a translation or a human review.
 
 Translation entries include their location, current source, explicit value and status. Preserve inserted answers and record values when translating wording. Set operations begin Needs review. An explicit review is a separate decision about the exact value and current source; do not mark generated text as human-reviewed merely because you wrote it. Source changes can leave an existing translation out of date. Read fresh entries and echo their opaque revision tokens when setting or reviewing them.
 

@@ -51,6 +51,7 @@ import {
 	userTypesOf,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { ANDROID_APP_NAMES } from "@/lib/domain/requiredAndroidApps";
 import { formCasePlacementReads } from "./authoring/casePlacementWords";
 import {
 	queryRepeatRows,
@@ -555,8 +556,13 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	if (doc.connectType) lines.push(`Connect type: ${doc.connectType}`);
 	lines.push(
 		`Menu layouts: first menu ${doc.appSettings.firstMenuLayout ?? "list"}, other menus ${doc.appSettings.formMenuLayout ?? "list"}`,
+		`Automatic location on Android: ${doc.connectType !== null ? "on for all forms through Connect" : doc.appSettings.captureLocation ? "on for all forms" : "chosen by each form"}`,
 		`Form lists: saved forms ${doc.appSettings.showSavedForms ? "on" : "off"}, incomplete forms ${doc.appSettings.showIncompleteForms ? "on" : "off"}`,
 	);
+	if (doc.appSettings.requiredAndroidApps?.length)
+		lines.push(
+			`Workers on Android need ${doc.appSettings.requiredAndroidApps.map((app) => ANDROID_APP_NAMES[app]).join(", ")}.`,
+		);
 	lines.push(`Runs on: ${platformDeclarationLabel(declaredPlatforms(doc))}`);
 
 	if (doc.caseTypes?.length) {

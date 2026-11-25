@@ -18,6 +18,7 @@ import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	STANDARD_CASE_PROPERTY_DESCRIPTIONS,
 } from "@/lib/domain";
+import { ANDROID_APP_NAMES } from "@/lib/domain/requiredAndroidApps";
 
 import { workerReadiness } from "@/lib/domain/workerReadiness";
 
@@ -35,6 +36,12 @@ export function appOverview(doc: BlueprintDoc) {
 			formMenuLayout: doc.appSettings.formMenuLayout ?? "list",
 			showSavedForms: doc.appSettings.showSavedForms,
 			showIncompleteForms: doc.appSettings.showIncompleteForms,
+			requiredAndroidApps: (doc.appSettings.requiredAndroidApps ?? []).map(
+				(app) => ({ app, name: ANDROID_APP_NAMES[app] }),
+			),
+			/** Every form requests the Android device location; a Connect app's
+			 * forms request it whatever this says. */
+			captureLocation: doc.appSettings.captureLocation === true,
 		},
 		/** Where workers use the app, and the features that declaration refuses. */
 		platforms: declaredPlatforms(doc),

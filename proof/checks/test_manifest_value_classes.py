@@ -1731,6 +1731,12 @@ def _settings_and_forms():
             refused("app", _app([_module(display_style="columns")]), "schema:Module.display_style", "/modules/0/display_style"),
             accepted("app", _app([_module(display_style="grid")]), "schema:Module.display_style", "/modules/0/display_style"),
         ),
+        "application-and-settings/repeated-android-app-dependency": (
+            refused("app", app(profile={"features": {"dependencies": ["org.rdtoolkit", "org.rdtoolkit"]}}),
+                    "setting:features.dependencies", "/profile/features/dependencies"),
+            accepted("app", app(profile={"features": {"dependencies": ["org.rdtoolkit", "com.simprints.id"]}}),
+                     "setting:features.dependencies", "/profile/features/dependencies"),
+        ),
         "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": (
             refused(
                 "app",

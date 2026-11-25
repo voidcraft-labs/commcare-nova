@@ -489,6 +489,48 @@ describe("refreshKeptValues", () => {
 		expect(await baselineRow()).toEqual(before);
 	});
 
+	/* A baseline from before Nova owned the app's location switch: the
+	 * source it holds names HQ's value then, and only HQ moving from it is a
+	 * change made there. */
+	describe("over a baseline that does not own the app's location switch", () => {
+		const withLocation = (on: boolean) => ({
+			...liveSource(),
+			auto_gps_capture: on,
+		});
+
+		it("refreshes when the author turned location on in Nova and HQ still holds it off", async () => {
+			await seedApp();
+			await published(baselineOf(withLocation(false)));
+			await commitGuardedBatchProposal({
+				appId: APP,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				mutations: [
+					{ kind: "setAppSettings", settings: { captureLocation: true } },
+				],
+				actorUserId: ACTOR,
+				kind: "autosave",
+			});
+			await withHttpPeer(async (peer) => {
+				serveSource(peer, withLocation(false));
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+			});
+		});
+
+		it("answers changed-in-hq when HQ turned location on, and writes nothing", async () => {
+			await seedApp();
+			await published(baselineOf(withLocation(false)));
+			const before = await baselineRow();
+			await withHttpPeer(async (peer) => {
+				serveSource(peer, withLocation(true));
+				expect(await refreshKeptValues(SCOPE, TARGET)).toEqual({
+					kind: "changed-in-hq",
+				});
+			});
+			expect(await baselineRow()).toEqual(before);
+		});
+	});
+
 	/* A key HQ's build writes as another string than its own name is no
 	 * publish's to carry, so one stored in CommCare HQ is a change. */
 	it("answers changed-in-hq for a stored key that sets another string than its own name, and writes nothing", async () => {

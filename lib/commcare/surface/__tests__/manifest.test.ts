@@ -479,7 +479,7 @@ const SPLIT_KEYS: ReadonlyArray<{
 				"connect-app",
 			],
 			"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app":
-				["TARGET-OWNED", "not-a-connect-app"],
+				["HELD", "not-a-connect-app"],
 		},
 	},
 ];

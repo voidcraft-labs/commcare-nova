@@ -13,6 +13,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ownRecordValue } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
+import { previewPlatformRules } from "../platform";
 import { appTestExpectationMismatch, bindAppTestAction } from "./addresses";
 import { captureAppTestSnapshot } from "./capture";
 import {
@@ -98,7 +99,9 @@ export async function startAppTest(
 			id: "default",
 			personaUuid: null,
 			language: input.language,
+			locationFix: input.locationFix,
 			platform: input.platform,
+			installedAndroidApps: input.installedAndroidApps,
 		},
 	];
 	if (
@@ -160,17 +163,48 @@ export async function startAppTest(
 			const doc = hydratePersistedBlueprint(snapshot.blueprint);
 			const sessions: Record<string, AppTestSessionState> = {};
 			let primaryObservation: Record<string, unknown> = {};
+			if (
+				input.locationFix &&
+				!sessionInputs.some(
+					(sessionInput) =>
+						previewPlatformRules(
+							appTestPlatform(
+								snapshot,
+								sessionInput.platform ?? input.platform,
+							),
+						).automaticLocation,
+				)
+			)
+				throw new AppTestActionError(
+					"Automatic location is available on Android, and this test starts no Android session. Add one or leave out the device location.",
+				);
 			for (const sessionInput of sessionInputs) {
 				const platform = appTestPlatform(
 					snapshot,
 					sessionInput.platform ?? input.platform,
 				);
+				/* A session's own fix belongs to an Android session; the test's
+				 * fix is the default every Android session takes. */
+				const automaticLocation =
+					previewPlatformRules(platform).automaticLocation;
+				if (sessionInput.locationFix && !automaticLocation)
+					throw new AppTestActionError(
+						"Automatic location is available on Android. Choose an Android session or leave out its device location.",
+					);
+				const locationFix =
+					sessionInput.locationFix ??
+					(automaticLocation ? input.locationFix : undefined);
 				const initial: AppTestSessionState = {
 					language: appTestLanguage(
 						snapshot,
 						sessionInput.language ?? input.language,
 					),
 					platform,
+					installedAndroidApps:
+						sessionInput.installedAndroidApps ??
+						input.installedAndroidApps ??
+						[],
+					...(locationFix !== undefined && { locationFix }),
 					androidDeviceId: randomUUID(),
 					personaUuid: null,
 					screen: appTestEntryScreen(platform),

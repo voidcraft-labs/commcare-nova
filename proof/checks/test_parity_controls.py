@@ -269,3 +269,21 @@ def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_ba
         manifest_usage.HELD,
         ["forms-and-case-writes/custom-icons-0"],
     )
+
+
+def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():
+    from proof.checks.manifest_usage import app_json_uses, Uses
+
+    manifest = parity.manifest()
+    key = "schema:Application.langs"
+    source = {"doc_type": "Application", "langs": ["eng", "en", "qaa", "qtz", "fra", "qua"]}
+    found = Uses()
+    app_json_uses(source, manifest, "app.json", found, authored=True)
+    uses = [one for one in parity.decided_uses(found, manifest)[0] if one.at]
+    assert [one.at for one in uses] == ["/langs/0", "/langs/2", "/langs/3"]
+    claims = [parity.Record("app.json", "/langs", key, parity.PROJECT_LANGUAGE, "held", one.at) for one in uses]
+    assert parity.join(uses, claims) == []
+    # Moving the alias's own claim onto the registered English sibling cannot witness the alias.
+    moved = parity.Record("app.json", "/langs", key, parity.PROJECT_LANGUAGE, "held", "/langs/1")
+    assert _whats(parity.join(uses, [moved, *claims[1:]])) == ["entry"]
+    assert _whats(parity.join(uses, claims[1:])) == ["entry"]

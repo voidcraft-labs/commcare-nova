@@ -25,6 +25,7 @@ import {
 	useLocalizedField,
 	useLocalizedText,
 	useTranslationUnitEditor,
+	useWorkerWordingOverride,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ChoiceAnswerCheck } from "@/components/preview/shared/ChoiceAnswerCheck";
 import {
@@ -61,7 +62,12 @@ import {
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import type { LanguageTag } from "@/lib/domain/localization";
+import {
+	capturesDeviceLocation,
+	type DeviceLocation,
+} from "@/lib/domain/locationCapture";
 import {
 	afterSubmitFrameLanding,
 	afterSubmitRoute,
@@ -794,6 +800,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 		"name",
 	);
 	const localizedFormName = useLocalizedText(formNameUnitId);
+	const submitWording = useWorkerWordingOverride(
+		generatedWordingId(formUuid ?? "missing", "submitButton"),
+	);
 	const formNameEditor = useTranslationUnitEditor(formNameUnitId);
 
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
@@ -1094,6 +1103,20 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const reloadLookupData = usePreviewLookupReload();
 	const entryKey =
 		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
+	// Polling starts at form entry. Changing the simulated phone affects the next entry.
+	const [sensor, setSensor] = useState<{
+		entryKey?: string;
+		fix?: DeviceLocation;
+	}>({});
+	if (sensor.entryKey !== entryKey) {
+		setSensor({
+			entryKey,
+			fix:
+				entryKey === undefined
+					? undefined
+					: session.getState().previewLocationFix,
+		});
+	}
 	const engineReady =
 		engineEntry.formUuid === formUuid &&
 		engineEntry.ready &&
@@ -2761,8 +2784,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 				 * `owner_id` stamped on every case this submission creates, so
 				 * dropping it here would quietly give a persona's work to the
 				 * signed-in member while every read still looked persona-scoped. */
+				const recordFix =
+					platformRules.automaticLocation &&
+					sensor.entryKey === submittedEntryKey &&
+					sensor.fix !== undefined &&
+					capturesDeviceLocation(finalDoc, finalDoc.forms[mutation.formUuid]);
 				return await submitFormAction(
-					entrySupplies ? { ...mutation, entrySupplies } : mutation,
+					{
+						...mutation,
+						...(entrySupplies && { entrySupplies }),
+						...(recordFix && { locationFix: sensor.fix }),
+					},
 					submittedAppId,
 					finalBlueprintDigest,
 					viewerTimeZone(),
@@ -2862,6 +2894,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				result.kind === "close" ||
 				result.kind === "survey"
 			) {
+				session
+					.getState()
+					.setPreviewSubmissionLocation(result.submissionLocation);
 				await dispatchAfterSubmit({
 					submitted: {
 						...submitted,
@@ -3731,12 +3766,16 @@ export function FormScreen({ screen }: FormScreenProps) {
 												aria-hidden="true"
 											/>
 										)}
-										{runtimeMessage(
-											language.language,
-											submitStatus.kind === "running"
-												? "submitting"
-												: platformRules.submitLabel,
-										)}
+										{submitStatus.kind !== "running" &&
+										platformRules.submitLabel === "submit" &&
+										submitWording !== undefined
+											? submitWording
+											: runtimeMessage(
+													language.language,
+													submitStatus.kind === "running"
+														? "submitting"
+														: platformRules.submitLabel,
+												)}
 									</button>
 								) : (
 									<button

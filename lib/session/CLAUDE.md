@@ -481,6 +481,8 @@ when choosing a different worker. The session action clears prior record and
 Search bindings; the UI navigation replaces the prior form route. Choosing a
 worker never changes the member who authorizes access to Project data.
 
+The Preview phone's installed Android apps belong to its simulated installation. Switching workers or platforms keeps the phone’s selection. App settings own the ordered requirements independently.
+
 ### First-menu selection after submission
 
 The home screen normally clears the worker’s selections. On Android a Previous task that returns directly to Home carries the case datums from its actual frame. The browser history entry records these for this Preview session. Starting a fresh Home, changing worker or changing platform creates a fresh case choice.

@@ -539,16 +539,17 @@ describe("a first publish", () => {
 
 		const [shell, update] = bodies;
 		expect(shell.appId).toBeNull();
-		// Seven keys: `auto_gps_capture` is written only for a Connect app, and
+		// The app-wide location choice is present even when it is false.
 		// `add_ons` and `profile` arrive with the update over the shell's read.
 		// HQ keeps its own `build_spec`, so no body names one.
-		expect(Object.keys(shell.app)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
-		);
-		expect(shell.app).toMatchObject({ modules: [], _attachments: {} });
+		expect(Object.keys(shell.app)).toEqual(APP_SHELL_KEYS);
+		expect(shell.app).toMatchObject({
+			modules: [],
+			_attachments: {},
+			auto_gps_capture: false,
+		});
 		for (const key of [
 			"add_ons",
-			"auto_gps_capture",
 			"multimedia_map",
 			"logo_refs",
 			"profile",
@@ -1646,6 +1647,69 @@ describe("changes made in CommCare HQ", () => {
 		).toEqual({ origin: "push", discarded_by: ACTOR });
 	});
 
+	it("asks before writing its location switch and Android apps over a person's change to either in HQ, and sends its own once confirmed", async () => {
+		/* Nova's push baseline owns both settings, so a person's save of either
+		 * in HQ is a change the next publish names, and only the confirmed
+		 * publish writes Nova's value back. */
+		const doc = await seed();
+		const edits = [
+			(source: Record<string, unknown>) => {
+				source.auto_gps_capture = true;
+			},
+			(source: Record<string, unknown>) => {
+				setDependencies(source, ["org.commcare.dalvik.reminders"]);
+			},
+		];
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			expect((await baselineRow()).ownership).toMatchObject({
+				autoGpsCapture: true,
+				profileFeatures: ["dependencies"],
+			});
+			for (const edit of edits) {
+				const sent = requests(peer).length;
+				serveEdited(peer, SOURCE, "source-live", edit);
+				const stopped = refusal(await publish(doc));
+				expect(stopped).toMatchObject({
+					phase: "preflight",
+					failure: { code: "hq_changed" },
+					remoteChanges: [
+						expect.objectContaining({
+							kind: "app",
+							parts: ["A setting this app writes"],
+							baselineKnown: true,
+						}),
+					],
+				});
+				expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+				const digest = stopped.remoteChanges[0]?.observedDigest ?? fail();
+				serveEdited(peer, SOURCE, "source-live", edit);
+				const bodies: { app: Record<string, unknown> }[] = [];
+				accepted(peer, 200, HQ_APP, bodies);
+				serve(peer, SOURCE, "source-live");
+				expect(
+					(
+						await publish(doc, [
+							{ kind: "app", novaResourceId: APP, observedDigest: digest },
+						])
+					).landed,
+				).toBe(true);
+				const [body] = bodies;
+				expect(body?.app.auto_gps_capture).toBe(false);
+				expect(
+					(
+						(body?.app.profile as Record<string, unknown> | undefined)
+							?.features as Record<string, unknown> | undefined
+					)?.dependencies,
+				).toBeUndefined();
+			}
+		});
+	});
+
 	it("lands an app whose read back failed, and the next publish asks before writing over it", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
@@ -1732,51 +1796,76 @@ describe("changes made in CommCare HQ", () => {
 		});
 	});
 
-	it("stops at the upload when the app's compared keys moved during the push, and not when only an ignored key did", async () => {
-		const doc = await seed(await lookupDocument());
-		await withPeer(async (peer) => {
-			emptyTables(peer);
-			accepted(peer, 201);
-			serve(peer, SOURCE, "source-shell");
-			workbookTaken(peer);
-			tablesAfterPush(peer);
-			tableRows(peer);
-			serve(peer, SOURCE, "source-shell");
-			accepted(peer, 200);
-			serve(peer, SOURCE, "source-live");
-			expect((await publish(doc)).landed).toBe(true);
-
-			const republish = (
-				secondRead: (source: Record<string, unknown>) => void,
-			) => {
-				tablesAfterPush(peer);
-				tableRows(peer);
-				serve(peer, SOURCE, "source-live");
+	it.each(["app name", "legacy Android requirements"] as const)(
+		"stops at the upload when %s changes during the push, and accepts a save that only touched an ignored key",
+		async (change) => {
+			const doc = await seed(await lookupDocument());
+			await withPeer(async (peer) => {
+				emptyTables(peer);
+				accepted(peer, 201);
+				serve(peer, SOURCE, "source-shell");
 				workbookTaken(peer);
 				tablesAfterPush(peer);
 				tableRows(peer);
-				serveEdited(peer, SOURCE, "source-live", secondRead);
-			};
-			republish(savedInHq);
-			accepted(peer, 200);
-			serve(peer, SOURCE, "source-live");
-			expect((await publish(doc)).landed).toBe(true);
+				serve(peer, SOURCE, "source-shell");
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc)).landed).toBe(true);
 
-			republish(renamedInHq);
-			const stopped = refusal(await publish(doc));
-			expect(stopped).toEqual(
-				expect.objectContaining({
-					phase: "upload",
-					failure: {
-						code: "hq_changed",
-						message: HQ_CHANGED_DURING_PUSH_MESSAGE,
-						details: [],
-					},
-					remoteChanges: [],
-				}),
-			);
-		});
-	});
+				const republish = (
+					secondRead: (source: Record<string, unknown>) => void,
+				) => {
+					tablesAfterPush(peer);
+					tableRows(peer);
+					serve(peer, SOURCE, "source-live");
+					workbookTaken(peer);
+					tablesAfterPush(peer);
+					tableRows(peer);
+					serveEdited(peer, SOURCE, "source-live", secondRead);
+				};
+				republish(savedInHq);
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc)).landed).toBe(true);
+
+				if (change === "legacy Android requirements") {
+					await h
+						.db()
+						.updateTable("app_deployment_baselines")
+						.set({
+							ownership: sql`ownership - 'profileFeatures'`,
+						})
+						.execute();
+					republish((source) => {
+						const profile = source.profile as
+							| Record<string, unknown>
+							| undefined;
+						source.profile = {
+							...profile,
+							features: {
+								...(profile?.features as Record<string, unknown> | undefined),
+								dependencies: ["com.simprints.id"],
+							},
+						};
+					});
+				} else {
+					republish(renamedInHq);
+				}
+				const stopped = refusal(await publish(doc));
+				expect(stopped).toEqual(
+					expect.objectContaining({
+						phase: "upload",
+						failure: {
+							code: "hq_changed",
+							message: HQ_CHANGED_DURING_PUSH_MESSAGE,
+							details: [],
+						},
+						remoteChanges: [],
+					}),
+				);
+			});
+		},
+	);
 
 	it("stops at the upload when the shell this publish made is given a menu during the push", async () => {
 		const doc = await seed(await lookupDocument());
@@ -2587,6 +2676,21 @@ async function publishFresh(
 	expect((await publish(doc)).landed).toBe(true);
 }
 
+/** `app` with HQ's profile feature `dependencies` set to `apps`, beside its other features. */
+function setDependencies(
+	app: Record<string, unknown>,
+	apps: readonly string[],
+): void {
+	const profile = (app.profile ?? {}) as Record<string, unknown>;
+	app.profile = {
+		...profile,
+		features: {
+			...(profile.features as Record<string, unknown> | undefined),
+			dependencies: [...apps],
+		},
+	};
+}
+
 async function baselineRow() {
 	return h
 		.db()
@@ -2602,6 +2706,68 @@ async function baselineRow() {
 }
 
 describe("a publish over an app Nova brought in", () => {
+	it("asks before replacing an ordinary target's previously kept location choice even when its source has not changed", async () => {
+		const doc = await seed();
+		const on = (source: Record<string, unknown>) => {
+			source.auto_gps_capture = true;
+		};
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			const read = await bringIn(peer, doc, on);
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({
+					ownership: JSON.stringify({
+						...read.ownership,
+						autoGpsCapture: false,
+					}),
+				})
+				.where("deployment_id", "=", (await state())?.deployment.id ?? fail())
+				.execute();
+			const sent = requests(peer).length;
+			serveEdited(peer, SOURCE, "source-live", on);
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toMatchObject({
+				failure: { code: "hq_changed" },
+				remoteChanges: [
+					expect.objectContaining({
+						identity: HQ_APP,
+						parts: [
+							"Automatic location for every form will change from on to off",
+						],
+						baselineKnown: true,
+					}),
+				],
+			});
+			expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+			const change = stopped.remoteChanges[0];
+			serveEdited(peer, SOURCE, "source-live", on);
+			const bodies: unknown[] = [];
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			expect(
+				(
+					await publish(doc, [
+						{
+							kind: "app",
+							novaResourceId: APP,
+							observedDigest: change.observedDigest,
+						},
+					])
+				).landed,
+			).toBe(true);
+			expect(bodies).toEqual([
+				expect.objectContaining({
+					app: expect.objectContaining({ auto_gps_capture: false }),
+				}),
+			]);
+			expect((await baselineRow()).ownership).toMatchObject({
+				autoGpsCapture: true,
+			});
+		});
+	});
+
 	it("updates the app it came from under the ids HQ holds, keeps the mapping adopted, records the files it publishes, and says so", async () => {
 		const doc = await seed();
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];

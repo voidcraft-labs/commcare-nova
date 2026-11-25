@@ -28,7 +28,9 @@
  *   holds the declaration it was read under and that declaration's
  *   first-publish ids. With `expected`, the two documents are compared whole
  *   (`choices: null`). With `holds`, each fragment's value is found at its
- *   pointer of the entity its external key names: `named` says whether the
+ *   pointer of the entity its external key names, or the document itself under
+ *   the key `app` (a row may also give it as the list `["app"]`, the spelling
+ *   of every other key): `named` says whether the
  *   reading holds an entity under the key at all, and `found` is what that
  *   entity holds at the pointer (`null` for nothing, and for a key that names
  *   no entity), so a fragment whose value is `null` is told apart from a key
@@ -48,10 +50,12 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { expandDoc } from "@/lib/commcare/expander";
 import { canonDocument } from "@/lib/commcare/reader/canon";
 import { externalKeyText } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { planFromDocuments } from "@/lib/deployment/hqChanges/plan";
 import {
 	type ReadBackDifference,
 	readBackDifferences,
@@ -86,6 +90,8 @@ interface Request {
 	/** A stored document (`document.json`'s `doc`). */
 	readonly expected?: unknown;
 	readonly canon?: boolean;
+	/** Review the changed reading over the previously adopted, unchanged app supplied as expected. */
+	readonly reviewChanges?: boolean;
 	readonly holds?: readonly Hold[];
 }
 
@@ -97,6 +103,7 @@ interface Answer {
 	readonly claims: string;
 	readonly declaration?: LaneDeclaration;
 	readonly offered?: readonly LaneDeclaration[];
+	readonly review?: ReturnType<typeof reviewChanges>;
 	readonly firstPublish?: readonly string[];
 	readonly held?: readonly {
 		readonly key: string;
@@ -210,7 +217,7 @@ function heldOf(
 	return holds.map(({ key, pointer }) => {
 		const uuid = uuidOfKey.get(key);
 		const entity =
-			key === JSON.stringify(["app"])
+			key === "app" || key === JSON.stringify(["app"])
 				? reading.doc
 				: uuid === undefined
 					? undefined
@@ -222,6 +229,31 @@ function heldOf(
 			found: entity === undefined ? null : (atPointer(entity, pointer) ?? null),
 		};
 	});
+}
+
+/** Apply the production HQ change planner to an adoption with no unpublished edits, then emit
+ * the resulting app under its adopted IDs so HQ can read back the actual wire. */
+function reviewChanges(
+	previous: BlueprintDoc | undefined,
+	reading: Extract<LaneReading, { kind: "read" }>,
+) {
+	if (previous === undefined)
+		throw new Error("A change review needs the previous adopted document.");
+	const plan = planFromDocuments({
+		ref: previous,
+		now: previous,
+		base: previous,
+		theirs: reading.doc,
+		renamesSince: [],
+	});
+	if (plan.kind !== "changes") return plan;
+	return {
+		kind: plan.kind,
+		target: toPersistableDoc(plan.target),
+		application: expandDoc(plan.target, {
+			identity: targetWireIdentity(reading.identity),
+		}),
+	};
 }
 
 async function answer(request: Request): Promise<Answer> {
@@ -261,7 +293,13 @@ async function answer(request: Request): Promise<Answer> {
 				);
 	const expected =
 		expectedDoc !== undefined && request.canon === true
-			? canonDocument(expectedDoc)
+			? canonDocument(
+					expectedDoc,
+					undefined,
+					request.mode === "read-back"
+						? expectedDoc.localization?.sourceLanguage
+						: undefined,
+				)
 			: expectedDoc;
 	const differences =
 		expected === undefined
@@ -282,6 +320,9 @@ async function answer(request: Request): Promise<Answer> {
 	return {
 		...base,
 		...(differences !== undefined && { differences }),
+		...(request.reviewChanges && {
+			review: reviewChanges(expectedDoc, reading),
+		}),
 		...(request.mode === "first-read" && {
 			declaration: reading.declaration,
 			firstPublish: reading.firstPublish,

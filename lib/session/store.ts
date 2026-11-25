@@ -1,3 +1,4 @@
+import type { DeviceLocation } from "@/lib/domain/locationCapture";
 import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchTypes";
 /**
  * BuilderSession store — ephemeral UI state for the builder.
@@ -56,6 +57,7 @@ import {
 	declaresWebApps,
 	type Platform,
 } from "@/lib/domain/platforms";
+import type { RequiredAndroidApp } from "@/lib/domain/requiredAndroidApps";
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
@@ -355,6 +357,8 @@ export interface BuilderSessionState {
 	 *  is derived (`effectivePreviewPlatform` over the app's declaration), so a
 	 *  choice the app no longer declares derives away with no write here. */
 	previewPlatform: Platform | undefined;
+	/** Apps installed on the simulated phone, independently of the app being authored. */
+	previewInstalledAndroidApps: RequiredAndroidApp[];
 	/** Preview on Android is showing the device's home screen. A running
 	 *  fact, not a route: the URL's `home` is shared with edit mode and gains
 	 *  no Preview-only kind. */
@@ -365,6 +369,14 @@ export interface BuilderSessionState {
 	/** The UUID part of Android's `deviceid` (`commcare_<uuid>`), minted when
 	 *  the store is created: one page load is one install. */
 	previewAndroidDeviceId: string;
+	/** The chosen sensor fix applies to the next Android form entry. */
+	previewLocationFix?: DeviceLocation;
+	setPreviewLocationFix: (fix: DeviceLocation | undefined) => void;
+	/** The last committed form's automatic location, if the app requested it. */
+	previewSubmissionLocation?: DeviceLocation | null;
+	setPreviewSubmissionLocation: (
+		location: DeviceLocation | null | undefined,
+	) => void;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
 
@@ -756,6 +768,10 @@ export interface BuilderSessionState {
 	 *  reach) and opens Android on its home screen. The caller navigates
 	 *  home. */
 	setPreviewPlatform: (platform: Platform) => void;
+	setPreviewAndroidAppInstalled: (
+		app: RequiredAndroidApp,
+		installed: boolean,
+	) => void;
 	/** Show or leave Android's home screen. */
 	setPreviewAtDeviceHome: (atHome: boolean) => void;
 	/** Record Sync with server's time. */
@@ -1034,11 +1050,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewSearchInputs: NO_SEARCH_INPUTS_GIVEN,
 				previewPersonaUuid: undefined as string | undefined,
 				previewPlatform: undefined as Platform | undefined,
+				previewInstalledAndroidApps: [] as RequiredAndroidApp[],
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
 				/* `uuid` rather than `crypto.randomUUID`, for the reason
 				 * `newPreviewSessionId` gives: the builder opened over plain
 				 * http on a LAN address would throw making this store. */
+				setPreviewSubmissionLocation: (previewSubmissionLocation) =>
+					set({ previewSubmissionLocation }),
+				setPreviewLocationFix: (previewLocationFix) =>
+					set({ previewLocationFix }),
 				previewAndroidDeviceId: uuidv4(),
 				previewSessionId: newPreviewSessionId(),
 				previewTaskId: newPreviewSessionId(),
@@ -1245,6 +1266,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewSessionId: newPreviewSessionId(),
 										previewParentCaseRequest: undefined,
 										previewSearchStates: {},
+										previewSubmissionLocation: undefined,
+										previewLocationFix: undefined,
 										previewPersonaUuid: undefined,
 										previewPlatform: undefined,
 										previewAtDeviceHome: false,
@@ -1516,6 +1539,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const structureStashed = s.sidebars.structure.stashed;
 					set({
 						previewing: false,
+						previewSubmissionLocation: undefined,
+						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						/* `previewPlatform` stays: a flip back in keeps the runtime
 						 * the author is checking. */
@@ -1552,6 +1577,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const android = previewRunsOnAndroid(get().previewPlatform);
 					set({
 						previewPersonaUuid: personaUuid,
+						previewSubmissionLocation: undefined,
 						previewCaseTarget: undefined,
 						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
@@ -1571,12 +1597,25 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				setPreviewAndroidAppInstalled(app, installed) {
+					set((state) => {
+						const apps = state.previewInstalledAndroidApps;
+						if (apps.includes(app) === installed) return state;
+						return {
+							previewInstalledAndroidApps: installed
+								? [...apps, app]
+								: apps.filter((item) => item !== app),
+						};
+					});
+				},
+
 				setPreviewPlatform(platform: Platform) {
 					/* The platform Preview will play, not the raw choice: a
 					 * choice the app does not declare derives away. */
 					const android = previewRunsOnAndroid(platform);
 					set({
 						previewPlatform: platform,
+						previewSubmissionLocation: undefined,
 						previewCaseTarget: undefined,
 						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
@@ -2166,6 +2205,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
+						previewSubmissionLocation: undefined,
+						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						previewPlatform: undefined,
 						previewAtDeviceHome: false,

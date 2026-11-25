@@ -451,9 +451,6 @@ describe("the stops", () => {
 	});
 
 	it("says each held change, each platform as a sentence names it", () => {
-		expect(hqChangesHeldLine("languages-reordered", null)).toBe(
-			"The language this app's own text is written in changed in CommCare HQ, and Nova can't bring that in. You can put the app's languages and its name in each language back as they were in CommCare HQ and check again, or publish over the change.",
-		);
 		expect(
 			hqChangesHeldLine("runs-elsewhere", {
 				app: ["web-apps", "android"],
@@ -462,7 +459,10 @@ describe("the stops", () => {
 		).toBe(
 			"CommCare HQ's version doesn't run everywhere this app does. This app runs in Web Apps and on Android, and what changed in CommCare HQ runs only on Android. You can change where this app runs in App settings and check again, or publish over the change.",
 		);
-		expect(HQ_CHANGE_HELD).toEqual(["languages-reordered", "runs-elsewhere"]);
+		expect(HQ_CHANGE_HELD).toEqual([
+			"runs-elsewhere",
+			"stale-source-translation",
+		]);
 	});
 
 	it("says the gate's refusal and the review that moved", () => {

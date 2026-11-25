@@ -879,13 +879,16 @@ export function sourceText(
 export function translatedTexts<T>(
 	ctx: ReadContext,
 	map: Readonly<Record<string, T>>,
+	includeSource = false,
 ): Map<LanguageTag, T> {
 	const tags = applicationReading(ctx)?.languages.tagOf;
 	const source = sourceCode(ctx);
 	return new Map(
 		Object.entries(map).flatMap(([code, text]) => {
 			const tag = tags?.get(code);
-			return tag === undefined || code === source ? [] : [[tag, text] as const];
+			return tag === undefined || (!includeSource && code === source)
+				? []
+				: [[tag, text] as const];
 		}),
 	);
 }

@@ -682,6 +682,11 @@ export function settleDeferredRefusal(
 	else ctx.accounting.cover(ctx.pending.site(index).at, instead);
 }
 
+/** Its registrar accepted a different, fully projected interpretation of the same source site. */
+export function replaceDeferredRefusal(ctx: ReadContext, index: number): void {
+	DEFERRED.get(ctx)?.delete(index);
+}
+
 /** Applies every refusal still waiting for its registrar, as the expression stage made it. */
 export function settleDeferredRefusals(ctx: ReadContext): void {
 	for (const index of [...(DEFERRED.get(ctx)?.keys() ?? [])])

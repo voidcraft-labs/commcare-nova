@@ -2095,15 +2095,20 @@ Web Apps driver's: an app written in Spanish alone, whose empty-list message
 module settings save (finding 41), and whose second menu lists no case, so
 the lane's own walk of each state shows the client that message too and
 proof 4's records hold it (`webapps@module settings@*`).
-`targeted-hq-side-state` and `targeted-hq-side-lookup` carry what a person
-saves in HQ over A: the first a UI translation, location capture, the
-add-ons section saved with Menu Mode on (every add-on as the section posts
-it, the rest off), a CommCare setting
-(`cc-autoup-freq` at `freq-daily`) and a build profile, whose republish
-proceeds with no discard, since Nova owns none of what they change; the
-second a lookup table and its `lookupTable` save, over which Nova's
-republish stops before it sends anything (`hq_table_content_unsupported`,
-defect 5), so no B exists and HQ's table stays as the person left it.
+`targeted-hq-side-state`, `targeted-hq-side-owned` and
+`targeted-hq-side-lookup` carry what a person saves in HQ over A: the first a
+UI translation, the add-ons section saved with Menu Mode on (every add-on as
+the section posts it, the rest off), a CommCare setting (`cc-autoup-freq` at
+`freq-daily`) and a build profile, whose republish proceeds with no discard,
+since Nova owns none of what they change; the second Auto Capture Location
+and a required Android app, two settings Nova owns and writes on every
+publish, over which Nova's republish stops (`hq_changed`) and goes through
+only once the person confirms the discard (`republish: "discards"`), writing
+Nova's values back, and proofs 2 and 3 hold exactly the differences that
+discard makes to its statement (`proof/checks/discards.py`); the third a
+lookup table and its `lookupTable` save, over which Nova's republish stops
+before it sends anything (`hq_table_content_unsupported`, defect 5), so no
+B exists and HQ's table stays as the person left it.
 Ten documents (`proof/targeted/documents/hqChanges.ts`) carry saves a
 person makes to an app's content, each through the view a person's save
 reaches (`proof/observe/hqside.py`): `targeted-hq-changes-label` a label
@@ -5121,7 +5126,7 @@ reused is only what a key names whole, and the reuse is audited:
 | The same inputs give the same bytes | an unseeded draw or a real clock inside an operation | `proof/corpus/__tests__/emitCorpus.test.ts` (the corpus), `proof/hq/test_determinism.py` (HQ), `proof/checks/test_record_determinism.py` (the records), `proof/editors/test_seeding.py` (the browser), the weekly unseeded comparison |
 | What a browser run asks HQ does not depend on how long it took | a page's poll reaching HQ in a slow run, or a hold that stops a timer a page needs | `proof/editors/test_polls.py`: a ten-second poll never runs, one just shorter does, and so do a quick poll and a longer one-off timer |
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends, in its order, and three runs of it send the same menu ids, form ids and `xmlns` in every import body; `proof/hq/test_publish_capture.py`: an update applies only over the source it was built from |
-| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group, its drift groups: five documents' reads before and after a person's saves, `hq-built/`, `shell/`, `lookups/`, `places/` and `lookup-upload/`, its migration groups: each migration witness's A read once, and its `reading` group: the reads that bring an app in); and `proof/editors/test_retained_reads.py`: the reads after each of HQ's pages is saved with nothing changed, through the editor driver |
+| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group, its drift groups: six documents' reads before and after a person's saves, `hq-built/`, `shell/`, `lookups/`, `places/` and `lookup-upload/`, its migration groups: each migration witness's A read once, and its `reading` group: the reads that bring an app in); and `proof/editors/test_retained_reads.py`: the reads after each of HQ's pages is saved with nothing changed, through the editor driver |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
 | HQ's form validation is answered by Formplayer's own controller, with HQ's own request | a seam that answers validation itself or signs HQ's request again; a report not Formplayer's | `proof/formplayer/test_validation.py`, `proof/hq/test_build.py` |

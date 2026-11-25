@@ -74,6 +74,7 @@ DOCUMENTS = (
     "nested-menu-registration-children",
     "standard-case-reads",
     "targeted-advanced-module",
+    "targeted-hq-side-owned",
     "targeted-plain-help",
     "targeted-sync-on-form-entry",
     "tile-boxed",

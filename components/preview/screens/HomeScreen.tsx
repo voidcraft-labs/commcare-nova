@@ -33,6 +33,7 @@ import {
 	makeTranslationUnitId,
 	moduleLanding,
 } from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
 import {
 	type NavigationItemVisibility,
@@ -330,7 +331,7 @@ function ModuleListHome() {
 								index={mIdx}
 								label={
 									(localizedValues.get(
-										makeTranslationUnitId("form", form.uuid, "name"),
+										generatedWordingId(form.uuid, "formTitle"),
 									) as string | undefined) ?? form.name
 								}
 								onClick={() => {
@@ -376,9 +377,9 @@ function ModuleListHome() {
 								entry={caseList}
 								index={mIdx}
 								label={
-									(localizedValues.get(caseList.labelUnitId) as
-										| string
-										| undefined) ?? caseList.label
+									(localizedValues.get(
+										generatedWordingId(entry.moduleUuid, "caseListEntry"),
+									) as string | undefined) ?? caseList.label
 								}
 								onClick={() => {
 									setPreviewCaseTarget(undefined);
@@ -390,9 +391,9 @@ function ModuleListHome() {
 					const mod = modulesByUuid.get(entry.moduleUuid);
 					if (mod === undefined) return null;
 					const localizedModuleName =
-						(localizedValues.get(
-							makeTranslationUnitId("module", mod.uuid, "name"),
-						) as string | undefined) ?? mod.name;
+						(localizedValues.get(generatedWordingId(mod.uuid, "menuTitle")) as
+							| string
+							| undefined) ?? mod.name;
 					const formCount = menuFormCounts[mod.uuid] ?? 0;
 					const hasChildren = moduleHasChildren(menuSource, mod.uuid);
 					const menuCaseContext = previewMenuCaseContext(

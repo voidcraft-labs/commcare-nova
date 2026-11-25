@@ -87,6 +87,7 @@ import {
 	hqChangesResave,
 } from "./documents/hqChanges";
 import { hqSideLookup } from "./documents/hqSideLookup";
+import { hqSideOwned } from "./documents/hqSideOwned";
 import { hqSideState } from "./documents/hqSideState";
 import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
 import { inlineSearchReads } from "./documents/inlineSearchReads";
@@ -196,6 +197,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchDefaultFilterName,
 	syncOnFormEntry,
 	hqSideState,
+	hqSideOwned,
 	parentFormSelectionFrame,
 	parentFormPreviousFrame,
 	wireEqualRepublish,

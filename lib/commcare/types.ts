@@ -586,6 +586,7 @@ export type HqFormLink<XPath = string> =
 /** The keys a basic and an advanced form share (HQ's `FormBase` and its mixins). */
 interface HqFormBase<XPath, LinkXPath> {
 	session_endpoint_id?: string;
+	auto_gps_capture?: boolean;
 	respect_relevancy?: boolean;
 	function_datum_endpoints?: string[];
 	unique_id: string;
@@ -750,6 +751,7 @@ export interface HqApplicationProfile {
 	 * carries as it is.
 	 */
 	properties?: Record<string, unknown>;
+	features?: Record<string, unknown>;
 	/**
 	 * HQ persists this inside an unschematized DictProperty. Nova-authored
 	 * values are strings, but a target app may already contain any JSON value;

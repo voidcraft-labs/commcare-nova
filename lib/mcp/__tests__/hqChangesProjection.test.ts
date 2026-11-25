@@ -823,6 +823,28 @@ describe("a review of changes made in CommCare HQ", () => {
 		}
 	});
 
+	it("identifies the saved phrase to review before a language becomes original", () => {
+		const translation = {
+			language: { kind: "project" as const, language: "qaa" },
+			languageName: "qaa",
+			unitId: "tu1:3:app4:name",
+			breadcrumb: ["Clinic", "App name"],
+		};
+		expect(
+			projected({
+				kind: "held",
+				reason: "stale-source-translation",
+				runs: null,
+				translation,
+			}),
+		).toMatchObject({
+			kind: "held",
+			reason: "stale-source-translation",
+			translation,
+			message: expect.stringContaining("Clinic › App name"),
+		});
+	});
+
 	it("words each review Nova cannot make against what the change is measured from", () => {
 		for (const reason of HQ_CHANGES_UNAVAILABLE) {
 			const since: DriftReference = {
@@ -1124,7 +1146,11 @@ describe("a bring-in's answers that name no deployment", () => {
 				),
 			},
 			{ kind: "unavailable", reason: "nova-defect", since: null },
-			{ kind: "held", reason: "languages-reordered", runs: null },
+			{
+				kind: "held",
+				reason: "runs-elsewhere",
+				runs: { app: ["android", "web-apps"], hq: ["android"] },
+			},
 		];
 		for (const now of stopped) {
 			/* No name rides a review the person can't act on here: one that is

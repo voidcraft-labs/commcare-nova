@@ -10,6 +10,7 @@
 import { makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
+import { requiredAndroidAppsFromProfile } from "../androidAppDependencies";
 import {
 	hqCatalogMayHold,
 	isRuntimeUiStringKey,
@@ -459,6 +460,14 @@ const PROFILE_CLAIMS = defineClaims("appShell.profile", {
 		`${A}/profile-custom-properties-any-other-entry-incl-formplayer-keys`,
 		PROFILE,
 	),
+	duplicateAndroidApp: refuse(
+		`${A}/repeated-android-app-dependency`,
+		"setting:features.dependencies",
+	),
+	androidApps: take(
+		`${A}/31-features-dependencies`,
+		"setting:features.dependencies",
+	),
 	showSaved: take(
 		`${A}/20-properties-cc-show-saved`,
 		"setting:properties.cc-show-saved",
@@ -854,6 +863,29 @@ function readProfile(ctx: ReadContext): void {
 				bag.refuse(name, outside, { name });
 				continue;
 			}
+			if (setting === "setting:features.dependencies") {
+				if (Array.isArray(value) && new Set(value).size !== value.length) {
+					bag.refuse(name, PROFILE_CLAIMS.duplicateAndroidApp, { name });
+					continue;
+				}
+				if (
+					outside !== undefined &&
+					requiredAndroidAppsFromProfile(value) === undefined
+				) {
+					bag.refuse(name, outside, { name });
+					continue;
+				}
+				const apps = bag.take(
+					name,
+					PROFILE_CLAIMS.androidApps,
+					requiredAndroidAppsFromProfile,
+				).value;
+				if (apps?.length)
+					ctx.writeDraft(() => {
+						ctx.draft.appSettings.requiredAndroidApps = apps;
+					});
+				continue;
+			}
 			if (setting === "setting:properties.cc-show-saved") {
 				const read = bag.take(name, PROFILE_CLAIMS.showSaved, yesNo).value;
 				if (read !== undefined) showSaved = read;
@@ -916,8 +948,8 @@ function translationKeyKind(
 	if (codes.has(name)) return "language-name";
 	if (name === "app.display.name") return "app-display-name";
 	if (name === "homescreen.title") return "homescreen-title";
-	if (isRuntimeUiStringKey(name)) return "runtime-ui-string";
 	if (translationKeyOwner(name, codes) === "generated") return "generated";
+	if (isRuntimeUiStringKey(name)) return "runtime-ui-string";
 	return "unread";
 }
 
@@ -1097,10 +1129,11 @@ function readCatalogFills(ctx: ReadContext, languages: HqLanguages): void {
 	const stored = ctx.app.peek("translations");
 	if (!isJsonObject(stored)) return;
 	const maps = Object.values(stored).filter(isJsonObject);
+	const codes = new Set(languages.codes);
 	const keys = new Set(
 		maps
 			.flatMap((strings) => Object.keys(strings))
-			.filter(isRuntimeUiStringKey),
+			.filter((key) => translationKeyKind(key, codes) === "runtime-ui-string"),
 	);
 	for (const code of languages.codes) {
 		if (languages.refused.has(code)) continue;

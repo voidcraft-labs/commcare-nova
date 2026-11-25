@@ -32,6 +32,7 @@ import type {
 	SubmissionRejection,
 } from "@/lib/case-store";
 import type { CasePropertyDataType } from "@/lib/domain";
+import type { DeviceLocation } from "@/lib/domain/locationCapture";
 import type { PreviewDataRefusalReason } from "./dataRefusal";
 
 // `CaseRow` re-exported as a barrel surface so consumers have one
@@ -512,6 +513,7 @@ export interface SubmissionAttachmentReference {
  */
 interface SubmissionProtocol {
 	readonly entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
+	readonly locationFix?: DeviceLocation;
 	readonly formUuid: string;
 	readonly entryKey: string;
 	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
@@ -565,6 +567,7 @@ export type SubmissionWireMutation =
 export type SubmissionResult =
 	| {
 			kind: "registration";
+			submissionLocation?: DeviceLocation | null;
 			caseId: string;
 			/** Flat compatibility alias for a pre-deploy FormScreen. */
 			childCaseIds?: ReadonlyArray<string>;
@@ -581,6 +584,7 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "followup";
+			submissionLocation?: DeviceLocation | null;
 			caseIds: ReadonlyArray<string>;
 			/** Present only for a singleton result. A true batch has no scalar
 			 * representative, so Nova never fabricates one. */
@@ -599,6 +603,7 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "close";
+			submissionLocation?: DeviceLocation | null;
 			caseIds: ReadonlyArray<string>;
 			/** Present only for a singleton result. A true batch has no scalar
 			 * representative, so Nova never fabricates one. */
@@ -617,6 +622,7 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "survey";
+			submissionLocation?: DeviceLocation | null;
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];

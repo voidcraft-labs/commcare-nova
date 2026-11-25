@@ -1948,3 +1948,8 @@ A menu’s individual grid choice remains editable under a global list or grid
 policy. The control says which layout workers currently see and where its
 saved choice can take effect. The post-selection form menus use the same
 worker command images and sounds as ordinary form menus.
+
+The Worker wording section on an app, menu, form, search input or case column
+edits that control's individual outputs in the selected language through the
+same translation mutations as Languages. Use default wording clears the
+override. Viewers can read these words and switch their language lens.

@@ -3684,7 +3684,9 @@ describe("durable text-only submission receipt", () => {
 			blueprintDigest: "0".repeat(64),
 			requestDigest: "text-registration-request",
 		};
+		const location = { latitude: 12, longitude: -73, altitude: 7, accuracy: 4 };
 		const first = await submit(store, {
+			submissionLocation: location,
 			appId: APP_ID,
 			submissionReceipt: receipt,
 			ordinary: { kind: "registration" },
@@ -3707,6 +3709,7 @@ describe("durable text-only submission receipt", () => {
 				}),
 			]),
 		});
+		expect(first.submissionLocation).toEqual(location);
 		expect(replay).toEqual(first);
 		expect(first.primaryCaseIds).toEqual([expect.any(String)]);
 		const primaryCaseId = first.primaryCaseIds[0];

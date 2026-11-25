@@ -277,6 +277,20 @@ export interface PreviewPlatformRules {
 	readonly capture: "attach" | "device";
 	/** Android's last screen reads `form.entry.finish.button`. */
 	readonly submitLabel: "submit" | "finish";
+	/** A case list's own selection button and empty-list text, the detail's
+	 *  `select_text` and `no_items_text`. Formplayer sends both
+	 *  (`beans/menus/EntityListResponse.java`, `setSelectText`,
+	 *  `setNoItemsText`) and Web Apps draws them
+	 *  (`cloudcare/js/formplayer/menus/views.js`); commcare-android holds no
+	 *  reader of `Detail.getSelectText` or `getNoItemsText`, so its list keeps
+	 *  its own Continue and empty-list wording. */
+	readonly caseListDetailWording: boolean;
+	/** A form that requests the device location when it opens. Android
+	 *  registers the `pollsensor` action (`engine/extensions/PollSensorExtensionParser.java`,
+	 *  `android/javarosa/PollSensorAction.java`) and sends the fix it gets;
+	 *  Formplayer registers no reader of it, so Web Apps sends the form with
+	 *  no location. */
+	readonly automaticLocation: boolean;
 	/** Manifest `application-and-settings/logo-refs-hq-logo-web-apps`
 	 *  (Android ignores it). */
 	readonly logo: boolean;
@@ -450,6 +464,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		numberKeypad: "pattern",
 		capture: "attach",
 		submitLabel: "submit",
+		caseListDetailWording: true,
+		automaticLocation: false,
 		logo: true,
 		caseListActionMedia: "text-only",
 		listFilter: Object.freeze({
@@ -519,6 +535,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		numberKeypad: "keys",
 		capture: "device",
 		submitLabel: "finish",
+		caseListDetailWording: false,
+		automaticLocation: true,
 		logo: false,
 		caseListActionMedia: "shown",
 		listFilter: Object.freeze({

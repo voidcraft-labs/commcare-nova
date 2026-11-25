@@ -71,6 +71,7 @@ import {
 	isPythonSpace,
 	localeFileIssue,
 	readLocaleLineAsCore,
+	readLocaleValueAsCore,
 } from "../localeFile";
 import { xmlTextIssue } from "../xmlText";
 import { type Claim, defineClaims, refuse } from "./claims";
@@ -163,8 +164,7 @@ const SOME_KEY = "k";
  */
 export function hqDeviceText(text: string): string {
 	if (pythonBlank(text)) return "";
-	const first = writtenLines(text)[0] ?? "";
-	return readLocaleLineAsCore(`${SOME_KEY}=${first}`)?.value ?? "";
+	return readLocaleValueAsCore(SOME_KEY, text) ?? "";
 }
 
 /**

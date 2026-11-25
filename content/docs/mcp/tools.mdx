@@ -285,6 +285,21 @@ language and whether platform text falls back to English. Authored labels and
 messages use the app's translations. Results and Details include formatted cells
 and the current route context.
 
+An app that names apps workers need on Android checks the Preview phone
+before it opens there, as CommCare does on a device. `start_app_test` takes
+`installedAndroidApps`, the apps already installed on the phone, for the whole
+test, and each session can name its own. Where a required app is missing, an
+Android session stops on a `required-android-apps` screen whose `missingApps`
+names each one, and offers only `observe`, `back` and `finish`; start a new
+test with those apps installed to open the app. Web Apps ignores this check.
+
+A form that requests the device location reads a simulated fix on the Preview
+phone. `start_app_test` takes `locationFix` (`latitude`, `longitude`, `altitude`,
+`accuracy`) as the default for every Android session, and an Android session can
+name its own. Leave it out to test a phone with no fix or with location turned
+off. A Web Apps session sends no location, so a fix it names, or a test fix no
+Android session takes, is refused. A location question keeps its own answer.
+
 For overlapping worker journeys, `start_app_test` accepts up to four
 `sessions: [{id, personaUuid?, language?}, ...]`. Each ID is a unique test-local
 label; a Preview identity must already be saved in the app. The first session
@@ -363,6 +378,9 @@ For app listing, keep the same sort when following `next_cursor`. An invalid or 
 
 ## Languages and translations
 
+`get_translatable_content` lists generated search messages and worker wording for individual controls. Each worker wording item identifies its owner, output and default text. Use `update_translations` to set their wording in any language, including the source, or clear a saved message to use the default wording.
+
+
 App languages use the same source/default/target overlay as the visual Builder.
 The language catalog is not an AI allowlist: an agent may add, copy, read, and
 manually translate any individual living language whether or not Nova offers
@@ -391,9 +409,14 @@ automatic-translation action.
 | `get_languages` | Read the ordered language catalog, source and default languages, per-target coverage, and diagnostics for content the static app-language catalog cannot translate. Each language's `commcareCode` is the code CommCare knows it by, set when the language was added and never changed while it stays in the app. |
 | `get_translatable_content` | Page through the snapshot-bound translation inventory for one language, including source/effective values, status, breadcrumb context, and authored wording with its insertions. |
 | `add_language` | Add one target and atomically seed every current unit from an existing `copyFrom` language. |
-| `update_language` | Set the runtime default, or replace the sole source language's identity. |
+| `update_language` | Move a language after another app language, put it first to make it the runtime default, or change its identity. The source identity can be replaced while it is the app's only language. |
 | `remove_language` | Remove a target language and its overlay. The source language and the final remaining language cannot be removed. |
 | `update_translations` | Atomically set, clear, or review at most 50 distinct target units using stable unit IDs and exact review fences. |
+
+A project language uses `{"kind":"project","language":"qaa"}`. Its code stays
+with its translations and can be used wherever a tool asks for a language.
+For a project language, `update_language` accepts `action: "set-direction"`
+and `direction: "rtl"` or `"ltr"` for local writing direction.
 
 Read `get_languages`, then call `get_translatable_content` for the target before
 writing. A `set` operation must repeat the unit's current `sourceFingerprint`
@@ -409,6 +432,8 @@ source itself falls back for one unit, the new target receives the value workers
 would actually see. Missing and out-of-date target entries also fall back to the
 current canonical source at runtime, so incomplete translation work never
 creates an invalid app.
+
+When `read_hq_changes` reports `stale-source-translation`, its `translation` gives the language identity, unit ID and breadcrumb. Read that phrase with `get_translatable_content`, compare the saved and effective wording, then use `update_translations` to review, replace or clear it. A fresh HQ review uses that decision.
 
 ## Checking project-space compatibility
 
@@ -566,7 +591,7 @@ use the saved revision.
 
 | Tool | What it does |
 |---|---|
-| `update_app` | Set the first menu layout with `first_menu_layout` (list or grid) and the other menus with `form_menu_layout` (list, grid or individual). Also set the app's name, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. |
+| `update_app` | Set the app's name, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location (`capture_location`), whether it runs only in Web Apps or only on Android, and which apps workers need installed on Android (`required_android_apps`, the whole selection in the order workers see it; an empty list clears it). Set the first menu layout with `first_menu_layout` (list or grid) and the other menus with `form_menu_layout` (list, grid or individual). |
 | `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
 | `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A private app edit; modules reference types by name, and a form field that writes a recorded property may inherit its intrinsic type, canonical label, and choice catalog. Field hint, requiredness, and validation remain specific to each form. Also how a new case type enters an existing app. A declaration can have no custom properties; an already satisfied declaration reports unchanged records. |
 
@@ -608,11 +633,13 @@ the Commcare Nova form. Usually omit it: Commcare Nova derives it once and store
 An explicit id must already be valid and unique, or the whole call is refused;
 Commcare Nova never silently rewrites it. The form itself is selected by its stable ID or unambiguous name.
 
-Disabling Connect leaves Auto Capture Location as it is in each app on CommCare
-HQ. To stop automatic capture, turn it off in the app's Android Settings and on
-any forms that have it on, then build and release a new version for workers to
-install. [Turning off automatic location capture](../commcare-connect.mdx#turning-off-automatic-location-capture)
-gives the steps.
+An ordinary app’s `update_app` accepts `capture_location`: true requests location when
+every Android form opens, false lets each form choose. `update_form` accepts the
+same argument for one form. The form’s own choice survives changes to the app-wide
+setting. Connect always requests location for every form. Web Apps sends the form
+without a location. Workers get a changed setting when they install the new release.
+[Turning off automatic location capture](../commcare-connect.mdx#turning-off-automatic-location-capture)
+describes the switches after Connect is turned off.
 
 To disable Connect and clear every form's Connect block in the same change:
 

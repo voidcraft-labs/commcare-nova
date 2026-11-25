@@ -26,8 +26,10 @@ registration.
   suite and, for the two-registrations control, the error HQ's own module
   validator gives its case list (``ModuleValidator.validate_case_list_form``).
 - ``localizations(family)``: the localization and worker corpora, each form
-  regenerated and, for localization, each language's app strings
-  (``<scenario>.hq.<lang>.strings.txt``).
+  regenerated and, for localization, built at the CommCare version Nova
+  publishes at (``DEFAULT_COMMCARE_VERSION``), each language's app strings
+  (``<scenario>.hq.<lang>.strings.txt``) and, for the image wording, the
+  default table (``<scenario>.hq.default.strings.txt``).
 
 Form-link and nested-menu also load their session-read targeted documents
 through ``session_reads``, and search loads ``targeted-inline-search-reads``,
@@ -38,6 +40,7 @@ family's fixture records.
 
 from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
 from proof.native.hq_support import (
+    NATIVE_COMMCARE_VERSION,
     NOVA_SERVER_ORIGIN,
     app_sources,
     hand_assembled_suite,
@@ -236,7 +239,17 @@ def localizations(family):
         exports = session.family(family)
         pattern = "locale-*.json" if family == "localization" else "worker-*.json"
         records = []
-        with _check(session, LOCALIZATION_DOMAIN, {"CASE_SEARCH_ADVANCED"}):
+        # The localization scenarios build at the CommCare version Nova publishes at: from 2.54 HQ writes an image
+        # map's descriptions as app strings (``feature_support.py::supports_alt_text``,
+        # ``app_strings.py::_create_custom_app_strings``), which Nova's own archive carries, and Nova publishes at
+        # 2.57 and above. The worker scenarios keep the native proofs' default.
+        version = DEFAULT_COMMCARE_VERSION if family == "localization" else NATIVE_COMMCARE_VERSION
+        with native_check(
+            LOCALIZATION_DOMAIN,
+            flags={"CASE_SEARCH_ADVANCED"},
+            commcare_version=version,
+            server_origin=NOVA_SERVER_ORIGIN,
+        ):
             for source in app_sources(exports, pattern):
                 raw = source.read_bytes()
                 app = _target(import_source(raw, LOCALIZATION_DOMAIN), "localization-evidence")
@@ -249,6 +262,10 @@ def localizations(family):
                 # UI translation catalog (those strings are not Nova's).
                 for lang in app.langs if family == "localization" else []:
                     (exports / f"{source.stem}.hq.{lang}.strings.txt").write_text(known_app_strings(app, lang))
+                if source.stem == "locale-image-wording":
+                    from corehq.apps.app_manager.app_strings import SelectKnownAppStrings
+                    catalog = SelectKnownAppStrings(lambda *_args, **_kwargs: {})
+                    (exports / f"{source.stem}.hq.default.strings.txt").write_text(catalog.create_default_app_strings(app))
                 records.append({"scenario": source.stem, "languages": list(app.langs), "sourceSha256": sha256(raw)})
         return records
 

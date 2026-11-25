@@ -51,6 +51,21 @@ function retainedOwnership(relative: string): AppOwnership {
 	) as AppOwnership;
 }
 
+/** `app` with HQ's profile feature `dependencies` set to `apps`, beside its other features. */
+function setDependencies(
+	app: Record<string, unknown>,
+	apps: readonly string[],
+): void {
+	const profile = (app.profile ?? {}) as Record<string, unknown>;
+	app.profile = {
+		...profile,
+		features: {
+			...(profile.features as Record<string, unknown> | undefined),
+			dependencies: [...apps],
+		},
+	};
+}
+
 function normalized(source: unknown) {
 	const result = normalizeHqAppSource(source);
 	if ("malformed" in result) {
@@ -358,6 +373,32 @@ describe("comparing two reads", () => {
 			app.grid_form_menus = "some";
 		});
 		expect(diff(lists, changed, ownership)).toEqual([{ kind: "settings" }]);
+	});
+
+	it("reads the location switch and the Android apps only where the baseline owns them", () => {
+		/* The two settings Nova writes on every publish: a person's flip of
+		 * either in HQ over a baseline that owns it is a change the publish asks
+		 * about, and over an older baseline that does not, none. */
+		expect(ownership.autoGpsCapture).toBe(true);
+		expect(ownership.profileFeatures).toEqual(["dependencies"]);
+		const located = edited((app) => {
+			app.auto_gps_capture = !app.auto_gps_capture;
+		});
+		expect(diff(base, located, ownership)).toEqual([{ kind: "settings" }]);
+		expect(
+			diff(base, located, { ...ownership, autoGpsCapture: false }),
+		).toEqual([]);
+		const required = edited((app) => {
+			setDependencies(app, ["org.commcare.dalvik.reminders"]);
+		});
+		expect(diff(base, required, ownership)).toEqual([{ kind: "settings" }]);
+		const { profileFeatures: _owned, ...older } = ownership;
+		expect(diff(base, required, older)).toEqual([]);
+		/* HQ's settings page saved with no app chosen posts `[]`: no selection. */
+		const emptied = edited((app) => {
+			setDependencies(app, []);
+		});
+		expect(diff(base, emptied, ownership)).toEqual([]);
 	});
 
 	it("leaves the Web App setting to the Web Apps question", () => {
@@ -873,6 +914,7 @@ describe("HQ's reads after its own saves", () => {
 		"search-registration-link",
 		"case-list-inline",
 		"targeted-hq-side-state",
+		"targeted-hq-side-owned",
 		"targeted-hq-side-lookup",
 	] as const;
 
@@ -950,9 +992,10 @@ describe("HQ's reads after its own saves", () => {
 
 	/* Each save a document's `hq-side.json` names, made over Nova's first
 	 * publish in a fork of its own: a UI translation is the target's own key,
-	 * which the next publish carries back; the location capture on an app that
-	 * is not a Connect app, two add-ons the app does not need and a profile
-	 * setting Nova does not own are HQ's, which the publish leaves as they are;
+	 * which the next publish carries back; two add-ons the app does not need
+	 * and a profile setting Nova does not own are HQ's, which the publish
+	 * leaves as they are; the location switch and a required Android app are
+	 * Nova's own, so either saved is a change the publish asks about;
 	 * and a build profile and a lookup table's upload touch nothing of the app
 	 * Nova compares. */
 	const HQ_SIDE_SAVES: readonly [
@@ -961,10 +1004,11 @@ describe("HQ's reads after its own saves", () => {
 		readonly AppChangePart["kind"][],
 	][] = [
 		["targeted-hq-side-state", "uiTranslations", []],
-		["targeted-hq-side-state", "appAttributes", []],
 		["targeted-hq-side-state", "buildProfiles", []],
 		["targeted-hq-side-state", "addOns", []],
 		["targeted-hq-side-state", "profileProperties", []],
+		["targeted-hq-side-owned", "appAttributes", ["settings"]],
+		["targeted-hq-side-owned", "profileFeatures", ["settings"]],
 		["targeted-hq-side-lookup", "lookupTable", []],
 	];
 	it.each(HQ_SIDE_SAVES)(
