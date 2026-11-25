@@ -950,8 +950,11 @@ def source_factory_answers(state, app_id, credential, source):
     supplied = json.loads(source.body)
     # A grouped reference can be supplied by another reached detail or entry
     # member, independently of the project's locations flag. Capture the
-    # actual working suite; retain.py keeps only the requested answers.
+    # actual working suite; retain.py keeps only the requested answers. A
+    # variant may store a column that is no object (``null`` in a list HQ
+    # saved), which reads nothing.
     detail_reads = any(
+        isinstance(column, dict) and
         column.get("useXpathExpression") and
         ("instance" in str(column.get("field")) or "&" in str(column.get("field")))
         for module in supplied.get("modules") or []
