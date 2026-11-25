@@ -10,6 +10,8 @@
  * item says nothing of either.
  */
 
+import type { RandomAccessBytes } from "./randomAccess";
+
 export type WavReading =
 	| { readonly kind: "pcm"; readonly bits: 8 | 16 }
 	| { readonly kind: "codec"; readonly codec: string }
@@ -39,34 +41,45 @@ function pcm(bits: number): WavReading {
 		: { kind: "codec", codec: `${bits}-bit PCM` };
 }
 
-/** Read a WAV's format chunk and say whether it holds 8- or 16-bit PCM. */
-export function readWav(bytes: Uint8Array): WavReading {
-	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-	if (
-		bytes.byteLength < 12 ||
-		ascii(bytes, 0) !== "RIFF" ||
-		ascii(bytes, 8) !== "WAVE"
-	) {
+/** Read a WAV's format chunk and say whether it holds 8- or 16-bit PCM. Reads
+ *  the RIFF header, each chunk's header up to the first `fmt ` and that
+ *  chunk's first 40 bytes, by position, never a sample. */
+export async function readWav(source: RandomAccessBytes): Promise<WavReading> {
+	const size = source.size;
+	const head = await source.read(0, 12);
+	if (size < 12 || ascii(head, 0) !== "RIFF" || ascii(head, 8) !== "WAVE") {
 		return { kind: "unreadable", detail: "no format chunk" };
 	}
 	let at = 12;
-	while (at + 8 <= bytes.byteLength) {
-		const id = ascii(bytes, at);
-		const size = view.getUint32(at + 4, true);
+	while (at + 8 <= size) {
+		const header = await source.read(at, 8);
+		const id = ascii(header, 0);
+		const chunkSize = new DataView(
+			header.buffer,
+			header.byteOffset,
+			header.byteLength,
+		).getUint32(4, true);
 		const start = at + 8;
 		if (id === "fmt ") {
-			if (size < 16 || start + size > bytes.byteLength) {
+			if (chunkSize < 16 || start + chunkSize > size) {
 				return { kind: "unreadable", detail: "no format chunk" };
 			}
-			const tag = view.getUint16(start, true);
-			const bits = view.getUint16(start + 14, true);
+			const bytes = await source.read(start, Math.min(chunkSize, 40));
+			const view = new DataView(
+				bytes.buffer,
+				bytes.byteOffset,
+				bytes.byteLength,
+			);
+			const tag = view.getUint16(0, true);
+			const bits = view.getUint16(14, true);
 			if (tag === 1) return pcm(bits);
 			if (tag === 3) return { kind: "codec", codec: `${bits}-bit float` };
 			if (tag === EXTENSIBLE) {
-				if (size < 40) return { kind: "unreadable", detail: "no format chunk" };
-				const guid = bytes.subarray(start + 24, start + 40);
+				if (chunkSize < 40)
+					return { kind: "unreadable", detail: "no format chunk" };
+				const guid = bytes.subarray(24, 40);
 				const tail = GUID_TAIL.every((byte, index) => guid[index + 4] === byte);
-				const subTag = view.getUint32(start + 24, true);
+				const subTag = view.getUint32(24, true);
 				if (tail && subTag === 1) return pcm(bits);
 				if (tail && subTag === 3)
 					return { kind: "codec", codec: `${bits}-bit float` };
@@ -75,7 +88,7 @@ export function readWav(bytes: Uint8Array): WavReading {
 			return { kind: "codec", codec: TAG_NAMES.get(tag) ?? `format ${tag}` };
 		}
 		// A chunk of odd size is followed by one pad byte.
-		at = start + size + (size % 2);
+		at = start + chunkSize + (chunkSize % 2);
 	}
 	return { kind: "unreadable", detail: "no format chunk" };
 }

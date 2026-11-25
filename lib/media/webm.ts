@@ -15,7 +15,14 @@
  * The walk reads element headers and one byte of one frame, bounded by the
  * buffer at every step. A laced block is answered as unreadable, as is a
  * file in which no frame of the video track is found.
+ *
+ * The file is read by position (`randomAccess.ts`): each element's header,
+ * the first video track's fields, and twelve bytes of each block it looks
+ * at, so a video of any length is judged from a few kilobytes. A track field
+ * is read to its first `WEBM_FIELD_MAX_BYTES`; no real one is near it.
  */
+
+import type { RandomAccessBytes } from "./randomAccess";
 
 export type Vp9ProfileReading =
 	| { readonly kind: "profile"; readonly profile: number }
@@ -81,17 +88,22 @@ function readId(
 	return { id, length: size.length };
 }
 
-/** The element headers directly inside `[from, to)`. */
-function* children(
-	bytes: Uint8Array,
+/** The most of one track field the walk reads. */
+export const WEBM_FIELD_MAX_BYTES = 4096;
+
+/** The element headers directly inside `[from, to)` of the file. */
+async function* children(
+	source: RandomAccessBytes,
 	from: number,
 	to: number,
-): Generator<ElementHeader> {
+): AsyncGenerator<ElementHeader> {
 	let at = from;
 	while (at < to) {
-		const id = readId(bytes, at);
+		// An ID is at most 4 bytes and a size at most 8.
+		const header = await source.read(at, 12);
+		const id = readId(header, 0);
 		if (id === undefined) return;
-		const size = readVint(bytes, at + id.length);
+		const size = readVint(header, id.length);
 		if (size === undefined) return;
 		const start = at + id.length + size.length;
 		const end = size.unknown ? to : start + size.value;
@@ -106,37 +118,47 @@ function* children(
 	}
 }
 
-/** An unsigned integer element's value. */
-function readUint(bytes: Uint8Array, element: ElementHeader): number {
-	let value = 0;
-	for (let at = element.start; at < element.end; at++) {
-		value = value * 256 + (bytes[at] ?? 0);
-	}
-	return value;
-}
-
-function readText(bytes: Uint8Array, element: ElementHeader): string {
-	return new TextDecoder("latin1").decode(
-		bytes.subarray(element.start, element.end),
+/** A track field's bytes, at most `WEBM_FIELD_MAX_BYTES` of them. */
+async function fieldBytes(
+	source: RandomAccessBytes,
+	element: ElementHeader,
+): Promise<Uint8Array> {
+	return source.read(
+		element.start,
+		Math.min(Math.max(0, element.end - element.start), WEBM_FIELD_MAX_BYTES),
 	);
 }
 
+/** An unsigned integer element's value. */
+function readUint(bytes: Uint8Array): number {
+	let value = 0;
+	for (const byte of bytes) value = value * 256 + byte;
+	return value;
+}
+
+function readText(bytes: Uint8Array): string {
+	return new TextDecoder("latin1").decode(bytes);
+}
+
 /** The first video track's number and codec id, from the Segment's Tracks. */
-function firstVideoTrack(
-	bytes: Uint8Array,
+async function firstVideoTrack(
+	source: RandomAccessBytes,
 	segment: ElementHeader,
-): { readonly number: number; readonly codecId: string } | undefined {
-	for (const tracks of children(bytes, segment.start, segment.end)) {
+): Promise<{ readonly number: number; readonly codecId: string } | undefined> {
+	for await (const tracks of children(source, segment.start, segment.end)) {
 		if (tracks.id !== TRACKS) continue;
-		for (const entry of children(bytes, tracks.start, tracks.end)) {
+		for await (const entry of children(source, tracks.start, tracks.end)) {
 			if (entry.id !== TRACK_ENTRY) continue;
 			let number: number | undefined;
 			let type: number | undefined;
 			let codecId = "";
-			for (const field of children(bytes, entry.start, entry.end)) {
-				if (field.id === TRACK_NUMBER) number = readUint(bytes, field);
-				else if (field.id === TRACK_TYPE) type = readUint(bytes, field);
-				else if (field.id === CODEC_ID) codecId = readText(bytes, field);
+			for await (const field of children(source, entry.start, entry.end)) {
+				if (field.id === TRACK_NUMBER)
+					number = readUint(await fieldBytes(source, field));
+				else if (field.id === TRACK_TYPE)
+					type = readUint(await fieldBytes(source, field));
+				else if (field.id === CODEC_ID)
+					codecId = readText(await fieldBytes(source, field));
 			}
 			if (type === VIDEO_TRACK_TYPE && number !== undefined) {
 				return { number, codecId };
@@ -151,26 +173,30 @@ function firstVideoTrack(
  * opens with its track number, a 16-bit timecode and a flags byte whose
  * lacing bits say whether several frames share it.
  */
-function blockFrameByte(
-	bytes: Uint8Array,
+async function blockFrameByte(
+	source: RandomAccessBytes,
 	block: ElementHeader,
 	track: number,
-): { readonly byte: number } | { readonly laced: true } | undefined {
-	const number = readVint(bytes, block.start);
+): Promise<{ readonly byte: number } | { readonly laced: true } | undefined> {
+	// A track number is at most 8 bytes, then the timecode, the flags and the frame's first byte.
+	const bytes = await source.read(block.start, 12);
+	const number = readVint(bytes, 0);
 	if (number === undefined || number.value !== track) return undefined;
-	const flags = bytes[block.start + number.length + 2];
+	const flags = bytes[number.length + 2];
 	const frame = block.start + number.length + 3;
 	if (flags === undefined || frame >= block.end) return undefined;
 	if ((flags & 0x06) !== 0) return { laced: true };
-	const byte = bytes[frame];
+	const byte = bytes[number.length + 3];
 	return byte === undefined ? undefined : { byte };
 }
 
 /** Read the VP9 profile of a WebM file's first video track. */
-export function readVp9Profile(bytes: Uint8Array): Vp9ProfileReading {
-	for (const segment of children(bytes, 0, bytes.length)) {
+export async function readVp9Profile(
+	source: RandomAccessBytes,
+): Promise<Vp9ProfileReading> {
+	for await (const segment of children(source, 0, source.size)) {
 		if (segment.id !== SEGMENT) continue;
-		const track = firstVideoTrack(bytes, segment);
+		const track = await firstVideoTrack(source, segment);
 		if (track === undefined) {
 			return { kind: "unreadable", detail: "it holds no video track" };
 		}
@@ -180,19 +206,24 @@ export function readVp9Profile(bytes: Uint8Array): Vp9ProfileReading {
 				detail: `its video track is ${track.codecId || "unnamed"}, not VP9`,
 			};
 		}
-		for (const cluster of children(bytes, segment.start, segment.end)) {
+		for await (const cluster of children(source, segment.start, segment.end)) {
 			if (cluster.id !== CLUSTER) continue;
-			for (const element of children(bytes, cluster.start, cluster.end)) {
-				const blocks =
-					element.id === SIMPLE_BLOCK
-						? [element]
-						: element.id === BLOCK_GROUP
-							? [...children(bytes, element.start, element.end)].filter(
-									(inner) => inner.id === BLOCK,
-								)
-							: [];
+			for await (const element of children(
+				source,
+				cluster.start,
+				cluster.end,
+			)) {
+				const blocks: ElementHeader[] = [];
+				if (element.id === SIMPLE_BLOCK) blocks.push(element);
+				else if (element.id === BLOCK_GROUP)
+					for await (const inner of children(
+						source,
+						element.start,
+						element.end,
+					))
+						if (inner.id === BLOCK) blocks.push(inner);
 				for (const block of blocks) {
-					const frame = blockFrameByte(bytes, block, track.number);
+					const frame = await blockFrameByte(source, block, track.number);
 					if (frame === undefined) continue;
 					if ("laced" in frame) {
 						return {

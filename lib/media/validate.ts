@@ -42,8 +42,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { fileTypeFromBuffer } from "file-type";
-import { type IAudioMetadata, parseBuffer } from "music-metadata";
+import { fileTypeFromTokenizer } from "file-type";
+import { type IAudioMetadata, parseFromTokenizer } from "music-metadata";
 import sharp from "sharp";
 import {
 	ACCEPTED_EXTENSIONS,
@@ -62,10 +62,15 @@ import {
 	UNPLAYABLE_MEDIA_FORMAT,
 } from "@/lib/domain/multimedia";
 import { readAmr } from "./amr";
-import { readBmp } from "./bmp";
+import { BMP_HEAD_BYTES, readBmp } from "./bmp";
 import { readIco } from "./ico";
 import { readMidi } from "./midi";
 import { MP4_VIDEO_ADVICE, readMp4 } from "./mp4";
+import {
+	bufferBytes,
+	type RandomAccessBytes,
+	RandomAccessTokenizer,
+} from "./randomAccess";
 import { namesSvg, SVG_REFUSAL_MESSAGE } from "./svg";
 import { readWav } from "./wav";
 import { readVp9Profile } from "./webm";
@@ -146,7 +151,51 @@ export async function validateMediaBytes(args: {
 	claimedContentHash?: string;
 	originalFilename: string;
 }): Promise<ValidationResult> {
-	const { bytes, claimedMimeType, claimedSizeBytes, claimedContentHash } = args;
+	const { bytes } = args;
+	return validateBody({
+		...args,
+		body: bufferBody(bytes),
+		capped: true,
+		contentHash: () => createHash("sha256").update(bytes).digest("hex"),
+	});
+}
+
+/**
+ * A file the gate judges: its bytes by position, which every reader of the
+ * gate takes, and the whole file in memory for the one reader that takes
+ * nothing less (sharp), where it is small enough to hold.
+ */
+export interface MediaBody {
+	readonly source: RandomAccessBytes;
+	/** Run `use` over the whole file in memory, or answer `null` where the file is larger
+	 *  than Nova holds at once. */
+	readonly withWhole: <T>(
+		use: (bytes: Buffer) => Promise<T>,
+	) => Promise<T | null>;
+	/** How long the container parse may take before the file is refused. */
+	readonly parseTimeoutMs: number;
+}
+
+function bufferBody(bytes: Buffer): MediaBody {
+	return {
+		source: bufferBytes(bytes),
+		withWhole: (use) => use(bytes),
+		parseTimeoutMs: MEDIA_PARSE_TIMEOUT_MS,
+	};
+}
+
+/** The gate over one body. `capped` holds the file to its kind's upload cap. */
+async function validateBody(args: {
+	body: MediaBody;
+	claimedMimeType: string;
+	claimedSizeBytes: number;
+	claimedContentHash?: string;
+	originalFilename: string;
+	capped: boolean;
+	contentHash: () => string;
+}): Promise<ValidationResult> {
+	const { body, claimedMimeType, claimedSizeBytes, claimedContentHash } = args;
+	const size = body.source.size;
 
 	// Stage 1: SVG first, then the extension whitelist. An SVG claim under an
 	// accepted extension (bytes named `x.png`) gets the SVG sentence rather
@@ -176,11 +225,11 @@ export async function validateMediaBytes(args: {
 	// claimed-vs-actual check first because a mismatch is a clearer
 	// error than "MIME size cap exceeded" when the size itself is
 	// wrong.
-	if (bytes.length !== claimedSizeBytes) {
+	if (size !== claimedSizeBytes) {
 		return {
 			ok: false,
 			reason: "claimed-size-mismatch",
-			message: `The file's actual size (${bytes.length} bytes) doesn't match the size your upload claimed (${claimedSizeBytes} bytes). The bytes may have been truncated or modified in transit. Try uploading again.`,
+			message: `The file's actual size (${size} bytes) doesn't match the size your upload claimed (${claimedSizeBytes} bytes). The bytes may have been truncated or modified in transit. Try uploading again.`,
 		};
 	}
 
@@ -205,9 +254,9 @@ export async function validateMediaBytes(args: {
 	}
 
 	const cap = ASSET_SIZE_CAPS_BYTES[claimedKind];
-	if (bytes.length > cap) {
+	if (args.capped && size > cap) {
 		const capMb = (cap / 1024 / 1024).toFixed(0);
-		const actualMb = (bytes.length / 1024 / 1024).toFixed(2);
+		const actualMb = (size / 1024 / 1024).toFixed(2);
 		return {
 			ok: false,
 			reason: "size-cap-exceeded",
@@ -231,7 +280,7 @@ export async function validateMediaBytes(args: {
 		// the bytes must decode as valid UTF-8 with no NUL byte. The
 		// canonical MIME + extension come from the declared extension
 		// (`.md` → markdown, else plain) since there's nothing to sniff.
-		if (!isUtf8Text(bytes)) {
+		if ((await body.withWhole(async (bytes) => isUtf8Text(bytes))) !== true) {
 			return {
 				ok: false,
 				reason: "text-not-utf8",
@@ -246,7 +295,7 @@ export async function validateMediaBytes(args: {
 		// ZIP + `[Content_Types].xml` inspection that tells docx/xlsx from a
 		// bare archive. A `.png` on non-PNG bytes, or a `.docx` that's just
 		// a renamed ZIP, is rejected here: the primary anti-spoof defense.
-		const sniffed = await fileTypeFromBuffer(bytes);
+		const sniffed = await sniffFormat(body.source);
 		if (!sniffed) {
 			return {
 				ok: false,
@@ -321,7 +370,7 @@ export async function validateMediaBytes(args: {
 		// own browser.
 		if (claimedKind === "image") {
 			const verdict = await imageVerdict(
-				bytes,
+				body,
 				sniffedMime,
 				args.originalFilename,
 			);
@@ -330,7 +379,7 @@ export async function validateMediaBytes(args: {
 			mediaFormat = verdict.key;
 		} else if (claimedKind === "audio" || claimedKind === "video") {
 			const verdict = await streamVerdict(
-				bytes,
+				body,
 				sniffedMime,
 				claimedKind,
 				args.originalFilename,
@@ -345,7 +394,7 @@ export async function validateMediaBytes(args: {
 	// object key tail (per-owner content dedup) and stored on the
 	// asset record. If the client claimed a hash (HTTP confirm
 	// path), assert it matches what we just computed.
-	const contentHash = createHash("sha256").update(bytes).digest("hex");
+	const contentHash = args.contentHash();
 	if (claimedContentHash && contentHash !== claimedContentHash) {
 		return {
 			ok: false,
@@ -360,7 +409,7 @@ export async function validateMediaBytes(args: {
 			contentHash,
 			mimeType: sniffedMime,
 			extension: canonicalExtension,
-			sizeBytes: bytes.length,
+			sizeBytes: size,
 			kind: claimedKind,
 			dimensions,
 			durationMs,
@@ -409,13 +458,45 @@ export type SniffedMediaValidation =
 export async function validateSniffedMediaBytes(
 	bytes: Buffer,
 ): Promise<SniffedMediaValidation> {
-	const sniffed = await fileTypeFromBuffer(bytes);
+	return validateSniffedBody({
+		body: bufferBody(bytes),
+		capped: true,
+		contentHash: () => createHash("sha256").update(bytes).digest("hex"),
+	});
+}
+
+/**
+ * Judge a file with no trustworthy name whose bytes are not in memory: one
+ * read from CommCare HQ past its kind's upload cap, staged as it streamed in,
+ * its SHA-256 counted on the way. The gate is `validateSniffedMediaBytes`'s,
+ * reader for reader, over the same bytes read by position, without the
+ * per-kind cap: a picture sharp reads must still fit what `body.withWhole`
+ * holds, and one that does not is refused `size-cap-exceeded`.
+ */
+export async function validateSniffedMediaBody(input: {
+	readonly body: MediaBody;
+	readonly contentHash: string;
+}): Promise<SniffedMediaValidation> {
+	return validateSniffedBody({
+		body: input.body,
+		capped: false,
+		contentHash: () => input.contentHash,
+	});
+}
+
+async function validateSniffedBody(input: {
+	readonly body: MediaBody;
+	readonly capped: boolean;
+	readonly contentHash: () => string;
+}): Promise<SniffedMediaValidation> {
+	const { body } = input;
+	const sniffed = await sniffFormat(body.source);
 	const reported = sniffed?.mime ?? null;
 	if (
 		(reported === null ||
 			reported === "application/xml" ||
 			reported === "text/xml") &&
-		looksLikeSvg(decodeLeadingText(bytes))
+		looksLikeSvg(decodeLeadingText(await body.source.read(0, SVG_SCAN_BYTES)))
 	) {
 		return {
 			ok: false,
@@ -442,13 +523,22 @@ export async function validateSniffedMediaBytes(
 			sniffedMime: reported,
 		};
 	}
-	const result = await validateMediaBytes({
-		bytes,
+	const result = await validateBody({
+		body,
 		claimedMimeType: mime,
-		claimedSizeBytes: bytes.length,
+		claimedSizeBytes: body.source.size,
 		originalFilename: `file${EXTENSION_FOR_MIME_TYPE[mime]}`,
+		capped: input.capped,
+		contentHash: input.contentHash,
 	});
 	return result.ok ? result : { ...result, sniffedMime: mime };
+}
+
+/** `file-type`'s sniff of a file, as `fileTypeFromBuffer` reads a buffer: nothing for
+ *  a file of one byte or none. */
+async function sniffFormat(source: RandomAccessBytes) {
+	if (source.size <= 1) return undefined;
+	return fileTypeFromTokenizer(new RandomAccessTokenizer(source));
 }
 
 /** How far into a document `looksLikeSvg` reads for its first element. */
@@ -459,7 +549,7 @@ const SVG_SCAN_BYTES = 4096;
  * mark says so, UTF-8 otherwise. A malformed sequence decodes to U+FFFD rather
  * than throwing, since the text is only scanned for its first tag.
  */
-function decodeLeadingText(bytes: Buffer): string {
+function decodeLeadingText(bytes: Uint8Array): string {
 	const head = bytes.subarray(0, SVG_SCAN_BYTES);
 	if (head[0] === 0xff && head[1] === 0xfe) {
 		return new TextDecoder("utf-16le").decode(head.subarray(2));
@@ -571,7 +661,7 @@ const SHARP_IMAGE_KEYS: Readonly<Record<string, MediaFormatKey>> = {
 
 /** The image body checks: the variant and its dimensions, or a refusal. */
 async function imageVerdict(
-	bytes: Buffer,
+	body: MediaBody,
 	mime: AssetMimeType,
 	filename: string,
 ): Promise<
@@ -583,7 +673,10 @@ async function imageVerdict(
 	| Refusal
 > {
 	if (mime === "image/bmp") {
-		const reading = readBmp(bytes);
+		const reading = readBmp(
+			await body.source.read(0, BMP_HEAD_BYTES),
+			body.source.size,
+		);
 		if (reading.kind === "variant") {
 			return refused({
 				reason: "bmp-variant-not-accepted",
@@ -603,7 +696,7 @@ async function imageVerdict(
 		};
 	}
 	if (mime === "image/vnd.microsoft.icon") {
-		const reading = await readIco(bytes);
+		const reading = await readIco(body.source);
 		switch (reading.kind) {
 			case "icon":
 				return {
@@ -635,7 +728,13 @@ async function imageVerdict(
 		);
 	}
 	try {
-		const meta = await sharp(bytes).metadata();
+		const meta = await body.withWhole((bytes) => sharp(bytes).metadata());
+		if (meta === null) {
+			return refused({
+				reason: "size-cap-exceeded",
+				message: `\`${filename}\` is larger than the most of a picture Nova reads at once. Saving it smaller fixes that.`,
+			});
+		}
 		if (!meta.width || !meta.height) {
 			return refused({
 				reason: "image-parse-failed",
@@ -664,7 +763,7 @@ async function imageVerdict(
 
 /** The audio and video body checks: the variant and its duration, or a refusal. */
 async function streamVerdict(
-	bytes: Buffer,
+	body: MediaBody,
 	mime: AssetMimeType,
 	kind: "audio" | "video",
 	filename: string,
@@ -678,8 +777,11 @@ async function streamVerdict(
 > {
 	// AMR and MIDI have no music-metadata parser: their headers are the check,
 	// and they carry no duration.
+	const { source } = body;
+	/* AMR and MIDI are judged by their first bytes, and an M4A by its `ftyp` brand. */
+	const head = await source.read(0, HEAD_BYTES);
 	if (mime === "audio/amr") {
-		const reading = readAmr(bytes);
+		const reading = readAmr(head);
 		if (reading.kind === "amr") {
 			return { ok: true, key: "amr", durationMs: undefined };
 		}
@@ -694,7 +796,7 @@ async function streamVerdict(
 		});
 	}
 	if (mime === "audio/midi") {
-		const reading = readMidi(bytes);
+		const reading = readMidi(head);
 		if (reading.kind === "midi") {
 			return { ok: true, key: "midi", durationMs: undefined };
 		}
@@ -707,7 +809,7 @@ async function streamVerdict(
 	// music-metadata for their duration.
 	let readerKey: MediaFormatKey | undefined;
 	if (mime === "audio/wav") {
-		const reading = readWav(bytes);
+		const reading = await readWav(source);
 		if (reading.kind === "codec") {
 			return refused(codecRefusal(reading.codec, "WAV with 16-bit PCM audio"));
 		}
@@ -720,14 +822,14 @@ async function streamVerdict(
 		readerKey = "wav-pcm";
 	}
 	if (mime === "video/mp4") {
-		const reading = readMp4(bytes);
+		const reading = await readMp4(source);
 		const refusal = mp4Refusal(reading, filename);
 		if (refusal !== undefined) return refused(refusal);
 		if (reading.kind === "variant") readerKey = reading.key;
 	}
 	let metadata: IAudioMetadata;
 	try {
-		metadata = await parseMediaContainer(bytes, mime);
+		metadata = await parseMediaContainer(body, mime);
 	} catch (err) {
 		const detail = err instanceof Error ? err.message : String(err);
 		return refused({
@@ -737,7 +839,7 @@ async function streamVerdict(
 	}
 	const verdict =
 		readerKey === undefined
-			? encodingRefusal(bytes, mime, metadata, filename)
+			? await encodingRefusal(source, head, mime, metadata, filename)
 			: { key: readerKey };
 	if ("reason" in verdict) return refused(verdict);
 	return { ok: true, key: verdict.key, durationMs: durationMsOf(metadata) };
@@ -745,7 +847,7 @@ async function streamVerdict(
 
 /** Why an MP4 is one no CommCare platform plays, or `undefined` for a variant. */
 function mp4Refusal(
-	reading: ReturnType<typeof readMp4>,
+	reading: Awaited<ReturnType<typeof readMp4>>,
 	filename: string,
 ): { reason: ValidationFailureReason; message: string } | undefined {
 	switch (reading.kind) {
@@ -806,7 +908,17 @@ function isUtf8Text(bytes: Buffer): boolean {
  * the size cap — but the caller is freed to reject. A real media file
  * parses in well under this.
  */
-const MEDIA_PARSE_TIMEOUT_MS = 10_000;
+export const MEDIA_PARSE_TIMEOUT_MS = 10_000;
+
+/**
+ * The most one structure of a container may make music-metadata allocate: its
+ * own default (`maxMemoryAllocation`, 64 MiB), named here so a parse of a file
+ * in memory and one read by position hold the same bound.
+ */
+const MEDIA_PARSE_MAX_ALLOCATION_BYTES = 64 * 1024 * 1024;
+
+/** The first bytes of a file the header checks read: AMR's and MIDI's headers and an MP4's `ftyp`. */
+const HEAD_BYTES = 64;
 
 /**
  * The two ways the timed parse can land: the container finished parsing,
@@ -840,40 +952,48 @@ type ParseOutcome =
  * don't run on the upload path.
  */
 async function parseMediaContainer(
-	bytes: Buffer,
+	body: MediaBody,
 	sniffedMime: AssetMimeType,
 ): Promise<IAudioMetadata> {
+	const timeoutMs = body.parseTimeoutMs;
+	/* Ends the parse's reads once the race is decided, so a parse that lost to the
+	 * guard reads nothing more. */
+	const stop = new AbortController();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let settleGuard: ((outcome: ParseOutcome) => void) | undefined;
 	const guard = new Promise<ParseOutcome>((resolve) => {
 		settleGuard = resolve;
-		timer = setTimeout(
-			() => resolve({ kind: "timed-out" }),
-			MEDIA_PARSE_TIMEOUT_MS,
-		);
+		timer = setTimeout(() => resolve({ kind: "timed-out" }), timeoutMs);
 	});
 	try {
 		// `skipCovers` avoids decoding embedded cover art we never use.
-		// We don't force `duration: true` (a full-file scan): the size
-		// cap already bounds magnitude, and reading less of an untrusted
-		// file is the safer default — header-derivable duration covers
-		// the common case, and a missing one is acceptable (`durationMsOf`).
+		// We don't force `duration: true` (a full-file scan): reading less of an
+		// untrusted file is the safer default — header-derivable duration
+		// covers the common case, and a missing one is acceptable
+		// (`durationMsOf`). The tokenizer is `parseBuffer`'s, over the body.
 		const outcome = await Promise.race([
-			parseBuffer(
-				bytes,
-				{ mimeType: sniffedMime, size: bytes.length },
-				{ skipCovers: true },
+			parseFromTokenizer(
+				new RandomAccessTokenizer(body.source, {
+					fileInfo: { mimeType: sniffedMime, size: body.source.size },
+					maxBufferSize: MEDIA_PARSE_MAX_ALLOCATION_BYTES,
+					abortSignal: stop.signal,
+				}),
+				{
+					skipCovers: true,
+					maxMemoryAllocation: MEDIA_PARSE_MAX_ALLOCATION_BYTES,
+				},
 			).then<ParseOutcome>((metadata) => ({ kind: "parsed", metadata })),
 			guard,
 		]);
 		if (outcome.kind === "timed-out") {
 			throw new Error(
-				`took longer than ${MEDIA_PARSE_TIMEOUT_MS / 1000}s to read, the container may be malformed or use a format we can't parse`,
+				`took longer than ${Math.round(timeoutMs / 1000)}s to read, the container may be malformed or use a format we can't parse`,
 			);
 		}
 		return outcome.metadata;
 	} finally {
 		if (timer) clearTimeout(timer);
+		stop.abort();
 		// Settle the guard so it can't outlive the call once the race is
 		// decided. A no-op if the timer already resolved it.
 		settleGuard?.({ kind: "timed-out" });
@@ -928,12 +1048,13 @@ type EncodingVerdict =
  * `ADTS/MPEG-4` or `ADTS/MPEG-2` with `AAC`; `EBML/webm` or `EBML/matroska`
  * with `VP8`, `VP9`, `AV1`, `VORBIS`, `OPUS`.
  */
-function encodingRefusal(
-	bytes: Buffer,
+async function encodingRefusal(
+	source: RandomAccessBytes,
+	head: Uint8Array,
 	mime: AssetMimeType,
 	metadata: IAudioMetadata,
 	filename: string,
-): EncodingVerdict {
+): Promise<EncodingVerdict> {
 	const { container = "", codec = "" } = metadata.format;
 	const tracks = metadata.format.trackInfo;
 	switch (mime) {
@@ -947,10 +1068,7 @@ function encodingRefusal(
 		case "audio/mp4": {
 			// The `ftyp` major brand, read from the bytes themselves: HQ files an
 			// MP4 as audio only for `M4A ` or `M4B `.
-			const brand =
-				bytes.toString("latin1", 4, 8) === "ftyp"
-					? bytes.toString("latin1", 8, 12)
-					: "";
+			const brand = latin1(head, 4, 8) === "ftyp" ? latin1(head, 8, 12) : "";
 			if (brand !== "M4A " && brand !== "M4B ") {
 				return {
 					reason: "container-brand-not-accepted",
@@ -1012,9 +1130,9 @@ function encodingRefusal(
 						"AAC (ADTS) or M4A (AAC) audio",
 					);
 		case "video/webm":
-			return matroskaRefusal(bytes, container, tracks, filename, "webm");
+			return matroskaRefusal(source, container, tracks, filename, "webm");
 		case "video/x-matroska":
-			return matroskaRefusal(bytes, container, tracks, filename, "mkv");
+			return matroskaRefusal(source, container, tracks, filename, "mkv");
 		default:
 			throw new Error(
 				`The upload gate parsed a ${mime} file with no variant to name. Each audio and video MIME in ACCEPTED_FORMATS needs its MEDIA_FORMATS key in encodingRefusal or a reader of its own.`,
@@ -1029,13 +1147,13 @@ function encodingRefusal(
  * Matroska; the container is `EBML/webm` for a WebM and `EBML/matroska` for
  * an MKV.
  */
-function matroskaRefusal(
-	bytes: Buffer,
+async function matroskaRefusal(
+	source: RandomAccessBytes,
 	container: string,
 	tracks: IAudioMetadata["format"]["trackInfo"],
 	filename: string,
 	family: "webm" | "mkv",
-): EncodingVerdict {
+): Promise<EncodingVerdict> {
 	const noun = family === "webm" ? "WebM" : "MKV";
 	const expected = family === "webm" ? "EBML/webm" : "EBML/matroska";
 	if (container !== expected) {
@@ -1090,7 +1208,7 @@ function matroskaRefusal(
 			`${noun} with VP8 video, or VP9 in 8-bit 4:2:0 color`,
 		);
 	}
-	const profile = readVp9Profile(bytes);
+	const profile = await readVp9Profile(source);
 	if (profile.kind === "unreadable") {
 		return {
 			reason: "media-parse-failed",
@@ -1104,4 +1222,13 @@ function matroskaRefusal(
 		);
 	}
 	return { key: vp9 };
+}
+
+/** Bytes `[from, to)` of `bytes` as Latin-1, as `Buffer.toString("latin1", from, to)` reads them. */
+function latin1(bytes: Uint8Array, from: number, to: number): string {
+	return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString(
+		"latin1",
+		from,
+		to,
+	);
 }
