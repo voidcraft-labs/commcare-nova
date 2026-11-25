@@ -105,7 +105,7 @@ it("binds a newly added earlier answer in the same call and refuses a selected-r
 });
 
 it("round-trips nested table row scopes inside a case choice filter", async () => {
-	const table = wireTable("locations", [{ name: "cód.2", type: "text" }]);
+	const table = wireTable("locations", [{ name: "cod.2", type: "text" }]);
 	const h = makeAuthoringHarness(
 		{
 			lookupCatalog: async () => ({
@@ -118,7 +118,7 @@ it("round-trips nested table row scopes inside a case choice filter", async () =
 		caseChoiceDoc(),
 	);
 	const filter =
-		"#row/region = lookup('locations', 'cód.2', table-column('locations', 'cód.2') = 'east')";
+		"#row/region = lookup('locations', 'cod.2', table-column('locations', 'cod.2') = 'east')";
 	expect(
 		await h.call("setFieldOptionsSource", {
 			fieldUuid: choiceUuid("clinic"),
@@ -131,7 +131,7 @@ it("round-trips nested table row scopes inside a case choice filter", async () =
 		.parse(await h.call("getField", { fieldUuid: choiceUuid("clinic") }));
 	expect(read.field.optionsSource).toMatchObject({
 		filter:
-			"(#row/region = lookup('locations', 'cód.2', (table-column('locations', 'cód.2') = 'east')))",
+			"(#row/region = lookup('locations', 'cod.2', (table-column('locations', 'cod.2') = 'east')))",
 	});
 	expect(
 		await h.call("setFieldOptionsSource", {

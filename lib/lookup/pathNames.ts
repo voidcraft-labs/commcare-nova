@@ -51,12 +51,16 @@ const ITEMSET_SLOT = "lookup_options_source";
 export const LOOKUP_OPTIONS_FILTER_SLOT = "lookup_options_filter";
 
 /** The slot whose name rule a lookup reference answers to: a select's row
- * filter is read as form logic, the rest of its choices as the itemset. */
+ * filter is read as form logic, the rest of its choices as the itemset.
+ * `subpath` is the occurrence's canonical path below its slot
+ * (`lib/doc/lookupReferences.ts::canonicalLookupReferenceSubpath`), where
+ * the filter is the key segment `/k:filter`. */
 export function lookupNameSlotOf(
 	registrySlot: string,
-	subpath: readonly unknown[],
+	subpath: string,
 ): string {
-	return registrySlot === ITEMSET_SLOT && subpath.includes("filter")
+	return registrySlot === ITEMSET_SLOT &&
+		subpath.split("/").includes("k:filter")
 		? LOOKUP_OPTIONS_FILTER_SLOT
 		: registrySlot;
 }
