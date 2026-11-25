@@ -2369,7 +2369,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/links/0/relationship",
+				"pointer": "/caseOperations/0/links/0/relationship",
 				"value": "extension"
 			},
 			{
@@ -2379,7 +2379,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/links/0/identifier",
+				"pointer": "/caseOperations/0/links/0/identifier",
 				"value": "host"
 			}
 		]
@@ -2437,7 +2437,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/placement",
+				"pointer": "/caseOperations/0/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2450,8 +2450,8 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/action",
-				"value": "create"
+				"pointer": "/caseOperations/0/action",
+				"value": "own"
 			}
 		]
 	},
@@ -2471,8 +2471,8 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/3/action",
-				"value": "close"
+				"pointer": "/caseOperations/0/action",
+				"value": "own"
 			},
 			{
 				"key": [
@@ -2481,7 +2481,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/3/condition/kind",
+				"pointer": "/closeCondition/kind",
 				"value": "eq"
 			}
 		]
@@ -2590,7 +2590,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/placement",
+				"pointer": "/caseOperations/0/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2603,7 +2603,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/condition/kind",
+				"pointer": "/openCondition/kind",
 				"value": "eq"
 			}
 		]
@@ -2667,7 +2667,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/writes/0/property",
+				"pointer": "/caseOperations/0/writes/0/property",
 				"value": "first_visit"
 			}
 		]
