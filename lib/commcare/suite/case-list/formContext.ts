@@ -39,8 +39,20 @@ export function caseContextLineDetail(
 	lookupNaming?: LookupWireNaming,
 	bindings?: WireTermBindings,
 ) {
-	const expression = caseContextLine(mod.caseListConfig?.contextAboveForm);
+	const context = mod.caseListConfig?.contextAboveForm;
+	const expression = caseContextLine(context);
 	if (!expression) return;
+	// HQ's build writes no line where the short detail is a tile whose persistence is on
+	// (`suite_xml/sections/details.py::get_section_elements`): its own tile persisting, or
+	// another menu's tile expanded above the forms, beside which the HQ JSON switches this
+	// menu's persistence on (`hqJson/caseList.ts`).
+	const tile = mod.caseListConfig?.tile;
+	if (
+		tile !== undefined &&
+		(tile.persistOnForms === true ||
+			(context?.kind === "menu-tile" && context.expandDetails === true))
+	)
+		return;
 	const instances = new InstanceSink();
 	const value = toWire(expression, {
 		target: "suite",
