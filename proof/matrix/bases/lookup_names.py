@@ -4,6 +4,7 @@ The table editor saves the exact definitions. Vellum saves the itemsets and thei
 field references. Each selected row populates a different field, including when
 the two rows occupy the same position in their respective fixtures. The unused
 uncased column belongs to the data restored from HQ and needs no XPath token.
+Its variants set the form's display condition to read each table.
 """
 
 import json
@@ -81,16 +82,8 @@ def build(authoring):
             raise ValueError(f"HQ's table editor did not keep the definition of {spec['tag']!r}: {saved}")
     _pages.new_survey_module(authoring, app_id, name="Visit")
     ops.upload_form_source(authoring, app_id, 0, 0, visit_source, "visit-source")
-    _pages.save_form_attributes(
-        authoring,
-        app_id,
-        0,
-        0,
-        [
-            ("form_filter", "instance('item-list:ζωνες')/ζωνες_list/ζωνες[clé = 'upland'][1]/code.1 = 'on'"),
-        ],
-        "visit offered in the upland zone",
-    )
+    # No display condition reads a table here: HQ checks one with an XPath reader of unaccented names alone, so a
+    # condition reading ζωνες fails HQ's own build (``hq-lookup-names/non-ascii-table-in-form-condition``).
     return app_id
 
 

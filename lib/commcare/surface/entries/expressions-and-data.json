@@ -4960,7 +4960,7 @@
 		],
 		"valueClass": "non-ascii-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values.",
+		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values. A condition HQ checks with its own XPath reader refuses such a name (`expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks`). A form declares a table whose tag HQ's form builder cannot read under the table's `item-list:` fixture id, the id HQ's form builder knows it by, so the builder keeps the declaration.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4973,7 +4973,7 @@
 			}
 		},
 		"emission": {
-			"cell": "verbatim in the workbook, the fixture and every read",
+			"cell": "verbatim in the workbook, the fixture and every read; a form’s instance id is `item-list:<tag>` for a tag outside HQ’s XPath names",
 			"markers": []
 		},
 		"gates": []
@@ -5021,6 +5021,35 @@
 			{
 				"kind": "broken-at-runtime",
 				"named": "HQ’s suite builder omits the fixture declaration for a tag outside its instance scanner’s grammar, including a dotted tag. The worker cannot resolve the instance."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a menu or form display condition, a search button display condition or excluded owners expression reading a lookup tag or column whose name holds anything but unaccented letters, digits, `_`, `.` and `-`",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name"
+		],
+		"valueClass": "hq-checked-condition-non-ascii-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ checks these conditions with js-xpath (`xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so its build validation (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`) and its search options save (`views/modules.py::_check_xpath`) refuse the expression",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "HQ checks these conditions with js-xpath (`xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so its build validation (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`) and its search options save (`views/modules.py::_check_xpath`) refuse the expression"
 			}
 		],
 		"platforms": {

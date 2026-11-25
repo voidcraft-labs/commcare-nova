@@ -8364,6 +8364,29 @@ def _itemset_read(use):
     return tree(value) if isinstance(value, str) else None
 
 
+# What ends a name step for every XPath reader of an itemset reference: whitespace, quotes and XPath's operator
+# and delimiter characters. ``:`` is left out with them, as it may start a QName's local part.
+_STEP_BREAKS = frozenset(" \t\r\n'\"/[]()@=<>!|*+,:$")
+
+
+def _one_non_ascii_step(element):
+    """For an itemset ``ref`` the proof's parser leaves unread because it holds a non-ASCII character (it reads ASCII
+    alone, ``proof.rules._xpath``): whether it is no single child or ``@`` attribute step, the shape Vellum's
+    ``itemset.js::validateRefWidget`` compares as a string with the table's fields and attributes. A text that is one
+    such step is decided editable (False); whether Core reads its characters as a name is the business of
+    ``expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any``. Any other text
+    stays undecided (None)."""
+    if element is None or _local(element) not in ("label", "value", "sort"):
+        return None
+    ref = element.get("ref")
+    if not isinstance(ref, str) or ref.isascii():
+        return None
+    name = ref[1:] if ref.startswith("@") else ref
+    if not name or set(name) & _STEP_BREAKS:
+        return None
+    return False
+
+
 def form_itemset_ref_uneditable(use, manifest):
     from proof.rules import _xpath
 
@@ -8372,7 +8395,7 @@ def form_itemset_ref_uneditable(use, manifest):
         return None
     read = _itemset_read(use)
     if read is None:
-        return None
+        return _one_non_ascii_step(element)
     if read[:2] == ("call", "jr:itext"):
         return False
     if read[:3] != ("path", None, None):

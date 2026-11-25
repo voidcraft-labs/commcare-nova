@@ -96,6 +96,7 @@ import { keptValues } from "./documents/keptValues";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupNames } from "./documents/lookupNames";
+import { lookupNonAsciiNames } from "./documents/lookupNonAsciiNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
 import {
@@ -273,6 +274,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	choiceValues,
 	lookupNames,
 	qualifiedLookupValues,
+	lookupNonAsciiNames,
 	searchFieldNames,
 	caseWriteNames,
 	connectDeliverHyphenIds,

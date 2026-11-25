@@ -6,6 +6,7 @@ import {
 	lookupFixtureId,
 	lookupFixtureSrc,
 	lookupWireNaming,
+	lookupXformInstanceId,
 } from "../naming";
 
 const TABLE = "018f0000-0000-7000-8000-0000000000a1" as LookupTableId;
@@ -36,6 +37,23 @@ describe("lookupFixtureId / lookupFixtureSrc", () => {
 		expect(lookupFixtureSrc("item-list:statuses")).toBe(
 			"jr://fixture/item-list:statuses",
 		);
+	});
+});
+
+describe("lookupXformInstanceId", () => {
+	// HQ's form builder keeps a declaration its XPath reader (js-xpath, names
+	// of unaccented letters, digits, `_`, `.` and `-`) finds a read of, or one
+	// named by a data source HQ hands it: `item-list:<tag>`. It dropped the
+	// bare `ζωνες` on save (proof4 on hq-lookup-names) and kept HQ's own
+	// `item-list:ζωνες`.
+	it("declares a tag the form builder cannot read under the fixture id", () => {
+		expect(lookupXformInstanceId("ζωνες")).toBe("item-list:ζωνες");
+		expect(lookupXformInstanceId("régions")).toBe("item-list:régions");
+	});
+
+	it("keeps a tag the form builder reads, dotted and hyphenated ones included", () => {
+		for (const tag of ["zones", "meeting.1", "health-facility-v2", "_x"])
+			expect(lookupXformInstanceId(tag)).toBe(tag);
 	});
 });
 

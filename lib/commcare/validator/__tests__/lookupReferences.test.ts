@@ -125,7 +125,13 @@ describe("lookup reference validation", () => {
 					one.details?.part,
 					one.details?.issue,
 				]);
-		expect(issues(doc, "clínicas", "code.1")).toEqual([]);
+		// CommCare HQ checks a menu's display condition with js-xpath, whose
+		// names are unaccented, so only that slot refuses the accented tag; the
+		// select, the case list and the form logic read it.
+		expect(issues(doc, "clínicas", "code.1")).toEqual([
+			["module_display_condition", "tag", "hq-unreadable-name"],
+		]);
+		expect(issues(doc, "clinicas", "code.1")).toEqual([]);
 		expect(issues(doc, "sites.1", "code")).toContainEqual([
 			"case_list_column_expression",
 			"tag",

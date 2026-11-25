@@ -167,7 +167,8 @@
 	"hq-lookup-aliases": [],
 	"hq-lookup-names": [
 		"hq-lookup-names/dotted-field-in-form-condition",
-		"hq-lookup-names/dotted-table-in-form-condition"
+		"hq-lookup-names/dotted-table-in-form-condition",
+		"hq-lookup-names/non-ascii-table-in-form-condition"
 	],
 	"hq-lookups": [
 		"hq-lookups/declared-report-fixture",

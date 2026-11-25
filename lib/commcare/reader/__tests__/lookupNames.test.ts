@@ -139,6 +139,11 @@ describe("reading an HQ form with named table data", () => {
 		for (const [tag, column, suffix] of [
 			["meeting.1", "label", "lookup-table-instance-undiscovered-in-suite"],
 			["zones", "zone.name", "dotted-column-interpolated-in-suite"],
+			// HQ's build checks a form's display condition with js-xpath, whose
+			// names are unaccented ("form filter has xpath error" on
+			// hq-lookup-names/non-ascii-table-in-form-condition).
+			["ζωνες", "label", "non-ascii-lookup-name-in-a-condition-hq-checks"],
+			["zones", "région", "non-ascii-lookup-name-in-a-condition-hq-checks"],
 		]) {
 			const condition = `count(instance('item-list:${tag}')/${tag}_list/${tag}[${column} = 'garden']) > 0`;
 			const result = await reading(tag, column, {

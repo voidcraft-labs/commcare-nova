@@ -1735,14 +1735,15 @@ const diagnosticCatalogs = new WeakMap<ExpressionReadEnv["lookup"], boolean>();
 function catalogNeedsNameDiagnostics(env: ExpressionReadEnv): boolean {
 	let needed = diagnosticCatalogs.get(env.lookup);
 	if (needed === undefined) {
+		// The case list filter takes every suite restriction, and a display
+		// condition HQ checks with its own XPath reader takes that one too.
+		const refused = (name: string, part: "tag" | "column") =>
+			lookupNameRefusal(name, "case_list_filter", part) !== undefined ||
+			lookupNameRefusal(name, "form_display_condition", part) !== undefined;
 		needed = [...env.lookup.values()].some(
 			(table) =>
-				lookupNameRefusal(table.tag, "case_list_filter", "tag") !== undefined ||
-				table.columns.some(
-					(column) =>
-						lookupNameRefusal(column.wireName, "case_list_filter", "column") !==
-						undefined,
-				),
+				refused(table.tag, "tag") ||
+				table.columns.some((column) => refused(column.wireName, "column")),
 		);
 		diagnosticCatalogs.set(env.lookup, needed);
 	}

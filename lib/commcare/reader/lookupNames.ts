@@ -14,6 +14,14 @@ const claims = defineClaims("lookup-names", {
 		"expressions-and-data/lookup-table-instance-undiscovered-in-suite",
 		"lookup-model:LookupTable.tag",
 	),
+	hqUnreadableTag: refuse(
+		"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+		"lookup-model:LookupTable.tag",
+	),
+	hqUnreadableColumn: refuse(
+		"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+		"lookup-model:TypeField.name",
+	),
 	interpolated: refuse(
 		"expressions-and-data/dotted-column-interpolated-in-suite",
 		"lookup-model:TypeField.name",
@@ -44,5 +52,9 @@ function nameClaim(issue: LookupPathNameIssue, part: "tag" | "column") {
 			return claims.undeclared;
 		case "interpolated-period":
 			return claims.interpolated;
+		case "hq-unreadable-name":
+			return part === "tag"
+				? claims.hqUnreadableTag
+				: claims.hqUnreadableColumn;
 	}
 }

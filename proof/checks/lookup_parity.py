@@ -173,6 +173,16 @@ def differences(document, manifest, tags, reads, claims):
 
 OMITTED_INSTANCE = "expressions-and-data/lookup-table-instance-undiscovered-in-suite"
 INTERPOLATED_COLUMN = "expressions-and-data/dotted-column-interpolated-in-suite"
+HQ_CHECKED_NAME = "expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks"
+CONDITION_ENTRIES = frozenset({OMITTED_INSTANCE, INTERPOLATED_COLUMN, HQ_CHECKED_NAME})
+
+
+def _hq_xpath_name(name):
+    """Whether js-xpath, the XPath reader HQ checks a display condition with (``xpath_validator``), reads ``name`` as
+    a name: its ``NCName``, ``[A-Za-z_][A-Za-z0-9._-]*`` (``xpath.jisonlex``)."""
+    return bool(name) and name.isascii() and (name[0].isalpha() or name[0] == "_") and all(
+        c.isalnum() or c in "._-" for c in name
+    )
 
 
 def _lookup_condition_names(tree):
@@ -208,6 +218,7 @@ def changed_form_condition_refusals(base, variant):
     discovery and dot interpolation determine each failing class without reading the variant's expected result."""
     from corehq.apps.app_manager.suite_xml.post_process.instances import get_instance_names
     from corehq.apps.app_manager.xpath import dot_interpolate
+    from corehq.apps.app_manager.xpath_validator import validate_xpath
     from proof.observe.manifest import expression_tree
 
     for m, (old_module, module) in enumerate(zip(base.get("modules", []), variant.get("modules", []))):
@@ -218,9 +229,21 @@ def changed_form_condition_refusals(base, variant):
             declared = get_instance_names(text)
             issues = set()
             for instance_id, columns in _lookup_condition_names(expression_tree(text)):
-                if instance_id not in declared:
+                tag = instance_id.removeprefix("item-list:")
+                unread = [name for name in columns if not _hq_xpath_name(name)]
+                if not _hq_xpath_name(tag) or unread:
+                    # HQ's own check of the condition answers first: a name its reader does not read fails it.
+                    valid, _ = validate_xpath(text, allow_case_hashtags=True)
+                    if not valid:
+                        if not _hq_xpath_name(tag):
+                            issues.add(("lookup-model:LookupTable.tag", HQ_CHECKED_NAME))
+                        if unread:
+                            issues.add(("lookup-model:TypeField.name", HQ_CHECKED_NAME))
+                        # Each name takes its first refusal, as Nova's rule gives one (``lookupPathNameIssue``).
+                        columns = [name for name in columns if name not in unread]
+                if _hq_xpath_name(tag) and instance_id not in declared:
                     issues.add(("lookup-model:LookupTable.tag", OMITTED_INSTANCE))
-                elif any(dot_interpolate(name, "CURRENT") != name for name in columns):
+                elif instance_id in declared and any(dot_interpolate(name, "CURRENT") != name for name in columns):
                     issues.add(("lookup-model:TypeField.name", INTERPOLATED_COLUMN))
             for key, entry in sorted(issues):
                 yield key, f"/modules/{m}/forms/{f}/form_filter", entry

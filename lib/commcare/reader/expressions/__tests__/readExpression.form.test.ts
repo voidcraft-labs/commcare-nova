@@ -440,7 +440,7 @@ describe("a form slot's text read through the reading hook", () => {
 			},
 		);
 		expect(
-			judge("ζωνες", "zone.name", read("ζωνες", "zone.name")),
+			judge("zones", "zone.name", read("zones", "zone.name")),
 		).toMatchObject({
 			kind: "refused",
 			cause: {
@@ -448,11 +448,11 @@ describe("a form slot's text read through the reading hook", () => {
 				name: "zone.name",
 			},
 		});
-		expect(judge("ζωνες", "zone.1", read("ζωνες", "zone.1"))).toMatchObject({
+		expect(judge("zones", "zone.1", read("zones", "zone.1"))).toMatchObject({
 			kind: "bound",
 			equal: true,
 		});
-		expect(judge("ζωνες", "名前", read("ζωνες", "名前"))).toMatchObject({
+		expect(judge("zones", "名前", read("zones", "名前"))).toMatchObject({
 			kind: "refused",
 			cause: {
 				entryId:
@@ -462,9 +462,9 @@ describe("a form slot's text read through the reading hook", () => {
 		});
 		expect(
 			judge(
-				"ζωνες",
+				"zones",
 				"zone.name",
-				`#case/age > 1 and ${read("ζωνες", "zone.name")}`,
+				`#case/age > 1 and ${read("zones", "zone.name")}`,
 			),
 		).toMatchObject({
 			kind: "refused",
@@ -474,8 +474,22 @@ describe("a form slot's text read through the reading hook", () => {
 			},
 		});
 		expect(
-			judge("ζωνες", "zone.name", "'zone.name' = 'zone.name'"),
+			judge("zones", "zone.name", "'zone.name' = 'zone.name'"),
 		).toMatchObject({ kind: "bound", equal: true });
+		// HQ checks a form's display condition with js-xpath, whose names are
+		// unaccented: a Greek tag or column fails HQ's own build there.
+		for (const [tag, column, name] of [
+			["ζωνες", "zone.1", "ζωνες"],
+			["zones", "région", "région"],
+		])
+			expect(judge(tag, column, read(tag, column))).toMatchObject({
+				kind: "refused",
+				cause: {
+					entryId:
+						"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+					name,
+				},
+			});
 	});
 
 	it("reads an instance declared from jr://fixture/user-groups as the groups read Nova holds later", () => {

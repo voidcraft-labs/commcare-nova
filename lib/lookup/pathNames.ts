@@ -25,6 +25,25 @@ const DOT_INTERPOLATED_SLOTS: ReadonlySet<string> = new Set([
 	"search_input_required_when",
 ]);
 
+/** CommCare HQ checks these conditions with its own XPath reader before it
+ * builds an app (`helpers/validators.py`: `module_filter`, `form_filter`) or
+ * saves the search options (`views/modules.py`:
+ * `blacklisted_owner_ids_expression`, `search_button_display_condition`).
+ * That reader is js-xpath, whose names hold only unaccented letters, digits,
+ * `_`, `.` and `-` (`xpath.jisonlex`: `NCName`). */
+const HQ_CHECKED_SLOTS: ReadonlySet<string> = new Set([
+	"module_display_condition",
+	"form_display_condition",
+	"search_button_display_condition",
+	"excluded_owner_ids",
+]);
+
+/** Whether CommCare HQ's own XPath reader, which its form builder and its
+ * condition checks share (js-xpath `NCName`), reads `name` as a name. */
+export function isFormBuilderXPathName(name: string): boolean {
+	return /^[A-Za-z_][A-Za-z0-9._-]*$/.test(name);
+}
+
 export function hasInterpolatedNamePeriod(name: string): boolean {
 	return /(?<!\p{Nd})\.(?!\p{Nd})/u.test(name);
 }
@@ -32,7 +51,8 @@ export function hasInterpolatedNamePeriod(name: string): boolean {
 export type LookupPathNameIssue =
 	| "unreadable-name"
 	| "interpolated-period"
-	| "undeclared-instance";
+	| "undeclared-instance"
+	| "hq-unreadable-name";
 
 export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 	switch (issue) {
@@ -42,6 +62,8 @@ export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 			return "CommCare HQ changes a period in this name when it builds this condition.";
 		case "undeclared-instance":
 			return "CommCare HQ can't find this table by its export name when it builds this screen.";
+		case "hq-unreadable-name":
+			return "CommCare HQ checks this condition with its own reader, which takes only unaccented letters, digits, _, . and - in a name, and turns it down.";
 	}
 }
 
@@ -49,6 +71,7 @@ const LOOKUP_PATH_NAME_ISSUES: readonly LookupPathNameIssue[] = [
 	"unreadable-name",
 	"interpolated-period",
 	"undeclared-instance",
+	"hq-unreadable-name",
 ];
 
 /** The sentence a setting that reads a table or column by a name that
@@ -82,6 +105,8 @@ export function lookupPathNameIssue(
 	platforms: readonly Platform[] = PLATFORMS,
 ): LookupPathNameIssue | null {
 	if (!isPortableName(name, platforms)) return "unreadable-name";
+	if (HQ_CHECKED_SLOTS.has(registrySlot) && !isFormBuilderXPathName(name))
+		return "hq-unreadable-name";
 	if (
 		part === "tag" &&
 		SUITE_SLOTS.has(registrySlot) &&
@@ -97,10 +122,14 @@ export function lookupPathNameIssue(
 }
 
 /** Project data can be used by apps on either platform. The case list
- * filter goes through every lookup name restriction. */
+ * filter goes through every suite restriction, and a display condition
+ * through CommCare HQ's own check besides. */
 export function lookupNameNeedsUseCheck(
 	name: string,
 	part: "tag" | "column",
 ): boolean {
-	return lookupPathNameIssue(name, "case_list_filter", part) !== null;
+	return (
+		lookupPathNameIssue(name, "case_list_filter", part) !== null ||
+		lookupPathNameIssue(name, "form_display_condition", part) !== null
+	);
 }

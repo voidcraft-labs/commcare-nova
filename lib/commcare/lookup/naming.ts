@@ -1,4 +1,5 @@
 import { lookupReadTypes } from "@/lib/domain/lookupRead";
+import { isFormBuilderXPathName } from "@/lib/lookup/pathNames";
 /**
  * Identity-to-wire-name resolution for lookup carriers.
  *
@@ -66,10 +67,16 @@ export function lookupXformInstanceId(tag: string): string {
 	const id = tag.toLowerCase();
 	// Vellum indexes instance metadata in ordinary objects and calls each
 	// index’s own hasOwnProperty (form.js::updateKnownInstances/parseInstanceRefs).
+	// It keeps a declaration its own XPath reader finds a read of, or one
+	// whose id is a data source HQ hands it (`item_lists_by_app`: the table's
+	// `item-list:<tag>`, form.js::loadXML). A tag outside that reader's names
+	// (js-xpath `NCName`) is a path step it cannot read, so only the fixture
+	// id keeps the declaration through a save in HQ's form builder.
 	return tag === "__proto__" ||
 		tag === "hasOwnProperty" ||
 		runtimeInstanceIds.has(id) ||
-		id.includes("selected_cases")
+		id.includes("selected_cases") ||
+		!isFormBuilderXPathName(tag)
 		? lookupFixtureId(tag)
 		: tag;
 }

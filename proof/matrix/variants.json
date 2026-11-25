@@ -21461,6 +21461,24 @@
 		}
 	},
 	{
+		"id": "hq-lookup-names/non-ascii-table-in-form-condition",
+		"base": "hq-lookup-names",
+		"entry": "expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Visit",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/form_filter",
+			"value": "instance('item-list:ζωνες')/ζωνες_list/ζωνες[clé = 'upland'][1]/code.1 = 'on'"
+		}
+	},
+	{
 		"id": "hq-lookups/choice-name-on-a-lookup-select",
 		"base": "hq-lookups",
 		"entry": "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select",
