@@ -2221,6 +2221,31 @@ function buildContainer(
 	const childParentPath =
 		queryRepeat === undefined ? nodePath : nodePath.queryBoundIteration();
 
+	// A repeat's add captions are its own texts, registered before its
+	// children's, where the form builder writes them: each question's label,
+	// hint, help, validation message and then its captions, in question order
+	// (`javaRosa/util.js::ITEXT_PROPERTIES`, `forEachItextItem`), so a save in
+	// it keeps the texts' order.
+	const captions: Element[] = [];
+	if (field.kind === "repeat")
+		for (const [slot, suffix, tag] of [
+			["addFirstLabel", "add-empty-caption", "jr:addEmptyCaption"],
+			["addLabel", "add-caption", "jr:addCaption"],
+		] as const) {
+			const id = `${itextKey}-${suffix}`;
+			if (
+				addItext(id, field[slot], undefined, false, false, false).registered
+			) {
+				captions.push(
+					xel(
+						tag,
+						{ xpath: { ref: w.call("jr:itext", [w.str(id)]) } },
+						context,
+					),
+				);
+			}
+		}
+
 	for (const childUuid of expressions.form.fieldOrder.get(fieldUuid) ?? []) {
 		const ownBody: Element[] = [];
 		buildFieldParts(
@@ -2332,24 +2357,6 @@ function buildContainer(
 		: undefined;
 
 	if (field.kind === "repeat") {
-		const captions: Element[] = [];
-		for (const [slot, suffix, tag] of [
-			["addFirstLabel", "add-empty-caption", "jr:addEmptyCaption"],
-			["addLabel", "add-caption", "jr:addCaption"],
-		] as const) {
-			const id = `${itextKey}-${suffix}`;
-			if (
-				addItext(id, field[slot], undefined, false, false, false).registered
-			) {
-				captions.push(
-					xel(
-						tag,
-						{ xpath: { ref: w.call("jr:itext", [w.str(id)]) } },
-						context,
-					),
-				);
-			}
-		}
 		bodyElements.push(
 			buildRepeatBody(
 				field,
