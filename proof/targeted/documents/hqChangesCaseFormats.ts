@@ -15,6 +15,7 @@ import {
 	idMappingEntry,
 	mapLayerColumn,
 	mapLocationColumn,
+	NEW_APP_SETTINGS,
 	overdueMarkerColumn,
 	phoneColumn,
 	plainColumn,
@@ -50,6 +51,7 @@ function members(columns: readonly Column[] = []) {
 	return buildDoc({
 		appId: ID,
 		appName: "Visit formats",
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 		caseTypes: [
 			{
 				name: "member",
