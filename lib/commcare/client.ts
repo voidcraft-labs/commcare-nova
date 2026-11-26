@@ -1574,7 +1574,7 @@ async function readInstallationXml(
 	const send = () =>
 		sendHq(
 			creds,
-			`${hqDomainPath(domain)}/apps/download/${encodeURIComponent(buildId)}/${resource}${profileKey}`,
+			`${hqDomainPath(domain)}/apps/download/${encodeURIComponent(buildId)}/${resource}${profileKey ? `?profile=${encodeURIComponent(profileKey)}` : ""}`,
 			{ accept: "application/xml", noStore: true, signal: controller.signal },
 		);
 	try {
