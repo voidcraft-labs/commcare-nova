@@ -41,6 +41,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { formField, literal, term } from "@/lib/domain/expression";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { proseText } from "@/lib/domain/prose";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
@@ -60,6 +61,78 @@ const stepSchema = z.object({
 	testId: z.string(),
 	step: z.number(),
 	observation: z.record(z.string(), z.unknown()),
+});
+
+it("keeps the exact ID set when an App Test form opens after its answer changes", {
+	timeout: 15_000,
+}, async () => {
+	const key = testUuid("app-test-root-exact-id");
+	const doc = buildDoc({
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "Tasks",
+				forms: [
+					{
+						name: "Create person",
+						type: "survey",
+						fields: [
+							f({
+								uuid: key,
+								kind: "text",
+								id: "key",
+								default_value: term(literal("opened-id")),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: testUuid("app-test-exact-create"),
+			id: "exact_create",
+			action: "create",
+			caseType: "person",
+			target: { kind: "new", expr: term(formField(key)) },
+			name: term(literal("Saved person")),
+		},
+	];
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Preserve the ID assigned at opening" },
+	});
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `step-${current.step}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid });
+	await step({ kind: "form", formUuid });
+	await step({ kind: "answer", answers: [{ path: "key", value: "later-id" }] });
+	expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+	const records = await sql<{ case_id: string }>`
+		SELECT case_id FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+		WHERE case_type = 'person'
+	`.execute(h.db());
+	expect(records.rows).toEqual([{ case_id: "opened-id" }]);
+	await step({ kind: "finish" });
 });
 
 it("shows shared worker wording for a menu, form, record choice and submit button in each language", async () => {

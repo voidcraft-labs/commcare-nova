@@ -146,6 +146,7 @@ function dataRefusalSentence(
 }
 
 interface AuthorizedOpening {
+	readonly includeActivity: boolean;
 	readonly entryKey: string;
 	readonly session: import("./entrySessionData").EntrySessionData;
 }
@@ -164,22 +165,25 @@ export async function evaluateFormSnapshot(
 	context: FormEvaluationContext,
 ) {
 	const result = await runFormSnapshot(doc, input, context);
-	if ("activity" in result)
+	if ("opening" in result)
 		throw new Error("The snapshot returned an activity opening.");
 	return result;
 }
 
-/** Activity pragmas read before any answer or validation, as in Formplayer. */
-export async function evaluateActivitySnapshot(
+/** Finish the one authorized opening world before a worker can answer. */
+export async function evaluateAuthorizedFormOpeningSnapshot(
 	doc: BlueprintDoc,
 	input: FormEvaluationInput,
 	context: FormEvaluationContext,
 	authorized: AuthorizedOpening,
-): Promise<ActivityText | undefined> {
+): Promise<{
+	readonly activity?: ActivityText;
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
+}> {
 	const result = await runFormSnapshot(doc, input, context, authorized);
-	if (!("activity" in result))
-		throw new Error("The opening did not return activity.");
-	return result.activity;
+	if (!("opening" in result) || result.opening === undefined)
+		throw new Error("The form did not return its opening.");
+	return result.opening;
 }
 
 async function runFormSnapshot(
@@ -321,6 +325,7 @@ async function runFormSnapshot(
 			context.cases,
 			{
 				stagedAsync: true,
+				captureOpeningCaseIds: authorized !== undefined || context.captureEntry,
 				device: context.device,
 				sessionData: session.data,
 				selectedCases: session.selectedCases,
@@ -414,23 +419,29 @@ async function runFormSnapshot(
 		if (context.entry && context.entry.language === engineInput.language)
 			engine.restoreEntryCheckpoint(context.entry.checkpoint);
 		else await engine.initializeAsync(evaluate);
+
 		if (authorized !== undefined) {
-			const key = await engine.readBehaviorText("activityKeyText", evaluate);
+			const key = authorized.includeActivity
+				? await engine.readBehaviorText("activityKeyText", evaluate)
+				: null;
 			return {
-				activity:
-					key === null
-						? undefined
-						: {
-								key,
-								title: await engine.readBehaviorText(
-									"activityTitleText",
-									evaluate,
-								),
-								window: await engine.readBehaviorText(
-									"activityWindowText",
-									evaluate,
-								),
-							},
+				opening: {
+					caseCreateIds: engine.initialCreateIds(),
+					activity:
+						key === null
+							? undefined
+							: {
+									key,
+									title: await engine.readBehaviorText(
+										"activityTitleText",
+										evaluate,
+									),
+									window: await engine.readBehaviorText(
+										"activityWindowText",
+										evaluate,
+									),
+								},
+				},
 			};
 		}
 		checkChoiceAnswers();

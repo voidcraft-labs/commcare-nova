@@ -227,6 +227,9 @@ export interface CaseOperationProgram {
 	 * Server-derived from the committed entry's datums.
 	 */
 	readonly entryCaseKeys?: ReadonlyMap<Uuid, string>;
+	/** Root create identities assigned at initialization and verified with
+	 * the signed form opening. Repeated exact IDs calculate in each live row. */
+	readonly openingCreateIds?: ReadonlyMap<Uuid, string>;
 	/** IDs supplied for exposed creations by this form’s authorized deep-link launch. */
 	readonly suppliedCaseIds?: ReadonlyMap<Uuid, string>;
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;

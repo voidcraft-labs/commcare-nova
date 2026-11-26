@@ -1089,7 +1089,8 @@ export function slotContext(
 				slot.slot === "case_operation_owner_condition" ||
 				slot.slot === "case_operation_write_condition";
 			const target =
-				slot.slot === "case_operation_target_expression" ||
+				(slot.slot === "case_operation_target_expression" &&
+					operation.target?.kind !== "new") ||
 				slot.slot === "case_operation_link_target_expression";
 			// A write lands on the operation's case after any retype, or through
 			// `via` on the case above it; the form's own change saves to its

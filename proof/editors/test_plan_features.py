@@ -290,15 +290,24 @@ def test_vellum_cannot_keep_an_empty_case_update(hq, core_runner, editor_driver)
 
 
 def test_hq_build_adds_the_managed_case_after_an_authored_root_block(hq, core_runner):
+    from corehq.apps.app_manager.models.form_actions import ConditionalCaseUpdate
+
     document = corpus_document("case-capture-query")
     case = "{http://commcarehq.org/case/transaction/v2}case"
     with _published(document, "CHILD_CASES", True) as opened:
-        form = _form(opened.state, opened.app_id, lambda one: one.actions.open_case.is_active())
+        form = _form(opened.state, opened.app_id, lambda one: bool(one.actions.subcases))
         original = etree.fromstring(form.source.encode())
         model = original.find(f".//{{{XFORMS}}}model")
         primary = next(element for element in model.findall(f"{{{XFORMS}}}instance") if element.get("id") is None)
         data = primary[0]
         assert data.find(case) is None
+        root = etree.QName(data)
+        etree.SubElement(data, f"{{{root.namespace}}}managed_name").text = "Managed"
+        form.requires = "case"
+        form.actions.update_case.condition.type = "always"
+        form.actions.update_case.update["name"] = ConditionalCaseUpdate(
+            question_path=f"/{root.localname}/managed_name",
+        )
         wrapper = etree.SubElement(data, f"{{{etree.QName(data).namespace}}}positioned_case_block")
         transaction = etree.SubElement(
             wrapper, case, case_id="existing-patient", date_modified="2026-09-30T10:00:00Z", user_id="u-1",
@@ -313,7 +322,8 @@ def test_hq_build_adds_the_managed_case_after_an_authored_root_block(hq, core_ru
         built = primary[0]
         order = [etree.QName(element).localname for element in built]
         assert built.find(f"{{{etree.QName(built).namespace}}}positioned_case_block/{case}") is not None
-        assert built.find(case) is not None
+        assert built.find(f"{case}/{{http://commcarehq.org/case/transaction/v2}}update/"
+                          "{http://commcarehq.org/case/transaction/v2}case_name") is not None
         assert order.index("positioned_case_block") < order.index("case")
 
 def _itemsets(source):

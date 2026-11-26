@@ -53,6 +53,7 @@
 import type { Expression as SqlExpression, Transaction } from "kysely";
 import { expressionBuilder, sql } from "kysely";
 import { v7 as uuidv7 } from "uuid";
+import { caseOperationDependencyUuids } from "@/lib/doc/caseOperationOrder";
 import {
 	type CasePropertyDataType,
 	type CaseWriteVia,
@@ -68,13 +69,17 @@ import {
 } from "@/lib/domain";
 import { MAX_AUTHORED_CASE_ID_LENGTH } from "@/lib/domain/caseOperationIdentity";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
+import { ifExpr, literal, term } from "@/lib/domain/expression/builders";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/expression/errors";
 import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
-import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import {
+	walkExpressionNodes,
+	walkExpressionTerms,
+} from "@/lib/domain/expression/walk";
 import {
 	caseDatetimeValue,
 	caseInstantText,
@@ -451,7 +456,7 @@ function expandPhysicalInstances(
 
 interface CreateAllocation {
 	readonly caseId: string;
-	readonly authored: boolean;
+	readonly identity: "fresh" | "derived" | "exact";
 	/** The id the entry's session minted for this case (`entryCaseKeys`):
 	 * a row already holding it refuses the submission, never merges. */
 	readonly entryNamed?: boolean;
@@ -481,6 +486,14 @@ function allocateCreateIdentities(
 		if (operation.action !== "create" || operation.target.kind !== "new") {
 			continue;
 		}
+		if (operation.target.expr !== undefined) {
+			if (instance.scopeRepeat === undefined) {
+				const caseId = program.openingCreateIds?.get(operation.uuid);
+				if (caseId !== undefined)
+					allocations.set(index, { caseId, identity: "exact" });
+			}
+			continue;
+		}
 		// A case the entry's session names takes the id the form read as
 		// `session/data/<datum>` while it ran, whatever its placement: every
 		// create the form's wire plan gives a datum. Each has its own key, and
@@ -492,13 +505,18 @@ function allocateCreateIdentities(
 				caseId:
 					program.suppliedCaseIds?.get(operation.uuid) ??
 					entryDatumCaseId(appId, entryKey, entryCaseKey),
-				authored: false,
+				identity: "fresh",
 				entryNamed: true,
 			});
 			continue;
 		}
 		if (operation.target.idFrom === undefined) {
-			allocations.set(index, { caseId: uuidv7(), authored: false });
+			const initialized = program.openingCreateIds?.get(operation.uuid);
+			allocations.set(index, {
+				caseId: initialized ?? uuidv7(),
+				identity: "fresh",
+				...(initialized !== undefined && { entryNamed: true }),
+			});
 			continue;
 		}
 		const rawKey = instance.formFields.get(operation.target.idFrom);
@@ -515,10 +533,10 @@ function allocateCreateIdentities(
 		allocations.set(
 			index,
 			derived.ok
-				? { caseId: derived.caseId, authored: true }
+				? { caseId: derived.caseId, identity: "derived" }
 				: {
 						caseId: "",
-						authored: true,
+						identity: "derived",
 						keyFailure: {
 							reason: derived.reason,
 							maxKeyLength: derived.maxKeyLength,
@@ -527,6 +545,97 @@ function allocateCreateIdentities(
 		);
 	}
 	return allocations;
+}
+
+/** Batch repeated calculate expressions whose earlier case IDs are already
+ * available. The guard is part of the same SQL expression, so an irrelevant
+ * row never evaluates its ID expression. */
+async function allocateRepeatedExactIdentities(
+	trx: Transaction<Database>,
+	host: SubmissionEnvelopeHost,
+	appId: string,
+	program: CaseOperationProgram,
+	instances: readonly PhysicalInstance[],
+	allocations: Map<number, CreateAllocation>,
+	sessionFor: (index: number) => SessionAnchor | undefined,
+	bindingsFor: (index: number) => TermBindings,
+): Promise<void> {
+	let pending = instances.flatMap(({ envelope, scopeRepeat }, index) => {
+		const { operation } = envelope;
+		if (
+			scopeRepeat === undefined ||
+			operation.action !== "create" ||
+			operation.target.kind !== "new" ||
+			operation.target.expr === undefined
+		)
+			return [];
+		const conditions = [
+			...envelope.guardConditions,
+			...(operation.condition === undefined ? [] : [operation.condition]),
+		];
+		const [first, ...rest] = conditions;
+		const expression =
+			first === undefined
+				? operation.target.expr
+				: ifExpr(
+						rest.length > 0
+							? { kind: "and", clauses: [first, ...rest] }
+							: first,
+						operation.target.expr,
+						term(literal("")),
+					);
+		const dependencies = new Set(caseOperationDependencyUuids(operation));
+		for (const condition of envelope.guardConditions)
+			walkExpressionNodes(condition, (node) => {
+				if (node.kind === "id-of") dependencies.add(node.opUuid);
+			});
+		return [
+			{
+				request: {
+					instance: index,
+					operationUuid: operation.uuid,
+					operationId: operation.id,
+					expression,
+					slot: "case ID",
+				},
+				dependencies,
+			},
+		];
+	});
+	while (pending.length > 0) {
+		const unready = new Set(
+			pending.map(({ request }) => request.operationUuid),
+		);
+		const ready = pending.filter(({ dependencies }) =>
+			[...dependencies].every((uuid) => !unready.has(uuid)),
+		);
+		if (ready.length === 0)
+			throw new Error(
+				"Repeated exact case IDs must depend on earlier creates.",
+			);
+		const requests = ready.map(({ request }) => request);
+		const values = await evaluateBatch(
+			trx,
+			host,
+			appId,
+			program,
+			sessionFor,
+			bindingsFor,
+			requests,
+		);
+		for (const [offset, request] of requests.entries()) {
+			allocations.set(request.instance, {
+				caseId: evaluatedText(values[offset]),
+				identity: "exact",
+			});
+		}
+		const resolved = new Set(
+			requests.map(({ operationUuid }) => operationUuid),
+		);
+		pending = pending.filter(
+			({ request }) => !resolved.has(request.operationUuid),
+		);
+	}
 }
 
 /**
@@ -1000,6 +1109,7 @@ interface ResolvedInstance {
 	 * the create-of-existing merge arm. */
 	readonly mergesExisting: boolean;
 	/** A create with the id the entry's session minted for it. */
+	readonly exactCreateId?: boolean;
 	readonly entryNamed?: boolean;
 	readonly preparedName?: string;
 	readonly preparedRename?: string;
@@ -1150,7 +1260,8 @@ function validatedSelectedCaseIds(
 			if (
 				entry.operation.action === "create" &&
 				entry.operation.target.kind === "new" &&
-				entry.operation.target.idFrom !== undefined
+				(entry.operation.target.idFrom !== undefined ||
+					entry.operation.target.expr !== undefined)
 			) {
 				rejectSelection({
 					kind: "selection",
@@ -1410,6 +1521,17 @@ async function resolveOperationProgram(
 		};
 	};
 
+	await allocateRepeatedExactIdentities(
+		trx,
+		host,
+		appId,
+		program,
+		instances,
+		allocations,
+		sessionFor,
+		bindingsFor,
+	);
+
 	// Phase: conditions. Inherited guards AND the operation's own
 	// condition, each evaluated with the INSTANCE's bindings — a
 	// consumer inside a repeat evaluates its producer's guard against
@@ -1468,6 +1590,31 @@ async function resolveOperationProgram(
 			reason: allocation.keyFailure.reason,
 			maxKeyLength: allocation.keyFailure.maxKeyLength,
 		});
+	}
+
+	for (const [index, instance] of instances.entries()) {
+		const { operation } = instance.envelope;
+		if (
+			!executing[index] ||
+			operation.target.kind !== "new" ||
+			operation.target.expr === undefined
+		)
+			continue;
+		const allocation = allocations.get(index);
+		if (!allocation)
+			throw new CaptureSubmissionRejectedError(
+				"This form is missing the case ID it opened with. You can reopen the form and submit it again.",
+			);
+		if (
+			allocation.caseId === "" ||
+			allocation.caseId.length > MAX_AUTHORED_CASE_ID_LENGTH
+		)
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "not-found-or-out-of-scope",
+			});
 	}
 
 	// Resolve leaf guards before requesting values. An omitted leaf must
@@ -1650,9 +1797,17 @@ async function resolveOperationProgram(
 	// unreachable, exactly as it is invisible to every other runtime
 	// read; the already-selected session case does not re-check it.
 	const authoredIds = [...allocations.entries()]
-		.filter(([index, allocation]) => executing[index] && allocation.authored)
+		.filter(
+			([index, allocation]) =>
+				executing[index] && allocation.identity === "derived",
+		)
 		.map(([, allocation]) => allocation.caseId);
-	const expressionIds: string[] = [];
+	const expressionIds = [...allocations.entries()]
+		.filter(
+			([index, allocation]) =>
+				executing[index] && allocation.identity === "exact",
+		)
+		.map(([, allocation]) => allocation.caseId);
 	for (const [index] of instances.entries()) {
 		if (!executing[index]) continue;
 		const bag = valuesByInstance.get(index);
@@ -1684,8 +1839,9 @@ async function resolveOperationProgram(
 	);
 
 	// Resolve every executing instance's target + links.
-	const openingCaseIds =
-		opening && new Set(opening.cases.rows.map((row) => row.case_id));
+	const openingCaseTypes =
+		opening &&
+		new Map(opening.cases.rows.map((row) => [row.case_id, row.case_type]));
 	const resolvedInstances: ResolvedInstance[] = [];
 	for (const [index, instance] of instances.entries()) {
 		const operation = instance.envelope.operation;
@@ -1732,6 +1888,17 @@ async function resolveOperationProgram(
 						);
 					}
 					const existing = knownRows.get(allocation.caseId);
+					if (
+						allocation.identity === "exact" &&
+						existing &&
+						openingCaseTypes?.get(allocation.caseId) !== operation.caseType
+					)
+						throw new SubmissionRejectedError({
+							kind: "target",
+							operationUuid: operation.uuid,
+							slot: "target",
+							reason: "not-found-or-out-of-scope",
+						});
 					return {
 						caseId: allocation.caseId,
 						...(existing === undefined
@@ -1901,11 +2068,11 @@ async function resolveOperationProgram(
 			continue;
 		}
 		if (
-			openingCaseIds &&
+			openingCaseTypes &&
 			operation.action !== "create" &&
 			operation.target.kind === "expression" &&
 			(operation.closeCondition || operation.closeAfter) &&
-			!openingCaseIds.has(target.caseId)
+			!openingCaseTypes.has(target.caseId)
 		) {
 			throw new SubmissionRejectedError({
 				kind: "target",
@@ -2284,6 +2451,9 @@ async function resolveOperationProgram(
 				? {}
 				: { snapshotCaseType: target.snapshotCaseType }),
 			mergesExisting: target.mergesExisting,
+			...(allocations.get(index)?.identity === "exact" && {
+				exactCreateId: true,
+			}),
 			...(allocations.get(index)?.entryNamed === true
 				? { entryNamed: true }
 				: {}),
@@ -2817,9 +2987,16 @@ async function applyCreateEffect(
 		// read. A row already holding it, in any tenant, refuses the whole
 		// submission inside this transaction rather than merging; an exact
 		// retry of a saved entry replays its receipt before reaching here.
-		...(entry.entryNamed
+		...(entry.entryNamed || entry.exactCreateId
 			? {
 					caseIdTaken: () => {
+						if (entry.exactCreateId)
+							throw new SubmissionRejectedError({
+								kind: "target",
+								operationUuid: operation.uuid,
+								slot: "target",
+								reason: "not-found-or-out-of-scope",
+							});
 						throw new SubmissionRejectedError({
 							kind: "new-case",
 							reason: "case-id-taken",

@@ -116,6 +116,8 @@ export interface FormOpeningProjection {
 	readonly datums: Readonly<Record<string, string>>;
 	readonly resolvedEntries: Readonly<Record<string, string>>;
 	readonly sessionData: Readonly<Record<string, string>>;
+	/** Case IDs set by the form's root ready actions at its first opening. */
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
 	readonly complete: boolean;
 }
 
@@ -165,7 +167,9 @@ export function formNeedsOpeningEvidence(
 				operationSavesOnlyChanged(operation) ||
 				(operation.action !== "own" &&
 					(operation.target.kind === "expression" ||
-						operation.target.kind === "worker-record")),
+						operation.target.kind === "worker-record" ||
+						(operation.target.kind === "new" &&
+							operation.target.expr !== undefined))),
 		)
 	)
 		return true;

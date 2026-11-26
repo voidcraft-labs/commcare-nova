@@ -18,7 +18,7 @@ import {
 	webFormActivityWindow,
 } from "@/lib/domain/webFormActivity";
 import type { EntrySessionData } from "./entrySessionData";
-import { evaluateActivitySnapshot } from "./evaluateFormSnapshot";
+import { evaluateAuthorizedFormOpeningSnapshot } from "./evaluateFormSnapshot";
 import type { FormOpeningAudience } from "./formOpeningSnapshot";
 import type { ResolvedPreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -27,7 +27,7 @@ import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 /** Formplayer computes volatility before a worker answers the form and
  * keeps that key on submission. A shadow uses its ordinary form's namespace. */
-export async function evaluateWebFormActivityOpening(input: {
+export async function evaluateFormOpeningActions(input: {
 	readonly secret: string;
 	readonly doc: BlueprintDoc;
 	readonly audience: FormOpeningAudience;
@@ -36,7 +36,13 @@ export async function evaluateWebFormActivityOpening(input: {
 	readonly caseIds: readonly string[];
 	readonly cases: CaseDatabaseSnapshot;
 	readonly lookup: PreviewLookupData;
-}): Promise<WebFormActivityEntry | undefined> {
+}): Promise<
+	| {
+			readonly activity?: WebFormActivityEntry;
+			readonly caseCreateIds?: Readonly<Record<string, string>>;
+	  }
+	| undefined
+> {
 	const { audience, doc, reached, identity } = input;
 	const content = formContentUuid(doc, audience.form);
 	const language = effectiveAppLocalization(
@@ -45,29 +51,37 @@ export async function evaluateWebFormActivityOpening(input: {
 		(tag) =>
 			previewAppLanguage(doc.localization, tag) === audience.device.appLanguage,
 	);
-	if (
-		audience.device.platform !== "web-apps" ||
-		doc.forms[content]?.activityKeyText === undefined
-	)
-		return undefined;
-	const activity = await evaluateActivitySnapshot(
-		doc,
-		{
-			formUuid: audience.form,
-			caseIds: input.caseIds,
-			answers: [],
-			language,
-		},
-		{
-			identity,
-			device: audience.device,
-			cases: input.cases,
-			lookup: input.lookup,
-			searchResults: reached.searchResults,
-		},
-		{ entryKey: audience.entry, session: reached },
+	const form = doc.forms[content];
+	const includeActivity =
+		audience.device.platform === "web-apps" &&
+		form?.activityKeyText !== undefined;
+	const exactRoot = form?.caseOperations?.some(
+		(operation) =>
+			operation.action === "create" &&
+			operation.forEach === undefined &&
+			operation.target.kind === "new" &&
+			operation.target.expr !== undefined,
 	);
-	if (!activity) return undefined;
+	if (!includeActivity && !exactRoot) return undefined;
+	const { activity, caseCreateIds } =
+		await evaluateAuthorizedFormOpeningSnapshot(
+			doc,
+			{
+				formUuid: audience.form,
+				caseIds: input.caseIds,
+				answers: [],
+				language,
+			},
+			{
+				identity,
+				device: audience.device,
+				cases: input.cases,
+				lookup: input.lookup,
+				searchResults: reached.searchResults,
+			},
+			{ entryKey: audience.entry, session: reached, includeActivity },
+		);
+	if (!activity) return { caseCreateIds };
 	const windowSeconds = webFormActivityWindow(activity.window);
 	if (windowSeconds <= 0) throw new InvalidWebActivityWindowError();
 	const digest = createHmac("sha256", input.secret)
@@ -82,18 +96,21 @@ export async function evaluateWebFormActivityOpening(input: {
 		)
 		.digest("hex");
 	return {
-		digest,
-		workerName: (identity.session.context.username ?? identity.ownerId).split(
-			"@",
-		)[0],
-		title:
-			activity.title !== null && Buffer.byteLength(activity.title) <= 4096
-				? activity.title
-				: null,
-		caseIds: [
-			...new Set([...input.caseIds, ...reached.reachedCaseIds.values()]),
-		],
-		windowSeconds,
+		caseCreateIds,
+		activity: {
+			digest,
+			workerName: (identity.session.context.username ?? identity.ownerId).split(
+				"@",
+			)[0],
+			title:
+				activity.title !== null && Buffer.byteLength(activity.title) <= 4096
+					? activity.title
+					: null,
+			caseIds: [
+				...new Set([...input.caseIds, ...reached.reachedCaseIds.values()]),
+			],
+			windowSeconds,
+		},
 	};
 }
 

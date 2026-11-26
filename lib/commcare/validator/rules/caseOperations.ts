@@ -67,6 +67,7 @@ import {
 	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
 	sameCaseWriteKey,
+	type TargetedCaseOperation,
 	USERCASE_BUILT_IN_KEYS,
 	USERCASE_CASE_TYPE,
 	type Uuid,
@@ -745,7 +746,8 @@ function validateOperation(
 		if (
 			operation.action !== "create" ||
 			operation.target.kind !== "new" ||
-			operation.target.idFrom !== undefined
+			operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined
 		)
 			errors.push(
 				opError(
@@ -1715,6 +1717,16 @@ function validateTarget(
 ): void {
 	switch (target.kind) {
 		case "new":
+			if (target.expr !== undefined)
+				validateTarget(
+					ctx,
+					operation,
+					{ kind: "expression", expr: target.expr },
+					priorCreates,
+					slot,
+					errors,
+				);
+			return;
 		// The worker's record is always there; `workerRecordFindings` holds
 		// which operation may target it.
 		case "worker-record":
@@ -1736,7 +1748,7 @@ function validateTarget(
 				);
 			}
 			return;
-		case "expression":
+		case "expression": {
 			if (
 				target.expr.kind === "term" &&
 				target.expr.term.kind === "literal" &&
@@ -1758,7 +1770,34 @@ function validateTarget(
 					);
 				}
 			}
-			if (expressionContainsIdOf(target.expr)) {
+			const exactCreateId =
+				slot.slot === "case_operation_target_expression" &&
+				operation.action === "create" &&
+				operation.target.kind === "new" &&
+				operation.target.expr !== undefined;
+			if (exactCreateId && operation.forEach === undefined) {
+				let readsKeyedId = false;
+				walkExpressionNodes(target.expr, (node) => {
+					if (node.kind !== "id-of") return;
+					const create = priorCreates.get(node.opUuid);
+					if (
+						create?.target?.kind === "new" &&
+						create.target.idFrom !== undefined
+					)
+						readsKeyedId = true;
+				});
+				if (readsKeyedId)
+					errors.push(
+						opError(
+							ctx,
+							operation,
+							"CASE_OPERATION_TARGET_INVALID",
+							"The form sets this case ID when it opens, before a keyed case has an ID. Choose a value available when the form opens.",
+							{ reason: "id-of-target" satisfies TargetInvalidReason },
+						),
+					);
+			}
+			if (!exactCreateId && expressionContainsIdOf(target.expr)) {
 				errors.push(
 					opError(
 						ctx,
@@ -1771,6 +1810,7 @@ function validateTarget(
 			}
 			validateExpressionSlot(ctx, operation, target.expr, slot, errors);
 			return;
+		}
 		case "op": {
 			const producer = priorCreates.get(target.opUuid);
 			if (producer === undefined) {
