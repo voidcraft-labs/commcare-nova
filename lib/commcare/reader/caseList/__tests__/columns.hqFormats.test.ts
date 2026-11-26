@@ -1083,7 +1083,9 @@ describe("a detail's callout and tabs", () => {
 				lookup_action: "org.nova.proof.CASE_LOOKUP",
 				lookup_name: "Find a visit",
 				lookup_autolaunch: true,
-				lookup_extras: [{ key: "mode", value: "'visit'" }],
+				lookup_extras: [
+					{ key: "mode", value: `concat("Worker's ", '"visit"')` },
+				],
 				lookup_responses: [{ key: "first" }, { key: "second" }],
 			});
 		});
@@ -1092,7 +1094,7 @@ describe("a detail's callout and tabs", () => {
 			action: "org.nova.proof.CASE_LOOKUP",
 			label: "Find a visit",
 			automatic: true,
-			extras: [{ name: "mode", value: "visit" }],
+			extras: [{ name: "mode", value: `Worker's "visit"` }],
 			responses: ["first", "second"],
 		});
 	});

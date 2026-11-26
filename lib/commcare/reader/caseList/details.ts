@@ -108,6 +108,7 @@ import {
 	sourceText,
 	translatedTexts,
 } from "./columns";
+import { literalText } from "./literalText";
 import { CALCULATED_FIELD, readSortElements, type SortReading } from "./order";
 import { claimRestUnderFinding } from "./refusedWhole";
 import { readTile, type TileReading } from "./tile";
@@ -460,13 +461,17 @@ function textDeviceLookup(
 ): CaseListDeviceLookup | undefined {
 	const image = detail.peek("lookup_image");
 	const results = detail.peek("lookup_display_results");
+	const automatic = detail.peek("lookup_autolaunch");
 	const action = detail.peek("lookup_action");
 	const label = detail.peek("lookup_name");
 	const rawExtras = detail.peek("lookup_extras");
 	const rawResponses = detail.peek("lookup_responses");
 	if (
 		(image !== undefined && image !== null && image !== "") ||
-		results === true ||
+		(results !== undefined && results !== null && results !== false) ||
+		(automatic !== undefined &&
+			automatic !== null &&
+			typeof automatic !== "boolean") ||
 		typeof action !== "string" ||
 		action.trim() !== action ||
 		typeof label !== "string" ||
@@ -487,8 +492,9 @@ function textDeviceLookup(
 		)
 			return undefined;
 		const parsed = sharedFormSyntax(entry.value);
-		if (!parsed.ok || parsed.node?.kind !== "string") return undefined;
-		extras.push({ name: entry.key, value: parsed.node.value });
+		const value = parsed.ok ? literalText(parsed.node) : undefined;
+		if (value === undefined) return undefined;
+		extras.push({ name: entry.key, value });
 	}
 	const responses = [];
 	for (const entry of rawResponses) {
@@ -506,7 +512,7 @@ function textDeviceLookup(
 		label,
 		extras,
 		responses,
-		...(detail.peek("lookup_autolaunch") === true && { automatic: true }),
+		...(automatic === true && { automatic: true }),
 	});
 	return value.success ? value.data : undefined;
 }
