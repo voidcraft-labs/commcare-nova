@@ -1,5 +1,6 @@
 """One released app, three real HQ workers, and an assigned rich fixture."""
 
+from contextlib import contextmanager
 from dataclasses import replace
 from hashlib import sha256
 from io import BytesIO
@@ -179,7 +180,6 @@ def _edit_and_read_form_translation(unit, app_id, paths, evidence):
     assert before["lookup"] == after["lookup"]
 
 
-
 # Labels are read from the actual HTML widget. Fixture keys and their order are
 # independently asserted from HQ's complete restoring response.
 _CHECK_CHOICES = {
@@ -188,10 +188,8 @@ _CHECK_CHOICES = {
 }
 
 
-@pytest.mark.reader("webapps")
-def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
-    native, hq, core_runner, formplayer_runner, editor_driver, evidence,
-):
+@contextmanager
+def _journey(native, runner=None):
     from corehq.apps.users.models import CommCareUser
     from corehq.apps.users.util import normalize_username
 
@@ -199,7 +197,7 @@ def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
     paths = json.loads((family / "media.json").read_text())
     _generic_archive((family / "archive.ccz").read_bytes())
     config = Configuration(privileges={"CLOUDCARE", "LOOKUP_TABLES"})
-    with hq_redis.shared(formplayer_runner.redis_address), hq_check(config) as (unit, _):
+    with hq_redis.shared(None if runner is None else runner.redis_address), hq_check(config) as (unit, _):
         first_db = _database("worker-east", "case-east", "East patient")
         with unit.committing():
             published = operations.apply_upload(unit, _file_upload(
@@ -215,7 +213,7 @@ def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
             _asset_bytes(unit, app_id, paths)
 
         with formplayer_hq.serve(
-            unit, None, app_id, runner=formplayer_runner, database=first_db,
+            unit, None, app_id, runner=runner, database=first_db,
         ) as released:
             _generic_archive(released.archive())
 
@@ -235,31 +233,119 @@ def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
                 if unit.indexes is not None:
                     unit.indexes.settle()
 
-            for worker, language, case, expected, caption in (
+            workers = (
                 (released.worker, "en", "case-east", ROWS[:2], "English"),
                 (second, "fr", "case-west", ROWS[2:], "French"),
                 (third, "en", "case-unassigned", (), "English"),
-            ):
-                bridge = FullRestores(unit, worker.username)
-                profile = replace(released, worker=worker, hq=bridge)
-                run = Session(profile, editor_driver).run([
-                    *steps.open_app("Clinic rounds"),
-                    *steps.choose("Rounds"), steps.SCREEN,
-                    *steps.choose("Visit"), *steps.select_case(case),
-                    steps.SCREEN, _CHECK_CHOICES,
-                ], name=f"worker-journey-{case}", worker_language=language)
-                evidence(case, run.screens)
-                assert run.page_errors == []
-                assert bridge.full, "Formplayer did not request a full HQ restore"
-                assert [_restored_rows(body, remote_ids) for body in bridge.full] == [list(expected)] * len(bridge.full)
-                menu, form = run.screens
-                assert menu["menuLayout"] == "grid"
-                (people,) = [command for command in menu["commands"] if command["text"] == "People"]
-                assert paths[f"menu{caption}"].rsplit("/", 1)[-1] in (people["image"] or ""), people
-                (question,) = form["form"]["questions"]
-                (image,) = [item["src"] for item in question["media"] if item["kind"] == "img"]
-                assert paths[f"form{caption}"].rsplit("/", 1)[-1] in image
-                assert run.value(-1) == [occurrences[1][1] for _, occurrences in expected]
+            )
 
-            with unit.committing():
-                _edit_and_read_form_translation(unit, app_id, paths, evidence)
+            yield released, paths, remote_ids, workers
+
+
+@pytest.mark.reader("webapps")
+def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
+    native, hq, core_runner, formplayer_runner, editor_driver, evidence,
+):
+    with _journey(native, formplayer_runner) as (released, paths, remote_ids, workers):
+        unit = released.unit
+        for worker, language, case, expected, caption in workers:
+            bridge = FullRestores(unit, worker.username)
+            profile = replace(released, worker=worker, hq=bridge)
+            run = Session(profile, editor_driver).run([
+                *steps.open_app("Clinic rounds"),
+                *steps.choose("Rounds"), steps.SCREEN,
+                *steps.choose("Visit"), *steps.select_case(case),
+                steps.SCREEN, _CHECK_CHOICES,
+            ], name=f"worker-journey-{case}", worker_language=language)
+            evidence(case, run.screens)
+            assert run.page_errors == []
+            assert bridge.full, "Formplayer did not request a full HQ restore"
+            assert [_restored_rows(body, remote_ids) for body in bridge.full] == [list(expected)] * len(bridge.full)
+            menu, form = run.screens
+            assert menu["menuLayout"] == "grid"
+            (people,) = [command for command in menu["commands"] if command["text"] == "People"]
+            assert paths[f"menu{caption}"].rsplit("/", 1)[-1] in (people["image"] or ""), people
+            (question,) = form["form"]["questions"]
+            (image,) = [item["src"] for item in question["media"] if item["kind"] == "img"]
+            assert paths[f"form{caption}"].rsplit("/", 1)[-1] in image
+            assert run.value(-1) == [occurrences[1][1] for _, occurrences in expected]
+
+        with unit.committing():
+            _edit_and_read_form_translation(unit, released.app_id, paths, evidence)
+
+
+def _descendants(view):
+    yield view
+    for child in view.get("children", ()):
+        yield from _descendants(child)
+
+
+@pytest.mark.reader("android")
+def test_android_grid_uses_each_workers_assigned_choices_and_installed_language_media(native, hq, core_runner, evidence):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    labels = {occurrences[1][1] for _, occurrences in ROWS}
+    with _journey(native) as (released, paths, _remote_ids, workers):
+        archive = observe.release_archive(released)
+        with ZipFile(BytesIO(archive)) as downloaded:
+            for path in set(paths.values()):
+                assert sha256(downloaded.read(path)).hexdigest() == path.rsplit("/", 1)[-1].removesuffix(".png")
+
+        for worker, language, case, expected, caption in workers:
+            blobs = Blobs()
+            result = observe.app(
+                replace(released, worker=worker),
+                blobs,
+                label=f"A:worker-journey-{case}",
+                archive=archive,
+                delivered=True,
+                views=True,
+            )
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", answer
+            exchanges = blobs.get_json(result["hq"])
+            assert any(
+                exchange["url_name"] == "ota_restore"
+                and exchange["status"] == 200
+                and not parse_qs(exchange["url"].partition("?")[2]).get("since")
+                and not exchange.get("unread")
+                for exchange in exchanges
+            ), exchanges
+            walked = [
+                step
+                for name, walk in answer["walks"].items()
+                if (f"@language:{language}" in name if language != "en" else "@language:" not in name)
+                for step in walk["steps"]
+            ]
+            rendered = [
+                item["image"]
+                for step in walked for item in (step.get("menu") or {}).get("items", ())
+                if item["id"] == "m0-case-list"
+            ]
+            assert rendered and all(
+                image and image["held"] is True and image["uri"].endswith(paths[f"menu{caption}"])
+                for image in rendered
+            ), rendered
+            screens = [
+                screen for step in walked for screen in (step.get("form") or {}).get("screens", ())
+                if any(question["reference"] == "/data/clinic[1]" for question in screen["questions"])
+            ]
+            evidence(case, screens)
+            assert screens, answer["walks"].keys()
+            for screen in screens:
+                views = list(_descendants(screen["view"]))
+                assert [view["text"] for view in views if view.get("text") in labels] == [
+                    occurrences[1][1] for _, occurrences in expected
+                ]
+                pixels = [
+                    descendant["centerPixel"]
+                    for view in views if view.get("class") == "MediaLayout"
+                    for descendant in _descendants(view) if "centerPixel" in descendant
+                ]
+                (pixel,) = pixels
+                red, green, blue = bytes.fromhex(pixel[3:])
+                if language == "fr":
+                    assert green > max(red, blue), pixel
+                else:
+                    assert blue > max(red, green), pixel
