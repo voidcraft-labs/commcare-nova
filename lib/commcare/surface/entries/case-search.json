@@ -2475,7 +2475,8 @@
 			"schema:CaseSearchProperty.input_",
 			"parser:QueryPromptParser/prompt@input",
 			"schema:CaseSearchProperty.itemset",
-			"parser:QueryPromptParser/itemset"
+			"parser:QueryPromptParser/itemset",
+			"prompt-input:checkbox"
 		],
 		"valueClass": "checkbox",
 		"disposition": "HELD",
