@@ -24,6 +24,7 @@ import tablerArrowsHorizontal from "@iconify-icons/tabler/arrows-horizontal";
 import tablerArrowsSplit from "@iconify-icons/tabler/arrows-split";
 import tablerAsterisk from "@iconify-icons/tabler/asterisk";
 import tablerCheckbox from "@iconify-icons/tabler/checkbox";
+import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerEqual from "@iconify-icons/tabler/equal";
 import tablerEqualNot from "@iconify-icons/tabler/equal-not";
@@ -60,6 +61,7 @@ import {
 	inSubjectConstraint,
 	type SlotConstraint,
 } from "@/lib/domain/expression";
+import { isAnsweredCall, isAnsweredDefault } from "./answeredCondition";
 import { BetweenCard, betweenDefault } from "./cards/BetweenCard";
 import { ComparisonCard, comparisonDefault } from "./cards/ComparisonCard";
 import {
@@ -68,6 +70,7 @@ import {
 } from "./cards/ConditionChoiceCard";
 import { ExistsCard, existsDefault, missingDefault } from "./cards/ExistsCard";
 import { InCard, inDefault } from "./cards/InCard";
+import { IsAnsweredCard } from "./cards/IsAnsweredCard";
 import { IsBlankCard, isBlankDefault } from "./cards/IsBlankCard";
 import {
 	andDefault,
@@ -279,12 +282,15 @@ export function globalPlaceholderTruth(ctx: PredicateEditContext): boolean {
  */
 /** The kinds a condition position renders as a card: every condition arm,
  * and `if` whose branches are conditions ("Depends on a condition"). */
-export type PredicateCardKind = ConditionArm["kind"] | "if";
+export type PredicateCardKind = ConditionArm["kind"] | "if" | "call";
 
 export function isPredicateCardValue(
 	value: Expression,
 ): value is ExpressionOfKind<PredicateCardKind> {
-	return Object.hasOwn(predicateCardSchemas, value.kind);
+	return (
+		Object.hasOwn(predicateCardSchemas, value.kind) &&
+		(value.kind !== "call" || isAnsweredCall(value))
+	);
 }
 
 export const CONDITION_CHOICE_UNAVAILABLE_REASON =
@@ -618,6 +624,21 @@ export const predicateCardSchemas: {
 		component: IsBlankCard,
 		defaultValue: isBlankDefault,
 		applicable: hasComparableSubject,
+	},
+
+	// ── Answered ─────────────────────────────────────────────────────
+	call: {
+		kind: "call",
+		label: "Is answered",
+		icon: tablerCircleCheck,
+		description: "The worker answered a question of this form",
+		component: IsAnsweredCard,
+		defaultValue: isAnsweredDefault,
+		// A case change's condition alone admits it: the slot's verdict on a
+		// fresh one decides, as for a choice between conditions.
+		applicable: (ctx) =>
+			(ctx.formFields?.length ?? 0) > 0 &&
+			expressionEditVerdict(isAnsweredDefault(ctx), ctx.expressionContext).ok,
 	},
 
 	// ── Pattern ──────────────────────────────────────────────────────

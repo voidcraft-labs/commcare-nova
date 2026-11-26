@@ -1117,7 +1117,10 @@ means the custom match), so all three open the same full-width
 read/write pair per slot). That canvas passes `patternMatching` for the two
 device-evaluated slots, which is the only place the **matches a pattern** verb
 (`MatchesPatternCard`, Java regex, unanchored) is offered; everywhere else the
-verb menu shows it disabled with the reason. **Add information is always chooser-first on both display
+verb menu shows it disabled with the reason. A case change's condition holds
+**is answered** (`IsAnsweredCard`, `answeredCondition.ts`: `boolean(...)` of one
+form answer), the one verb the menu lists only where its schema applies
+(`offeredOnlyWhereApplicable`), since no other slot admits it. **Add information is always chooser-first on both display
 screens**: it semantically mixes saved display setups absent from this screen
 with case properties that have no display definition, never exposes “hidden”
 as a category, and never guesses the next property. App-authored information

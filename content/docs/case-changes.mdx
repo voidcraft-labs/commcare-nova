@@ -260,10 +260,11 @@ and the choice can't be removed while the condition compares with it.
 
 A condition can also be a yes or no answer on its own. A hidden value calculated
 as a condition, such as “a note was given,” can decide whether a referral opens,
-with no comparison beside it. Any other answer needs a comparison, or
-`boolean(...)` around it to say you mean "answered at all": a text or choice
-answer of `0`, or the text `false`, still counts as answered, while a blank
-answer, or a number question answered `0`, counts as not. An app brought in from CommCare HQ whose case change
+with no comparison beside it. Any other answer needs a comparison, or **is
+answered** beside the question in the condition editor (`boolean(...)` around it
+in chat) to say you mean "answered at all": a text or choice answer of `0`, or
+the text `false`, still counts as answered, while a blank answer, or a number
+question answered `0`, counts as not. An app brought in from CommCare HQ whose case change
 runs when a question "is true" comes in this way.
 
 A number and the text of a number compare as people expect. A choice whose
