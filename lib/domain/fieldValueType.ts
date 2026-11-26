@@ -40,3 +40,26 @@ export function fieldValueType(
 		? ("datetime" as const)
 		: undefined;
 }
+
+/**
+ * Whether one write of `field`'s answer saves a date and time's moment: the
+ * field's value type is a date and time and the property the write saves to
+ * is not a `date`. Such a write reads the answer's moment as text
+ * (`commcare/xform/datetimeCaseValue.ts`, the `nova_datetime_` sibling); a
+ * date-and-time question's answer saved to a `date` property is saved as it
+ * is, which CommCare keeps as its day (`ruleSets.ts::isAnswerWriteAssignable`).
+ */
+export function writesMoment(
+	field: Field,
+	caseTypes: readonly CaseType[],
+	writes: readonly Pick<FieldCaseWriteView, "caseType" | "property">[],
+	write: Pick<FieldCaseWriteView, "caseType" | "property">,
+): boolean {
+	if (fieldValueType(field, caseTypes, writes) !== "datetime") return false;
+	const written = caseTypes
+		.find((type) => type.name === write.caseType)
+		?.properties.find(
+			(property) => property.name === write.property,
+		)?.data_type;
+	return written !== "date";
+}

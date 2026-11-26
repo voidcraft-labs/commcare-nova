@@ -21,7 +21,7 @@ import { HQ_CASE_TAG_PATTERN } from "../advancedTags";
 import { compileCcz } from "../compiler";
 import { XML_ELEMENT_NAME_REGEX } from "../constants";
 import { expandDoc } from "../expander";
-import type { HqAdvancedForm, HqForm } from "../types";
+import type { HqAnyForm } from "../types";
 import { parseXml } from "../xmlParse";
 import { checkCompilerEvidence } from "./compilerEvidence";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
@@ -55,12 +55,8 @@ function roots(xml: string): Element[] {
 	return parseXml(xml).children.filter(isTag);
 }
 
-function hqForms(
-	hq: ReturnType<typeof expandDoc>,
-): (HqForm | HqAdvancedForm)[] {
-	return hq.modules.flatMap(
-		(module): (HqForm | HqAdvancedForm)[] => module.forms,
-	);
+function hqForms(hq: ReturnType<typeof expandDoc>): HqAnyForm[] {
+	return hq.modules.flatMap((module): HqAnyForm[] => module.forms);
 }
 
 describe("names derived from a case type", () => {

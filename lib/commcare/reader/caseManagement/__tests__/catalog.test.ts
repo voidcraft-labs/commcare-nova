@@ -448,6 +448,7 @@ describe("the writers of one property", () => {
 				| "text"
 				| "date"
 				| "datetime"
+				| "geopoint"
 				| "single_select"
 				| "multi_select";
 			property: string;
@@ -525,12 +526,57 @@ describe("the writers of one property", () => {
 		expect(typeOf("level")).toBe("text");
 	});
 
-	it("holds writers that agree on no one type as text where text holds each, a whole number with text and a number with a date, with no finding", async () => {
+	it("holds a single choice and a multiple choice writer as a multiple choice, its choices merged in writer order, with no finding", async () => {
+		// One choice is a list holding it alone: a device stores both as their
+		// values' text, which a several-choice question reads token by token.
+		const doc = writers([
+			{ kind: "single_select", property: "level" },
+			{ kind: "multi_select", property: "level" },
+		]);
+		const second = Object.values(doc.fields).find(
+			(field) => field.id === "answer_2",
+		);
+		if (
+			second?.kind !== "multi_select" ||
+			second.optionsSource?.kind !== "inline"
+		)
+			throw new Error("The second writer is a several-choice question.");
+		second.optionsSource.options = [
+			{
+				value: "well",
+				label: proseText("Fine"),
+				uuid: testUuid("writer-well-again"),
+			},
+			{ value: "ill", label: proseText("Ill"), uuid: testUuid("writer-ill") },
+		];
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const reading = await readMenusOf(doc);
+		expect(reading.findings).toEqual([]);
+		if (reading.doc === undefined)
+			throw new Error("The writers read into a document.");
+		const level = effectiveCaseTypes(reading.doc)
+			.find((type) => type.name === "patient")
+			?.properties.find((one) => one.name === "level");
+		expect(level?.data_type).toBe("multi_select");
+		expect(
+			reading.doc.caseTypes
+				?.find((type) => type.name === "patient")
+				?.properties.find((one) => one.name === "level")
+				?.options?.map((option) => [option.value, option.label]),
+		).toEqual([
+			["well", proseText("Well")],
+			["ill", proseText("Ill")],
+		]);
+	});
+
+	it("holds writers that agree on no one type as text where text holds each, a whole number with text, a number with a date and a location with text, with no finding", async () => {
 		const doc = writers([
 			{ kind: "int", property: "weight" },
 			{ kind: "text", property: "weight" },
 			{ kind: "decimal", property: "harvest" },
 			{ kind: "date", property: "harvest" },
+			{ kind: "geopoint", property: "spot" },
+			{ kind: "text", property: "spot" },
 		]);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const reading = await readMenusOf(doc);
@@ -544,9 +590,10 @@ describe("the writers of one property", () => {
 			patient?.properties.find((one) => one.name === name)?.data_type;
 		expect(typeOf("weight")).toBe("text");
 		expect(typeOf("harvest")).toBe("text");
+		expect(typeOf("spot")).toBe("text");
 	});
 
-	it("raises the row for a pair no one stored type joins and text does not hold: a single with a multiple choice, and a number with a date and time", async () => {
+	it("raises the row for a pair no one stored type joins and text does not hold: a number with a date and time", async () => {
 		const doc = writers([
 			{ kind: "single_select", property: "level" },
 			{ kind: "multi_select", property: "level" },
@@ -554,15 +601,14 @@ describe("the writers of one property", () => {
 			{ kind: "datetime", property: "weight" },
 		]);
 		const reading = await readMenusOf(doc);
-		expect(writerFindings(reading).sort()).toEqual([
+		expect(writerFindings(reading)).toEqual([
 			"forms-and-case-writes/any-other-mixed-writer-pair",
-			"forms-and-case-writes/writers-single-select-multi-select",
 		]);
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
 				.filter((error) => error.code === "FIELD_KIND_WRITERS_DISAGREE")
 				.map((error) => error.details?.property),
-		).toEqual(["level", "level", "weight", "weight"]);
+		).toEqual(["weight", "weight"]);
 	});
 
 	it("raises the row where one Hidden Value's results agree on no type text holds, as the gate refuses it", async () => {

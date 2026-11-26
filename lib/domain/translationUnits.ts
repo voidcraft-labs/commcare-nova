@@ -57,6 +57,7 @@ export const translationUnitRoles = [
 	"module-name",
 	"form-name",
 	"menu-badge",
+	"form-submit-label",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"field-label",
@@ -703,6 +704,18 @@ export function collectTranslationUnits(
 						source: form.badge.text,
 						owner: { kind: "form", moduleUuid, formUuid },
 						breadcrumb: [...moduleBreadcrumb, form.name, "Badge"],
+						context: { moduleName: module.name, formName: form.name },
+					}),
+				);
+			if (form.submitLabel !== undefined)
+				out.push(
+					unit({
+						id: makeTranslationUnitId("form", formUuid, "submit-label"),
+						valueKind: "text",
+						role: "form-submit-label",
+						source: form.submitLabel.text ?? "Submit",
+						owner: { kind: "form", moduleUuid, formUuid },
+						breadcrumb: [...moduleBreadcrumb, form.name, "Submit button"],
 						context: { moduleName: module.name, formName: form.name },
 					}),
 				);

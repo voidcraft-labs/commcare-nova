@@ -12,7 +12,8 @@ anything else, null included.
 
 The rule makes a null ``operator`` ``=`` on every condition of a form's
 actions (each action's ``condition`` and ``close_condition``, its subcases'
-included).
+included), and of a shadow form's own ``extra_actions``, which the same page
+saves and the same reader reads once ``ShadowForm._merge_actions`` merges them.
 """
 
 from __future__ import annotations
@@ -37,9 +38,10 @@ def _conditions(value):
 def normalize(app):
     for module in modules(app):
         for form in forms(module):
-            for condition in _conditions(form.get("actions")):
-                if "operator" in condition and condition["operator"] is None:
-                    condition["operator"] = "="
+            for key in ("actions", "extra_actions"):
+                for condition in _conditions(form.get(key)):
+                    if "operator" in condition and condition["operator"] is None:
+                        condition["operator"] = "="
     return app
 
 

@@ -97,7 +97,7 @@ import {
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { writesMoment } from "@/lib/domain/fieldValueType";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
 import { planFormCaseWire } from "../casePlacementPlan";
@@ -286,10 +286,15 @@ export interface GeneratedNodePlan {
 	readonly nodes: readonly GeneratedNode[];
 }
 
-/** A write to `external_id`, the one fixed text column an operation's
- * writes reach: its value is normalized and held by the text guard. */
+/** A write to a fixed text column an operation's writes reach: `external_id`,
+ * `location_id`, and `hq_user_id`, which HQ copies into the external id. Its
+ * value is normalized and held by the text guard. */
 export function writesFixedTextColumn(write: { property: string }): boolean {
-	return write.property === "external_id";
+	return (
+		write.property === "external_id" ||
+		write.property === "location_id" ||
+		write.property === "hq_user_id"
+	);
 }
 
 /**
@@ -589,9 +594,11 @@ function allocateGeneratedNodes(
 					field.uuid,
 					scope.allocate(generatedBaseName("url", field.id)),
 				);
+			const caseTypes = effectiveCaseTypes(doc);
 			if (
-				views.some((view) => !view.link) &&
-				fieldValueType(field, effectiveCaseTypes(doc), views) === "datetime"
+				views.some(
+					(view) => !view.link && writesMoment(field, caseTypes, views, view),
+				)
 			)
 				record(
 					"datetime",
