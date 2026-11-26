@@ -671,6 +671,10 @@ class Walk:
                     refused.add(str(pending["ix"]))
                 else:
                     refused.discard(str(pending["ix"]))
+                if kind is None and value is not CLEARED and answered.get("status") != "accepted":
+                    # Formplayer took no answer: the client keeps what was typed in its widget (still dirty) and
+                    # submits it unless Formplayer refused it as invalid.
+                    held[str(pending["ix"])] = value
                 if answered.get("status") == "accepted":
                     held[str(pending["ix"])] = _held_after(answered.get("tree"), pending["ix"], value, kind, held)
                     tree = self._reconcile(

@@ -288,6 +288,22 @@ def test_the_walk_submits_what_the_client_holds_where_formplayer_handed_back_ano
     assert walk_module.submission(tree, set())["answers"] == {"0": None}
 
 
+def test_the_walk_holds_what_the_client_typed_where_formplayer_took_no_answer():
+    """Where Formplayer answers a question's answer with neither acceptance nor a validation error, the client
+    keeps what the worker typed and submits it as valid. Plausible failure: a walk that submits the question's
+    earlier answer, so its submission differs from the client's (``SubmittedOtherwise``)."""
+    from types import SimpleNamespace
+
+    note = {"type": "question", "ix": "0", "datatype": "str", "answer": None}
+    walk = walk_module.Walk(None, None, "domain", "app")
+    _, final, refused, _, held = walk._fill(
+        SimpleNamespace(answer=lambda session, ix, value: {"status": "error"}), {"session_id": "form", "tree": [note]}
+    )
+    typed = walk.answer_table["dataTypes"]["text"][: walk_module.MAX_TRIES][-1]
+    assert refused == set()
+    assert walk_module.submission(final, refused, held)["answers"] == {"0": typed}
+
+
 def test_a_question_on_a_number_keypad_is_given_what_a_worker_types_on_it():
     """In Web Apps the client draws its number keypad box (``PhoneEntry``) for a text question whose style holds
     ``numeric``, unless it also holds ``address``, and sends Formplayer only an answer its pattern takes, so a worker
