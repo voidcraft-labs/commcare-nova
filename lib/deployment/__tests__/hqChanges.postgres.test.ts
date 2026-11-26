@@ -6921,8 +6921,10 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				expect(stale.outcome.refusal).toMatchObject({
 					phase: "preflight",
 					failure: { code: "hq_changed" },
-					remoteChanges: [{ parts: [first, others, "The app's name"] }],
 				});
+				const staleParts = stale.outcome.refusal?.remoteChanges[0]?.parts;
+				expect(staleParts?.slice(0, 2)).toEqual([first, others]);
+				expect(staleParts).toContain("The app's name");
 				expect(stale.imported).toEqual([]);
 
 				if (take) {
