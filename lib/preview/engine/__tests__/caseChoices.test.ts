@@ -100,7 +100,7 @@ describe("case choices in the captured device world", () => {
 				}),
 			);
 			const rows = [
-				choiceRow("old-service-key", "former", "Former service"),
+				choiceRow("old service key", "former", "Former service"),
 				{
 					...choiceRow("closed-host-key", "former", "Closed host"),
 					status: "closed" as const,
@@ -136,6 +136,16 @@ describe("case choices in the captured device world", () => {
 						value: row.case_id,
 						label: row.case_name,
 					})),
+				);
+				if (stagedAsync)
+					await engine.setValueAsync(
+						"/data/case_choice",
+						rows[0].case_id,
+						evaluateAsync,
+					);
+				else engine.setValue("/data/case_choice", rows[0].case_id);
+				expect(engine.getState("/data/case_choice").value).toBe(
+					"old service key",
 				);
 			} finally {
 				runtime.dispose();
