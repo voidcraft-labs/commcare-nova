@@ -3,6 +3,7 @@ import { workerWording } from "@/lib/doc/localizationWorkspace";
 import {
 	assignedLocationUuids,
 	caseSelectionCardinality,
+	effectiveCaseSearchConfig,
 	orderedColumns,
 	orderedOrganizationLevels,
 	type Uuid,
