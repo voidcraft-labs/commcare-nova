@@ -747,10 +747,16 @@ async function imageVerdict(
 		);
 	}
 	/* Only sharp's own failure is the picture's: a failed read of the body, or a
-	 * refused charge for holding it whole, is thrown as itself. */
+	 * refused charge for holding it whole, is thrown as itself. sharp's own
+	 * pixel limit (268,402,689 by default) is off: `metadata` reads the header
+	 * and decodes no pixel, and the bound a picture is held to is CommCare
+	 * HQ's (`HQ_PICTURE_MAX_PIXELS`), which names its size. */
 	const parsed = await body.withWhole(async (bytes) => {
 		try {
-			return { kind: "read", meta: await sharp(bytes).metadata() } as const;
+			return {
+				kind: "read",
+				meta: await sharp(bytes, { limitInputPixels: false }).metadata(),
+			} as const;
 		} catch (error) {
 			return { kind: "failed", error } as const;
 		}

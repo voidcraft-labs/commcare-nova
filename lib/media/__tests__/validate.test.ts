@@ -375,6 +375,33 @@ describe("validateMediaBytes — rejection paths", () => {
 		});
 	});
 
+	it("names a picture past sharp's own pixel limit by its size too", async () => {
+		/* 16,400 × 16,400 is 268,960,000 pixels, past sharp's default
+		 * `limitInputPixels` (0x3FFF², 268,402,689), which would refuse it as an
+		 * unparseable file before CommCare HQ's bound was ever asked. */
+		expect(16_400 * 16_400).toBeGreaterThan(0x3fff ** 2);
+		const past = grayPng(16_400, 16_400);
+		expect(past.length).toBeLessThan(ASSET_SIZE_CAPS_BYTES.image);
+		expect(
+			await validateMediaBytes({
+				bytes: past,
+				claimedMimeType: "image/png",
+				claimedSizeBytes: past.length,
+				originalFilename: "map.png",
+			}),
+		).toEqual({
+			ok: false,
+			reason: "picture-too-many-pixels",
+			message:
+				"`map.png` is 16,400 × 16,400 pixels, and CommCare HQ stores no picture of more than 178,956,970 pixels. Saving it at a smaller size fixes that.",
+		});
+		expect(await validateSniffedMediaBytes(past)).toMatchObject({
+			ok: false,
+			reason: "picture-too-many-pixels",
+			sniffedMime: "image/png",
+		});
+	});
+
 	it("rejects when actual byte length disagrees with the claim", async () => {
 		const bytes = tinyPng;
 		const result = await validateMediaBytes({
