@@ -67,7 +67,9 @@ export function projectWorkerModule(
 				input.hint = word(input.uuid, "promptHint", input.hint);
 			if (input.required) {
 				const message =
-					source?.kind !== "hidden" && source?.required?.message === undefined
+					source?.kind !== "hidden" &&
+					source?.required?.message === undefined &&
+					source?.required?.noMessage !== true
 						? fallback(
 								makeTranslationUnitId("system", "search-required", "default"),
 								"searchRequired",
@@ -76,7 +78,7 @@ export function projectWorkerModule(
 				if (message !== undefined)
 					input.required.message = word(input.uuid, "promptRequired", message);
 			}
-			if (input.validation)
+			if (input.validation?.message !== undefined)
 				input.validation.message = word(
 					input.uuid,
 					"promptValidation",

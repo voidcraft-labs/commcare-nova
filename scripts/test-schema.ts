@@ -63,6 +63,7 @@ import {
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../lib/agent/tools/case-list-config/addSearchInputs";
 import { configureCaseListTool } from "../lib/agent/tools/case-list-config/configureCaseList";
+import { editSearchFilterTool } from "../lib/agent/tools/case-list-config/editSearchFilter";
 import { removeCaseListColumnTool } from "../lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "../lib/agent/tools/case-list-config/reorderCaseListColumns";
@@ -156,7 +157,26 @@ interface SchemaTest {
 	readonly prompt: string;
 }
 
+import {
+	getPreviewSearchSettingsTool,
+	setPreviewSearchSettingsTool,
+} from "../lib/agent/tools/previewSearchSettings";
+
 const SCHEMA_TESTS: readonly SchemaTest[] = [
+	{
+		name: "getPreviewSearchSettings",
+		description: getPreviewSearchSettingsTool.description,
+		schema: getPreviewSearchSettingsTool.inputSchema,
+		prompt:
+			"Use getPreviewSearchSettings to read the first page of this app's available Preview destinations.",
+	},
+	{
+		name: "setPreviewSearchSettings",
+		description: setPreviewSearchSettingsTool.description,
+		schema: setPreviewSearchSettingsTool.inputSchema,
+		prompt:
+			"Use setPreviewSearchSettings for the local destination at revision 0. Change only the time zone to UTC, keeping existing matching rules and result limit.",
+	},
 	{
 		name: "evaluateForm",
 		description: evaluateFormTool.description,
@@ -380,6 +400,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: reorderCaseListColumnsTool.inputSchema,
 		prompt:
 			"Use reorderCaseListColumns with moduleUuid 11111111-1111-4111-8111-111111111111 and columnUuids [44444444-4444-4444-8444-444444444444, 33333333-3333-4333-8333-333333333333].",
+	},
+	{
+		name: "editSearchFilter",
+		description: editSearchFilterTool.description,
+		schema: editSearchFilterTool.inputSchema,
+		prompt:
+			"Add a search filter for module 11111111-1111-4111-8111-111111111111. Match the record owner with the constant text worker-a.",
 	},
 	{
 		name: "setCaseListFilter",

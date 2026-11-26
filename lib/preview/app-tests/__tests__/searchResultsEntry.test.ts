@@ -64,6 +64,16 @@ function journey() {
 			throw new Error("The search read is not grouped.");
 		},
 		readCaseDatabasePatch: async () => ({ rows: [], indices: [] }),
+		// The server's result instance: the search's records, read once a search.
+		readSearchResultInstance: async () => {
+			searchReads += 1;
+			const rows = population.map((row) => ({ ...row }));
+			return {
+				rows,
+				indices: [],
+				primaryIds: rows.map((row) => row.case_id),
+			};
+		},
 	};
 	const language = resolveAppLanguage(doc.localization, undefined);
 	const context = {

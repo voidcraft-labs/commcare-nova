@@ -237,3 +237,10 @@ export function projectFormExpression(
 			}
 		: projection;
 }
+
+// The paired-date editor and the shared addition/editing tools use the same
+// expression for dates selected by an author.
+export {
+	fixedSearchRangeDates,
+	fixedSearchRangeExpression,
+} from "@/lib/commcare/searchRangeStartingValue";

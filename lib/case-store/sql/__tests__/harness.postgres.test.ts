@@ -96,6 +96,10 @@ describe("case-store harness — schema", () => {
 				"external_id",
 				"parent_case_id",
 				"properties",
+				// The record's link history: whether every link change since it was
+				// created is known, and the links known cleared.
+				"index_history_complete",
+				"cleared_index_identifiers",
 			]),
 		);
 		expect(columnsByTable.get("case_type_schemas")).toEqual(

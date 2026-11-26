@@ -11,6 +11,7 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { plainColumn, proseText, simpleSearchInputDef } from "@/lib/domain";
+import { eq, input, literal } from "@/lib/domain/expression";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import {
 	previewAsMe,
@@ -41,6 +42,18 @@ const platform =
 const platformRules =
 	platform === undefined ? undefined : previewPlatformRules(platform);
 
+const rangeSpelling = new URLSearchParams(window.location.search).get("range");
+/* `?blank` lets the name field search for blank too. */
+const searchesForBlank = new URLSearchParams(window.location.search).has(
+	"blank",
+);
+/* `?hidden` adds a region field Web Apps does not draw, starting at north. */
+const hiddenField = new URLSearchParams(window.location.search).has("hidden");
+/* `?unmessaged` requires the name with no message and checks the barcode with
+ * no message of its own. */
+const unmessaged = new URLSearchParams(window.location.search).has(
+	"unmessaged",
+);
 const inputs = [
 	simpleSearchInputDef(
 		testUuid("search-barcode"),
@@ -48,6 +61,13 @@ const inputs = [
 		"Barcode",
 		"barcode",
 		"barcode",
+		unmessaged
+			? {
+					validation: {
+						rule: eq(input(testUuid("search-barcode")), literal("123")),
+					},
+				}
+			: undefined,
 	),
 	simpleSearchInputDef(
 		testUuid("search-name"),
@@ -55,7 +75,11 @@ const inputs = [
 		"Patient name",
 		"text",
 		"case_name",
-		platform === undefined ? undefined : { hint: "First or last name" },
+		{
+			...(platform !== undefined && { hint: "First or last name" }),
+			...(searchesForBlank && { allowBlank: true as const }),
+			...(unmessaged && { required: { noMessage: true as const } }),
+		},
 	),
 	simpleSearchInputDef(
 		testUuid("search-period"),
@@ -63,7 +87,33 @@ const inputs = [
 		"Registered",
 		"date-range",
 		"registered",
+		rangeSpelling
+			? {
+					default: {
+						kind: "term",
+						term: { kind: "literal", value: rangeSpelling },
+					},
+				}
+			: undefined,
 	),
+	...(hiddenField
+		? [
+				simpleSearchInputDef(
+					testUuid("search-region"),
+					"region",
+					"Region",
+					"text",
+					"region",
+					{
+						hidden: true,
+						default: {
+							kind: "term",
+							term: { kind: "literal", value: "north" },
+						},
+					},
+				),
+			]
+		: []),
 ];
 const caseType = {
 	name: "patient",
@@ -79,6 +129,7 @@ const caseType = {
 			label: proseText("Registered"),
 			data_type: "date" as const,
 		},
+		{ name: "region", label: proseText("Region"), data_type: "text" as const },
 	],
 };
 const moduleUuid = testUuid("native-search-module");

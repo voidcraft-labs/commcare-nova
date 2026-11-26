@@ -181,7 +181,10 @@ export function searchInputRefUsesWhenInputPresent(
 		// construction, before any answer exists, so an input ref reads
 		// blank whatever envelope surrounds it.
 		if (input.kind === "hidden") {
-			const refs = findBareInputRefs(input.value, "forbids-input-ref");
+			const refs =
+				input.value === undefined
+					? []
+					: findBareInputRefs(input.value, "forbids-input-ref");
 			for (const ref of refs) {
 				errors.push(
 					buildError({

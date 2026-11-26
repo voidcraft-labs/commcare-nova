@@ -23,7 +23,9 @@ import type {
 	Expression,
 	FormLinkTarget,
 	Module,
+	SearchFilterTarget,
 	SearchInputDef,
+	SearchRequestOrder,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -216,7 +218,10 @@ function summarizeCaseList(mod: Module): string | undefined {
 		config.columns.length === 0 &&
 		config.searchInputs.length === 0 &&
 		config.selection === undefined &&
-		!config.calculatedSorts?.length
+		!config.calculatedSorts?.length &&
+		config.selection === undefined &&
+		config.searchFilters === undefined &&
+		config.searchCondition === undefined
 	) {
 		return undefined;
 	}
@@ -379,10 +384,69 @@ function summarizeCaseList(mod: Module): string | undefined {
 			lines.push(`        - ${formatSearchInput(input)}`);
 		}
 	}
-	if (config.filter !== undefined) {
-		lines.push(`      filter: (predicate kind: ${config.filter.kind})`);
+	// With no stored search condition the one condition is both surfaces,
+	// and the line stays as every existing app's summary has it.
+	if (config.searchCondition === undefined) {
+		if (config.filter !== undefined)
+			lines.push(`      filter: (predicate kind: ${config.filter.kind})`);
+	} else {
+		if (config.filter !== undefined)
+			lines.push(
+				`      list_filter (device list only): (predicate kind: ${config.filter.kind})`,
+			);
+		lines.push(
+			`      search_condition (online search only): ${
+				config.searchCondition.kind === "match-all"
+					? "all records"
+					: `(predicate kind: ${config.searchCondition.kind})`
+			}`,
+		);
+	}
+	if (config.searchFilters !== undefined) {
+		lines.push("      search_filters:");
+		for (const filter of config.searchFilters)
+			lines.push(
+				`        - ${filter.uuid}: ${
+					"target" in filter
+						? searchFilterTargetText(filter.target)
+						: `order ${filter.order.map(orderTermText).join(", then ")}`
+				}`,
+			);
 	}
 	return lines.join("\n");
+}
+
+/** One term of a search's server order, as the SA reads it. */
+function orderTermText(term: SearchRequestOrder[number]): string {
+	return `${term.property} as ${term.comparison}, ${term.direction}`;
+}
+
+/** What one search filter matches, as the SA reads it. */
+function searchFilterTargetText(target: SearchFilterTarget): string {
+	const through =
+		"ancestors" in target && target.ancestors !== undefined
+			? ` of the ${target.ancestors.map((step) => step.identifier).join("'s ")} case`
+			: "";
+	switch (target.kind) {
+		case "property":
+			return `property ${target.property}${through}`;
+		case "record-id":
+			return "the record's id";
+		case "record-name":
+			return `the record's name${through}`;
+		case "attribute":
+			return `the record's ${target.attribute}${through}`;
+		case "owner":
+			return "the record's owner";
+		case "excluded-owners":
+			return target.placement === "search-setting"
+				? "owners left out of the online matches (search setting)"
+				: "owners left out of the online matches (default filter)";
+		case "project-space":
+			return "the project space";
+		case "link":
+			return `the record linked as ${target.identifier}`;
+	}
 }
 
 /**
@@ -432,12 +496,12 @@ function formatColumn(col: Column, place: string): string {
 /**
  * One-line search-input summary — uuid + kind + name + label, then the
  * prompt slots a visible input carries as bare markers, so the SA can see
- * that a hint, a required condition, a check, or lookup choices exist
- * without re-reading the module.
+ * that a hint, a required condition, a check, lookup choices, or a search
+ * for blank exist without re-reading the module.
  */
 function formatSearchInput(input: SearchInputDef): string {
 	if (input.kind === "hidden") {
-		return `${input.uuid}: (hidden) ${input.name} (system value, "${input.label}")`;
+		return `${input.uuid}: (hidden) ${input.name} (${input.value === undefined ? "no value" : "system value"}, "${input.label}")`;
 	}
 	const body =
 		input.kind === "simple"
@@ -458,6 +522,8 @@ function formatSearchInput(input: SearchInputDef): string {
 				: `lookup choices sorted by column ${input.options.sortColumnId}`,
 		);
 	}
+	if (input.allowBlank === true) markers.push("finds blank");
+	if (input.hidden === true) markers.push("hidden in Web Apps");
 	const suffix = markers.length === 0 ? "" : ` [${markers.join(", ")}]`;
 	return `${input.uuid}: ${body}${suffix}`;
 }
@@ -472,11 +538,12 @@ function formatSearchInput(input: SearchInputDef): string {
  *
  * Output shape:
  *
- *   `case_search: display={titleSet,subtitleSet,…} advanced={excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst>[, forms read it]`
+ *   `case_search: display={titleSet,subtitleSet,…} advanced={requestOrder, excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst|listFirstWithDefaultResults>[, forms read it]`
  *
  * Display cluster summary: comma-separated list of the slot names that
  * are non-undefined; `none` when every slot is cleared. Advanced
- * cluster summary: the excluded-owners filter, or `none`. `workflow=`
+ * cluster summary: the server order and the excluded-owners rule that are
+ * set, or `none`. `workflow=`
  * is what the menu opens on, as `setCaseSearchAdvanced.searchWorkflow`
  * names it, followed by `forms read it` when the menu's forms read the
  * search. The one-liner stays at a fixed width to keep the prompt cheap.
@@ -499,11 +566,12 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 		setDisplaySlots.length === 0
 			? "display={none}"
 			: `display={${setDisplaySlots.join(", ")}}`;
-	const advancedSummary =
-		config.excludedOwnerIds === undefined
-			? "advanced={none}"
-			: "advanced={excludedOwnerIds}";
-	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}`;
+	const advancedSlots = [
+		...(config.requestOrder !== undefined ? ["requestOrder"] : []),
+		...(config.excludedOwnerIds !== undefined ? ["excludedOwnerIds"] : []),
+	];
+	const advancedSummary = `advanced={${advancedSlots.length === 0 ? "none" : advancedSlots.join(", ")}}`;
+	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}${config.searchOnClear ? ", clearing runs a new search on desktop Web Apps" : ""}`;
 	return `    case_search: ${displaySummary} ${advancedSummary} ${workflowSummary}`;
 }
 

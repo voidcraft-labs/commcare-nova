@@ -37,6 +37,53 @@ describe("setCaseListFilter", () => {
 		expect(finalConfig?.filter).toEqual(filter);
 	});
 
+	it("edits and clears just the chosen surface and enables a new search", async () => {
+		const h = fixtureWithConfig();
+		const filter = eq(prop("patient", "case_name"), literal("Ada"));
+		const run = async (
+			surface: "list" | "search",
+			value: Expression | null,
+		) => {
+			const result = await h.runTool(setCaseListFilterTool, {
+				moduleUuid: MOD_A,
+				surface,
+				filter: value,
+			});
+			if ("error" in result.result) throw new Error(result.result.error);
+			return h.currentDoc().modules[MOD_A].caseListConfig;
+		};
+		expect(await run("search", filter)).toHaveProperty(
+			"searchCondition",
+			filter,
+		);
+		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toEqual({});
+		expect(await run("list", filter)).not.toHaveProperty("searchCondition");
+		expect(await run("search", null)).toMatchObject({
+			filter,
+			searchCondition: { kind: "match-all" },
+		});
+		expect(await run("list", null)).not.toHaveProperty("searchCondition");
+	});
+
+	it("edits the one condition of a menu with no search, storing no search condition", async () => {
+		const h = fixtureWithConfig();
+		const before = eq(prop("patient", "case_name"), literal("Ada"));
+		const after = eq(prop("patient", "case_name"), literal("Bo"));
+		for (const filter of [before, after]) {
+			const result = await h.runTool(setCaseListFilterTool, {
+				moduleUuid: MOD_A,
+				surface: "list",
+				filter,
+			});
+			if ("error" in result.result) throw new Error(result.result.error);
+		}
+		const mod = h.currentDoc().modules[MOD_A];
+		expect(mod.caseSearchConfig).toBeUndefined();
+		// Turning search on later projects the list's current condition.
+		expect(mod.caseListConfig).toHaveProperty("filter", after);
+		expect(mod.caseListConfig).not.toHaveProperty("searchCondition");
+	});
+
 	it("rejects a third value for the built-in case status", async () => {
 		const h = fixtureWithConfig();
 		const before = structuredClone(h.currentDoc());

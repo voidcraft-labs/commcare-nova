@@ -42,6 +42,7 @@
  */
 
 import { z } from "zod";
+import { fixedSearchRangeExpression } from "@/lib/commcare/searchRangeStartingValue";
 import { RESERVED_SEARCH_INPUT_NAMES } from "@/lib/commcare/suite/case-search/reservedInputNames";
 import { columnNotOnListMessage } from "@/lib/commcare/validator/rules/case-list/columnNotOnList";
 import {
@@ -61,6 +62,7 @@ import {
 	type SearchInputType,
 	searchInputRequiredSchema,
 	searchInputValidationSchema,
+	searchStartingDatesSchema,
 	simpleDateRangeSearchInputSchema,
 	simpleScalarSearchInputSchema,
 	simpleSelectSearchInputSchema,
@@ -577,10 +579,11 @@ function refineSearchInputBoundary(
 				required?: { when?: Expression };
 				validation?: { rule: Expression };
 		  }
-		| { kind: "hidden"; value: Expression },
+		| { kind: "hidden"; value?: Expression },
 	ctx: z.RefinementCtx,
 ): void {
 	if (input.kind === "hidden") {
+		if (input.value === undefined) return;
 		if (expressionReadsCaseData(input.value)) {
 			ctx.addIssue({
 				code: "custom",
@@ -631,6 +634,19 @@ function refineSearchInputBoundary(
 	}
 }
 
+/** What a search for blank does on each kind of visible field. A simple field
+ * sends the blank beside the answer to CommCare HQ's own match; an advanced
+ * field's condition reads the answer as the device holds it, the blank joined
+ * before it (`#,#answer`, or empty with the box alone), and finds nothing
+ * unless it reads that spelling. */
+export const SEARCH_FOR_BLANK_DESCRIPTION =
+	"Web Apps also lets people find cases where this is blank; Android shows the field without the box. Use it on a simple field with exact or range matching (or matching project-space) on its own property under the same name. An advanced field's condition receives the blank joined before the answer (#,#answer, or an empty value when only the box is ticked), so a condition comparing the answer finds nothing; leave it off there unless the condition reads that spelling.";
+
+/** What hiding a field from Web Apps does, and what it can't carry
+ * (`hiddenSearchFieldRefusal`, which the gate enforces). */
+export const HIDDEN_SEARCH_FIELD_DESCRIPTION =
+	"Web Apps doesn't show the field and searches with its starting value as it stands; Android still shows it, where people can change it. A hidden field carries no hint, requirement, check or allowBlank, and a hidden text field matches its own property by its own name exactly (or matching project-space). For a value the search never matches, add a hidden value instead.";
+
 /**
  * The three prompt slots every visible arm shares. The descriptions are
  * shared by all visible input kinds. The tool description explains their
@@ -644,10 +660,16 @@ const visibleSearchInputSlots = {
 		.describe("Helper text under the input on the Search screen."),
 	required: searchInputRequiredSchema
 		.optional()
-		.describe("`{}` always; `when` conditional on sibling inputs."),
+		.describe(
+			"`{}` always; `when` conditional on sibling inputs. Without `message`, workers read Nova's sentence. `noMessage: true` keeps a field brought in with no message at all: Web Apps then waits for the answer without saying why, so don't set it otherwise.",
+		),
 	validation: searchInputValidationSchema
 		.optional()
-		.describe("One rule a nonblank answer must pass, with its message."),
+		.describe(
+			"One rule a nonblank answer must pass, with its message. Without `message`, workers read CommCare's own 'Sorry, this response is invalid!'.",
+		),
+	allowBlank: z.literal(true).optional().describe(SEARCH_FOR_BLANK_DESCRIPTION),
+	hidden: z.literal(true).optional().describe(HIDDEN_SEARCH_FIELD_DESCRIPTION),
 };
 
 const searchInputUuidSlot = {
@@ -663,6 +685,27 @@ const searchInputUuidSlot = {
  * exact seven final arms to both the SA and MCP surfaces.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
+/** The spelling a date range's calculated starting value must produce. The
+ * runtimes read a starting range only as two dates joined by " to "
+ * (`searchRangeAnswer.ts::startingSearchRange`); the gate checks only that the
+ * slot is text, so the model learns the spelling here. */
+export const STARTING_RANGE_EXAMPLE =
+	"concat(format-date(date-add(today(), -30, 'days'), '%Y-%m-%d'), ' to ', format-date(today(), '%Y-%m-%d'))";
+export const STARTING_RANGE_DESCRIPTION = `Where the range starts: {from, to} with ISO calendar dates, or a text calculation that gives the two dates as YYYY-MM-DD joined by ' to ', such as ${STARTING_RANGE_EXAMPLE} for the last 30 days.`;
+
+/** An author can give the two dates directly. A computed or brought-in
+ * starting value keeps its full device expression. Both write one slot. The
+ * description sits on the union, never on the expression node, so the wire
+ * projection keeps that node a `$ref`. */
+const startingRangeSchema = z
+	.union([
+		valueExpressionInputSchema,
+		searchStartingDatesSchema.transform((dates) =>
+			fixedSearchRangeExpression(dates.from, dates.to),
+		),
+	])
+	.describe(STARTING_RANGE_DESCRIPTION);
+
 export const searchInputDefInputSchema = z
 	.union([
 		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
@@ -671,6 +714,7 @@ export const searchInputDefInputSchema = z
 			default: valueExpressionInputSchema.optional(),
 		}),
 		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 		}),
@@ -686,6 +730,7 @@ export const searchInputDefInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			predicate: predicateInputSchema,
@@ -701,7 +746,7 @@ export const searchInputDefInputSchema = z
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
 			 * `.describe()` here would clone the node past the projection's
 			 * identity map and inline the whole Expression family. */
-			value: valueExpressionInputSchema,
+			value: valueExpressionInputSchema.optional(),
 		}),
 	])
 	.superRefine(refineSearchInputBoundary);
@@ -716,6 +761,7 @@ export const searchInputUpdateInputSchema = z
 			default: valueExpressionInputSchema.optional(),
 		}),
 		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...visibleSearchInputSlots,
 		}),
 		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
@@ -728,6 +774,7 @@ export const searchInputUpdateInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...visibleSearchInputSlots,
 			predicate: predicateInputSchema,
 		}),
@@ -737,7 +784,7 @@ export const searchInputUpdateInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		hiddenSearchInputSchema.omit({ uuid: true }).extend({
-			value: valueExpressionInputSchema,
+			value: valueExpressionInputSchema.optional(),
 		}),
 	])
 	.superRefine(refineSearchInputBoundary);

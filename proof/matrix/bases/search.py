@@ -44,7 +44,7 @@
    date range; and ``district`` choosing from the table ``districts``. Its
    list's filter, ``last_visit <= today()``, is restated by a further row
    whose CSQL calls HQ's own ``today()``, the project space's day, which
-   Nova's publish sends as the worker's day (``search-today-device-day``).
+   Nova keeps on the server independently of the worker's day.
 3. A case list menu "Active clients" of ``client``, its registration form
    deleted (``views/forms.py::delete_form``) and its follow-up holding a
    text question ``check_note``, whose list's filter is
@@ -56,28 +56,22 @@
    and its follow-up holding a text question ``visit_summary``, whose
    Search is inline (``inline_search``, so its forms read the search) with
    no field. Its list's filter, ``standing = 'open'``, is one the search does
-   not restate, which Nova's publish sends with the search
-   (``search-restates-list-filter``), and its one row reads no field and
-   restates no clause of the list's filter, which Nova keeps as one with the
-   list's filter (``search-filter-joined-to-list``). Its case database names a
-   client both ``open`` and in ``north`` (``Base.cases``,
-   ``proof/matrix/seed.py::stated_cases``) beside the generated ones, of
-   which one is in ``north`` and ``active`` and one ``open`` elsewhere: the
-   generation gives each property its values one by one, so without it no
-   case passes both filters, the list is empty on A and B, and no walk
-   reaches the menu's form after its search. HQ's search answers A's request
-   with the two clients in ``north`` and the list keeps the ``open`` one
-   (HQ's build filters the inline search's results with the list's filter,
-   ``suite_xml/sections/entries.py::EntriesHelper.get_datum_meta_module``);
-   on B, whose search restates the list's filter, HQ answers with that one
-   client alone and the joined filter keeps it, so a worker picks the same
-   client on both and fills the same form.
+   not restate. Nova keeps that filter on the device. The case database has a client
+   both open and in north, one north and active, and one open elsewhere. HQ
+   returns the two in north before the inline detail keeps the open client,
+   on both the source and the first publish. The worker opens the retained
+   client and fills the same form.
+5. A referrals menu that searches case attributes, a date, an ancestor and
+   the worker's owner ID. Independent rows use both the matched and excluded
+   prompts. A separate device filter narrows the worker's list after the
+   search returns.
 
 Its configuration is the lane's floor with case search on,
 ``SYNC_SEARCH_CASE_CLAIM``, the flag HQ's Search options stand under,
 ``CASE_SEARCH_ADVANCED``, the flag the date fields, the field HQ does not
 match and the inline search stand under (the gates of their manifest
-entries), and ``LOOKUP_TABLES`` for the table. Web Apps is off, as
+entries), ``CASE_SEARCH_RELATED_LOOKUPS`` for the ancestor filter, and
+``LOOKUP_TABLES`` for the table. Web Apps is off, as
 ``Application.cloudcare_enabled`` defaults; the inline search's forms read
 results that Android cannot fetch, so its preselected declaration is Web Apps
 only and its first publish turns Web Apps on.
@@ -164,7 +158,7 @@ def field(name, label, **settings):
     return {"name": name, "label": label, "hint": "", "appearance": "", "receiver_expression": "", **settings}
 
 
-def save_search(authoring, app_id, menu, *, fields=(), rows=(), **workflow):
+def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), **workflow):
     """The menu's Search saved as the Case List page saves it (``edit_module_detail_screens``, whose
     ``_gather_and_update_search_properties`` builds the menu's ``CaseSearch`` from ``search_properties``): the
     fields, each row as a default filter of ``_xpath_query``, no title and no description, and ``workflow``'s
@@ -173,7 +167,10 @@ def save_search(authoring, app_id, menu, *, fields=(), rows=(), **workflow):
 
     search = {
         "properties": list(fields),
-        "default_properties": [{"property": "_xpath_query", "defaultValue": row} for row in rows],
+        "default_properties": [
+            *({"property": key, "defaultValue": value} for key, value in filters),
+            *({"property": "_xpath_query", "defaultValue": row} for row in rows),
+        ],
         "custom_sort_properties": [],
         "title_label": "",
         "description": "",
@@ -281,6 +278,36 @@ def build(authoring) -> str:
     follow_up_menu(authoring, app_id, 2, "Visits", "visit_summary", "Summarize the visit")
     save_list_filter(authoring, app_id, 2, LIST_FILTER)
     save_search(authoring, app_id, 2, rows=[JOINED_ROW], auto_launch=True, inline_search=True)
+    follow_up_menu(authoring, app_id, 3, "Referrals", "referral_note", "What help did the client receive?")
+    save_list_filter(authoring, app_id, 3, "standing = 'active'")
+
+    def independent_answer(property_name, field_name):
+        before = json.dumps(property_name + " != '")
+        after = json.dumps("'")
+        answer = f"instance('search-input:results')/input/field[@name = '{field_name}']"
+        return f"concat({before}, {answer}, {after})"
+
+    save_search(
+        authoring, app_id, 3,
+        fields=[
+            field("status", "Status from the project space"),
+            field("dob", "Date of birth", appearance="date"),
+            field("village", "Village"),
+            field("omit_code", "Leave out this client code", exclude=True),
+        ],
+        filters=[
+            ("standing", "'active'"),
+            ("parent/district", "'d1'"),
+            ("owner_id", "instance('commcaresession')/session/context/userid"),
+        ],
+        rows=[
+            json.dumps("date_opened > '2020-01-01'"),
+            json.dumps("client_code > 0"),
+            independent_answer("standing", "village"),
+            independent_answer("client_code", "omit_code"),
+        ],
+        auto_launch=True,
+    )
     return app_id
 
 
@@ -288,7 +315,7 @@ BASE = Base(
     id="hq-search",
     build=build,
     configuration=Configuration(
-        flags=frozenset({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM", "SYNC_SEARCH_CASE_CLAIM", "CASE_SEARCH_ADVANCED"}),
+        flags=frozenset({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM", "SYNC_SEARCH_CASE_CLAIM", "CASE_SEARCH_ADVANCED", "CASE_SEARCH_RELATED_LOOKUPS"}),
         privileges=frozenset({"LOOKUP_TABLES"}),
         case_search_enabled=True,
     ),
@@ -312,6 +339,17 @@ BASE = Base(
         "case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
         "case-search/itemset-sort-over-a-lookup-field",
         "case-search/exclude",
+        "case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
+        "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+        "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
+        "case-search/prompt-named-for-a-case-attribute-hq-matches-itself",
+        "case-search/date-prompt-matched-by-hq-s-own-rule",
+        "case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
+        "case-search/xpath-query-row-reading-a-field-hq-also-matches",
+        "case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard",
+        "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
+        "case-search/case-list-filter-clause-the-search-does-not-restate",
+        "case-search/xpath-query-condition-outside-what-nova-types",
         "case-search/several-xpath-query-rows",
     ),
 )

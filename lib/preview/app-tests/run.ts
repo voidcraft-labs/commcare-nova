@@ -3,6 +3,7 @@ import { workerWording } from "@/lib/doc/localizationWorkspace";
 import {
 	assignedLocationUuids,
 	caseSelectionCardinality,
+	effectiveCaseSearchConfig,
 	moduleFormsReadSearch,
 	orderedColumns,
 	orderedOrganizationLevels,
@@ -44,6 +45,7 @@ import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import { appReadsPlaces } from "../engine/expressionCaseReads";
+import { drawnSearchInputs } from "../engine/searchRunState";
 import { availablePages } from "../engine/sectionPaging";
 import {
 	recordsReadSearch,
@@ -53,6 +55,7 @@ import {
 import {
 	type CaseDatabaseSnapshot,
 	formReadsSearchResults,
+	formReadsSearchScore,
 	type SearchResultsSnapshot,
 } from "../engine/xpathInstances";
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
@@ -62,6 +65,7 @@ import {
 	formEntryClaimChoices,
 	previewCaseChoiceOf,
 } from "../searchClaims";
+import { searchAfterClear } from "../searchStanding";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import {
@@ -193,7 +197,11 @@ async function appTestSearchResults(
 	});
 	if (refusal !== undefined) throw new AppTestActionError(refusal);
 	const found = await readingSurface("search", () =>
-		serverSearchResults(context.store, read),
+		serverSearchResults(
+			context.store,
+			read,
+			formReadsSearchScore(context.doc, screen.formUuid),
+		),
 	);
 	if (found === undefined) throw refused();
 	return found;
@@ -379,6 +387,7 @@ async function observeScreen(
 						workflow: search.workflow,
 						formsReadSearch: search.formsReadSearch,
 						searchRelevant: search.relevant,
+						searchReopened: read.state.screen.searchEntry?.cleared === true,
 						hasSubmitted: search.hasSubmitted,
 						submittedFoundNothing: read.result?.kind === "empty",
 						rules: context.rules,
@@ -399,7 +408,12 @@ async function observeScreen(
 									),
 								}
 							: {
-									questions: (mod.caseListConfig?.searchInputs ?? [])
+									/* The fields the platform's Search screen draws:
+									 * Web Apps draws no field marked hidden. */
+									questions: drawnSearchInputs(
+										mod.caseListConfig?.searchInputs ?? [],
+										context.rules,
+									)
 										.filter((input) => input.kind !== "hidden")
 										.map((input) => ({
 											name: input.name,
@@ -407,7 +421,7 @@ async function observeScreen(
 											type: input.type,
 											hint: input.hint,
 										})),
-									answers: search.draft,
+									answers: search.displayedAnswers,
 									errors: search.errors,
 								},
 					results: read.result,
@@ -1357,10 +1371,67 @@ async function advanceAppTestOnScreen(
 			};
 			break;
 		}
+		case "clearSearch": {
+			if (screen.kind !== "records" || !context.rules.searchClear)
+				throw new AppTestActionError("This screen has no Clear button.");
+			const current = await prepareAppTestRecords(context, scope, state);
+			if (
+				!current.search.relevant ||
+				(!current.search.hasSubmitted && current.search.draft.length === 0)
+			)
+				throw new AppTestActionError("This screen has no search to clear.");
+			const module = context.doc.modules[screen.moduleUuid];
+			const alsoSearch =
+				module !== undefined &&
+				searchAfterClear(
+					effectiveCaseSearchConfig(module)?.searchOnClear === true,
+					context.rules,
+					context.device.windowWidth,
+				);
+			const cleared = {
+				...state,
+				screen: {
+					...screen,
+					searchEntry: { cleared: true as const, draft: [], errors: {} },
+					searchAnswers: undefined,
+					registeredCaseId: undefined,
+					offset: 0,
+				},
+			};
+			const read = await appTestRecords(
+				context,
+				scope,
+				cleared,
+				alsoSearch ? [] : undefined,
+			);
+			/* The search Web Apps runs after Clear is quiet: a blank required
+			 * field stops it without an error (`query.js::updateSearchResults`),
+			 * so the cleared screen shows none. */
+			next =
+				read.state.screen.kind === "records" &&
+				read.state.screen.searchAnswers === undefined
+					? {
+							...read.state,
+							screen: {
+								...read.state.screen,
+								searchEntry: {
+									cleared: true as const,
+									draft: read.state.screen.searchEntry?.draft ?? [],
+									errors: {},
+								},
+							},
+						}
+					: read.state;
+			extra = { completed: true };
+			break;
+		}
 		case "search": {
 			const read = await appTestRecords(context, scope, state, action.answers);
 			next = read.state;
-			extra = { completed: Object.keys(read.search.errors).length === 0 };
+			extra = {
+				completed:
+					read.result?.kind === "rows" || read.result?.kind === "empty",
+			};
 			break;
 		}
 		case "pageNext":

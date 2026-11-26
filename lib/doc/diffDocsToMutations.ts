@@ -175,7 +175,10 @@ import {
 	ownRecordValue,
 	parseLanguageTag,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import {
+	searchConditionOf,
+	searchContentWithoutInputs,
+} from "@/lib/domain/searchConditions";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //
@@ -2844,6 +2847,8 @@ function diffCaseListMeta(
 ): Mutation[] {
 	const patch: {
 		filter?: CaseListConfig["filter"] | null;
+		listCondition?: CaseListConfig["filter"] | null;
+		searchCondition?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
 		tile?: CaseListConfig["tile"] | null;
 		detailTabs?: CaseListConfig["detailTabs"] | null;
@@ -2857,8 +2862,87 @@ function diffCaseListMeta(
 		patch.optimizations = next.optimizations ?? null;
 	for (const key of ["emptyText", "selectButtonText"] as const)
 		if (prev[key] !== next[key]) patch[key] = next[key] ?? null;
-	if (!deepEqual(prev.filter, next.filter)) {
-		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);
+	const edits: Mutation[] = [];
+	const addFilterEdit = (
+		change: NonNullable<
+			Extract<
+				Mutation,
+				{ kind: "setCaseListMeta" }
+			>["patch"]["searchFilterEdit"]
+		>,
+	) => {
+		edits.push({
+			kind: "setCaseListMeta",
+			uuid: moduleUuid,
+			patch: { searchFilterEdit: change },
+		});
+	};
+	const beforeFilters = prev.searchFilters ?? [];
+	const afterFilters = next.searchFilters ?? [];
+	const beforeById = new Map(beforeFilters.map((r) => [r.uuid, r]));
+	const beforeIds = beforeFilters.map((r) => r.uuid);
+	const afterIds = afterFilters.map((r) => r.uuid);
+	for (const row of afterFilters) {
+		const old = beforeById.get(row.uuid);
+		if (!old) {
+			addFilterEdit({
+				operation: "add",
+				filter: cloneEntity(row),
+				after: predecessorIn(afterIds, row.uuid),
+			});
+			continue;
+		}
+		// An order row has no target or value: its terms change in place, and a
+		// row that changes between an order and a value filter is a new row.
+		if (!("target" in row) || !("target" in old)) {
+			if (!("target" in row) && !("target" in old)) {
+				if (!deepEqual(old.order, row.order))
+					addFilterEdit({
+						operation: "edit",
+						uuid: row.uuid,
+						patch: { order: cloneEntity(row.order) },
+					});
+			} else {
+				addFilterEdit({ operation: "remove", uuid: old.uuid });
+				addFilterEdit({
+					operation: "add",
+					filter: cloneEntity(row),
+					after: predecessorIn(afterIds, row.uuid),
+				});
+			}
+			continue;
+		}
+		const changedTarget = !deepEqual(old.target, row.target);
+		const changedValue = !deepEqual(old.value, row.value);
+		if (changedTarget || changedValue)
+			addFilterEdit({
+				operation: "edit",
+				uuid: row.uuid,
+				patch: {
+					...(changedTarget && { target: cloneEntity(row.target) }),
+					...(changedValue && { value: cloneEntity(row.value) }),
+				},
+			});
+	}
+	for (const move of sequenceMovesTo(
+		arrivalsProjected(beforeIds, afterIds),
+		afterIds,
+	))
+		addFilterEdit({ operation: "move", ...move });
+	for (const id of beforeIds)
+		if (!afterIds.includes(id))
+			addFilterEdit({ operation: "remove", uuid: id });
+	const listChanged = !deepEqual(prev.filter, next.filter);
+	const searchChanged = !deepEqual(
+		searchConditionOf(prev),
+		searchConditionOf(next),
+	);
+	if (listChanged && searchChanged && next.searchCondition === undefined) {
+		patch.filter = cloneEntity(next.filter ?? null);
+	} else {
+		if (listChanged) patch.listCondition = cloneEntity(next.filter ?? null);
+		if (searchChanged)
+			patch.searchCondition = cloneEntity(searchConditionOf(next) ?? null);
 	}
 	if (!deepEqual(prev.selection, next.selection)) {
 		patch.selection =
@@ -2876,8 +2960,9 @@ function diffCaseListMeta(
 	if (tileChanged) {
 		patch.tile = next.tile === undefined ? null : cloneEntity(next.tile);
 	}
-	if (Object.keys(patch).length === 0 && !tileChanged) return [];
+	if (Object.keys(patch).length === 0 && !tileChanged) return edits;
 	return [
+		...edits,
 		{
 			kind: "setCaseListMeta",
 			uuid: moduleUuid,
@@ -2920,8 +3005,7 @@ function diffCaseSearchConfig(
 			next,
 			caseSearchConfigAfterFinalInputRemoval(
 				prev,
-				effectiveFilterForEmission(nextMod.caseListConfig?.filter) !==
-					undefined,
+				searchContentWithoutInputs(nextMod.caseListConfig),
 			),
 		)
 	) {
@@ -2929,9 +3013,9 @@ function diffCaseSearchConfig(
 			cleanupCaseSearchAfterFinalInputMutation({
 				uuid: moduleUuid,
 				config: prev,
-				hasCasesAvailableCondition:
-					effectiveFilterForEmission(nextMod.caseListConfig?.filter) !==
-					undefined,
+				hasCasesAvailableCondition: searchContentWithoutInputs(
+					nextMod.caseListConfig,
+				),
 			}),
 		];
 	}
@@ -2967,7 +3051,7 @@ function diffCaseSearchConfig(
 		prevIsMarker &&
 		next === undefined &&
 		nextMod.caseListConfig?.searchInputs.length === 0 &&
-		effectiveFilterForEmission(nextMod.caseListConfig?.filter) === undefined
+		!searchContentWithoutInputs(nextMod.caseListConfig)
 	) {
 		return [disableUnusedCaseSearchMutation(moduleUuid)];
 	}

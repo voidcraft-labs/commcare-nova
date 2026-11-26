@@ -113,17 +113,20 @@ function writtenTables(
 	codes: readonly string[],
 ): Record<string, Map<string, string>> {
 	const zip = new AdmZip(archive);
+	// Core installs the default file first, then overlays the worker's language.
+	const read = (directory: string): Map<string, string> => {
+		const lines = new Map<string, string>();
+		for (const line of zip
+			.readAsText(`${directory}/app_strings.txt`)
+			.split("\n")) {
+			const at = line.indexOf("=");
+			lines.set(line.slice(0, at), line.slice(at + 1));
+		}
+		return lines;
+	};
+	const defaults = read("default");
 	return Object.fromEntries(
-		codes.map((code) => {
-			const lines = new Map<string, string>();
-			for (const line of zip
-				.readAsText(`${code}/app_strings.txt`)
-				.split("\n")) {
-				const at = line.indexOf("=");
-				lines.set(line.slice(0, at), line.slice(at + 1));
-			}
-			return [code, lines];
-		}),
+		codes.map((code) => [code, new Map([...defaults, ...read(code)])]),
 	);
 }
 

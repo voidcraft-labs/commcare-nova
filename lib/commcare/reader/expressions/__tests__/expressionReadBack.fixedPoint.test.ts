@@ -383,12 +383,12 @@ describe("a search row an HQ author wrote, written back and read again", () => {
 		},
 		{
 			text: csqlRow("dob < today()"),
-			rewrite: "search-today-device-day" as const,
+			rewrite: undefined,
 		},
 	])("reads $rewrite back as the tree it read", ({ text, rewrite }) => {
 		const once = readSearchFilterRow(text, filter, env);
 		if (!once.ok) throw new Error(`The row is not held: ${text}`);
-		expect(once.rewrites).toEqual([rewrite]);
+		expect(once.rewrites).toEqual(rewrite === undefined ? [] : [rewrite]);
 		expect(canonicalExpression(once.predicate, filter)).toEqual(once.predicate);
 		expect(readSearchFilterRow(novaRow(once.predicate), filter, env)).toEqual({
 			ok: true,
