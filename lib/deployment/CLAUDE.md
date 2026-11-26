@@ -2745,8 +2745,8 @@ workbook under its tag (a live mapping of any of its apps, or a takeover
 from there: `store.ts::readWorkbookLookupTags`) stays in the workbook, whose
 findings name what it cannot carry (`carriedBy: "workbook-there"`). The HQ
 app file cannot carry such a table and says so
-(`describeLookupCarrierAlternative`, `carriedBy: "file"`); a table held in a
-paged generation does not travel this way yet on either (`"too-large"`).
+(`describeLookupCarrierAlternative`). Direct publish reads eligible paged tables
+under the same authority and ledger.
 A reading of that project space judges a Project table there by the carrier
 that keeps it there: a sibling mapping that is the table's JSON destination
 (`store.ts::readSiblingLookupMappings`, `jsonDestination`) is held to the JSON

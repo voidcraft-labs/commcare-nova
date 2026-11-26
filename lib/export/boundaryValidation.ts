@@ -578,7 +578,7 @@ async function prepareWithRegistry(
 			code = staged.excess
 				? "LOOKUP_HQ_PUSH_TOO_LARGE"
 				: "LOOKUP_CELL_TEXT_UNREPRESENTABLE";
-			if (staged.excess === "request") delivery = "json-row";
+			if (staged.excess === "definition") delivery = "json-definition";
 		} else {
 			issue = describeLookupCarrierAlternative(
 				definition.name,

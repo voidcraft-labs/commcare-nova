@@ -179,7 +179,6 @@ def test_novas_json_requests_put_a_types_table_there_row_by_row(hq):
 def test_native_json_keeps_a_segmented_value_beyond_the_workbook_cell_limit(hq):
     from corehq.apps.fixtures.models import LookupTable
     from django.conf import settings
-    from django.core.exceptions import RequestDataTooBig
 
     from proof.hq import redis as hq_redis
     from proof.hq.seams import api_rate_limits
@@ -217,21 +216,13 @@ def test_native_json_keeps_a_segmented_value_beyond_the_workbook_cell_limit(hq):
         values = etree.fromstring(fixture).xpath("./types_list/types/name/text()")
         assert values == ["Clinic", value]
 
-        # The API uses Django's ordinary body parser for JSON. A row one byte
-        # over that ceiling fails before the resource can write another row.
-        native_limit = 2_621_440
-        assert settings.DATA_UPLOAD_MAX_MEMORY_SIZE == native_limit
+        # The pinned HQ settings disable Django's default JSON body ceiling.
+        # The row resource accepts and keeps a body larger than that default.
+        assert settings.DATA_UPLOAD_MAX_MEMORY_SIZE is None
         body = _for_table(REQUESTS["appends"][0], table.id.hex)
         field = body["fields"]["name"]["field_list"][0]
         field["field_value"] = ""
         envelope = len(json.dumps(body, ensure_ascii=False).encode("utf-8"))
-        field["field_value"] = "x" * (native_limit - envelope)
+        field["field_value"] = "x" * (2_621_441 - envelope)
         assert send("POST", ROWS, body).status == 201
-        field["field_value"] += "x"
-        try:
-            rejected = send("POST", ROWS, body)
-        except RequestDataTooBig:
-            pass
-        else:
-            assert rejected.status in (400, 413), rejected.retained()
-        assert len(_rows(state, table.id.hex)) == 3
+        assert _rows(state, table.id.hex)[-1][2]["name"] == [(field["field_value"], {})]

@@ -28,8 +28,6 @@ export interface PagedLookupJsonRow {
 export const PAGED_LOOKUP_JSON_ROWS = MAX_LOOKUP_FIXTURE_ROWS;
 export const PAGED_LOOKUP_JSON_BYTES = MAX_LOOKUP_FIXTURE_BYTES;
 
-// HQ reads request.body through Django's default DATA_UPLOAD_MAX_MEMORY_SIZE.
-const HQ_ROW_WRITE_BYTES = 2_621_440;
 const OVER_BUDGET =
 	"The lookup table exceeds the temporary workspace for sending its rows individually.";
 
@@ -92,7 +90,7 @@ export async function stagePagedLookupJson(
 	budget: { readonly rows: number; readonly bytes: number },
 ): Promise<
 	| { readonly rows: readonly PagedLookupJsonRow[]; readonly bytes: number }
-	| { readonly issue: string; readonly excess?: "workspace" | "request" }
+	| { readonly issue: string; readonly excess?: "workspace" | "definition" }
 > {
 	if (table.count > budget.rows)
 		return { issue: OVER_BUDGET, excess: "workspace" };
@@ -102,21 +100,15 @@ export async function stagePagedLookupJson(
 	);
 	const requestIssue = {
 		issue:
-			"One lookup row or its definition is too large for an individual CommCare HQ request.",
-		excess: "request" as const,
+			"The lookup table definition is too large to verify from CommCare HQ.",
+		excess: "definition" as const,
 	};
 	if (bytes > HQ_LOOKUP_DEFINITION_MAX_BYTES) return requestIssue;
 	if (bytes > budget.bytes) return { issue: OVER_BUDGET, excess: "workspace" };
 	for await (const input of table.reader.rows()) {
 		const remaining = budget.bytes - bytes;
-		const row = await restoreRow(
-			input,
-			Math.min(remaining, HQ_ROW_WRITE_BYTES),
-		);
-		if (!row)
-			return remaining > HQ_ROW_WRITE_BYTES
-				? requestIssue
-				: { issue: OVER_BUDGET, excess: "workspace" };
+		const row = await restoreRow(input, remaining);
+		if (!row) return { issue: OVER_BUDGET, excess: "workspace" };
 		const content = lookupJsonRowContent(naming, row);
 		const values = [
 			...Object.values(content.itemAttributes),
@@ -140,7 +132,6 @@ export async function stagePagedLookupJson(
 				}),
 			),
 		);
-		if (rowBytes > HQ_ROW_WRITE_BYTES) return requestIssue;
 		bytes += rowBytes;
 		if (bytes > budget.bytes)
 			return { issue: OVER_BUDGET, excess: "workspace" };

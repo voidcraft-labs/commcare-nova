@@ -2425,8 +2425,8 @@ const USER_MESSAGE_BY_CODE: Record<
 	LOOKUP_HQ_PUSH_TOO_LARGE: (e) => {
 		const delivery = det(e, "delivery", "");
 		const table = det(e, "tableName", "This table");
-		if (delivery === "json-row")
-			return `A row or the definition of “${table}” is too large for one request to CommCare HQ. You can prepare the table in the destination project space.`;
+		if (delivery === "json-definition")
+			return `The definition of “${table}” is too large for Nova to verify in CommCare HQ. You can prepare the table in the destination project space.`;
 		if (delivery === "json")
 			return `Nova can prepare up to 10,000 rows and 16 MiB of data per publish for tables that need individual row writes. You can prepare “${table}” in the destination project space.`;
 		return "This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.";
