@@ -516,6 +516,113 @@ describe("advanced action clauses", () => {
 });
 
 describe("the advanced procedure", () => {
+	it("keeps only a root passive label on the selected case's Advanced follow-up load", () => {
+		const { doc, formUuid } = advancedFixture({
+			menu: "members",
+			formType: "followup",
+			operations: () => [
+				own({
+					writes: [
+						{ property: "seen", value: read("note") },
+						{ property: "notes", value: read("name") },
+					],
+				}),
+			],
+		});
+		const label = doc.fields[U("note")];
+		if (label?.kind !== "label") throw new Error("Expected a label");
+		const placed = (snapshot: typeof doc) =>
+			planPlacements(snapshot, formUuid).placements.get(OWN)?.placement;
+		expect(placed(doc)).toEqual({ kind: "advanced", tag: "load_member1" });
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+				(finding) => finding.code,
+			),
+		).toEqual([]);
+		const withLabel = (variant: typeof label) => ({
+			...doc,
+			fields: { ...doc.fields, [label.uuid]: variant },
+		});
+		expect(placed(withLabel({ ...label, selectableText: true }))).toEqual(
+			placed(doc),
+		);
+		for (const variant of [
+			{ ...label, askForConfirmation: true as const },
+			{ ...label, default_value: term(literal("later")) },
+			{ ...label, banner: "good" as const },
+			{ ...label, banner: "hidden" as const },
+		]) {
+			expect(placed(withLabel(variant))?.kind).toBe("save-to-case");
+		}
+		const openingValue = (field: Uuid) => ({
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: {
+					...doc.forms[formUuid],
+					openingAssignments: [
+						{
+							uuid: OP("before-visit"),
+							field,
+							source: { kind: "own" as const },
+							property: "notes",
+						},
+					],
+				},
+			},
+		});
+		expect(placed(openingValue(U("name")))).toEqual(placed(doc));
+		expect(placed(openingValue(label.uuid))?.kind).toBe("save-to-case");
+	});
+
+	it("keeps the same-record close outside the Advanced load that writes a passive label", () => {
+		const followupWithClose = (menu: Uuid, caseType: string) =>
+			advancedFixture({
+				menu: "members",
+				formType: "followup",
+				operations: () => [
+					own({ writes: [{ property: "seen", value: read("note") }] }),
+					close(
+						"finish_record",
+						{ kind: "expression", expr: chosen(menu) },
+						{ caseType },
+					),
+				],
+			});
+		for (const [menu, caseType] of [
+			[MEMBERS, "member"],
+			[HOUSEHOLDS, "household"],
+		] as const) {
+			const { doc, formUuid } = followupWithClose(menu, caseType);
+			expect(
+				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((f) => f.code),
+			).toEqual([]);
+			const placements = planPlacements(doc, formUuid).placements;
+			expect(placements.get(OWN)?.placement).toEqual({
+				kind: "advanced",
+				tag: "load_member1",
+			});
+			const closePlacement = placements.get(OP("finish_record"))?.placement;
+			if (menu === MEMBERS) {
+				expect(closePlacement?.kind).toBe("save-to-case");
+			} else {
+				expect(closePlacement).toEqual({
+					kind: "advanced",
+					tag: "load_household0",
+				});
+			}
+			const form = expandDoc(doc).modules[1].forms[0];
+			if (form.doc_type !== "AdvancedForm")
+				throw new Error("Expected the Advanced form");
+			const member = form.actions.load_update_cases[1];
+			expect(member.close_condition.type).toBe("never");
+			expect(member.case_properties.seen?.question_path).toBe("/data/note");
+			expect(form.actions.load_update_cases[0].close_condition.type).toBe(
+				menu === MEMBERS ? "never" : "always",
+			);
+		}
+	});
+
 	it("tags the chain's loads root first, the own load last, and the worker's after them", () => {
 		const { doc, formUuid } = advancedFixture(
 			followup(

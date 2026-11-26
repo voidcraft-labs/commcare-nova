@@ -68,6 +68,7 @@ from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     _guarded_lookup_count,
+    HQ_CASE_RESERVED_WORDS,
     case_itemset_survey_readiness,
     direct_parent_text_prompt_key,
     extended_open_index_to_first_choice,
@@ -445,6 +446,9 @@ def source_uses(
 AUTOMATIC_MULTI = "menus-and-case-lists/detail-auto-select-multi-select"
 LOCATION_WRITE = "forms-and-case-writes/update-keys-location-id-hq-user-id"
 LOCATION_UPDATE_KEY = "schema:UpdateCaseAction.update"
+PASSIVE_LABEL_WRITE = "forms-and-case-writes/an-advanced-follow-up-update-from-its-root-passive-label"
+OTHER_ADVANCED_LABEL = "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or"
+LABEL_WRITE_PATH = "schema:ConditionalCaseUpdate.question_path"
 HYPHEN_TAG = "forms-and-case-writes/case-tag-holding-a-hyphen"
 EXTENDED_OPEN_INDEX = "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many"
 SHADOW_LOAD = "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent"
@@ -665,6 +669,59 @@ def _automatic_multiple_case_selection(use):
             and pair.get("short") is at.owner and at.owner.get("multi_select") is True and at.value is True)
 
 
+def _advanced_own_label_write(use):
+    """Judge the direct root trigger on the form's own ordinary chosen case."""
+    at = use.at
+    if not isinstance(at, manifest_usage.JsonAt):
+        return
+    menu = at.nearest("AdvancedModule")
+    form = at.nearest("AdvancedForm")
+    load = at.nearest("LoadUpdateAction")
+    if menu is None or form is None or load is None:
+        return
+    case_type = menu.get("case_type")
+    if not case_type or case_type == "commcare-user" or load.get("case_type") != case_type:
+        return
+    actions = form.get("actions") or {}
+    choices = [
+        row for row in actions.get("load_update_cases") or ()
+        if isinstance(row, dict) and not row.get("auto_select")
+    ]
+    if not choices or choices[-1] is not load or actions.get("open_cases"):
+        return
+    prop = next((key for key, value in (load.get("case_properties") or {}).items() if value is at.owner), None)
+    if (prop is None or "/" in prop or prop in HQ_CASE_RESERVED_WORDS
+            or prop in {"name", "owner_id", "case_name", "external_id", "location_id", "hq_user_id"}):
+        return
+    if at.owner.get("update_mode") != "always" or not isinstance(at.value, str):
+        return
+    form_source = at.app.xform(form)
+    if form_source is None:
+        return
+    source = form_source.node(at.value)
+    controls = form_source.controls.get(at.value, ())
+    if len(controls) != 1 or source is None or isinstance(source, tuple) or source.getparent() is not form_source.data_root:
+        return
+    (control,) = controls
+    if not control.tag.endswith("}trigger") or not control.getparent().tag.endswith("}body"):
+        return
+    if (source.text or "").strip() or any(
+        element.tag.endswith("}setvalue") and element.get("ref") == at.value
+        for element in form_source.model.iter()
+    ):
+        return
+    if (load.get("close_condition") or {}).get("type") in {"if", "always"}:
+        return OTHER_ADVANCED_LABEL
+    if any(
+        source is form_source.node(path)
+        for row in actions.get("load_update_cases") or ()
+        if isinstance(row, dict) and isinstance(row.get("preload"), dict)
+        for path in row["preload"]
+    ):
+        return OTHER_ADVANCED_LABEL
+    return PASSIVE_LABEL_WRITE if control.get("appearance") in {"minimal", "selectable"} else OTHER_ADVANCED_LABEL
+
+
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
@@ -672,6 +729,7 @@ def _forms_variant_uses(found, held, entries):
         OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, ADVANCED_CASE_ITEMSET, PARENT_USER_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
+        PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL,
     }.intersection(entries)
     if not wanted:
         return
@@ -679,6 +737,10 @@ def _forms_variant_uses(found, held, entries):
     places = {(use.artifact, use.where, use.key) for use in found.uses}
     for use in found.uses:
         at = use.at
+        if wanted.intersection((PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL)) and use.key == LABEL_WRITE_PATH:
+            if (entry := _advanced_own_label_write(use)) in wanted:
+                status = manifest_usage.HELD if entry == PASSIVE_LABEL_WRITE else manifest_usage.HELD_NEW
+                yield Decided(use, status, (by_id[entry],))
         if (LATER_OWNER_ON_FRESH_CREATE in wanted and use.key == "xform:model/bind@relevant"
                 and guarded_owner_after_fresh_create(use)):
             yield Decided(use, manifest_usage.HELD, (by_id[LATER_OWNER_ON_FRESH_CREATE],))

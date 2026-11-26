@@ -432,11 +432,37 @@ def child_case_in_a_shared_multi_select_menu(authoring, app_id):
 def load_writes_a_label(authoring, app_id):
     """``hq-advanced``'s member visit form given a label ``seen_label``, whose value the member's load saves to
     ``seen``."""
+    _load_writes_a_label(authoring, app_id, ' appearance="minimal"')
+
+
+def load_writes_an_interactive_label(authoring, app_id):
+    """The selected member's load writes a message with an interactive confirmation."""
+    _load_writes_a_label(authoring, app_id, "")
+
+
+def load_writes_a_banner(authoring, app_id):
+    """The selected member's load writes the value of a floating banner."""
+    _load_writes_a_label(authoring, app_id, ' appearance="floating-good"')
+
+
+def load_writes_a_preloaded_label(authoring, app_id):
+    """The selected member's ordinary passive label also starts from that record."""
+    load_writes_a_label(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/1/preload/~1data~1seen_label", "notes")
+
+
+def load_writes_a_label_and_closes(authoring, app_id):
+    """The chosen member's load saves a label and closes the member on that same arm."""
+    load_writes_a_label(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/1/close_condition", _condition("always"))
+
+
+def _load_writes_a_label(authoring, app_id, appearance):
     _change(
         authoring,
         app_id,
         "seen-label",
-        *_question("seen_label", "The member was seen", "trigger", None, attributes=' appearance="minimal"'),
+        *_question("seen_label", "The member was seen", "trigger", None, attributes=appearance),
         menu=1,
         form=0,
     )

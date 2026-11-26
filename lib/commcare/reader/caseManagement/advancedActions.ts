@@ -29,7 +29,10 @@ import {
 	type Term,
 	type Uuid,
 } from "@/lib/domain";
-import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
+import {
+	formCaseSelections,
+	isAdvancedOwnLabelProperty,
+} from "@/lib/domain/advancedEntryDatums";
 import { advancedKindBlockers } from "@/lib/domain/advancedModule";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import {
@@ -96,6 +99,7 @@ import {
 	type PropertyNameClass,
 	type ProposedValue,
 	propertyNameClass,
+	type QuestionValue,
 	questionValue,
 	repeatOfField,
 } from "./basicActions";
@@ -385,6 +389,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	illegalPreload: refuse(
 		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
 		"schema:LoadUpdateAction.preload",
+	),
+	passiveLabelWrite: take(
+		`${F}/an-advanced-follow-up-update-from-its-root-passive-label`,
+		"schema:ConditionalCaseUpdate.question_path",
 	),
 	labelQuestion: refuse(
 		`${F}/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or`,
@@ -937,9 +945,15 @@ function readProperties(
 		readonly worker?: Claim<"refuse">;
 	},
 	slashes: SlashKeys,
-	/** An open action's: whose `owner_id` may name Nova's owner node, which the open action
-	 *  settles once its operation has an id. */
-	opens = false,
+	options: {
+		/** An open action may name Nova's generated owner node. */
+		readonly opens?: boolean;
+		/** The selected record carries a passive label only on its ordinary update. */
+		readonly ownLoad?: {
+			readonly closes: boolean;
+			readonly preloadedLabels: ReadonlySet<DraftField>;
+		};
+	} = {},
 ): {
 	writes: {
 		property: string;
@@ -1075,8 +1089,42 @@ function readProperties(
 				onlyIfChanged = true;
 			}
 		}
+		const storedPath = cursor.peek("question_path");
+		const source =
+			options.ownLoad &&
+			via === undefined &&
+			cursor.peek("update_mode") === "always" &&
+			isAdvancedOwnLabelProperty(property) &&
+			typeof storedPath === "string"
+				? fieldAt(r.form, storedPath)
+				: undefined;
+		const label =
+			source?.kind === "label" &&
+			source.parent === null &&
+			source.dataParent === null &&
+			source.field.askForConfirmation !== true &&
+			source.field.banner === undefined &&
+			!options.ownLoad?.closes &&
+			!options.ownLoad?.preloadedLabels.has(source) &&
+			!source.expressions.some(
+				(expression) => expression.slot === "default_value",
+			)
+				? source
+				: undefined;
+		if (source?.kind === "label" && label === undefined) {
+			cursor.refuse("question_path", ADVANCED_CLAIMS.labelQuestion, {
+				name: key,
+			});
+			r.ok = false;
+			out.refused = true;
+			continue;
+		}
 		const path = consume(
-			cursor.take("question_path", claims.path, (value) => value),
+			cursor.take(
+				"question_path",
+				label === undefined ? claims.path : ADVANCED_CLAIMS.passiveLabelWrite,
+				(value) => value,
+			),
 		);
 		if (typeof path !== "string" || path === "") {
 			r.ok = false;
@@ -1088,14 +1136,21 @@ function readProperties(
 		}
 		// An open action's owner may name the owner node Nova folds beside it,
 		// which Nova saves every time.
-		if (key === "owner_id" && opens && onlyIfChanged === undefined) {
+		if (key === "owner_id" && options.opens && onlyIfChanged === undefined) {
 			const owner = ownerNode(r, path);
 			if (owner !== undefined) {
 				out.ownerNode = owner;
 				continue;
 			}
 		}
-		const read = questionValue(r.ctx, r.form, path, property);
+		const read: QuestionValue =
+			label === undefined
+				? questionValue(r.ctx, r.form, path, property)
+				: {
+						kind: "value",
+						value: { field: label, link: false },
+						datetimeSibling: false,
+					};
 		if (read.kind === "finding") {
 			r.ctx.accounting.finding(advancedReadClaim(read.claim), r.form.place, {
 				name: key,
@@ -1752,6 +1807,14 @@ function readOrdinaryAdvancedActions(
 	const storedLoads = Array.isArray(actions.load_update_cases)
 		? actions.load_update_cases
 		: [];
+	const preloadedLabels = new Set<DraftField>();
+	for (const load of storedLoads) {
+		if (!isJsonObject(load) || !isJsonObject(load.preload)) continue;
+		for (const path of Object.keys(load.preload)) {
+			const field = fieldAt(form, path);
+			if (field?.kind === "label") preloadedLabels.add(field);
+		}
+	}
 	const storedOpens = Array.isArray(actions.open_cases)
 		? actions.open_cases
 		: [];
@@ -2056,6 +2119,8 @@ function readOrdinaryAdvancedActions(
 				L.drop("product_program", ADVANCED_CLAIMS.productProgramOff);
 		}
 		const indexed = indexRead !== undefined;
+		const closeStored = load.close_condition;
+		const closes = activeCondition(closeStored);
 		const properties = readProperties(
 			r,
 			L,
@@ -2067,6 +2132,13 @@ function readOrdinaryAdvancedActions(
 				: last
 					? { kind: "own", caseType: caseType as string }
 					: { kind: "elsewhere" },
+			{
+				...(last &&
+					!automatic &&
+					caseType !== "commcare-user" && {
+						ownLoad: { closes, preloadedLabels },
+					}),
+			},
 		);
 		// A `form-case` read walks from the form's own case the indices the document
 		// links each type to its parent by (`caseTypeDepths.ts::caseTypeHopMap`). HQ
@@ -2085,8 +2157,6 @@ function readOrdinaryAdvancedActions(
 				);
 			});
 		readLoadPreloads(r, L, load, caseType as string, indexed, hops);
-		const closeStored = load.close_condition;
-		const closes = activeCondition(closeStored);
 		// A close that never runs is read as no close. HQ's page stores one with its question,
 		// answer and operator cleared (`advanced/actions.js::actionBase.clean_condition`), which
 		// is not the schema's default, so the claim is made whether or not it closes.
@@ -2333,7 +2403,7 @@ function readOrdinaryAdvancedActions(
 				},
 			},
 			{ kind: "elsewhere" },
-			true,
+			{ opens: true },
 		);
 		// The repeat: the name question's innermost.
 		const context =

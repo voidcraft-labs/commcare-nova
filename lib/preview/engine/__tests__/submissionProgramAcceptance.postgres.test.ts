@@ -22,10 +22,21 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
+import {
+	advancedFixture,
+	read,
+	U,
+	UNDER_TEST,
+} from "@/lib/commcare/__tests__/advancedPlacementFixture";
 import { arithmeticFixture } from "@/lib/commcare/__tests__/arithmeticFixture";
+import { planPlacements } from "@/lib/commcare/placement";
 import type { AppDatabase } from "@/lib/db/pg";
+import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	and,
@@ -42,7 +53,10 @@ import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
-import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import {
+	androidDevice,
+	webAppsDevice,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { sharedVisitEntries } from "../../../../proof/targeted/documents/sharedVisitEntries";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
@@ -209,6 +223,176 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it("saves only a relevant passive Advanced label to the signed selected case", async () => {
+		const {
+			doc: initial,
+			formUuid,
+			moduleUuid,
+		} = advancedFixture({
+			menu: "members",
+			formType: "followup",
+			configure(doc) {
+				const label = doc.fields[U("note")];
+				if (label.kind !== "label") throw new Error("Expected a label");
+				doc.fields[U("note")] = {
+					...label,
+					relevant: eq(read("name"), literal("Show the reminder")),
+				};
+				doc.forms[UNDER_TEST].caseSelections = [
+					...formCaseSelections(doc, UNDER_TEST),
+				];
+			},
+		});
+		const operation: CaseOperation = {
+			uuid: testUuid("passive-label-own"),
+			id: "member",
+			action: "own",
+			writes: [
+				{ property: "seen", value: read("note") },
+				{ property: "notes", value: read("name") },
+			],
+		};
+		const verdict = mutationCommitVerdict(
+			initial,
+			addCaseOperationMutations(initial, formUuid, operation),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+		const doc = verdict.nextDoc;
+		expect(
+			planPlacements(doc, formUuid).placements.get(operation.uuid)?.placement,
+		).toEqual({
+			kind: "advanced",
+			tag: "load_member1",
+		});
+		const store = makeStore(true);
+		const household = testUuid("label-parent");
+		const unrelated = testUuid("label-unrelated-member");
+		const catalog = buildCaseTypeMap(doc);
+		for (const caseType of ["household", "member"])
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType,
+				caseTypeSchemas: catalog,
+			});
+		for (const [caseId, caseType, previous] of [
+			[household, "household", ""],
+			[SESSION_CASE, "member", "before"],
+			[unrelated, "member", "unrelated"],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: caseType,
+					case_name: caseType,
+					status: "open",
+					properties: caseType === "member" ? { seen: previous } : {},
+					...(caseType === "member" && { parent_case_id: household }),
+				},
+			});
+		}
+		const device = androidDevice();
+		for (const [visible, note] of [
+			[false, "The reminder is hidden"],
+			[true, "Show the reminder"],
+		] as const) {
+			const entryKey = testUuid(`label-entry-${visible}`);
+			const audience = {
+				app: APP_ID,
+				project: PROJECT,
+				actor: ACTOR,
+				worker: ACTOR,
+				session: "session",
+				persona: null,
+				device,
+				module: moduleUuid,
+				form: formUuid,
+				entry: entryKey,
+				run: ENTRY_KEY,
+				revision: 0,
+				blueprintDigest: "0".repeat(64),
+			};
+			const snapshot = await store.readDeviceCaseDatabase({
+				appId: APP_ID,
+				restoreScope: { ownerIds: [ACTOR] },
+			});
+			const choices = formCaseSelections(doc, formUuid).map((row, index) => ({
+				selection: row.uuid,
+				caseId: index === 0 ? household : SESSION_CASE,
+			}));
+			expect(choices).toHaveLength(2);
+			const secret = "synthetic Advanced label opening key";
+			const signed = await signFormOpening(secret, audience, {
+				cases: openingCaseData(snapshot),
+				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+				choices,
+				primaryCaseIds: [SESSION_CASE],
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+			});
+			const input = buildEngineInput(doc, formUuid, null);
+			if (!input) throw new Error("Expected the Advanced member form");
+			const engine = new FormEngine(
+				input,
+				"member",
+				undefined,
+				IDENTITY,
+				null,
+				snapshot,
+				{ device },
+			);
+			engine.setValue("/data/name", note);
+			expect(engine.getState("/data/note").visible).toBe(visible);
+			expect(engine.validateAll()).toBe(true);
+			const mutation = engine.computeSubmissionMutation({
+				caseIds: [SESSION_CASE],
+				entryKey,
+			});
+			const label = mutation.operationAnswers?.root.find(
+				(answer) => answer.fieldUuid === U("note"),
+			);
+			expect(label).toMatchObject(visible ? { value: "OK" } : { absent: true });
+			const projection = validateCaptureSubmissionProjection(mutation);
+			const built = buildCaseOperationProgramFromDoc({
+				device,
+				blueprint: doc,
+				mutation,
+				projection,
+				identity: IDENTITY,
+				opening: await verifyFormOpening(secret, audience, signed),
+			});
+			await store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, {
+					...built,
+					submissionReceipt: {
+						...buildSubmissionReceiptIdentity({
+							appId: APP_ID,
+							identity: IDENTITY,
+							mutation,
+							projection,
+						}),
+						expectedAppMutationSeq: 0,
+						blueprintDigest: audience.blueprintDigest,
+					},
+				}),
+			);
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "member",
+				reading: SEARCH_READING,
+			});
+			expect(
+				rows.find((row) => row.case_id === SESSION_CASE)?.properties,
+			).toEqual({ seen: visible ? "OK" : "before", notes: note });
+			expect(rows.find((row) => row.case_id === unrelated)?.properties).toEqual(
+				{ seen: "unrelated" },
+			);
+		}
+	});
+
 	it("keeps the signed parent user block with omitted and present blank answers", async () => {
 		const { doc, form } = parentUserWriteFixture(APP_ID);
 		const middle = testUuid("parent-user-first-target");
