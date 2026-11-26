@@ -63,6 +63,8 @@ submits that screen, as the search workflow requires.
 from __future__ import annotations
 
 import dataclasses
+import json
+from pathlib import Path
 
 import pytest
 
@@ -76,6 +78,44 @@ BROWSE = "case-list-browse"
 TO_THE_MENU = steps.path(steps.open_app("Case list proof"), steps.choose("Patients & visits"))
 DESCRIPTION = "Find a patient by code."
 NBSP = "\u00a0"
+
+
+def test_authored_search_keeps_its_list_filter_out_of_the_request(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """The same Web-only Visits route keeps the device clause on its list in A and B."""
+    folder = Path(__file__).with_name("fixtures")
+    witness = json.loads((folder / "web-apps-search-filter.json").read_text(encoding="utf-8"))
+    database = casedata.database_of_restore((folder / witness["restore"]).read_bytes())
+    document = webapps_documents["hq-search"]
+
+    def enable_web_apps(app):
+        # On A this corresponds to enabling the project’s existing Web Apps
+        # setting before serving the authored app. Its Search stays untouched.
+        app["cloudcare_enabled"] = True
+
+    for publication in ("A", "B"):
+        with (
+            webapps_hq.authored_project(document, publication) as project,
+            project.released(
+                formplayer_runner,
+                change=enable_web_apps if publication == "A" else None,
+                database=database,
+                label=publication,
+            ) as release,
+        ):
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Client search"),
+                *steps.choose(witness["menu"]),
+                steps.SCREEN,
+            ])
+            requests = [search.values("_xpath_query") for search in release.hq.searches]
+        lists = [screen["list"] for screen in run.screens if "list" in screen]
+        evidence(f"authored-visits-filter-{publication}", {"requests": requests, "lists": lists})
+        assert run.page_errors == []
+        assert requests == [(witness["query"],)], requests
+        (listed,) = lists
+        assert [row["id"] for row in listed["rows"]] == [f"row-{case_id}" for case_id in witness["rows"]]
 
 
 def _describe(doc):
