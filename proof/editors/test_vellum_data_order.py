@@ -25,14 +25,15 @@ def _commands(run: dict) -> list[str]:
 
 def test_vellum_independent_data_order_reaches_core_submission(hq, core_runner):
     """HQ builds the unmodified Vellum source, then Core walks and submits that built form."""
-    from proof.checks import casedata, cases
+    from proof.checks import casedata
+    from proof.editors.conftest import corpus_document
     from proof.rules.conftest import published, restore, run as run_spelling
 
     fixture = Path(__file__).resolve().parents[2] / "lib/commcare/reader/xform/__tests__/fixtures/vellum-in-between.xml"
     source = fixture.read_text(encoding="utf-8")
     authored = etree.fromstring(source.encode()).find(f".//{{{XFORMS}}}instance")[0]
     expected_nodes = [etree.QName(node).localname for node in authored]
-    document = cases.load_corpus().document("targeted-submitted-groups")
+    document = corpus_document("targeted-submitted-groups")
     with published(document, core_runner) as app:
         built = app.spell(sources={"0.0": lambda _: source}).build
         assert built.files is not None and not built.raised, built.raised

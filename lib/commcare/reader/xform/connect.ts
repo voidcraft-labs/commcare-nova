@@ -545,13 +545,24 @@ export function accountConnectSubmissionConflicts(
 			for (const conflict of connectSubmissionConflicts(doc, form.uuid)) {
 				const first = conflict.first.path.map((uuid) => doc.fields[uuid].id);
 				const second = conflict.second.path.map((uuid) => doc.fields[uuid].id);
-				const block = form.xform.connectBlocks.find(
-					({ node }) =>
-						node.path.length === second.length &&
-						node.path.every((id, index) => id === second[index]),
-				);
-				const site =
-					block && connectRoleSite(block.node.element, form.xform.parsed.scope);
+				const blockAt = (path: readonly string[]) =>
+					form.xform?.connectBlocks.find(
+						({ node }) =>
+							node.path.length === path.length &&
+							node.path.every((id, index) => id === path[index]),
+					);
+				const roleAt = (path: readonly string[]) => {
+					const block = blockAt(path);
+					return block && form.xform
+						? connectRoleSite(block.node.element, form.xform.parsed.scope)
+						: undefined;
+				};
+				const site = roleAt(second);
+				// The two activities make the one cause: the finding stands at the
+				// second, which the person changes, and both are its record.
+				const other = roleAt(first);
+				if (site && other && other.element !== site.element)
+					ctx.accounting.recordAtNode(claims[conflict.reason], other, ROLE);
 				const place = questionPlace(form.place, second);
 				const detail = { name: first.join("/") };
 				if (site)

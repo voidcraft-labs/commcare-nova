@@ -60,7 +60,8 @@ TWO_LANGUAGE_APP = "yesno.json"
 # test_mapping_keys.py opens, and the documents the publish gates' page and Vellum tests open
 # (test_version_raise.py, test_plan_features.py and test_gated_pages.py), the document whose form builder save
 # test_commtrack_supply_point_text.py builds with CommCare Supply on and off, and the document whose form builder saves
-# test_text_formatting_saves.py reads for markdown forms.
+# test_text_formatting_saves.py reads for markdown forms, and the document test_vellum_data_order.py builds the
+# form builder's saved source into.
 DOCUMENTS = (
     "targeted-receiving-answers",
     "targeted-receiving-answers-android",
@@ -86,6 +87,7 @@ DOCUMENTS = (
     "targeted-custom-tile",
     "targeted-supply-point-text",
     "targeted-plain-help",
+    "targeted-submitted-groups",
 )
 
 _TIMINGS: dict[str, list[float]] = {}
