@@ -18786,6 +18786,24 @@
 		}
 	},
 	{
+		"id": "hq-case-management/save-to-case-positioned-beside-own",
+		"base": "hq-case-management",
+		"entry": "questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 2,
+			"menuName": "Households",
+			"formName": "Followup",
+			"path": "again"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_positioned_beside_own"
+		}
+	},
+	{
 		"id": "hq-case-management/save-to-case-worker-twice",
 		"base": "hq-case-management",
 		"entry": "questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record",
@@ -19547,6 +19565,21 @@
 		"change": {
 			"op": "named",
 			"name": "connect_work_area_update"
+		}
+	},
+	{
+		"id": "hq-empty-search/conditional-registration-returning-to-search",
+		"base": "hq-empty-search",
+		"entry": "menus-and-case-lists/case-list-form-return-search-needs-the-created-case",
+		"standing": "never",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "conditional_registration_returning_to_search"
 		}
 	},
 	{
@@ -38084,13 +38117,7 @@
 	{
 		"id": "hq-search/default-filter-naming-the-related-case-property",
 		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
+		"entry": "case-search/default-related-record-id-property",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -38099,7 +38126,14 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'parent_id'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchFilters/0/property",
+				"value": "parent_id"
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-with-no-value",

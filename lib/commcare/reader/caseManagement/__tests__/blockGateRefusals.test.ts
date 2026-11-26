@@ -28,7 +28,7 @@
  *   (`CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `declared-type`): that
  *   entry at the block, never the type change's at the form, since no case's
  *   type changes;
- * - a link named as HQ's form builder reads the block's own action (`close`):
+ * - a link whose name would add an action on save (`create` or `close`):
  *   the link-name entry (`saveToCase.ts::readBlock`, over
  *   `caseOperationLinkNameProblem`); a block, row or link named as it cannot
  *   open a form with (`instance`, `bind`): the question-id entry, and a row it
@@ -54,7 +54,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
@@ -122,6 +122,9 @@ function app(
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: "block-gate-form",
@@ -283,6 +286,7 @@ const cases: readonly (readonly [
 	...(
 		[
 			["close", LINK_NAME],
+			["create", LINK_NAME],
 			["instance", QUESTION_ID],
 		] as const
 	).map(
@@ -475,6 +479,65 @@ const cases: readonly (readonly [
 			] as const,
 	),
 ];
+
+describe("links named for a direct Save to Case action", () => {
+	it.each(["create", "close"] as const)(
+		"keeps the %s action, link and link target through the gate and HQ reader",
+		async (name) => {
+			const link = sessionLink(name, "patient");
+			const operation =
+				name === "create"
+					? visitCreate({ links: [link] })
+					: update({
+							action: "close",
+							caseType: "visit",
+							target: { kind: "op", opUuid: VISIT },
+							links: [link],
+						});
+			const doc = app("followup", [
+				own,
+				...(name === "close" ? [visitCreate()] : []),
+				operation,
+			]);
+
+			expect(gateCodes(doc)).toEqual([]);
+			const outcome = await readBack(doc);
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "read")
+				throw new Error(
+					`A link sharing its block's action was refused: ${JSON.stringify(outcome.findings.map((one) => one.code))}`,
+				);
+			expect(
+				outcome.draft.doc.forms[FORM].caseOperations?.find(
+					(one) => one.id === operation.id,
+				),
+			).toMatchObject({
+				...(name === "create"
+					? { action: "create" }
+					: { action: "update", closeAfter: true }),
+				links: [link],
+			});
+		},
+	);
+
+	it("refuses a link when its direct action is in a different case block of the form", async () => {
+		const doc = app("followup", [
+			own,
+			visitCreate(),
+			update({
+				target: { kind: "op", opUuid: VISIT },
+				caseType: "visit",
+				links: [sessionLink("create", "patient")],
+			}),
+		]);
+		expect(gateCodes(doc)).toContain("CASE_OPERATION_LINK_INVALID");
+		const outcome = await readBack(doc);
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind === "account")
+			expect(outcome.findings.map((one) => one.code)).toEqual([LINK_NAME]);
+	});
+});
 
 describe("Save to Case blocks the gate refuses on their own", () => {
 	for (const [name, code, entry, make] of cases)

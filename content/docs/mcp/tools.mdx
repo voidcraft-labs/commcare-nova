@@ -1356,14 +1356,14 @@ consume an earlier create by UUID when the producer declares `operationUuid`;
 the complete list is checked and saved atomically.
 
 Operation ids and link identifiers contain letters, numbers, and underscores
-and start with a letter or underscore. Write-property names start with a letter
-and can also hold hyphens.
+and start with a letter or underscore. Link identifiers can also include
+hyphens. Write-property names start with a letter and can include hyphens.
 Three names are taken, because CommCare HQ's form builder can't open a form that
-holds them: `instance`, `bind` and `parsererror`. A link identifier can't be
-`close` or `create`, and a write can't save a property named `close`, because
-CommCare HQ's form builder reads those names as closing the case or starting a
-new one. These are readable, editable values rather
-than object addresses. Conditions and values are expressions, including
+holds them: `instance`, `bind` and `parsererror`. A Save to Case change can
+use the link identifier `close` or `create` when the same change already
+closes or creates the case. CommCare HQ's form builder reads those names as
+actions. A Save to Case write can't save to a property named `close`. Use the
+operation UUID to address the change. Conditions and values are expressions, including
 `#form/path`, `#case/property`, lookup queries, and `id-of('earlier_operation')`.
 Reads return the same editable expressions; subsequent calls keep targeting the
 operation by `operationUuid`.

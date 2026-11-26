@@ -889,9 +889,8 @@ describe("a search's default filters", () => {
 			"'parent/name'",
 			"name",
 		);
-		expect(codes(reading)).toContain(
+		expect(closedCodes(reading)).toEqual([
 			"case-search/an-x-commcare-custom-related-case-property-entry-together-with",
-		);
-		expect(codes(reading)).not.toContain(sortKey);
+		]);
 	});
 });

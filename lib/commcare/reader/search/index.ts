@@ -354,6 +354,7 @@ function readDefaultFilters(
 	rows: SearchRow[];
 	filters: SearchFilter[];
 	requestTypes: string[];
+	coveredSettings: Set<string>;
 	relatedIdProperty?: string;
 	/** Each key a default filter other than a row names, with the pointer of each such filter's
 	 *  `property`. */
@@ -391,6 +392,7 @@ function readDefaultFilters(
 	const rows: SearchRow[] = [];
 	const requestTypes: string[] = [];
 	let relatedIdProperty: string | undefined;
+	const coveredSettings = new Set<string>();
 	const names = new Map<string, string[]>();
 	const addName = (property: string, row: JsonCursor) =>
 		names.set(property, [
@@ -605,17 +607,13 @@ function readDefaultFilters(
 					: claim === C.relatedTwice
 						? "custom_related_case_property"
 						: undefined;
-			if (beside !== undefined)
-				accounting.findingAt(
-					claim,
-					row.place,
-					`${cursor.pointer}/${beside}`,
-					detail,
-				);
-			accounting.cover(
-				{ json: row, key: "defaultValue" },
-				manifestFindingOf(claim, row.place, detail),
-			);
+
+			const finding = manifestFindingOf(claim, row.place, detail);
+			if (beside !== undefined && !coveredSettings.has(beside)) {
+				accounting.cover({ json: cursor, key: beside }, finding);
+				coveredSettings.add(beside);
+			}
+			accounting.cover({ json: row, key: "defaultValue" }, finding);
 			addName(property, row);
 			ok = false;
 			return;
@@ -645,6 +643,7 @@ function readDefaultFilters(
 		filters,
 		requestTypes,
 		relatedIdProperty,
+		coveredSettings,
 		names,
 		zeroInput,
 		markersOnly,
@@ -817,6 +816,7 @@ function readProjectSearch(
 		names,
 		filters: [],
 		requestTypes: [],
+		coveredSettings: new Set(),
 		zeroInput: false,
 		markersOnly: false,
 	};
@@ -1009,7 +1009,14 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				});
 			});
 		const workflow = readSearchWorkflow(ctx, module, cursor);
-		const settings = readSearchSettings(ctx, module, cursor, true, config);
+		const settings = readSearchSettings(
+			ctx,
+			module,
+			cursor,
+			true,
+			config,
+			filters.coveredSettings,
+		);
 		const search: OrdinaryCaseSearchConfig = { ...config, ...(workflow ?? {}) };
 		// Search fields turn the search on with Nova's own settings, as a settings object that holds
 		// none does (`effectiveCaseSearchConfig`), so a search with fields and no setting is read

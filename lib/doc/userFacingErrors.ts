@@ -1499,7 +1499,31 @@ const USER_MESSAGE_BY_CODE: Record<
 		`CommCare reserves the Search field name ${q(det(e, "inputName", ""))} for a heading. You can rename the field under More settings.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
-	PROJECT_SEARCH_REQUEST: (e) => e.message,
+	PROJECT_SEARCH_REQUEST: (e) => {
+		const name = q(det(e, "name", "this search field"));
+		switch (det(e, "reason", "")) {
+			case "missing-search":
+				return "Choose a search that belongs to this app.";
+			case "empty-request":
+				return "Add a search field or a named value for the project space to use.";
+			case "reserved-default":
+				return `${name} controls the search request. Choose a parameter name supplied by the project space.`;
+			case "unbound-field":
+				return `Choose how the project space uses ${name} before connecting this search.`;
+			case "shared-name":
+				return `The field ${name} shares its name with a starting parameter. Give the field its own name.`;
+			case "reserved-field":
+				return `${name} controls the search request. Give the search field a different name.`;
+			case "single-answer":
+				return `${name} takes one answer. Choose a single-answer field.`;
+			case "one-source":
+				return `The project space accepts one value for ${name}. Choose one place to supply it.`;
+			case "missing-source":
+				return "Choose the search supplied by the project space before adding its parameters.";
+			default:
+				return "Review the Search settings and choose the fields or values the project space should use.";
+		}
+	},
 	CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} in ${q(modName(e))} has the name CommCare gives its own search filters, so it would never search a case. Rename it under More settings.`,
 	CASE_LIST_SEARCH_INPUT_NAME_RESERVED: (e) =>

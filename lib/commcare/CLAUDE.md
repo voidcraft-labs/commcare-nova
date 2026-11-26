@@ -958,9 +958,13 @@ and a link identifier (`questionId.ts::stopsFormBuilder`), and as a property
 name a block in a form's source writes
 (`CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP`). It reads a Save to Case
 block's `close` and `create` as the block's own action at any depth inside
-`<case>`, so a link identifier may be neither and a written property may not
-be `close`. A property a basic action alone writes is not refused: HQ's build
-adds that block and the source never holds it.
+`<case>`. A link can use either name when the same source block already has
+the matching direct action. The reader checks the raw block's direct children.
+The validator uses the planned Save to Case placement and the same action
+shape as the emitter, including whether the form's own close shares the
+block. The basic and advanced Case Management name rules are unchanged.
+A Save to Case write may not use the property name `close`. HQ's build
+adds the basic Case Management block outside the form's authored source.
 
 `xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`, which `xform/appearance.ts::fieldAppearance` writes from `UPLOAD_APPEARANCE_BY_CAPTURE_KIND`; an Image field can also hold a positive `maxDimension`. The upload writes it as `jr:imageDimensionScaledMax="<pixels>px"`. Android scales JPEG and PNG files before enforcing its upload limit. Web Apps sends the original file.
 
@@ -2211,6 +2215,17 @@ inline search. The setter tool refuses a workflow on an owner-only config
 because there is no search to open on.
 
 `caseSearchConfig.searchButtonDisplayCondition` is orthogonal to that flag decision. It emits as the case-list Search action's `relevant` predicate, not as a Results-row filter and not as the `auto_launch` expression itself. Core first removes irrelevant actions and then evaluates auto-launch among the remaining actions, so the predicate gates the automatic transition wherever the workflow auto-launches (search first and skip to results whose forms read their own case); in list first it gates the manual Search action. Preview and authoring copy must preserve that distinction rather than treating any input-free search config as a generic “go to Results” rule.
+
+Working HQ suite reads also resolve the lookup instances consumed by menu
+and form filters and badges. The reader reads each menu contribution's own
+declarations, including when several contributions share a displayed menu
+ID. A form uses its entry and every listed copy of that entry. A parent
+filter also uses display-only child contributions that inherit its condition.
+Those physical scopes must agree. A declaration in an unrelated entry, or
+a slot's scanner-visible spelling after HQ already proved the declaration
+absent, cannot supply the instance. Working suite evidence stays bound to
+the current source bracket and every available build profile. Calculated
+details, XForms, and Search use their own existing scope rules.
 
 ### Registration from the case list lowering
 

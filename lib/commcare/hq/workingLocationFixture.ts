@@ -198,6 +198,8 @@ async function readWorkingSuiteProfiles(
 ): Promise<SuiteDetailSources | undefined> {
 	const { source, application } = input.working;
 	const merged = new Map<string, Map<string, string | null> | null>();
+	const [major, minor] = source.buildSpecVersion.split(".").map(Number);
+	const menuInstances = !(major < 2 || (major === 2 && minor < 54));
 	for (const profile of [
 		undefined,
 		...source.buildProfiles.map((profile) => profile.id),
@@ -206,7 +208,7 @@ async function readWorkingSuiteProfiles(
 			input,
 			"suite.xml",
 			profile,
-			(xml) => readSuiteDetailSources(xml, reads, input.cancel),
+			(xml) => readSuiteDetailSources(xml, reads, input.cancel, menuInstances),
 		);
 		if (!scopes) return;
 		for (const [id, scope] of scopes) {
