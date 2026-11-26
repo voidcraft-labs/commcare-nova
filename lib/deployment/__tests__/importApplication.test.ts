@@ -96,7 +96,7 @@ describe("hqImportApplication", () => {
 		expect(sharingShell.case_sharing).toBe(true);
 	});
 
-	it("fills the shell with the three keys over its source, and owns the form lists, the Android app selection and the location switch", () => {
+	it("fills the shell with the three keys over its source, and owns the form lists, the Android app selection, the location switch and case sharing", () => {
 		const doc = buildDoc({
 			appName: "Visits",
 			appSettings: { showSavedForms: true, showIncompleteForms: false },
@@ -118,6 +118,7 @@ describe("hqImportApplication", () => {
 			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: true,
+			caseSharing: true,
 		});
 	});
 

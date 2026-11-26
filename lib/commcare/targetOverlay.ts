@@ -64,6 +64,8 @@ export interface TargetOwnership {
 	/** Absent on baselines recorded before Nova authored profile features. */
 	readonly profileFeatures?: readonly string[];
 	readonly autoGpsCapture: boolean;
+	/** Absent on baselines recorded before Nova owned case sharing. */
+	readonly caseSharing?: boolean;
 }
 
 /**
@@ -338,6 +340,9 @@ export function projectApplicationForTarget(
 					? [...NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS]
 					: [],
 			autoGpsCapture: Object.hasOwn(application, "auto_gps_capture"),
+			// Every update writes case sharing: the app's choice where it holds
+			// one, and off over a target that shares cases where it holds none.
+			caseSharing: true,
 		},
 	};
 }

@@ -5009,7 +5009,9 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		profileProperties === null ||
 		profileCustomProperties === null ||
 		profileFeatures === null ||
-		typeof stored.autoGpsCapture !== "boolean"
+		typeof stored.autoGpsCapture !== "boolean" ||
+		(stored.caseSharing !== undefined &&
+			typeof stored.caseSharing !== "boolean")
 	)
 		return null;
 	return {
@@ -5018,6 +5020,7 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		profileCustomProperties,
 		...(profileFeatures !== undefined && { profileFeatures }),
 		autoGpsCapture: stored.autoGpsCapture,
+		...(stored.caseSharing === true && { caseSharing: true }),
 	};
 }
 

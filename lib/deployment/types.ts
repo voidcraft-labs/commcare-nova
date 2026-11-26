@@ -784,6 +784,8 @@ export interface AppOwnership {
 	/** Absent on baselines recorded before Nova authored profile features. */
 	readonly profileFeatures?: readonly string[];
 	readonly autoGpsCapture: boolean;
+	/** Absent on baselines recorded before Nova owned case sharing. */
+	readonly caseSharing?: boolean;
 }
 
 /**

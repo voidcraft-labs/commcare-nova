@@ -1666,6 +1666,70 @@ describe("changes made in CommCare HQ", () => {
 		).toEqual({ origin: "push", discarded_by: ACTOR });
 	});
 
+	it("asks before writing case sharing over a person's change in HQ, sends its own once confirmed, and reads an older baseline as not owning it", async () => {
+		/* Every update writes case sharing (the app holds none here, so off),
+		 * so a person turning it on in HQ is a change the next publish names,
+		 * and only the confirmed publish turns it off again. */
+		const doc = await seed();
+		const shared = (source: Record<string, unknown>) => {
+			source.case_sharing = true;
+		};
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			const owning = (await baselineRow()).ownership;
+			expect(owning).toMatchObject({ caseSharing: true });
+
+			const sent = requests(peer).length;
+			serveEdited(peer, SOURCE, "source-live", shared);
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toMatchObject({
+				phase: "preflight",
+				failure: { code: "hq_changed" },
+				remoteChanges: [
+					expect.objectContaining({
+						kind: "app",
+						parts: ["A setting this app writes"],
+						baselineKnown: true,
+					}),
+				],
+			});
+			expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+			const digest = stopped.remoteChanges[0]?.observedDigest ?? fail();
+			serveEdited(peer, SOURCE, "source-live", shared);
+			const bodies: { app: Record<string, unknown> }[] = [];
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			expect(
+				(
+					await publish(doc, [
+						{ kind: "app", novaResourceId: APP, observedDigest: digest },
+					])
+				).landed,
+			).toBe(true);
+			expect(bodies.map(({ app }) => app.case_sharing)).toEqual([false]);
+
+			/* A baseline recorded before Nova owned case sharing compares none:
+			 * the same change in HQ does not stop the publish. */
+			const { caseSharing: _owned, ...older } = owning as Record<
+				string,
+				unknown
+			>;
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({ ownership: JSON.stringify(older) })
+				.execute();
+			serveEdited(peer, SOURCE, "source-live", shared);
+			accepted(peer, 200, HQ_APP);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+		});
+	});
+
 	it("asks before writing its location switch and Android apps over a person's change to either in HQ, and sends its own once confirmed", async () => {
 		/* Nova's push baseline owns both settings, so a person's save of either
 		 * in HQ is a change the next publish names, and only the confirmed
