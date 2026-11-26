@@ -20,6 +20,7 @@ import pytest
 DOCUMENTS = (
     "hq-question-display",
     "media-language-files",
+    "case-list-action-advanced",
     "case-list-action-basic",
     "prompt-periods",
     "prompt-period-spellings",

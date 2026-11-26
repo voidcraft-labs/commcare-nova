@@ -10230,6 +10230,30 @@
 		"slotChanges": []
 	},
 	{
+		"id": "menus-and-case-lists/case-list-form-return-search-needs-the-created-case",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "A conditional registration whose return query fetches the case it was meant to create",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "return-search-needs-the-created-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps receives a 404 after the form saves if the case does not exist",
+		"subject": "case-list-registration",
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "the return searches for a case the form may never create"
+			}
+		]
+	},
+	{
 		"id": "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case",
 		"area": "menus-and-case-lists",
 		"section": "Case selection extras",
