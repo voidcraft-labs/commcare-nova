@@ -322,7 +322,14 @@ it.each([
 				updates: { kind: "text", caseWrite },
 			}),
 		);
-		const saved = property === "external_id" || property === "owner_id";
+		// The external id and the owner are a write's own facts, and CommCare HQ's
+		// server keeps a written location and copies a written hq_user_id into
+		// the external id, as the case store does.
+		const saved =
+			property === "external_id" ||
+			property === "owner_id" ||
+			property === "location_id" ||
+			property === "hq_user_id";
 		expect("error" in result.result).toBe(!saved);
 		if (saved) {
 			valid(harness.currentDoc());

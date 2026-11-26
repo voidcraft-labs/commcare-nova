@@ -20,6 +20,7 @@ function formsHoldingPlacement(doc: BlueprintDoc): ReadonlySet<Uuid> {
 	const held = new Set<Uuid>();
 	for (const form of Object.values(doc.forms)) {
 		if (
+			form.heldSelectionTags !== undefined ||
 			form.ownClosePlacement !== undefined ||
 			(form.caseOperations ?? []).some((op) => op.placement !== undefined)
 		)

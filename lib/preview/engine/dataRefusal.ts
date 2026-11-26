@@ -24,6 +24,7 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import type { FormSelectionSource } from "@/lib/domain/formEntryCases";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathInvalidPathError } from "../xpath/runtimeValues";
@@ -40,6 +41,11 @@ const SEARCH_INPUT_INSTANCE_PREFIX = "search-input:";
 
 export type PreviewDataRefusalReason =
 	| { readonly kind: "invalid-case-location" }
+	| {
+			readonly kind: "entry-record";
+			readonly selection: string;
+			readonly source: FormSelectionSource["kind"];
+	  }
 	/** A value read below an instance that holds nothing, named by its id. */
 	| { readonly kind: "empty-instance"; readonly instanceId: string }
 	/** A case owner moved to the worker's place at a level, for a worker
@@ -92,19 +98,21 @@ export class PreviewDataRefusal extends Error {
 		stage: PreviewDataRefusalStage = "form",
 	) {
 		super(
-			reason.kind === "invalid-case-location"
-				? "A saved case location cannot be read as coordinates."
-				: reason.kind === "empty-instance"
-					? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
-					: reason.kind === "group-count"
-						? "This form needs exactly one case-sharing group for this worker."
-						: reason.kind === "owner-without-place"
-							? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
-							: reason.kind === "unreadable-starting-range"
-								? "Web Apps could not open the starting dates for this search."
-								: reason.kind === "unoffered-starting-choice"
-									? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
-									: "CommCare refuses this choice list: its table has no rows.",
+			reason.kind === "entry-record"
+				? `This form could not find the record for “${reason.selection}”.`
+				: reason.kind === "invalid-case-location"
+					? "A saved case location cannot be read as coordinates."
+					: reason.kind === "empty-instance"
+						? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
+						: reason.kind === "group-count"
+							? "This form needs exactly one case-sharing group for this worker."
+							: reason.kind === "owner-without-place"
+								? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
+								: reason.kind === "unreadable-starting-range"
+									? "Web Apps could not open the starting dates for this search."
+									: reason.kind === "unoffered-starting-choice"
+										? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
+										: "CommCare refuses this choice list: its table has no rows.",
 		);
 		this.name = "PreviewDataRefusal";
 		this.reason = reason;
@@ -166,6 +174,7 @@ export function workerFailureError(failure: XPathRuntimeFailure): Error {
 /** What a refusal is about, named from the document and the lookup data. */
 export type PreviewDataRefusalSubject =
 	| { readonly kind: "invalid-case-location" }
+	| Extract<PreviewDataRefusalReason, { kind: "entry-record" }>
 	| { readonly kind: "places" }
 	| { readonly kind: "group-count" }
 	| { readonly kind: "owner-place" }
@@ -202,6 +211,7 @@ export function previewDataRefusalSubject(
 	reason: PreviewDataRefusalReason,
 	lookupData: PreviewLookupData | null | undefined,
 ): PreviewDataRefusalSubject {
+	if (reason.kind === "entry-record") return reason;
 	if (reason.kind === "empty-choice-table") {
 		return {
 			kind: "choices",
@@ -244,7 +254,11 @@ export function previewDataRefusalReadsTable(
 	lookupData: PreviewLookupData | null | undefined,
 ): boolean {
 	const subject = previewDataRefusalSubject(reason, lookupData).kind;
-	return subject === "choices" || subject === "table";
+	return (
+		subject === "choices" ||
+		subject === "table" ||
+		(reason.kind === "entry-record" && reason.source === "table")
+	);
 }
 
 /** Whether an operation moves its case to the worker's place at a level. */

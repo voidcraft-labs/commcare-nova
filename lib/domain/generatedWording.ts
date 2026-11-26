@@ -432,7 +432,19 @@ export function generatedWordingUnits(
 				form.name,
 				makeTranslationUnitId("form", formUuid, "name"),
 			);
-			add(false, formOwner, formUuid, "submitButton", formPath, "Submit");
+			// A form's own submit wording is the default the worker wording overrides,
+			// as HQ's app translations override a form's `submit_label`.
+			add(
+				false,
+				formOwner,
+				formUuid,
+				"submitButton",
+				formPath,
+				form.submitLabel?.text ?? "Submit",
+				form.submitLabel === undefined
+					? undefined
+					: makeTranslationUnitId("form", formUuid, "submit-label"),
+			);
 		}
 	}
 	return out;

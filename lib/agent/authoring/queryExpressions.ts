@@ -68,6 +68,9 @@ export interface QueryBindings {
 		name: string,
 	): LookupMemberId;
 	chosenCaseMenu(name: string): { module: Uuid; caseType: string };
+	/** A record or value the form opens with, by its name or UUID, refused
+	 *  outside a form or where that name is missing or shared. */
+	openingSupply(kind: "form-selection" | "entry-value", name: string): Term;
 	forRelation(relation: RelationPath): QueryBindings;
 	forDeviceRecords(caseType?: string): QueryBindings;
 	forTable(tableId: string): QueryBindings;
@@ -744,6 +747,16 @@ function compiler(bindings: QueryBindings) {
 			arity(name, args);
 			return chosenCaseId(bindings.chosenCaseMenu(string(args[0])).module);
 		}
+		if (name === "opening-record" || name === "opening-value") {
+			arity(name, args);
+			return {
+				kind: "term",
+				term: bindings.openingSupply(
+					name === "opening-record" ? "form-selection" : "entry-value",
+					string(args[0]),
+				),
+			};
+		}
 		if (name === "chosen-case-property") {
 			arity(name, args);
 			const menu = bindings.chosenCaseMenu(string(args[0]));
@@ -906,6 +919,19 @@ function compiler(bindings: QueryBindings) {
 			if (input.kind !== "input")
 				throw new AuthoringInputError("when-provided() needs a Search answer.");
 			return { kind: "when-input-present", input, clause: predicate(args[1]) };
+		}
+		// A case change's condition on one form answer read as CommCare reads
+		// an answer alone: true wherever it is not blank, apart from a number
+		// answered 0. The checker admits it as a case change's condition alone
+		// (`typeChecker.ts::effectiveBooleanOfAnswer`), so it is no record
+		// function anywhere else.
+		if (name === "boolean") {
+			const read = args.length === 1 ? term(args[0]) : undefined;
+			if (read?.kind !== "field")
+				throw new AuthoringInputError(
+					"boolean() reads one form answer as a case change's condition, such as boolean(#form/member_left).",
+				);
+			return { kind: "call", fn: name, args: [{ kind: "term", term: read }] };
 		}
 		if (name === "exists" || name === "missing") {
 			arity(name, args);

@@ -14,6 +14,7 @@ import { withExclusiveCaptureCleanupWorker } from "@/lib/db/captureCleanupLease"
 import { runCaptureCleanupSchemaProbe } from "@/lib/db/captureCleanupSchemaProbe";
 import { preparePendingFormAttachments } from "@/lib/db/formAttachmentPreparation";
 import { purgeExpiredFormAttachments } from "@/lib/db/formAttachments";
+import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { deleteAsset, deleteAssetGeneration } from "@/lib/storage/media";
 
 const BATCH_SIZE = 100;
@@ -24,6 +25,12 @@ async function runMaintenance(): Promise<void> {
 	// Run under the worker's own identity, after acquiring the advisory lock
 	// and prewarming its second connection. No separate deploy-time execution.
 	await runCaptureCleanupSchemaProbe();
+	let expiredOpeningSnapshots = 0;
+	for (let batch = 0; batch < MAX_BATCHES; batch++) {
+		const retired = await reclaimExpiredFormOpeningData();
+		expiredOpeningSnapshots += retired;
+		if (retired < 32) break;
+	}
 	let expiredRows = 0;
 	let transitionedExpiredRows = 0;
 	let objectDeleteFailures = 0;
@@ -62,6 +69,7 @@ async function runMaintenance(): Promise<void> {
 	}
 
 	const summary = {
+		expiredOpeningSnapshots,
 		prepared,
 		discarded,
 		preparationFailures,
