@@ -1093,11 +1093,11 @@ function bindFormNodePath(
 	let hasName = false;
 	let steps = path.steps;
 	if (spelling === "absolute") {
-		if (!plain(steps[0], "data"))
+		if (!plain(steps[0], form.dataRootName ?? "data"))
 			refuse(
 				"unknown-field",
 				whole,
-				"A form's absolute answer path starts at /data. You can also use #form/question.",
+				`This form's absolute answer path starts at /${form.dataRootName ?? "data"}. You can also use #form/question.`,
 			);
 		steps = steps.slice(1);
 	}
@@ -1207,7 +1207,11 @@ function bindFormNodePath(
 			if (
 				logical &&
 				!named.attribute &&
-				(current.kind === "field" || current.kind === "form-root")
+				(current.kind === "field" || current.kind === "form-root") &&
+				!(
+					current.kind === "field" &&
+					form.fields.get(current.uuid)?.kind === "connect_activity"
+				)
 			) {
 				const parent = current.kind === "field" ? current.uuid : current.form;
 				logicalPath = [...logicalPath, named.name];
@@ -1290,7 +1294,11 @@ function bindFormNodePath(
 			},
 			whole,
 		);
-	if (spelling !== "relative" && spelling !== "current")
+	if (
+		spelling !== "relative" &&
+		spelling !== "current" &&
+		!(spelling === "absolute" && "activity" in current)
+	)
 		refuse(
 			"unknown-field",
 			whole,

@@ -2700,6 +2700,15 @@ The MCP tools page HQ birth and change reviews against 80,000 characters of the 
 A continuation commits to the display inputs as well as the underlying approval. The birth approval includes the complete review except its read timestamp; add the Project display name and target domain to its page identity. The later approval includes every table, while change sentences and contributor names are resolved separately; bind those rendered inputs to its continuation. If a Project name, contributor, or displayed change moves, restart the pages without changing the underlying write decision. The prior cursor also restarts after the page layout changes version. Paged rename evidence is lossless, with one bounded recovery sentence based on name reuse across the entire review.
 
 A generated link binds external case selections and scalar creation IDs from its published manifest. Creation suppliers are addressed by operation UUID. The manifest retains argument order where an endpoint exposes both kinds. Older published manifests without creation arguments continue to accept their original selections.
+A starting answer that an earlier reader left behind in CommCare HQ remains
+visible in an adopted deployment's historical publish review. A fresh reading
+keeps both a hidden value's starting answer and its calculation. A later HQ
+change retains the old notice only when the same bound field had both in the
+previous and current HQ sources, and the reference and taken app still omit
+the starting answer. A successful content push clears the pending review.
+`scripts/scan-hidden-starting-values.ts` counts such stored notices by
+deployment state and first or next publish, without reading form contents.
+
 ### Ordinary apps’ automatic location
 
 An ordinary app and each basic or advanced form own their independent switches.

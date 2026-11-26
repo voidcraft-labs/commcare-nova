@@ -1542,6 +1542,17 @@ def _questions():
         model="""<setvalue event="xforms-ready" ref="/data/made/case/@case_id" value="''"/>
           <setvalue event="xforms-ready" ref="/data/other/case/@case_id" value="uuid()"/>""",
     )
+    # A blank and a file name on two attachment questions, and a text question's default beside them.
+    capture_defaults = form(
+        data="<photo/><report/><note/>",
+        model="""<bind nodeset="/data/photo" type="binary"/><bind nodeset="/data/report" type="binary"/>
+          <bind nodeset="/data/note" type="xsd:string"/>
+          <setvalue event="xforms-ready" ref="/data/photo" value="''"/>
+          <setvalue event="xforms-ready" ref="/data/report" value="'carry-forward.pdf'"/>
+          <setvalue event="xforms-ready" ref="/data/note" value="'x'"/>""",
+        body="""<upload ref="/data/photo" mediatype="image/*"/>
+          <upload ref="/data/report" mediatype="application/*,text/*"/><input ref="/data/note"/>""",
+    )
     leaves = form(
         data=f'<q/><op vellum:role="SaveToCase">{case}<update><when/></update></case></op>',
         model="""<bind nodeset="/data/q" type="xsd:dateTime"/>
@@ -1584,6 +1595,12 @@ def _questions():
     heads = form(data="<q/>", body='<input ref="/data/q"/>', head='<x:extra><x:input ref="/data/q"/></x:extra>')
     uploads = form(
         data="<a/><b/>", body='<upload ref="/data/a" mediatype="IMAGE/*"/><upload ref="/data/b" mediatype="image/*"/>'
+    )
+    image_sizes = form(
+        data="<a/><b/>",
+        model='<bind nodeset="/data/a" type="binary"/><bind nodeset="/data/b" type="binary"/>',
+        body='<upload ref="/data/a" mediatype="image/*" jr:imageDimensionScaledMax="0px"/>'
+        '<upload ref="/data/b" mediatype="image/*" jr:imageDimensionScaledMax="731px"/>',
     )
     setvalue = "jr-action:setvalue"
     group = "body[1]/group[{}]/repeat[1]"
@@ -1652,6 +1669,10 @@ def _questions():
             refused("form", labels, "jr-control:input", "body[1]/input[1]"),
             accepted("form", labels, "mug:Trigger", "data[1]/{http://example.org/t}t[1]", readings=True),
         ),
+        "questions/jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater": (
+            refused("form", image_sizes, "jr-extension:UploadQuestionExtensionParser", "body[1]/upload[1]"),
+            accepted("form", image_sizes, "jr-extension:UploadQuestionExtensionParser", "body[1]/upload[2]"),
+        ),
         "questions/upload-with-any-other-mediatype-or-none": (
             refused("form", uploads, "jr-control:upload", "body[1]/upload[1]"),
             accepted("form", uploads, "jr-control:upload", "body[1]/upload[2]"),
@@ -1663,6 +1684,11 @@ def _questions():
         "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": (
             refused("form", setvalues, setvalue, "model[1]/setvalue[3]"),
             accepted("form", setvalues, setvalue, "model[1]/setvalue[2]"),  # a question's default value
+        ),
+        "questions/default-other-than-blank-on-a-capture-question": (
+            refused("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[2]/@value"),
+            accepted("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[1]/@value"),
+            accepted("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[3]/@value"),
         ),
         "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": (
             refused("form", created, setvalue, "model[1]/setvalue[1]", readings=True),
@@ -6120,6 +6146,17 @@ def _data_binds_and_itext():
         body="""<group><repeat nodeset="/data/r"><input ref="/data/other/q"/></repeat></group>
           <input ref="/data/top"/>""",
     )
+    # A question in group g kept at the root, one in group h kept under g, and a group kept under another.
+    held_parents = form(
+        data="<top/><g><inner/><moved/></g><h/><c/>",
+        body="""<group ref="/data/g"><input ref="/data/top"/></group>
+          <group ref="/data/h"><input ref="/data/g/inner"/></group>
+          <group ref="/data/c"><group ref="/data/g/moved"/></group>""",
+    )
+    iteration_parent = form(
+        data='<iterations vellum:role="Repeat"><item jr:template=""/></iterations>',
+        body='<group ref="/data/iterations"><repeat nodeset="/data/iterations/item"/></group>',
+    )
     inline = form(data="<q/>", model='<instance id="inline"><root><row/></root></instance>')
     unnamed = form(data="<q/>", model="<instance><extra/></instance>")
     # A data node named instance: Vellum's second unnamed instance, an element of the main instance's content.
@@ -6281,13 +6318,6 @@ def _data_binds_and_itext():
             accepted("form", nodes, root_child, f"{data}good[1]"),
             accepted("form", ids, root_child, f"{data}Registration[1]"),
         ),
-        "questions/question-id-case-registration-script": (
-            refused("form", ids, root_child, f"{data}Registration[1]"),
-            refused("form", ids, root_child, f"{data}SCRIPT[1]"),
-            refused("form", ids, node, f"{data}g[1]/{data}script[1]"),
-            accepted("form", ids, root_child, f"{data}plain[1]"),
-            accepted("form", ids, root_child, f"{data}bind[1]"),
-        ),
         "questions/two-sibling-data-nodes-with-one-name": (
             refused("form", nodes, root_child, f"{data}twin[2]"),
             accepted("form", nodes, root_child, f"{data}rows[2]"),  # a repeat's rows share their path
@@ -6375,7 +6405,9 @@ def _data_binds_and_itext():
             refused("form", iterations, role, f"{data}page[1]/{data}late[1]/@vellum:role", readings=True),
             accepted("form", iterations, role, f"{data}top[1]/@vellum:role", readings=True),
             accepted("form", iterations, role, f"{data}shown[1]/{data}early[1]/@vellum:role", readings=True),
-            unsettled("form", iterations, role, f"{data}worked[1]/{data}computed[1]/@vellum:role", readings=True),
+            # worked's condition reads a calculation the load cannot settle: a worker-dependent condition is an
+            # ordinary input, and only a suppression the load proves belongs to the class
+            accepted("form", iterations, role, f"{data}worked[1]/{data}computed[1]/@vellum:role", readings=True),
         ),
         "questions/model-iteration-repeat-whose-query-reads-a-form-answer-that-is": (
             refused("form", iterations, role, f"{data}top[1]/@vellum:role", readings=True),  # /data/q, entered later
@@ -6736,6 +6768,16 @@ def _data_binds_and_itext():
             refused("form", parents, "xform:input@ref", "repeat[1]/input[1]/@ref"),
             accepted("form", parents, "xform:input@ref", "body[1]/input[1]/@ref"),
         ),
+        "questions/data-parent-at-the-form-root-under-a-grouped-control": (
+            refused("form", held_parents, "xform:input@ref", "body[1]/group[1]/input[1]/@ref"),
+            accepted("form", held_parents, "xform:input@ref", "body[1]/group[2]/input[1]/@ref"),
+            accepted("form", parents, "xform:input@ref", "body[1]/input[1]/@ref"),
+        ),
+        "questions/data-parent-on-a-group-or-repeat": (
+            refused("form", held_parents, "xform:group@ref", "body[1]/group[3]/group[1]/@ref"),
+            accepted("form", iteration_parent, "xform:repeat@nodeset", "group[1]/repeat[1]/@nodeset"),
+            accepted("form", held_parents, "xform:group@ref", "body[1]/group[1]/@ref"),
+        ),
         "expressions-and-data/inline-instance-content-inside-instance-no-src": (
             refused("form", inline, "xform:model/instance@id", "instance[4]/@id"),
             accepted("form", inline, "xform:model/instance@id", "instance[2]/@id"),
@@ -6992,101 +7034,8 @@ def _held_new():
         return columns(_column(fmt=fmt, enum=[item]))
 
     profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": ["fra"]}})
-    choices = _form(
-        data="<s/>",
-        body="""<select1 ref="/data/s"><item><value>a'b"c</value></item><item><value>a'b</value></item></select1>""",
-    )
     named = _form(data="<q/>").replace(b"<data ", b'<visit uiVersion="1" ').replace(b"</data>", b"</visit>")
-    versioned = _form(data="<q/>").replace(b'name="T"', b'name="T" uiVersion="1"')
-    # Hidden Values (data nodes no control names): a, b and c with a calculate and a default, a read by r's later
-    # default, c through m's calculate by s's, b by nothing; h with both in a repeat; t with a calculate alone.
-    hidden_values = _form(
-        data="<a/><b/><c/><m/><r/><s/><t/><grp><h/><v/></grp>",
-        model=(
-            '<bind nodeset="/data/a" calculate="1 + 1"/><bind nodeset="/data/b" calculate="2 + 2"/>'
-            '<bind nodeset="/data/c" calculate="3 + 3"/><bind nodeset="/data/m" calculate="/data/c * 2"/>'
-            '<bind nodeset="/data/r"/><bind nodeset="/data/s"/><bind nodeset="/data/t" calculate="4"/>'
-            '<bind nodeset="/data/grp/h" calculate="5"/>'
-            '<setvalue event="xforms-ready" ref="/data/a" value="5"/>'
-            '<setvalue event="xforms-ready" ref="/data/b" value="6"/>'
-            '<setvalue event="xforms-ready" ref="/data/c" value="7"/>'
-            '<setvalue event="xforms-ready" ref="/data/grp/h" value="8"/>'
-            '<setvalue event="xforms-ready" ref="/data/r" value="/data/a + 1"/>'
-            '<setvalue event="xforms-ready" ref="/data/s" value="/data/m"/>'
-        ),
-        body="""<group ref="/data/grp"><label>G</label><repeat nodeset="/data/grp">
-          <input ref="/data/grp/v"><label>V</label></input></repeat></group>""",
-    )
-
-    # A query repeat's count placement as Nova writes it (``countPlacementRow.ts``): each row's id holds a
-    # calculate and a ``jr-insert`` default that give the row one id, which the count repeat's own entry holds. In
-    # ``s`` the row's default is another value, which the row's calculate replaces only later.
-    def count_placement(name, row_default):
-        ids, count, row_id, index = (f"nova_query_{part}_{name}" for part in ("ids", "count", "id", "index"))
-        data = f'<{name}><{ids}/><{count}/><item jr:template=""><{row_id}/><{index}/><note/></item></{name}>'
-        model = (
-            f"<bind nodeset=\"/data/{name}/{ids}\" calculate=\"join(' ', 'a b')\"/>"
-            f'<bind nodeset="/data/{name}/{count}" type="xsd:int" calculate="count-selected(../{ids})"/>'
-            f'<bind nodeset="/data/{name}/item/{row_id}"'
-            f" calculate=\"if(../{index} &lt; ../../{count}, selected-at(../../{ids}, ../{index}), '')\"/>"
-            f'<bind nodeset="/data/{name}/item/{index}" type="xsd:int"/>'
-            f'<setvalue event="jr-insert" ref="/data/{name}/item/{row_id}" value="{row_default}"/>'
-            f'<setvalue event="jr-insert" ref="/data/{name}/item/{index}" value="position(..)"/>'
-        )
-        body = (
-            f'<group ref="/data/{name}"><group><repeat nodeset="/data/{name}/item" jr:noAddRemove="true()"'
-            f' jr:count="/data/{name}/{count}"><input ref="/data/{name}/item/note"><label>N</label></input>'
-            "</repeat></group></group>"
-        )
-        return data, model, body
-
-    placed = [
-        count_placement(
-            "r",
-            "if(position(..) &lt; int(../../nova_query_count_r),"
-            " selected-at(../../nova_query_ids_r, position(..)), '')",
-        ),
-        count_placement("s", "if(position(..) &lt; 5, ../../nova_query_ids_s, '')"),
-    ]
-    count_rows = _form(
-        data="".join(data for data, _, _ in placed),
-        model="".join(model for _, model, _ in placed),
-        body="".join(body for _, _, body in placed),
-    )
-
-    def hidden(*names):
-        return "data[1]/" + "/".join(f"{{http://example.org/t}}{name}[1]" for name in names)
-
-    # A SaveToCase block's ``<case>`` attribute HQ's reader lists as a Hidden Value (``get_questions``), here with a
-    # calculate and a default, is the block's own property to Vellum, never a Hidden Value.
-    case_attribute = _form(
-        data=(
-            '<stc><case xmlns="http://commcarehq.org/case/transaction/v2" case_id="" date_modified="">'
-            "<create><case_type/></create></case></stc>"
-        ),
-        model=(
-            '<bind nodeset="/data/stc/case/@case_id" calculate="uuid()"/>'
-            '<bind nodeset="/data/stc/case/create/case_type" calculate="\'patient\'"/>'
-            '<setvalue event="xforms-ready" ref="/data/stc/case/@case_id" value="uuid()"/>'
-        ),
-    )
-    case_id = "{http://example.org/t}stc[1]/{http://commcarehq.org/case/transaction/v2}case[1]/@case_id"
-
-    hidden_type = "mug:DataBindOnly"
     return {
-        "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression": (
-            refused("form", hidden_values, hidden_type, hidden("a"), readings=True),
-            refused("form", hidden_values, hidden_type, hidden("c"), readings=True),
-            refused("form", hidden_values, hidden_type, hidden("grp", "h"), readings=True),
-            accepted("form", hidden_values, hidden_type, hidden("b"), readings=True),
-            accepted("form", hidden_values, hidden_type, hidden("t"), readings=True),
-            accepted("form", hidden_values, hidden_type, hidden("r"), readings=True),
-            # A count placement's row id is the count repeat's, and a row whose default its calculate does not give
-            # is a Hidden Value in a repeat.
-            accepted("form", count_rows, hidden_type, hidden("r", "item", "nova_query_id_r"), readings=True),
-            refused("form", count_rows, hidden_type, hidden("s", "item", "nova_query_id_s"), readings=True),
-            accepted("form", case_attribute, hidden_type, case_id, readings=True),
-        ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             refused("app", own_update("größe"), update_map, updates),
             refused("app", child_update("größe"), child_map, children),
@@ -7107,13 +7056,15 @@ def _held_new():
             # Excluded from the search, the prompt names no case property.
             accepted("app", search(name="_x", exclude=True), "schema:CaseSearchProperty.name", f"{prompts}/name"),
         ),
-        "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": (
-            refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
-            accepted("form", choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
+        "questions/data-root-name-that-workers-cannot-address": (
+            refused("form", named.replace(b"visit", "患者".encode()), "xform:model/instance/*", f"instance[1]/{data}患者[1]"),
+            accepted("form", named, "xform:model/instance/*", f"instance[1]/{data}visit[1]"),
         ),
-        "questions/data-root-element-named-other-than-data": (
-            refused("form", named, "xform:model/instance/*", f"instance[1]/{data}visit[1]"),
-            accepted("form", versioned, "xform:model/instance/*", f"instance[1]/{data}data[1]"),
+        "questions/answer-root-that-the-form-designer-reads-as-its-own-element": (
+            *(refused("form", named.replace(b"visit", name.encode()), "xform:model/instance/*", f"instance[1]/{data}{name}[1]")
+              for name in ("instance", "bind", "parsererror")),
+            *(accepted("form", named.replace(b"visit", name.encode()), "xform:model/instance/*", f"instance[1]/{data}{name}[1]")
+              for name in ("case", "registration", "Bind")),
         ),
         "menus-and-case-lists/detail-max-select-value-above-100": (
             refused(
@@ -7420,6 +7371,60 @@ def _listed_forms_and_first_menu():
     }
 
 
+def _submitted_answers():
+    """The shapes of the classes of a submitted answer: a name a worker's submission reads as a case change, an
+    ordinary answer in the stock namespace, a namespace the form designer cannot keep, a lock it cannot represent and
+    a validation on a Hidden Value."""
+    form = _form
+    data = "{http://example.org/t}"
+    node, root_child = "xform:model/instance//*", "xform:model/instance/*/*"
+    stock = "http://commcarehq.org/ledger/v1"
+    named = form(
+        data=f'''<case/><g><Case/></g><case_note/><entry xmlns="{stock}"/><plain/>''',
+        body='<input ref="/data/case_note"/><input ref="/data/plain"/>',
+    )
+    spaced = form(
+        data='<svc xmlns="urn:receiving:svc"/><empty xmlns=""/><asked xmlns="urn:receiving:asked"/>',
+        model='<bind nodeset="/data/svc" calculate="1"/><bind nodeset="/data/asked" type="xsd:string"/>',
+        body='<input ref="/data/asked"/>',
+    )
+    locks = form(
+        data='<full vellum:lock="all"/><part vellum:lock="partial"/>',
+        model='<bind nodeset="/data/full" type="xsd:string" vellum:lock="all"/><bind nodeset="/data/part" type="xsd:string"/>',
+        body='<input ref="/data/full"/><input ref="/data/part"/>',
+    )
+    checked = form(
+        data="<hv/><q/>",
+        model='<bind nodeset="/data/hv" calculate="1" constraint=". &gt; 0"/><bind nodeset="/data/q" type="xsd:int" constraint=". &gt; 0"/>',
+        body='<input ref="/data/q"/>',
+    )
+    namespace, lock = "xform:model/instance//*@xmlns", "vellum-markup:model/instance//*@vellum:lock"
+    return {
+        "questions/submitted-node-consumed-as-case": (
+            refused("form", named, root_child, f"{data}case[1]"),
+            refused("form", named, node, f"{data}g[1]/{data}Case[1]"),
+            accepted("form", named, root_child, f"{data}case_note[1]"),
+        ),
+        "questions/ordinary-answer-in-stock-namespace": (
+            refused("form", named, root_child, f"{{{stock}}}entry[1]"),
+            accepted("form", named, root_child, f"{data}plain[1]"),
+        ),
+        "questions/submitted-namespace-the-form-designer-cannot-keep": (
+            refused("form", spaced, namespace, "empty[1]/namespace()"),
+            refused("form", spaced, namespace, "{urn:receiving:asked}asked[1]/namespace()"),
+            accepted("form", spaced, namespace, "{urn:receiving:svc}svc[1]/namespace()"),
+        ),
+        "questions/question-lock-the-designer-cannot-represent": (
+            refused("form", locks, lock, f"{data}part[1]/@vellum:lock"),
+            accepted("form", locks, lock, f"{data}full[1]/@vellum:lock"),
+        ),
+        "questions/validation-on-a-hidden-value": (
+            refused("form", checked, "xform:model/bind@constraint", "bind[1]/@constraint"),
+            accepted("form", checked, "xform:model/bind@constraint", "bind[2]/@constraint"),
+        ),
+    }
+
+
 def _menu_badges():
     """A menu's and a form's first badge, and the navigation conditions beside them."""
 
@@ -7491,7 +7496,242 @@ def _menu_badges():
     }
 
 
+def _connect_activities():
+    ns = "http://commcareconnect.com/data/v1/learn"
+    role_key = "vellum-markup:model/instance//*@vellum:role"
+    node_key = "xform:model/instance//*"
+
+    def block(name, role, operation, content, identifier=None):
+        return f'<{name} vellum:role="{role}"><{operation} xmlns="{ns}" id="{identifier or name}">{content}</{operation}></{name}>'
+
+    def point(name, own=None, leaf=None):
+        path = f"{{http://example.org/t}}{name}[1]"
+        if own is None:
+            return role_key, path + "/@vellum:role"
+        path += f"/{{{ns}}}{own}[1]"
+        return node_key, path + (f"/{{{ns}}}{leaf}[1]" if leaf else "")
+
+    def pair(name, own, leaf, bad, good):
+        key, where = point(name, own, leaf)
+        return refused("form", bad, key, where), accepted("form", good, key, where)
+
+    def lesson(estimate, identifier="lesson", description="About"):
+        return _form(
+            block(
+                "lesson",
+                "ConnectLearnModule",
+                "module",
+                f"<name>Visit</name><description>{description}</description><time_estimate>{estimate}</time_estimate>",
+                identifier,
+            )
+        )
+
+    score = block("score", "ConnectAssessment", "assessment", "<user_score/>")
+    with_score = _form(score, '<bind nodeset="/data/score/assessment/user_score" calculate="0"/>')
+    unit = lambda value: _form(
+        block(
+            "visit",
+            "ConnectDeliverUnit",
+            "deliver",
+            f"<name>Visit</name><entity_id>{value}</entity_id><entity_name/><work_area_id/>",
+        )
+    )
+    names = ["work_area_id", "status", "reason", "additional_details", "photo_evidence"]
+    update = _form(block("area", "ConnectWorkAreaUpdate", "work_area_update", "".join(f"<{name}/>" for name in names)))
+    malformed = _form(block("area", "ConnectWorkAreaUpdate", "work_area", ""))
+    long = "a" * 51
+    long_module = _form(
+        block(long, "ConnectLearnModule", "module", "<name>M</name><description>About</description><time_estimate>0</time_estimate>")
+    )
+    long_delivery = _form(
+        block(long, "ConnectDeliverUnit", "deliver", "<name>D</name><entity_id/><entity_name/><work_area_id/>")
+    )
+
+    def in_row(role, kind, leaves, *, count=None, recipient=False):
+        field = block("activity", role, kind, leaves)
+        data = f'<rows jr:template=""><person/>{field}</rows>'
+        count_attribute = f' jr:count="{count}" jr:noAddRemove="true"' if count is not None else ""
+        body = f'<group ref="/data/rows"><repeat nodeset="/data/rows"{count_attribute}><input ref="/data/rows/person"><label>Recipient</label></input></repeat></group>'
+        binds = ""
+        if recipient:
+            values = "/data/rows[true()]/person"
+            binds = f"""<bind nodeset="/data/rows/person" type="string" required="true()" constraint="string-length(join('|', {values})) = string-length(join('|', distinct-values({values})))"/>
+                <bind nodeset="/data/rows/activity/deliver/entity_id" calculate="../../../person"/>"""
+        return _form(data, binds, body)
+
+    def iteration(delivered, expression, ids, *, outer_count=None, stored_index=None):
+        base = "/data/visits" if outer_count is None else "/data/rounds/visits"
+        row = base + "/item"
+        delivery = block("activity", "ConnectDeliverUnit", "deliver", delivered)
+        data = f'<visits vellum:role="Repeat" ids="" count="" current_index=""><item jr:template="" id="" index="">{delivery}</item></visits>'
+        body = f'<repeat nodeset="{row}" jr:count="{base}/@count" jr:noAddRemove="true()"/>'
+        if outer_count is not None:
+            data = f'<rounds jr:template="">{data}</rounds>'
+            body = f'<repeat nodeset="/data/rounds" jr:count="{outer_count}" jr:noAddRemove="true()">{body}</repeat>'
+        event = "xforms-ready" if outer_count is None else "jr-insert"
+        index = stored_index or f"int({base}/@current_index)"
+        binds = f"""<bind nodeset="{base}/@current_index" calculate="count({row})"/>
+            <setvalue event="{event}" ref="{base}/@ids" value="join(' ', '{ids}')"/>
+            <setvalue event="{event}" ref="{base}/@count" value="count-selected({base}/@ids)"/>
+            <setvalue event="jr-insert" ref="{row}/@index" value="{index}"/>
+            <setvalue event="jr-insert" ref="{row}/@id" value="selected-at({base}/@ids, ../@index)"/>
+            <bind nodeset="{row}/activity/deliver/entity_id" calculate="../../../@{expression}"/>"""
+        return _form(data, binds, body)
+
+    def count_placement(delivered, member, ids, index="position(..)", outer_count=None):
+        wrapper = "/data/" + ("outer/" if outer_count else "") + "visits"
+        item = wrapper + "/item"
+        data = (
+            f'<visits><members/><total/><item jr:template=""><person/><at/>'
+            + block("activity", "ConnectDeliverUnit", "deliver", delivered)
+            + "</item></visits>"
+        )
+        body = f'<repeat nodeset="{item}" jr:count="{wrapper}/total" jr:noAddRemove="true()"/>'
+        if outer_count is not None:
+            data = f'<outer jr:template="">{data}</outer>'
+            body = f'<repeat nodeset="/data/outer" jr:count="{outer_count}">{body}</repeat>'
+        model = f"""
+            <bind nodeset="{wrapper}/members" calculate="join(' ', '{ids}')"/>
+            <bind nodeset="{wrapper}/total" type="xsd:int" calculate="count-selected(../members)"/>
+            <bind nodeset="{item}" relevant="position() &lt; ../total"/>
+            <bind nodeset="{item}/person" calculate="if(../at &lt; ../../total, selected-at(../../members, ../at), '')"/>
+            <bind nodeset="{item}/at" type="xsd:int"/>
+            <setvalue event="jr-insert" ref="{item}/person" value="if(position(..) &lt; int(../../total), selected-at(../../members, position(..)), '')"/>
+            <setvalue event="jr-insert" ref="{item}/at" value="{index}"/>
+            <bind nodeset="{item}/activity/deliver/entity_id" calculate="../../../{member}"/>"""
+        return _form(data, model, body)
+
+    module_content = "<name>Visit</name><description>About</description><time_estimate>0</time_estimate>"
+    delivered = "<name>Visit</name><entity_id/><entity_name/><work_area_id/>"
+    common = block("delivery", "ConnectDeliverUnit", "deliver", delivered) + block(
+        "task", "ConnectTask", "task", "<name>Call</name><description/>"
+    )
+    condition = """<bind nodeset="/data/delivery" relevant="/data/action = 'visit'"/>
+        <bind nodeset="/data/task" relevant="/data/action = 'call'"/>"""
+    prompt = '<input ref="/data/action"><label>Action</label></input>'
+
+    def rewritten(source, old, new):
+        assert old.encode() in source
+        return source.replace(old.encode(), new.encode())
+
+    custody = "/data/rows[true()]/person"
+    required = in_row("ConnectDeliverUnit", "deliver", delivered, recipient=True)
+    # A supporting field condition and a differently quoted separator preserve
+    # the whole-set comparison. The disjunction and row-local path don't.
+    xml_constraint = (
+        "string-length(join('|', " + custody + ")) = string-length(join('|', distinct-values(" + custody + ")))"
+    )
+    conjunction = "regex(., 'x') and (" + xml_constraint.replace("'|'", "&quot;::&quot;") + ")"
+    weak = rewritten(required, xml_constraint, "regex(., 'x') or (" + xml_constraint + ")")
+    row_local = rewritten(required, custody, "/data/rows/person")
+    counted = in_row("ConnectLearnModule", "module", module_content, count="/data/maximum")
+    counted = rewritten(counted, "<rows", "<maximum/><rows")
+    bounded = rewritten(counted, "<model>", '<model><bind nodeset="/data/maximum" type="xsd:int" calculate="1"/>')
+    assert bounded != counted
+    guarded = _form("<action/>" + common, condition, prompt)
+    negate = rewritten(guarded, "/data/action = 'call'", "not((/data/action = 'visit'))")
+    guarded_and = rewritten(guarded, "/data/action = 'visit'", "((/data/action = 'visit') and true())")
+    guarded_or = rewritten(guarded, "/data/action = 'visit'", "(/data/action = 'visit' and true()) or true()")
+    return {
+        "questions/connect-deliveries-share-receiver-key": (
+            *pair("activity", None, None, in_row("ConnectDeliverUnit", "deliver", delivered), required),
+            *pair("activity", None, None, weak, rewritten(required, xml_constraint, conjunction)),
+            *pair("activity", None, None, row_local, required),
+            *pair("activity", None, None, iteration(delivered, "id", "A A"), iteration(delivered, "id", "A B")),
+            *pair(
+                "activity",
+                None,
+                None,
+                iteration(delivered, "index", "A A", stored_index="0"),
+                iteration(delivered, "index", "A A"),
+            ),
+            *pair(
+                "activity",
+                None,
+                None,
+                iteration(delivered, "id", "A B", outer_count="2"),
+                iteration(delivered, "id", "A B", outer_count="1"),
+            ),
+            *(
+                replace(shape, readings=True)
+                for shape in pair(
+                    "activity",
+                    None,
+                    None,
+                    count_placement(delivered, "person", "A A"),
+                    count_placement(delivered, "person", "A B"),
+                )
+            ),
+            *pair(
+                "activity",
+                None,
+                None,
+                count_placement(delivered, "at", "A A", index="0"),
+                count_placement(delivered, "at", "A A"),
+            ),
+            *(
+                replace(shape, readings=True)
+                for shape in pair(
+                    "activity",
+                    None,
+                    None,
+                    count_placement(delivered, "person", "A B", outer_count="2"),
+                    count_placement(delivered, "person", "A B", outer_count="1"),
+                )
+            ),
+        ),
+        "questions/connect-repeats-module-completion-key": (
+            *pair(
+                "activity",
+                None,
+                None,
+                in_row("ConnectLearnModule", "module", module_content),
+                in_row("ConnectLearnModule", "module", module_content, count="1"),
+            ),
+            *pair("activity", None, None, counted, bounded),
+        ),
+        "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a": pair(
+            "activity",
+            None,
+            None,
+            in_row("ConnectAssessment", "assessment", "<user_score/>"),
+            in_row("ConnectAssessment", "assessment", "<user_score/>", count="0"),
+        ),
+        "questions/connect-deliver-unit-and-task-in-one-form": (
+            *pair("delivery", None, None, _form("<action/>" + common, body=prompt), guarded),
+            *pair("delivery", None, None, guarded_or, guarded_and),
+            *pair("delivery", None, None, guarded_or, negate),
+        ),
+        "questions/connect-unit-id-changed-by-form-editor": pair(
+            "lesson", "module", None, lesson("0", "earlier"), lesson("0")
+        ),
+        "questions/connect-assessment-without-score": pair(
+            "score", "assessment", "user_score", _form(score), with_score
+        ),
+        "questions/connect-value-that-the-editor-clears": pair(
+            "visit", "deliver", "entity_id", unit("stable"), unit("")
+        ),
+        "questions/connect-estimate-outside-receiver-range": (
+            *pair("lesson", "module", "time_estimate", lesson("2147483648"), lesson("0000")),
+            *pair("lesson", "module", "description", lesson("2", description=""), lesson("2")),
+        ),
+        "questions/connect-block-text-read-as-an-instance": pair(
+            "lesson",
+            "module",
+            "description",
+            lesson("7", description="instance('casedb')"),
+            lesson("7", description="instance ('casedb')"),
+        ),
+        "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or": pair(
+            long, None, None, long_module, long_delivery
+        ),
+        "questions/connect-work-area-update-photo-not-forwarded": pair("area", None, None, update, malformed),
+        "questions/connect-work-area-update": pair("area", None, None, malformed, update),
+    }
+
+
 SHAPES = {
+    **_connect_activities(),
     **_questions(),
     **_settings_and_forms(),
     **_advanced_actions(),
@@ -7503,6 +7743,7 @@ SHAPES = {
     **_held_new(),
     **_listed_forms_and_first_menu(),
     **_menu_badges(),
+    **_submitted_answers(),
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
@@ -7659,8 +7900,7 @@ def test_a_held_new_reader_decides_by_the_uses_own_value(manifest):
     for entry_id in readers:
         reader = classes.VALUE_CLASSES[entry_id]
         for shape in SHAPES[entry_id]:
-            if _made_by_readings(shape):
-                continue  # read with the readings that make its use (the next test)
+            assert not _made_by_readings(shape), f"{entry_id}: its use requires the observation’s readings"
             found = _shape_uses(shape, manifest)
             uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
             assert uses, f"{entry_id}: no use of {shape.key} at {shape.where}"
@@ -7680,38 +7920,6 @@ def _made_by_readings(shape):
     reader reads the form (``manifest_usage._question_uses``), and a session path, as Core's parse of the expression
     gives its instance paths."""
     return shape.key.startswith(("mug:", "session-path:"))
-
-
-def test_a_held_new_reader_of_a_use_the_readings_make_reads_its_own_form_alone(manifest, observed):
-    """Contract: a HELD-NEW class of a use the observation's readings make (a question's type, a session path)
-    decides by the form or slot the use stands in, read with the readings that make the use and give its
-    expressions' structure, and with no app beside it: an XForm keeps the form object that names it, its own, and
-    an app JSON's slot its objects from the root down to it. Each such shape is read again so, and gives the same
-    verdict. The plausible failure: a reader that reads another form, a menu or the app's languages, so its class is
-    no longer one form's or one slot's."""
-    shapes = [
-        (entry.id, shape)
-        for entry in _held_new_readers(manifest)
-        for shape in SHAPES[entry.id]
-        if _made_by_readings(shape)
-    ]
-    # The one HELD-NEW class of a session path a reading makes (a computed supply point) is held now.
-    assert {shape.key.split(":", 1)[0] for _, shape in shapes} == {"mug"}
-    for entry_id, shape in shapes:
-        found = _shape_uses(shape, manifest, observed)
-        uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
-        assert uses, f"{entry_id}: no use of {shape.key} at {shape.where}"
-        for use in uses:
-            at = use.at
-            if isinstance(at, classes.JsonAt):
-                bare = classes.App({}, at.app.artifact)
-                bare.readings = at.app.readings
-                use = replace(use, at=classes.JsonAt(bare, at.scope, at.key))
-            elif at.document.app_form is not None:
-                _, form_json = at.document.app_form
-                at.document.app_form = None if shape.key.startswith("mug:") else (None, form_json)
-            verdict = classes.VALUE_CLASSES[entry_id](use, manifest)
-            assert verdict is shape.verdict, f"{entry_id} reads more than the use's own form at {shape.where}"
 
 
 def _entry_suite(*datum_ids):
@@ -7846,13 +8054,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/parent-select-relationship-null-other",
         "menus-and-case-lists/report-context-tile-true",
         "questions/a-choice-bind-type-contradicting-the-control-listitem-select1-on",
-        "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
-        # Its keys are a Connect block's mug types and Vellum's Connect plugin, and the extraction makes a use of
-        # neither: HQ's reader types a question from its body control (``xform.py::_infer_vellum_type``), and a
-        # Connect block is data with none, whose leaves ``get_questions`` lists as ``DataBindOnly``; no family reads
-        # a ``vellum-plugin:`` key.
-        "questions/connect-block-text-read-as-an-instance",
-        "questions/connect-deliver-unit-and-task-in-one-form",
         # Their one key is ``mug:SaveToCase``, of which the extraction makes no use: HQ's reader types a question
         # from its body control (``xform.py::_infer_vellum_type``), a SaveToCase node has none, and ``get_questions``
         # lists its leaves and its case's attributes as ``DataBindOnly``. Nova's gate refuses each class, so no export
@@ -7864,9 +8065,7 @@ KNOWN_GAPS = frozenset(
         "questions/bare-repeat-with-no-group-wrapper",
         "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes",
         "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form",
-        "questions/jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater",
         "questions/send-submission",
-        "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a",
         "questions/unknown-body-control-vellum-readonly-e-g-range",
     }
 )

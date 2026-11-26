@@ -154,3 +154,22 @@ export function previewSubmitAccess(args: {
 	if (!args.sameApp || !args.entryAuthorityCurrent) return "checking";
 	return "editor";
 }
+
+/** A live form's automatic submission takes the same offer as a worker pressing
+ * Submit. A retained screen or a re-render of the same entry cannot submit. */
+export function automaticSubmissionEntry(args: {
+	readonly active: boolean;
+	readonly enabled: boolean;
+	readonly platformAllows: boolean;
+	readonly offered: PreviewSubmitOffer["kind"];
+	readonly entry: string | undefined;
+	readonly attempted: string | undefined;
+}): string | undefined {
+	return args.active &&
+		args.enabled &&
+		args.platformAllows &&
+		args.offered === "offered" &&
+		args.entry !== args.attempted
+		? args.entry
+		: undefined;
+}

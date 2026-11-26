@@ -196,26 +196,18 @@ export const formNodeRefSchema = z.discriminatedUnion("kind", [
 	}),
 	z.strictObject({
 		kind: z.literal("connect-learn"),
-		form: uuidSchema,
-		role: z.enum([
-			"block",
-			"content",
-			"id",
-			"name",
-			"description",
-			"time-estimate",
-		]),
+		activity: uuidSchema,
+		role: z.enum(["content", "id", "name", "description", "time-estimate"]),
 	}),
 	z.strictObject({
 		kind: z.literal("connect-assessment"),
-		form: uuidSchema,
-		role: z.enum(["block", "content", "id", "score"]),
+		activity: uuidSchema,
+		role: z.enum(["content", "id", "score"]),
 	}),
 	z.strictObject({
 		kind: z.literal("connect-delivery"),
-		form: uuidSchema,
+		activity: uuidSchema,
 		role: z.enum([
-			"block",
 			"content",
 			"id",
 			"name",
@@ -226,8 +218,8 @@ export const formNodeRefSchema = z.discriminatedUnion("kind", [
 	}),
 	z.strictObject({
 		kind: z.literal("connect-task"),
-		form: uuidSchema,
-		role: z.enum(["block", "content", "name", "description"]),
+		activity: uuidSchema,
+		role: z.enum(["content", "id", "name", "description"]),
 	}),
 ]);
 export type FormNodeRef = z.infer<typeof formNodeRefSchema>;
@@ -249,7 +241,7 @@ export function formNodeKey(node: FormNodeRef): string {
 		case "connect-assessment":
 		case "connect-delivery":
 		case "connect-task":
-			return `${node.kind}:${node.form}:${node.role}`;
+			return `${node.kind}:${node.activity}:${node.role}`;
 	}
 }
 const E: z.ZodType<Expression> = z.lazy(() => expressionSchema);
@@ -303,7 +295,7 @@ export const formFieldRefSchema = z
 export type FormNodeTerm = {
 	kind: "form-node";
 	node: Exclude<FormNodeRef, FieldNodeRef | RepeatRowNodeRef>;
-	spelling: "relative" | "current";
+	spelling: "relative" | "current" | "absolute";
 	filters?: [FormStepFilter, ...FormStepFilter[]];
 };
 export const formNodeTermSchema: z.ZodType<FormNodeTerm> = z
@@ -314,9 +306,13 @@ export const formNodeTermSchema: z.ZodType<FormNodeTerm> = z
 				v.kind !== "field" && v.kind !== "repeat-row",
 			"Use the field or repeat-row leaf for that node.",
 		),
-		spelling: z.enum(["relative", "current"]),
+		spelling: z.enum(["relative", "current", "absolute"]),
 		filters: formFiltersSchema.optional(),
 	})
+	.refine(
+		(v) => v.spelling !== "absolute" || "activity" in v.node,
+		"An absolute generated-node read must name a positioned activity.",
+	)
 	.refine(
 		(v) => v.node.kind !== "form-root" || v.filters === undefined,
 		"The form root cannot carry path filters.",
@@ -490,6 +486,16 @@ export const termSchema: z.ZodType<Term> = z.union([
 	locationFieldTermSchema,
 	workerGroupTermSchema,
 ]);
+/** The field slot a form text reference names, independent of its printed itext id. */
+export const FIELD_ITEXT_SLOTS = {
+	"field-label": "label",
+	"field-hint": "hint",
+	"field-help": "help",
+	"field-validation-message": "validate_msg",
+	"field-first-add-label": "addFirstLabel",
+	"field-add-label": "addLabel",
+} as const;
+
 export const itextUnitSchema = z.union([
 	z.strictObject({
 		field: uuidSchema,
@@ -498,6 +504,8 @@ export const itextUnitSchema = z.union([
 			"field-hint",
 			"field-help",
 			"field-validation-message",
+			"field-first-add-label",
+			"field-add-label",
 		]),
 	}),
 	z.strictObject({
@@ -1132,7 +1140,11 @@ export type FieldExpressionSlotRef = {
 		| "required"
 		| "repeat_count"
 		| "ids_query"
-		| "lookup_options_source";
+		| "lookup_options_source"
+		| "assessment_user_score"
+		| "deliver_entity_id"
+		| "deliver_entity_name"
+		| "deliver_work_area_id";
 };
 export type FormExpressionSlotRef =
 	| {
@@ -1148,10 +1160,7 @@ export type FormExpressionSlotRef =
 				| "form_display_condition"
 				| "form_badge"
 				| "form_open_condition"
-				| "form_close_condition"
-				| "assessment_user_score"
-				| "deliver_entity_id"
-				| "deliver_entity_name";
+				| "form_close_condition";
 	  }
 	| {
 			readonly entity: "form";
@@ -1270,6 +1279,8 @@ export type ProseSlotRef =
 			readonly entity: "field";
 			readonly uuid: Uuid;
 			readonly slot:
+				| "addFirstLabel"
+				| "addLabel"
 				| "label"
 				| "hint"
 				| "help"
@@ -1294,6 +1305,8 @@ const PROSE_SLOT_NAMES: ReadonlySet<string> = new Set<ProseSlotRef["slot"]>([
 	"extended_text",
 	"qr_code",
 	"spoken_text",
+	"addFirstLabel",
+	"addLabel",
 	"option_label",
 ]);
 

@@ -107,7 +107,7 @@ export interface CoverageInputs {
 	readonly variants: readonly VariantRow[];
 	readonly exemptions: Readonly<Record<string, Exemption>>;
 	readonly kept: Readonly<Record<string, KeptRow>>;
-	/** `FIRST_PUBLISH_CHANGE_IDS`. */
+	/** `CURRENT_FIRST_PUBLISH_CHANGE_IDS`. */
 	readonly firstPublishIds: readonly string[];
 	/** Every register id a reading can record in `ReadFacts.sameStateRewrites`. */
 	readonly registerIds: readonly string[];

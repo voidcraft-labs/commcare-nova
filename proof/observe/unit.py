@@ -1674,7 +1674,7 @@ def _partition_inputs(document, configuration, store):
             document.kind != "corpus"
             or document.edit is not None
             or list(document.exports) != [configuration]
-            or document.document["doc"].get("connectType") is not None
+            or document.document["doc"].get("connectRoles")
             or not getattr(store, "seeded", False)
             or readers.named() != readers.EVERY
             or store.environment[readers.VARIABLE] != "all"

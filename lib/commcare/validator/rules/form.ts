@@ -11,11 +11,6 @@ import { routeContainsForm } from "@/lib/domain/listedForms";
 
 import { MAX_FORM_ATTACHMENTS, MEDIA_FIELD_KINDS } from "@/lib/commcare";
 import {
-	connectIdError,
-	connectIdProblem,
-	freeConnectId,
-} from "@/lib/commcare/connectSlugs";
-import {
 	type FormLinkProjectionContext,
 	formLinkActionsBuildable,
 	formLinkProjectionContext,
@@ -31,20 +26,15 @@ import {
 } from "@/lib/commcare/xform/sourceTexts";
 import {
 	afterEmptySearchRegistrationFormOf,
-	appConnectIds,
 	type BlueprintDoc,
-	connectDeliverFormHoldsTask,
 	type Field,
 	type Form,
 	type FormLinkEntry,
 	fieldRegistry,
-	formConnectIds,
 	formLinkDestination,
 	formLinkEntries,
 	formOtherwiseReachable,
-	formRootTakenIds,
 	formTypeLabels,
-	isConnectLearnConfig,
 	type Module,
 	menuTargetOffered,
 	moduleShowsFormsInMenuAbove,
@@ -60,9 +50,17 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { emittedSelectionTag } from "@/lib/domain/advancedEntryDatums";
+import { connectActivitySites } from "@/lib/domain/connectActivitySites";
+import { connectSubmissionConflicts } from "@/lib/domain/connectSubmission";
 import { slotContext } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import { datumRefKey } from "@/lib/domain/expression/types";
+import {
+	connectActivityIdLimit,
+	connectActivityRole,
+	freeConnectId,
+	missingConnectRoleMessage,
+} from "@/lib/domain/fields/connectActivity";
 import { validateFormEntryCases } from "@/lib/domain/formEntryValidation";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import {
@@ -70,8 +68,13 @@ import {
 	navigationMediaProblem,
 	navigationMediaProblemText,
 } from "@/lib/domain/navigationMedia";
-import { freeQuestionId } from "@/lib/domain/questionId";
+import {
+	questionIdProblem,
+	questionIdProblemSentence,
+	RESERVED_CONNECT_BLOCK_IDS,
+} from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { HQ_CASE_RESERVED_WORDS } from "../../constants";
 import { type ValidationError, validationError } from "../errors";
@@ -199,9 +202,10 @@ function containerTitle(doc: BlueprintDoc, container: Field): string {
  * A section is one page of the form, so it sits at the form's top level
  * (`FORM_SECTION_NOT_TOP_LEVEL`): nested, it would be a field-list inside a
  * field-list, which the CommCare app flattens onto the outer screen. Once a
- * form has a section, every root field belongs inside one
+ * form has a section, every root question belongs inside one
  * (`FORM_SECTIONS_INCOMPLETE`): a root that mixes sections and loose fields
- * pages some questions and not others. And a repeat the worker grows by
+ * pages some questions and not others. A Connect activity has no body control
+ * and submits from its own place alongside the pages. A repeat the worker grows by
  * hand cannot live under a section (`FORM_SECTION_USER_REPEAT`): a
  * field-list is one screen, and the app adds repeat entries only from a
  * screen of its own (`FormEntryController.getQuestionPrompts` skips
@@ -221,7 +225,7 @@ function formSections(doc: BlueprintDoc, ctx: FormContext): ValidationError[] {
 	const loose: Field[] = [];
 	for (const uuid of doc.fieldOrder[ctx.formUuid] ?? []) {
 		const field = doc.fields[uuid];
-		if (!field) continue;
+		if (!field || field.kind === "connect_activity") continue;
 		(field.kind === "section" ? sections : loose).push(field);
 	}
 	if (sections.length > 0 && loose.length > 0) {
@@ -231,7 +235,7 @@ function formSections(doc: BlueprintDoc, ctx: FormContext): ValidationError[] {
 			validationError(
 				"FORM_SECTIONS_INCOMPLETE",
 				"form",
-				`"${ctx.formName}" in "${ctx.moduleName}" is split into sections, but ${n} ${n === 1 ? "field sits" : "fields sit"} outside every section: ${ids}. Once a form has sections, every field belongs inside one. Add ${n === 1 ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
+				`"${ctx.formName}" in "${ctx.moduleName}" is split into sections, but ${n} ${n === 1 ? "field sits" : "fields sit"} outside every section: ${ids}. Once a form has sections, every question belongs inside one. Add ${n === 1 ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
 				baseLocation(ctx),
 				{
 					looseCount: String(n),
@@ -1119,179 +1123,114 @@ function connectValidation(
 	ctx: FormContext,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const loc = baseLocation(ctx);
-
-	// Standard apps carry no dormant Connect configuration. A mode switch is
-	// one app-wide target-state command that clears incompatible/unlisted
-	// blocks; individual form edits are available only after a mode exists.
-	if (!doc.connectType) {
-		if (form.connect) {
+	const location = baseLocation(ctx);
+	for (const { field } of connectActivitySites(doc, form.uuid)) {
+		const at = { ...location, fieldUuid: field.uuid, fieldId: field.id };
+		const role = connectActivityRole(field.activity.kind);
+		if (!doc.connectRoles.includes(role))
 			errors.push(
 				validationError(
 					"CONNECT_MODE_MISMATCH",
-					"form",
-					`"${ctx.formName}" carries a Connect block while Connect is off for the app. Configure the app's mode and complete participant set together with configureConnect/configure_connect, or remove this form block.`,
-					loc,
+					"field",
+					missingConnectRoleMessage(field.id, role),
+					at,
+					{ role },
+				),
+			);
+		const problem = questionIdProblem(field.id, RESERVED_CONNECT_BLOCK_IDS);
+		if (problem !== undefined) {
+			const siblings = new Set(
+				(doc.fieldOrder[doc.fieldParent[field.uuid]] ?? []).map(
+					(uuid) => doc.fields[uuid]?.id,
+				),
+			);
+			siblings.delete(field.id);
+			const suggestedId = freeConnectId(
+				field.id,
+				siblings,
+				field.activity.kind,
+			);
+			errors.push(
+				validationError(
+					"CONNECT_ID_INVALID_FORMAT",
+					"field",
+					questionIdProblemSentence(field.id, problem, suggestedId, "connect"),
+					at,
+					{ connectId: field.id, problem, suggestedId },
 				),
 			);
 		}
-		return errors;
+		const limit = connectActivityIdLimit(field.activity.kind);
+		if (limit !== undefined && field.id.length > limit)
+			errors.push(
+				validationError(
+					"CONNECT_ID_TOO_LONG",
+					"field",
+					`Connect stores up to ${limit} characters for this activity ID. You can shorten "${field.id}".`,
+					at,
+					{ limit: String(limit) },
+				),
+			);
 	}
-
-	// A form WITHOUT a connect block is a legal, meaningful state on a
-	// Connect app: the block marks that the form PARTICIPATES in Connect,
-	// and omitting it makes the form auxiliary. Connect's own ingestion is
-	// coverage-blind — `commcare_connect/opportunity/app_xml.py::
-	// extract_modules` / `::extract_deliver_unit` / `::extract_task_unit`
-	// scan each form's XML for connect-namespace blocks and silently skip
-	// forms without them, and `opportunity/tasks.py::
-	// create_learn_modules_and_deliver_units` upserts whatever was found
-	// with no per-form coverage check. The app-wide floor (≥1 participating
-	// form, without which progress/payment have nothing to key on) is the
-	// app-scoped `CONNECT_NO_PARTICIPATING_FORMS` rule in `rules/app.ts`;
-	// everything below adjudicates a block that IS present.
-	if (!form.connect) return errors;
-
-	const blockIsLearn = isConnectLearnConfig(form.connect);
-	if ((doc.connectType === "learn") !== blockIsLearn) {
-		errors.push(
-			validationError(
-				"CONNECT_MODE_MISMATCH",
-				"form",
-				`"${ctx.formName}" carries a ${blockIsLearn ? "learn" : "deliver"} Connect block, but the app is in ${doc.connectType} mode. Configure the mode and complete participant set together with configureConnect/configure_connect.`,
-				loc,
-			),
+	for (const { reason, first, second } of connectSubmissionConflicts(
+		doc,
+		form.uuid,
+	)) {
+		const paths = [first, second].map((site) =>
+			site.path.map((uuid) => doc.fields[uuid].id).join("/"),
 		);
-		return errors;
-	}
-
-	// Connect reads a deliver form's deliver unit before its task and turns
-	// the delivery away while the worker has a pending task
-	// (commcare-connect `form_receiver/processor.py::process_deliver_form`,
-	// `process_deliver_unit`), so the visit in a form that also completes a
-	// task is never paid. A task goes in a form of its own.
-	if (connectDeliverFormHoldsTask(form.connect)) {
-		errors.push(
-			validationError(
-				"CONNECT_DELIVER_FORM_HOLDS_TASK",
-				"form",
-				`"${ctx.formName}" holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
-				loc,
-			),
-		);
-	}
-
-	// A Connect id names a node of the emitted form (the wrapper
-	// `<id vellum:role=...>` and the Connect-namespaced `id=` attribute) and
-	// lands in a Connect DB slug column (tightest is `varchar(50)`).
-	// `connectIdProblem` is the single authority on what makes an id valid
-	// (the question-id grammar without Connect's own names, then the length
-	// cap), and `connectIdError` says the same sentence the builder's field
-	// and the tools say, offering an id free among the app's other Connect
-	// ids. We reject a bad id here rather than silently fixing it.
-	const connectIds: ReadonlyArray<{
-		label: string;
-		id: string;
-	}> = isConnectLearnConfig(form.connect)
-		? [
-				...(form.connect.learn_module === undefined
-					? []
-					: [
-							{
-								label: "learn-module",
-								id: form.connect.learn_module.id,
-							},
-						]),
-				...(form.connect.assessment === undefined
-					? []
-					: [
-							{
-								label: "assessment",
-								id: form.connect.assessment.id,
-							},
-						]),
-			]
-		: [
-				...(form.connect.deliver_unit === undefined
-					? []
-					: [
-							{
-								label: "deliver-unit",
-								id: form.connect.deliver_unit.id,
-							},
-						]),
-				...(form.connect.task === undefined
-					? []
-					: [{ label: "task", id: form.connect.task.id }]),
-			];
-	// A refused id is offered a replacement free among the app's other
-	// Connect ids and this form's root questions, whose elements share the
-	// wrapper's parent. Read once per form, and only once an id is refused.
-	let takenBeside: ReadonlySet<string> | undefined;
-	for (const { label, id } of connectIds) {
-		const problem = connectIdProblem(id);
-		if (problem === undefined) continue;
-		takenBeside ??= new Set([
-			...appConnectIds(doc),
-			...formRootTakenIds(doc, ctx.formUuid),
-		]);
-		const taken = new Set(takenBeside);
-		taken.delete(id);
-		const reason = connectIdError(id, taken);
-		errors.push(
-			problem.kind === "format"
-				? validationError(
-						"CONNECT_ID_INVALID_FORMAT",
-						"form",
-						`Connect ${label} id in "${ctx.formName}": ${reason}`,
-						loc,
-						{
-							connectId: id,
-							problem: problem.problem,
-							suggestedId: freeConnectId(id, taken),
-						},
-					)
-				: validationError(
-						"CONNECT_ID_TOO_LONG",
-						"form",
-						`Connect ${label} id in "${ctx.formName}": ${reason}`,
-						loc,
-						{ connectId: id },
+		const detail = { first: paths[0], second: paths[1] };
+		const at = {
+			...location,
+			fieldUuid: second.field.uuid,
+			fieldId: second.field.id,
+		};
+		switch (reason) {
+			case "repeated-learning-module":
+				errors.push(
+					validationError(
+						"CONNECT_REPEATED_LEARNING_MODULE",
+						"field",
+						`One submission can complete "${first.field.id}" twice at ${paths.join(" and ")}. You can move the activity outside the repeated rows or use separate forms.`,
+						at,
+						detail,
 					),
-		);
-	}
-
-	return errors;
-}
-
-/**
- * A form's root fields and its Connect blocks' wrappers are children of the
- * one data root, so a root field named like one of the form's blocks would
- * be two elements of one name, which no reader can tell apart. The finding
- * sits on the field and offers an id free among every name at the root.
- */
-function rootFieldNamesConnectBlock(
-	doc: BlueprintDoc,
-	ctx: FormContext,
-): ValidationError[] {
-	const connectIds = formConnectIds(doc, ctx.formUuid);
-	if (connectIds.size === 0) return [];
-	const taken = formRootTakenIds(doc, ctx.formUuid);
-	const errors: ValidationError[] = [];
-	for (const uuid of doc.fieldOrder[ctx.formUuid] ?? []) {
-		const field = doc.fields[uuid];
-		if (field === undefined || !connectIds.has(field.id)) continue;
-		const suggestedId = freeQuestionId(field.id, taken);
-		taken.add(suggestedId);
-		errors.push(
-			validationError(
-				"FIELD_ID_NAMES_CONNECT_BLOCK",
-				"field",
-				`Field "${field.id}" in "${ctx.formName}" has the same ID as one of the form's CommCare Connect blocks. The block and a top-level field sit side by side in the form, so the form would hold two items of one name that CommCare can't tell apart. You can rename the field ("${suggestedId}" is free) or give the block another ID.`,
-				{ ...baseLocation(ctx), fieldUuid: field.uuid, fieldId: field.id },
-				{ fieldId: field.id, suggestedId },
-			),
-		);
+				);
+				break;
+			case "repeated-assessment":
+				errors.push(
+					validationError(
+						"CONNECT_REPEATED_ASSESSMENT",
+						"field",
+						`One submission can send assessments at ${paths.join(" and ")}. You can use separate forms or show one assessment at a time.`,
+						at,
+						detail,
+					),
+				);
+				break;
+			case "duplicate-delivery":
+				errors.push(
+					validationError(
+						"CONNECT_DUPLICATE_DELIVERY",
+						"field",
+						`One submission can deliver "${first.field.id}" twice to the same person or place at ${paths.join(" and ")}. You can submit separate forms, or, in a repeat the worker adds rows to, ask in each row for a person or place ID no other row repeats: a required text question with no condition or default whose validation is string-length(join('|', #form/<repeat>[true()]/<id>)) = string-length(join('|', distinct-values(#form/<repeat>[true()]/<id>))), which the delivery's person or place ID reads as ../../../<id>.`,
+						at,
+						detail,
+					),
+				);
+				break;
+			case "delivery-with-assigned-task":
+				errors.push(
+					validationError(
+						"CONNECT_DELIVER_FORM_HOLDS_TASK",
+						"field",
+						`Connect checks the delivery before it completes the assigned task at ${paths.join(" and ")}. You can complete the task in an earlier form or show one activity at a time.`,
+						at,
+						detail,
+					),
+				);
+				break;
+		}
 	}
 	return errors;
 }
@@ -1306,9 +1245,26 @@ function duplicateFieldIds(
 	ctx: FormContext,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const layout = submissionLayout(ctx.formUuid, doc.fields, doc.fieldOrder);
+	for (const [uuid, reason] of layout.problems) {
+		const field = doc.fields[uuid];
+		errors.push(
+			validationError(
+				"FIELD_SUBMISSION_PLACEMENT",
+				"field",
+				reason,
+				{
+					...baseLocation(ctx),
+					fieldUuid: uuid,
+					fieldId: field.id,
+				},
+				{ reason },
+			),
+		);
+	}
 	const walk = (parentUuid: Uuid, parentPath: string): void => {
 		const counts = new Map<string, number>();
-		const order = doc.fieldOrder[parentUuid] ?? [];
+		const order = layout.children.get(parentUuid) ?? [];
 		for (const uuid of order) {
 			const field = doc.fields[uuid];
 			if (!field) continue;
@@ -1497,7 +1453,6 @@ export function runFormRules(
 	}
 	errors.push(...ownCaseConditionValidation(doc, form, ctx, mod, lookupTables));
 	errors.push(...duplicateFieldIds(doc, ctx));
-	errors.push(...rootFieldNamesConnectBlock(doc, ctx));
 	errors.push(...tooManyAttachments(doc, ctx));
 	errors.push(...postSubmitValidation(doc, form, ctx, mod));
 	errors.push(...formLinkSelectionCardinality(doc, form, mod, ctx));

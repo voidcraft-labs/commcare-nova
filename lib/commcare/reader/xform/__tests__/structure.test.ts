@@ -10,8 +10,18 @@
  * root condition the first publish would remove.
  */
 
+import { readFileSync } from "node:fs";
+import { isTag } from "domhandler";
+import { findOne } from "domutils";
+import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { applyToDoc } from "@/lib/agent/tools/common";
+import { buildXForm } from "@/lib/commcare/xform/builder";
+import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Finding } from "@/lib/publish/hqFindings";
+import { exportedBody } from "../../__tests__/novaExport";
 import {
 	readerInput,
 	retainedSourceBody,
@@ -39,7 +49,7 @@ function refusalsAt(
 }
 
 /** A form's source read through every stage of a whole reading. */
-async function readWhole(source: string) {
+async function readWhole(source: string, xmlns = XMLNS) {
 	const body = {
 		...retainedSourceBody("shell/app-source"),
 		modules: [
@@ -52,7 +62,7 @@ async function readWhole(source: string) {
 					{
 						doc_type: "Form",
 						unique_id: "r1",
-						xmlns: XMLNS,
+						xmlns,
 						name: { en: "Form" },
 					},
 				],
@@ -79,9 +89,6 @@ function shape(reading: Awaited<ReturnType<typeof readForm>>) {
 }
 
 describe("a control whose node lies under another group than the control", () => {
-	const DATA_PARENT = Q(
-		"data-parent-data-node-under-another-group-than-its-control",
-	);
 	const groupFirst = xformSource({
 		data: "<g><q/><other/></g>",
 		model:
@@ -95,16 +102,23 @@ describe("a control whose node lies under another group than the control", () =>
 		body: '<input ref="/data/g/q"/><group ref="/data/g"><input ref="/data/g/other"/></group>',
 	});
 
-	it("is refused at the question whichever of the two controls the body writes first", async () => {
+	it("keeps the data group whichever control the body writes first", async () => {
 		for (const source of [groupFirst, questionFirst]) {
-			const reading = await readForm(source);
-			expect(refusalsAt(reading, "g/q")).toEqual([DATA_PARENT]);
+			const reading = await readForm(source, { mint: true });
+			expect(refusalsAt(reading, "g/q")).toEqual([]);
+			const question =
+				reading.xform && readFields(reading.xform).find((f) => f.id === "q");
+			expect(question?.parent).toBeNull();
+			expect(question?.dataParent?.id).toBe("g");
+			expect(question?.field.submissionPlacement).toEqual({
+				parent: question?.dataParent?.uuid,
+			});
 			expect(refusalsAt(reading, "g/other")).toEqual([]);
 			expect(refusalsAt(reading, "g")).toEqual([]);
 		}
 	});
 
-	it("is refused at any depth where the data parent's control comes later", async () => {
+	it("keeps a nested data parent whose control comes later", async () => {
 		const reading = await readForm(
 			xformSource({
 				data: "<a><b><q/></b></a>",
@@ -113,7 +127,108 @@ describe("a control whose node lies under another group than the control", () =>
 				body: '<group ref="/data/a"><input ref="/data/a/b/q"/><group ref="/data/a/b"><label>B</label></group></group>',
 			}),
 		);
-		expect(refusalsAt(reading, "a/b/q")).toEqual([DATA_PARENT]);
+		expect(refusalsAt(reading, "a/b/q")).toEqual([]);
+		const question =
+			reading.xform && readFields(reading.xform).find((f) => f.id === "q");
+		expect(question?.dataParent?.id).toBe("b");
+		expect(question?.parent?.id).toBe("a");
+	});
+
+	it("publishes in the form designer’s submitted order and keeps addresses after a wording edit", async () => {
+		const outcome = await readWhole(
+			xformSource({
+				data: "<before/><hidden/><after/><group><child/></group>",
+				model:
+					'<bind nodeset="/data/before" type="xsd:string"/><bind nodeset="/data/after" type="xsd:string"/><bind nodeset="/data/group/child" type="xsd:string"/>',
+				body: '<input ref="/data/before"><label>Before</label></input><input ref="/data/group/child"><label>Child</label></input><input ref="/data/after"><label>After</label></input><group ref="/data/group"><label>Visit</label></group>',
+			}),
+		);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(findingsOf(outcome)));
+		const doc = structuredClone(outcome.draft.doc);
+		const child = Object.values(doc.fields).find(
+			(field) => field.id === "child",
+		);
+		if (child?.kind !== "text") throw new Error("Missing text question");
+		child.label = { parts: [{ kind: "text", text: "New wording" }] };
+		const exported = exportedBody(doc);
+		const [xml] = Object.values(
+			exported._attachments as Record<string, string>,
+		);
+		const parsed = parseDocument(xml, { xmlMode: true });
+		const data = findOne((node) => node.name === "data", parsed.children, true);
+		expect(data?.children.filter(isTag).map((node) => node.name)).toEqual([
+			"before",
+			"after",
+			"group",
+			"hidden",
+		]);
+		const group = data?.children
+			.filter(isTag)
+			.find((node) => node.name === "group");
+		expect(group?.children.filter(isTag).map((node) => node.name)).toEqual([
+			"child",
+		]);
+		const body = findOne(
+			(node) => node.name === "h:body",
+			parsed.children,
+			true,
+		);
+		expect(
+			body?.children.filter(isTag).map((node) => node.attribs.ref),
+		).toEqual([
+			"/data/before",
+			"/data/group/child",
+			"/data/after",
+			"/data/group",
+		]);
+		expect(xml).toContain("New wording");
+	});
+
+	it("keeps each value and screen from Vellum's saved in-between question", async () => {
+		// Pinned Vellum tests/static/diffDataParent/data-parent-mug-in-between.xml.
+		const source = readFileSync(
+			new URL("./fixtures/vellum-in-between.xml", import.meta.url),
+			"utf8",
+		);
+		const data = findOne(
+			(node) => node.name === "data",
+			parseDocument(source, { xmlMode: true }).children,
+			true,
+		);
+		const outcome = await readWhole(source, data?.attribs.xmlns);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(findingsOf(outcome)));
+		const xml = Object.values(
+			exportedBody(outcome.draft.doc)._attachments as Record<string, string>,
+		)[0];
+		const parsed = parseDocument(xml, { xmlMode: true });
+		const held = findOne((node) => node.name === "data", parsed.children, true);
+		expect(held?.children.filter(isTag).map((node) => node.name)).toEqual([
+			"before-child",
+			"after-child",
+			"parent",
+		]);
+		expect(
+			held?.children
+				.filter(isTag)
+				.at(-1)
+				?.children.filter(isTag)
+				.map((node) => node.name),
+		).toEqual(["child"]);
+		const body = findOne(
+			(node) => node.name === "h:body",
+			parsed.children,
+			true,
+		);
+		expect(
+			body?.children.filter(isTag).map((node) => node.attribs.ref),
+		).toEqual([
+			"/data/before-child",
+			"/data/parent/child",
+			"/data/after-child",
+			"/data/parent",
+		]);
 	});
 
 	it("is refused as crossing a repeat where the repeat's control comes later", async () => {
@@ -270,4 +385,32 @@ describe("a bind on the data root", () => {
 			ON_ROOT,
 		);
 	});
+});
+
+it("retains the form's submitted root through reading, wording edits and republishing", async () => {
+	const authored = xformSource({
+		root: "survey",
+		data: "<name/><again/>",
+		model: `<bind nodeset="/survey/name" type="xsd:string"/><bind nodeset="/survey/again" type="xsd:string" relevant="/survey/name = 'Lee'"/>`,
+		body: '<input ref="/survey/name"><label>Name</label></input><input ref="/survey/again"><label>Visit</label></input>',
+	});
+	const outcome = await readWhole(authored);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	const { doc } = outcome.draft;
+	const form = Object.values(doc.forms)[0];
+	expect(form.dataRootName).toBe("survey");
+	const edit = [{ kind: "renameForm", uuid: form.uuid, newId: "Registration" }];
+	expect(
+		mutationCommitVerdict(doc, edit, LOOKUP_CONTEXT_UNAVAILABLE),
+	).toMatchObject({ ok: true });
+	const edited = applyToDoc(doc, edit);
+	const xml = buildXForm(edited, form.uuid, { xmlns: XMLNS });
+	expect(xml).toContain("<survey ");
+	expect(xml).toContain('ref="/survey/name"');
+	expect(xml).toContain('nodeset="/survey/again"');
+	expect(xml).toContain("/survey/name = ");
+	const built = addMetaBlock(xml);
+	expect(built).toContain("/survey/meta/timeEnd");
+	expect(built).not.toContain("/data/");
 });

@@ -15,6 +15,7 @@
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "./casePropertyName";
 import { suffixUntilFree } from "./idSlug";
 import { questionIdProblem } from "./questionId";
+import { submittedAction } from "./submittedAnswerName";
 
 export const CASE_OPERATION_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** A written property's name: the catalog's grammar. */
@@ -38,8 +39,9 @@ export function isCaseOperationProperty(value: string): boolean {
 /**
  * The id the form's own case operation is born with: the case type with every
  * character the identifier grammar refuses turned into `_`, prefixed `case_`
- * where that spelling is not a question ID CommCare HQ's form builder takes,
- * and suffixed `_2`, `_3`, … past the form's other operation ids.
+ * where that spelling is not a question ID CommCare HQ's form builder takes
+ * or is a name a worker's submission reads as an instruction (`registration`
+ * on Web Apps), and suffixed `_2`, `_3`, … past the form's other operation ids.
  */
 export function ownCaseOperationId(
 	caseType: string,
@@ -47,6 +49,9 @@ export function ownCaseOperationId(
 ): string {
 	const spelled = caseType.replace(/[^A-Za-z0-9_]/g, "_");
 	const base =
-		questionIdProblem(spelled) === undefined ? spelled : `case_${spelled}`;
+		questionIdProblem(spelled) === undefined &&
+		submittedAction(spelled) === undefined
+			? spelled
+			: `case_${spelled}`;
 	return suffixUntilFree(base, takenIds);
 }

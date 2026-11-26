@@ -273,12 +273,17 @@ it("preserves nested refinements after transport admission without advancing pri
 		const before = await call(client, "get_work", { work_id });
 		const result = await client.callTool({
 			name: "configure_connect",
-			arguments: { work_id, request_id: "invalid-connect", mode: "learn" },
+			// Each role once is a refinement the transport's schema can't state.
+			arguments: {
+				work_id,
+				request_id: "invalid-connect",
+				roles: ["learn", "learn"],
+			},
 		});
 		expect(result.isError).toBe(true);
 		expect(JSON.parse(resultContentText(result))).toMatchObject({
 			error_type: "invalid_input",
-			message: expect.stringMatching(/participants|participant/i),
+			message: expect.stringMatching(/each Connect role once/i),
 		});
 		const after = await call(client, "get_work", { work_id });
 		expect(after.pending_changes).toBe(before.pending_changes);
