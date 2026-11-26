@@ -63,25 +63,27 @@ SELECTED_ENTITIES = "SELECTED_ENTITIES"
 
 
 @contextmanager
-def _served(document):
+def _served(document, *, change=None):
     """HQ's release of ``document`` as Nova first publishes it, served by HQ's own views, and the archive a
     worker installs of it."""
     from proof.android import observe
     from proof.formplayer import hq as formplayer_hq
     from proof.rules.conftest import published
 
-    with published(document, None) as app, formplayer_hq.serve(app.unit, document, app.app_id) as served:
+    with published(document, None) as app, formplayer_hq.serve(
+        app.unit, document, app.app_id, change=change
+    ) as served:
         yield served, observe.release_archive(served)
 
 
-def _navs(document, label, **asked):
+def _navs(document, label, *, change=None, **asked):
     """The ``nav`` request's records over HQ's release of ``document``, by navigation; a ``sent`` list among
     ``asked`` gains each form the device sent HQ."""
     from proof.android.navigation import nav
     from proof.observe.record import Blobs
 
     blobs = Blobs()
-    with _served(document) as (served, archive):
+    with _served(document, change=change) as (served, archive):
         found = nav(served, blobs, label=label, archive=archive, **asked)
     answer = blobs.get_json(found["answer"])
     assert answer["install"] == "Installed", answer
@@ -309,6 +311,23 @@ def test_menu_badges_are_read_and_shortened_on_the_installed_android_app(android
     assert [(item["id"], item.get("badge")) for item in menu["items"]] == [
         ("m0-f0", None), ("m0-f1", ""), ("m0-f2", "999+"),
         ("m0-f3", "999+"), ("m0-f4", "214.."), ("m0-f5", "Équ.."),
+    ]
+
+
+def test_generated_navigation_badges_are_used_in_the_android_release(android_documents, hq, android_walk_evidence):
+    from proof.formplayer.apps import override_navigation_badges
+
+    walks = _navs(
+        android_documents["targeted-menu-badges"], "generated-navigation-badges",
+        change=override_navigation_badges, paths=[[], ["m0"]],
+    )
+    android_walk_evidence(walks)
+    menu = _steps(walks["path:"])[-1]["menu"]
+    assert [(item["id"], item.get("badge")) for item in menu["items"]] == [("m0", "Urg.."), ("m1", None)]
+    forms = _steps(walks["path:m0"])[-1]["menu"]
+    assert [(item["id"], item.get("badge")) for item in forms["items"]] == [
+        ("m0-f0", None), ("m0-f1", ""), ("m0-f2", "999+"),
+        ("m0-f3", "999+"), ("m0-f4", "214.."), ("m0-f5", "Rea.."),
     ]
 
 

@@ -243,7 +243,7 @@ const DETAIL_LOCALE_TYPE: Readonly<
  */
 export function instanceRootFor(
 	ctx: Pick<CaseListEmitContext, "target" | "caseSource">,
-): "casedb" | "results" | "results:inline" {
+): "casedb" | "results" | `results:${string}` {
 	if (ctx.target === "search") return "results";
 	return ctx.caseSource ?? "casedb";
 }

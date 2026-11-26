@@ -126,6 +126,8 @@ export function withOwner(
 	formType: Form["type"],
 ): CaseOperation {
 	const next = { ...operation, owner } as Record<string, unknown>;
+	if (owner === undefined && operation.action === "update")
+		delete next.ownerCondition;
 	if (flagOf("owner", next as unknown as CaseOperation, formType) === undefined)
 		delete next.ownerOnlyIfChanged;
 	return next as unknown as CaseOperation;

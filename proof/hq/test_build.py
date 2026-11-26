@@ -21,6 +21,8 @@ refuses it.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 from lxml import etree
@@ -30,6 +32,7 @@ from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 from proof.hq.conftest import CountingValidator, hq_test_app, nova_shaped_upload, timed
 from proof.hq.seams import build_seams, formplayer_validation
+from proof.native.hq_support import write_evidence
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -88,6 +91,46 @@ def test_a_form_formplayer_rejects_fails_hqs_build(hq, core_runner):
     # HQ reports Formplayer's verdict as a build error on that form.
     messages = [error.get("validation_message") or "" for error in built.errors]
     assert any("not_in_the_instance" in message for message in messages), built.errors
+
+
+
+@pytest.mark.parametrize(("key", "valid"), [("n名字", False), ("n_name", True)], ids=["uncased-tail", "ascii"])
+def test_basic_update_key_reaches_formplayers_own_xpath_parser(hq, core_runner, key, valid):
+    app = hq_test_app()
+    app["modules"][0]["forms"][1]["actions"]["update_case"]["update"][key] = {
+        "question_path": "/data/rename",
+        "update_mode": "always",
+    }
+    nodeset = f"/data/case/update/{key}"
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id, _ = operations.publish(state, [nova_shaped_upload(app, "Basic update name probe")])
+        held = operations.held_app(state, app_id)
+        with build_seams():
+            built = operations.build(held, record)
+
+    generated = built.files["modules-0/forms-1.xml"]
+    xml = etree.fromstring(generated)
+    assert list(xml.iter(f"{{{CASE}}}{key}"))
+    [bind] = [bind for bind in xml.iter(f"{{{XFORMS}}}bind") if bind.get("nodeset") == nodeset]
+    assert bind.get("calculate") == "/data/rename"
+    # HQ's build also validates the attached source, before it adds the
+    # Case Management block. Ask actual Formplayer to open the generated file.
+    reply = json.loads(formplayer_validation(generated))
+    evidence = Path(os.environ.get("PROOF_OUT") or "/tmp") / "native-basic-update-name"
+    evidence.mkdir(parents=True, exist_ok=True)
+    write_evidence(evidence, "ascii" if valid else "uncased-tail", {
+        "key": key, "nodeset": nodeset, "calculate": bind.get("calculate"),
+        "formplayer": reply, "hqErrors": built.errors,
+        "hqValidatedGeneratedBind": any(nodeset.encode() in sent.xml for sent in built.form_validations),
+    })
+    assert reply["validated"] is valid, reply
+    if valid:
+        assert built.errors == [], built.errors
+    else:
+        fatal = reply["fatal_error"]
+        assert f"Parse error in XPath path: [{nodeset}]" in fatal, fatal
+        assert "Couldn't understand the expression starting at this point: " in fatal, fatal
+        assert "\u034e名" in fatal, fatal
 
 
 def _with_owner_update(app_json):

@@ -11,12 +11,26 @@
  * of which is required where the first is blank, with one prompt edited as CommCare HQ stores it,
  * and holds the reading's whole account.
  */
+import AdmZip from "adm-zip";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { compileCcz } from "@/lib/commcare/compiler";
+import { expandDoc } from "@/lib/commcare/expander";
+import { requiredProjectSpaceCapabilities } from "@/lib/commcare/projectSpaceCompatibility";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { eq, input, literal } from "@/lib/domain/expression";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { isVisibleSearchInput } from "@/lib/domain/modules";
+import { searchAddressReceiverCompatibility } from "../../../validator/rules/case-list/searchAddressReceiverCompatibility";
 import { runValidation } from "../../../validator/runner";
+import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { matchingResolver } from "../../identity";
+import {
+	externalIdentityMap,
+	knownParentPathSearchNamesOf,
+} from "../../identityMap";
 import { readHqApp } from "../../index";
 import type { ReaderInput } from "../../types";
 
@@ -66,6 +80,71 @@ interface Case {
 
 const first = (body: JsonObject) => promptsOf(body)[0] as JsonObject;
 const third = (body: JsonObject) => promptsOf(body)[2] as JsonObject;
+
+function sharedAddress(body: JsonObject) {
+	const prompts = promptsOf(body);
+	prompts[0].receiver_expression = "home-region";
+	prompts[1].receiver_expression = "home-region";
+	prompts.unshift({
+		name: "home",
+		doc_type: "CaseSearchProperty",
+		label: { en: "Find an address" },
+		appearance: "address",
+		exclude: true,
+	});
+}
+
+it.each([
+	{
+		webAppsOn: true,
+		receive: "home",
+		entry: "address-receiver-matching-a-picker-without-a-component",
+		standing: "fix-in-hq",
+	},
+	{
+		webAppsOn: false,
+		receive: "home",
+		entry: "address-receiver-matching-a-picker-without-a-component",
+		standing: "fix-in-hq",
+	},
+	{
+		webAppsOn: true,
+		receive: "home||city",
+		entry: "receiver-expression",
+		standing: "not-yet",
+	},
+])(
+	"accounts for $receive at its source with Web Apps enabled = $webAppsOn",
+	async ({ webAppsOn, receive, entry, standing }) => {
+		const body = exportedBody(PROMPTS);
+		body.cloudcare_enabled = webAppsOn;
+		sharedAddress(body);
+		promptsOf(body)[1].receiver_expression = receive;
+		const outcome = readHqApp(await inputFor(body), { claims: "full" });
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "account")
+			throw new Error("Expected a receiver finding.");
+		const code = `${S}${entry}`;
+		expect(outcome.findings).toMatchObject([
+			{ code, standing, detail: { name: "case_name" } },
+		]);
+		expect(
+			[...outcome.claims.records()].filter(
+				(record) =>
+					record.entry === code &&
+					record.key === "schema:CaseSearchProperty.receiver_expression",
+			),
+		).toEqual([
+			{
+				artifact: "app.json",
+				where: "/modules/0/search_config/properties/1/receiver_expression",
+				key: "schema:CaseSearchProperty.receiver_expression",
+				entry: code,
+				standing,
+			},
+		]);
+	},
+);
 
 const CASES: readonly Case[] = [
 	{
@@ -154,21 +233,6 @@ const CASES: readonly Case[] = [
 		findings: [
 			[
 				`${S}appearance-address-with-required-or-validations`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
-		title: "an address field",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.appearance = "address";
-		},
-		findings: [
-			[
-				`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
 				"search",
 				"case_name",
 			],
@@ -364,6 +428,7 @@ async function documentOf(edit: (body: JsonObject) => void) {
 		);
 	return {
 		doc: outcome.draft.doc,
+		rewrites: outcome.draft.facts.rewrites,
 		respelled: outcome.draft.facts.sameStateRewrites.map(
 			(one) => [one.entry, one.path, one.register] as const,
 		),
@@ -612,16 +677,55 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
-	// HQ's own check of `status` holds no guard of Nova's: Nova's first publish would join one to
-	// it, and a check with no message has none for the guard's sentence to follow.
-	it("is the same finding where the stored check holds no guard of Nova's", async () => {
-		const found = await account((body) => {
-			third(body).validations = [
-				{
-					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'status'], ''), '^[a-z]+$')",
-					text: {},
+	const answer = (field: string) =>
+		`instance('search-input:results')/input/field[@name = '${field}']`;
+	const typedRule = (field: string, pattern: string) =>
+		`regex(if(count(instance('search-input:results')/input/field) > 0, ${answer(field)}, ''), '${pattern}')`;
+
+	it("keeps a lowercase check and reports its redundant first-publish guard", async () => {
+		const source = typedRule("status", "^[a-z]+$");
+		const { doc, rewrites } = await documentOf((body) => {
+			third(body).validations = [{ test: source, text: {} }];
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "status");
+		expect(field).toMatchObject({
+			validation: {
+				rule: {
+					kind: "matches-pattern",
+					left: { term: { searchInputUuid: field?.uuid } },
+					pattern: "^[a-z]+$",
 				},
-			];
+			},
+		});
+		expect(
+			field && "validation" in field && field.validation,
+		).not.toHaveProperty("message");
+		expect(rewrites.filter((one) => one.id === "search-value-guards")).toEqual([
+			expect.objectContaining({
+				pointer: "/modules/0/search_config/properties/2/validations",
+			}),
+		]);
+		const [published] = third(exportedBody(doc)).validations as JsonObject[];
+		expect(published).toEqual({
+			test: expect.stringContaining(source),
+			text: {},
+		});
+		expect(published.test).toContain(`contains(${answer("status")}`);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it.each([
+		["a different field's lowercase check", typedRule("case_name", "^[a-z]+$")],
+		["a rule allowing both quote kinds", typedRule("status", "^.+$")],
+		[
+			"a blank-message guard on its own",
+			`not(count(${answer("status")}) and contains(${answer("status")}, "'") and contains(${answer("status")}, '"'))`,
+		],
+	])("keeps the refusal for %s", async (_, test) => {
+		const found = await account((body) => {
+			third(body).validations = [{ test, text: {} }];
 		});
 		expect(found).toEqual([
 			[
@@ -629,6 +733,140 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 				"search",
 				"status",
 			],
+		]);
+	});
+});
+
+describe("a plain native parent Search field", () => {
+	const village = { name: "parent/village", label: { en: "Village" } };
+
+	it.each([
+		["parent/village", 1],
+		["parent/parent/village", 2],
+	] as const)(
+		"holds %s independently of a safe, unoccupied authoring name",
+		async (key, hops) => {
+			const alias = key.replaceAll("/", "_");
+			const { doc } = await documentOf((body) => {
+				promptsOf(body).push(
+					{ ...village, name: key },
+					{
+						name: alias,
+						label: { en: "Code" },
+					},
+				);
+			});
+			const mod = doc.modules[doc.moduleOrder[0]];
+			expect(mod.caseListConfig?.searchInputs.at(-2)).toMatchObject({
+				name: `${alias}_2`,
+				kind: "simple",
+				type: "text",
+				matching: "project-space",
+				property: "village",
+				via: {
+					kind: "ancestor",
+					via: Array.from({ length: hops }, () => ({ identifier: "parent" })),
+				},
+			});
+			const renamed = produce(doc, (draft) => {
+				const field =
+					draft.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
+				if (field === undefined) throw new Error("Expected the parent field");
+				field.name = "related_village";
+			});
+			const runtimeTarget = {
+				server: "production",
+				domain: "clinic",
+				appId: "app",
+			} as const;
+			const compiled = expandDoc(renamed, { runtimeTarget });
+			expect(
+				compiled.modules[0].search_config.properties.slice(-2),
+			).toMatchObject([
+				{ name: key, label: { en: "Village" } },
+				{ name: alias, label: { en: "Code" } },
+			]);
+			const zip = new AdmZip(
+				compileCcz(compiled, renamed.appName, renamed, { runtimeTarget }),
+			);
+			expect(zip.readAsText("suite.xml")).toContain(`<prompt key="${key}"`);
+			expect(zip.readAsText("suite.xml")).toContain(
+				`id="search_property.m0.${key}"`,
+			);
+			expect(zip.readAsText("default/app_strings.txt")).toContain(
+				`search_property.m0.${key}=Village`,
+			);
+			expect(requiredProjectSpaceCapabilities(renamed)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: "related-case-search" }),
+				]),
+			);
+			const reread = readHqApp(
+				await inputFor(exportedBody(renamed), {
+					resolver: matchingResolver(
+						renamed.appId,
+						externalIdentityMap(renamed, DERIVED_WIRE_IDENTITY),
+					),
+					knownParentPathSearchNames: knownParentPathSearchNamesOf(renamed),
+				}),
+			);
+			expect(reread.kind).toBe("read");
+			if (reread.kind !== "read") return;
+			const parent =
+				renamed.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
+			expect(
+				reread.draft.doc.modules[mod.uuid].caseListConfig?.searchInputs.at(-2),
+			).toMatchObject({ uuid: parent?.uuid, name: "related_village" });
+		},
+	);
+
+	it("refuses a dependent formula while retaining the parent match", async () => {
+		const { doc } = await documentOf((body) => {
+			promptsOf(body).push(village);
+		});
+		const candidate = produce(doc, (draft) => {
+			const rows =
+				draft.modules[draft.moduleOrder[0]].caseListConfig?.searchInputs;
+			const first = rows?.[0];
+			const parent = rows?.at(-1);
+			if (
+				!first ||
+				first.kind === "hidden" ||
+				first.kind === "address" ||
+				!parent
+			)
+				throw new Error("Expected the two visible fields");
+			first.required = { when: eq(input(parent.uuid), literal("Kibera")) };
+		});
+		expect(runValidation(candidate, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					message: expect.stringContaining(
+						"used only to match the related record",
+					),
+				}),
+			]),
+		);
+	});
+
+	it.each([
+		["parent/village", "date"],
+		["parent/parent/village", "date"],
+		["host/parent/village", undefined],
+		["parent/parent/parent/village", undefined],
+	])("refuses an unproved field %s with widget %s", async (key, widget) => {
+		expect(
+			await account((body) => {
+				promptsOf(body).push({
+					...village,
+					name: key,
+					...(widget === undefined ? {} : { input_: widget }),
+				});
+			}),
+		).toContainEqual([
+			`${S}prompt-key-outside-nova-s-name-grammar`,
+			"search",
+			key,
 		]);
 	});
 });
@@ -645,38 +883,163 @@ describe("a Search field Nova cannot hold", () => {
 			expect(await account(one.edit)).toEqual(one.findings);
 		});
 
-	// A group's own entry is no field: it is one finding naming the group, which each member's
-	// `group_key` names too, and a member with no `group_key` beside groups is a finding of its own.
-	it("for a search with groups is one finding for the groups, and one for a member in none", async () => {
+	it("preserves a localized group and places a refusal on its missing field assignment", async () => {
 		const header = {
 			name: "g",
 			label: { es: "Grupo", en: "Group" },
 			is_group: true,
 			group_key: "g",
 		};
-		expect(
-			await account((body) => {
-				const prompts = promptsOf(body);
-				for (const prompt of prompts) prompt.group_key = "g";
-				prompts.unshift(header);
-			}),
-		).toEqual([[`${S}is-group-group-key`, "search", "g"]]);
+		const { doc, respelled } = await documentOf((body) => {
+			const prompts = promptsOf(body);
+			for (const prompt of prompts) prompt.group_key = "g";
+			prompts.unshift(header);
+		});
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		const group = config?.searchInputGroups?.[0];
+		expect(group?.label).toBe("Group");
+		expect(config?.searchInputs.map((input) => input.group)).toEqual(
+			config?.searchInputs.map(() => group?.uuid),
+		);
+		expect(respelled).toContainEqual([
+			`${S}is-group-group-key`,
+			"/modules/0/search_config/properties/0/name",
+			"list-settings-respelled",
+		]);
+
 		const missing = await account((body) => {
 			const prompts = promptsOf(body);
 			for (const prompt of prompts.slice(1)) prompt.group_key = "g";
 			prompts.unshift(header);
 		});
-		expect(new Set(missing)).toEqual(
-			new Set([
-				[`${S}is-group-group-key`, "search", "g"],
-				[
-					`${S}groups-present-and-an-input-without-group-key`,
-					"search",
-					"case_name",
-				],
-			]),
+		expect(missing).toEqual([
+			[
+				`${S}groups-present-and-an-input-without-group-key`,
+				"search",
+				"case_name",
+			],
+		]);
+	});
+
+	it("keeps a grouped address picker linked to its receiving field", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompts = promptsOf(body);
+			for (const prompt of prompts) prompt.group_key = "g";
+			first(body).receiver_expression = "home-city";
+			prompts.unshift(
+				{ name: "g", label: { en: "Where" }, is_group: true, group_key: "g" },
+				{
+					name: "home",
+					doc_type: "CaseSearchProperty",
+					label: { en: "Find an address" },
+					appearance: "address",
+					exclude: true,
+					group_key: "g",
+				},
+			);
+		});
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		const [address, receiver] = config?.searchInputs ?? [];
+		expect(address).toMatchObject({
+			kind: "address",
+			group: config?.searchInputGroups?.[0].uuid,
+		});
+		expect(receiver).toMatchObject({
+			group: address?.group,
+			addressReceiver: {
+				kind: "address",
+				source: address?.uuid,
+				parts: ["city"],
+			},
+		});
+	});
+
+	it("keeps two text subscriptions but refuses sharing with a lookup choice at commit", async () => {
+		const { doc } = await documentOf(sharedAddress);
+		const module = doc.modules[doc.moduleOrder[0]];
+		const config = module.caseListConfig;
+		if (!config) throw new Error("Expected Search fields.");
+		const [picker, first, second, ...rest] = config.searchInputs;
+		if (
+			!isVisibleSearchInput(first) ||
+			!isVisibleSearchInput(second) ||
+			first.type !== "text" ||
+			second.type !== "text"
+		)
+			throw new Error("Expected text receivers.");
+		for (const receiver of [first, second])
+			expect(receiver.addressReceiver).toEqual({
+				kind: "address",
+				source: picker.uuid,
+				parts: ["region"],
+			});
+		expect(searchAddressReceiverCompatibility(module, module.uuid)).toEqual([]);
+		const tableId = "01890000-0000-7000-8000-000000000301" as LookupTableId;
+		const columnId = "01890000-0000-7000-8000-000000000302" as LookupColumnId;
+		const errors = searchAddressReceiverCompatibility(
+			{
+				...module,
+				caseListConfig: {
+					...config,
+					searchInputs: [
+						picker,
+						first,
+						{
+							kind: "simple",
+							uuid: second.uuid,
+							name: second.name,
+							label: second.label,
+							property: second.name,
+							type: "multi-select",
+							addressReceiver: second.addressReceiver,
+							options: {
+								kind: "lookup",
+								tableId,
+								valueColumnId: columnId,
+								labelColumnId: columnId,
+							},
+						},
+						...rest,
+					],
+				},
+			},
+			module.uuid,
 		);
-		expect(missing).toHaveLength(2);
+		expect(errors.map(({ code }) => code)).toEqual([
+			"CASE_LIST_SEARCH_ADDRESS_FIELD",
+			"CASE_LIST_SEARCH_ADDRESS_FIELD",
+		]);
+	});
+
+	it("places an unknown membership on the field without changing its sibling group", async () => {
+		expect(
+			await account((body) => {
+				const prompts = promptsOf(body);
+				for (const prompt of prompts) prompt.group_key = "g";
+				prompts[0].group_key = "unknown_heading";
+				prompts.unshift({
+					name: "g",
+					label: { en: "Group" },
+					is_group: true,
+					group_key: "g",
+				});
+			}),
+		).toEqual([[`${S}search-group-layout-unreadable`, "search", "case_name"]]);
+	});
+
+	it("places one blank-heading refusal over valid group members", async () => {
+		expect(
+			await account((body) => {
+				const prompts = promptsOf(body);
+				for (const prompt of prompts) prompt.group_key = "g";
+				prompts.unshift({
+					name: "g",
+					label: { en: "" },
+					is_group: true,
+					group_key: "g",
+				});
+			}),
+		).toEqual([[`${S}search-group-heading-unreadable`, "search", "g"]]);
 	});
 
 	// The filter keyed by a plain property is a finding of its own, and its value stands under it.
@@ -740,6 +1103,42 @@ describe("a Search field Nova cannot hold", () => {
 			prompt.input_ = "select1";
 			prompt.itemset = TABLE;
 		};
+
+		it("refuses each source field sharing a receive selector with a lookup choice", async () => {
+			const body = exportedBody(PROMPTS);
+			overTable(body);
+			promptsOf(body)[0].input_ = "select";
+			promptsOf(body)[0].itemset = { ...TABLE, label: "code", sort: "code" };
+			sharedAddress(body);
+			const told = withTable(await inputFor(body));
+			const outcome = readHqApp({
+				...told,
+				lookup: {
+					...told.lookup,
+					definitions: new Map([[TABLE_T.id, TABLE_T]]),
+				},
+			});
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "account") throw new Error("Expected a refusal.");
+			expect(
+				outcome.findings.map(({ code, standing, detail }) => [
+					code,
+					standing,
+					detail.name,
+				]),
+			).toEqual([
+				[
+					`${S}address-receiver-shared-with-a-choice-field`,
+					"fix-in-hq",
+					"case_name",
+				],
+				[
+					`${S}address-receiver-shared-with-a-choice-field`,
+					"fix-in-hq",
+					promptsOf(body)[2].name,
+				],
+			]);
+		});
 
 		it.each(["", "address"])(
 			"reads a lookup checkbox even with a stored %s appearance",

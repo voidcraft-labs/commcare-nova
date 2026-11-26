@@ -11,6 +11,10 @@ survey that updates one case per row someone filled in.
 **Case changes** are how a form says what else happens. Each one creates a case,
 updates a case, or closes a case, and they happen in the order you put them in.
 
+When you bring in a form from CommCare HQ, a supported case change stored
+among its questions keeps that position. Nova keeps any checks on its case
+name and connections next to the change in the submitted form.
+
 For an approval time that must survive later edits, save it in a dedicated
 property that holds a date and time. A date property holds only the calendar
 day: a date and time question saved to one keeps the day it was answered on,
@@ -19,6 +23,20 @@ the record's general last-modified time still changes on later updates. A saved
 date and time copied to another property is written again in the device's time
 zone, so it can land a day off when that zone's date differs from the date
 that was saved.
+
+An update can assign a new owner only when a condition holds. **When to assign
+the owner** is available after you choose the new owner. If the condition is
+false, the case keeps its current owner, and the change's other values still
+save.
+
+An update can change a case’s type when the new type can keep its saved
+values. A date can become text and keeps the original date string, such as
+`2026-04-17`. Other changes that need to convert existing values still
+require compatible property types.
+
+A hidden value set to the current date and time can save the local date to a
+Date property on the case a basic follow-up opens. The form keeps the date
+and time in the hidden value for its other calculations.
 
 ## Choose the records a form opens with
 
@@ -142,6 +160,10 @@ editor works, and the line under it says where CommCare HQ keeps it: Case
 Management, or a Save to Case block, which needs Save to Case in the project
 space's plan.
 
+A label directly on an advanced follow-up form can save `OK` to a text property
+of the case the worker selected. This applies to labels without a checkbox, banner
+or starting value. If the form hides the label, it leaves the previous value alone.
+
 ## Where CommCare HQ keeps each change
 
 CommCare HQ keeps a case change in one of three places: the form's Case
@@ -247,6 +269,18 @@ A case type that would conflict with the chosen case, a later type change, or a
 connection is disabled with the reason beside it; platform-owned case types
 never appear. You can choose an available option knowing it will save.
 
+If a create brought in from CommCare HQ joins pieces of fixed text to name a case
+type, Nova shows the resulting type and keeps the calculation when you publish.
+An imported create can also choose between two types already in the app using
+a condition, when both types accept the same saved values and the create
+has no case connections. Preview creates the case with the type selected by
+the condition. Choosing a different case type replaces an imported calculation.
+
+A basic case update brought in from CommCare HQ can keep a write through a
+case connection named **user** when the connection leads to one declared
+ordinary case type. The form saves the value on the connected case. If the
+connection is missing at submission, the form saves none of its changes.
+
 Values can come from a **form answer**, from information already on a case, from
 fixed values, from information about the person using the app, from Project data,
 or from a calculation you build. A Project data value is found by matching one of
@@ -282,6 +316,13 @@ that offers Search can't, because CommCare's server search doesn't keep it. A va
 becomes the case's external ID once the device next syncs. The worker's own
 record keeps its `hq_user_id` in step with the worker, so a form can't save it
 there.
+
+A basic follow-up that opens one case can save to a record linked through its
+parent when both links have a single declared case type and all three types
+are different. The `user` link is a connection between cases. Both linked
+cases need to exist to submit the form. An irrelevant question leaves the
+property unchanged, and a visible blank answer clears it.
+This path saves answers. A separate case change can save attachments.
 
 When a value's condition is false, that property stays as it was. Preview skips
 the value's calculation, so unanswered inputs used only by that skipped value
@@ -387,14 +428,19 @@ abilities. When an edit moves where CommCare HQ keeps a change, Nova and an MCP
 agent report each move before the work is saved. Ask for the same change in the ordinary names you see in the builder;
 Nova keeps each reference attached to the right question or case change even if
 you later rename or move it, and the names shown in the builder stay current.
-Change ids and connection names use letters, numbers, and underscores and start
-with a letter or underscore; saved property names start with a letter and can
-also hold hyphens.
+Change IDs and connection names start with a letter or underscore and can
+include letters, numbers, and underscores. Connection names can also include
+hyphens. When CommCare HQ keeps a case change as an Advanced open action, its
+connection name can also include periods after the first character and letters that both Web Apps and Android can read, as in `my.parent`, `métrique`, and `Ωprobe`. Nova keeps the connection's exact spelling and case. Saved property names start with a letter and can include hyphens.
 Three names are taken, because CommCare HQ's form builder can't open a form that
-holds them: `instance`, `bind` and `parsererror`. A connection can't be named
-`close` or `create`, and a case change can't save a property named `close`,
-because CommCare HQ's form builder reads those names as closing the case or
-starting a new one.
+holds them: `instance`, `bind` and `parsererror`. In a Save to Case change,
+a connection named `close` or `create` is available when that same change
+already closes or creates the case. CommCare HQ's form builder reads those names
+as actions. A Save to Case change can't save to a property named `close`.
+
+One case change can create or update a case and then close it. Its closing
+condition applies only to the close. A separate condition on the case change
+decides whether the whole change reaches the submission.
 
 The shared tools also describe each change's target, the record properties its
 conditions and values read, what it writes, and any matching record identities.

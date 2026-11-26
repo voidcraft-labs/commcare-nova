@@ -11,6 +11,8 @@ import { ToastContainer } from "@/components/ui/ToastContainer";
 import { buildDoc, type FieldSpec } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import type { Platform } from "@/lib/domain/platforms";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import type { EngineController } from "@/lib/preview/engine/engineController";
@@ -67,6 +69,18 @@ function inSection(label: string, children: FieldSpec[]): FieldSpec {
 
 function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 	switch (fixture) {
+		case "face-photo":
+			return [
+				inSection("Visit", [
+					{
+						uuid: IDS.image,
+						kind: "image",
+						id: "portrait",
+						label: "Portrait",
+						captureSource: "face-camera",
+					},
+				]),
+			];
 		case "question-display": {
 			const options = [
 				{ value: "north", label: "North valley" },
@@ -90,8 +104,22 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					{
 						kind: "secret",
 						id: "address",
+						uuid: IDS.address,
 						label: "Private meeting place",
 						addressLookup: true,
+						sendTopics: ["meeting-location"],
+					},
+					{
+						kind: "text",
+						id: "city",
+						label: "Meeting city",
+						receiveFrom: { channel: "meeting-location", field: "city" },
+					},
+					{
+						kind: "hidden",
+						id: "recorded_city",
+						uuid: IDS.addressCityCopy,
+						calculate: "/data/questions/city",
 					},
 					{
 						kind: "text",
@@ -232,6 +260,91 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 				},
 			];
 		}
+		case "android-app":
+			return [
+				{
+					kind: "repeat",
+					uuid: testUuid("platforms-visits"),
+					id: "visits",
+					label: "Visit",
+					repeat_mode: "count_bound",
+					repeat_count: "2",
+					children: [
+						{
+							kind: "group",
+							id: "details",
+							label: "Details",
+							fieldList: true,
+							children: [
+								{
+									kind: "text",
+									uuid: IDS.meter,
+									id: "meter",
+									label: "Meter",
+									default_value: "'prior'",
+									androidApp: {
+										kind: "open-app",
+										action: "org.example.MEASURE",
+										send: [
+											{ name: "unit", value: term(literal("gallons")) },
+											{ name: "unit", value: term(literal("litres")) },
+										],
+										receive: [
+											{ name: "quantity", question: IDS.reading },
+											{ name: "quantity", question: IDS.name },
+											{ name: "photo", question: IDS.image },
+										],
+									},
+								},
+								{
+									kind: "int",
+									uuid: IDS.verify,
+									id: "verify",
+									label: "Check meter",
+									default_value: "7",
+									androidApp: { kind: "use-question", question: IDS.meter },
+								},
+								{
+									kind: "int",
+									uuid: IDS.reading,
+									id: "count",
+									label: "Quantity",
+									default_value: "5",
+								},
+								{
+									kind: "text",
+									uuid: IDS.name,
+									id: "reading_text",
+									label: "Reading as text",
+									default_value: "'five'",
+								},
+								{
+									kind: "image",
+									uuid: IDS.image,
+									id: "photo",
+									label: "Meter photo",
+								},
+							],
+						},
+					],
+				},
+			];
+		case "android-app-required":
+			return [
+				{
+					kind: "text",
+					uuid: IDS.meter,
+					id: "meter",
+					label: "Meter",
+					required: "true()",
+					androidApp: {
+						kind: "open-app",
+						action: "org.example.MEASURE",
+						send: [],
+						receive: [],
+					},
+				},
+			];
 		case "questions":
 			return [
 				inSection("Questions", [
@@ -460,6 +573,9 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 const built = buildDoc({
 	appId: "native-platforms",
 	appName: "Platforms",
+	...(scenario.fixture.startsWith("android-app") && {
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" as const },
+	}),
 	modules: [
 		{
 			uuid: IDS.module,

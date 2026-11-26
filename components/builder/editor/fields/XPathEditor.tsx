@@ -59,7 +59,10 @@ export function XPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 	const slot: FieldExpressionSlotRef = {
 		entity: "field",
 		uuid: field.uuid,
-		slot: keyName as FieldExpressionSlotRef["slot"],
+		slot: keyName as Exclude<
+			FieldExpressionSlotRef["slot"],
+			"android_app_input"
+		>,
 	};
 	const projection = useExpressionProjection(
 		value as Expression | undefined,

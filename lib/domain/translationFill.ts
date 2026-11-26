@@ -30,11 +30,15 @@ export const TRANSLATION_FILL_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"field-help",
 		"field-validation-message",
 		"field-extended-text",
+		"field-extended-hint",
+		"field-extended-help",
+		"field-extended-validation-message",
 		"field-qr-code",
 		"field-spoken-text",
 		"field-first-add-label",
 		"field-add-label",
 		"select-option-label",
+		"select-option-extended-text",
 	],
 );
 

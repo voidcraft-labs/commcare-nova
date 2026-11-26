@@ -1,24 +1,59 @@
 import { describe, expect, it } from "vitest";
 import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
+import { caseChoiceDoc, choiceUuid } from "@/lib/__tests__/caseChoiceFixture";
 import { lookupColumnIdSchema, lookupTableIdSchema } from "@/lib/domain";
 import {
 	checkExpression,
 	literal,
 	literalType,
+	lt,
 	prop,
 	type ScalarType,
 	term,
 } from "@/lib/domain/expression";
+import { pushRowScope, slotContext } from "@/lib/domain/expression/context";
 import { proseText } from "@/lib/domain/prose";
 import { editorExpressionContext } from "../editorTypeContext";
 import {
 	type ExpressionEditContext,
 	expressionCardSchemas,
 	isAuthorableExpressionKind,
+	isCardValue,
 } from "../expressionEditorSchemas";
 import { defaultExpressionForSlot } from "../primitives/ExpressionPicker";
 
 describe("expression contextual authorability", () => {
+	it("offers the source row position only where a form choice filter reads its candidate", () => {
+		const source = slotContext(
+			caseChoiceDoc(),
+			{
+				entity: "field",
+				uuid: choiceUuid("members"),
+				slot: "lookup_options_source",
+			},
+			new Map(),
+		);
+		if (source === undefined || source.rows[0] === undefined)
+			throw new Error("Expected the member choice filter.");
+		const nested = pushRowScope(source, source.rows[0]);
+		const position = expressionCardSchemas.call.defaultValue({
+			...context,
+			expressionContext: source,
+		});
+		expect(isCardValue(position)).toBe(true);
+		expect(isCardValue({ kind: "call", fn: "pi", args: [] })).toBe(false);
+		expect(isAuthorableExpressionKind("call")).toBe(false);
+		expect(
+			isAuthorableExpressionKind("call", { expressionContext: source }),
+		).toBe(true);
+		expect(
+			isAuthorableExpressionKind("call", { expressionContext: nested }),
+		).toBe(false);
+		const expression = lt(position, literal(3));
+		expect(checkExpression(expression, source).errors).toEqual([]);
+		expect(checkExpression(expression, nested).errors).not.toEqual([]);
+	});
+
 	it("requires a populated lookup catalog and refuses nested row lookups", () => {
 		const table = {
 			id: lookupTableIdSchema.parse("00000000-0000-7000-8000-000000000001"),

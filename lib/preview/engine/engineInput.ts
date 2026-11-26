@@ -1,3 +1,4 @@
+import { planFormCaseWire } from "@/lib/commcare/casePlacementPlan";
 import { placedBasic } from "@/lib/commcare/placement";
 import { planGeneratedNodes } from "@/lib/commcare/xform/generatedNodes";
 import {
@@ -5,8 +6,10 @@ import {
 	caseScalarTextGuards,
 	caseSelectionCardinality,
 	isContainer,
+	isSearchAnswerInput,
 	type LanguageTag,
 	moduleUuidOfForm,
+	orderedCaseOperations,
 	projectLocalizedFields,
 	resolveAppLanguage,
 	type Uuid,
@@ -16,6 +19,53 @@ import { entryCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { formContentUuid } from "@/lib/domain/formEntryCases";
 import { formWireName } from "@/lib/domain/formWireName";
 import type { FormEngineInput } from "./formEngine";
+
+/** Prepare the ready-time sources only for forms with a root authored ID.
+ * A root exact ID can read an earlier generated or session-named create. */
+function rootCaseCreates(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): FormEngineInput["rootCaseCreates"] {
+	const form = doc.forms[formUuid];
+	const sequence = orderedCaseOperations(form);
+	if (
+		!sequence.some(
+			(op) =>
+				op.action === "create" &&
+				op.forEach === undefined &&
+				op.target.kind === "new" &&
+				op.target.expr !== undefined,
+		)
+	)
+		return undefined;
+	const datums = new Map(
+		planFormCaseWire(doc, formUuid).datums.map(({ operationUuid, id }) => [
+			operationUuid,
+			id,
+		]),
+	);
+	return sequence.flatMap((op) => {
+		if (
+			op.action !== "create" &&
+			!(op.action === "own" && form.type === "registration")
+		)
+			return [];
+		if (
+			op.forEach ||
+			(op.target?.kind === "new" && op.target.idFrom !== undefined)
+		)
+			return [];
+		const datum = datums.get(op.uuid);
+		return [
+			{
+				uuid: op.uuid,
+				...(datum !== undefined && { datum }),
+				...(op.target?.kind === "new" &&
+					op.target.expr !== undefined && { exact: true as const }),
+			},
+		];
+	});
+}
 
 /** The same form, localization and runtime catalogs for every engine host.
  * In a language, each field's worker-facing text is what a device shows:
@@ -44,6 +94,7 @@ export function buildEngineInput(
 		requiresSelectedRecord: record.requiresCase,
 		wireName: formWireName(doc, formUuid),
 		repeatCountNames: repeatCountNamesOf(doc, formUuid),
+		rootCaseCreates: rootCaseCreates(doc, formUuid),
 		caseScalarTextGuards: Object.fromEntries(
 			caseScalarTextGuards(doc, formUuid, {
 				placedBasic: placedBasic(doc, formUuid),
@@ -62,9 +113,9 @@ export function buildEngineInput(
 		userProperties: doc.userProperties,
 		...(module?.caseListConfig
 			? {
-					searchInputs: module.caseListConfig.searchInputs.map(
-						({ uuid, name }) => ({ uuid, name }),
-					),
+					searchInputs: module.caseListConfig.searchInputs
+						.filter(isSearchAnswerInput)
+						.map(({ uuid, name }) => ({ uuid, name })),
 				}
 			: {}),
 	};

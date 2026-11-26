@@ -123,7 +123,9 @@ the inspector under **Extended text**, **QR code** and **Spoken text**, each
 translated like the label:
 
 - **Extended text** shows in place of the label wherever the label's
-  **Format text** is off.
+  **Format text** is off. Groups, repeats and sections also offer extended
+  text for their headings. A repeat's default add button uses its extended
+  text whenever it has one.
 - **QR code** is the text Android draws as a QR code beside the question, in
   place of the label's image. Web Apps shows no QR code.
 - **Spoken text** is what Android reads aloud from a speaker button beside a
@@ -137,7 +139,12 @@ A question's label media can also hold an **Inline video**, which you can
 attach beside its image, audio and video, and choose per language like them.
 Android plays it inside the question, in place of the QR code and the label's
 image. Web Apps doesn't show it. A help text and a choice hold no inline
-video; you can attach a video there instead, which plays from a button.
+video. You can attach a video there and workers can play it from a button.
+When an app brought in from HQ has inline video outside question labels,
+the first-publish review shows the references that workers never see.
+When inline video is the only content of a question’s help, Android opens
+empty help. You can fix it in CommCare HQ by adding help text and attaching
+the file as a regular video, or by moving the inline video to the question label.
 
 You can type `<`, `>` and `&` directly in your wording. With formatting off,
 spellings such as `&amp;` and `&#65;` also stay as written. With formatting on,
@@ -383,6 +390,29 @@ In **Form settings**, **Form behavior** lets you choose a question or choice tex
 Android opens and submits these forms as it does any other form.
 
 To reuse the same setting on another question or choice, open **Shared texts**. Shared texts need matching wording, formatting and media in every language. If CommCare HQ would combine two texts and lose a setting, Nova names both texts. Changing either one or choosing another text lets you carry on.
+
+### Show recent form activity in Web Apps
+
+In **Form settings → Form behavior**, **Activity notice key** lets the form
+warn a worker when another worker recently opened or submitted it for the
+same evaluated key. A question text that reads the record ID lets different
+records keep their own notices. The existing question text still appears
+on the form.
+
+**Activity notice record title** can give the notice a readable record name.
+**Activity notice window** can supply the number of seconds to keep it. The
+default is five minutes, and Web Apps keeps a notice for at most one hour.
+Android keeps showing the question texts and does not show the notice.
+
+### Name saved forms on Android
+
+In **Form settings**, choose **Form behavior** then **Saved form label**. You can use a question or choice text that already appears in the form, including one that shows an answer. Android evaluates the text in the worker's language when they save, then lists it with the form's name.
+
+In Android Preview, **Save for later** returns to the home screen. Open **Incomplete forms** to pick up the same entry. **Saved forms** lists submissions you completed in this Preview. Turn on the corresponding buttons under **App settings** then **Saved and incomplete forms**. Preview keeps these records in the current tab and clears them when you leave Preview or change workers. If you edit the app after saving an incomplete form, you can start a fresh form.
+
+### Keep a case change in its submitted position
+
+Some forms brought in from CommCare HQ show a **Case change** among their questions. The row marks where the form submits an update or closes a case. Workers see the surrounding questions as usual. Keep the row in the same group or repeat when you want the submitted update to stay at its existing address. A close condition applies to the close itself, so the form can save an update even when the case stays open.
 
 ## Share a document with Nova
 

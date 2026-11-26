@@ -57,6 +57,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { withProjectContext } from "@/lib/case-store";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import { decrypt } from "@/lib/commcare/encryption";
+import { wireBuildProfiles } from "@/lib/commcare/installationProfiles";
 import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import { applyBlueprintChangeProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
@@ -176,6 +177,7 @@ import {
 import {
 	canonicalTargetIdentity,
 	EMPTY_TARGET_IDENTITY,
+	exportIdentityOf,
 	resolveTargetIdentity,
 } from "../targetIdentity";
 import type {
@@ -509,6 +511,87 @@ describe("recordHqChangesTaken", () => {
 		);
 	});
 
+	it("keeps the reviewed search service while a publish is sending to it", async () => {
+		const birth = await born();
+		const write = await admitAppWrite(birth.scope, TARGET, {
+			expectedEndings: 0,
+			remoteAppId: HQ_APP,
+			observedPushToken: appMappingToken(birth.deployment),
+			compiledIdentity: birth.targetIdentity,
+			compiledAtSeq: 1,
+			writeKind: "import",
+		});
+		if (write.kind !== "admitted")
+			throw new Error("Expected an admitted import.");
+		const targetIdentity = {
+			read: birth.targetIdentity,
+			next: {
+				...EMPTY_TARGET_IDENTITY,
+				projectSearches: [{ searchUuid: testUuid("service"), endpointId: 17 }],
+			},
+		};
+		const before = await ledger();
+		const refresh = () =>
+			recordRefreshedAppBaseline(birth.scope, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				comparedPushToken: appMappingToken(birth.deployment),
+				comparedHead: 1,
+				comparedDigest: digestOf(SOURCE),
+				read: stored(SOURCE, CHANGED_AT),
+				targetIdentity,
+			});
+		try {
+			expect((await refresh()).outcome).toBe("superseded");
+			await expect(
+				recordHqChangesTaken(AT_HEAD, taken(birth, { targetIdentity })),
+			).rejects.toBeInstanceOf(deploymentStore.HqReviewWriteInFlightError);
+			expect(await ledger()).toEqual(before);
+			expect(await readTargetIdentity(birth.scope, TARGET)).toEqual(
+				birth.targetIdentity,
+			);
+		} finally {
+			await settleRemoteWrites([write.writeId], { kind: "settled" });
+		}
+		expect((await refresh()).outcome).toBe("current");
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).projectSearches,
+		).toEqual(targetIdentity.next.projectSearches);
+	});
+
+	it("rejects an old app claim at the same physical destination and a moved app head", async () => {
+		const birth = await born();
+		const next = await pushed(birth);
+		const before = await ledger();
+		const read = { sourceDigest: digestOf(SOURCE), novaRevision: 2 };
+		await expect(
+			recordHqChangesTaken({ kind: "own", headSeq: 2 }, taken(birth, { read })),
+		).rejects.toMatchObject({ fence: "mapping-token" });
+		await expect(
+			recordHqChangesTaken(AT_HEAD, taken(next, { read })),
+		).rejects.toMatchObject({ fence: "app-head" });
+		const refresh = (pushToken: string, observedAt: string) =>
+			recordRefreshedAppBaseline(birth.scope, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				comparedPushToken: pushToken,
+				comparedHead: 2,
+				comparedDigest: read.sourceDigest,
+				read: stored(SOURCE, observedAt),
+				targetIdentity: {
+					read: birth.targetIdentity,
+					next: EMPTY_TARGET_IDENTITY,
+				},
+			});
+		expect(
+			(await refresh(appMappingToken(birth.deployment), CHANGED_AT)).outcome,
+		).toBe("superseded");
+		expect(
+			(await refresh(appMappingToken(next.deployment), "2026-11-11T00:00:00Z"))
+				.outcome,
+		).toBe("superseded");
+		expect(await ledger()).toEqual(before);
+	});
 	it("records the sequence of the commit it rides on, and nothing where that commit fails after it", async () => {
 		const birth = await born();
 		const head = await headOf(APP);
@@ -1169,12 +1252,13 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 	const RENAMED = "Survey, renamed in CommCare HQ";
 
 	/** The fixture app brought in, and the scope a member who may edit it reads it under. */
-	async function broughtIn(member = MEMBER) {
+	async function broughtIn(member = MEMBER, source?: RetainedHqAnswer) {
 		await h.seedProjectMember(MEMBER, E2E_PROJECT, "owner");
 		await h.seedProjectMember(OTHER, E2E_PROJECT, "editor");
 		const { appId } = await adoptFixtureApp({
 			projectId: E2E_PROJECT,
 			actorUserId: MEMBER,
+			source,
 		});
 		await seedFixtureConnection(OTHER);
 		return scopeOf(appId, member);
@@ -1201,10 +1285,14 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 	function serveRead(
 		peer: MockAgent,
 		source: RetainedHqAnswer,
-		options: { readonly tables: boolean; readonly times?: number },
+		options: {
+			readonly tables: boolean;
+			readonly times?: number;
+			readonly version?: number;
+		},
 	) {
 		const times = options.times ?? 1;
-		const resource = fixtureResource(source);
+		const resource = fixtureResource(source, { version: options.version });
 		serveAnswer(peer, FIXTURE_PATHS.application, resource, times);
 		serveAnswer(peer, FIXTURE_PATHS.source, source, times);
 		serveAnswer(peer, FIXTURE_PATHS.version, counterOf(resource), times);
@@ -1331,6 +1419,332 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 
 		const again = await review(scope, renamed(), false);
 		expect(again).toMatchObject({ kind: "nothing", reason: "unchanged" });
+	});
+
+	function namedInstallation(name: string, worker?: string) {
+		return changedAnswer(fixtureSource(), (source) => ({
+			...source,
+			build_profiles: {
+				visits: {
+					name,
+					langs: ["en"],
+					practice_mobile_worker_id: worker ?? null,
+					doc_type: "BuildProfile",
+				},
+			},
+		}));
+	}
+
+	it.each(["HQ name", "Local name"])(
+		"compares the actual HQ installation definitions across a local rename to %s",
+		async (localName) => {
+			const scope = await broughtIn(MEMBER, namedInstallation("Original"));
+			const uuid = (await readTargetIdentity(scope, KEY_TARGET))
+				.installationProfiles?.[0]?.uuid;
+			if (!uuid) throw new Error("Missing original binding");
+			await applyBlueprintChangeProposal({
+				appId: scope.appId,
+				userId: MEMBER,
+				expectedProjectId: E2E_PROJECT,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				guard: {
+					mutations: [
+						{
+							kind: "setAppSettings",
+							settings: {
+								installationProfile: {
+									operation: "update",
+									uuid,
+									patch: { name: localName },
+								},
+							},
+						},
+					],
+				},
+			});
+			const listed = changesOf(
+				await review(scope, namedInstallation("HQ name")),
+			);
+			expect(listed.requiresReview).toBe(true);
+			expect(listed.hqChanges.join(" ")).toMatch(/Original.*HQ name/);
+			expect(listed.hqChanges.join(" ")).toContain(localName);
+		},
+	);
+	it("rolls back a worker-only installation take if its grant is lost at the locked receipt", async () => {
+		const scope = await broughtIn(
+			MEMBER,
+			namedInstallation("Visits", "worker-before"),
+		);
+		const remote = namedInstallation("Visits", "worker-after");
+		const listed = changesOf(await review(scope, remote));
+		let grants = 0;
+		const caller = {
+			...scope,
+			requireInstallationManagement: () => {
+				if (++grants === 2) throw new Error("Installation grant revoked");
+			},
+		};
+		await expect(
+			withHttpPeer(async (peer) => {
+				serveRead(peer, remote, { tables: true });
+				return bringIn(caller, listed);
+			}),
+		).rejects.toThrow("Installation grant revoked");
+		expect(grants).toBe(2);
+		expect(
+			(await readTargetIdentity(scope, KEY_TARGET)).installationProfiles?.[0]
+				?.practiceWorkerId,
+		).toBe("worker-before");
+		expect(
+			(
+				await h
+					.db()
+					.selectFrom("app_deployment_baselines")
+					.select("installation_review")
+					.executeTakeFirstOrThrow()
+			).installation_review,
+		).toBeNull();
+		expect(changesOf(await review(scope, remote)).hqChanges.join(" ")).toMatch(
+			/worker-before.*worker-after/,
+		);
+	});
+	it("reviews a dormant installation worker before its binding can be restored", async () => {
+		const scope = await broughtIn(
+			MEMBER,
+			namedInstallation("Visits", "worker-A"),
+		);
+		const uuid = (await readTargetIdentity(scope, KEY_TARGET))
+			.installationProfiles?.[0]?.uuid;
+		if (!uuid) throw new Error("Missing original binding");
+		const mutate = (remove: boolean) =>
+			applyBlueprintChangeProposal({
+				appId: scope.appId,
+				userId: MEMBER,
+				expectedProjectId: E2E_PROJECT,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				guard: {
+					mutations: [
+						{
+							kind: "setAppSettings",
+							settings: {
+								installationProfile: remove
+									? { operation: "remove", uuid }
+									: {
+											operation: "add",
+											profile: {
+												uuid,
+												name: "Visits",
+												languages: ["eng"],
+												requiresPracticeWorker: true,
+											},
+										},
+							},
+						},
+					],
+				},
+			});
+		await mutate(true);
+		const remote = namedInstallation("Visits", "worker-B");
+		const offered = changesOf(await review(scope, remote));
+		expect(offered.hqChanges.join(" ")).toMatch(/worker-A.*worker-B/);
+		expect(offered.hqChanges.join(" ")).toContain("stays removed");
+		expect(
+			(await readTargetIdentity(scope, KEY_TARGET)).installationProfiles?.[0]
+				?.practiceWorkerId,
+		).toBe("worker-A");
+		// Undo restores A; an offer for the former, removed revision cannot accept B.
+		await mutate(false);
+		const stale = await withHttpPeer(async (peer) => {
+			serveRead(peer, remote, { tables: true });
+			return bringIn(scope, offered);
+		});
+		expect(stale.kind).toBe("changed");
+		expect(
+			(await readTargetIdentity(scope, KEY_TARGET)).installationProfiles?.[0]
+				?.practiceWorkerId,
+		).toBe("worker-A");
+		const fresh = changesOf(await review(scope, remote));
+		expect(
+			await withHttpPeer(async (peer) => {
+				serveRead(peer, remote, { tables: true });
+				return bringIn(scope, fresh);
+			}),
+		).toMatchObject({ kind: "recorded" });
+		expect(
+			(await readTargetIdentity(scope, KEY_TARGET)).installationProfiles?.[0]
+				?.practiceWorkerId,
+		).toBe("worker-B");
+	});
+
+	it("keeps the installation UUID and the destination key across a signed rename and changed practice worker", async () => {
+		const scope = await broughtIn(
+			MEMBER,
+			namedInstallation("Team", "worker-before"),
+		);
+		const original = (await readTargetIdentity(scope, KEY_TARGET))
+			.installationProfiles?.[0];
+		if (!original) throw new Error("The adopted installation has no binding.");
+		expect(original).toMatchObject({
+			key: "visits",
+			practiceWorkerId: "worker-before",
+		});
+		const changed = namedInstallation("Home visits", "worker-after");
+		const listed = changesOf(await review(scope, changed));
+		const resaved = await withHttpPeer(async (peer) => {
+			serveRead(peer, changed, { tables: true, version: 123 });
+			return bringIn(scope, listed);
+		});
+		expect(resaved.kind).toBe("changed");
+		expect(
+			(await readTargetIdentity(scope, KEY_TARGET)).installationProfiles,
+		).toEqual([original]);
+		const taken = await withHttpPeer(async (peer) => {
+			serveRead(peer, changed, { tables: true });
+			return bringIn(scope, listed);
+		});
+		expect(taken.kind).toBe("brought-in");
+		const record = await readTargetIdentity(scope, KEY_TARGET);
+		expect(record.installationProfiles).toEqual([
+			{ uuid: original.uuid, key: "visits", practiceWorkerId: "worker-after" },
+		]);
+		const loaded = await loadApp(scope.appId);
+		if (!loaded) throw new Error("Lost the adopted app.");
+		const doc = hydratePersistedBlueprint(loaded.blueprint);
+		expect(doc.appSettings.installationProfiles).toEqual({
+			[original.uuid]: {
+				uuid: original.uuid,
+				name: "Home visits",
+				languages: ["eng"],
+				requiresPracticeWorker: true,
+			},
+		});
+		expect(
+			wireBuildProfiles(doc, exportIdentityOf(doc, record).identity),
+		).toEqual({
+			visits: {
+				name: "Home visits",
+				langs: ["en"],
+				practice_mobile_worker_id: "worker-after",
+			},
+		});
+		expect(await review(scope, changed, false)).toMatchObject({
+			kind: "nothing",
+			reason: "unchanged",
+		});
+		const reassigned = namedInstallation("Home visits", "worker-successor");
+		const workerReview = await review(scope, reassigned);
+		if (workerReview.kind !== "changes" || !workerReview.requiresReview)
+			throw new Error(
+				"Expected explicit review for a changed project-space worker.",
+			);
+		expect(workerReview.hqChanges.join(" ")).toContain("worker-after");
+		expect(workerReview.hqChanges.join(" ")).toContain("worker-successor");
+		const recorded = await withHttpPeer(async (peer) => {
+			serveRead(peer, reassigned, { tables: true });
+			return bringIn(scope, {
+				readingId: workerReview.readingId ?? "",
+				reviewDigest: workerReview.reviewDigest ?? "",
+			});
+		});
+		expect(recorded.kind).toBe("recorded");
+		const receipt = await h
+			.db()
+			.selectFrom("app_deployment_baselines")
+			.select("installation_review")
+			.executeTakeFirstOrThrow();
+		expect(receipt.installation_review).toMatchObject({
+			digest: workerReview.reviewDigest,
+			actor: MEMBER,
+			remoteAppId: FIXTURE_REMOTE_APP_ID,
+		});
+
+		expect(
+			(await readTargetIdentity(scope, KEY_TARGET)).installationProfiles,
+		).toEqual([
+			{
+				uuid: original.uuid,
+				key: "visits",
+				practiceWorkerId: "worker-successor",
+			},
+		]);
+	}, 20_000);
+
+	it("requires explicit consent to adopt a new HQ-created practice installation and re-reviews a changed worker", async () => {
+		const scope = await broughtIn();
+		const added = namedInstallation("New workers", "first-practice-worker");
+		const different = namedInstallation(
+			"New workers",
+			"second-practice-worker",
+		);
+		const listed = changesOf(await review(scope, added));
+		expect(listed.requiresReview).toBe(true);
+		expect(listed.hqChanges.join(" ")).toMatch(
+			/New workers.*visits.*English.*first-practice-worker/,
+		);
+		const peerReview = changesOf(
+			await review(scopeOf(scope.appId, OTHER), added),
+		);
+		expect(peerReview.reviewDigest).not.toBe(listed.reviewDigest);
+		const stale = await withHttpPeer(async (peer) => {
+			serveRead(peer, different, { tables: true });
+			return bringIn(scope, listed);
+		});
+		expect(stale.kind).toBe("changed");
+		expect(
+			(await readTargetIdentity(scope, KEY_TARGET)).installationProfiles,
+		).toBeUndefined();
+		const fresh = changesOf(await review(scope, different));
+		expect(fresh.reviewDigest).not.toBe(listed.reviewDigest);
+		expect(fresh.hqChanges.join(" ")).toContain("second-practice-worker");
+		expect(
+			await withHttpPeer(async (peer) => {
+				serveRead(peer, different, { tables: true });
+				return bringIn(scope, fresh);
+			}),
+		).toMatchObject({ kind: "brought-in" });
+		const stored = await h
+			.db()
+			.selectFrom("app_deployment_baselines")
+			.select("installation_review")
+			.executeTakeFirstOrThrow();
+		expect(stored.installation_review).toMatchObject({
+			digest: fresh.reviewDigest,
+			actor: MEMBER,
+		});
+	});
+
+	it("offers a profile acknowledged before Nova could read it even with identical baseline and current HQ source", async () => {
+		const scope = await broughtIn();
+		const changed = namedInstallation("Home visits");
+		const normalized = normalizeHqAppSource(retainedBodyJson(changed));
+		if ("malformed" in normalized) throw new Error(normalized.malformed);
+		// A pre-feature deployment acknowledged HQ's complete source while its
+		// document and ledger contained no installation profile.
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({
+				source_gzip: gzipSync(normalized.text),
+				source_bytes: normalized.bytes,
+				source_digest: normalized.digest,
+			})
+			.execute();
+		const listed = changesOf(await review(scope, changed));
+		expect(
+			await withHttpPeer(async (peer) => {
+				serveRead(peer, changed, { tables: true });
+				return bringIn(scope, listed);
+			}),
+		).toMatchObject({ kind: "brought-in" });
+		expect(
+			(await readTargetIdentity(scope, KEY_TARGET)).installationProfiles,
+		).toMatchObject([{ key: "visits" }]);
+		expect(await review(scope, changed, false)).toMatchObject({
+			kind: "nothing",
+			reason: "unchanged",
+		});
 	});
 
 	/* A save that moves nothing but a form's id normalizes to the same source
@@ -2305,6 +2719,10 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 				...(current.source as Record<string, unknown>),
 				name: "Survey, read again",
 			};
+			const live = (await readDeployment(scope, KEY_TARGET))?.active.find(
+				(row) => row.kind === "app",
+			);
+			if (!live) throw new Error("Expected the app's live deployment.");
 			await recordRefreshedAppBaseline(scope, KEY_TARGET, {
 				expectedEndings: 0,
 				remoteAppId: current.remoteAppId,
@@ -3573,6 +3991,11 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			domain: FIXTURE_DOMAIN as string,
 			appId: FIXTURE_REMOTE_APP_ID as string,
 		},
+		confirm = CONFIRM_ALL,
+		options: {
+			readonly readInstallationSourceAgain?: boolean;
+			readonly stopsBeforeRemoteReads?: boolean;
+		} = {},
 	) {
 		const sourcePath = `/a/${destination.domain}/apps/source/${destination.appId}/`;
 		const importPath = `/a/${destination.domain}/apps/api/import_app/`;
@@ -3584,27 +4007,34 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		/** The app JSON each import carried. */
 		const imported: Record<string, unknown>[] = [];
 		return withHqPeer(saves, FIXTURE_HOST, async (peer) => {
-			peer
-				.get(FIXTURE_HOST)
-				.intercept({
-					path: (path) => path.startsWith(PROJECT_SPACES),
-					method: "GET",
-				})
-				.reply((request) => {
-					const objects =
-						request.path === PROJECT_SPACES
-							? [{ domain_name: destination.domain, project_name: "Clinic" }]
-							: [];
-					return {
-						statusCode: 200,
-						data: JSON.stringify({
-							meta: { next: null, total_count: objects.length },
-							objects,
-						}),
-					};
-				})
-				.persist();
-			serveAnswer(peer, sourcePath, source);
+			if (!options.stopsBeforeRemoteReads) {
+				peer
+					.get(FIXTURE_HOST)
+					.intercept({
+						path: (path) => path.startsWith(PROJECT_SPACES),
+						method: "GET",
+					})
+					.reply((request) => {
+						const objects =
+							request.path === PROJECT_SPACES
+								? [{ domain_name: destination.domain, project_name: "Clinic" }]
+								: [];
+						return {
+							statusCode: 200,
+							data: JSON.stringify({
+								meta: { next: null, total_count: objects.length },
+								objects,
+							}),
+						};
+					})
+					.persist();
+				serveAnswer(
+					peer,
+					sourcePath,
+					source,
+					options.readInstallationSourceAgain ? 2 : 1,
+				);
+			}
 			if (accepts && !(readBack instanceof TargetPeer))
 				serveAnswer(peer, sourcePath, readBack);
 			if (accepts)
@@ -3670,7 +4100,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				compiledAtSeq: Number(loaded.mutation_seq),
 				reloadHead: reloadHeadFor(appId, publishingMember.actorUserId),
 				appName: doc.appName,
-				confirm: CONFIRM_ALL,
+				confirm,
 				discardRemoteChanges,
 			});
 			const requests = (peer.getCallHistory()?.calls() ?? [])
@@ -4582,6 +5012,81 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			expect(await baseline(north.domain)).toEqual(northBefore);
 		});
 	}, 30_000);
+
+	it("republishes a signed installation rename over the same destination-assigned profile key", async () => {
+		const doc = clinic({});
+		const named = (name: string, version: number) => {
+			const served = emission(doc, version);
+			return {
+				...served,
+				source: changedAnswer(served.source, (body) => ({
+					...body,
+					build_profiles: {
+						visits: {
+							name,
+							langs: ["en"],
+							practice_mobile_worker_id: null,
+							doc_type: "BuildProfile",
+						},
+					},
+				})),
+			};
+		};
+		const appId = await broughtIn(doc, named("Outreach", 2));
+		const pending = await publishOver(
+			appId,
+			named("Outreach", 2).source,
+			false,
+			named("Outreach", 2).source,
+			2,
+			[],
+			undefined,
+			undefined,
+			undefined,
+			[],
+			{ stopsBeforeRemoteReads: true },
+		);
+		expect(
+			pending.outcome,
+			JSON.stringify(pending.outcome.refusal),
+		).toMatchObject({
+			landed: false,
+			refusal: { failure: { code: "hq_confirmation_needed" } },
+		});
+		expect(pending.imported).toEqual([]);
+		expect(
+			pending.requests.some((request) => request.startsWith("POST ")),
+		).toBe(false);
+		const prior = (await readTargetIdentity(scope(appId), KEY_TARGET))
+			.installationProfiles?.[0];
+		if (!prior)
+			throw new Error("The first reading did not identify its installation.");
+		const edited = named("Home visits", 3);
+		const take = await reviewAndBringIn(appId, doc, edited);
+		expect(take.outcome.kind).toBe("brought-in");
+		const published = await publishOver(
+			appId,
+			edited.source,
+			true,
+			edited.source,
+			3,
+			[],
+			undefined,
+			undefined,
+			undefined,
+			CONFIRM_ALL,
+			{ readInstallationSourceAgain: true },
+		);
+		expect(
+			published.outcome,
+			JSON.stringify(published.outcome.refusal),
+		).toMatchObject({ landed: true });
+		expect(published.imported).toHaveLength(1);
+		expect(published.imported[0]).not.toHaveProperty("build_profiles");
+		expect(
+			(await readTargetIdentity(scope(appId), KEY_TARGET)).installationProfiles,
+		).toEqual([{ uuid: prior.uuid, key: "visits" }]);
+	});
 
 	it("writes an ownership that holds the add-on what it took needs, so turning it off in CommCare HQ stops the next publish", async () => {
 		const appId = await broughtIn(clinic({}));
@@ -5830,7 +6335,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					current.formOrder[current.moduleOrder[0]].indexOf(recipient);
 				const source = changedAnswer(base.source, (body) => {
 					const [m] = body.modules as { forms: { unique_id: string }[] }[];
-					const key = m.forms[index].unique_id + ".xml";
+					const key = `${m.forms[index].unique_id}.xml`;
 					const attachments = body._attachments as Record<string, string>;
 					expect(attachments[key]).toContain("<h:title>Visit</h:title>");
 					attachments[key] = attachments[key].replace(
@@ -5861,12 +6366,12 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			...base,
 			source: changedAnswer(base.source, (body) => {
 				const [menu] = body.modules as { forms: { unique_id: string }[] }[];
-				const key = menu.forms[0].unique_id + ".xml";
+				const key = `${menu.forms[0].unique_id}.xml`;
 				const attachments = body._attachments as Record<string, string>;
 				const before = attachments[key];
 				attachments[key] = before.replace(
 					"<h:title>Register</h:title>",
-					"<h:title>" + title + "</h:title>",
+					`<h:title>${title}</h:title>`,
 				);
 				if (before === attachments[key])
 					throw new Error("The published form has no Register title.");
@@ -6109,7 +6614,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					source: changedAnswer(served.source, (raw) => {
 						const [menu] = raw.modules as { forms: { unique_id: string }[] }[];
 						const attachments = raw._attachments as Record<string, string>;
-						const key = menu.forms[formIndex].unique_id + ".xml";
+						const key = `${menu.forms[formIndex].unique_id}.xml`;
 						const original = attachments[key];
 						const at = original.indexOf("<bind ");
 						if (at < 0) throw new Error("The test form has no bind.");

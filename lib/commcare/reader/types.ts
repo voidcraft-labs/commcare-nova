@@ -20,12 +20,16 @@ import type {
 } from "@/lib/domain";
 import type { CaseRelation } from "@/lib/domain/caseRelations";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
-import type { LabelTextSlot } from "@/lib/domain/labelForms";
+import type { ExtendedProseSlot, LabelTextSlot } from "@/lib/domain/labelForms";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
 import type { HqLocationType } from "../hq/locations";
-import type { ColumnFieldWordRow } from "../wireIdentity";
+import type {
+	ColumnFieldWordRow,
+	InstallationProfileBinding,
+	ProjectSearchBinding,
+} from "../wireIdentity";
 import type { WorkKind } from "../workMeter";
 import type { GeneratedNodePurpose } from "../xform/generatedNodes";
 import type {
@@ -92,6 +96,7 @@ export interface ReaderInput {
 	readonly appStrings: (
 		doc: BlueprintDoc,
 		columnWords: readonly ColumnFieldWordRow[],
+		projectSearches?: readonly ProjectSearchBinding[],
 	) => AppStringTable | null;
 	/** Whether the record dialect prints a tree and reads it back. Pure. */
 	readonly recordDialect: RecordDialectJudge;
@@ -106,6 +111,11 @@ export interface ReaderInput {
 	 *  each property, which every property the reading holds takes unless a question that writes
 	 *  it gives values that type cannot hold. Absent for an app Nova has never held. */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** The Nova id of a positioned operation, whose HQ wrapper is named by the field. */
+	readonly knownPositionedCaseOperationIds?: ReadonlyMap<
+		Uuid,
+		ReadonlyMap<Uuid, string>
+	>;
 	/** The opening assignments Nova already holds and the baseline's raw loads
 	 *  they came from, so a load an earlier read folded into a field default
 	 *  keeps that representation while its source and stages are unchanged
@@ -117,6 +127,10 @@ export interface ReaderInput {
 		Uuid,
 		ReadonlyMap<string, string>
 	>;
+	/** Editor names of parent Search fields identified by the native request key. */
+	readonly knownParentPathSearchNames?: ReadonlyMap<Uuid, string>;
+	/** Names people gave their logical searches. HQ carries only the destination id. */
+	readonly knownProjectSearchNames?: BlueprintDoc["appSettings"]["projectSearches"];
 	/** What Nova already holds about this app's languages that no export carries: the language
 	 *  each CommCare HQ code it published names, from the held document's `localization.wireCodes`
 	 *  (`languages.ts::knownLanguageCodesOf`). A code it holds is read as that language whatever
@@ -135,6 +149,8 @@ export interface ReaderKnownLanguageCodes {
 /** The case types the indices of the app's document reach and the types its catalog declares,
  *  as Nova holds them (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */
 export interface ReaderKnownCaseTypes {
+	/** A case type explicitly declared by the previous Nova document. */
+	hasType?(caseType: string): boolean;
 	/** The type a case of `caseType` reaches through its index `identifier`: for `parent`, the
 	 *  catalog's parent and the relationship it holds; for any other identifier, the type every
 	 *  typed step of the document through that identifier from `caseType` agrees on. Undefined
@@ -252,6 +268,7 @@ export type ReadOutcome =
 
 /** What the reader minted for the menus and forms the document holds. */
 export interface ReadMenuAndFormIdentities {
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	/** Every menu of HQ's app the document holds, a folded hidden menu under its synthetic UUID. */
 	readonly modules: readonly {
 		readonly uuid: Uuid;
@@ -283,6 +300,7 @@ export interface ReadMenuAndFormIdentities {
 	 *  HQ's build names the column's app strings by. A column the source holds on both screens
 	 *  has a row for each. */
 	readonly columnFieldWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
 }
 
 export interface ReadDraft {
@@ -325,7 +343,17 @@ export interface ReadFacts {
 	readonly mediaReferences: readonly ReadMediaReference[];
 	/** Each mapped itext reference on a slot that holds no media in Nova. HQ may require the file at install. */
 	readonly unheldMedia: readonly (Omit<PendingMedia, "resolution"> & {
-		readonly role: "hint" | "constraintMsg" | "label";
+		readonly role:
+			| readonly [
+					| "label"
+					| "hint"
+					| "help"
+					| "constraintMsg"
+					| "add-empty-caption"
+					| "add-caption",
+			  ]
+			| readonly ["item", string];
+		readonly form: MediaKind | "video-inline";
 		readonly languageCode: string;
 	})[];
 	/** Every media reference handed off: no file for its path. */
@@ -382,7 +410,9 @@ export interface ReadFacts {
 export const SAME_STATE_REGISTERS = [
 	"case-settings-respelled",
 	"search-filter-rows-recut",
+	"search-order-direction-signs-respelled",
 	"sort-rule-kept-as-hidden-column",
+	"legacy-related-case-text-rekeyed",
 	"list-settings-respelled",
 	"link-held-case-guards-added",
 ] as const;
@@ -485,7 +515,7 @@ export interface ReadFormFacts {
 /** One blank non-default value filled at publication: a text slot's, or one of a question
  *  label's other texts (`lib/domain/labelForms.ts`). */
 export type BlankTranslationSlot = Omit<ItextRecipient, "slot"> & {
-	readonly slot: ItextRecipient["slot"] | LabelTextSlot;
+	readonly slot: ItextRecipient["slot"] | LabelTextSlot | ExtendedProseSlot;
 };
 
 export interface ReadGeneratedNode {

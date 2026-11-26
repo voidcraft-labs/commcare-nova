@@ -1379,6 +1379,7 @@ export function runFormRules(
 	const mediaProblem = navigationMediaProblem(
 		form,
 		effectiveAppLocalization(doc.localization),
+		doc,
 	);
 	if (mediaProblem)
 		errors.push(

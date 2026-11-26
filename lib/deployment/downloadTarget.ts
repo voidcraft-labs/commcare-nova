@@ -1,11 +1,20 @@
 import "server-only";
 
+import {
+	isValidDomainSlug,
+	probeHqProjectSpaceCompatibility,
+} from "@/lib/commcare/client";
 import { hqNestedSelectionFindings } from "@/lib/commcare/hqNestedSelection";
 import { planLanguageWire } from "@/lib/commcare/languageWire";
+import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
-import type { WireIdentity } from "@/lib/commcare/wireIdentity";
+import {
+	targetWireIdentity,
+	type WireIdentity,
+} from "@/lib/commcare/wireIdentity";
+import { getHqCredentials } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
@@ -13,11 +22,13 @@ import {
 	effectiveAppLocalization,
 } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { projectSearchDependencies } from "@/lib/domain/projectSearches";
 import type { Uuid } from "@/lib/domain/uuid";
 import type {
 	AttachmentTargetState,
 	KeptAdvisoryFacts,
 } from "@/lib/publish/exportAdvisories";
+import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	type AttachmentUrlTarget,
 	attachmentUrlTarget,
@@ -43,7 +54,7 @@ import {
 	withDeploymentReadSnapshot,
 } from "./store";
 import { keptAdvisoryFacts } from "./targetFacts";
-import { exportIdentityOf } from "./targetIdentity";
+import { exportIdentityOf, sameTargetIdentity } from "./targetIdentity";
 
 /**
  * What a download is made for, read from the app's deployments.
@@ -84,11 +95,12 @@ export type DownloadTarget = { readonly targetRevision?: string } & (
 	  }
 	| {
 			readonly format: "json";
+			readonly identity?: WireIdentity;
 			readonly attachmentTarget: AttachmentUrlTarget | null;
 			/** The reached deployments on the chosen server, or all of them. */
 			readonly reached: readonly ReachedDeploymentTarget[];
 	  }
-);
+) & { readonly compatibility?: ProjectSpaceCompatibilityReport };
 
 export type { DownloadTargetRefusal };
 
@@ -169,23 +181,122 @@ export async function resolveDownloadTarget(
 		readonly server?: CommCareServer;
 		readonly domain?: string;
 		readonly assignmentDestination?: DeploymentTargetKey;
+		readonly compiledAtSeq?: number;
 		readonly doc: BlueprintDoc;
 	},
 ): Promise<DownloadTarget | DownloadTargetRefusal> {
-	const { read, targetRevision } = await withDeploymentReadSnapshot(
-		scope,
-		"view",
-		async (snapshot) => ({
-			read: await resolveDownloadTargetIn(snapshot, input),
-			targetRevision: await exportTargetRevision(
-				snapshot.db,
-				scope.projectId,
-				scope.appId,
+	const searches = projectSearchDependencies(input.doc);
+	const readDestination = (requireCurrentHead: boolean) =>
+		withDeploymentReadSnapshot(scope, "view", async (snapshot) => {
+			if (requireCurrentHead) {
+				const head = await snapshot.db
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", scope.appId)
+					.where("project_id", "=", scope.projectId)
+					.executeTakeFirstOrThrow();
+				if (head.mutation_seq !== input.compiledAtSeq) return null;
+			}
+			return {
+				read: await resolveDownloadTargetIn(snapshot, input, searches.size > 0),
+				targetRevision: await exportTargetRevision(
+					snapshot.db,
+					scope.projectId,
+					scope.appId,
+				),
+			};
+		});
+	const snapshot = await readDestination(false);
+	if (snapshot === null)
+		throw new Error("Expected a download destination snapshot.");
+	let { read } = snapshot;
+	const { targetRevision } = snapshot;
+	if ("kind" in read) return read;
+	let compatibility: ProjectSpaceCompatibilityReport | undefined;
+	if (searches.size) {
+		if (!("targetIdentity" in read))
+			throw new Error("The search has no destination.");
+		const original = read;
+		const refusal = (message: string): DownloadTargetRefusal => ({
+			kind: "refused",
+			reason: "project-search-target",
+			message,
+			reached: original.reached,
+			heldFromHq: [],
+		});
+		if (input.compiledAtSeq === undefined)
+			return refusal(
+				"Reopen the current app before downloading it for this project space.",
+			);
+		const bound = new Set(
+			read.targetIdentity.projectSearches?.map((row) => row.searchUuid),
+		);
+		const missing = Array.from(searches).filter(([uuid]) => !bound.has(uuid));
+		if (missing.length)
+			return refusal(
+				`Choose the search ID in ${read.target.domain} for ${missing.map(([, name]) => `“${name}”`).join(", ")} before downloading this app.`,
+			);
+		const credentials = await getHqCredentials(
+			scope.actorUserId,
+			read.target.domain,
+		);
+		if (
+			!credentials.ok ||
+			credentials.creds.server !== read.target.server ||
+			credentials.domain.name !== read.target.domain
+		)
+			return refusal(
+				`Connect an account that can check searches in ${read.target.domain}, then download the file again.`,
+			);
+		const plan = projectSpaceCompatibilityProbePlan(input.doc);
+		const checked = await probeHqProjectSpaceCompatibility(
+			credentials.creds,
+			read.target.domain,
+			plan,
+		);
+		compatibility = checked.report;
+		if (
+			compatibility.required_capabilities.find(
+				(row) => row.id === "project-search",
+			)?.state !== "available"
+		)
+			return refusal(
+				`Nova couldn't confirm that ${read.target.domain} supports searches supplied by the project space. Check access and search settings there, then try again.`,
+			);
+		const checkedSnapshot = await readDestination(true);
+		const current = checkedSnapshot?.read;
+		if (
+			current === undefined ||
+			checkedSnapshot?.targetRevision !== targetRevision ||
+			!("targetIdentity" in current) ||
+			!sameTargetIdentity(original.targetIdentity, current.targetIdentity) ||
+			(!("jsonTarget" in original) &&
+				("jsonTarget" in current ||
+					original.target.hqAppId !== current.target.hqAppId))
+		) {
+			return refusal(
+				"The app or its destination changed while Nova checked its searches. Review the connections and download again.",
+			);
+		}
+		read = current;
+	}
+	if ("jsonTarget" in read)
+		return {
+			// The HQ file still installs a new copy. Only this service ID
+			// belongs to the selected space. Menu/form IDs, media and case-key
+			// prefixes keep the manual import contract.
+			format: "json",
+			identity: targetWireIdentity(
+				[],
+				[],
+				read.targetIdentity.projectSearches ?? [],
 			),
-		}),
-	);
-	if (!("held" in read))
-		return "kind" in read ? read : { ...read, targetRevision };
+			attachmentTarget: attachmentUrlTarget(read.target),
+			reached: read.reached,
+			targetRevision,
+			...(compatibility && { compatibility }),
+		};
+	if (!("held" in read)) return { ...read, targetRevision };
 	const { target, reached, targetIdentity, held } = read;
 	const standing = cczStandingOf(target, held);
 	if (standing.unavailable !== null) {
@@ -197,6 +308,7 @@ export async function resolveDownloadTarget(
 	return {
 		format: "ccz",
 		targetRevision,
+		...(compatibility && { compatibility }),
 		target,
 		runtimeTarget: {
 			server: target.server,
@@ -220,6 +332,13 @@ interface HeldCczTarget {
 	readonly targetIdentity: Awaited<ReturnType<typeof readTargetIdentity>>;
 }
 
+interface TargetedImport {
+	readonly jsonTarget: true;
+	readonly target: DeploymentTargetKey;
+	readonly reached: readonly ReachedDeploymentTarget[];
+	readonly targetIdentity: Awaited<ReturnType<typeof readTargetIdentity>>;
+}
+
 async function resolveDownloadTargetIn(
 	snapshot: DeploymentReadSnapshot,
 	input: {
@@ -229,9 +348,38 @@ async function resolveDownloadTargetIn(
 		readonly assignmentDestination?: DeploymentTargetKey;
 		readonly doc: BlueprintDoc;
 	},
-): Promise<DownloadTarget | DownloadTargetRefusal | HeldCczTarget> {
-	const { format, server, domain, doc } = input;
+	requiresProjectSearch: boolean,
+): Promise<
+	DownloadTarget | DownloadTargetRefusal | HeldCczTarget | TargetedImport
+> {
+	const { format, doc } = input;
+	const server = input.assignmentDestination?.server ?? input.server;
+	const domain = input.assignmentDestination?.domain ?? input.domain;
 	const reached = await readReachedDeploymentTargets(snapshot);
+	if (requiresProjectSearch) {
+		if (
+			server === undefined ||
+			domain === undefined ||
+			!isValidDomainSlug(domain)
+		)
+			return {
+				kind: "refused",
+				reason: "project-search-target",
+				message:
+					"Choose the server and project space whose searches this app will use.",
+				reached,
+				heldFromHq: [],
+			};
+		if (format === "json") {
+			const target = { server, domain };
+			return {
+				jsonTarget: true,
+				target,
+				reached,
+				targetIdentity: await readTargetIdentity(snapshot, target),
+			};
+		}
+	}
 	const heldFromHq =
 		format === "ccz" && reached.length === 0 ? selectionsHeldFromHq(doc) : [];
 	const choice = chooseDownloadTarget(reached, {

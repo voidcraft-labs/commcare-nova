@@ -1,4 +1,5 @@
 import "server-only";
+import type { HqManagementGrant } from "../store";
 
 /**
  * One read of a CommCare HQ app for review: who may ask for it, and the read
@@ -19,6 +20,7 @@ declare const bringInAuthorized: unique symbol;
 /** Proof that the person held `edit` in the Project when the request began. Only
  *  `authorizeBringIn` makes one: the brand's key is not exported. */
 export interface BringInActor {
+	readonly requireOperation?: HqManagementGrant;
 	readonly userId: string;
 	readonly role: string;
 	readonly projectId: string;

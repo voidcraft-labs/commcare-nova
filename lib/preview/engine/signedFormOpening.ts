@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
+import { z } from "zod";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import {
 	getFormOpeningData,
@@ -15,6 +16,7 @@ import {
 import type {
 	FormOpeningAudience,
 	FormOpeningProjection,
+	ReceiptRunTransition,
 	SignedFormOpening,
 } from "./formOpeningSnapshot";
 import { previewAndroidInstallId } from "./previewDevice";
@@ -56,6 +58,78 @@ export function openingCarryScope(
 		platform: device.platform,
 		androidDeviceId: previewAndroidInstallId(device),
 	});
+}
+
+type TransitionAudience = Pick<
+	FormOpeningAudience,
+	| "app"
+	| "project"
+	| "actor"
+	| "session"
+	| "worker"
+	| "persona"
+	| "device"
+	| "form"
+	| "revision"
+>;
+const transitionSchema = z.strictObject({
+	from: z.uuid(),
+	to: z.uuid(),
+	entry: z.uuid().optional(),
+	signature: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
+/** The requested journal for comparison with an already accepted receipt.
+ * This does not authorize a transition or change the immutable receipt. */
+export function requestedReceiptRun(
+	transition: unknown,
+	run: string | undefined,
+) {
+	if (transition === undefined) return run;
+	const parsed = transitionSchema.safeParse(transition);
+	return parsed.success ? parsed.data.to : undefined;
+}
+
+export function signReceiptRunTransition(
+	secret: string,
+	audience: TransitionAudience,
+	transition: Omit<ReceiptRunTransition, "signature">,
+): ReceiptRunTransition {
+	if (!secret)
+		throw new Error("A receipt transition needs the service secret.");
+	const { form, revision } = audience;
+	const scope = openingCarryScope({ ...audience, run: transition.from });
+	const signature = createHmac("sha256", secret)
+		.update("nova:receipt-run-transition:v1\u0000")
+		.update(canonicalJsonText({ scope, form, revision, ...transition }))
+		.digest("hex");
+	return { ...transition, signature };
+}
+
+export function verifyReceiptRunTransition(
+	secret: string,
+	audience: TransitionAudience,
+	input: unknown,
+	run: string | undefined,
+	entry: string,
+): string {
+	const parsed = transitionSchema.safeParse(input);
+	if (parsed.success) {
+		const { signature, ...transition } = parsed.data;
+		if (
+			transition.from === run &&
+			(transition.entry === undefined || transition.entry === entry) &&
+			timingSafeEqual(
+				Buffer.from(signature, "hex"),
+				Buffer.from(
+					signReceiptRunTransition(secret, audience, transition).signature,
+					"hex",
+				),
+			)
+		)
+			return transition.to;
+	}
+	throw new CaptureSubmissionRejectedError(reopen);
 }
 
 type OpeningData = Pick<FormOpeningProjection, "cases" | "lookup">;

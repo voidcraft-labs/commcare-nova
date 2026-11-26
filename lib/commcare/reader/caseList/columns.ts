@@ -15,7 +15,9 @@ import type {
 	Column,
 	ColumnVia,
 	LanguageTag,
+	Uuid,
 } from "@/lib/domain";
+import { entryPointInventory } from "@/lib/domain";
 import { caseMappingComparison } from "@/lib/domain/caseMappingRows";
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
 import { COMMCARE_DATE_PATTERN_REGEX } from "@/lib/domain/commCareDatePattern";
@@ -78,6 +80,7 @@ import { COLUMN_FORMAT_LABELS } from "../hqPageLabels";
 import { shownText } from "../hqText";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { pendingPlaceholder, type ReadMode } from "../pendingExpressions";
+import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { readMediaMap } from "../xform/media";
@@ -85,6 +88,7 @@ import {
 	ATTRIBUTE_PROPERTIES,
 	calculatedAttributeField,
 } from "./attributeColumns";
+import { literalText } from "./literalText";
 import { claimRestOfRefusedColumn } from "./refusedWhole";
 
 const A = "menus-and-case-lists/";
@@ -296,8 +300,16 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		"schema:DetailColumn.format",
 	),
 	addressPopup: refuse(`${A}15-address-popup`, "schema:DetailColumn.format"),
-	clickableIcon: refuse(
+	clickableIcon: take(
 		`${A}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+		"schema:DetailColumn.format",
+	),
+	clickableIconEndpoint: take(
+		`${A}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+		"schema:DetailColumn.endpoint_action_id",
+	),
+	clickableIconUnavailable: refuse(
+		`${A}clickable-icon-with-an-unusable-form-endpoint`,
 		"schema:DetailColumn.format",
 	),
 	clickableIconEmpty: refuse(
@@ -1610,16 +1622,31 @@ function readRelationTranslatableEnum(
 	column.take("format", C.translatableEnumRelationDoes, String).value;
 	claimPropertySource(ctx, column, field, relation, false);
 	if (!calculationKeysAreEditable(column)) return undefined;
-	return readGeneralCalculation(
+	const expression = imageMapPropertyText(
+		relation.name,
+		relation.via,
+		relation,
+	);
+	const proposed = readGeneralCalculation(
 		ctx,
 		column,
-		imageMapPropertyText(relation.name, relation.via, relation),
+		expression,
 		header,
 		base,
 		others,
 		C.translatableEnumRelationDoes,
 		false,
 	);
+	// HQ substitutes each enum variable key throughout the original XPath.
+	// Only a field whose calculation uses none of those keys is a spelling change.
+	if (proposed?.textKeys?.every((key) => !expression.includes(key))) {
+		ctx.facts.sameStateRewrites.push({
+			entry: C.translatableEnumRelationDoes.entry,
+			path: column.pointer,
+			register: "legacy-related-case-text-rekeyed",
+		});
+	}
+	return proposed;
 }
 
 function calculationKeysAreEditable(column: JsonCursor): boolean {
@@ -2168,18 +2195,36 @@ function readColumn(
 				...base,
 			} as ColumnProposal["column"]);
 		}
-		case "clickable-icon":
-			column.refuse(
-				"format",
-				screen === "long"
-					? C.clickableIconLong
-					: column.peek("endpoint_action_id") === "" ||
-							column.peek("endpoint_action_id") == null
-						? C.clickableIconEmpty
-						: C.clickableIcon,
-				formatName(format),
+		case "clickable-icon": {
+			const id = column.peek("endpoint_action_id");
+			if (screen === "long" || typeof id !== "string" || id === "") {
+				column.refuse(
+					"format",
+					screen === "long" ? C.clickableIconLong : C.clickableIconEmpty,
+					formatName(format),
+				);
+				return undefined;
+			}
+			const target = entryPointInventory(provisionalDocument(ctx)).find(
+				(item) => item.entryPoint.id === id && item.target.kind === "form",
 			);
-			return undefined;
+			if (!target) {
+				column.refuse("format", C.clickableIconUnavailable, { name: id });
+				return undefined;
+			}
+			column.take("endpoint_action_id", C.clickableIconEndpoint, String).value;
+			return readImageMap(
+				ctx,
+				module,
+				column,
+				name,
+				base,
+				proposal,
+				via,
+				recordSource,
+				target.entryPoint.uuid,
+			);
+		}
 		case "markdown":
 			column.take("format", C.markdownOther, String).value;
 			return proposal({
@@ -2478,20 +2523,6 @@ function selectedValue(key: string, property: string): string | undefined {
 		: undefined;
 }
 
-/** The text a string literal spells, or a `concat` of string literals, which is how a literal
- *  holding both quote marks is printed. */
-function literalText(node: FormSyntax | undefined): string | undefined {
-	if (node?.kind === "string") return node.value;
-	if (node?.kind !== "call" || node.name !== "concat") return undefined;
-	let out = "";
-	for (const arg of node.args) {
-		const part = literalText(arg);
-		if (part === undefined) return undefined;
-		out += part;
-	}
-	return out;
-}
-
 function readImageMap(
 	ctx: ReadContext,
 	_module: DraftModule,
@@ -2504,6 +2535,7 @@ function readImageMap(
 	) => ColumnProposal | undefined,
 	via?: ColumnVia,
 	source?: ColumnRecordSource,
+	entryPointUuid?: Uuid,
 ): ColumnProposal | undefined {
 	const codes = appCodes(ctx);
 	const entries = enumEntries(column, []);
@@ -2523,11 +2555,13 @@ function readImageMap(
 	);
 	column.take(
 		"format",
-		definitions.some((item) => "text" in item)
-			? C.enumImageOther
-			: definitions.some((item) => "match" in item && item.match === "exact")
-				? C.enumImagePlain
-				: C.enumImage,
+		entryPointUuid !== undefined
+			? C.clickableIcon
+			: definitions.some((item) => "text" in item)
+				? C.enumImageOther
+				: definitions.some((item) => "match" in item && item.match === "exact")
+					? C.enumImagePlain
+					: C.enumImage,
 		String,
 	).value;
 	const conditions = new Map<number, ColumnExpressionSource>();
@@ -2569,6 +2603,7 @@ function readImageMap(
 	return proposal(
 		{
 			kind: "image-map",
+			...(entryPointUuid !== undefined && { entryPointUuid }),
 			field,
 			...base,
 			mapping,

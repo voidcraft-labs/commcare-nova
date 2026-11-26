@@ -39,7 +39,12 @@ def stored_identity(doc):
         "_id": doc.get("_id"),
         "langs": doc.get("langs"),
         "build_profiles": {
-            key: {"langs": value.get("langs")} for key, value in (doc.get("build_profiles") or {}).items()
+            key: {
+                "name": value.get("name"),
+                "langs": value.get("langs"),
+                "practice_mobile_worker_id": value.get("practice_mobile_worker_id") or None,
+            }
+            for key, value in (doc.get("build_profiles") or {}).items()
         },
         "multimedia_map": {path: {} for path in (doc.get("multimedia_map") or {})},
         "modules": [],

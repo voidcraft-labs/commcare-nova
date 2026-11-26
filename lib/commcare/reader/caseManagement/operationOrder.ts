@@ -36,6 +36,11 @@ export const ORDER_CLAIMS = defineClaims("caseManagement.operationOrder", {
 		"questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes",
 		"mug:SaveToCase",
 	),
+	/** A positioned effect whose order relative to an HQ action changes the case. */
+	mixedPosition: refuse(
+		"questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+		"mug:SaveToCase",
+	),
 	/** A form whose changes the gate's target-type rule refuses in the order
 	 *  the reading holds: a block gives a case another type where a later
 	 *  change may read it as the earlier one (`index.ts::settleCaseChanges`). */
@@ -44,6 +49,27 @@ export const ORDER_CLAIMS = defineClaims("caseManagement.operationOrder", {
 		"mug:SaveToCase",
 	),
 });
+
+/** HQ's wrapper is named by the field. Recover the operation's Nova id for
+ * the already matched operation of the same form. */
+export function knownPositionedCaseOperationIdsOf(
+	doc: BlueprintDoc,
+): ReadonlyMap<Uuid, ReadonlyMap<Uuid, string>> {
+	const positioned = new Set(
+		Object.values(doc.fields).flatMap((field) =>
+			field.kind === "case_change" ? [field.operationUuid] : [],
+		),
+	);
+	const ids = new Map<Uuid, ReadonlyMap<Uuid, string>>();
+	for (const form of Object.values(doc.forms)) {
+		const operations = new Map<Uuid, string>();
+		for (const operation of form.caseOperations ?? [])
+			if (positioned.has(operation.uuid))
+				operations.set(operation.uuid, operation.id);
+		if (operations.size) ids.set(form.uuid, operations);
+	}
+	return ids;
+}
 
 /** Whether `one` is a create keyed by an answer, which the gate's wire-order
  *  rule holds before every change that is no create. */
