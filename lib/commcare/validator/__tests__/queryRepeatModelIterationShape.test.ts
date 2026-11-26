@@ -103,10 +103,11 @@ describe("QUERY_REPEAT_MODEL_ITERATION_SHAPE", () => {
 			ids: string,
 			placement: "model-iteration" | "count",
 			later: string,
+			laterField: Partial<FieldSpec> = {},
 		) =>
 			docWith([
 				{ kind: "text", id: "first", default_value: "'yes'" },
-				{ kind: "text", id: "later" },
+				{ kind: "text", id: "later", ...laterField },
 				queryRepeat({
 					placement,
 					data_source: { ids_query: ids },
@@ -118,6 +119,14 @@ describe("QUERY_REPEAT_MODEL_ITERATION_SHAPE", () => {
 			const found = finding(gated("'a b c'", "model-iteration", laterRead));
 			expect(found?.details).toMatchObject({ reason: "row-condition" });
 			expect(found?.location.fieldUuid).toBe(REPEAT);
+		});
+
+		it("admits when the later answer cannot enter the text that would show its rows", () => {
+			expect(
+				finding(
+					gated("'a b c'", "model-iteration", laterRead, { keypad: "numbers" }),
+				),
+			).toBeUndefined();
 		});
 
 		it.each([

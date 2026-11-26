@@ -193,6 +193,8 @@ function earlierTextAnswer(
 	const field = form.fields.get(uuid);
 	return field?.kind === "text" &&
 		field.parent === form.formUuid &&
+		field.textInput?.keypad === undefined &&
+		field.textInput?.addressLookup === undefined &&
 		form.expressionAt({ entity: "field", uuid, slot: "relevant" }) ===
 			undefined &&
 		form.expressionAt({ entity: "field", uuid, slot: "validate" }) === undefined
