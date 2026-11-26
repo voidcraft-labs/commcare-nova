@@ -1980,12 +1980,12 @@ def test_a_web_apps_media_rename_requires_one_stored_file_and_the_original_bytes
         ).encode() + archive.getvalue() + f"\r\n--{boundary}--\r\n".encode()
         return Upload(body, f"multipart/form-data; boundary={boundary}")
 
-    def compared(*, content=b"picture", before_id="m1", after_id="m1", matched=True, status=200):
+    def compared(*, content=b"picture", before_id="m1", after_id="m1", source_id="m1", matched=True, status=200):
         row = Difference(
             "proof3", "doc", "webapps@B", path, path, "changed",
             src.format(before_id, "large photo.png"), src.format(after_id, f"{digest}.png"),
         )
-        source = {"status": status, "path": original, "sha256": digest, "mediaType": "CommCareImage"}
+        source = {"status": status, "path": original, "sha256": digest, "mediaType": "CommCareImage", "multimediaId": source_id}
         media = {"matched": [{"path": f"jr://file/{entry}", "class": "CommCareImage"}] if matched else []}
         parts = SimpleNamespace(a={"apiReads": {"authored": {"media": [source]}}}, b={"publish": {"media": media}})
         captured = SimpleNamespace(media_uploads=lambda: [(SimpleNamespace(upload=lambda: upload(content)), None)])
@@ -1999,6 +1999,7 @@ def test_a_web_apps_media_rename_requires_one_stored_file_and_the_original_bytes
     assert compared() == f"{path}:renamed-file"
     assert compared(content=b"some other picture") == path
     assert compared(after_id="m2") == path
+    assert compared(source_id="m2") == path
     assert compared(matched=False) == path
     assert compared(status=404) == path
 

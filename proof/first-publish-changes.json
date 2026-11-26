@@ -2208,6 +2208,12 @@
 			},
 			{
 				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/runs/*/screens/*/form/questions/*/media/*/src:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/events/*/image",
 				"kind": "changed"

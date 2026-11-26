@@ -1453,11 +1453,18 @@ def verified_webapps_media_renames(document, name, records, differences):
     upload = ((parts.b or {}).get("publish") or {}).get("media") or {}
     matched = {(row["path"], row.get("class")) for row in upload.get("matched") or ()}
     captured = document.exports[name].republish
+    matched_paths = {path for path, _ in matched}
     pushed = {}
     if captured and matched and not upload.get("refused"):
         for request, _ in captured.media_uploads():
             with zipfile.ZipFile(io.BytesIO(upload_field(request.upload(), "bulk_upload_file"))) as archive:
-                pushed.update((entry, archive.read(entry)) for entry in archive.namelist())
+                for entry in archive.namelist():
+                    if MEDIA_ROOT + entry not in matched_paths:
+                        continue
+                    with archive.open(entry) as content:
+                        digest = hashlib.file_digest(content, "sha256").hexdigest()
+                    # Two payloads under one path cannot attest a unique rename.
+                    pushed[entry] = digest if entry not in pushed else None
     verified = set()
     for difference in candidates:
         before, after = WEB_APPS_MEDIA_SRC.match(difference.before), WEB_APPS_MEDIA_SRC.match(difference.after)
@@ -1467,15 +1474,14 @@ def verified_webapps_media_renames(document, name, records, differences):
         for row in originals:
             extension = extensions.get(row["path"])
             entry = f"commcare/{row['sha256']}.{extension}"
-            content = pushed.get(entry)
             if (
                 row["mediaType"] == media_class
+                and row.get("multimediaId") == before.group("id")
                 and extension
                 and row["path"].rsplit("/", 1)[-1] == before.group("name")
                 and after.group("name") == f"{row['sha256']}.{extension}"
                 and (MEDIA_ROOT + entry, media_class) in matched
-                and content is not None
-                and hashlib.sha256(content).hexdigest() == row["sha256"]
+                and pushed.get(entry) == row["sha256"]
             ):
                 verified.add((difference.artifact, difference.at))
                 break
