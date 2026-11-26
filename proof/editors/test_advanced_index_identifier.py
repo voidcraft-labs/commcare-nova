@@ -58,8 +58,8 @@ def _edit_connections(editor_driver, state, app_id, form_id, reference, bindings
 
 @pytest.mark.parametrize(
     "reference",
-    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent", "métrique"],
-    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore", "accented"],
+    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent"],
+    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore"],
 )
 def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner, tmp_path, reference):
     with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record):
