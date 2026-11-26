@@ -78,10 +78,18 @@ export function SearchResultOrder({
 				)
 					? properties
 					: [...properties, { value: item.property, label: item.property }];
+				// A patch names the flags a choice clears as `undefined`; the term
+				// drops them, since a saved batch carries no `undefined` value.
 				const change = (patch: Partial<typeof item>) =>
 					onChange(
 						order.map((existing, position) =>
-							position === index ? { ...existing, ...patch } : existing,
+							position === index
+								? (Object.fromEntries(
+										Object.entries({ ...existing, ...patch }).filter(
+											([, value]) => value !== undefined,
+										),
+									) as typeof item)
+								: existing,
 						) as SearchRequestOrder,
 					);
 				return (

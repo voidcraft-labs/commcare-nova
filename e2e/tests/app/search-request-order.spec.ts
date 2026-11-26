@@ -27,6 +27,10 @@ test("online search keeps its server order and search-only owners when the build
 		order.getByRole("combobox", { name: "Order property 1" }),
 		"Last visit",
 	);
+	// Each choice saves before the next one is made.
+	await expect(
+		order.getByRole("combobox", { name: "Order property 1" }),
+	).toContainText("Last visit");
 	await choose(
 		page,
 		order.getByRole("combobox", { name: "Compare property 1 as" }),
