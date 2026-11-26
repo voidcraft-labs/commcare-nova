@@ -28,6 +28,7 @@ import {
 	type BlueprintDoc,
 	type FormCaseSelection,
 	proseText,
+	snapshotTranslationUnits,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -36,8 +37,12 @@ import {
 } from "@/lib/domain/advancedEntryDatums";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { term } from "@/lib/domain/expression/builders";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { buildEngineInput } from "@/lib/preview/engine/engineInput";
-import { sharedVisitEntries } from "../../../proof/targeted/documents/sharedVisitEntries";
+import {
+	sharedVisitEntries,
+	sharedVisitsBlueprint,
+} from "../../../proof/targeted/documents/sharedVisitEntries";
 import { compileCczParts } from "../compiler";
 import { expandDoc } from "../expander";
 import {
@@ -135,6 +140,56 @@ function sharedEntries() {
 }
 
 describe("two entries opening the same questions", () => {
+	it("keeps independently stored commands for shared questions on their own badge words", () => {
+		const shared = sharedVisitsBlueprint("badge-controls");
+		const [parent, morning, evening] = shared.formOrder[shared.moduleOrder[0]];
+		const doc = produce(shared, (draft) => {
+			draft.forms[parent].badge = { kind: "text", text: "Parent" };
+			draft.forms[morning].badge = { kind: "text", text: "Morning" };
+			draft.forms[evening].badge = { kind: "text", text: "Evening" };
+		});
+		const id = generatedWordingId(morning, "formBadgeText");
+		const unit = snapshotTranslationUnits(doc).get(id);
+		if (!unit) throw Error("Missing the shared entry’s badge wording.");
+		const change = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "setTranslation",
+					language: "eng",
+					unitId: id,
+					entry: {
+						value: "Urgent",
+						origin: "human",
+						review: "reviewed",
+						sourceFingerprint: unit.sourceFingerprint,
+						translatedFrom: "eng",
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!change.ok) throw Error(JSON.stringify(change.findings));
+		const hq = expandDoc(change.nextDoc);
+		const [source, mine, sibling] = hq.modules[0].forms;
+		expect(mine).toMatchObject({
+			doc_type: "ShadowForm",
+			shadow_parent_form_id: source.unique_id,
+		});
+		expect(sibling).toMatchObject({
+			doc_type: "ShadowForm",
+			shadow_parent_form_id: source.unique_id,
+		});
+		expect(mine.custom_icons).toMatchObject([{ text: { en: "Morning" } }]);
+		expect(hq.translations?.en).toMatchObject({ "forms.m0f1.badge": "Urgent" });
+		const parts = compileCczParts(hq, change.nextDoc.appName, change.nextDoc, {
+			runtimeTarget: TEST_RUNTIME_TARGET,
+		});
+		expect(
+			[0, 1, 2].map((index) => parts.tables.en.get(`forms.m0f${index}.badge`)),
+		).toEqual(["Parent", "Urgent", "Evening"]);
+	});
+
 	it("installs one resource for three distinct commands, each with its own physical session steps", () => {
 		const fixture = sharedVisitEntries();
 		const doc = hydratePersistedBlueprint(fixture.doc);
@@ -839,3 +894,82 @@ describe("what reads a shared entry's choice", () => {
 		);
 	});
 });
+
+it.each(["my-parent", "my.parent"])(
+	"a shared entry follows its own earlier choice through %s",
+	(identifier) => {
+		const { doc, parent, morning, helper } = sharedEntries();
+		const valid = produce(doc, (draft) => {
+			draft.forms[parent].caseOperations = [
+				{ uuid: testUuid("own-household"), id: "household", action: "own" },
+			];
+		});
+		const row: FormCaseSelection = {
+			uuid: testUuid("related-household"),
+			tag: "related_household",
+			name: "The related household",
+			caseType: "household",
+			source: { kind: "index", selection: helper.uuid, identifier },
+		};
+		const result = mutationCommitVerdict(
+			valid,
+			[
+				{
+					kind: "updateForm",
+					uuid: morning,
+					patch: {},
+					entryChange: {
+						operation: "add-choice",
+						value: row,
+						after: helper.uuid,
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!result.ok) throw new Error(JSON.stringify(result.findings));
+		const expanded = expandDoc(result.nextDoc);
+		const menu = expanded.modules[0];
+		if (menu.doc_type !== "AdvancedModule")
+			throw new Error("Expected an advanced menu");
+		const alias = menu.forms.find(
+			(form) => form.unique_id === derivedUniqueId(morning),
+		);
+		if (alias?.doc_type !== "ShadowForm")
+			throw new Error("Expected a shared entry");
+		expect(alias.extra_actions.load_update_cases).toContainEqual(
+			expect.objectContaining({
+				case_tag: row.tag,
+				auto_select: expect.objectContaining({
+					mode: "case",
+					value_source: helper.tag,
+					value_key: identifier,
+				}),
+			}),
+		);
+
+		const pkg = compileCczParts(
+			expanded,
+			result.nextDoc.appName,
+			result.nextDoc,
+			{
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			},
+		);
+		const suite = readXmlEvidence(pkg.files["suite.xml"]);
+		const choices = xmlChildren(suite, "entry").flatMap((entry) =>
+			xmlChildren(entry, "session").flatMap((session) =>
+				xmlChildren(session, "datum"),
+			),
+		);
+		const lookup = onlyXml(
+			choices.filter((datum) => datum.attributes.id === `case_id_${row.tag}`),
+		);
+		expect(lookup.attributes.function).toContain(
+			`/session/data/case_id_${helper.tag}`,
+		);
+		expect(lookup.attributes.function.endsWith(`/index/${identifier}`)).toBe(
+			true,
+		);
+	},
+);

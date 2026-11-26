@@ -144,6 +144,7 @@ export function searchResultsSnapshotKey(args: {
 		args.formUuid,
 		args.caseType,
 		completed.submission,
+		completed.resultReceipt,
 		completed.answers,
 		completed.registeredCaseId ?? null,
 		args.personaUuid ?? null,
@@ -275,6 +276,12 @@ export function useSearchResultsSnapshot(args: {
 			...(search.registeredCaseId === undefined
 				? {
 						inputValues: { ...search.answers },
+						/* Web Apps history can issue a new query past the list after the
+						 * worker changed its answers. That new query had no served page. */
+						...(!search.rerunPastList && {
+							searchSubmission: search.submission,
+							resultReceipt: search.resultReceipt,
+						}),
 						...(search.automatic === true && { defaultSearch: true }),
 					}
 				: { caseIds: [search.registeredCaseId] }),

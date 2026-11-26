@@ -3,6 +3,7 @@
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import type { BlueprintDoc } from "./blueprint";
+import { ADVANCED_CASE_INDEX_IDENTIFIER_REGEX } from "./caseOperationIdentifiers";
 import { mapExpressionAst } from "./expression/mapAst";
 import {
 	caseTypeNameSchema,
@@ -17,7 +18,7 @@ import { asUuid, type Uuid, uuidSchema } from "./uuid";
 
 const namedIndex = z.strictObject({
 	selection: uuidSchema,
-	identifier: advancedTagSchema,
+	identifier: z.string().regex(ADVANCED_CASE_INDEX_IDENTIFIER_REGEX),
 });
 
 export const formSelectionSourceSchema = z.discriminatedUnion("kind", [

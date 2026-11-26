@@ -3,9 +3,8 @@
  *
  * These values become XForm element names, so the portable vocabulary is
  * deliberately narrower than a general display slug. Operation and connection
- * ids hold ASCII letters, digits and underscores and may begin with an
- * underscore; a written property takes the catalog's grammar, a letter first
- * and then letters, digits, underscores and hyphens.
+ * ids may start with a letter or underscore. Connections and written properties
+ * also allow hyphens, and properties must start with a letter.
  *
  * The validator, builder verdicts, and SA/MCP schemas all consume these exact
  * predicates and messages. Keep the rule here in the domain vocabulary rather
@@ -18,6 +17,12 @@ import { questionIdProblem } from "./questionId";
 import { submittedAction } from "./submittedAnswerName";
 
 export const CASE_OPERATION_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
+export const CASE_OPERATION_LINK_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+/** Advanced case actions and their entry selections can name a connection
+ * with complete dot-separated parts. The placement gate limits writes to
+ * the Advanced open action that can build this name. */
+export const ADVANCED_CASE_INDEX_IDENTIFIER_REGEX =
+	/^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$/;
 /** A written property's name: the catalog's grammar. */
 export const CASE_OPERATION_PROPERTY_REGEX =
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN;
@@ -25,11 +30,21 @@ export const CASE_OPERATION_PROPERTY_REGEX =
 export const CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE =
 	"Start with a letter or underscore; use only letters, digits, or underscores.";
 
+export const CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE =
+	"Start with a letter or underscore. Use only letters, digits, underscores, or hyphens.";
+
+export const ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE =
+	"Start each part with a letter or underscore. Use letters, digits, underscores, or hyphens within each part, with a single period between parts.";
+
 export const CASE_OPERATION_PROPERTY_FORMAT_MESSAGE =
 	"Start with a letter; use only letters, digits, underscores, or hyphens.";
 
 export function isCaseOperationIdentifier(value: string): boolean {
 	return CASE_OPERATION_IDENTIFIER_REGEX.test(value);
+}
+
+export function isCaseOperationLinkIdentifier(value: string): boolean {
+	return CASE_OPERATION_LINK_IDENTIFIER_REGEX.test(value);
 }
 
 export function isCaseOperationProperty(value: string): boolean {

@@ -252,13 +252,16 @@ export function caseOperationIdNameProblem(
 /**
  * Why a link identifier can't be used beyond its format, or `undefined`. A
  * link names an element under the block's `<case>/<index>`, where the form
- * builder also reads `close` and `create` as the block's action.
+ * builder also reads `close` and `create` as actions. A direct action
+ * already present in the same block keeps its implementation on save.
  */
 export function caseOperationLinkNameProblem(
 	identifier: string,
+	hasAction?: (action: FormBuilderCaseAction) => boolean,
 ): CaseOperationNameProblem | undefined {
 	if (stopsFormBuilder(identifier)) return "stops_form_builder";
-	if (formBuilderCaseAction(identifier) !== undefined)
+	const action = formBuilderCaseAction(identifier);
+	if (action !== undefined && !hasAction?.(action))
 		return "reads_as_case_action";
 	return undefined;
 }

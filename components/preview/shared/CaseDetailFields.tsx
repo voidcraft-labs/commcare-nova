@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
+import { useLocalizedValues } from "@/components/builder/localization/BuilderLocalizationProvider";
 import {
 	Tabs,
 	TabsContent,
@@ -14,6 +15,7 @@ import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import { workerDetailTabTitle } from "@/lib/preview/workerModule";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { CaseTile } from "./CaseTile";
 
@@ -22,13 +24,16 @@ export function CaseDetailFields({
 	columns: detailColumns,
 	row: displayedOpenCase,
 	displayContext: columnDisplayContext,
+	search = false,
 }: {
 	config: CaseListConfig | undefined;
 	columns: readonly Column[];
 	row: CaseRowWithCalculated;
 	displayContext: ColumnDisplayContext;
+	search?: boolean;
 }) {
 	const platformRules = usePreviewPlatformRules();
+	const localizedValues = useLocalizedValues();
 	const detailSpans = availableDetailTabs(
 		config,
 		detailColumns,
@@ -107,7 +112,7 @@ export function CaseDetailFields({
 				<TabsList variant="line" className="max-w-full flex-wrap">
 					{detailSpans.map(({ tab }) => (
 						<TabsTrigger key={tab.uuid} value={tab.uuid}>
-							{tab.title}
+							{workerDetailTabTitle(tab, search, localizedValues)}
 						</TabsTrigger>
 					))}
 				</TabsList>

@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
 			download.runtimeTarget,
 			download.identity,
 			{
+				installationProfileUuid: prepared.installationProfileUuid,
 				emptyCaseListText: download.target.emptyCaseListText,
 				earlierHqApps: download.target.earlierHqApps,
 				adopted: download.target.adopted,
@@ -68,7 +69,8 @@ export async function POST(req: NextRequest) {
 		// download filename is sanitized because `appName` is user-controlled
 		// and flows into a response header (`Content-Disposition`).
 		const appName = sanitizeFilename(doc.appName);
-		const projectSpaceCompatibility = projectSpaceCompatibilityForDownload(doc);
+		const projectSpaceCompatibility =
+			download.compatibility ?? projectSpaceCompatibilityForDownload(doc);
 		// The archive is complete and correct; the advisories say what it
 		// could not carry, so they ride beside the bytes rather than
 		// replacing them: the attachment links it leaves empty, and what it

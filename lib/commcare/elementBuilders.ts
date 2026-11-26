@@ -23,6 +23,8 @@ const XPATH_ATTRIBUTES = {
 		"vellum:constraint",
 		"vellum:calculate",
 	],
+	extra: ["ref", "vellum:ref", "value"],
+	response: ["ref", "vellum:ref"],
 	setvalue: ["ref", "value", "vellum:ref"],
 	output: ["ref", "value", "vellum:value"],
 	repeat: ["nodeset", "jr:count", "vellum:nodeset", "vellum:jr__count"],

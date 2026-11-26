@@ -37,6 +37,7 @@ import {
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { hqOfferedChildCaseTypes } from "../../hqOfferedChildTypes";
+import { listIconActionIssue } from "../../listIconAction";
 import { hqMappingKeyIsExpression } from "../../suite/case-list/keyVariable";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
@@ -63,6 +64,7 @@ import { nativeCalculationText } from "./calculationText";
 import {
 	appCodes,
 	attributeOf,
+	COLUMN_CLAIMS,
 	columnFormatAsRead,
 	formatReadsMapping,
 	imageMapFieldText,
@@ -387,6 +389,12 @@ function columnDifference(
 		return "schema:DetailColumn.time_ago_interval";
 	if (format === "date" && stored.date_format !== ours.date_format)
 		return "schema:DetailColumn.date_format";
+	if (
+		format === "clickable-icon" &&
+		stored.endpoint_action_id !== ours.endpoint_action_id
+	)
+		return "schema:DetailColumn.endpoint_action_id";
+	const image = format === "enum-image" || format === "clickable-icon";
 	const enumA = formatReadsMapping(format) ? objects(stored.enum) : [];
 	const enumB = formatReadsMapping(format) ? objects(ours.enum) : [];
 	if (enumA.length !== enumB.length) return "schema:DetailColumn.enum";
@@ -408,11 +416,11 @@ function columnDifference(
 		if (
 			keyA !== keyB &&
 			format !== "translatable-enum" &&
-			((format !== "enum-image" && format !== "conditional-enum") ||
+			((!image && format !== "conditional-enum") ||
 				!sameXPathText(effectiveCondition(keyA), effectiveCondition(keyB)))
 		)
 			return "schema:MappingItem.key";
-		if (format === "enum-image") {
+		if (image) {
 			const empty = (raw: unknown) => {
 				const texts = shownTexts(raw ?? NO_ENTRIES, codes);
 				return (
@@ -435,7 +443,7 @@ function columnDifference(
 		// An image map's value is a path, compared as shown; any other mapping's is a text, compared
 		// as the reading holds it (`heldTextsIn`).
 		if (
-			format === "enum-image"
+			image
 				? !sameShownTexts(codes, item.value, other.value)
 				: !sameHeldTexts(
 						codes,
@@ -779,6 +787,17 @@ function listDifference(
 		long: JsonObject;
 	};
 	const codes = appCodes(ctx);
+	if (
+		mod.caseListConfig?.deviceLookup?.resultHeading !== undefined &&
+		!sameHeldTexts(
+			codes,
+			sourceCode(ctx),
+			"case-list-lookup-result-heading",
+			reading.short.peek("lookup_field_header"),
+			pair.short.lookup_field_header,
+		)
+	)
+		return "schema:Detail.lookup_field_header";
 	const handed = handedOffListSlots(ctx, reading);
 	// A column an inert row dropped is written by no build.
 	const kept = (detail: unknown, dropped: ReadonlySet<number>) =>
@@ -787,7 +806,8 @@ function listDifference(
 		);
 	// An image map's paths compare as the files they name (`keptMediaPaths`).
 	const asPrinted = (column: JsonObject): JsonObject =>
-		column.format !== "enum-image" || !Array.isArray(column.enum)
+		(column.format !== "enum-image" && column.format !== "clickable-icon") ||
+		!Array.isArray(column.enum)
 			? column
 			: {
 					...column,
@@ -1229,6 +1249,24 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		const mod = doc.modules[module.uuid];
 		if (mod === undefined) continue;
 		const place = caseListPlace(module);
+		for (const [index, joined] of reading.joined.columns.entries()) {
+			const column = mod.caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === reading.uuids[index],
+			);
+			if (column?.kind !== "image-map" || column.entryPointUuid === undefined)
+				continue;
+			const issue = listIconActionIssue(doc, mod, column);
+			if (issue) {
+				const site = joined.proposal.json;
+				// The bound destination decides the whole action, including the icon mapping.
+				ctx.accounting.findingAt(
+					COLUMN_CLAIMS.clickableIconUnavailable,
+					site.place,
+					site.pointer,
+					{ name: String(site.peek("endpoint_action_id")) },
+				);
+			}
+		}
 		let difference: string | undefined;
 		try {
 			difference = listDifference(

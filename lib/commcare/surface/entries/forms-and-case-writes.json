@@ -3187,10 +3187,40 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/update-key-through-a-typed-user-index",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "update key `user/<property>` on the case loaded by basic Case Management, or `parent/user/<property>` on a single-case basic follow-up, with one ordinary declared destination at each step",
+		"surfaceKeys": [
+			"schema:Form.actions",
+			"schema:FormActions.update_case",
+			"schema:UpdateCaseAction.update"
+		],
+		"valueClass": "typed-user-index-key",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a write through the actual `index/user` connection. A single-case basic follow-up can reach the connection through a declared parent when all three ordinary types are distinct. The form and case store require both links and keep the reached case block even when its answer is irrelevant.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`user/p` key",
+			"markers": []
+		},
+		"gates": ["privilege/user_case"]
+	},
+	{
 		"id": "forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key whose index segments include `user`, each `parent`, `host` or `user` (`user/p`, `parent/user/p`), where the project space has usercase access, on a form that loads its case",
+		"item": "update key whose index segments include `user`, each `parent`, `host` or `user` (`user/p`, `parent/user/p`), outside the proved direct user and single basic parent/user shapes",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3198,7 +3228,7 @@
 		],
 		"valueClass": "user-index-key-on-loaded-case",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the write's `via` through the loaded case's indices, `user` naming an index called `user`: HQ's build writes through `index/user` (`xform.py::get_case_parent_id_xpath`), not to the usercase, so where the case has no such index the block's `case_id` is empty and Core rejects the submission",
+		"dispositionCell": "**HELD-NEW**: a path containing a user index outside the typed direct and basic parent/user shapes, including undeclared, platform-owned, ambiguous or competing destinations.",
 		"subject": "worker-record",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3504,7 +3534,7 @@
 		"id": "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key whose characters after the ASCII first are all Core's name characters, at least one of them non-ASCII",
+		"item": "update key with a non-ASCII XML name character after the ASCII first, outside the separately refused basic update class",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3515,7 +3545,7 @@
 		],
 		"valueClass": "non-ascii-core-name-key",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the property grammar over what both HQ (`validate_property`) and Core read, which needs a name token proven on each runtime's Unicode tables",
+		"dispositionCell": "**HELD-NEW**: non-ASCII property keys, including `estado_é`, whose editing and runtime behavior Nova has yet to prove outside the separately refused basic update class",
 		"subject": "case-property-names",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3535,10 +3565,40 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "basic Case Management update of the form's own case, with an XML name containing an uncased letter outside both pinned worker name tables",
+		"surfaceKeys": [
+			"schema:Form.actions",
+			"schema:FormActions.update_case",
+			"schema:UpdateCaseAction.update"
+		],
+		"valueClass": "basic-update-with-unaddressable-uncased-letter",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime. HQ builds the ordinary Case Management update, but Formplayer rejects the generated XPath bind at an uncased letter, as it does for `/data/case/update/n名字`. The class takes only a letter that neither pinned worker name table accepts.",
+		"subject": "case-property-names",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ builds the ordinary Case Management update, but Formplayer rejects the generated XPath bind at an uncased letter, as it does for `/data/case/update/n名字`. The class takes only a letter that neither pinned worker name table accepts."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/update-key-holding-a-character-validate-property-accepts-that-is",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key holding a character `validate_property` accepts that is not one of Core's name characters: a letter without case (`名字`, `محل`), a titlecase letter (`ǅ`), most numbers other than decimal digits (`½`, `⁴`, `〇`; `Ⅷ`, which Java counts as uppercase, is read), or a character outside the Basic Multilingual Plane (`𐐀`), or one newline that ends the key (`notes\\n`), which `validate_property`'s `re.match` of a pattern ending in `$` takes",
+		"item": "update key outside the XML name range used by the inventory, where HQ's property validator accepts the key",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3549,12 +3609,12 @@
 		],
 		"valueClass": "non-core-name-key",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-buildable: `validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser); a key ending in a newline fails earlier, where HQ's build makes the update's element (`xform.py::make_case_elem`: lxml raises `ValueError: Invalid tag name`, which `models/applications.py::_get_form_files` does not catch)",
+		"dispositionCell": "**REFUSED**: not HQ-buildable. HQ's XML builder refuses keys that cannot become an element, such as `note½` and keys ending in a newline.",
 		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
-				"named": "`validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser); a key ending in a newline fails earlier, where HQ's build makes the update's element (`xform.py::make_case_elem`: lxml raises `ValueError: Invalid tag name`, which `models/applications.py::_get_form_files` does not catch)"
+				"named": "HQ's XML builder refuses keys that cannot become an element, such as `note½` and keys ending in a newline."
 			}
 		],
 		"platforms": {
@@ -5202,11 +5262,32 @@
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "a DateTime question saved straight to a property of the action's own case, every other writer of which gives it a day",
+		"item": "a DateTime question or an explicitly typed hidden clock on a basic follow-up saved straight to an ordinary property of its own case, every other writer of which gives it a day",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a `date` property the question saves its day to (`ruleSets.ts::isAnswerWriteAssignable`, `reader/caseManagement/catalog.ts::declareDays`): HQ's build binds the case block's leaf with no type, so Core keeps the day alone (`Recalculate.wrapData`), and Nova saves a date-and-time question to a `date` property straight too, with no `nova_datetime_<id>` sibling (`fieldValueType.ts::writesMoment`); the case store keeps the answer's day in the viewer's zone, as the device does (`postgres/submissionEnvelope.ts::storageValueFromEvaluation`)",
+		"dispositionCell": "**HELD**: a `date` property the question saves its day to (`ruleSets.ts::isAnswerWriteAssignable`, `reader/caseManagement/catalog.ts::declareDays`): HQ's build binds the case block's leaf with no type, so Core keeps the day alone (`Recalculate.wrapData`), and Nova saves a date-and-time question to a `date` property straight too, with no `nova_datetime_<id>` sibling (`fieldValueType.ts::writesMoment`); an explicit hidden `xsd:dateTime` bind calculated by `now()` keeps its instant in the form while its direct basic update keeps the day; the case store uses the viewer's zone (`postgres/submissionEnvelope.ts::storageValueFromEvaluation`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "untyped bind as HQ writes it",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/a-datetime-question-saved-straight-through-a-parent-index",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "a DateTime question saved every time by a basic one-case follow-up through one typed parent index to an ordinary property whose writers give days",
+		"surfaceKeys": [],
+		"noSurfaceKey": "A relation between a question's answer and the property of a case reached through an index, whose question, index and property write have their own rows.",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a date property on the reached case. The untyped update stores the day, as it does for the loaded case.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
@@ -5223,11 +5304,11 @@
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "a Hidden Value its bind types `xsd:dateTime` saved straight to a case, and a DateTime question saved straight to a case's name, owner, external id, `location_id`, `hq_user_id`, `category` or `state`, to the worker's record, or through an index segment (a property another writer gives something other than a day is `any-other-mixed-writer-pair`)",
+		"item": "a Hidden Value bound `xsd:dateTime` saved straight outside the basic hidden clock class, and a DateTime question saved straight to a case's name, owner, external id, `location_id`, `hq_user_id`, `category` or `state`, to the worker's record, or through an index segment outside the single parent class (a property another writer gives something other than a day is `any-other-mixed-writer-pair`)",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the day of a date and time where Nova holds no `date` property for it: a Hidden Value's bind follows the property it writes (`fieldValueType.ts::fieldValueType`), so its own node would hold the day where HQ's holds the moment, and a case's name, owner and standard keys, an ancestor's property and a worker property are no `date` property the reading declares (`reader/caseManagement/catalog.ts::declareDays`)",
+		"dispositionCell": "**HELD-NEW**: the day of a date and time where Nova holds no `date` property for it: other hidden calculations and opening assignments need their own native conversion proof, and a case's name, owner and standard keys, other linked-case writes and worker properties are outside the date-property reading (`reader/caseManagement/catalog.ts::declareDays`)",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -5792,7 +5873,7 @@
 		],
 		"valueClass": "load-child-of-previous-load",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: each load after the first indexes the one before it, under the one index name the app's child links between the two case types use, `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`)",
+		"dispositionCell": "**HELD**: an explicit selection holds the exact name of the connection to the preceding load, including complete dotted names such as `my.parent`. An implicit selection derives its connection from the app's child links, using `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6086,7 +6167,7 @@
 		],
 		"valueClass": "auto-select-case-index",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection.",
+		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection, including complete dotted names such as `my.parent`.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6683,7 +6764,7 @@
 		],
 		"valueClass": "open-action-links",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action",
+		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. HQ's advanced editor saves names such as `my-parent` and `my.parent` and the case transaction keeps the exact name.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6705,7 +6786,7 @@
 		"id": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` outside `[a-zA-Z_][a-zA-Z0-9_]*`",
+		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` outside the supported name grammar, including incomplete dotted names",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.tag",
@@ -6714,7 +6795,7 @@
 		],
 		"valueClass": "open-action-index-name-outside-xml-name",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an index name Nova's link identifier cannot spell (`XML_ELEMENT_NAME_PATTERN`)",
+		"dispositionCell": "**HELD-NEW**: a name outside the supported Advanced index grammar (`ADVANCED_CASE_INDEX_IDENTIFIER_REGEX`)",
 		"subject": "advanced-forms",
 		"owner": "forms-and-case-management",
 		"platforms": {

@@ -83,6 +83,7 @@ function guardDirectTerm(
 			valid = [
 				"prop",
 				"case-row-type",
+				"search-result-field",
 				"case-index",
 				"table-column",
 				"location-field",

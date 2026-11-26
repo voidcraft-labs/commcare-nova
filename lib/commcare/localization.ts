@@ -12,6 +12,7 @@ import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
 	filledProse,
+	installationLanguages,
 	type LanguageTag,
 	localizeTranslationUnit,
 	makeTranslationUnitId,
@@ -20,6 +21,7 @@ import {
 	snapshotTranslationUnits,
 	TRANSLATION_FILL_ROLES,
 	type TranslationUnitId,
+	type Uuid,
 	type WireStringSource,
 } from "@/lib/domain";
 import type { IconRef } from "@/lib/domain/builtinIcons";
@@ -31,6 +33,7 @@ import {
 import {
 	type NavigationMedia,
 	navigationFilesInLanguage,
+	navigationMediaOverride,
 	storedNavigationFile,
 } from "@/lib/domain/navigationMedia";
 import { planLanguageWire } from "./languageWire";
@@ -45,6 +48,10 @@ export interface CommCareLocalization {
 		code: string,
 		carrier: NavigationMedia<T>,
 	): Pick<NavigationMedia<T>, "icon" | "audioLabel">;
+	menuMediaOverride(
+		code: string,
+		carrier: NavigationMedia,
+	): Pick<NavigationMedia, "icon" | "audioLabel">;
 	storedMenuMedia(
 		code: string,
 		carrier: NavigationMedia,
@@ -83,9 +90,17 @@ export interface CommCareLocalization {
  * (`lib/domain/translationFill.ts::filledProse`), so a save changes no value
  * Nova wrote; every method reads one unit the same way.
  */
-export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
+export function commCareLocalization(
+	doc: BlueprintDoc,
+	profileUuid?: Uuid,
+): CommCareLocalization {
 	const effective = effectiveAppLocalization(doc.localization);
-	const plan = planLanguageWire(effective);
+	const order = installationLanguages(doc, profileUuid);
+	const plan = planLanguageWire({
+		...effective,
+		languageOrder: order,
+		defaultLanguage: order[0],
+	});
 	const tagByWireCode = new Map<string, LanguageTag>(
 		[...plan.wireCodeByTag].map(([tag, code]) => [code, tag]),
 	);
@@ -154,7 +169,19 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 		languages: plan.languages,
 		defaultLanguage: plan.defaultLanguage,
 		navigationMedia(code, carrier) {
-			return navigationFilesInLanguage(carrier, tagFor(code), effective);
+			return navigationFilesInLanguage(
+				carrier,
+				tagFor(code),
+				effective,
+				profileUuid === undefined ? undefined : order,
+			);
+		},
+		menuMediaOverride(code, carrier) {
+			const tag = tagFor(code);
+			return {
+				icon: navigationMediaOverride(carrier, "icon", tag),
+				audioLabel: navigationMediaOverride(carrier, "audioLabel", tag),
+			};
 		},
 		storedMenuMedia(code, carrier) {
 			const tag = tagFor(code);

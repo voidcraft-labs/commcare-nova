@@ -141,6 +141,8 @@ export interface PublicTablePolicy {
 }
 
 const RUNTIME_READ_WRITE_TABLES = [
+	"preview_form_activity",
+	"preview_web_restores",
 	"app_test_sessions",
 	"case_indices",
 	"case_type_schemas",
@@ -309,6 +311,9 @@ const RUNTIME_INSERT_DELETE_TABLES = [
 	"app_deployment_column_field_words",
 	"worker_group_members",
 	"lookup_row_assignments",
+	"app_deployment_search_bindings",
+	"app_deployment_installation_profiles",
+	"app_deployment_installation_reviews",
 ] as const;
 
 /** Only a migration writes these, as the migration role: fold baselines,
@@ -317,6 +322,8 @@ const RUNTIME_INSERT_DELETE_TABLES = [
  * `SECURITY DEFINER` trigger, so serving code reads it and cannot reset it. */
 const RUNTIME_READ_ONLY_TABLES = [
 	"app_deployment_fold_references",
+	"authoring_workspace_folds",
+	"authoring_step_folds",
 	"conversation_source_cutover",
 	"app_change_fold_baselines",
 	"app_migration_notices",
@@ -366,6 +373,7 @@ export const AUDIT_SELECT_PUBLIC_TABLES = [
 ] as const;
 
 const MIGRATION_TABLES = [
+	"hq_round_trip_completion_receipt",
 	"kysely_migration",
 	"kysely_migration_lock",
 	"auth_app_kysely_migration",
@@ -721,6 +729,8 @@ const EXPECTED_PUBLIC_ROUTINES = [
 	{ name: "nova_check_assignment_app_project", identityArguments: "" },
 	{ name: "nova_set_lookup_external_bytes", identityArguments: "" },
 	{ name: "nova_invalidate_export_target", identityArguments: "" },
+	{ name: "nova_invalidate_search_targets", identityArguments: "" },
+	{ name: "nova_clear_moved_preview_activity", identityArguments: "" },
 	{ name: "nova_rotate_api_key_grant", identityArguments: "" },
 	EXPIRED_FORM_OPENINGS,
 	{ name: "nova_immutable_thread_source", identityArguments: "" },

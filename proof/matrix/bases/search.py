@@ -60,7 +60,11 @@
    both open and in north, one north and active, and one open elsewhere. HQ
    returns the two in north before the inline detail keeps the open client,
    on both the source and the first publish. The worker opens the retained
-   client and fills the same form.
+   client and fills the same form. The search sends two default order
+   values in sequence. The first uses two leading signs on its first term.
+   HQ keeps the stored text and uses its first sign, so the first publish
+   removes only the redundant sign (``search-order-direction-signs-respelled``).
+   The second order stays as written.
 5. A referrals menu that searches case attributes, a date, an ancestor and
    the worker's owner ID. Independent rows use both the matched and excluded
    prompts. A separate device filter narrows the worker's list after the
@@ -277,7 +281,14 @@ def build(authoring) -> str:
 
     follow_up_menu(authoring, app_id, 2, "Visits", "visit_summary", "Summarize the visit")
     save_list_filter(authoring, app_id, 2, LIST_FILTER)
-    save_search(authoring, app_id, 2, rows=[JOINED_ROW], auto_launch=True, inline_search=True)
+    save_search(
+        authoring, app_id, 2, rows=[JOINED_ROW],
+        filters=[
+            ("commcare_sort", "'+-client_code:exact,-dob:date'"),
+            ("commcare_sort", "'+name'"),
+        ],
+        auto_launch=True, inline_search=True,
+    )
     follow_up_menu(authoring, app_id, 3, "Referrals", "referral_note", "What help did the client receive?")
     save_list_filter(authoring, app_id, 3, "standing = 'active'")
 
@@ -339,6 +350,7 @@ BASE = Base(
         "case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
         "case-search/itemset-sort-over-a-lookup-field",
         "case-search/exclude",
+        "case-search/default-filter-orders-the-records-the-search-sends",
         "case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
         "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
         "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
