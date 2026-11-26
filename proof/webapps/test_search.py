@@ -107,15 +107,23 @@ def test_authored_search_keeps_its_list_filter_out_of_the_request(
             run = Session(release, editor_driver).run([
                 *steps.open_app("Client search"),
                 *steps.choose(witness["menu"]),
+                *steps.arrive(any_screen=True),
+                steps.SCREEN,
+                *steps.click(steps.SEARCH_BUTTON, visible=True, within=steps.WITHIN_MS),
+                *steps.arrive(any_screen=True),
                 steps.SCREEN,
             ])
             requests = [search.values("_xpath_query") for search in release.hq.searches]
-        lists = [screen["list"] for screen in run.screens if "list" in screen]
-        evidence(f"authored-visits-filter-{publication}", {"requests": requests, "lists": lists})
-        assert run.page_errors == []
+        evidence(f"authored-visits-filter-{publication}", {
+            "requests": requests, "screens": run.screens, "queryAnswers": _query_answers(run),
+            "stepOutcomes": run.outcomes,
+        })
+        assert run.page_errors == [] and run.dialogs == []
+        query, results = run.screens
+        assert "query-submit-button" in query["query"]["buttons"], query
+        assert not any(outcome.get("missed") for outcome in run.outcomes), run.outcomes
         assert requests == [(witness["query"],)], requests
-        (listed,) = lists
-        assert [row["id"] for row in listed["rows"]] == [f"row-{case_id}" for case_id in witness["rows"]]
+        assert [row["id"] for row in results["list"]["rows"]] == [f"row-{case_id}" for case_id in witness["rows"]]
 
 
 def _describe(doc):
