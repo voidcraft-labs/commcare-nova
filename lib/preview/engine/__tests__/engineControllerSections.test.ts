@@ -185,6 +185,8 @@ describe("EngineController with a form split into pages while it runs", () => {
 it("refuses a direct repeat change after its control disappears and preserves existing answers", async () => {
 	const form = testUuid("controller-repeat-form"),
 		repeat = testUuid("controller-repeat-field");
+	const repeatPath = "/data/group/entries";
+	const notePath = `${repeatPath}[0]/note`;
 	const doc = buildDoc({
 		modules: [
 			{
@@ -206,7 +208,6 @@ it("refuses a direct repeat change after its control disappears and preserves ex
 										uuid: repeat,
 										id: "entries",
 										repeat_mode: "user_controlled",
-										submissionPlacement: { parent: form, position: 1 },
 										children: [f({ kind: "text", id: "note" })],
 									}),
 								],
@@ -222,17 +223,19 @@ it("refuses a direct repeat change after its control disappears and preserves ex
 	const ctrl = ownedController();
 	ctrl.setDocStore(store);
 	ctrl.activateForm(form);
+	expect(ctrl.getPath(repeat)).toBe(repeatPath);
 	ctrl.addRepeat(repeat);
 	expect(ctrl.getRepeatCount(repeat)).toBe(0);
 	ctrl.setValueAt("/data/include", "yes");
-	await ctrl.addRepeatAsync(repeat, "/data/entries");
+	await ctrl.addRepeatAsync(repeat, repeatPath);
 	expect(ctrl.getRepeatCount(repeat)).toBe(1);
-	ctrl.setValueAt("/data/entries[0]/note", "Retain me");
+	ctrl.setValueAt(notePath, "Retain me");
 	ctrl.setValueAt("/data/include", "no");
-	expect(await ctrl.removeRepeatAsync(repeat, 0, "/data/entries")).toBe(false);
-	ctrl.removeRepeat(repeat, 0, "/data/entries");
+	expect(await ctrl.removeRepeatAsync(repeat, 0, repeatPath)).toBe(false);
+	ctrl.removeRepeat(repeat, 0, repeatPath);
 	expect(ctrl.getRepeatCount(repeat)).toBe(1);
 	ctrl.setValueAt("/data/include", "yes");
-	expect(await ctrl.removeRepeatAsync(repeat, 0, "/data/entries")).toBe(true);
+	expect(ctrl.store.getState()[notePath]?.value).toBe("Retain me");
+	expect(await ctrl.removeRepeatAsync(repeat, 0, repeatPath)).toBe(true);
 	expect(ctrl.getRepeatCount(repeat)).toBe(0);
 });

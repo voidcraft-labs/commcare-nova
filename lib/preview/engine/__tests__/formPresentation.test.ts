@@ -396,7 +396,7 @@ it("draws the question outside its submitted group on Android and saves the answ
 				id: "outside",
 				uuid: question,
 				kind: "text",
-				submissionPlacement: { parent: group, position: 0 },
+				submissionPlacement: { parent: group },
 			},
 		],
 		androidDevice(),
@@ -426,7 +426,7 @@ it("draws the question outside its submitted group on Android and saves the answ
 	);
 	expect(
 		engine.getFieldTree()[0].children?.map((node) => node.field.id),
-	).toEqual(["outside", "in_group"]);
+	).toEqual(["in_group", "outside"]);
 	expect(engine.getControlTree().map((node) => node.field.id)).toEqual([
 		"visit",
 		"outside",
@@ -508,6 +508,7 @@ it("confirms passive messages and preserves the worker's Android checkbox throug
 
 it("confirms visible messages at their submitted addresses and leaves messages outside the worker's screen alone", () => {
 	const group = testUuid("message-storage-group");
+	const messages = testUuid("message-record-group");
 	const { engine } = runtime(
 		[
 			{ kind: "text", id: "show_storage" },
@@ -522,10 +523,7 @@ it("confirms visible messages at their submitted addresses and leaves messages o
 						kind: "label",
 						id: "controls_only",
 						label: "Read the result",
-						submissionPlacement: {
-							parent: testUuid("worker-presentation-form"),
-							position: 1,
-						},
+						submissionPlacement: { parent: messages },
 					},
 				],
 			},
@@ -533,7 +531,7 @@ it("confirms visible messages at their submitted addresses and leaves messages o
 				kind: "label",
 				id: "notice",
 				label: "Read the visit instructions",
-				submissionPlacement: { parent: group, position: 0 },
+				submissionPlacement: { parent: group },
 			},
 			{
 				kind: "label",
@@ -541,25 +539,30 @@ it("confirms visible messages at their submitted addresses and leaves messages o
 				label: "Confirm consent",
 				askForConfirmation: true,
 			},
+			{
+				kind: "group",
+				uuid: messages,
+				id: "messages",
+				children: [{ kind: "text", id: "memo" }],
+			},
 		],
 		androidDevice(),
 		"visit_report",
 	);
 	const address = "/visit_report/storage/notice";
+	const controlsOnly = "/visit_report/messages/controls_only";
 	engine.validateAll();
 	expect(engine.getState(address).value).toBe("");
-	expect(
-		engine.effectivelyVisiblePaths().has("/visit_report/controls_only"),
-	).toBe(true);
-	expect(engine.getState("/visit_report/controls_only").value).toBe("");
+	expect(engine.effectivelyVisiblePaths().has(controlsOnly)).toBe(true);
+	expect(engine.getState(controlsOnly).value).toBe("");
 	engine.setValue("/visit_report/show_storage", "yes");
 	expect(engine.validateScreen("/visit_report/consent")).toBe(true);
 	expect(engine.getState(address).value).toBe("");
 	expect(engine.validateScreen(address)).toBe(true);
 	expect(engine.getState(address).value).toBe("OK");
 	expect(engine.getState("/visit_report/consent").value).toBe("");
-	expect(engine.validateScreen("/visit_report/controls_only")).toBe(true);
-	expect(engine.getState("/visit_report/controls_only").value).toBe("OK");
+	expect(engine.validateScreen(controlsOnly)).toBe(true);
+	expect(engine.getState(controlsOnly).value).toBe("OK");
 });
 
 it("asks before inserting the first visit and can return to the empty invitation", () => {
@@ -641,7 +644,7 @@ it("keeps live answers and dependent calculations when the submission root chang
 it.each([androidDevice(), webAppsDevice()])(
 	"matches both control and data relevance without dropping submitted defaults",
 	(device) => {
-		const form = testUuid("worker-presentation-form");
+		const report = testUuid("worker-report-group");
 		const group = testUuid("worker-private-group");
 		const { engine } = runtime(
 			[
@@ -656,7 +659,7 @@ it.each([androidDevice(), webAppsDevice()])(
 							kind: "text",
 							id: "reported",
 							default_value: "'stored'",
-							submissionPlacement: { parent: form, position: 1 },
+							submissionPlacement: { parent: report },
 						},
 					],
 				},
@@ -664,7 +667,13 @@ it.each([androidDevice(), webAppsDevice()])(
 					kind: "text",
 					id: "local",
 					default_value: "'private'",
-					submissionPlacement: { parent: group, position: 0 },
+					submissionPlacement: { parent: group },
+				},
+				{
+					kind: "group",
+					uuid: report,
+					id: "report",
+					children: [{ kind: "text", id: "memo" }],
 				},
 			],
 			device,
@@ -673,30 +682,43 @@ it.each([androidDevice(), webAppsDevice()])(
 			observe(engine)
 				.fields.filter((f) => f.visible)
 				.map((f) => f.path);
-		expect(worker()).toEqual(["/data/show"]);
-		expect(engine.effectivelyVisiblePaths().has("/data/reported")).toBe(true);
-		expect(engine.getState("/data/reported").value).toBe("stored");
+		expect(worker()).toEqual([
+			"/data/show",
+			"/data/report",
+			"/data/report/memo",
+		]);
+		expect(engine.effectivelyVisiblePaths().has("/data/report/reported")).toBe(
+			true,
+		);
+		expect(engine.getState("/data/report/reported").value).toBe("stored");
 		expect(engine.effectivelyVisiblePaths().has("/data/visit/local")).toBe(
 			false,
 		);
 		if (device.platform === "android") {
 			expect(availablePages(engine.formScreens()).map((p) => p.path)).toEqual([
 				"/data/show",
+				"/data/report/memo",
 			]);
 		}
 		engine.setValue("/data/show", "yes");
 		expect(worker()).toEqual([
 			"/data/show",
 			"/data/visit",
-			"/data/reported",
+			"/data/report/reported",
 			"/data/visit/local",
+			"/data/report",
+			"/data/report/memo",
 		]);
 		expect(engine.effectivelyVisiblePaths().has("/data/visit/local")).toBe(
 			true,
 		);
 		expect(engine.getState("/data/visit/local").value).toBe("private");
 		engine.setValue("/data/show", "no");
-		expect(worker()).toEqual(["/data/show"]);
-		expect(engine.getState("/data/reported").value).toBe("stored");
+		expect(worker()).toEqual([
+			"/data/show",
+			"/data/report",
+			"/data/report/memo",
+		]);
+		expect(engine.getState("/data/report/reported").value).toBe("stored");
 	},
 );
