@@ -65,12 +65,14 @@ export async function* streamWorkerFixtureRow(
 	table: LookupTableWireNaming,
 	row: LookupFixtureRow,
 	read?: FixtureAtomBytes,
+	onCell?: () => void,
 ): AsyncGenerator<Uint8Array> {
 	const root = workerFixtureAtoms(table, row);
 	yield encoder.encode(`<${root.name}`);
 	yield* tagAttributes(root.attributes, read);
 	let hasChild = false;
 	for (const child of root.children) {
+		onCell?.();
 		if (!hasChild) {
 			yield encoder.encode(">");
 			hasChild = true;

@@ -62,6 +62,7 @@ import {
 	type ExportMode,
 	exportCarrierFindings,
 	type LookupTarget,
+	lookupFixtureBudgetFindings,
 	type ManagedLookupTable,
 	type ManagedLookupWorkbook,
 } from "./boundaryFindings";
@@ -89,6 +90,10 @@ import {
 	type StreamLookupWorkbook,
 } from "@/lib/commcare/lookup/archiveWorkbooks";
 import { describeLookupCarrierAlternative } from "@/lib/commcare/lookup/carrier";
+import {
+	measureStreamedLookupFixtures,
+	plannedLookupFixtureBudget,
+} from "@/lib/commcare/lookup/streamSuite";
 import { prepareArchiveTables } from "@/lib/deployment/prepareArchiveTables";
 import type {
 	ArchiveLookupAccess,
@@ -445,6 +450,44 @@ async function prepareWithRegistry(
 		);
 	}
 	const lookupContext = availableLookupContext(lookupSnapshot);
+	/* The mode's carrier and its row and mode verdicts, over this one
+	 * snapshot. The selection findings are read only once the document's own
+	 * verdict has passed. */
+	const carrier = exportCarrierFindings({
+		doc: input.doc,
+		mode: input.mode,
+		fixtureData,
+		assignments: assignment?.owners,
+		restoreTableIds: new Set(restoreIds),
+		...(input.lookupTarget !== undefined && {
+			lookupTarget: input.lookupTarget,
+		}),
+		...(input.jsonDestinationTableIds !== undefined && {
+			jsonDestinationTableIds: input.jsonDestinationTableIds,
+		}),
+		...(input.workbookLookupTags !== undefined && {
+			workbookLookupTags: input.workbookLookupTags,
+		}),
+	});
+	const {
+		naming,
+		lookupWire,
+		lookupWorkbook,
+		managedLookupTables,
+		managedLookupWorkbooks,
+	} = carrier;
+
+	const ccZBudget =
+		lookupWire && lookupSnapshot.streamedTables?.size
+			? plannedLookupFixtureBudget(
+					lookupWire.fixtures,
+					lookupSnapshot.streamedTables,
+				)
+			: undefined;
+	if (ccZBudget) {
+		const findings = lookupFixtureBudgetFindings(ccZBudget);
+		if (findings.length) return { ok: false, violations: findings };
+	}
 	const actor = lookupSnapshot.streamedTables?.size
 		? input.archiveActor?.()
 		: undefined;
@@ -489,33 +532,6 @@ async function prepareWithRegistry(
 			),
 		};
 
-	/* The mode's carrier and its row and mode verdicts, over this one
-	 * snapshot. The selection findings are read only once the document's own
-	 * verdict has passed. */
-	const carrier = exportCarrierFindings({
-		doc: input.doc,
-		mode: input.mode,
-		fixtureData,
-		assignments: assignment?.owners,
-		restoreTableIds: new Set(restoreIds),
-		...(input.lookupTarget !== undefined && {
-			lookupTarget: input.lookupTarget,
-		}),
-		...(input.jsonDestinationTableIds !== undefined && {
-			jsonDestinationTableIds: input.jsonDestinationTableIds,
-		}),
-		...(input.workbookLookupTags !== undefined && {
-			workbookLookupTags: input.workbookLookupTags,
-		}),
-	});
-	const {
-		naming,
-		lookupWire,
-		lookupWorkbook,
-		managedLookupTables,
-		managedLookupWorkbooks,
-	} = carrier;
-
 	/* This subordinate loader evaluates the complete document gate with both
 	 * the exact lookup context and the Project-filtered media rows. It returns
 	 * findings only; operational media reads continue to throw. */
@@ -533,6 +549,15 @@ async function prepareWithRegistry(
 	}
 	if (carrier.selectionFindings.length > 0) {
 		return { ok: false, violations: carrier.selectionFindings };
+	}
+
+	if (ccZBudget) {
+		const { budget, incomplete } = await measureStreamedLookupFixtures(
+			ccZBudget,
+			[...streamed.tables.values()],
+		);
+		const findings = lookupFixtureBudgetFindings(budget, incomplete);
+		if (findings.length) return { ok: false, violations: findings };
 	}
 
 	/* Bytes are resolved only after the complete boundary succeeds. All three
