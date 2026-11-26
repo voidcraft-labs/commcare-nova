@@ -707,6 +707,13 @@ interface AdvancedMint {
 
 const READINGS = new WeakMap<DraftForm, AdvancedReading>();
 
+/** Each advanced form's stored actions and loads as the first pass read them:
+ *  the sites a refusal of the whole form's opening values covers. */
+const OPENING_SITES = new WeakMap<
+	DraftForm,
+	{ readonly actions: JsonCursor; readonly loads: readonly JsonCursor[] }
+>();
+
 /** The first pass's reading of an advanced form. */
 export function advancedCaseReading(
 	form: DraftForm,
@@ -1327,6 +1334,7 @@ function parseSourceChoice(
 	i: number,
 	tags: ReadonlyMap<string, number>,
 	allTags: ReadonlySet<string>,
+	sharedTags: ReadonlySet<string>,
 ): ParsedChoice {
 	const C = ADVANCED_CLAIMS;
 	const load = object(raw);
@@ -1334,7 +1342,7 @@ function parseSourceChoice(
 	const tagIssue = tagFinding(tag, false);
 	if (tagIssue || typeof tag !== "string")
 		return { issue: tagIssue ?? C.tagBlank };
-	if (tags.get(tag) !== i) return { issue: C.duplicateTag, name: tag };
+	if (sharedTags.has(tag)) return { issue: C.duplicateTag, name: tag };
 	if (typeof load.case_type !== "string" || load.case_type === "")
 		return { issue: C.autoBlank, name: tag };
 	const changes =
@@ -1471,6 +1479,17 @@ function explicitFormChoices(
 		const tag = object(raw).case_tag;
 		if (typeof tag === "string") allTags.add(tag);
 	}
+	// A tag another load or open action also holds: HQ's build resolves an
+	// action by its tag (`actions_meta_by_tag`), so each holder is refused.
+	const held = new Map<string, number>();
+	for (const raw of [...loads, ...opens]) {
+		const tag = object(raw).case_tag;
+		if (typeof tag === "string" && tag !== "")
+			held.set(tag, (held.get(tag) ?? 0) + 1);
+	}
+	const sharedTags = new Set(
+		[...held].filter(([, count]) => count > 1).map(([tag]) => tag),
+	);
 	const source: SourceChoice[] = [];
 	const unread = new Map<number, UnreadChoice>();
 	for (const [i, raw] of loads.entries()) {
@@ -1483,6 +1502,7 @@ function explicitFormChoices(
 			i,
 			tags,
 			allTags,
+			sharedTags,
 		);
 		if ("issue" in parsed) unread.set(i, parsed);
 		else source.push(parsed);
@@ -1767,6 +1787,7 @@ function readOrdinaryAdvancedActions(
 		storedLoads.length > 0
 			? A.list("load_update_cases", "LoadUpdateAction", ADVANCED_CLAIMS.loads)
 			: [];
+	OPENING_SITES.set(form, { actions: A, loads: loadCursors });
 	const openCursors =
 		storedOpens.length > 0
 			? A.list("open_cases", "AdvancedOpenCaseAction", ADVANCED_CLAIMS.opens)
@@ -3763,7 +3784,8 @@ export function settleAdvancedForm(
 			ownMenu.uuid,
 			form.uuid,
 		);
-		for (const issue of problems)
+		for (const issue of problems) {
+			const before = ctx.accounting.findingCount();
 			ctx.accounting.finding(
 				issue.kind === "duplicate-key"
 					? ADVANCED_CLAIMS.duplicateEntryKey
@@ -3771,6 +3793,24 @@ export function settleAdvancedForm(
 				form.place,
 				{ name: issue.name },
 			);
+			const raised = ctx.accounting.findingRaised(before);
+			// Two opening values sharing one session name refuse the form's
+			// opening values whole: its loads, their tags and its calculations.
+			const sites = OPENING_SITES.get(form);
+			if (issue.kind === "duplicate-key" && raised && sites) {
+				ctx.accounting.cover(
+					{ json: sites.actions, key: "load_update_cases" },
+					raised,
+				);
+				for (const load of sites.loads)
+					ctx.accounting.cover({ json: load, key: "case_tag" }, raised);
+				if (form.json.peek("arbitrary_datums") !== undefined)
+					ctx.accounting.cover(
+						{ json: form.json, key: "arbitrary_datums" },
+						raised,
+					);
+			}
+		}
 		if (problems.length) return;
 	}
 
