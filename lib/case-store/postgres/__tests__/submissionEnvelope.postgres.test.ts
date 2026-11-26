@@ -1656,28 +1656,28 @@ describe("ordered selected-case batches", () => {
 				writes: [{ property: "notes", value: term(formField(FLAG_FIELD)) }],
 			}),
 		);
-		const submit = (
+		const submitUpdate = (
 			formFields: NonNullable<Parameters<typeof rootProgram>[1]>["formFields"],
 		) =>
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: followupOrdinary(),
 				operations: rootProgram([update], { formFields }),
 			});
 
-		await submit([[FLAG_FIELD, "keep"]]);
+		await submitUpdate([[FLAG_FIELD, "keep"]]);
 		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
 			owner_id: originalOwner,
 			properties: { notes: "keep" },
 		});
-		await expect(submit([[FLAG_FIELD, "transfer"]])).rejects.toBeInstanceOf(
-			SubmissionRejectedError,
-		);
+		await expect(
+			submitUpdate([[FLAG_FIELD, "transfer"]]),
+		).rejects.toBeInstanceOf(SubmissionRejectedError);
 		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
 			owner_id: originalOwner,
 			properties: { notes: "keep" },
 		});
-		await submit([
+		await submitUpdate([
 			[FLAG_FIELD, "transfer"],
 			[KEY_FIELD, "supervisor-9"],
 		]);
