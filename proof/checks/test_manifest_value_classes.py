@@ -4100,6 +4100,23 @@ def _search_and_menus():
             refused("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[1]/@input"),
             accepted("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[2]/@input"),
         ),
+        "case-search/address-receiver-matching-a-picker-without-a-component": tuple(
+            make(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("village", receiver_expression=receiver),
+                    _prompt("home", appearance=appearance, exclude=True),
+                ])),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{prompts}/receiver_expression",
+            )
+            for make, receiver, appearance in (
+                (refused, "home", "address"),
+                (accepted, "home||city", "address"),
+                (accepted, "home-region", "address"),
+                (accepted, "home", None),
+            )
+        ),
         "case-search/address-receiver-single-choice-lookup-position": tuple(
             make(
                 "app",

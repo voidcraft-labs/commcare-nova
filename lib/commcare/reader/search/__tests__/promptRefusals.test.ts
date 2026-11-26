@@ -94,6 +94,58 @@ function sharedAddress(body: JsonObject) {
 	});
 }
 
+it.each([
+	{
+		webAppsOn: true,
+		receive: "home",
+		entry: "address-receiver-matching-a-picker-without-a-component",
+		standing: "fix-in-hq",
+	},
+	{
+		webAppsOn: false,
+		receive: "home",
+		entry: "address-receiver-matching-a-picker-without-a-component",
+		standing: "fix-in-hq",
+	},
+	{
+		webAppsOn: true,
+		receive: "home||city",
+		entry: "receiver-expression",
+		standing: "not-yet",
+	},
+])(
+	"accounts for $receive at its source with Web Apps enabled = $webAppsOn",
+	async ({ webAppsOn, receive, entry, standing }) => {
+		const body = exportedBody(PROMPTS);
+		body.cloudcare_enabled = webAppsOn;
+		sharedAddress(body);
+		promptsOf(body)[1].receiver_expression = receive;
+		const outcome = readHqApp(await inputFor(body), { claims: "full" });
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "account")
+			throw new Error("Expected a receiver finding.");
+		const code = `${S}${entry}`;
+		expect(outcome.findings).toMatchObject([
+			{ code, standing, detail: { name: "case_name" } },
+		]);
+		expect(
+			[...outcome.claims.records()].filter(
+				(record) =>
+					record.entry === code &&
+					record.key === "schema:CaseSearchProperty.receiver_expression",
+			),
+		).toEqual([
+			{
+				artifact: "app.json",
+				where: "/modules/0/search_config/properties/1/receiver_expression",
+				key: "schema:CaseSearchProperty.receiver_expression",
+				entry: code,
+				standing,
+			},
+		]);
+	},
+);
+
 const CASES: readonly Case[] = [
 	{
 		title: "a name HQ reads as a request setting of its own",

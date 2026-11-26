@@ -3685,6 +3685,33 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/address-receiver-matching-a-picker-without-a-component",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A text Search subscription with only the name of an address picker on the same screen",
+		"surfaceKeys": ["schema:CaseSearchProperty.receiver_expression"],
+		"valueClass": "address-receiver-matching-a-picker-without-a-component",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps raises an error when the picker supplies an address.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The Search field receives an address without naming which part to fill. In CommCare HQ, choose an address part for the field or clear its address link."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/receiver-expression",
 		"area": "case-search",
 		"section": "Case search",
