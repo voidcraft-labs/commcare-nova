@@ -12765,7 +12765,22 @@ CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
 
 # Case-operation links and tile grouping use the same portable connection name.
 CASE_OPERATION_LINK_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*")
-ADVANCED_OPEN_INDEX_IDENTIFIER = re.compile(r"[a-zA-Z_À-ÖØ-öø-ÿ][a-zA-Z0-9_.À-ÖØ-öø-ÿ-]*")
+
+
+def _worker_name_acceptance(name):
+    def contains(character, ranges):
+        code = ord(character)
+        return any(low <= code <= high for low, high in zip(ranges[::2], ranges[1::2]))
+
+    return tuple(
+        bool(name)
+        and contains(name[0], table["initial"])
+        and all(
+            contains(character, table["initial"]) or contains(character, table["continuationOnly"])
+            for character in name[1:]
+        )
+        for table in _worker_name_ranges()
+    )
 
 
 def _index_identifier(index):
@@ -12782,7 +12797,8 @@ def _extended_open_index_to_first_choice(at, form, loads, opens, action, index):
     identifier = _index_identifier(index)
     return (
         CASE_OPERATION_LINK_IDENTIFIER.fullmatch(identifier) is None
-        and ADVANCED_OPEN_INDEX_IDENTIFIER.fullmatch(identifier) is not None
+        and _index_is_xml_name(identifier)
+        and all(_worker_name_acceptance(identifier))
         and index.get("relationship", "child") == "child"
         and index.get("tag") == loads[0].get("case_tag")
         and not _auto_selected(loads[0])
@@ -12813,10 +12829,19 @@ def _index_is_xml_name(name):
 
 
 def index_identifier_outside_an_xml_name(use, manifest):
-    """The residual: HQ can create this element, but Nova has not proved the name through Advanced entry."""
+    """HQ can create the element, and only one pinned worker lexer can address it."""
     indices = _open_indexes_for_name(use)
     return None if indices is None else any(
-        _index_is_xml_name(name) and ADVANCED_OPEN_INDEX_IDENTIFIER.fullmatch(name) is None
+        _index_is_xml_name(name) and sum(_worker_name_acceptance(name)) == 1
+        for index in indices if (name := _index_identifier(index))
+    )
+
+
+def index_identifier_unaddressable_in_worker_xpath(use, manifest):
+    """HQ builds and restores this element, and neither worker can parse a step addressed to it."""
+    indices = _open_indexes_for_name(use)
+    return None if indices is None else any(
+        _index_is_xml_name(name) and not any(_worker_name_acceptance(name))
         for index in indices if (name := _index_identifier(index))
     )
 
@@ -13749,6 +13774,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": basic_update_key_with_unaddressable_letter,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
+    "forms-and-case-writes/index-identifier-unaddressable-in-worker-xpath": index_identifier_unaddressable_in_worker_xpath,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,

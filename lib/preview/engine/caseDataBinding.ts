@@ -78,7 +78,7 @@ import {
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
-import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
+import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
@@ -1090,7 +1090,7 @@ export async function loadMissingConnectionCountAction(args: {
 	caseType: string;
 	identifier: string;
 }): Promise<LoadCaseCountResult> {
-	if (!CASE_INDEX_NAME_PATTERN.test(args.identifier)) {
+	if (!isAdvancedCaseIndexIdentifier(args.identifier)) {
 		return {
 			kind: "error",
 			message:

@@ -9,8 +9,6 @@ import {
 	caseOperationWritePropertyVerdict,
 } from "@/lib/doc/identifierVerdicts";
 import {
-	ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE,
-	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_IDENTIFIER_REGEX,
@@ -114,10 +112,6 @@ const propertyInputSchema = z
 
 const linkIdInputSchema = z
 	.string()
-	.regex(
-		ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
-		ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE,
-	)
 	.max(255)
 	.superRefine((value, ctx) => {
 		// Action names depend on the committed operation's wire placement.
@@ -131,7 +125,7 @@ const linkIdInputSchema = z
 		ctx.addIssue({ code: "custom", message: verdict.userMessage });
 	})
 	.describe(
-		"A connection name. Periods and Latin-1 letters such as É or é are available when CommCare HQ builds this change as an Advanced open action. Start with a letter or underscore.",
+		"A connection name. Start with a letter or underscore. When CommCare HQ builds this change as an Advanced open action, the name can also use periods and letters such as É or Ω that both Web Apps and Android can read.",
 	);
 
 const newTargetInputSchema = z.strictObject({

@@ -257,6 +257,8 @@ describe("an advanced form's loads and open actions", () => {
 		"métrique",
 		"mé-trique",
 		"Équipe",
+		"Ωprobe",
+		"probe߀",
 	])(
 		"keeps the exact %s connection on an explicit case list and its automatic lookup",
 		async (identifier) => {
@@ -359,6 +361,8 @@ describe("an advanced form's loads and open actions", () => {
 		"métrique",
 		"mé-trique",
 		"Équipe",
+		"Ωprobe",
+		"probe߀",
 	])(
 		"retains the %s open index through import and advanced Case Management emission",
 		async (identifier) => {
@@ -461,9 +465,11 @@ describe("an advanced form's loads and open actions", () => {
 		["my/parent", "index-identifier-invalid-xml-local-name"],
 		[".parent", "index-identifier-invalid-xml-local-name"],
 		["my:parent", "index-identifier-invalid-xml-local-name"],
-		["me\u0301trique", "index-identifier-outside-an-xml-element-name"],
+		["me\u0301trique", "index-identifier-unaddressable-in-worker-xpath"],
 		["Øst→", "index-identifier-invalid-xml-local-name"],
-		["mét·rique", "index-identifier-outside-an-xml-element-name"],
+		["mét·rique", "index-identifier-unaddressable-in-worker-xpath"],
+		["µprobe", "index-identifier-invalid-xml-local-name"],
+		["აprobe", "index-identifier-outside-an-xml-element-name"],
 	])(
 		"refuses the unsupported open index %s for %s",
 		async (identifier, code) => {

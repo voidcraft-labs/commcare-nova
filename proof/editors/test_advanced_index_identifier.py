@@ -92,8 +92,8 @@ def _edit_connections(editor_driver, state, app_id, form_id, reference, bindings
 
 @pytest.mark.parametrize(
     "reference",
-    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent", "métrique", "mé-trique"],
-    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore", "accented", "accented-hyphen"],
+    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent", "métrique", "mé-trique", "Ωprobe", "აprobe"],
+    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore", "accented", "accented-hyphen", "shared-greek", "web-only-georgian"],
 )
 def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner, tmp_path, reference):
     with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record), ExitStack() as mobile:
@@ -191,7 +191,7 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
             assert (saved.case_id, saved.owner_id, saved.name) == (case_id, worker.user_id, CHILD_NAME)
             saved_index, = saved.indices
             assert (saved_index.identifier, saved_index.referenced_id) == (reference, PARENT)
-            unaccented = reference.replace("é", "e")
+            unaccented = reference.translate(str.maketrans({"é": "e", "Ω": "O", "ა": "a"}))
             formplayer_hq.save_cases(state, _worker_database(
                 _worker_case(
                     NEIGHBOR, "requisition", "Unrelated requisition",
