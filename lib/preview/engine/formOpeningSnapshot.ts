@@ -165,7 +165,9 @@ export function formNeedsOpeningEvidence(
 				operationSavesOnlyChanged(operation) ||
 				(operation.action !== "own" &&
 					(operation.target.kind === "expression" ||
-						operation.target.kind === "worker-record")),
+						operation.target.kind === "worker-record" ||
+						(operation.target.kind === "new" &&
+							operation.target.expr !== undefined))),
 		)
 	)
 		return true;

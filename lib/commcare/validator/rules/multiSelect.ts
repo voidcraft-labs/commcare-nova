@@ -230,13 +230,14 @@ export function multiSelectFormSemantics(
 		if (
 			operation.action === "create" &&
 			operation.target.kind === "new" &&
-			operation.target.idFrom !== undefined
+			(operation.target.idFrom !== undefined ||
+				operation.target.expr !== undefined)
 		) {
 			errors.push(
 				validationError(
 					"MULTI_SELECT_AUTHORED_KEY_CREATE",
 					"form",
-					`Create operation "${operation.id}" derives its case id from one shared form answer. On a form that runs over several selected cases, that would reuse the same derived id across the selected-case execution. Use a generated case id instead.`,
+					`Create operation "${operation.id}" chooses its case ID from the form. A form that runs over several selected cases may reuse that ID across cases. Use a generated case id instead.`,
 					loc,
 					{ operationUuid: operation.uuid, operationId: operation.id },
 				),

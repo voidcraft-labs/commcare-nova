@@ -652,7 +652,11 @@ export function subcaseReasons(
 	const repeat = operation.forEach?.repeat;
 	const reasons: PlacementIneligibility[] = [];
 	if (f.severalCases) reasons.push({ reason: "several-cases" });
-	if (operation.target.kind === "new" && operation.target.idFrom !== undefined)
+	if (
+		operation.target.kind === "new" &&
+		(operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined)
+	)
 		reasons.push({ reason: "keyed-id" });
 	const links = operation.links ?? [];
 	const [link] = links;

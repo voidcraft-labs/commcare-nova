@@ -2435,7 +2435,8 @@ function operationFormFieldRefs(
 			operation.name,
 			operation.owner,
 			operation.rename,
-			...(operation.target?.kind === "expression"
+			...(operation.target?.kind === "expression" ||
+			(operation.target?.kind === "new" && operation.target.expr !== undefined)
 				? [operation.target.expr]
 				: []),
 			...(operation.links ?? []).flatMap((link) =>

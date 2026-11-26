@@ -104,7 +104,10 @@ export function caseOperationDependencyUuids(
 			collectExpressionDependencies(link.target.expr, refs);
 		}
 	}
-	if (operation.target?.kind === "expression") {
+	if (
+		operation.target?.kind === "expression" ||
+		(operation.target?.kind === "new" && operation.target.expr !== undefined)
+	) {
 		collectExpressionDependencies(operation.target.expr, refs);
 	}
 	for (const expression of [
@@ -361,7 +364,8 @@ export function caseOperationWireOrderViolationDetails(
 			createsByUuid.set(operation.uuid, operation);
 			if (
 				operation.target.kind !== "new" ||
-				operation.target.idFrom === undefined
+				(operation.target.idFrom === undefined &&
+					operation.target.expr === undefined)
 			)
 				continue;
 			if (
@@ -1139,7 +1143,16 @@ function caseOperationTargetsProvablyDistinct(
 		return true;
 	const leftOp = exactOperationTargetUuid(left);
 	const rightOp = exactOperationTargetUuid(right);
-	if (leftOp !== undefined && rightOp !== undefined) return leftOp !== rightOp;
+	const exactCreate = (uuid: Uuid | undefined): boolean => {
+		const operation = uuid === undefined ? undefined : createsByUuid.get(uuid);
+		return (
+			operation?.action === "create" &&
+			operation.target.kind === "new" &&
+			operation.target.expr !== undefined
+		);
+	};
+	if (leftOp !== undefined && rightOp !== undefined)
+		return leftOp !== rightOp && !exactCreate(leftOp) && !exactCreate(rightOp);
 	if (leftOp !== undefined && generatedCreate(createsByUuid.get(leftOp))) {
 		return true;
 	}
@@ -1203,7 +1216,8 @@ function generatedCreate(operation: CaseOperation | undefined): boolean {
 	return (
 		operation?.action === "create" &&
 		operation.target.kind === "new" &&
-		operation.target.idFrom === undefined
+		operation.target.idFrom === undefined &&
+		operation.target.expr === undefined
 	);
 }
 
