@@ -151,6 +151,36 @@ describe("mutation identity admission", () => {
 		]);
 	});
 
+	it("rejects a Search filter sharing the detail tab identity in one edit", () => {
+		const fx = fixture();
+		const shared = testUuid("detail-tab-search-filter-identity");
+		expectRejected(fx.doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid: fx.moduleUuid,
+				patch: {
+					detailTabs: [
+						{ uuid: shared, title: "Overview", startColumnUuid: fx.columnUuid },
+					],
+					searchFilterEdit: {
+						operation: "add",
+						filter: {
+							uuid: shared,
+							kind: "order",
+							order: [
+								{
+									property: "case_name",
+									comparison: "text",
+									direction: "ascending",
+								},
+							],
+						},
+					},
+				},
+			},
+		]);
+	});
+
 	it("checks nested identities inside a newly added entity", () => {
 		const fx = fixture();
 		const config = structuredClone(

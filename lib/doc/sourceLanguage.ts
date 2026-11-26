@@ -298,7 +298,10 @@ export function sourceSlotWriter(
 						module.caseSearchConfig = {
 							...module.caseSearchConfig,
 							...(unit.role === "search-screen-title"
-								? { searchScreenTitle: text(value) === "" ? NO_SEARCH_SCREEN_TITLE : text(value) }
+								? {
+										searchScreenTitle:
+											text(value) === "" ? NO_SEARCH_SCREEN_TITLE : text(value),
+									}
 								: { searchScreenSubtitle: text(value) }),
 						};
 					}

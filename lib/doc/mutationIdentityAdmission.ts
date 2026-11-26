@@ -392,15 +392,28 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 					ownerUuid: mutation.moduleUuid,
 				},
 			]);
-		case "setCaseListMeta":
-			return (mutation.patch.detailTabs ?? []).map((tab) => ({
-				identity: {
-					uuid: tab.uuid,
-					kind: "caseDetailTab",
-					ownerUuid: mutation.uuid,
-				},
-				preserveIfOwnedBy: mutation.uuid,
-			}));
+		case "setCaseListMeta": {
+			const edit = mutation.patch.searchFilterEdit;
+			return [
+				...(mutation.patch.detailTabs ?? []).map((tab) => ({
+					identity: {
+						uuid: tab.uuid,
+						kind: "caseDetailTab" as const,
+						ownerUuid: mutation.uuid,
+					},
+					preserveIfOwnedBy: mutation.uuid,
+				})),
+				...(edit?.operation === "add"
+					? createClaims([
+							{
+								uuid: edit.filter.uuid,
+								kind: "searchFilter",
+								ownerUuid: mutation.uuid,
+							},
+						])
+					: []),
+			];
+		}
 		case "addColumn":
 			return createClaims([
 				{
@@ -488,18 +501,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 						},
 					])
 				: [];
-		case "setCaseListMeta": {
-			const edit = mutation.patch.searchFilterEdit;
-			return edit?.operation === "add"
-				? createClaims([
-						{
-							uuid: edit.filter.uuid,
-							kind: "searchFilter",
-							ownerUuid: mutation.uuid,
-						},
-					])
-				: [];
-		}
 		case "removeModule":
 		case "moveModule":
 		case "renameModule":
