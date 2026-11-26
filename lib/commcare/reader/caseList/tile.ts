@@ -112,7 +112,7 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 	),
 	groupWithoutBody: refuse(
 		`${A}case-tile-group-header-covers-all-cells`,
-		"schema:CaseTileGroupConfig.index_identifier",
+		"schema:Detail.case_tile_group",
 	),
 	groupIdentifierOutside: refuse(
 		`${A}case-tile-group-identifier-outside-an-xml-element-name`,
@@ -589,34 +589,38 @@ export function readTile(
 		typeof group.index_identifier === "string" &&
 		group.index_identifier !== ""
 	) {
-		const cursor = short.object(
-			"case_tile_group",
-			"CaseTileGroupConfig",
-			T.group,
-		);
 		const identifier = group.index_identifier;
-		if (!caseTileGroupingIdentifierSchema.safeParse(identifier).success) {
-			cursor.refuse("index_identifier", T.groupIdentifierOutside, {
-				name: identifier,
+		const validIdentifier =
+			caseTileGroupingIdentifierSchema.safeParse(identifier).success;
+		const headerRows = group.header_rows ?? 2;
+		const occupiedRows = Math.max(
+			0,
+			...[...cells.values()].map(tileCellBottomEdge),
+		);
+		if (
+			validIdentifier &&
+			!named &&
+			occupiedRows > 0 &&
+			typeof headerRows === "number" &&
+			Number.isSafeInteger(headerRows) &&
+			headerRows >= occupiedRows
+		) {
+			// The header is relative to the tile's cells, and its default is
+			// omitted from use accounting. Refuse the active group as a whole.
+			short.refuse("case_tile_group", T.groupWithoutBody, {
+				reason: "Leave at least one tile row below the group heading.",
 			});
 			ok = false;
 		} else {
-			const headerRows = group.header_rows;
-			const occupiedRows = Math.max(
-				0,
-				...[...cells.values()].map(tileCellBottomEdge),
+			const cursor = short.object(
+				"case_tile_group",
+				"CaseTileGroupConfig",
+				T.group,
 			);
-			if (
-				!named &&
-				occupiedRows > 0 &&
-				typeof headerRows === "number" &&
-				Number.isSafeInteger(headerRows) &&
-				headerRows >= occupiedRows
-			) {
-				cursor.refuse("index_identifier", T.groupWithoutBody, {
-					reason: "Leave at least one tile row below the group heading.",
+			if (!validIdentifier) {
+				cursor.refuse("index_identifier", T.groupIdentifierOutside, {
+					name: identifier,
 				});
-				cursor.take("header_rows", T.groupRows, Number).value;
 				ok = false;
 			} else {
 				config.grouping = {
@@ -627,6 +631,7 @@ export function readTile(
 			}
 		}
 	}
+
 	return {
 		ok,
 		config,

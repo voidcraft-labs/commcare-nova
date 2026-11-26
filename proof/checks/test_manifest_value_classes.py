@@ -5050,17 +5050,28 @@ def _search_and_menus():
             ),
         ),
         "menus-and-case-lists/case-tile-group-header-covers-all-cells": (
-            refused("app", columns(
-                _column(grid_x=0, grid_y=0, width=12, height=1),
-                case_tile_template="custom",
-                case_tile_group={"index_identifier": "my-group", "header_rows": 2},
-            ), "schema:CaseTileGroupConfig.index_identifier", f"{short}/case_tile_group/index_identifier"),
-            accepted("app", columns(
-                _column(grid_x=0, grid_y=0, width=12, height=1),
-                _column(grid_x=0, grid_y=1, width=12, height=1),
-                case_tile_template="custom",
-                case_tile_group={"index_identifier": "my-group", "header_rows": 1},
-            ), "schema:CaseTileGroupConfig.index_identifier", f"{short}/case_tile_group/index_identifier"),
+            refused(
+                "app",
+                columns_app(_column(grid_x=0, grid_y=0, width=12, height=1), short={
+                    "case_tile_template": "custom",
+                    "case_tile_group": {"index_identifier": "my-group", "header_rows": 2},
+                }),
+                "schema:Detail.case_tile_group",
+                f"{short}/case_tile_group",
+            ),
+            accepted(
+                "app",
+                columns_app(
+                    _column(grid_x=0, grid_y=0, width=12, height=1),
+                    _column("notes", grid_x=0, grid_y=1, width=12, height=1),
+                    short={
+                        "case_tile_template": "custom",
+                        "case_tile_group": {"index_identifier": "my-group", "header_rows": 1},
+                    },
+                ),
+                "schema:Detail.case_tile_group",
+                f"{short}/case_tile_group",
+            ),
         ),
         "menus-and-case-lists/custom-tile-cell-outside-the-grid": (
             refused(

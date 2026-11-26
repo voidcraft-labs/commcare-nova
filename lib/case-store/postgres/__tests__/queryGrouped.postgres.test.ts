@@ -400,11 +400,10 @@ describe("PostgresCaseStore.queryGrouped", () => {
 	it("groups by the full hyphenated connection identifier", async () => {
 		const store = makeStore();
 		const { north, south } = await seed(store);
-		await dbHandle.db
-			.updateTable("case_indices")
-			.set({ identifier: "my-parent" })
-			.where("identifier", "=", "parent")
-			.execute();
+		await dbHandle.pool.query(
+			"UPDATE case_indices SET identifier = $1 WHERE identifier = $2",
+			["my-parent", "parent"],
+		);
 
 		const grouped = await store.queryGrouped({
 			reading: SEARCH_READING,

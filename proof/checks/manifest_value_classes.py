@@ -12773,11 +12773,13 @@ def tile_group_header_covers_all_cells(use, manifest):
     at, tile = _custom_short_tile_group(use)
     if at is None:
         return None
-    if tile is None or at.key != "index_identifier":
+    if tile is None or at.key != "case_tile_group":
         return False
     group, detail = tile
     name = group.get("index_identifier")
-    header_rows = group.get("header_rows", 2)
+    header_rows = group.get("header_rows")
+    if header_rows is None:
+        header_rows = 2
     if not isinstance(name, str) or CASE_OPERATION_LINK_IDENTIFIER.fullmatch(name) is None or type(header_rows) is not int:
         return False
     boxes = [

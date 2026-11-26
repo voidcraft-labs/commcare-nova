@@ -3973,7 +3973,7 @@
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
 		"item": "A custom grouped tile whose header covers every placed cell",
-		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
+		"surfaceKeys": ["schema:Detail.case_tile_group"],
 		"valueClass": "tile-group-header-covers-all-cells",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: no body fields remain for individual group members in Web Apps",

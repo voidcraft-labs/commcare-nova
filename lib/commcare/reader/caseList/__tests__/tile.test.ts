@@ -255,6 +255,9 @@ describe("tiles", () => {
 				};
 			},
 		});
+		expect(closedCodes(reading)).toEqual([
+			"menus-and-case-lists/case-tile-group-header-covers-all-cells",
+		]);
 		expect(reading.findings).toMatchObject([
 			{
 				code: "menus-and-case-lists/case-tile-group-header-covers-all-cells",
