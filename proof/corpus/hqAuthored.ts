@@ -474,7 +474,8 @@ function declarationNotOffered(
 /**
  * The base's media as the document's own assets: each file the reading holds
  * (`LaneMedia`), under the id and with the type and extension the reading
- * gives it, its bytes the retained file `media.json` names at one of its
+ * gives it, stored as a bring-in stores it (`source: "commcare-hq"`, which no
+ * upload cap bounds), its bytes the retained file `media.json` names at one of its
  * paths, and the path HQ keeps each asset under on the project space it came
  * from, as the birth records it: an asset no path of which can be held takes
  * its content-hash path, and names none here.
@@ -513,6 +514,7 @@ function baseMedia(
 			mimeType: file.mimeType,
 			extension: file.extension,
 			bytes: Buffer.from(bytes),
+			source: "commcare-hq",
 		});
 	}
 	const mediaPaths = new Map<string, string>();

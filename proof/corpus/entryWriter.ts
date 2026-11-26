@@ -286,6 +286,7 @@ function storedInputs(publish: PublishDocument) {
 						mimeType: asset.mimeType,
 						extension: asset.extension,
 						base64: asset.bytes.toString("base64"),
+						...(asset.source !== undefined && { source: asset.source }),
 					},
 				]),
 			),

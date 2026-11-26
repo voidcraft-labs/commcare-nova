@@ -116,17 +116,18 @@ def _syncsafe(size: int) -> bytes:
     return bytes(((size >> 21) & 0x7F, (size >> 14) & 0x7F, (size >> 7) & 0x7F, size & 0x7F))
 
 
-def mp3_of(path: str) -> bytes:
-    """One silent MPEG frame, then an ID3v2.4 tag appended after it with its footer (an appended tag must carry
-    one), whose one ``COMM`` frame holds ``path`` in UTF-8."""
+def mp3_of(path: str, frames: int = 1, comment_padding: int = 0) -> bytes:
+    """``frames`` silent MPEG frames (one by default), then an ID3v2.4 tag appended after them with its footer (an
+    appended tag must carry one), whose one ``COMM`` frame holds ``path`` in UTF-8, followed by ``comment_padding``
+    spaces."""
     frame = MPEG_HEADER + bytes(MPEG_FRAME_LENGTH - len(MPEG_HEADER))
     # Text encoding 3 (UTF-8), language, an empty short description, then the text.
-    comment = b"\x03" + b"eng" + b"\x00" + path.encode("utf-8")
-    frames = b"COMM" + _syncsafe(len(comment)) + b"\x00\x00" + comment
+    comment = b"\x03" + b"eng" + b"\x00" + path.encode("utf-8") + b" " * comment_padding
+    tag_frames = b"COMM" + _syncsafe(len(comment)) + b"\x00\x00" + comment
     # Version 2.4.0, flags: footer present.
-    tag_header = b"ID3" + b"\x04\x00" + b"\x10" + _syncsafe(len(frames))
-    footer = b"3DI" + b"\x04\x00" + b"\x10" + _syncsafe(len(frames))
-    return frame + tag_header + frames + footer
+    tag_header = b"ID3" + b"\x04\x00" + b"\x10" + _syncsafe(len(tag_frames))
+    footer = b"3DI" + b"\x04\x00" + b"\x10" + _syncsafe(len(tag_frames))
+    return frame * frames + tag_header + tag_frames + footer
 
 
 def _box(kind: bytes, payload: bytes) -> bytes:
@@ -484,6 +485,15 @@ def oversize_png_of(path: str, size: int) -> bytes:
     if padding < 0:
         raise ValueError(f"A PNG for {path} is {len(small)} bytes at the least; {size} is smaller.")
     return small[: -len(end)] + _chunk(b"npAd", bytes(padding)) + end
+
+
+def oversize_mp3_of(path: str, size: int) -> bytes:
+    """``mp3_of(path)`` grown to ``size`` bytes: as many more silent frames as fit, and the rest spaces after the
+    path in its comment."""
+    extra = size - len(mp3_of(path))
+    if extra < 0:
+        raise ValueError(f"An MP3 for {path} is {len(mp3_of(path))} bytes at the least; {size} is smaller.")
+    return mp3_of(path, frames=1 + extra // MPEG_FRAME_LENGTH, comment_padding=extra % MPEG_FRAME_LENGTH)
 
 
 def stand_in(path: str) -> bytes:

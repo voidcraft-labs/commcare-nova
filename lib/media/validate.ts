@@ -419,16 +419,23 @@ async function validateBody(args: {
 	};
 }
 
-/** The variant stored bytes are, or `unplayable` where no variant admits them. */
+/**
+ * The variant stored bytes are, or `unplayable` where no variant admits them.
+ * A stored file's variant is its bytes', whatever its size: a file brought in
+ * from CommCare HQ past its kind's upload cap is stored as the gate read it
+ * (`validateSniffedMediaBody`), so no upload cap applies here.
+ */
 export async function classifyStoredMediaBytes(
 	bytes: Buffer,
 	stored: { readonly mimeType: AssetMimeType; readonly extension: string },
 ): Promise<MediaFormatValue> {
-	const result = await validateMediaBytes({
-		bytes,
+	const result = await validateBody({
+		body: bufferBody(bytes),
 		claimedMimeType: stored.mimeType,
 		claimedSizeBytes: bytes.length,
 		originalFilename: `asset${stored.extension}`,
+		capped: false,
+		contentHash: () => createHash("sha256").update(bytes).digest("hex"),
 	});
 	return result.ok
 		? (result.validated.mediaFormat ?? UNPLAYABLE_MEDIA_FORMAT)
