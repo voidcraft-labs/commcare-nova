@@ -12,8 +12,14 @@ import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import type { EntrySessionData } from "./entrySessionData";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { LookupFixtureDataWire } from "./lookupDataBinding";
-import { previewLookupData } from "./lookupEvaluation";
-import { caseOperationProgramLookupTableIds } from "./lookupTableReferences";
+import {
+	formLogicLookupExpressions,
+	previewLookupData,
+} from "./lookupEvaluation";
+import {
+	caseOperationProgramLookupTableIds,
+	collectConfigLookupTableIds,
+} from "./lookupTableReferences";
 import type { PreviewDevice } from "./previewDevice";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
@@ -170,6 +176,10 @@ export function formNeedsOpeningEvidence(
 				expressionReadsCaseDatabase(expression, doc),
 			),
 		) ||
+		collectConfigLookupTableIds(
+			undefined,
+			formLogicLookupExpressions(doc, formUuid),
+		).length > 0 ||
 		caseOperationProgramLookupTableIds(doc, [
 			formUuid,
 			...fields,

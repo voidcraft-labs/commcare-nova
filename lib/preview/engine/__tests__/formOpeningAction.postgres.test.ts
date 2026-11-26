@@ -9,7 +9,7 @@ import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { FormSelectionSource } from "@/lib/domain";
-import { matchAll, tableLookup } from "@/lib/domain/expression";
+import { eq, literal, matchAll, tableLookup } from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -848,6 +848,7 @@ it("pins the original form's write with each entry's own lookup choice", async (
 								["write", "Pinned write"],
 								["original", "training-1"],
 								["shared", "training-3"],
+								["next_step", "enabled"],
 							].map(([key, value]) => ({
 								key,
 								name: key,
@@ -868,7 +869,7 @@ it("pins the original form's write with each entry's own lookup choice", async (
 			const definitions = await Promise.all(
 				tables.map(({ tableId }) => getLookupTable(scope, tableId)),
 			);
-			const [writeTable, originalTable, sharedTable] = definitions;
+			const [writeTable, originalTable, sharedTable, linkTable] = definitions;
 			tableIds.push(...definitions.map((table) => table.id));
 			const uses = (table: typeof originalTable): FormSelectionSource => ({
 				kind: "table",
@@ -889,6 +890,17 @@ it("pins the original form's write with each entry's own lookup choice", async (
 				writeTable.columns[0].id,
 				matchAll(),
 			);
+			const menu = blueprint.moduleOrder[0];
+			visit.formLinks = [
+				{
+					uuid: testUuid("original-lookup-next-step"),
+					target: { type: "module", moduleUuid: menu },
+					condition: eq(
+						tableLookup(linkTable.id, linkTable.columns[0].id, matchAll()),
+						literal("enabled"),
+					),
+				},
+			];
 			blueprint.forms[shared] = {
 				uuid: shared,
 				name: "Shared visits",
@@ -900,11 +912,22 @@ it("pins the original form's write with each entry's own lookup choice", async (
 						kind: "replace",
 						selection: row.uuid,
 						caseType: row.caseType,
-						source: row === firstPerson ? uses(sharedTable) : row.source,
+						source:
+							row === firstPerson
+								? {
+										kind: "expression",
+										value: tableLookup(
+											sharedTable.id,
+											sharedTable.columns[0].id,
+											matchAll(),
+										),
+									}
+								: row.source,
 					})),
 				},
 			};
-			blueprint.formOrder[blueprint.moduleOrder[0]].push(shared);
+			blueprint.formOrder[menu].push(shared);
+			blueprint.fieldOrder[shared] = [];
 		});
 	const sharedRequest = {
 		...request,
@@ -916,17 +939,17 @@ it("pins the original form's write with each entry's own lookup choice", async (
 		throw new Error(`Could not open the shared form: ${sharedOpening.kind}`);
 	const note = Object.values(doc.fields).find((field) => field.id === "note");
 	if (!note) throw new Error("Missing the shared form's original question.");
-	const [writeTableId, originalTableId, sharedTableId] = tableIds;
+	const [writeTableId, originalTableId, sharedTableId, linkTableId] = tableIds;
 	const firstSelection = doc.forms[request.form].caseSelections?.find(
 		(row) => row.tag === "first",
 	);
 	if (!firstSelection) throw new Error("Missing the route's automatic choice.");
 	let originalEvidence: typeof first.evidence | undefined;
-	for (const [launch, opening, routeTable, firstCase, ownCase, answer] of [
+	for (const [launch, opening, routeTables, firstCase, ownCase, answer] of [
 		[
 			request,
 			first,
-			originalTableId,
+			[originalTableId, linkTableId],
 			"training-1",
 			"training-2",
 			"Original route",
@@ -934,14 +957,14 @@ it("pins the original form's write with each entry's own lookup choice", async (
 		[
 			sharedRequest,
 			sharedOpening,
-			sharedTableId,
+			[sharedTableId],
 			"training-3",
 			"training-1",
 			"Shared route",
 		],
 	] as const) {
 		expect(Object.keys(opening.projection.lookup.rowsByTable).sort()).toEqual(
-			[writeTableId, routeTable].sort(),
+			[writeTableId, ...routeTables].sort(),
 		);
 		if (!opening.next) throw new Error("Missing the remaining manual choice.");
 		const completed = await readFormOpeningAction(

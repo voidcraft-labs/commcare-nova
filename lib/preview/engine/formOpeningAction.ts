@@ -49,6 +49,7 @@ import {
 } from "./formOpeningSnapshot";
 import { previewSessionValues } from "./identity";
 import { loadLookupFixtureDataAction } from "./lookupDataBinding";
+import { formLogicLookupExpressions } from "./lookupEvaluation";
 import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
@@ -87,27 +88,22 @@ const requestSchema = z.strictObject({
 });
 
 function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
-	const entry = doc.forms[form];
 	const contentUuid = formContentUuid(doc, form);
 	const content = doc.forms[contentUuid];
-	// Shared entries supply their own choices and computed values. The
-	// questions and writes still run from the original form.
+	// The questions and writes run from the source form. Keep entry
+	// expressions scoped to the active route since shared choices reuse IDs.
 	const carriers = [
 		form,
 		...(formStructure(doc, contentUuid)?.fields.keys() ?? []),
 		...(content.caseOperations ?? []).map((op) => op.uuid),
-		...(entry.caseSelections ?? []).map((row) => row.uuid),
-		...(entry.computedDatums ?? []).map((row) => row.uuid),
 	];
-	const tables = new Set(caseOperationProgramLookupTableIds(doc, carriers));
-	if (form !== contentUuid)
-		for (const id of collectConfigLookupTableIds(
+	const tables = new Set([
+		...caseOperationProgramLookupTableIds(doc, carriers),
+		...collectConfigLookupTableIds(
 			undefined,
-			[content.openCondition, content.closeCondition].filter(
-				(condition) => condition !== undefined,
-			),
-		))
-			tables.add(id);
+			formLogicLookupExpressions(doc, form),
+		),
+	]);
 	for (const { source } of formCaseSelections(doc, form)) {
 		if (source.kind === "table") tables.add(source.table);
 		if (source.kind === "choose")
