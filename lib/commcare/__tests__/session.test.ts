@@ -450,3 +450,19 @@ it("lowers a case list filter again only when an id it reads is renamed", () => 
 	);
 	expect(render()).toBe(renamed);
 });
+
+// HQ's build appends a list's one stored filter, the list rule and the owner
+// exclusion joined by `and` (`hqJson/caseList.ts`), as one predicate
+// (`EntriesHelper.get_filter_xpath`); the local suite writes the same.
+it("joins a list's filter and its owner exclusion in one predicate of the case step", () => {
+	const entry = entryXml({
+		caseListFilter: filter,
+		excludedOwnerIds: term(region),
+	});
+	const datums = onlyXml(xmlChildren(entry, "session")).children;
+	const nodeset = String(datums[0]?.attributes.nodeset);
+	expect(nodeset).toMatch(
+		/^instance\('casedb'\)\/casedb\/case\[@case_type = 'patient'\]\[@status = 'open'\]\[[^\]]* and /,
+	);
+	expect(nodeset.match(/\]\[/g)?.length).toBe(2);
+});

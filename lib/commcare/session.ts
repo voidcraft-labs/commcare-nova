@@ -378,13 +378,21 @@ export function caseLoadingNodeset(
 		expressions({ slot: "excluded_owner_ids" }),
 		lookupNaming,
 	);
+	// HQ's build appends the list's one stored filter, which holds the list rule
+	// and the owner exclusion joined by `and` (`hqJson/caseList.ts`), as one
+	// predicate (`EntriesHelper.get_filter_xpath`).
+	const joined =
+		filter === undefined
+			? owners
+			: owners === undefined
+				? filter
+				: w.and(filter, owners);
 	return w.instance(caseDbInstance(), [
 		w.step("casedb"),
 		w.step("case", [
 			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(caseType))),
 			w.eq(w.context([w.attr("status")]), w.str("open")),
-			...(filter === undefined ? [] : [filter]),
-			...(owners === undefined ? [] : [owners]),
+			...(joined === undefined ? [] : [joined]),
 		]),
 	]);
 }
