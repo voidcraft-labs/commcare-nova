@@ -545,7 +545,7 @@ describe("recordHqChangesTaken", () => {
 			expect((await refresh()).outcome).toBe("superseded");
 			await expect(
 				recordHqChangesTaken(AT_HEAD, taken(birth, { targetIdentity })),
-			).rejects.toMatchObject({ fence: "target-identity" });
+			).rejects.toBeInstanceOf(deploymentStore.HqReviewWriteInFlightError);
 			expect(await ledger()).toEqual(before);
 			expect(await readTargetIdentity(birth.scope, TARGET)).toEqual(
 				birth.targetIdentity,
