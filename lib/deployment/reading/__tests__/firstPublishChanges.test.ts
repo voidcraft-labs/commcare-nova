@@ -125,6 +125,7 @@ import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
 	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
 	type CurrentFirstPublishChangeId,
+	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
@@ -556,9 +557,11 @@ function withDeclaredReports(xml: string): string {
 
 describe("the register", () => {
 	it("holds every id in registry order, and its touchesWorkers column is the client-safe one", () => {
-		expect(Object.keys(FIRST_PUBLISH_CHANGES)).toEqual([
-			...CURRENT_FIRST_PUBLISH_CHANGE_IDS,
-		]);
+		expect(Object.keys(FIRST_PUBLISH_CHANGES)).toEqual(
+			FIRST_PUBLISH_CHANGE_IDS.filter(
+				(id) => id !== "hidden-value-defaults-dropped",
+			),
+		);
 		for (const id of CURRENT_FIRST_PUBLISH_CHANGE_IDS)
 			expect([id, FIRST_PUBLISH_CHANGES[id].touchesWorkers]).toEqual([
 				id,
