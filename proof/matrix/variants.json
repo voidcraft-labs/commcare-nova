@@ -35117,6 +35117,32 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-declared-type-choice",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_declared_type_choice"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/caseType",
+				"value": "household"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/otherwise",
+				"value": "visit"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/condition/kind",
+				"value": "gt"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-dynamic-type",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-case-type-given-as-an-xpath",

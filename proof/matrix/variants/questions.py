@@ -1840,6 +1840,10 @@ def save_to_case_type_expression(authoring, app_id):
             1,
         ),
     )
+    _computed_type_references(authoring, app_id, guard_type="household")
+
+
+def _computed_type_references(authoring, app_id, *, guard_type):
     # The source upload and the reference rows together reproduce a Vellum save.
     ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {
         f"{OPS}/make_household": {
@@ -1851,12 +1855,43 @@ def save_to_case_type_expression(authoring, app_id):
         },
         f"{OPS}/nova_guard_make_household_text": {
             "doc_type": "CaseSaveReference",
-            "case_type": "household",
+            "case_type": guard_type,
             "properties": ["case_type"],
             "create": False,
             "close": False,
         },
     })
+
+
+def save_to_case_declared_type_choice(authoring, app_id):
+    """Two declared case types, the same saved field and a guard reading the computed type."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    from proof.matrix.bases import _pages
+
+    def visit_form(name):
+        form = XFormBuilder(name)
+        form.new_question("note", "Note", "string")
+        return form.tostring().decode("utf-8")
+
+    _pages.new_survey_module(authoring, app_id, name="Visits")
+    ops.upload_form_source(authoring, app_id, 1, 0, visit_form, "visit-type-carrier")
+    ops.set_json(authoring, app_id, "/modules/0/case_type", "household")
+    ops.set_json(authoring, app_id, "/modules/1/case_type", "visit")
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-declared-type-choice",
+        ('vellum:role="SaveToCase" vellum:case_type="household"',
+         'vellum:role="SaveToCase" vellum:case_type=""', 2),
+        (STC_TYPE_BIND,
+         f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
+         1),
+        (f'<bind nodeset="{GUARD}/update/case_type" calculate="&apos;household&apos;"/>',
+         f'<bind nodeset="{GUARD}/update/case_type" calculate="current()/../../../../make_household/case/create/case_type"/>',
+         1),
+    )
+    _computed_type_references(authoring, app_id, guard_type="")
 
 
 def save_to_case_dynamic_type(authoring, app_id):
