@@ -549,6 +549,42 @@ describe("a table published through CommCare HQ's JSON resources", () => {
 		expect(hq.sent).toEqual([]);
 	});
 
+	it("writes nothing over a row a person changes in CommCare HQ between two of Nova's requests", async () => {
+		const { key, hq } = await setup();
+		await publish(hq, journalFor(key), rows("a", "b"));
+		const [first, second] = hq.view();
+		hq.sent.length = 0;
+		/* Nova renames both rows. Once its first request is admitted, a person
+		 * edits the second row in CommCare HQ, after the plan read it. */
+		let admissions = 0;
+		const journal = journalFor(key, "app-one", {
+			async beforeAdmit() {
+				if (++admissions !== 2) return;
+				const held = hq.rows.get(second?.id ?? "");
+				if (held === undefined) throw new Error("expected a row");
+				hq.rows.set(second?.id ?? "", { ...held, content: content("theirs") });
+			},
+		});
+		/* The edit lands after the second admission's recheck, so it is seen by
+		 * the read of the row just before its request. */
+		const result = await publish(hq, journal, [
+			renamed("a", "a2"),
+			renamed("b", "b2"),
+		]);
+		expect(result).toMatchObject({
+			kind: "stopped",
+			stop: { kind: "review", reason: "rows-changed" },
+			writes: 1,
+		});
+		expect(hq.sent.map((line) => line.split("@")[0])).toEqual([
+			`PUT ${first?.id?.slice(-2)}`,
+		]);
+		expect(hq.view()).toEqual([
+			{ id: first?.id, name: "a2" },
+			{ id: second?.id, name: "theirs" },
+		]);
+	});
+
 	it("stops at a request CommCare HQ refuses, and sends nothing after it", async () => {
 		const { key, hq } = await setup();
 		await publish(hq, journalFor(key), rows("a"));

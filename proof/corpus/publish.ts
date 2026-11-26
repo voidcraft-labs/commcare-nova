@@ -1034,6 +1034,17 @@ async function prepareDocument(
 	if (!result.ok) {
 		throw new UnexportableDocumentError(source.id, mode, result.violations);
 	}
+	/* A table the workbook cannot carry exactly goes through CommCare HQ's
+	 * JSON resources on a direct publish (`travelsAsJson`). The capture sends
+	 * no such request, so a document holding one would be captured without
+	 * its table: refuse it rather than publish another app than Nova's. The
+	 * JSON carrier's requests are held to HQ's own answers by
+	 * `proof/hq/test_lookup_json_publish.py`. */
+	const json = result.prepared.jsonLookupTables ?? [];
+	if (json.length > 0)
+		throw new Error(
+			`Nova's publish of ${source.id} carries ${json.map((table) => table.tag).join(", ")} through CommCare HQ's JSON table resources, which the capture does not send. Give the document tables a workbook carries exactly.`,
+		);
 	const workbook = result.prepared.lookupWorkbook;
 	const workbookIntent =
 		mode === "hq-upload" && workbook

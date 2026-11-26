@@ -298,6 +298,7 @@ export async function publishLookupTableJson(
 			operations: plan.operations,
 			revision: destination.revision,
 			remoteTableId,
+			table: held ?? null,
 			order: rows.map((row) => row.novaRowId),
 			ledgerRanks: new Map(
 				(ledger?.rows ?? []).map((row) => [row.novaRowId, row.sortKey]),
@@ -338,6 +339,8 @@ async function runOperations(input: {
 	readonly operations: readonly LookupJsonOperation[];
 	readonly revision: string | null;
 	readonly remoteTableId: string | null;
+	/** CommCare HQ's table the plan read, null before a create makes it. */
+	readonly table: HqLookupTable | null;
 	/** Nova's row order. */
 	readonly order: readonly string[];
 	/** Each kept row's rank before this run. */
@@ -348,6 +351,7 @@ async function runOperations(input: {
 	const { hq, journal } = input;
 	let revision = input.revision;
 	let remoteTableId = input.remoteTableId;
+	let table = input.table;
 	let writes = 0;
 	const digestOf = (operation: LookupJsonOperation) =>
 		operation.kind === "create-row" || operation.kind === "update-row"
@@ -381,6 +385,40 @@ async function runOperations(input: {
 				writes,
 				remoteTableId,
 			};
+		/* A row an update or delete names is read again once its request is
+		 * admitted and just before it goes: a person may have changed the row
+		 * in CommCare HQ since the plan read the table, and CommCare HQ's row
+		 * resource writes whatever it is sent, with no precondition of its
+		 * own, so a full PUT would put Nova's row over that change. A row no
+		 * longer as the ledger holds it settles the request unsent and stops
+		 * the table for a person. */
+		if (operation.kind === "update-row" || operation.kind === "delete-row") {
+			if (table === null)
+				throw new Error("A row write was planned before its table was found.");
+			const current = await hq.readRow(table, operation.remoteId);
+			const changed =
+				current === "missing" ||
+				("success" in current
+					? null
+					: current.sortKey !== operation.before.sortKey ||
+						current.digest !== operation.before.digest);
+			if (changed !== false) {
+				await journal.settle(
+					admission.operationId,
+					{ kind: "not-applied" },
+					{ writeIds: admission.writeIds, answered: true },
+				);
+				return {
+					kind: "stopped",
+					stop:
+						current !== "missing" && "success" in current
+							? { kind: "read-failed", error: current }
+							: { kind: "review", reason: "rows-changed" },
+					writes,
+					remoteTableId,
+				};
+			}
+		}
 		writes++;
 		const outcome = await send(hq, operation, remoteTableId);
 		const answered = outcome.kind !== "uncertain";
@@ -407,7 +445,9 @@ async function runOperations(input: {
 			const found =
 				"success" in tables
 					? undefined
-					: tables.find((table) => table.tag === operation.definition.tag);
+					: tables.find(
+							(candidate) => candidate.tag === operation.definition.tag,
+						);
 			if (
 				found?.isGlobal &&
 				lookupJsonDefinitionDigest(definitionOf(found)) ===
@@ -419,6 +459,7 @@ async function runOperations(input: {
 					{ writeIds, answered },
 				);
 				remoteTableId = found.id;
+				table = found;
 				continue;
 			}
 		}
