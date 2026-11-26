@@ -1504,7 +1504,6 @@ function enclosingRepeat(
 	return walk(null, null);
 }
 
-/** Reads one block's content into its proposal, or the finding it is. */
 /** A later owner needs its own scalar check in the generated guard. */
 function laterOwnerGuardIsHeld(
 	xform: ReadXForm,
@@ -1543,6 +1542,7 @@ function laterOwnerGuardIsHeld(
 	);
 }
 
+/** Reads one block's content into its proposal, or the finding it is. */
 function readBlock(
 	ctx: ReadContext,
 	form: DraftForm,

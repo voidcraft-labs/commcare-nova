@@ -691,7 +691,8 @@ export function CaseOperationDetailCanvas({
 						operation.target.kind === "new" &&
 						operation.target.idFrom === undefined &&
 						operation.target.expr === undefined)) &&
-					operation.ownerOnlyIfChanged === undefined && (
+					operation.ownerOnlyIfChanged === undefined &&
+					operation.ownerAfterCreate === undefined && (
 						<OwnerConditionSection
 							slot={{
 								entity: "form",
