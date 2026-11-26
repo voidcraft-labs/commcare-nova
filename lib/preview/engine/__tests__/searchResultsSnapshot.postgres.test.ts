@@ -692,10 +692,16 @@ describe("a completed search's snapshot", () => {
 				dbHandle.db,
 			);
 		}
-		// A malformed imported edge can point to a different Project; membership
-		// and each target hop use the authorized app and Project.
+		// Edges created by old imports can cross an app or Project. Each
+		// fixture uses a physical case inside its own authorized app tuple.
+		await sql`insert into apps(id, owner, project_id, app_name, app_name_lower)
+			values ('elsewhere-app', ${OTHER_WORKER}, 'elsewhere', 'Elsewhere', 'elsewhere'),
+				('other-app', ${OTHER_WORKER}, ${PROJECT}, 'Other app', 'other app')`.execute(
+			dbHandle.db,
+		);
 		await sql`insert into cases(app_id,project_id,case_id,case_type,case_name,status,properties)
-			values (${APP_ID},'elsewhere','private','visit','Private','open','{}'::jsonb)`.execute(
+			values ('elsewhere-app','elsewhere','private','visit','Private','open','{}'::jsonb),
+				('other-app',${PROJECT},'other-app-case','visit','Other app case','open','{}'::jsonb)`.execute(
 			dbHandle.db,
 		);
 		for (const [child, ancestor, name, type] of [
@@ -706,6 +712,7 @@ describe("a completed search's snapshot", () => {
 			["ignored-child", "patient-a", "parent", "patient"],
 			["non-parent", "care-a", "mentor", "episode"],
 			["private", "patient-a", "parent", "patient"],
+			["other-app-case", "patient-a", "parent", "patient"],
 		]) {
 			await sql`insert into case_indices(case_id,ancestor_id,identifier,depth,relationship,target_case_type)
 				values (${child},${ancestor},${name},1,'child',${type})`.execute(
@@ -884,6 +891,7 @@ describe("a completed search's snapshot", () => {
 			"child",
 			"middle",
 			"private",
+			"other-app-case",
 		]) {
 			const ids = ["house-a", unavailable];
 			await expect(
