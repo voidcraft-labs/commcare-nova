@@ -2231,7 +2231,7 @@
 		"id": "hq-advanced/open-index-named-with-a-slash",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/index-identifier-invalid-xml-local-name",
-		"standing": "never",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,
