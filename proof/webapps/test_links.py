@@ -288,19 +288,21 @@ def test_web_apps_displays_the_full_badges_formplayer_returns(
     evidence("badges", {"formplayer": response["commands"], "webApps": forms["commands"]})
 
 
-def test_generated_menu_badge_is_used_in_the_web_apps_release(
+def test_generated_navigation_badges_are_used_in_the_web_apps_release(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
-    from proof.formplayer.apps import override_menu_badge
+    from proof.formplayer.apps import override_navigation_badges
 
     with webapps_hq.project(webapps_documents["targeted-menu-badges"]) as project:
-        with project.released(formplayer_runner, change=override_menu_badge) as release:
+        with project.released(formplayer_runner, change=override_navigation_badges) as release:
             run = Session(release, editor_driver).run([
                 *steps.open_app("Field rounds"), *steps.arrive(any_screen=True), steps.SCREEN,
+                *steps.choose("Urgent Visit forms"), *steps.arrive(any_screen=True), steps.SCREEN,
             ])
     assert run.page_errors == [] and run.dialogs == []
-    (home,) = run.screens
+    home, forms = run.screens
     assert [(command["text"], command["badge"]) for command in home["commands"]] == [
         ("Visit forms", "Urgent"), ("Notes", ""),
     ]
-    evidence("generated-menu-badge", home)
+    assert [command["badge"] for command in forms["commands"]] == ["", "0", "0000", "1234", "2147483648", "Ready"]
+    evidence("generated-navigation-badges", {"home": home, "forms": forms})

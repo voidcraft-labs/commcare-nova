@@ -113,6 +113,7 @@ export function outputLocaleRole(unit: TranslationUnit): TranslationUnitRole {
 		case "menuTitle":
 			return "module-name";
 		case "menuBadgeText":
+		case "formBadgeText":
 			return "menu-badge";
 		case "formTitle":
 		case "registrationMenuTitle":

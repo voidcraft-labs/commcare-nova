@@ -28,6 +28,7 @@ import {
 	type BlueprintDoc,
 	type FormCaseSelection,
 	proseText,
+	snapshotTranslationUnits,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -36,8 +37,12 @@ import {
 } from "@/lib/domain/advancedEntryDatums";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { term } from "@/lib/domain/expression/builders";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { buildEngineInput } from "@/lib/preview/engine/engineInput";
-import { sharedVisitEntries } from "../../../proof/targeted/documents/sharedVisitEntries";
+import {
+	sharedVisitEntries,
+	sharedVisitsBlueprint,
+} from "../../../proof/targeted/documents/sharedVisitEntries";
 import { compileCczParts } from "../compiler";
 import { expandDoc } from "../expander";
 import {
@@ -135,6 +140,56 @@ function sharedEntries() {
 }
 
 describe("two entries opening the same questions", () => {
+	it("keeps independently stored commands for shared questions on their own badge words", () => {
+		const shared = sharedVisitsBlueprint("badge-controls");
+		const [parent, morning, evening] = shared.formOrder[shared.moduleOrder[0]];
+		const doc = produce(shared, (draft) => {
+			draft.forms[parent].badge = { kind: "text", text: "Parent" };
+			draft.forms[morning].badge = { kind: "text", text: "Morning" };
+			draft.forms[evening].badge = { kind: "text", text: "Evening" };
+		});
+		const id = generatedWordingId(morning, "formBadgeText");
+		const unit = snapshotTranslationUnits(doc).get(id);
+		if (!unit) throw Error("Missing the shared entry’s badge wording.");
+		const change = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "setTranslation",
+					language: "eng",
+					unitId: id,
+					entry: {
+						value: "Urgent",
+						origin: "human",
+						review: "reviewed",
+						sourceFingerprint: unit.sourceFingerprint,
+						translatedFrom: "eng",
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!change.ok) throw Error(JSON.stringify(change.findings));
+		const hq = expandDoc(change.nextDoc);
+		const [source, mine, sibling] = hq.modules[0].forms;
+		expect(mine).toMatchObject({
+			doc_type: "ShadowForm",
+			shadow_parent_form_id: source.unique_id,
+		});
+		expect(sibling).toMatchObject({
+			doc_type: "ShadowForm",
+			shadow_parent_form_id: source.unique_id,
+		});
+		expect(mine.custom_icons).toMatchObject([{ text: { en: "Morning" } }]);
+		expect(hq.translations?.en).toMatchObject({ "forms.m0f1.badge": "Urgent" });
+		const parts = compileCczParts(hq, change.nextDoc.appName, change.nextDoc, {
+			runtimeTarget: TEST_RUNTIME_TARGET,
+		});
+		expect(
+			[0, 1, 2].map((index) => parts.tables.en.get(`forms.m0f${index}.badge`)),
+		).toEqual(["Parent", "Urgent", "Evening"]);
+	});
+
 	it("installs one resource for three distinct commands, each with its own physical session steps", () => {
 		const fixture = sharedVisitEntries();
 		const doc = hydratePersistedBlueprint(fixture.doc);

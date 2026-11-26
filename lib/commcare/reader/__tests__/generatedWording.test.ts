@@ -1,23 +1,29 @@
 /** A worker reading one overridden form button or case column keeps that
  * wording in the named language. The authored label and sibling outputs
  * survive adoption, a publish and read-back. */
+import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
 import { expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
 import {
+	REGISTER,
 	ROUTE,
+	SOURCE,
 	twoMenus,
+	VISIT,
 } from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { compileCcz } from "@/lib/commcare/compiler";
+import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
 	presentedSearchWording,
 	workerPromptCheck,
 } from "@/lib/commcare/generatedSearchWording";
+import { generatedWordingKeys } from "@/lib/commcare/generatedWording";
 import { readLocaleFileAsCore } from "@/lib/commcare/localeFile";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
@@ -190,6 +196,124 @@ it("keeps a menu badge override separate from its ordinary badge in the editor a
 	expect(unsafe.findings.map((finding) => finding.code)).toContain(
 		"application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills",
 	);
+});
+
+it("keeps a form badge on its source command and every listed route", async () => {
+	const source = twoMenus();
+	source.forms[VISIT].badge = { kind: "text", text: "Ready" };
+	source.forms[REGISTER].badge = { kind: "text", text: "New" };
+	const key = "forms.m1f1.badge";
+	const raw = exportedBody(source);
+	raw.translations = {
+		en: {
+			...((raw.translations as { en?: object })?.en ?? {}),
+			[key]: "Urgent",
+		},
+	};
+	const result = readHqApp(
+		await inputFor(raw, { appStrings: (doc) => localAppStringTable(doc, []) }),
+		{ claims: "full" },
+	);
+	if (result.kind !== "read") throw Error(JSON.stringify(result.findings));
+	expect([...result.claims.records()]).toContainEqual(
+		expect.objectContaining({
+			entry: "application-and-settings/translations-generated-wording",
+			at: `/translations/en/${key}`,
+		}),
+	);
+	const doc = result.draft.doc;
+	const [routeUuid, sourceUuid] = doc.moduleOrder;
+	const [register, visit] = doc.formOrder[sourceUuid];
+	const id = generatedWordingId(visit, "formBadgeText");
+	expect(doc.localization?.generatedSourceWording?.[id]?.value).toBe("Urgent");
+	expect(doc.forms[visit].badge).toEqual({ kind: "text", text: "Ready" });
+	const wire = expandDoc(doc);
+	expect(wire.modules[0].forms).toEqual([]);
+	expect(wire.modules[1].forms[1].custom_icons).toMatchObject([
+		{ text: { en: "Ready" } },
+	]);
+	expect(wire.translations?.en[key]).toBe("Urgent");
+	const archive = new AdmZip(
+		compileCcz(wire, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	const suite = new DOMParser().parseFromString(
+		archive.readAsText("suite.xml"),
+		"application/xml",
+	);
+	const bearing = Array.from(suite.getElementsByTagName("command")).filter(
+		(command) =>
+			Array.from(command.getElementsByTagName("locale")).some(
+				(locale) => locale.getAttribute("id") === key,
+			),
+	);
+	expect(bearing.map((command) => command.getAttribute("id"))).toEqual([
+		"m0-f1",
+		"m1-f1",
+	]);
+	const table = readLocaleFileAsCore(archive.readAsText("en/app_strings.txt"));
+	expect(table.get("forms.m0f1.badge")).toBeUndefined();
+	expect(table.get("forms.m1f0.badge")).toBe("New");
+	expect(table.get(key)).toBe("Urgent");
+	const localizedValues = workerLocalizedValues(doc, "eng");
+	const preview = (
+		moduleUuid: typeof sourceUuid,
+		formUuid: typeof visit,
+		authoring = false,
+	) =>
+		previewEntryBadge({
+			doc,
+			entry: { kind: "form", moduleUuid, formUuid },
+			platform: "web-apps",
+			authoring,
+			localizedValues,
+			session: { context: {}, user: {}, userPropertySlugs: {} },
+			lookup: { kind: "idle" },
+		});
+	expect(preview(sourceUuid, visit)).toBe("Urgent");
+	expect(preview(routeUuid, visit)).toBe("Urgent");
+	expect(preview(sourceUuid, visit, true)).toBe("Ready");
+	expect(preview(sourceUuid, register)).toBe("New");
+
+	const reordered = { ...doc, moduleOrder: [sourceUuid, routeUuid] };
+	expect(expandDoc(reordered).translations?.en["forms.m0f1.badge"]).toBe(
+		"Urgent",
+	);
+	expect(expandDoc(reordered).translations?.en[key]).toBeUndefined();
+	const calculated: BlueprintDoc = {
+		...doc,
+		forms: {
+			...doc.forms,
+			[visit]: {
+				...doc.forms[visit],
+				badge: {
+					kind: "calculation",
+					expression: { kind: "term", term: { kind: "literal", value: 3 } },
+				},
+			},
+		},
+	};
+	expect(snapshotTranslationUnits(calculated).get(id)?.generated?.dormant).toBe(
+		true,
+	);
+	expect(expandDoc(calculated).translations?.en[key]).toBeUndefined();
+	expect(localAppStringTable(calculated, []).languages.en[key]).toBeUndefined();
+	expect(workerWording(calculated, "eng", id)).toBeUndefined();
+});
+
+it("does not register a form badge for the synthetic empty-Search registration command", () => {
+	const doc = twoMenus();
+	const host = doc.modules[SOURCE];
+	host.caseListRegistrationForm = {
+		kind: "after-empty-search",
+		formUuid: REGISTER,
+	};
+	host.caseSearchConfig = { formsReadSearch: true };
+	const plan = emissionPlan(doc);
+	expect([...plan.synthetic.values()].map((one) => one.formUuid)).toEqual([
+		REGISTER,
+	]);
+	const keys = generatedWordingKeys(doc, plan);
+	expect(keys.has("forms.m2f0.badge")).toBe(false);
 });
 
 it("keeps separate tab wording through adoption, a source change and publishing", async () => {

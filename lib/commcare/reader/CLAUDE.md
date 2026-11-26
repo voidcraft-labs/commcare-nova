@@ -690,7 +690,7 @@ the canonical row `app-name-strings-as-read`). A key no unit writes is inert whe
 names no string of the app or equals the table's string, and is refused otherwise.
 The generated-key reader takes its exact control identity and output role from the string registry.
 Each case and search column registers its own positions while producing its short and long detail.
-A menu text badge registers `modules.m#.badge` for its own wording and keeps the editor’s ordinary text in `custom_icons`.
+A menu or form text badge keeps the editor’s ordinary text in `custom_icons` and registers its own generated badge wording. Commands in menus that list another menu’s forms reference the source form’s `forms.m#f#.badge` locale. Independently stored shared form entries have their own form badge wording. Synthetic empty-Search registration commands cannot carry badges.
 A source or target override is held as the word the device reads for that language, including
 escaped line breaks and number signs. The app's `name` is also the profile's `name`, which Android's list of the apps on a
 phone shows (a carriage return or a line break there as a space), and the name Web Apps' list of
