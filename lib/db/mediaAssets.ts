@@ -1493,6 +1493,17 @@ export async function lockAndValidateMediaReferences(
 ): Promise<MediaAssetId[]> {
 	const ids = [...new Set(requirements.map((entry) => entry.assetId))].sort();
 	const assets = await getAssetsInTransaction(tx, ids);
+	validateMediaReferenceRows(projectId, requirements, assets);
+	return ids;
+}
+
+/** Validate the same references against locked writer rows or a read-only
+ * cutover snapshot. The coordinator owns the transaction in either path. */
+export function validateMediaReferenceRows(
+	projectId: string,
+	requirements: readonly MediaReferenceRequirement[],
+	assets: ReadonlyMap<MediaAssetId, MediaAssetRecord>,
+): void {
 	for (const requirement of requirements) {
 		const asset = assets.get(requirement.assetId);
 		if (
@@ -1537,7 +1548,6 @@ export async function lockAndValidateMediaReferences(
 			unplayable,
 		);
 	}
-	return ids;
 }
 
 /** Remove the complete derived reference projection for one app. */

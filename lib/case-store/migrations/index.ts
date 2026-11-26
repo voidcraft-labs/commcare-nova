@@ -134,6 +134,7 @@ import * as caseWritesPublishPlacement from "./20261110000000_hq_round_trip_case
 import * as caseWritesCommtrackConfirmation from "./20261110010000_hq_round_trip_case_writes_commtrack_confirmation";
 import * as caseWritesFoldHorizon from "./20261110020000_hq_round_trip_case_writes_fold_horizon";
 
+import * as hqRoundTripCompletionHorizon from "./20261208000002_hq_round_trip_completion_horizon";
 import * as authoringWorkspaceFold from "./20261208000003_authoring_workspace_fold";
 import * as formOpeningData from "./20261208010000_form_opening_data";
 import * as casesLocationId from "./20261208030000_cases_location_id";
@@ -277,6 +278,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261207050000_organization_place_pages": organizationPlacePages,
 	"20261207060000_user_settings_connection_epoch": userSettingsConnectionEpoch,
 	"20261208000000_lookup_json_destinations": lookupJsonDestinations,
+	"20261208000002_hq_round_trip_completion_horizon":
+		hqRoundTripCompletionHorizon,
 	"20261208000003_authoring_workspace_fold": authoringWorkspaceFold,
 	"20261208020000_case_index_history": caseIndexHistory,
 	"20261208050000_preview_search_settings": previewSearchSettings,
