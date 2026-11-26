@@ -164,9 +164,7 @@ describe("instance ids", () => {
 			tag: "locations",
 			columns: table.columns.map((column, index) => ({
 				...column,
-				// A form's logic reads only names HQ's form builder reads: an
-				// accented or CJK name is not offered there.
-				wireName: ["dept.2", "dépt", "地区"][index] ?? "dept.3",
+				wireName: index === 0 ? "dépt.2" : "地区",
 			})),
 		};
 		const catalog = {
@@ -181,14 +179,14 @@ describe("instance ids", () => {
 			["locations", "Places"],
 		]);
 		const row = "instance('item-list:locations')/locations_list/locations";
-		expect(complete(VISIT, `${row}[`, catalog).labels).toEqual(["dept.2"]);
-		expect(complete(VISIT, `${row}/`, catalog).labels).toEqual(["dept.2"]);
+		expect(complete(VISIT, `${row}[`, catalog).labels).toEqual(["dépt.2"]);
+		expect(complete(VISIT, `${row}/`, catalog).labels).toEqual(["dépt.2"]);
 		expect(complete(VISIT, "instance('locations')/", catalog).labels).toEqual([
 			"locations/",
 		]);
 		expect(
 			xpathDiagnostics(
-				`count(${row}[dept.2 = 'north'])`,
+				`count(${row}[dépt.2 = 'north'])`,
 				context(VISIT, catalog),
 			),
 		).toEqual([]);

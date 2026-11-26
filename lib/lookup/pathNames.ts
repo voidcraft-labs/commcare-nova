@@ -38,40 +38,11 @@ const HQ_CHECKED_SLOTS: ReadonlySet<string> = new Set([
 	"excluded_owner_ids",
 ]);
 
-/** The slot a select's choices from a table hold: the table and the
- * columns its choices show and save. HQ's form builder compares the label
- * and value refs with the table's names as text (`itemset.js`:
- * `validateRefWidget`) and keeps them as written; it reads the nodeset's
- * path, the table's tag, with its XPath reader. */
-const ITEMSET_SLOT = "lookup_options_source";
-
-/** The row filter of a select's choices from a table, which HQ's form
- * builder reads as XPath. The registry holds it under `lookup_options_source`
- * (`lib/doc/lookupReferences.ts`: its references' subpath ends `filter`). */
-export const LOOKUP_OPTIONS_FILTER_SLOT = "lookup_options_filter";
-
-/** The slot whose name rule a lookup reference answers to: a select's row
- * filter is read as form logic, the rest of its choices as the itemset.
- * `subpath` is the occurrence's canonical path below its slot
- * (`lib/doc/lookupReferences.ts::canonicalLookupReferenceSubpath`), where
- * the filter is the key segment `/k:filter`. */
-export function lookupNameSlotOf(
-	registrySlot: string,
-	subpath: string,
-): string {
-	return registrySlot === ITEMSET_SLOT &&
-		subpath.split("/").includes("k:filter")
-		? LOOKUP_OPTIONS_FILTER_SLOT
-		: registrySlot;
-}
-
-/** Form logic: every slot a form's own XPath holds but a select's choices.
- * HQ's form builder reads each with js-xpath, and one it cannot read it saves
- * with its own `#form/` references left in (proof 4 on
- * `targeted-lookup-non-ascii-names`: a calculate went to
- * `zones_b[clé = #form/area]`, and HQ's build refused it). */
-function isFormLogicSlot(registrySlot: string): boolean {
-	return !SUITE_SLOTS.has(registrySlot) && registrySlot !== ITEMSET_SLOT;
+/** A form's own slots: every slot outside the suite. A form reads a table
+ * there through a path that names the table's tag, which HQ's form builder
+ * reads with js-xpath. */
+function isFormSlot(registrySlot: string): boolean {
+	return !SUITE_SLOTS.has(registrySlot);
 }
 
 /** Whether CommCare HQ's own XPath reader, which its form builder and its
@@ -102,7 +73,7 @@ export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 		case "hq-unreadable-name":
 			return "CommCare HQ checks this condition with its own reader, which takes only unaccented letters, digits, _, . and - in a name, and turns it down.";
 		case "form-builder-unreadable-name":
-			return "CommCare HQ's form builder reads a form's expressions with a reader that takes only unaccented letters, digits, _, . and - in a name, so a save there would break this form.";
+			return "CommCare HQ's form builder loses a table whose export tag holds anything but unaccented letters, digits, _, . and -, so the form would stop building after a save there.";
 	}
 }
 
@@ -147,13 +118,14 @@ export function lookupPathNameIssue(
 	if (!isPortableName(name, platforms)) return "unreadable-name";
 	if (HQ_CHECKED_SLOTS.has(registrySlot) && !isFormBuilderXPathName(name))
 		return "hq-unreadable-name";
-	// A form reads a table through its tag in a path HQ's form builder reads,
-	// and the builder drops the declaration of an instance whose reads it
-	// cannot lex; HQ then refuses the form ("Instance: item-list:ζωνες Does not
-	// exists", proof 4 on targeted-lookup-non-ascii-names).
+	// HQ's form builder drops the declaration of an instance whose reads it
+	// cannot lex, and HQ's validation then refuses the form ("Instance: ζωνες
+	// Does not exists"). A column of such a name it keeps: a select compares
+	// its refs as text, and form logic without a `vellum:` copy is kept as
+	// written (`lib/commcare/xpath/wire/serialize.ts::shadowEligibility`).
 	if (
-		(isFormLogicSlot(registrySlot) ||
-			(registrySlot === ITEMSET_SLOT && part === "tag")) &&
+		part === "tag" &&
+		isFormSlot(registrySlot) &&
 		!isFormBuilderXPathName(name)
 	)
 		return "form-builder-unreadable-name";
@@ -173,8 +145,8 @@ export function lookupPathNameIssue(
 
 /** Project data can be used by apps on either platform. The case list
  * filter goes through every suite restriction, a display condition through
- * CommCare HQ's own check besides, and form logic through HQ's form
- * builder's reader. */
+ * CommCare HQ's own check besides, and a form's read of a tag through HQ's
+ * form builder. */
 export function lookupNameNeedsUseCheck(
 	name: string,
 	part: "tag" | "column",
@@ -182,6 +154,6 @@ export function lookupNameNeedsUseCheck(
 	return (
 		lookupPathNameIssue(name, "case_list_filter", part) !== null ||
 		lookupPathNameIssue(name, "form_display_condition", part) !== null ||
-		lookupPathNameIssue(name, LOOKUP_OPTIONS_FILTER_SLOT, part) !== null
+		lookupPathNameIssue(name, "calculate", part) !== null
 	);
 }

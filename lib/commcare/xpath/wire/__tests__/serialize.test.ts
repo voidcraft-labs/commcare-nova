@@ -396,6 +396,29 @@ describe("path spelling and shadow eligibility", () => {
 		}
 	});
 
+	it("withholds the Vellum shadow of an expression holding a name HQ's form builder cannot lex", () => {
+		/* Vellum loads `vellum:calculate` in place of `calculate`, and writes an
+		 * expression it cannot parse back as its hashtag text
+		 * (`util.js::writeHashtags`), so a `#form/` reference beside an
+		 * accented step would reach `calculate`. With no shadow it keeps the
+		 * expression as written (`form.js::normalize`). */
+		const mode = { target: "vellum", constraint: false } as const;
+		const area = w.form(["area"], "hashtag");
+		const reading = (name: string) =>
+			w.eq(w.context([w.step(name)]), w.call("string", [area]));
+		expect(serializeWire(reading("region"), mode)?.text).toBe(
+			"region = string(#form/area)",
+		);
+		for (const name of ["région", "ζωνες", "名前"])
+			expect(serializeWire(reading(name), mode)).toBeUndefined();
+		expect(
+			serializeWire(w.eq(w.context([w.attr("clé")]), area), mode),
+		).toBeUndefined();
+		expect(
+			serializeWire(w.eq(w.context([w.step("n0:case")]), area), mode)?.text,
+		).toBe("n0:case = #form/area");
+	});
+
 	it("requires an actual hashtag field read before emitting a Vellum shadow", () => {
 		const mode = { target: "vellum", constraint: false } as const;
 		for (const value of [

@@ -39,7 +39,6 @@ import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { userPropertySlugsByUuid } from "@/lib/domain/users";
 import type { Uuid } from "@/lib/domain/uuid";
-import { LOOKUP_OPTIONS_FILTER_SLOT } from "@/lib/lookup/pathNames";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { caseOptionsNodeset } from "../../caseOptions";
 import { caseTypeHopMap } from "../../caseTypeDepths";
@@ -1713,12 +1712,7 @@ function boundNameRefusal(
 				: (column === undefined ? table.attributes : column.properties)?.find(
 						(one) => one.id === ref.memberId,
 					);
-		// The expression a select's choices register is their row filter; the
-		// itemset's own names are the form stage's (`xform/options.ts`).
-		const slot =
-			pending.ref.slot === "lookup_options_source"
-				? LOOKUP_OPTIONS_FILTER_SLOT
-				: pending.ref.slot;
+		const slot = pending.ref.slot;
 		const found =
 			lookupNameRefusal(table.tag, slot, "tag") ??
 			(column === undefined
@@ -1743,11 +1737,12 @@ function catalogNeedsNameDiagnostics(env: ExpressionReadEnv): boolean {
 	let needed = diagnosticCatalogs.get(env.lookup);
 	if (needed === undefined) {
 		// The case list filter takes every suite restriction, a display
-		// condition HQ's own XPath check, and form logic HQ's form builder's.
+		// condition HQ's own XPath check, and a form's read of a tag HQ's form
+		// builder's.
 		const refused = (name: string, part: "tag" | "column") =>
 			lookupNameRefusal(name, "case_list_filter", part) !== undefined ||
 			lookupNameRefusal(name, "form_display_condition", part) !== undefined ||
-			lookupNameRefusal(name, LOOKUP_OPTIONS_FILTER_SLOT, part) !== undefined;
+			lookupNameRefusal(name, "calculate", part) !== undefined;
 		needed = [...env.lookup.values()].some(
 			(table) =>
 				refused(table.tag, "tag") ||

@@ -193,7 +193,7 @@ to add as a user field on CommCare HQ, since Nova can't create those fields, and
 a phone stops where it reads a field its project space doesn't define.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
-filter, `#row/column` reads the current row. A name with punctuation can use the quoted form, such as `table-column('facilities', 'site.name')`; a form reads only names of unaccented letters, digits, underscores, hyphens and periods. A case-list filter, an advanced
+filter, `#row/column` reads the current row. A name with punctuation or accents can use the quoted form, such as `table-column('facilities', 'site.name')`; a form reads a table only by a tag of unaccented letters, digits, underscores, hyphens and periods. A case-list filter, an advanced
 Search input's rule or a form's display condition that runs after a case is
 chosen in an earlier menu reads that case as `chosen-case('<menu name>')` and
 its properties as `chosen-case-property('<menu name>', '<property>')`.
@@ -1163,10 +1163,10 @@ letters, digits, underscores, hyphens and periods: `site_code` and `site.name`
 both work. Some places only read plain names: CommCare HQ changes a period in
 a case list filter or display condition, a menu reads a table only by a tag of
 letters, digits, underscores and hyphens, Android reads fewer characters
-than Web Apps, and a form reads a table, and form logic or a display condition
-reads a column, only by a name of unaccented letters, digits, underscores,
-hyphens and periods. A select's choices can show and save a column named
-`région`. A rename is checked against every app and accepted design that
+than Web Apps, a form reads a table only by a tag of unaccented letters,
+digits, underscores, hyphens and periods, and a display condition reads a
+table or column only by such a name. A form's choices and logic can read a
+column named `région`. A rename is checked against every app and accepted design that
 uses the table, and refused with the app, the place and a suggested name like
 `district_code` where the new name won't work there. A
 referenced table or column cannot be removed, incompatible values block a

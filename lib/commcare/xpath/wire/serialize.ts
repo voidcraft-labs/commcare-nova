@@ -150,6 +150,20 @@ function children(expr: WireExpr): readonly WireExpr[] {
 	}
 }
 
+/** A name HQ's form builder reads: js-xpath's `QName`, unaccented letters,
+ * digits, `_`, `.` and `-`, with an optional prefix (`xpath.jisonlex`). */
+const FORM_BUILDER_QNAME =
+	/^[A-Za-z_][A-Za-z0-9._-]*(?::[A-Za-z_][A-Za-z0-9._-]*)?$/;
+
+/**
+ * Whether the `vellum:` copy of an expression is written. HQ's form builder
+ * loads that copy in place of the expression and writes it back as the
+ * expression when it cannot parse it (`util.js::writeHashtags` converts a
+ * reference back only behind its `#invalid/xpath ` mark), so an expression
+ * holding a name its reader cannot lex gets no copy: the builder then keeps
+ * the expression as written, as it keeps one a person wrote in CommCare HQ
+ * without a copy (`form.js::normalize`).
+ */
 function shadowEligibility(
 	expr: WireExpr,
 	visited = new WeakSet<WireExpr>(),
@@ -160,6 +174,14 @@ function shadowEligibility(
 	let eligible = false;
 	if (expr.k === "path") {
 		if (expr.root.k === "hq-case") return "withheld";
+		if (
+			expr.steps.some(
+				(step) =>
+					(step.axis === "child" || step.axis === "attribute") &&
+					!FORM_BUILDER_QNAME.test(step.name),
+			)
+		)
+			return "withheld";
 		if (expr.root.k === "form" && expr.root.spelling === "hashtag") {
 			if (
 				expr.steps.some(

@@ -163,11 +163,13 @@ Core reads a narrower alphabet than XML, and HQ rewrites periods between
 nondigits in certain list and display conditions. HQ's form builder and HQ's
 own condition checks read XPath with js-xpath, whose names are unaccented
 letters, digits, `_`, `.` and `-` (`pathNames.ts::isFormBuilderXPathName`): a
-form reads a table only by such a tag, form logic (a select's row filter
-included, `LOOKUP_OPTIONS_FILTER_SLOT`) reads only such a column, and so does
-a menu or form display condition, a search button condition or the excluded
-owners. A select's label and value refs may name any column, since the
-builder compares them as text. A refused formula names the affected source and
+form reads a table only by such a tag, since the builder drops the declaration
+of an instance whose reads it cannot lex, and a menu or form display
+condition, a search button condition or the excluded owners read only such a
+tag and column. A form reads a column of any name: a select's label and value
+refs are compared as text, and form logic holding a name the builder cannot
+lex is written with no `vellum:` copy, so the builder keeps it as written
+(`lib/commcare/xpath/wire/serialize.ts::shadowEligibility`). A refused formula names the affected source and
 use so the author can choose a compatible name or change the formula.
 
 ## Reference edges and schema governance

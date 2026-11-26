@@ -1002,9 +1002,10 @@ Expressions take `table-lookup` value terms and `table-column` comparison terms
 Form logic stores the table and column UUIDs. The printed expression reads
 `<tag>_list/<tag>` from the instance declared for `jr://fixture/item-list:<tag>`.
 In a form the instance usually has the table's tag. When the tag could name
-another data source, Nova uses `item-list:<tag>`. A form reads only a tag, and
-its logic only a column, of unaccented letters, digits, `_`, `.` and `-`, the
-names HQ's form builder reads (`lib/lookup/pathNames.ts`). Form links always use this
+another data source, Nova uses `item-list:<tag>`. A form reads only a tag of
+unaccented letters, digits, `_`, `.` and `-`, the names HQ's form builder reads
+(`lib/lookup/pathNames.ts`); an expression holding a column outside them is
+written with no `vellum:` copy, which the builder keeps as written. Form links always use this
 qualified name. These reads contribute reference edges, publish resources and
 device fixtures. Renaming a table or column preserves the read.
 Source switching is a complete atomic replacement — no inactive source survives

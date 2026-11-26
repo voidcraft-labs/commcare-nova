@@ -5841,7 +5841,7 @@ test.describe("authenticated builder", () => {
 			.click();
 		await page
 			.getByRole("textbox", { name: "Column name in exports and CSV" })
-			.fill("cod.2");
+			.fill("cód.2");
 		await page.getByRole("button", { name: "Save export name" }).click();
 		await expect(
 			page.getByRole("status").filter({ hasText: "Export name saved." }),
@@ -6194,7 +6194,7 @@ test.describe("authenticated builder", () => {
 		const editor = condition.locator('.cm-content[contenteditable="true"]');
 		await expect(editor).toBeFocused();
 		await page.keyboard.insertText(
-			"count(instance('item-list:locations')/locations_list/locations[cod.2 = 'dh']) > 0",
+			"count(instance('item-list:locations')/locations_list/locations[cód.2 = 'dh']) > 0",
 		);
 		const [savedCondition] = await Promise.all([
 			page.waitForResponse(
@@ -6219,7 +6219,7 @@ test.describe("authenticated builder", () => {
 		await expect(
 			condition.locator('[data-ref-raw*="item-list:locations"]'),
 		).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
-		await expect(condition.locator('[data-ref-raw="cod.2"]')).toHaveText(
+		await expect(condition.locator('[data-ref-raw="cód.2"]')).toHaveText(
 			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
 		);
 
@@ -6233,7 +6233,7 @@ test.describe("authenticated builder", () => {
 		await page.keyboard.insertText("1");
 		await editor.press("ControlOrMeta+Enter");
 		await expect(savedRule).toContainText("> 1");
-		await expect(savedRule.locator('[data-ref-raw="cod.2"]')).toHaveText(
+		await expect(savedRule.locator('[data-ref-raw="cód.2"]')).toHaveText(
 			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
 		);
 

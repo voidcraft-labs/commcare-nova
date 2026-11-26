@@ -14,7 +14,6 @@ import {
 	reservedInstanceTagCause,
 } from "@/lib/lookup/constants";
 import {
-	lookupNameSlotOf,
 	lookupPathNameIssue,
 	lookupPathNameSentence,
 } from "@/lib/lookup/pathNames";
@@ -175,7 +174,7 @@ export function validateLookupReferences(
 		name: string,
 		part: "tag" | "column",
 	): void {
-		const slot = lookupNameSlotOf(occurrence.registrySlot, occurrence.subpath);
+		const slot = occurrence.registrySlot;
 		const issue = lookupPathNameIssue(name, slot, part, platforms);
 		if (issue === null) return;
 		const readableInWebApps =

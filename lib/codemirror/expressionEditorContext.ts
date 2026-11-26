@@ -59,10 +59,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import { operationCaseType, orderedCaseOperations } from "@/lib/domain/forms";
 import { userPropertiesOf } from "@/lib/domain/users";
-import {
-	LOOKUP_OPTIONS_FILTER_SLOT,
-	lookupPathNameIssue,
-} from "@/lib/lookup/pathNames";
+import { lookupPathNameIssue } from "@/lib/lookup/pathNames";
 import {
 	buildFormReferenceContext,
 	type FormReferenceContext,
@@ -388,11 +385,7 @@ function slotReads(
 			: undefined;
 	const slotChoices =
 		slotField === undefined ? undefined : choicesOf(slotField);
-	// The editor of a select's choices from a table edits their row filter.
-	const nameSlot =
-		scope.slot.slot === "lookup_options_source"
-			? LOOKUP_OPTIONS_FILTER_SLOT
-			: scope.slot.slot;
+	const nameSlot = scope.slot.slot;
 	return {
 		tables:
 			lookup === "unavailable"

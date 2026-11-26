@@ -492,7 +492,7 @@ describe("a form slot's text read through the reading hook", () => {
 			});
 	});
 
-	it("refuses form logic reading a name HQ's form builder cannot read, and reads its ASCII neighbour", () => {
+	it("refuses form logic reading a table whose tag HQ's form builder cannot read, and reads an accented column", () => {
 		const doc = visitDoc();
 		const ref = {
 			entity: "field",
@@ -516,10 +516,7 @@ describe("a form slot's text read through the reading hook", () => {
 				}),
 			);
 		};
-		for (const [tag, column, name] of [
-			["ζωνες", "code", "ζωνες"],
-			["zones", "clé", "clé"],
-		])
+		for (const [tag, column, name] of [["ζωνες", "code", "ζωνες"]])
 			expect(judge(tag, column)).toMatchObject({
 				kind: "refused",
 				cause: {
@@ -527,6 +524,9 @@ describe("a form slot's text read through the reading hook", () => {
 					name,
 				},
 			});
+		// A column of such a name the form builder keeps as written once Nova
+		// writes no `vellum:` copy of the expression.
+		expect(judge("zones", "clé")).toMatchObject({ kind: "bound" });
 		expect(judge("zones", "code")).toMatchObject({ kind: "bound" });
 	});
 
