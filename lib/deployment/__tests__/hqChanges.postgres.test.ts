@@ -1923,11 +1923,11 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			.updateTable("media_assets")
 			.set({
 				content_hash: createHash("sha256").update(big).digest("hex"),
-				size_bytes: String(big.length),
+				size_bytes: big.length,
 			})
 			.where("project_id", "=", E2E_PROJECT)
 			.executeTakeFirst();
-		expect(updated.numUpdatedRows).toBe(1n);
+		expect(Number(updated.numUpdatedRows)).toBe(1);
 		/* CommCare HQ now names the same bytes by another id, as a bulk upload whose processing
 		 * Nova did not see confirmed leaves it. */
 		const BIG = "big-image";
