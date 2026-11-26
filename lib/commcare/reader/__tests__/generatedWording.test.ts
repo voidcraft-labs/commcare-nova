@@ -39,6 +39,8 @@ import {
 	plainColumn,
 } from "@/lib/domain/modules";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
+import { bindAppTestAction } from "@/lib/preview/app-tests/addresses";
 import { projectColumnDisplay } from "@/lib/preview/columnDisplay";
 import { columnOutputWording } from "@/lib/preview/localizedCaseProperties";
 import { workerDetailTabTitle } from "@/lib/preview/workerModule";
@@ -194,6 +196,38 @@ it("keeps separate tab wording through adoption, a source change and publishing"
 			expect(workerDetailTabTitle({ ...tab, title: base }, true, values)).toBe(
 				strings[code][searchKey],
 			);
+			for (const [search, key] of [
+				[false, caseKey],
+				[true, searchKey],
+			] as const) {
+				const moduleUuid = doc.moduleOrder[0];
+				expect(
+					bindAppTestAction(
+						doc,
+						{
+							language,
+							platform: "web-apps",
+							androidDeviceId: "tab-wording-proof",
+							personaUuid: null,
+							screen: {
+								kind: "details",
+								moduleUuid,
+								caseId: "patient-1",
+								source: {
+									kind: "records",
+									moduleUuid,
+									...(search && { searchAnswers: [] }),
+								},
+							},
+							history: [],
+							selections: {},
+							deviceCases: { rows: [], indices: [] },
+							afterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+						},
+						{ kind: "detailTab", tabUuid: strings[code][key] },
+					),
+				).toMatchObject({ tabUuid: tab.uuid });
+			}
 		}
 	};
 	checkOutputs(adopted);
