@@ -921,8 +921,7 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/modules/*/search_config/default_properties/*/defaultValue",
-				"kind": "changed"
+				"path": "/modules/*/search_config/default_properties/*/defaultValue"
 			},
 			{
 				"check": "proof2",
