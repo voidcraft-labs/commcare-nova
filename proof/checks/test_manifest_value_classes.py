@@ -6310,6 +6310,19 @@ def _data_binds_and_itext():
           <bind nodeset="/data/." relevant="true()"/>""",
         body='<input ref="/data/q"/>',
     )
+
+    def inserted_model_rows(ids, later):
+        return form(
+            data='<first/><rounds ids="" vellum:role="Repeat"><item jr:template=""/></rounds>',
+            model=(
+                '<bind nodeset="/data/first" type="xsd:string"/>'
+                f"""<bind nodeset="/data/rounds/item" relevant="if(position() = 0, /data/first = 'yes', /data/first = '{later}')"/>"""
+                f"""<setvalue event="xforms-ready" ref="/data/rounds/@ids" value="join(' ', '{ids}')"/>"""
+            ),
+            body='<input ref="/data/first"/><group><repeat nodeset="/data/rounds/item"/></group>',
+        )
+
+    inserted_role = f"{data}rounds[1]/@vellum:role"
     return {
         "questions/question-id-failing-the-grammar-or-meta-in-any-case": (
             refused("form", nodes, root_child, f"{data}_bad[1]"),
@@ -6400,6 +6413,11 @@ def _data_binds_and_itext():
         "questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind": (
             refused("form", iterations, role, f"{data}outer[1]/{data}iter[1]/@vellum:role"),
             accepted("form", iterations, role, f"{data}top[1]/@vellum:role"),
+        ),
+        "questions/model-iteration-repeat-allowing-insertion-after-a-hidden-first-row": (
+            refused("form", inserted_model_rows("a b c", "no"), role, inserted_role),
+            accepted("form", inserted_model_rows("a b c", "yes"), role, inserted_role),
+            accepted("form", inserted_model_rows("a", "no"), role, inserted_role),
         ),
         "questions/model-iteration-repeat-under-an-ancestor-that-core-s-load-can": (
             # page's condition runs when /data/show is set to 'no' before late's query, and an answer can show it
