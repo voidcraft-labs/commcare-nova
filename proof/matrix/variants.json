@@ -33947,20 +33947,11 @@
 		"id": "hq-questions/long-form-on-help",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
-		"standing": "holds",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "long_form_on_help"
 		},
-		"output": [
+		"holds": [
 			{
 				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
 				"pointer": "/extended_help/parts/0/text",
