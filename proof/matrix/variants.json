@@ -18538,6 +18538,28 @@
 		}
 	},
 	{
+		"id": "hq-empty-search/conditional-registration-returning-to-search",
+		"base": "hq-empty-search",
+		"entry": "menus-and-case-lists/case-list-form-return-search-needs-the-created-case",
+		"standing": "never",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/open_case/condition",
+			"value": {
+				"doc_type": "FormActionCondition",
+				"type": "if",
+				"question": "/data/case_name",
+				"answer": "Create patient",
+				"operator": "="
+			}
+		}
+	},
+	{
 		"id": "hq-expressions/call-center-indicators-read",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/indicators-call-center-indicators",
