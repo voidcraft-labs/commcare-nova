@@ -294,12 +294,13 @@ describe("one date and time saved to a property of the same name on two cases", 
 });
 
 describe("a date-and-time answer copied through a single parent index", () => {
-	function parentWrite(property: string) {
+	function parentWrite(property: string, savesOwn = true) {
 		const envelope = JSON.parse(
 			readFileSync("proof/hq-apps/hq-case-management/app-source.json", "utf8"),
 		) as { body: string };
 		const body = JSON.parse(envelope.body) as Record<string, unknown>;
 		const form = (body.modules as Modules)[1].forms[0];
+		if (!savesOwn) delete form.actions.update_case.update.status_note;
 		const files = body._attachments as Record<string, string>;
 		const key = `${form.unique_id}.xml`;
 		files[key] = files[key].replace('type="xsd:string"', 'type="xsd:dateTime"');
@@ -349,6 +350,21 @@ describe("a date-and-time answer copied through a single parent index", () => {
 			status_note: { question_path: "/data/status_note" },
 			"parent/visit_day": { question_path: "/data/status_note" },
 		});
+	});
+
+	it("withholds the split when the only Date destination is the parent", async () => {
+		const result = await read(parentWrite("visit_day", false));
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const declaration = result.draft.declaration;
+		if (declaration.kind !== "choices")
+			throw new Error("The source can still run on Android");
+		expect(
+			declaration.choices.map(({ runsOnlyOn, split }) => ({
+				runsOnlyOn,
+				split,
+			})),
+		).toEqual([{ runsOnlyOn: "android", split: false }]);
 	});
 
 	it("holds a parent day and an own-case moment for the same destination apart", async () => {
