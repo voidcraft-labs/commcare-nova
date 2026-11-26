@@ -3258,7 +3258,7 @@
 		"id": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase create (`case_type` literal, `case_name`, `owner_id`, `uuid()` case id) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
+		"item": "SaveToCase create (`case_type` literal or concatenated string literals, `case_name`, `owner_id`, `uuid()` case id) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": [
 			"mug:SaveToCase",
 			"vellum-plugin:saveToCase",
@@ -3282,7 +3282,7 @@
 		],
 		"valueClass": "savetocase-create",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`",
+		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`. A literal-only concatenation stays a calculation and keeps its empty HQ type metadata. Its fixed value is the operation’s catalog type.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3338,11 +3338,11 @@
 		"id": "questions/savetocase-case-type-given-as-an-xpath",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase `case_type` given as an XPath",
+		"item": "SaveToCase `case_type` given as an XPath outside the fixed create shape",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "xpath-case-type",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseOperations[].caseType` expression",
+		"dispositionCell": "**HELD-NEW**: a create whose calculation depends on form data or other runtime inputs, or a calculated change of type. A runtime-dependent type needs catalog and case relation contracts for every possible output.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {

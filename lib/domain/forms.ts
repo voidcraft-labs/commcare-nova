@@ -594,11 +594,31 @@ export const ownCaseOperationSchema = z.strictObject({
 	retype: z.never().optional(),
 });
 
+// An imported create can retain a calculation without making its case type
+// dynamic. The commit gate checks that the concatenation gives `caseType`.
+const caseTypeLiteralTermSchema = z.strictObject({
+	kind: z.literal("term"),
+	term: z.strictObject({ kind: z.literal("literal"), value: z.string() }),
+});
+const caseTypeCalculationSchema = z.strictObject({
+	kind: z.literal("concat"),
+	parts: z.tuple(
+		[caseTypeLiteralTermSchema, caseTypeLiteralTermSchema],
+		caseTypeLiteralTermSchema,
+	),
+});
+export type CaseTypeCalculation = z.infer<typeof caseTypeCalculationSchema>;
+
+export function fixedCaseTypeOf(calculation: CaseTypeCalculation): string {
+	return calculation.parts.map(({ term }) => term.value).join("");
+}
+
 export const caseOperationSchema = z.discriminatedUnion("action", [
 	ownCaseOperationSchema,
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("create"),
+		typeCalculation: caseTypeCalculationSchema.optional(),
 		ownerCondition: conditionSchema.optional(),
 		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
@@ -737,6 +757,7 @@ export type OwnCaseOperation = CaseOperationFacets & {
 export type TargetedCaseOperation = CaseOperationFacets & {
 	action: Exclude<CaseOperationAction, "own">;
 	caseType: string;
+	typeCalculation?: CaseTypeCalculation;
 	target: CaseTarget;
 	condition?: Expression;
 	ownerCondition?: Expression;

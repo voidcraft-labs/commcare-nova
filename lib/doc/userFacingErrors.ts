@@ -1498,7 +1498,31 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} uses a date calculation the device can't run. Use a whole date with seconds, minutes, hours, days, or weeks.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
-	PROJECT_SEARCH_REQUEST: (e) => e.message,
+	PROJECT_SEARCH_REQUEST: (e) => {
+		const name = q(det(e, "name", "this search field"));
+		switch (det(e, "reason", "")) {
+			case "missing-search":
+				return "Choose a search that belongs to this app.";
+			case "empty-request":
+				return "Add a search field or a named value for the project space to use.";
+			case "reserved-default":
+				return `${name} controls the search request. Choose a parameter name supplied by the project space.`;
+			case "unbound-field":
+				return `Choose how the project space uses ${name} before connecting this search.`;
+			case "shared-name":
+				return `The field ${name} shares its name with a starting parameter. Give the field its own name.`;
+			case "reserved-field":
+				return `${name} controls the search request. Give the search field a different name.`;
+			case "single-answer":
+				return `${name} takes one answer. Choose a single-answer field.`;
+			case "one-source":
+				return `The project space accepts one value for ${name}. Choose one place to supply it.`;
+			case "missing-source":
+				return "Choose the search supplied by the project space before adding its parameters.";
+			default:
+				return "Review the Search settings and choose the fields or values the project space should use.";
+		}
+	},
 	CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} in ${q(modName(e))} has the name CommCare gives its own search filters, so it would never search a case. Rename it under More settings.`,
 	CASE_LIST_SEARCH_INPUT_NAME_RESERVED: (e) =>
@@ -2076,6 +2100,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A case with a conditional owner needs a new ID on each submission.",
 	CASE_OPERATION_CLOSE_ACTION_REQUIRED: () =>
 		"A close change can save these properties and close the case.",
+	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: () =>
+		"This change needs a calculation that always gives its chosen case type.",
 	CASE_OPERATION_CLOSE_CONDITION_INVALID: () =>
 		"This change needs to close the case before you can set a close condition.",
 	CASE_CHANGE_POSITION_INVALID: (e) => {

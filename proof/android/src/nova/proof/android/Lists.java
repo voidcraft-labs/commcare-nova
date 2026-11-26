@@ -311,11 +311,12 @@ final class Lists {
             observations.put(sample);
             ShadowToast.reset();
             boolean missing = command.optBoolean("missingHandler");
+            boolean automatic = command.optBoolean("automatic");
             if (missing) {
                 Shadows.shadowOf(activity.getApplication()).checkActivities(true);
             }
             try {
-                if (!activity.onOptionsItemSelected(launch)) {
+                if (!automatic && !activity.onOptionsItemSelected(launch)) {
                     throw new IllegalStateException("Android did not handle the lookup action.");
                 }
                 ShadowLooper.idleMainLooper();
@@ -331,7 +332,9 @@ final class Lists {
                 }
             } else {
                 if (opened == null || opened.requestCode != EntitySelectActivity.CALLOUT) {
-                    throw new IllegalStateException("The case list did not open its lookup companion.");
+                    throw new IllegalStateException(automatic
+                            ? "The case list did not open its lookup companion automatically."
+                            : "The case list did not open its lookup companion.");
                 }
                 ActivityController<AndroidAppAnswers.MeterActivity> provider = Robolectric.buildActivity(
                         AndroidAppAnswers.MeterActivity.class, new Intent(opened.intent));

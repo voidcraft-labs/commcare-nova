@@ -185,6 +185,8 @@ export const PLATFORM_CELLS: Readonly<
 	 * Android refuses. */
 	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module@android":
 		structural("forms-read-search"),
+	"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu@android":
+		structural("forms-read-search"),
 	"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search@android":
 		structural("forms-read-search"),
 	"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible@android":
@@ -244,6 +246,9 @@ export const PLATFORM_CELLS: Readonly<
 	"expressions-and-data/now@web-apps": model("recalculation-every-request"),
 	// Android reads none of the presence pragmas: a form neither submits on
 	// open nor rechecks only changed answers there.
+	// The real Postgres opening test checks the same key and title on both devices.
+	"questions/a-question-text-label-hint-help-validation-message-repeat-add@android":
+		statedInDocs,
 	"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma@android":
 		model("presence-pragmas-on-web-apps-only"),
 	"questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where@web-apps":

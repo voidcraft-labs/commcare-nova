@@ -484,9 +484,13 @@ describe("a source project's location instance factory", () => {
 		).toBe(false);
 	});
 
-	it.each([false, true])(
-		"corroborates a suite-only factory against the same working source, changed=%s",
-		async (changed) => {
+	it.each([
+		{ command: "m0-f0", changed: false, expected: "hierarchical" },
+		{ command: "m0-f0", changed: true, expected: undefined },
+		{ command: "m0-f1", changed: false, expected: undefined },
+	])(
+		"corroborates a suite-only factory on $command against the same working source, changed=$changed",
+		async ({ command, changed, expected }) => {
 			const original = await sourceNoting("");
 			const menus = original.raw.modules as Array<
 				Record<string, unknown> & { forms: Record<string, unknown>[] }
@@ -520,7 +524,7 @@ describe("a source project's location instance factory", () => {
 					.intercept({ path: suite, method: "GET" })
 					.reply(
 						200,
-						'<suite><entry><instance id="locations" src="jr://fixture/commtrack:locations"/></entry></suite>',
+						`<suite><entry><command id="${command}"/><instance id="locations" src="jr://fixture/commtrack:locations"/></entry></suite>`,
 					);
 				serveJson(
 					peer,
@@ -551,7 +555,7 @@ describe("a source project's location instance factory", () => {
 			expect(answer.result.kind).toBe("read");
 			if (answer.result.kind === "read")
 				expect(answer.result.data.sourceProjectFactories?.locations).toBe(
-					changed ? undefined : "hierarchical",
+					expected,
 				);
 		},
 	);

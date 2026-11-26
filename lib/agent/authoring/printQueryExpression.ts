@@ -266,8 +266,8 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "unowned":
 				return call(value.kind);
 			case "call":
-				if (value.fn === "position" && value.args.length === 0)
-					return call(value.fn);
+				if (value.fn === "position")
+					return call(value.fn, ...value.args.map(expression));
 				throw new Error(
 					`The saved ${value.fn}() call has no record value spelling.`,
 				);

@@ -40,6 +40,7 @@ from proof.conftest import timed  # noqa: F401  (HQ's tests time their operation
 DOCUMENTS = (
     "lookup-app",
     "hq-lookup-data",
+    "hq-lookups",
     "media-rich",
     "location-multirung",
     "search-parent",
@@ -51,6 +52,7 @@ DOCUMENTS = (
     "case-list-inline",
     "case-list-local",
     "targeted-hq-side-lookup",
+    "targeted-indexed-lookup",
     "targeted-hq-side-owned",
     "search-registration-link",
     "targeted-hq-side-state",
