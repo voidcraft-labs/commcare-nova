@@ -1798,6 +1798,7 @@
 		},
 		"content": "`practice_mobile_worker_id` target value",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",
@@ -3046,14 +3047,15 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "target value",
+		"content": "The practice worker chosen for a named installation on this project space.",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",
 		"preflight": {
-			"kind": "none",
-			"cell": "none"
+			"kind": "confirmation",
+			"cell": "Confirmed when a named installation requires a practice worker. Its selected suite and released restore are checked on the target."
 		},
 		"source": {
 			"kind": "row",
@@ -3095,15 +3097,12 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "`build_profiles` target value",
-		"contentEntries": [
-			"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker",
-			"application-and-settings/build-profiles-non-empty"
-		],
+		"content": "Named installation profiles and their per-team language order.",
+		"contentEntries": ["application-and-settings/build-profiles-non-empty"],
 		"platforms": "n/a",
 		"preflight": {
-			"kind": "none",
-			"cell": "none"
+			"kind": "confirmation",
+			"cell": "Confirmed before publishing named installations or advancing their profile review."
 		},
 		"source": {
 			"kind": "row",
@@ -3730,6 +3729,7 @@
 		},
 		"content": "practice users 2.26",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",

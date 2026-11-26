@@ -52,7 +52,7 @@ import {
 	hqCalculatedSortExpression,
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
-import type { WireIdentity } from "../wireIdentity";
+import { installationProfileKey, type WireIdentity } from "../wireIdentity";
 import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
@@ -142,6 +142,16 @@ export function externalIdentityMap(
 		entries.push({ kind: key.kind, parts: key.parts, uuid });
 	};
 
+	for (const profile of Object.values(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		add(
+			externalKey.installationProfile(
+				installationProfileKey(profile.uuid, identity),
+			),
+			profile.uuid,
+		);
+	}
 	const caseTypes = effectiveCaseTypes(doc);
 	for (const module of Object.values(doc.modules)) {
 		const uniqueId = identity.moduleUniqueId(module.uuid);

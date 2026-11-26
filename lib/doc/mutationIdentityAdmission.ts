@@ -483,6 +483,15 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 						},
 					])
 				: [];
+		case "setAppSettings":
+			return mutation.settings.installationProfile?.operation === "add"
+				? createClaims([
+						{
+							uuid: mutation.settings.installationProfile.profile.uuid,
+							kind: "installationProfile",
+						},
+					])
+				: [];
 		case "removeModule":
 		case "moveModule":
 		case "renameModule":
@@ -524,7 +533,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
-		case "setAppSettings":
 		case "relabelSourceLanguage":
 		case "addLanguage":
 		case "removeLanguage":

@@ -514,6 +514,14 @@ export const APP_SCALAR_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set(
 	["setAppName", "setAppLogo", "setAppSettings", "setConnectType"],
 );
 
+export function isAppScalarMutation(mutation: Mutation): boolean {
+	return (
+		APP_SCALAR_MUTATION_KINDS.has(mutation.kind) &&
+		(mutation.kind !== "setAppSettings" ||
+			mutation.settings.installationProfile === undefined)
+	);
+}
+
 /**
  * Apply one mutation batch once and retain every value the later verdict and
  * accepting writer need. An authoritative retry prepares again only after it
@@ -554,8 +562,7 @@ export function* prepareMutationCandidateSteps(
 	 * admission passes it over (`APP_SCALAR_MUTATION_KINDS`), so a batch of
 	 * them alone skips the three whole-document admission indexes too. */
 	const appScalarsOnly =
-		mutations.length > 0 &&
-		mutations.every((mutation) => APP_SCALAR_MUTATION_KINDS.has(mutation.kind));
+		mutations.length > 0 && mutations.every(isAppScalarMutation);
 	const identityIssue =
 		scalarFieldUpdate || appScalarsOnly
 			? undefined

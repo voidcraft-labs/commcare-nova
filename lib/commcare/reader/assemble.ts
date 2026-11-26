@@ -125,6 +125,7 @@ import {
 	unheldRefusal,
 	unheldText,
 } from "./heldText";
+import { readInstallationBindings } from "./installationBindings";
 import { isJsonObject, pointerToken, sameJson } from "./jsonCursor";
 import { resourcedDocument, sourceLanguageAsRead } from "./languages";
 import {
@@ -2168,6 +2169,9 @@ export function* assembleDocumentSteps(
 				})),
 			),
 			keyedCreates: keyedCreatesRead(ctx, doc),
+			...(ctx.input.source.buildProfiles.length > 0 && {
+				installationProfiles: readInstallationBindings(ctx),
+			}),
 			columnFieldWords: columnFieldWordsRead(ctx, doc),
 			entries: ctx.identities.entries(),
 		},

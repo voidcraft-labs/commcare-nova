@@ -1383,7 +1383,7 @@ export class TargetPeer {
 						{
 							langs: [...profile.langs],
 							name: profile.name,
-							practice_mobile_worker_id: "",
+							practice_mobile_worker_id: profile.practice_worker_id ?? "",
 							doc_type: "BuildProfile",
 						},
 					]),

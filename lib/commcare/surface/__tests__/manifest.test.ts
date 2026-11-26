@@ -472,10 +472,14 @@ const SPLIT_KEYS: ReadonlyArray<{
 		key: "schema:Application.build_profiles",
 		entries: {
 			"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker":
-				["TARGET-OWNED", "empty"],
+				["HELD", "empty"],
 			"application-and-settings/build-profiles-non-empty": [
-				"HELD-NEW",
-				"non-empty",
+				"HELD",
+				"nonempty-ordered-language-subset",
+			],
+			"application-and-settings/build-profiles-invalid-language-subset": [
+				"REFUSED",
+				"empty-repeated-or-unknown-profile-language",
 			],
 		},
 	},

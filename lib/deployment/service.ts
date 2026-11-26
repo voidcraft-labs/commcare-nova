@@ -2,6 +2,10 @@ import { getAppDb } from "@/lib/db/pg";
 import "server-only";
 
 import { gzipSync } from "node:zlib";
+import {
+	greatestFoldBaselineSeq,
+	loadCanonicalBlueprintAtSequence,
+} from "@/lib/agent/change-set/baseLoader";
 import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { HqApplication } from "@/lib/commcare";
@@ -60,9 +64,17 @@ import {
 import { compareToVersionFloor } from "@/lib/commcare/versionFloor";
 import { getHqCredentials } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc } from "@/lib/domain";
-import { declaresWebApps, organizationLevelsOf } from "@/lib/domain";
+import {
+	declaresAndroid,
+	declaresWebApps,
+	organizationLevelsOf,
+} from "@/lib/domain";
+import { appSettingsSchema } from "@/lib/domain/blueprint";
+import { appLocalizationSchema } from "@/lib/domain/localization";
 import { describeCarrier, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { verifyAssignmentWitness } from "@/lib/export/privateAssignments";
 import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
@@ -92,7 +104,9 @@ import {
 	PUBLISH_WAITS_FOR_ANOTHER_WRITE,
 } from "@/lib/publish/stopPublishing";
 import type { WebAppsChange } from "@/lib/publish/webApps";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import { attachmentUrlTarget } from "./attachmentTarget";
 import {
 	asksSaveToCase,
 	confirmationChecks,
@@ -135,6 +149,23 @@ import {
 	type HqImportApplicationResult,
 	hqImportApplication,
 } from "./importApplication";
+import { checkPracticePreparation } from "./installationPractice";
+import {
+	checkInstallationPublish,
+	type InstallationPublishCheck,
+	installationReviewFailure,
+	profileSourceDigests,
+	sameInstallationAfterMedia,
+	unavailableInstallationWorker,
+} from "./installationProfilePublish";
+import type { InstallationProfileCheckpoint } from "./installationProfileReview";
+import {
+	installationDefinitionsChanged,
+	installationEditorSteps,
+	profileAgreement,
+	requestedProfiles,
+} from "./installationProfileReview";
+import { intermediateInstallationDoc } from "./installationProfileSuperset";
 import { readLookupReceipt } from "./largeLookupReceipt";
 import { observedMenuLayoutOwnership } from "./legacyMenuLayouts";
 import type { PlannedPlacePush } from "./locationResourcePlan";
@@ -219,6 +250,7 @@ import {
 	type DeploymentTargetKey,
 	deploymentAppDeletion,
 	endDeployment,
+	finishAcknowledgedInstallationImport,
 	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
 	type HeldTargetFacts,
@@ -226,6 +258,8 @@ import {
 	type LandedResource,
 	LOOKUP_JSON_HOLD_MS,
 	markResourceBaselinesUnread,
+	type PublishWriteResponse,
+	publishManagementGrant,
 	type RecordAnswer,
 	type RecordRemoteResourceInput,
 	type RemoteWriteSettlement,
@@ -247,9 +281,14 @@ import {
 	targetFactsOf,
 	type WritesEnded,
 	withDeploymentReadSnapshot,
+	writeInstallationReview,
 } from "./store";
 import { deploymentKeptOf } from "./targetFacts";
-import { EMPTY_TARGET_IDENTITY, exportIdentityOf } from "./targetIdentity";
+import {
+	EMPTY_TARGET_IDENTITY,
+	exportIdentityOf,
+	unboundInstallationKeys,
+} from "./targetIdentity";
 import type {
 	AppBaseline,
 	AppBaselineWrite,
@@ -432,6 +471,7 @@ export interface PublishInput {
 	 * `hq_web_apps_change` refusal. Never defaulted from an earlier attempt.
 	 */
 	readonly confirmWebApps?: boolean;
+	readonly confirmInstallationProfiles?: string;
 	/**
 	 * Called once, after every blocking preflight edge has passed and just
 	 * before anything is sent. A caller that reports progress hooks in here
@@ -466,6 +506,38 @@ function hqAppUrlFor(
 	return `${COMMCARE_SERVERS[server].baseUrl}/a/${domain}/apps/view/${hqAppId}/`;
 }
 
+/** A published release can predate the current stored document shape. */
+async function publishedInstallationSettings(
+	snapshot: DeploymentReadSnapshot,
+	sequence: number | null,
+): Promise<Pick<BlueprintDoc, "appSettings" | "localization"> | null> {
+	if (sequence === null) return null;
+	const { appId, projectId } = snapshot.scope;
+	const head = await snapshot.db
+		.selectFrom("apps")
+		.select(["app_settings", "localization"])
+		.where("id", "=", appId)
+		.where("project_id", "=", projectId)
+		.where("mutation_seq", "=", sequence)
+		.executeTakeFirst();
+	if (head)
+		return {
+			appSettings: appSettingsSchema.parse(head.app_settings),
+			...(head.localization && {
+				localization: appLocalizationSchema.parse(head.localization),
+			}),
+		};
+	const horizon = await greatestFoldBaselineSeq(snapshot.db, appId);
+	if (horizon === null || sequence < horizon) return null;
+	const prior = await loadCanonicalBlueprintAtSequence(snapshot.db, {
+		appId,
+		seq: sequence,
+		expectedDigest: null,
+	});
+	if (prior.projectId !== projectId) throw deploymentNotFound();
+	return prior.doc;
+}
+
 /**
  * Regenerate the artifact for a deployment.
  *
@@ -482,8 +554,15 @@ export async function setupArtifactFor(
 	/** The caller's read of the organization; null where that read failed. */
 	organization?: SetupArtifactOrganization | null,
 ): Promise<SetupArtifact> {
+	const published = publishedRemoteApp(deployment);
+	const publishedPlatforms = published
+		? await withDeploymentReadSnapshot(scope, "view", (snapshot) =>
+				publishedInstallationSettings(snapshot, published.pushedRevision),
+			)
+		: undefined;
 	return buildSetupArtifact({
 		doc,
+		publishedPlatforms,
 		server: deployment.deployment.server,
 		domain: deployment.deployment.domain,
 		/* Links into the app's pages only where its content is there: a
@@ -855,18 +934,18 @@ export async function publishAppToHq(
 	 * publisher's own work, answered to them whether or not they may still
 	 * read the deployment (`store.ts::RecordAnswer`). */
 	const sentToHq: LandedResource[] = [];
-	/* Each once: a first publish's import lands on the empty app it made. */
+	const sentKeys = new Set<string>();
 	const noteSent = (recorded: RecordAnswer): void => {
-		for (const resource of recorded.landed)
-			if (
-				!sentToHq.some(
-					(earlier) =>
-						earlier.kind === resource.kind &&
-						earlier.novaResourceId === resource.novaResourceId &&
-						earlier.remoteId === resource.remoteId,
-				)
-			)
-				sentToHq.push(resource);
+		for (const resource of recorded.landed) {
+			const key = JSON.stringify([
+				resource.kind,
+				resource.novaResourceId,
+				resource.remoteId,
+			]);
+			if (sentKeys.has(key)) continue;
+			sentKeys.add(key);
+			sentToHq.push(resource);
+		}
 	};
 	/* The deployment a record of this publish answers, for the publish to go
 	 * on from. A publisher who may no longer read it can send nothing more,
@@ -897,7 +976,7 @@ export async function publishAppToHq(
 			existing !== null &&
 			(activeRemoteApp(existing)?.releasedAt ?? null) !== null
 		) {
-			const settle = await settleReleasedClaims(input.scope);
+			const settle = await settleReleasedClaims(input.scope, target);
 			const waits =
 				settle.settled &&
 				settle.waiting.some(
@@ -915,6 +994,7 @@ export async function publishAppToHq(
 						doc,
 						checks: [],
 						projectSpaceCompatibility: null,
+						claimUnsettled: true,
 						placements: placements(),
 					},
 				);
@@ -923,20 +1003,32 @@ export async function publishAppToHq(
 		}
 		/* Every store write of this publish carries the count of endings read
 		 * here, 0 where the target has no record yet. */
-		const fence: DeploymentFence = {
+		let fence: DeploymentFence = {
 			expectedEndings: existing?.deployment.endings ?? 0,
 		};
 		/* Where this project space keeps what the document doesn't hold: the
 		 * ids of menus and forms, the prefix each keyed create's cases stand
 		 * under, the paths of files. Every body this publish builds prints
 		 * under it (`targetIdentity.ts::exportIdentityOf`). */
-		const targetIdentity =
+		let targetIdentity =
 			existing === null
 				? EMPTY_TARGET_IDENTITY
 				: await readTargetIdentity(input.scope, target);
 		/* Update in place, fill the empty app an earlier try made, or create.
 		 * The predicates live in `resources.ts`, which the publish dialog also
 		 * reads to say which will happen before the button is pressed. */
+		const installationGrant = () =>
+			targetIdentity.installationProfiles?.length ||
+			Object.keys(doc.appSettings.installationProfiles ?? {}).length
+				? (input.scope.requireInstallationManagement ?? input.requireHqImport)
+				: null;
+		const placementGrant = () =>
+			publishManagementGrant(
+				input.scope,
+				target,
+				Object.keys(doc.appSettings.installationProfiles ?? {}).length > 0,
+				input.scope.requireInstallationManagement ?? input.requireHqImport,
+			);
 		const inPlaceUpdate =
 			existing === null ? null : plannedInPlaceUpdate(existing);
 		/* On an app Nova brought in from CommCare HQ, a language's display name
@@ -960,10 +1052,14 @@ export async function publishAppToHq(
 			failure: DeploymentFailure,
 			extras: Pick<
 				PreflightRefusalExtras,
-				"checks" | "projectSpaceCompatibility" | "placementMoves"
+				| "checks"
+				| "projectSpaceCompatibility"
+				| "placementMoves"
+				| "resumePhase"
 			> = { checks: [], projectSpaceCompatibility: null },
 		): Promise<PublishOutcome> =>
 			preflightRefusal(input, target, existing, failure, {
+				manageInstallations: installationGrant(),
 				...extras,
 				at: now,
 				doc,
@@ -989,6 +1085,7 @@ export async function publishAppToHq(
 				}
 				const record = await recordPublishPlacements({
 					scope: input.scope,
+					grant: placementGrant(),
 					expectedHeadSeq: seq,
 					holds: offer.holds,
 				});
@@ -1030,12 +1127,7 @@ export async function publishAppToHq(
 				confirmations: existing?.confirmations ?? [],
 				confirm: input.confirm ?? [],
 				confirmWebApps: input.confirmWebApps,
-				access: {
-					appId: input.scope.appId,
-					projectId: input.scope.projectId,
-					role: input.scope.role,
-					actorUserId: input.scope.actorUserId,
-				},
+				access: input.scope,
 				server: input.server,
 				domain: input.domain,
 				now,
@@ -1056,6 +1148,7 @@ export async function publishAppToHq(
 						target,
 						run.remoteAppGone,
 						run.outcome.failure,
+						"publish-read",
 						{
 							doc,
 							checks: run.checks,
@@ -1071,6 +1164,7 @@ export async function publishAppToHq(
 				 * about the attempt (a key or draft problem against a live app). */
 				const confirmationsNeeded = run.confirmationsNeeded ?? [];
 				return preflightRefusal(input, target, existing, run.outcome.failure, {
+					manageInstallations: installationGrant(),
 					at: run.outcome.at,
 					doc,
 					checks: run.checks,
@@ -1096,6 +1190,7 @@ export async function publishAppToHq(
 			}
 			const record = await recordPublishPlacements({
 				scope: input.scope,
+				grant: placementGrant(),
 				expectedHeadSeq: seq,
 				holds,
 			});
@@ -1129,6 +1224,177 @@ export async function publishAppToHq(
 			prepared: { ...preflight.ready.prepared, doc, compiledAtSeq: seq },
 		};
 
+		const reviewUrl = (id: string) =>
+			`${hqAppUrlFor(target.server, target.domain, encodeURIComponent(id))}releases/`;
+		let installationClaim: InstallationProfileCheckpoint["claim"] | undefined;
+		const installationCheck = (
+			remoteAppId: string,
+			source: HqAppSource,
+			workingVersion: number,
+			needsBuildableContent: boolean,
+			mapping: string | undefined,
+		) => {
+			if (!mapping)
+				throw new Error("The app has no active installation mapping.");
+			const claim = { mapping, endings: fence.expectedEndings };
+			if (
+				source.buildProfiles.length ||
+				Object.keys(doc.appSettings.installationProfiles ?? {}).length ||
+				targetIdentity.installationProfiles?.length
+			)
+				installationClaim = claim;
+			return checkInstallationPublish({
+				claim,
+				scope: input.scope,
+				target,
+				remoteAppId,
+				doc,
+				sequence: seq,
+				identity: targetIdentity,
+				creds: ready.creds,
+				source,
+				releasesUrl: reviewUrl(remoteAppId),
+				workingVersion,
+				needsBuildableContent,
+				confirmWorkers: input.confirmInstallationProfiles,
+				requireHqImport:
+					input.scope.requireInstallationManagement ?? input.requireHqImport,
+			});
+		};
+		const requireProfileImport = installationGrant();
+		if (requireProfileImport)
+			fence = { ...fence, manageInstallations: requireProfileImport };
+		const previouslyManagedProfiles = Boolean(
+			targetIdentity.installationProfiles?.length,
+		);
+		const inputsDigest = () =>
+			canonicalJsonDigest({
+				sequence: seq,
+				organization: ready.organization,
+				tables: ready.prepared.lookupSnapshot.definitions.map((table) => [
+					table.id,
+					table.tableRevision ?? table.definitionRevision,
+					table.rowsRevision ?? null,
+				]),
+				assets: [...ready.prepared.assets.values()]
+					.map((asset) => [asset.assetId, asset.contentHash, asset.wirePath])
+					.sort(),
+			});
+		let prepareContent: InstallationProfileCheckpoint | undefined;
+		let resumed: InstallationProfileCheckpoint | undefined;
+		let completedReview: InstallationProfileCheckpoint | undefined;
+		let previouslyPendingEmpty = false;
+		let pendingContent: InstallationProfileCheckpoint | undefined;
+		let pendingFailure: DeploymentFailure | undefined;
+		let transition:
+			| Extract<InstallationPublishCheck, { kind: "prepare-languages" }>
+			| undefined;
+		if (ready.targetApp) {
+			const reviewedId = ready.targetApp.appId;
+			const check = await installationCheck(
+				ready.targetApp.appId,
+				ready.targetApp.source,
+				ready.targetApp.saveCounter,
+				ready.appBaseline?.origin === "create" &&
+					ready.targetApp.source.modules.length === 0,
+				inPlaceUpdate?.pushToken,
+			);
+			const failed = (text: string, details: readonly string[] = []) =>
+				refuseBeforeSending(
+					installationReviewFailure(
+						{ kind: "review", message: text, details },
+						reviewUrl(reviewedId),
+					),
+					checked,
+				);
+			if (check.kind === "review")
+				return refuseBeforeSending(
+					installationReviewFailure(check, reviewUrl(ready.targetApp.appId)),
+					{
+						...checked,
+						...(ready.appBaseline?.origin === "push" &&
+							inPlaceUpdate?.pushedRevision === null && {
+								resumePhase: "upload" as const,
+							}),
+					},
+				);
+			if (check.kind === "prepare-content") prepareContent = check.checkpoint;
+			if (check.kind === "agreed") {
+				completedReview = check.resume;
+				previouslyPendingEmpty = Boolean(check.pendingEmptyReview);
+				if (previouslyPendingEmpty) {
+					fence = {
+						...fence,
+						manageInstallations:
+							input.scope.requireInstallationManagement ??
+							input.requireHqImport,
+					};
+				}
+			}
+			if (
+				check.kind === "agreed" &&
+				check.resume?.preparedContent?.resourcesReady &&
+				check.resume.preparedContent.inputs === inputsDigest() &&
+				!ready.confirmedChanges.length &&
+				ready.appBaseline?.origin === "push"
+			)
+				resumed = check.resume;
+			if (check.kind === "agreed")
+				targetIdentity = {
+					...targetIdentity,
+					installationProfiles: check.bindings,
+				};
+			if (check.kind === "prepare-languages") {
+				transition = check;
+				if (check.keepUntilEdit.length) {
+					const revision = ready.appBaseline?.novaRevision;
+					if (
+						revision == null ||
+						!ready.appBaseline ||
+						ready.appBaseline.origin === "unread"
+					)
+						return failed(
+							"Nova needs the app’s previous published languages to prepare this change. Keep the old languages in Nova, publish the new ones, and then update the installation profiles.",
+						);
+					const prior = await withDeploymentReadSnapshot(
+						input.scope,
+						"edit",
+						({ db }) =>
+							loadCanonicalBlueprintAtSequence(db, {
+								appId: input.scope.appId,
+								seq: revision,
+								expectedDigest: null,
+							}),
+					);
+					if (prior.projectId !== input.scope.projectId)
+						return failed(
+							"The previous installation belonged to another Project. Keep the old languages in the app until you have updated its profiles.",
+						);
+					const intermediate = intermediateInstallationDoc(
+						doc,
+						prior.doc,
+						check.keepUntilEdit,
+					);
+					if ("issue" in intermediate) return failed(intermediate.issue);
+					const checkedSuperset = await prepareExportBoundary({
+						mode: "hq-upload",
+						access: input.scope,
+						doc: intermediate,
+						compiledAtSeq: seq,
+						heldMediaPaths: exportIdentityOf(doc, targetIdentity)
+							.heldMediaPaths,
+						attachmentTarget: attachmentUrlTarget(target),
+						lookupTarget: target,
+					});
+					if (!checkedSuperset.ok)
+						return failed(
+							"The app needs these changes before workers can switch installation languages.",
+							checkedSuperset.violations.map(userFacingError),
+						);
+					ready.prepared = checkedSuperset.prepared;
+				}
+			}
+		}
 		/* Only the files HQ can match to app content will be sent. Check their
 		 * complete Project bytes, one stream at a time, before creating even a
 		 * shell. The upload reopens the same immutable GCS generations. */
@@ -1213,11 +1479,14 @@ export async function publishAppToHq(
 			confirmedChanges,
 			targetEmptyCaseListText,
 		} = ready;
-		const { identity } = exportIdentityOf(prepared.doc, targetIdentity);
+		let { identity } = exportIdentityOf(prepared.doc, targetIdentity);
 		const published = publishedMediaFiles(bulkAssets);
 		// This generation becomes durable only if a write is admitted.
 		const contentGeneration = crypto.randomUUID();
 		let entryPointManifest: PublishedEntryPointManifest | null = null;
+		let acknowledgedInstallationWrite:
+			| { writeId: string; remoteAppId: string }
+			| undefined;
 		try {
 			input.onUploadStarted?.();
 
@@ -1232,6 +1501,7 @@ export async function publishAppToHq(
 				options: {
 					/** The confirmations HQ's own answer contradicted, withdrawn in the fold. */
 					readonly withdraw?: readonly DeploymentConfirmationKey[];
+					readonly responseTo?: PublishWriteResponse;
 				} = {},
 			): Promise<PublishOutcome> => {
 				deployment = await foldDeploymentAttempt(
@@ -1243,9 +1513,7 @@ export async function publishAppToHq(
 						at: new Date().toISOString(),
 						failure,
 					},
-					options.withdraw === undefined
-						? fence
-						: { ...fence, withdraw: options.withdraw },
+					{ ...fence, ...options },
 				);
 				return {
 					landed: false,
@@ -1280,7 +1548,9 @@ export async function publishAppToHq(
 			/* HQ reported the app gone while this publish was writing. The same
 			 * observation preflight's `target-app` edge records, against the
 			 * mapping as it stands now. */
-			const remoteAppGone = (): Promise<PublishOutcome> => {
+			const remoteAppGone = (
+				source: "publish-read" | { readonly importWriteId: string },
+			): Promise<PublishOutcome> => {
 				const mapped = activeRemoteApp(deployment);
 				if (mapped === null) {
 					throw new Error(
@@ -1292,6 +1562,7 @@ export async function publishAppToHq(
 					target,
 					mapped,
 					remoteAppMissingFailure(domain),
+					source,
 					{
 						doc,
 						checks: preflight.checks,
@@ -1338,10 +1609,15 @@ export async function publishAppToHq(
 				});
 				/* The create crosses no claim, but its record keeps a Project
 				 * move waiting while it may still land. */
-				const createWrite = await admitAppCreate(input.scope, target, {
-					...fence,
-					firstContentGeneration: contentGeneration,
-				});
+				const createWrite = await admitAppCreate(
+					input.scope,
+					target,
+					{
+						...fence,
+						firstContentGeneration: contentGeneration,
+					},
+					requireProfileImport,
+				);
 				letOut.push(createWrite);
 				const created = await importApp(
 					creds,
@@ -1356,13 +1632,17 @@ export async function publishAppToHq(
 							? { kind: "settled" }
 							: { kind: "unanswered" },
 					);
-					return refused("resources", {
-						code: "hq_rejected_upload",
-						message: importRejectionMessage(
-							classifyHqFailure(created, "app-import"),
-						),
-						details: [],
-					});
+					return refused(
+						"resources",
+						{
+							code: "hq_rejected_upload",
+							message: importRejectionMessage(
+								classifyHqFailure(created, "app-import"),
+							),
+							details: [],
+						},
+						{ responseTo: { kind: "create", writeIds: [createWrite] } },
+					);
 				}
 				/* HQ's one save of a new empty app leaves version 1. A counter
 				 * first sampled after the create could already include another
@@ -1500,6 +1780,41 @@ export async function publishAppToHq(
 						hqAppSourceReadFailure(MALFORMED_SOURCE, domain, true),
 					);
 				}
+				if (
+					Object.keys(doc.appSettings.installationProfiles ?? {}).length ||
+					read.source.buildProfiles.length
+				) {
+					const check = await installationCheck(
+						created.appId,
+						read.source,
+						read.version,
+						true,
+						activeRemoteApp(deployment)?.pushToken,
+					);
+					if (check.kind === "prepare-content")
+						prepareContent = check.checkpoint;
+					else if (check.kind !== "agreed")
+						return refused(
+							"resources",
+							installationReviewFailure(
+								check.kind === "review"
+									? check
+									: {
+											kind: "review",
+											message:
+												"The new app is on the project space. Publish again to prepare the installation languages.",
+											details: [],
+										},
+								reviewUrl(created.appId),
+							),
+						);
+					if (check.kind === "agreed")
+						targetIdentity = {
+							...targetIdentity,
+							installationProfiles: check.bindings,
+						};
+					identity = exportIdentityOf(prepared.doc, targetIdentity).identity;
+				}
 				appId = created.appId;
 				importMapping = activeRemoteApp(deployment);
 				source = read.source;
@@ -1547,7 +1862,7 @@ export async function publishAppToHq(
 			 * first, each one request at a time. Each is recorded as Nova's as
 			 * soon as its table is there, so a refusal later in the push still
 			 * leaves Nova owning what it made. */
-			if (lookupJsonPush !== null) {
+			if (!resumed && lookupJsonPush !== null) {
 				const pushed = await pushLookupTablesJson(
 					input.scope,
 					target,
@@ -1565,7 +1880,7 @@ export async function publishAppToHq(
 					return refused("resources", pushed.failure);
 			}
 			const pendingFiles: (typeof files)[number][] = [];
-			if (lookupPush)
+			if (!resumed && lookupPush)
 				for (const file of files) {
 					if (
 						!file.tables.every(({ tableId }) =>
@@ -1594,6 +1909,7 @@ export async function publishAppToHq(
 					}
 				}
 			if (
+				!resumed &&
 				(files.length > 0 || lookupJsonPush !== null) &&
 				pendingFiles.length === 0
 			)
@@ -1611,7 +1927,7 @@ export async function publishAppToHq(
 						fence,
 					),
 				);
-			if (lookupPush !== null)
+			if (!resumed && lookupPush !== null)
 				for (const [fileIndex, file] of pendingFiles.entries()) {
 					const selected = new Set(
 						file.tables.map((table) => table.tableId as string),
@@ -1664,7 +1980,7 @@ export async function publishAppToHq(
 			 * between the two does not matter to CommCare HQ; it is stable so
 			 * that a partial publish always stops at the same rung and a retry
 			 * always resumes at the same one. */
-			if (locationPush !== null) {
+			if (!resumed && locationPush !== null) {
 				const pushed = await pushLocations(
 					input.scope,
 					target,
@@ -1685,7 +2001,9 @@ export async function publishAppToHq(
 				}
 				if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
 				if (pushed.failure !== null)
-					return refused("resources", pushed.failure);
+					return refused("resources", pushed.failure, {
+						responseTo: pushed.responseTo,
+					});
 			}
 
 			/* An app that used to carry resources and no longer does. The ledger
@@ -1701,6 +2019,7 @@ export async function publishAppToHq(
 				...(locationPush === null ? (["location"] as const) : []),
 			];
 			if (
+				!resumed &&
 				droppedKinds.some((kind) =>
 					deployment.active.some((resource) => resource.kind === kind),
 				)
@@ -1728,16 +2047,21 @@ export async function publishAppToHq(
 			let settledBetween: readonly HqMediaPath[] = [];
 			let learnedBetween: HqMediaRecord = {};
 			if (
-				lookupPush !== null ||
-				lookupJsonPush !== null ||
-				locationPush !== null
+				!resumed &&
+				(lookupPush !== null ||
+					lookupJsonPush !== null ||
+					locationPush !== null ||
+					source.buildProfiles.length ||
+					Object.keys(doc.appSettings.installationProfiles ?? {}).length ||
+					transition)
 			) {
-				input.onResourcesPushed?.({
-					tables:
-						(lookupPush?.pushes.length ?? 0) +
-						(lookupJsonPush?.tables.length ?? 0),
-					places: locationPush?.placeCount ?? 0,
-				});
+				if (lookupPush || lookupJsonPush || locationPush)
+					input.onResourcesPushed?.({
+						tables:
+							(lookupPush?.pushes.length ?? 0) +
+							(lookupJsonPush?.tables.length ?? 0),
+						places: locationPush?.placeCount ?? 0,
+					});
 
 				/* The second read. The pushes took time, and HQ may have changed
 				 * the app meanwhile, so the import is built on the source as it
@@ -1758,7 +2082,7 @@ export async function publishAppToHq(
 				const counter = await readHqAppSaveCounter(creds, domain, appId);
 				const read = await readHqAppSource(creds, domain, appId);
 				if (!("success" in read) && read.kind === "gone" && !createdApp) {
-					return remoteAppGone();
+					return remoteAppGone("publish-read");
 				}
 				if (typeof counter !== "number") {
 					return refused(
@@ -1883,6 +2207,12 @@ export async function publishAppToHq(
 						}),
 					);
 				}
+				if (
+					canonicalJsonDigest(source.buildProfiles) !==
+					canonicalJsonDigest(read.source.buildProfiles)
+				) {
+					return refused("upload", changedDuringPush);
+				}
 				source = read.source;
 			}
 
@@ -1905,6 +2235,12 @@ export async function publishAppToHq(
 			 * immediately before it goes: an ending since stops the publish
 			 * here, and no other Nova app is granted the HQ app until the import
 			 * has settled. */
+			const ordinaryMapping =
+				!previouslyManagedProfiles &&
+				!source.buildProfiles.length &&
+				!Object.keys(doc.appSettings.installationProfiles ?? {}).length
+					? importMapping.pushToken
+					: undefined;
 			const comparedFiles = {
 				files: appBaseline?.mediaFiles ?? null,
 				paths: [
@@ -1912,36 +2248,55 @@ export async function publishAppToHq(
 					...removalLedgerPaths(source.raw, published),
 				],
 			};
-			const importAdmission = await admitAppWrite(input.scope, target, {
-				...(confirmedChanges.some((change) => change.kind === "app") && {
-					reviewedRole: input.scope.role,
-				}),
-				firstContentGeneration:
-					letOut.length === 0 ? contentGeneration : undefined,
-				compiledIdentity: targetIdentity,
-				...fence,
-				remoteAppId: appId,
-				observedPushToken: importMapping.pushToken,
-				comparedReview: importMapping.reviewGeneration ?? null,
-				comparedSource,
-				comparedFiles,
-				writeKind: "import",
-				compiledAtSeq: seq,
-			});
-			if (importAdmission.kind !== "admitted") {
+			const importAdmission = resumed
+				? null
+				: await admitAppWrite(input.scope, target, {
+						...(confirmedChanges.some((change) => change.kind === "app") && {
+							reviewedRole: input.scope.role,
+						}),
+						firstContentGeneration:
+							letOut.length === 0 ? contentGeneration : undefined,
+						compiledIdentity: targetIdentity,
+						...fence,
+						remoteAppId: appId,
+						observedPushToken: importMapping.pushToken,
+						comparedReview: importMapping.reviewGeneration ?? null,
+						comparedSource,
+						comparedFiles,
+						writeKind: "import",
+						compiledAtSeq: seq,
+						installationReview: prepareContent ?? completedReview,
+						...(ordinaryMapping && {
+							emptyInstallations: {
+								mapping: ordinaryMapping,
+								sequence: seq,
+								previouslyPending: previouslyPendingEmpty,
+							},
+						}),
+						expectedInstallationMapping: installationClaim?.mapping,
+						requireHqImport: requireProfileImport,
+					});
+			if (importAdmission && importAdmission.kind !== "admitted") {
 				return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
 			}
-			const importWrite = importAdmission.writeId;
-			const result = await importApp(
-				creds,
-				domain,
-				input.appName,
-				hqJson,
-				appId,
-				counterBeforeRead,
-			);
+			const importWrites = importAdmission ? [importAdmission.writeId] : [];
+			const result = resumed
+				? {
+						success: true as const,
+						appId,
+						version: counterBeforeRead,
+						warnings: [] as string[],
+					}
+				: await importApp(
+						creds,
+						domain,
+						input.appName,
+						hqJson,
+						appId,
+						counterBeforeRead,
+					);
 			if ("kind" in result) {
-				await cancelUnsentImport(importAdmission);
+				if (importAdmission) await cancelUnsentImport(importAdmission);
 				return refused(
 					"upload",
 					typeof result.counter === "number"
@@ -1956,15 +2311,15 @@ export async function publishAppToHq(
 			}
 			// A final 429 also explicitly precedes the view, including one whose
 			// wait exhausted the deadline. No content was let out by this import.
-			if (!result.success && result.status === 429) {
+			if (!result.success && result.status === 429 && importAdmission) {
 				await cancelUnsentImport(importAdmission);
 			} else {
-				letOut.push(importWrite);
+				letOut.push(...importWrites);
 			}
 			if (!result.success) {
 				if (result.status !== 429)
 					await settleQuietly(
-						[importWrite],
+						importWrites,
 						hqAnsweredWrite(result)
 							? { kind: "settled" }
 							: { kind: "unanswered" },
@@ -1973,42 +2328,67 @@ export async function publishAppToHq(
 				 * target. Not for the app this publish just created, though: its
 				 * mapping is kept, so the next publish reads it at `target-app`
 				 * and never creates a second one. */
-				if (result.status === 404 && !createdApp) return remoteAppGone();
+				if (result.status === 404 && !createdApp && importAdmission)
+					return remoteAppGone({ importWriteId: importAdmission.writeId });
 				/* CommCare HQ refusing THIS upload says nothing about the app
 				 * already on the project space; the fold leaves a reached record
 				 * alone and moves an unreached one to `incomplete` at `upload`,
 				 * which is exactly what a retry resumes from. */
-				return refused("upload", {
-					code: "hq_rejected_upload",
-					message: importRejectionMessage(
-						classifyHqFailure(result, "app-import"),
-					),
-					details: [],
-				});
+				return refused(
+					"upload",
+					{
+						code: "hq_rejected_upload",
+						message: importRejectionMessage(
+							classifyHqFailure(result, "app-import"),
+						),
+						details: [],
+					},
+					{ responseTo: { kind: "import", writeIds: importWrites } },
+				);
 			}
 
 			// A review can now order the import against the save it read, even
 			// if the publisher is still waiting for the verification read below.
 			const acceptedVersion =
 				result.version !== null &&
-				result.version > counterBeforeRead &&
+				(resumed
+					? result.version === counterBeforeRead
+					: result.version > counterBeforeRead) &&
 				result.appId === appId
 					? result.version
 					: null;
-			if (acceptedVersion !== null)
-				await recordImportAcknowledgement(
-					importWrite,
-					result.appId,
+			if (importAdmission && result.appId === appId) {
+				const protectedInstallations =
+					transition ||
+					prepareContent ||
+					completedReview ||
+					installationClaim ||
+					importAdmission.emptyInstallations;
+				const acknowledgement = recordImportAcknowledgement(
+					input.scope,
+					target,
+					importAdmission.writeId,
+					appId,
+					result.version,
 					acceptedVersion,
-				).catch((error: unknown) => {
-					// Its open hold still fences a conflicting review. Continue to
-					// record the import that HQ accepted, including its read-back.
-					log.error(
-						"[deployment] could not order the import before an HQ review",
-						error,
-						{ appId: input.scope.appId },
-					);
-				});
+				);
+				if (protectedInstallations) {
+					await acknowledgement;
+					acknowledgedInstallationWrite = {
+						writeId: importAdmission.writeId,
+						remoteAppId: appId,
+					};
+				} else {
+					await acknowledgement.catch((error: unknown) => {
+						// The open hold still fences a conflicting review.
+						log.error(
+							"[deployment] could not order the import before an HQ review",
+							error,
+							{ appId: input.scope.appId },
+						);
+					});
+				}
+			}
 
 			// ── Read it back: the next publish compares with this ───────────
 			// Before the media upload, which moves nothing the comparison reads.
@@ -2054,6 +2434,196 @@ export async function publishAppToHq(
 						readBack.kind === "moved" &&
 						readBack.version > counterBeforeRead + 1));
 			const forwardRead = acceptedVersion === null ? null : readBack;
+
+			// An intermediate import has reached HQ but has not delivered the final app.
+			// Keep the existing published revision and take the next decision from this exact read.
+			if (
+				transition ||
+				importAdmission?.emptyInstallations ||
+				previouslyManagedProfiles ||
+				source.buildProfiles.length ||
+				Object.keys(doc.appSettings.installationProfiles ?? {}).length ||
+				targetIdentity.installationProfiles?.length
+			) {
+				const unverified = async (message: string) => {
+					await settleQuietly(importWrites, { kind: "settled" });
+					return refused(
+						"upload",
+						installationReviewFailure(
+							{ kind: "review", message, details: [] },
+							reviewUrl(appId),
+						),
+					);
+				};
+				if (
+					acceptedVersion === null ||
+					!readBack ||
+					"success" in readBack ||
+					readBack.kind !== "source-at" ||
+					result.version !== counterBeforeRead + (resumed ? 0 : 1) ||
+					extraSave
+				)
+					return unverified(
+						"CommCare HQ received the app, but Nova could not verify this installation at the version it sent. Publish again to review the latest project space state.",
+					);
+				if (
+					canonicalJsonDigest(source.buildProfiles) !==
+					canonicalJsonDigest(readBack.source.buildProfiles)
+				)
+					return unverified(
+						"An installation profile changed while CommCare HQ was saving the app. Publish again to review its current profiles.",
+					);
+				if (
+					resumed &&
+					profileSourceDigests(readBack.source.raw).unrelatedDigest !==
+						resumed.unrelatedDigest
+				)
+					return unverified(
+						"The app changed after its installation was prepared. Review its current content and publish again.",
+					);
+				if (prepareContent) {
+					const verified = profileAgreement(
+						prepareContent.review,
+						readBack.source.buildProfiles,
+					);
+					if (
+						!verified.agreed ||
+						!readBack.source.modules.length ||
+						canonicalJsonDigest(publishedLanguageCodes(prepared.doc)) !==
+							canonicalJsonDigest(readBack.source.langs)
+					)
+						return unverified(
+							"CommCare HQ has not returned the complete app and installation profiles. Review the working app and publish again.",
+						);
+					const accountIssue = await unavailableInstallationWorker(
+						creds,
+						domain,
+						appId,
+						readBack.source,
+					);
+					if (accountIssue) return unverified(accountIssue);
+					const check = await checkPracticePreparation({
+						creds,
+						domain,
+						appId,
+						workingVersion: readBack.version,
+						profiles: readBack.source.buildProfiles,
+						proposed: verified.bindings,
+						held: [],
+					});
+					const digests = profileSourceDigests(readBack.source.raw);
+					pendingContent = {
+						...prepareContent,
+						workingVersion: readBack.version,
+						...digests,
+						phase: "prepare-practice",
+						verifiedIntermediate: true,
+						...(check.kind === "review" &&
+							check.start && { practiceStart: check.start }),
+						preparedContent: {
+							version: readBack.version,
+							baselineDigest: digests.sourceDigest,
+							inputs: inputsDigest(),
+							resourcesReady: false,
+						},
+					};
+					pendingFailure = installationReviewFailure(
+						{
+							kind: "review",
+							message:
+								check.kind === "review"
+									? check.message
+									: "The app is ready on CommCare HQ. Publish again to check this version’s practice installations.",
+							details: [],
+						},
+						reviewUrl(appId),
+					);
+				} else if (transition) {
+					const next = {
+						...transition.checkpoint,
+						...profileSourceDigests(readBack.source.raw),
+						workingVersion: readBack.version,
+						phase: "edit-profiles" as const,
+						verifiedIntermediate: true,
+					};
+					if (
+						canonicalJsonDigest(publishedLanguageCodes(prepared.doc)) !==
+							canonicalJsonDigest(readBack.source.langs) ||
+						!(await writeInstallationReview(input.scope, target, {
+							identity: targetIdentity,
+							sequence: seq,
+							remoteAppId: appId,
+							previous: transition.checkpoint,
+							claim: transition.checkpoint.claim,
+							next,
+							requireHqImport: requireProfileImport
+								? (tx) => requireProfileImport(tx, true)
+								: null,
+						}))
+					)
+						return unverified(
+							"CommCare HQ received the app. Nova could not verify the intermediate installation languages at this revision. Publish again to review the current languages.",
+						);
+					const readBackProfiles = new Map(
+						readBack.source.buildProfiles.map((p) => [p.id, p.langs]),
+					);
+					await settleQuietly(importWrites, { kind: "settled" });
+					return refused(
+						"upload",
+						installationReviewFailure(
+							{
+								kind: "review",
+								message:
+									"CommCare HQ now has the languages workers need during the change. Update Application Profiles on the Releases page to match this list, then publish again to finish.",
+								details: transition.checkpoint.review.requested.map((r) =>
+									installationEditorSteps(
+										r,
+										readBackProfiles.get(r.definition.id),
+										readBack.source.langs,
+									),
+								),
+							},
+							reviewUrl(appId),
+						),
+					);
+				}
+				if (!prepareContent) {
+					const agreement = profileAgreement(
+						{
+							requested: requestedProfiles(
+								doc,
+								targetIdentity.installationProfiles ?? [],
+							),
+							previousKeys: [],
+						},
+						readBack.source.buildProfiles,
+					);
+					const unavailableWorker = await unavailableInstallationWorker(
+						creds,
+						domain,
+						appId,
+						readBack.source,
+					);
+					if (unavailableWorker) return unverified(unavailableWorker);
+					if (!agreement.agreed)
+						return unverified(
+							"CommCare HQ did not save all of the installation settings that Nova sent. Review its current profiles and publish again.",
+						);
+				}
+				// A working suite identifies its locale and restore path. The worker ID
+				// is in the bracketed app source, so bracket any later suite/build reads
+				// as well before recording those two answers as one installation.
+				if (
+					readBack.source.buildProfiles.some(
+						(profile) => profile.practiceWorkerId,
+					) &&
+					(await readHqAppSaveCounter(creds, domain, appId)) !==
+						readBack.version
+				)
+					return unverified(
+						"The app changed in CommCare HQ while Nova checked its practice installation. Publish again to review the current worker and app version.",
+					);
+			}
 			const pushBaseline = appBaselineFor({
 				// An extra save leaves authorship open. An exact read of a forward
 				// counter still tells downloads and Preview which settings HQ holds.
@@ -2102,7 +2672,35 @@ export async function publishAppToHq(
 					...(!createdApp && inPlaceUpdate?.ownership === "adopted"
 						? { ownership: "adopted", adoptedBy: inPlaceUpdate.adoptedBy }
 						: { ownership: "nova-created" }),
-					pushedRevision: seq,
+					pushedRevision: prepareContent ? null : seq,
+					expectedInstallationMapping:
+						installationClaim?.mapping ??
+						importAdmission?.emptyInstallations?.mapping,
+					...(importAdmission?.emptyInstallations && {
+						emptyInstallations: {
+							...importAdmission.emptyInstallations,
+							requireGrant:
+								input.scope.requireInstallationManagement ??
+								input.requireHqImport,
+						},
+					}),
+					...(prepareContent &&
+						pendingContent &&
+						pendingFailure && {
+							practicePublication: {
+								expected: prepareContent,
+								next: pendingContent,
+								failure: pendingFailure,
+								requireHqImport: requireProfileImport,
+							},
+						}),
+					...(completedReview && {
+						practicePublication: {
+							expected: completedReview,
+							...(resumed && { promotesPreparedContent: true as const }),
+							requireHqImport: requireProfileImport,
+						},
+					}),
 					remoteRevision: acceptedVersion,
 					uploadedAt: new Date().toISOString(),
 					baseline: pushBaseline.write,
@@ -2111,12 +2709,23 @@ export async function publishAppToHq(
 					 * and never blocks: the flag only decides a `.ccz`'s empty-list text. */
 					...(targetEmptyCaseListText !== null && { targetEmptyCaseListText }),
 				},
-				{
-					writeIds: [importWrite],
-					settle: [{ writeIds: [importWrite], how: { kind: "settled" } }],
-				},
+				importAdmission
+					? {
+							writeIds: importWrites,
+							settle: [{ writeIds: importWrites, how: { kind: "settled" } }],
+						}
+					: undefined,
 			);
+			acknowledgedInstallationWrite = undefined; // The import record settled its own admission.
 			noteSent(imported);
+			if (pendingContent && imported.pushToken)
+				pendingContent = {
+					...pendingContent,
+					claim: {
+						mapping: imported.pushToken,
+						endings: fence.expectedEndings,
+					},
+				};
 			/* The app is there whoever may read its record now, so the publish
 			 * lands either way; a publisher who may no longer read the
 			 * deployment is answered what it sent and nothing of the record
@@ -2174,7 +2783,7 @@ export async function publishAppToHq(
 				readonly reported: HqMediaRecord;
 			} = { warnings: [], reported: {} };
 			/* The import and the bundle, whose admissions the media record rests on. */
-			const mediaWrites: string[] = [importWrite];
+			const mediaWrites = [...importWrites];
 			let mediaUnverified = false;
 			/* What each batch's check found at its destinations after the
 			 * import, before the batch was sent. */
@@ -2195,9 +2804,17 @@ export async function publishAppToHq(
 				warnings.push(
 					"CommCare HQ accepted an earlier revision of this app. You can review what changed there before publishing again.",
 				);
-			} else if (bulkAssets.size > 0 && imported.pushToken === null) {
+			} else if (
+				!resumed &&
+				bulkAssets.size > 0 &&
+				imported.pushToken === null
+			) {
 				warnings.push(MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING);
-			} else if (bulkAssets.size > 0 && imported.pushToken !== null) {
+			} else if (
+				!resumed &&
+				bulkAssets.size > 0 &&
+				imported.pushToken !== null
+			) {
 				/* Admitted as the import was. An ending after the app landed
 				 * leaves the publish landed, with its media not sent, and so does
 				 * an app deleted, or a publisher who lost edit, since: the app is
@@ -2221,6 +2838,7 @@ export async function publishAppToHq(
 							pushBaseline.write.sourceDigest,
 						comparedFiles,
 						writeKind: "media",
+						requireHqImport: requireProfileImport,
 					}).catch((error: unknown) => {
 						if (error instanceof DeploymentEndedError)
 							return { kind: "stopped" as const };
@@ -2350,6 +2968,120 @@ export async function publishAppToHq(
 					"File information changed while Nova published. You can review changes from CommCare HQ to see the files it holds now.",
 				);
 
+			if (pendingContent?.preparedContent && pendingFailure) {
+				let checked = pendingContent;
+				if (
+					!warnings.length &&
+					bulkAssets.size &&
+					readBack &&
+					"kind" in readBack &&
+					readBack.kind === "source-at"
+				) {
+					const current = await readHqAppSaveCounter(creds, domain, appId);
+					const after =
+						typeof current === "number"
+							? await readHqAppSourceAtVersion(creds, domain, appId, current)
+							: null;
+					if (
+						!after ||
+						!("kind" in after) ||
+						after.kind !== "source-at" ||
+						!sameInstallationAfterMedia(
+							readBack.source,
+							after.source,
+							upload.reported,
+						)
+					)
+						return refused(
+							"upload",
+							installationReviewFailure(
+								{
+									kind: "review",
+									message:
+										"Nova could not verify the app and its files together. Review the current app in CommCare HQ and publish again.",
+									details: [],
+								},
+								reviewUrl(appId),
+							),
+						);
+					const digests = profileSourceDigests(after.source.raw);
+					const agreement = profileAgreement(
+						pendingContent.review,
+						after.source.buildProfiles,
+					);
+					if (!agreement.agreed)
+						return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
+					const workerIssue = await unavailableInstallationWorker(
+						creds,
+						domain,
+						appId,
+						after.source,
+					);
+					if (workerIssue)
+						return refused(
+							"upload",
+							installationReviewFailure(
+								{ kind: "review", message: workerIssue, details: [] },
+								reviewUrl(appId),
+							),
+						);
+					const preparation = await checkPracticePreparation({
+						creds,
+						domain,
+						appId,
+						workingVersion: after.version,
+						profiles: after.source.buildProfiles,
+						proposed: agreement.bindings,
+						held: [],
+					});
+					checked = {
+						...pendingContent,
+						workingVersion: after.version,
+						...digests,
+						practiceStart:
+							preparation.kind === "review" ? preparation.start : undefined,
+					};
+					if (preparation.kind === "review")
+						pendingFailure = installationReviewFailure(
+							{ ...preparation, details: [] },
+							reviewUrl(appId),
+						);
+				}
+				if (
+					!warnings.length &&
+					((await readHqAppSaveCounter(creds, domain, appId)) !==
+						checked.workingVersion ||
+						!(await writeInstallationReview(input.scope, target, {
+							sequence: seq,
+							remoteAppId: appId,
+							previous: pendingContent,
+							claim: pendingContent.claim,
+							next: {
+								...checked,
+								preparedContent: {
+									...pendingContent.preparedContent,
+									version: checked.workingVersion,
+									resourcesReady: true,
+								},
+							},
+							identity: targetIdentity,
+							requireHqImport: requireProfileImport,
+						})))
+				)
+					return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
+				return refused(
+					"upload",
+					warnings.length
+						? {
+								...pendingFailure,
+								message:
+									"The working app reached CommCare HQ, but its resources need another check before its practice installation can finish.",
+								details: warnings,
+							}
+						: pendingFailure,
+				);
+			}
+
 			return {
 				landed: true,
 				refusal: null,
@@ -2400,14 +3132,24 @@ export async function publishAppToHq(
 				placements: placements(),
 			};
 		} finally {
-			await finishDeploymentContentWrite(
-				input.scope,
-				target,
-				contentGeneration,
-				entryPointManifest,
-				fence,
-				{ writeIds: letOut, settle: [] },
-			);
+			try {
+				if (acknowledgedInstallationWrite)
+					await finishAcknowledgedInstallationImport(
+						input.scope,
+						target,
+						acknowledgedInstallationWrite.writeId,
+						acknowledgedInstallationWrite.remoteAppId,
+					);
+			} finally {
+				await finishDeploymentContentWrite(
+					input.scope,
+					target,
+					contentGeneration,
+					entryPointManifest,
+					fence,
+					{ writeIds: letOut, settle: [] },
+				);
+			}
 		}
 	};
 
@@ -2477,6 +3219,7 @@ async function remoteAppGoneOutcome(
 	target: DeploymentTargetKey,
 	mapped: DeploymentResource,
 	failure: DeploymentFailure,
+	source: "publish-read" | { readonly importWriteId: string },
 	context: {
 		/** The document this attempt holds, the recorded one where it recorded. */
 		readonly doc: BlueprintDoc;
@@ -2487,6 +3230,16 @@ async function remoteAppGoneOutcome(
 	},
 ): Promise<PublishOutcome> {
 	const observed = await applyDeploymentObservation(input.scope, target, {
+		...(source !== "publish-read" && { importReplyId: source.importWriteId }),
+		...(source === "publish-read" && {
+			publishRead: {
+				documentManagesInstallations:
+					Object.keys(context.doc.appSettings.installationProfiles ?? {})
+						.length > 0,
+				grant:
+					input.scope.requireInstallationManagement ?? input.requireHqImport,
+			},
+		}),
 		observedRemoteId: mapped.remoteId,
 		observedPushToken: mapped.pushToken,
 		outcomes: [
@@ -2525,6 +3278,9 @@ type PassedPreflight = Exclude<PreflightResult, { readonly ready: null }>;
 
 /** What a refusal before anything is sent reports beside its failure. */
 interface PreflightRefusalExtras {
+	readonly claimUnsettled?: true;
+	readonly manageInstallations?: DeploymentFence["manageInstallations"];
+	readonly resumePhase?: "upload";
 	/** When the stop was decided, for the fold of an unreached target. */
 	readonly at: string;
 	/** The document this attempt holds, the recorded one where it recorded. */
@@ -2557,7 +3313,7 @@ async function preflightRefusal(
 	extras: PreflightRefusalExtras,
 ): Promise<PublishOutcome> {
 	const refusal: DeploymentAttemptRefusal = {
-		phase: "preflight",
+		phase: extras.resumePhase ?? "preflight",
 		failure,
 		/* Empty unless the refusal WAS a name clash, in which case these
 		 * are the exact resources a person may name back to take over. */
@@ -2573,18 +3329,21 @@ async function preflightRefusal(
 		placementMoves: extras.placementMoves ?? null,
 	};
 	const deployment =
-		existing === null
-			? null
+		existing === null || extras.claimUnsettled
+			? existing
 			: await foldDeploymentAttempt(
 					input.scope,
 					target,
-					"preflight",
+					extras.resumePhase ?? "preflight",
 					{
 						status: "failed",
 						at: extras.at,
 						failure,
 					},
-					{ expectedEndings: existing.deployment.endings },
+					{
+						expectedEndings: existing.deployment.endings,
+						manageInstallations: extras.manageInstallations,
+					},
 				);
 	return {
 		landed: false,
@@ -2863,16 +3622,16 @@ function appBaselineFor(input: {
 }
 
 /** The discard a person confirmed for one resource, recorded with its next baseline. */
-function confirmedDiscard(
+function confirmedResourceDiscards(
 	confirmed: readonly DeploymentRemoteChange[],
-	kind: DeploymentRemoteChange["kind"],
-	novaResourceId: string,
-): ResourceBaselineWrite["discard"] {
-	const change = confirmed.find(
-		(candidate) =>
-			candidate.kind === kind && candidate.novaResourceId === novaResourceId,
-	);
-	return change === undefined ? null : { digest: change.observedDigest };
+	kind: "lookup-table" | "location",
+): ReadonlyMap<string, { digest: string }> {
+	const discards = new Map<string, { digest: string }>();
+	for (const change of confirmed) {
+		if (change.kind === kind && !discards.has(change.novaResourceId))
+			discards.set(change.novaResourceId, { digest: change.observedDigest });
+	}
+	return discards;
 }
 
 /** A baseline write for an HQ table or place Nova could not read back. */
@@ -3005,6 +3764,7 @@ async function pushLookupTables(
 	letOut: string[],
 ): Promise<{
 	readonly failure: DeploymentFailure | null;
+	readonly responseTo?: PublishWriteResponse;
 	/** What the push's record answers. Null only when nothing was written. */
 	readonly recorded: RecordAnswer | null;
 	/** Some table this push may have changed could not be read back. */
@@ -3074,6 +3834,7 @@ async function pushLookupTables(
 		await settleQuietly(ended.writeIds, ended.how);
 		return {
 			failure: lookupUploadFailure(refusal, domain, createdApp),
+			responseTo: { kind: "workbook", writeIds: admission.writeIds },
 			recorded: null,
 			readBackFailed: false,
 			warnings: [],
@@ -3098,6 +3859,7 @@ async function pushLookupTables(
 		if (refusal !== null) {
 			return {
 				failure: lookupUploadFailure(refusal, domain, createdApp),
+				responseTo: { kind: "workbook", writeIds: admission.writeIds },
 				recorded: null,
 				readBackFailed: true,
 				warnings: [],
@@ -3118,6 +3880,7 @@ async function pushLookupTables(
 		remote.map((table) => [table.tag, table] as const),
 	);
 
+	const discards = confirmedResourceDiscards(confirmed, "lookup-table");
 	const mappings: RecordRemoteResourceInput[] = [];
 	const baselines: ResourceBaselineWrite[] = [];
 	const missing: string[] = [];
@@ -3150,7 +3913,7 @@ async function pushLookupTables(
 		},
 	);
 	for (const [index, push] of plan.pushes.entries()) {
-		const discard = confirmedDiscard(confirmed, "lookup-table", push.tableId);
+		const discard = discards.get(push.tableId) ?? null;
 		const landed = remoteByTag.get(push.tag);
 		const rows = landedRows[index] ?? null;
 		if (landed === undefined || rows === null) {
@@ -3259,6 +4022,7 @@ async function pushLookupTables(
 		});
 		return {
 			failure: lookupUploadFailure(refusal, domain, createdApp),
+			responseTo: { kind: "workbook", writeIds: admission.writeIds },
 			recorded: await recordPartial(),
 			readBackFailed,
 			warnings: [],
@@ -3631,11 +4395,13 @@ async function pushLocations(
 	letOut: string[],
 ): Promise<{
 	readonly failure: DeploymentFailure | null;
+	readonly responseTo?: PublishWriteResponse;
 	/** What the push's record answers. Null only when nothing was written. */
 	readonly recorded: RecordAnswer | null;
 	/** Some place this push may have changed could not be read back. */
 	readonly readBackFailed: boolean;
 }> {
+	const discards = confirmedResourceDiscards(confirmed, "location");
 	const remoteIdByLocationUuid = new Map<string, string>();
 	const externalIdMismatches: string[] = [];
 	const landed: RecordRemoteResourceInput[] = [];
@@ -3670,7 +4436,7 @@ async function pushLocations(
 						unreadResourceBaseline(
 							"location",
 							remoteId,
-							confirmedDiscard(confirmed, "location", push.locationUuid),
+							discards.get(push.locationUuid) ?? null,
 						),
 					),
 					...unreadOf(uncertain),
@@ -3684,11 +4450,7 @@ async function pushLocations(
 		let failed = uncertain.length > 0;
 		const baselines: ResourceBaselineWrite[] = [];
 		for (const { push, remoteId } of landedPushes) {
-			const discard = confirmedDiscard(
-				confirmed,
-				"location",
-				push.locationUuid,
-			);
+			const discard = discards.get(push.locationUuid) ?? null;
 			const place = byId.get(remoteId);
 			if (
 				place === undefined ||
@@ -3777,11 +4539,13 @@ async function pushLocations(
 	const stopped = async (
 		failure: DeploymentFailure,
 		uncertain: readonly string[] = [],
+		responseTo?: PublishWriteResponse,
 	): Promise<{
 		readonly failure: DeploymentFailure;
+		readonly responseTo?: PublishWriteResponse;
 		readonly recorded: RecordAnswer | null;
 		readonly readBackFailed: boolean;
-	}> => ({ failure, ...(await recordStop(uncertain)) });
+	}> => ({ failure, responseTo, ...(await recordStop(uncertain)) });
 
 	for (const batch of plan.batches) {
 		const places: HqLocationPush[] = [];
@@ -3866,6 +4630,7 @@ async function pushLocations(
 					details: result.message === "" ? [] : [result.message],
 				},
 				uncertain,
+				{ kind: "places", writeIds: batchWrites },
 			);
 		}
 
@@ -4278,6 +5043,12 @@ export async function refreshDeployment(
 		!deploymentIsObservable(existing.deployment) &&
 		remote.remoteMissingAt === null
 	) {
+		const stopped = existing.deployment.phases.upload;
+		if (
+			stopped?.status === "failed" &&
+			stopped.failure.code === "hq_installation_profile_review"
+		)
+			throw new DeploymentError("invalid", stopped.failure.message);
 		throw new DeploymentError(
 			"invalid",
 			"This publish stopped before the app's content reached CommCare HQ, so checking there would say nothing about it. Fix what stopped it and publish again.",
@@ -4306,7 +5077,27 @@ export async function refreshDeployment(
 
 	assertCredentialsMatchServer(credResult.creds, target);
 
+	const installation = await withDeploymentReadSnapshot(
+		scope,
+		"view",
+		async (snapshot) => {
+			const identity = await readTargetIdentity(snapshot, target);
+			const prior = await publishedInstallationSettings(
+				snapshot,
+				remote.pushedRevision,
+			);
+			if (!prior) return { checkOfflineInstallation: true, namedProfiles: [] };
+			return {
+				checkOfflineInstallation: declaresAndroid(prior),
+				namedProfiles: requestedProfiles(
+					prior,
+					identity.installationProfiles ?? [],
+				).map((request) => request.definition),
+			};
+		},
+	);
 	const observation = await observeDeployment({
+		...installation,
 		creds: credResult.creds,
 		domain: credResult.domain.name,
 		hqAppId: remote.remoteId,
@@ -4825,6 +5616,10 @@ async function compareWithHq(
 	if (
 		baseline.firstPublishReview === "required" ||
 		parts.length > 0 ||
+		installationDefinitionsChanged(
+			baseline.source,
+			read.source.buildProfiles,
+		) ||
 		((remote.ownership === "adopted" || baseline.hasPublishList) &&
 			publishReadingFactsMoved(
 				baseline.source,
@@ -4881,6 +5676,17 @@ async function compareWithHq(
 		);
 		if (app.connect_type === null) return { kind: "changed-in-hq" };
 	}
+	if (
+		read.source.buildProfiles.length &&
+		unboundInstallationKeys(
+			read.source.buildProfiles,
+			await readTargetIdentity(scope, {
+				server: existing.deployment.server,
+				domain,
+			}),
+		).length
+	)
+		return { kind: "changed-in-hq" };
 	return {
 		kind: "unchanged",
 		remote,

@@ -29,6 +29,13 @@ export interface ReviewDigestInput {
 	readonly source?: { readonly revision: number; readonly digest: string };
 	/** Each declaration’s source inputs to the registered publish changes, when present. */
 	readonly publishInputs?: string;
+	/** Exact source and authority for adopting the management of named installations. */
+	readonly installationSource?: ReadingKey & {
+		readonly appId: string;
+		readonly actorUserId: string | null;
+		readonly version: number;
+		readonly digest: string;
+	};
 	/** The review without `readAt`. */
 	readonly review: Omit<ReadingReview, "readAt">;
 	/** `canonicalJsonDigest` of the persistable document with every media asset id replaced. */
@@ -54,6 +61,9 @@ export function reviewDigestOf(input: ReviewDigestInput): string {
 		authority: input.authority,
 		...(input.source && { source: input.source }),
 		...(input.publishInputs && { publishInputs: input.publishInputs }),
+		...(input.installationSource && {
+			installationSource: input.installationSource,
+		}),
 		review,
 		document: input.document,
 		targetIdentity: input.targetIdentity,

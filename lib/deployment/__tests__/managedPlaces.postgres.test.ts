@@ -1,4 +1,7 @@
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
+import { pendingInstallationTarget } from "@/__tests__/helpers/pendingInstallationTarget";
 import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
+import { credentialWriteGrant } from "@/lib/mcp/credentialWriteGrant";
 /**
  * Places CommCare HQ manages for an app, through a publish and through
  * provisioning a worker, over real Postgres and a peer standing in for
@@ -143,8 +146,19 @@ function document(): BlueprintDoc {
 }
 
 /** The app, with Nova's copy of CommCare HQ's places, as a bring-in writes it. */
-async function seed(source: HqLocation = north): Promise<BlueprintDoc> {
+async function seed(source: HqLocation | true = north): Promise<BlueprintDoc> {
 	const doc = document();
+	if (source === true) {
+		const uuid = testUuid("place-service-installation");
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Team",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+		};
+	}
 	await h.seedAppWithBlueprint(doc, {
 		id: APP,
 		owner: ACTOR,
@@ -153,7 +167,7 @@ async function seed(source: HqLocation = north): Promise<BlueprintDoc> {
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	await connect(h, ACTOR, "india", [MANAGING.domain, OTHER.domain, "coast"]);
 	const plan = planManagedPlaces({
-		hqPlaces: [source],
+		hqPlaces: [source === true ? north : source],
 		levels: [doc.organizationLevels?.[REGION] ?? fail()],
 		properties: [],
 		mode: "birth",
@@ -227,6 +241,66 @@ it("requires permission before publishing refreshes managed places", async () =>
 
 const PUSH_REASON = "This publish sends the places in your organization.";
 
+it.each(["named", "pending-during-read"] as const)(
+	"checks the live installation grant inside the managed place refresh while publishing with %s",
+	async (mode) => {
+		const doc = await seed(mode === "named" ? true : north);
+		const before = await readOrganization(SCOPE);
+		const ctx = await installationCredential(h.db(), ACTOR, [
+			"nova.read",
+			"nova.write",
+			"nova.hq.import",
+			"nova.hq.write",
+		]);
+		const grant = credentialWriteGrant(ctx, "upload_app_to_hq", [
+			"nova.hq.import",
+			"nova.hq.write",
+		]);
+		let fetched = false;
+		await withManagedPeer(async (peer) => {
+			request(peer, "/a/clinic/api/location/v2/?limit=5000").reply(async () => {
+				fetched = true;
+				if (mode === "pending-during-read")
+					await pendingInstallationTarget(h, SCOPE, MANAGING);
+				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+				return {
+					statusCode: 200,
+					data: JSON.stringify({
+						meta: { next: null },
+						objects: [
+							{
+								location_id: north.locationId,
+								name: "Renamed during publish",
+								site_code: north.siteCode,
+								location_type_code: "region",
+								parent_location_id: "",
+								latitude: null,
+								longitude: null,
+								location_data: {},
+							},
+						],
+					}),
+				};
+			});
+			await expect(
+				publishAppToHq({
+					requireHqImport: null,
+					scope: { ...SCOPE, requireInstallationManagement: grant },
+					...MANAGING,
+					doc,
+					compiledAtSeq: 0,
+					reloadHead: reloadHeadFor(APP, ACTOR),
+					appName: doc.appName,
+					confirm: CONFIRM_ALL,
+				}),
+			).rejects.toMatchObject({ name: "McpCredentialInactiveError" });
+		});
+		expect(fetched).toBe(true);
+		expect((await readOrganization(SCOPE)).locations).toEqual(before.locations);
+	},
+);
 it("never pushes places to the project space that manages them, and refreshes the copy instead", async () => {
 	const doc = await seed();
 	const needs = await publishConfirmationNeeds(
@@ -638,7 +712,7 @@ it("stages the external ID against each new destination's own durable ID before 
 	);
 	for (const domain of ["district", "coast"]) {
 		const target = { ...OTHER, domain };
-		const remoteId = domain + "-north";
+		const remoteId = `${domain}-north`;
 		const arrived = {
 			location_id: remoteId,
 			site_code: "north",
@@ -652,9 +726,9 @@ it("stages the external ID against each new destination's own durable ID before 
 		};
 		await withManagedPeer(async (peer) => {
 			servePlaceInventory(peer, domain, []);
-			acceptImport(peer, domain, 201, { appId: domain + "-app" });
-			serveSource(peer, domain, "source-shell", domain + "-app");
-			request(peer, "/a/" + domain + "/api/location/v2/", "PATCH").reply(
+			acceptImport(peer, domain, 201, { appId: `${domain}-app` });
+			serveSource(peer, domain, "source-shell", `${domain}-app`);
+			request(peer, `/a/${domain}/api/location/v2/`, "PATCH").reply(
 				async (req) => {
 					const body = JSON.parse((await readHttpRequestBody(req)).toString());
 					expect(body.objects).toEqual([
@@ -664,10 +738,10 @@ it("stages the external ID against each new destination's own durable ID before 
 				},
 			);
 			servePlaceInventory(peer, domain, [arrived]);
-			request(
-				peer,
-				"/a/" + domain + "/api/location/v1/" + remoteId + "/",
-			).reply(200, { ...arrived, domain });
+			request(peer, `/a/${domain}/api/location/v1/${remoteId}/`).reply(200, {
+				...arrived,
+				domain,
+			});
 			const result = await publish(doc, target);
 			expect(result, JSON.stringify(result)).toMatchObject({
 				landed: false,
@@ -704,7 +778,7 @@ it("stages the external ID against each new destination's own durable ID before 
 		expect(mapping).toEqual([{ remote_id: remoteId }]);
 		const artifact = await withManagedPeer(async (peer) => {
 			servePlaceInventory(peer, domain, [arrived], undefined, true);
-			request(peer, "/a/" + domain + "/api/location/v1/" + remoteId + "/")
+			request(peer, `/a/${domain}/api/location/v1/${remoteId}/`)
 				.reply(200, { ...arrived, domain })
 				.persist();
 			const file = await preparePlaceWorkbook(actor, APP, target);
@@ -734,12 +808,12 @@ it("stages the external ID against each new destination's own durable ID before 
 		});
 		await withManagedPeer(async (peer) => {
 			servePlaceInventory(peer, domain, [corrected]);
-			request(
-				peer,
-				"/a/" + domain + "/api/location/v1/" + remoteId + "/",
-			).reply(200, { ...corrected, domain });
-			serveSource(peer, domain, "source-shell", domain + "-app");
-			request(peer, "/a/" + domain + "/api/location/v2/", "PATCH").reply(
+			request(peer, `/a/${domain}/api/location/v1/${remoteId}/`).reply(200, {
+				...corrected,
+				domain,
+			});
+			serveSource(peer, domain, "source-shell", `${domain}-app`);
+			request(peer, `/a/${domain}/api/location/v2/`, "PATCH").reply(
 				async (req) => {
 					const body = JSON.parse((await readHttpRequestBody(req)).toString());
 					expect(body.objects).toEqual([
@@ -750,17 +824,17 @@ it("stages the external ID against each new destination's own durable ID before 
 			);
 			const complete = { ...corrected, location_data: { visits: 12 } };
 			servePlaceInventory(peer, domain, [complete]);
-			request(
-				peer,
-				"/a/" + domain + "/api/location/v1/" + remoteId + "/",
-			).reply(200, { ...complete, domain });
-			serveSource(peer, domain, "source-shell", domain + "-app");
-			acceptImport(peer, domain, 200, { appId: domain + "-app" });
+			request(peer, `/a/${domain}/api/location/v1/${remoteId}/`).reply(200, {
+				...complete,
+				domain,
+			});
+			serveSource(peer, domain, "source-shell", `${domain}-app`);
+			acceptImport(peer, domain, 200, { appId: `${domain}-app` });
 			serveSource(
 				peer,
 				domain,
 				"source-after-create-then-update",
-				domain + "-app",
+				`${domain}-app`,
 			);
 			const result = await publish(doc, target);
 			expect(result, JSON.stringify(result)).toMatchObject({ landed: true });

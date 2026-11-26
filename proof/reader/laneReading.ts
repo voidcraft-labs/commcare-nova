@@ -1,3 +1,4 @@
+import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 /**
  * Nova's reading of an app CommCare HQ holds, as the proof lane asks for it:
  * the production path with no service around it, over HQ's retained answers.
@@ -255,6 +256,7 @@ export type LaneReading =
 			/** A first reading's document under its declaration; a read back's draft as it came. */
 			readonly doc: BlueprintDoc;
 			readonly identity: readonly WireIdentityOverride[];
+
 			readonly declaration: LaneDeclaration;
 			/** Every declaration the reading offers, for a read back's declaration check. */
 			readonly offered: readonly LaneDeclaration[];
@@ -272,6 +274,7 @@ export type LaneReading =
 			 *  (`targetIdentity.ts::resolveTargetIdentity`'s column words), which every later
 			 *  publish to that project space prints the column under. */
 			readonly columnWords: readonly ColumnFieldWordRow[];
+			readonly installationProfiles?: readonly InstallationProfileBinding[];
 			/** A first reading's lookup data: each table the document reads, with CommCare HQ's
 			 *  rows, as the birth leaves it in the Project (`bornLookup`). Absent on a read back,
 			 *  whose tables are the corpus document's own. */
@@ -664,6 +667,7 @@ async function firstReading(
 		/* The record the birth writes (`reading/birth.ts::adoptedDeploymentWrite`). */
 		keyedCaseIds: result.gathered.targetIdentity.keyedCaseIds,
 		columnWords: result.gathered.targetIdentity.columnWords,
+		installationProfiles: result.gathered.targetIdentity.installationProfiles,
 		lookup: bornLookup(result.gathered),
 		media: laneMediaOf(result.gathered),
 		asked: asked(),
@@ -687,6 +691,7 @@ interface StoredDocument {
 	 *  document shows, with the SHA-256 of its bytes. */
 	readonly assets: readonly DocumentAsset[];
 	readonly identity: readonly WireIdentityOverride[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 }
 
 interface StoredMedia {
@@ -873,8 +878,10 @@ async function storedDocument(document: unknown): Promise<StoredDocument> {
 			readonly definitions: readonly LookupTableDefinition[];
 		};
 		readonly identity?: readonly WireIdentityOverride[];
+		readonly installationProfiles?: readonly InstallationProfileBinding[];
 		readonly hqAuthored?: {
 			readonly identity: readonly WireIdentityOverride[];
+			readonly installationProfiles?: readonly InstallationProfileBinding[];
 		};
 	};
 	const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(stored.doc));
@@ -908,6 +915,8 @@ async function storedDocument(document: unknown): Promise<StoredDocument> {
 		published: { byPath, sameFile: files.sameFile },
 		assets,
 		identity: stored.identity ?? stored.hqAuthored?.identity ?? [],
+		installationProfiles:
+			stored.installationProfiles ?? stored.hqAuthored?.installationProfiles,
 	};
 }
 
@@ -1012,7 +1021,11 @@ async function readBack(
 			input.appId,
 			externalIdentityMap(
 				doc,
-				targetWireIdentity(stored.identity),
+				targetWireIdentity(
+					stored.identity,
+					undefined,
+					stored.installationProfiles,
+				),
 				lookupWireNaming(stored.lookupDefinitions),
 			),
 		),
@@ -1141,6 +1154,7 @@ function readBackRecordRows(
 ): {
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 } {
 	const observed = observedTargetIdentity({
 		read: draft.identities,
@@ -1153,10 +1167,7 @@ function readBackRecordRows(
 		throw new Error(
 			`A read back named a menu or form CommCare HQ's application resource does not hold (${observed.at}). Look at lib/deployment/adoption.ts::adoptedIdentityRows.`,
 		);
-	const { keyedCaseIds, columnWords } = resolveTargetIdentity(
-		EMPTY_TARGET_IDENTITY,
-		observed.observed,
-		draft.doc,
-	);
-	return { keyedCaseIds, columnWords };
+	const { keyedCaseIds, columnWords, installationProfiles } =
+		resolveTargetIdentity(EMPTY_TARGET_IDENTITY, observed.observed, draft.doc);
+	return { keyedCaseIds, columnWords, installationProfiles };
 }

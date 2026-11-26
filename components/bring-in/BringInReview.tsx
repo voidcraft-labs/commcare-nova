@@ -46,6 +46,7 @@ import {
 	reviewProjectLine,
 	reviewTablesProjectLine,
 } from "@/lib/publish/bringInCopy";
+import { installationDescription } from "@/lib/publish/hqChangesCopy";
 import {
 	type CircumstanceContext,
 	circumstanceBlock,
@@ -304,6 +305,15 @@ export function BringInReview({
 					) : null}
 				</ReviewSection>
 
+				{!!review.installations?.length && (
+					<ReviewSection heading="Installations from this project space">
+						<ul className="space-y-2 text-sm leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]">
+							{review.installations.map((profile) => (
+								<li key={profile.key}>{installationDescription(profile)}</li>
+							))}
+						</ul>
+					</ReviewSection>
+				)}
 				<ReviewRunsOn
 					review={review}
 					answers={answers}

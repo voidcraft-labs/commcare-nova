@@ -1,3 +1,5 @@
+import { installationDownloadIssue } from "@/lib/commcare/installationProfiles";
+import { resolvedLanguageEnglishName } from "@/lib/domain/languageRegistry/names";
 /**
  * `nova.compile_app` — produce CommCare artifacts for an app the caller can view.
  *
@@ -47,6 +49,7 @@ import {
 	resolveDownloadTarget,
 } from "@/lib/deployment/downloadTarget";
 import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
+import { installationArchiveIssue, uuidSchema } from "@/lib/domain";
 import { compileExportSpec } from "@/lib/export/artifacts/access";
 import { EXPORT_RESOURCE_BYTES } from "@/lib/export/artifacts/range";
 import { deliverExport } from "@/lib/export/artifacts/store";
@@ -107,6 +110,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					.describe(
 						"Include verified worker assignments in the import file for the named server and domain. Requires Project editor access and nova.projects.data.export.",
 					),
+				installation_profile_uuid: uuidSchema
+					.optional()
+					.describe(
+						"Installation profile to use for a mobile app file. Leave it out for all app languages. A profile that uses a practice worker is built on CommCare HQ.",
+					),
 				server: z
 					.enum(COMMCARE_SERVER_IDS)
 					.optional()
@@ -157,6 +165,12 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * manifest resolves only the ids the app's own blueprint references,
 				 * filtered to the project. */
 				const mode = COMPILE_EXPORT_MODE_BY_FORMAT[args.format];
+				if (args.installation_profile_uuid !== undefined) {
+					if (mode !== "ccz")
+						throw new McpInvalidInputError(
+							"An import file includes the entire app. A profile can be selected for a mobile app file.",
+						);
+				}
 				const grant = ctx.grant;
 				/* A CCZ is made for one project space this app is published
 				 * to, and the import file for none: a reached deployment only
@@ -216,6 +230,20 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							...downloadRefusalLines(download).map((line) => `- ${line}`),
 						].join("\n"),
 					);
+				}
+				if (download.format === "ccz" && args.installation_profile_uuid) {
+					const issue =
+						installationDownloadIssue(
+							doc,
+							args.installation_profile_uuid,
+							download.identity,
+						) ??
+						installationArchiveIssue(
+							doc,
+							args.installation_profile_uuid,
+							resolvedLanguageEnglishName,
+						);
+					if (issue) throw new McpInvalidInputError(issue);
 				}
 				const { attachmentTarget } = download;
 				const boundary = await prepareExportBoundary({
@@ -277,7 +305,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 									appId,
 									prepared,
 									authorizedTarget,
-									sanitizeFilename(app.app_name) + "." + format,
+									`${sanitizeFilename(app.app_name)}.${format}`,
 								),
 							};
 						},
@@ -295,7 +323,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 								: {
 										format,
 										artifact: file.artifact,
-										resource: "nova://exports/" + file.artifact.id + "/bytes/0",
+										resource: `nova://exports/${file.artifact.id}/bytes/0`,
 										partBytes: EXPORT_RESOURCE_BYTES,
 									},
 						),
@@ -402,6 +430,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							download.runtimeTarget,
 							download.identity,
 							{
+								installationProfileUuid: args.installation_profile_uuid,
 								emptyCaseListText: download.target.emptyCaseListText,
 								earlierHqApps: download.target.earlierHqApps,
 								adopted: download.target.adopted,

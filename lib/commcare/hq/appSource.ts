@@ -1,3 +1,4 @@
+import { nativeInstallationKey } from "./installationKey";
 import "server-only";
 
 /**
@@ -76,6 +77,8 @@ export interface HqBuildProfile {
 	readonly name: string;
 	/** `langs`: the profile's language codes, its default first. */
 	readonly langs: readonly string[];
+	/** Only present when this destination binds a practice worker. */
+	readonly practiceWorkerId?: string;
 }
 
 export interface HqAppSourceModule {
@@ -263,6 +266,8 @@ export async function readHqAppSource(
 			? malformed(domain, appId, "multimedia_map")
 			: parsed;
 	}
+	if (parsed.key === "build_profiles.unusable-key")
+		return { ...HQ_MALFORMED_ANSWER, installationProfileKeyUnusable: true };
 	if (parsed.key === "build_profiles") {
 		log.error("[commcare] build profiles are malformed", undefined, {
 			domain,
@@ -344,8 +349,22 @@ export function parseHqAppSource(
 	if (logoRefs !== undefined && !isRecord(logoRefs)) {
 		return refuse("logo_refs");
 	}
-	const buildProfiles = readBuildProfiles(body.build_profiles);
-	if (buildProfiles === null) return refuse("build_profiles");
+	const ordinaryLanguages = new Set(langs);
+	const buildProfiles = readBuildProfiles(
+		body.build_profiles,
+		ordinaryLanguages,
+		modules.length,
+	);
+	if (buildProfiles === null)
+		return refuse(
+			unusableBuildProfileKey(
+				body.build_profiles,
+				ordinaryLanguages,
+				modules.length,
+			)
+				? "build_profiles.unusable-key"
+				: "build_profiles",
+		);
 
 	const parsedModules: HqAppSourceModule[] = [];
 	for (const module of modules) {
@@ -450,25 +469,58 @@ function docTypeOf(value: unknown, admitAny: boolean): string | null {
 	return admitAny ? null : "";
 }
 
+export function unusableBuildProfileKey(
+	value: unknown,
+	ordinaryLanguages: ReadonlySet<string>,
+	moduleCount: number,
+): boolean {
+	return (
+		isRecord(value) &&
+		Object.entries(value).some(([key, p]) => {
+			const languages =
+				isRecord(p) && Array.isArray(p.langs)
+					? p.langs.filter((lang): lang is string => typeof lang === "string")
+					: [];
+			return !nativeInstallationKey(
+				key,
+				ordinaryLanguages,
+				languages,
+				moduleCount,
+			);
+		})
+	);
+}
+
 /**
  * `build_profiles`, `models/applications.py::ApplicationBase.build_profiles`,
  * a `SchemaDictProperty(BuildProfile)` HQ serializes on every app: an object
  * whose every value holds a `langs` list of strings. Null where it is not.
  */
-function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
+export function readBuildProfiles(
+	value: unknown,
+	ordinaryLanguages?: ReadonlySet<string>,
+	moduleCount?: number,
+): readonly HqBuildProfile[] | null {
 	if (!isRecord(value)) return null;
 	const profiles: HqBuildProfile[] = [];
 	for (const [id, profile] of Object.entries(value)) {
 		if (
 			!isRecord(profile) ||
+			(profile.practice_mobile_worker_id != null &&
+				typeof profile.practice_mobile_worker_id !== "string") ||
 			!Array.isArray(profile.langs) ||
-			!profile.langs.every((lang) => typeof lang === "string")
+			!profile.langs.every((lang) => typeof lang === "string") ||
+			!nativeInstallationKey(id, ordinaryLanguages, profile.langs, moduleCount)
 		)
 			return null;
 		profiles.push({
 			id,
 			name: typeof profile.name === "string" ? profile.name : "",
 			langs: profile.langs as string[],
+			...(typeof profile.practice_mobile_worker_id === "string" &&
+				profile.practice_mobile_worker_id !== "" && {
+					practiceWorkerId: profile.practice_mobile_worker_id,
+				}),
 		});
 	}
 	return profiles;

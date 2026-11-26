@@ -23,11 +23,13 @@ import {
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderLanguage } from "./BuilderLocalizationProvider";
 import { languageSelectorRows } from "./languageSelectorRows";
+import { useInstallationChoiceLabels } from "./useInstallationChoiceLabels";
 import { useLanguageRegistrySearch } from "./useLanguageRegistrySearch";
 
 export function LanguageSelector() {
 	const state = useBuilderLanguage();
 	const navigate = useNavigate();
+	const profileLabels = useInstallationChoiceLabels(state.profiles);
 
 	// The baked common set labels most languages statically; the full registry
 	// chunk loads only when an app language falls outside it.
@@ -79,6 +81,31 @@ export function LanguageSelector() {
 				sideOffset={6}
 				preferredMinWidth="14rem"
 			>
+				{state.profiles?.length > 0 && (
+					<>
+						<DropdownMenuGroup>
+							<DropdownMenuLabel>Installation profile</DropdownMenuLabel>
+						</DropdownMenuGroup>
+						<DropdownMenuRadioGroup
+							value={state.profileUuid ?? ""}
+							onValueChange={state.selectProfile}
+						>
+							<DropdownMenuRadioItem value="" closeOnClick>
+								All app languages
+							</DropdownMenuRadioItem>
+							{state.profiles.map((profile) => (
+								<DropdownMenuRadioItem
+									key={profile.uuid}
+									value={profile.uuid}
+									closeOnClick
+								>
+									{profileLabels.get(profile.uuid)}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+						<DropdownMenuSeparator />
+					</>
+				)}
 				<DropdownMenuGroup>
 					<DropdownMenuLabel>Language workers see</DropdownMenuLabel>
 				</DropdownMenuGroup>

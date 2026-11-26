@@ -41,6 +41,7 @@ import * as hqBringInLedger from "./20261201000000_hq_bring_in_ledger";
 import * as hqChangesAppChangeKind from "./20261201010000_hq_changes_app_change_kind";
 import * as hqBringInProjectData from "./20261202000000_hq_bring_in_project_data";
 import * as lookupXmlNames from "./20261203000000_lookup_xml_names";
+import * as hqInstallationProfiles from "./20261203040000_hq_installation_profiles";
 import * as deploymentFoldReferences from "./20261204000000_deployment_fold_references";
 import * as lookupOccurrences from "./20261205000000_lookup_occurrences";
 import * as lookupGenerations from "./20261206000000_lookup_generations";
@@ -271,6 +272,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261207050000_organization_place_pages": organizationPlacePages,
 	"20261207060000_user_settings_connection_epoch": userSettingsConnectionEpoch,
 	"20261208000000_lookup_json_destinations": lookupJsonDestinations,
+	"20261203040000_hq_installation_profiles": hqInstallationProfiles,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

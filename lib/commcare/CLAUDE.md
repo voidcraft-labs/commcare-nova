@@ -2418,8 +2418,7 @@ which keeps its directory; the media suite writes each file's own
 `./<dir>/<name>`, HQ's `media_resources` rule, which CommCare Android installs
 at `<dir>/<name>` where `jr://file/<dir>/<name>` reads it), and the `.ccz` and
 the bulk upload name the file at that path.
-`readHqAppSource` reads `build_profiles` so that a publish can refuse to leave
-a profile naming a language the app no longer has (`targetBuildProfiles.ts`).
+`readHqAppSource` preserves the name, key, ordered languages and target worker for each installation profile. The reader refuses a selected profile without a usable first language. The emitter includes the full destination-bound map on create, including the initial shell. HQ ignores the map on update. The Releases page owns the browser save. A named device package carries the profile ID and exactly its selected locales, including each form’s itext. A private practice installation is built by its project space. The released-build probe checks the selected ID, suite, locales and restore length. The separate working-app probe asks only for the selected suite, whose generator validates a practice worker. The working app’s profile and restore URLs would start a build.
 Which of the two a publish does, and what happens to it
 afterwards, lives in `lib/deployment`:
 this package owns the HTTP calls, that one owns the lifecycle, the ownership
@@ -2774,3 +2773,5 @@ reader order and the native label prefix. Form entries carry the effective
 source's persistent detail, and an inline detail replaces case confirmation.
 The one-line fallback emits a dedicated centered detail. An unrelated menu's
 tile always renders the case already selected for this entry.
+
+The named installation reader uses `ApplicationResource.dehydrate(extras=true)` against a specific build ID. Validate the envelope and stored domain, working app, build, version, released state and complete selected profile. Inspect lengths at exact `external_blobs["files/<key>/…"]` paths. Keep only the verdict; the raw application and blob identifiers are private. A cold named download, including HEAD, calls `create_build_files` and saves the build. The named working suite validates the chosen account. The ordinary working suite lists the enabled forms independently of which attachments were stored. Only an unchanged working save equal to the identified build version binds its generated form inventory. Preparing an actual nonempty named restore depends separately on the build’s effective practice privilege.

@@ -450,3 +450,64 @@ test("a project language keeps its code, manual text and writing direction throu
 	expect((await restored).status()).toBe(200);
 	await expect(submit).toHaveValue("Submit");
 });
+
+test("a team installs its selected language and sees its own default in Preview", {
+	tag: "@seed:localization",
+}, async ({ scenario, page }) => {
+	const appId = seedFor(scenario, "localization").localizationAppId;
+	if (!appId) throw new Error("Missing localization seed.");
+	await openBuilder(page, `/build/${appId}/setup/languages`);
+	await page.getByRole("button", { name: "Add language", exact: true }).click();
+	const dialog = page.getByRole("dialog");
+	await dialog
+		.getByRole("combobox", { name: "Language", exact: true })
+		.fill("Spanish");
+	await page.getByRole("option", { name: /Español/ }).click();
+	const languageSaved = nextSave(page, appId);
+	await dialog
+		.getByRole("button", { name: "Add language", exact: true })
+		.click();
+	expect((await languageSaved).status()).toBe(200);
+	const installations = page.getByRole("region", {
+		name: "Installation profiles",
+	});
+	await installations
+		.getByRole("textbox", { name: "New profile name" })
+		.fill("Outreach");
+	const created = nextSave(page, appId);
+	await installations.getByRole("button", { name: "Add profile" }).click();
+	expect((await created).status()).toBe(200);
+	const edit = installations.getByRole("article");
+	const en = edit.getByRole("switch", { name: /English/ });
+	const spanish = edit.getByRole("switch", { name: /Español/ });
+	if (!(await spanish.isChecked())) {
+		const changed = nextSave(page, appId);
+		await spanish.click();
+		expect((await changed).status()).toBe(200);
+	}
+	if (await en.isChecked()) {
+		const changed = nextSave(page, appId);
+		await en.click();
+		expect((await changed).status()).toBe(200);
+	}
+	await expect(spanish).toBeChecked();
+	await expect(spanish).toBeDisabled();
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	await page.getByRole("button", { name: /^Worker language:/ }).click();
+	await page
+		.getByRole("menuitemradio", { name: "Outreach", exact: true })
+		.click();
+	await expect(
+		page.getByRole("button", { name: "Worker language: Spanish" }),
+	).toBeVisible();
+	await page.getByRole("button", { name: /^Worker language:/ }).click();
+	await expect(
+		page.getByRole("menuitemradio", { name: /English/ }),
+	).toHaveCount(0);
+	await page
+		.getByRole("menuitemradio", { name: "All app languages", exact: true })
+		.click();
+	await expect(
+		page.getByRole("button", { name: "Worker language: English" }),
+	).toBeVisible();
+});
