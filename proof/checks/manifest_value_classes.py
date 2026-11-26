@@ -10336,6 +10336,21 @@ def live_create_id(use, manifest):
     return _creates(holder) and not form.in_repeat(form.paths[holder])
 
 
+def write_and_close(use, manifest):
+    """A Close Condition on a SaveToCase block that also changes the case."""
+    form, bind, close = _bind(use)
+    if form is None:
+        return None
+    if bind is None or close is None or isinstance(close, tuple) or close.tag != f"{{{CASE}}}close":
+        return False
+    case = close.getparent()
+    holder = case.getparent()
+    return (
+        holder.get(f"{{{VELLUM}}}role") == "SaveToCase"
+        and any(case.find(f"{{{CASE}}}{facet}") is not None for facet in ("create", "update", "index"))
+    )
+
+
 def exact_create_id(use, manifest):
     """The create's authored ready action or repeat-row bind supplies a case ID."""
     form, setvalue = _setvalue(use)
@@ -12195,6 +12210,7 @@ VALUE_CLASSES = {
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
 
     "questions/savetocase-case-id-expression-on-a-create": exact_create_id,
+    "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under": write_and_close,
     "questions/savetocase-owner-id-condition": conditioned_create_owner,
     "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,
     "questions/savetocase-link-bind-lost-on-save": index_period_loses_bind,

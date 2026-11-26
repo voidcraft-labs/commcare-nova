@@ -34885,19 +34885,32 @@
 		"id": "hq-questions/save-to-case-create-and-close",
 		"base": "hq-questions",
 		"entry": "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
 		"change": {
 			"op": "named",
 			"name": "save_to_case_create_and_close"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/closeAfter",
+				"value": true
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/closeCondition/kind",
+				"value": "gt"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-hyphenated-property",
