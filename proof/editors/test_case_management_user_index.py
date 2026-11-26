@@ -59,7 +59,7 @@ def _visit_run(core_runner, app, form, linked):
 
 
 def test_basic_case_management_writes_through_user_index_and_refuses_a_missing_link(hq, core_runner, tmp_path):
-    from corehq.apps.app_manager.models import ConditionalCaseUpdate
+    from corehq.apps.app_manager.models import ConditionalCaseUpdate, DetailColumn
 
     with hq_check(CONFIGURATION) as (state, record):
         app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
@@ -67,6 +67,8 @@ def test_basic_case_management_writes_through_user_index_and_refuses_a_missing_l
         module = app.modules[0]
         form = module.forms[0]
         module.case_type = "person"
+        for detail in (module.case_details.short, module.case_details.long):
+            detail.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
         form.requires = "case"
         # The legacy fixture stores an unused open mapping as null. HQ's editor saves an empty mapping.
         form.actions.open_case.name_update = ConditionalCaseUpdate()
