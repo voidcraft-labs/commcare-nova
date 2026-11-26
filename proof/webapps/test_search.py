@@ -107,12 +107,23 @@ def test_authored_search_keeps_its_list_filter_out_of_the_request(
             run = Session(release, editor_driver).run([
                 *steps.open_app("Client search"),
                 *steps.choose(witness["menu"]),
+                *steps.arrive(any_screen=True),
+                steps.SCREEN,
+                *steps.choose("Followup Form"),
+                *steps.arrive(any_screen=True),
+                steps.SCREEN,
+                *steps.run_search(),
+                *steps.arrive(any_screen=True),
                 steps.SCREEN,
             ])
             requests = [search.values("_xpath_query") for search in release.hq.searches]
         lists = [screen["list"] for screen in run.screens if "list" in screen]
-        evidence(f"authored-visits-filter-{publication}", {"requests": requests, "lists": lists})
-        assert run.page_errors == []
+        evidence(f"authored-visits-filter-{publication}", {
+            "requests": requests, "screens": run.screens, "queryAnswers": _query_answers(run),
+            "stepOutcomes": run.outcomes,
+        })
+        assert run.page_errors == [] and run.dialogs == []
+        assert any(screen.get("query") for screen in run.screens), run.screens
         assert requests == [(witness["query"],)], requests
         (listed,) = lists
         assert [row["id"] for row in listed["rows"]] == [f"row-{case_id}" for case_id in witness["rows"]]
