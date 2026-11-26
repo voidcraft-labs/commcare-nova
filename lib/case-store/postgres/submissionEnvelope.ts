@@ -2406,10 +2406,9 @@ async function resolveOperationProgram(
 			preparedRename = undefined;
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (skippedWrites.get(index)?.has(writeIndex)) continue;
-			// A write through an index saves to the case the chain reaches in
-			// the pre-submission snapshot. CommCare HQ names that case through
-			// the index's id, which is empty where no case is indexed, and case
-			// processing drops a block with an empty id, so nothing is saved.
+			// HQ calculates the linked case ID from the entry snapshot. A
+			// missing link produces an empty ID, which Core rejects. Preserve the
+			// legacy unsigned fallback for old parent and host submissions.
 			let destinationCaseId = target.caseId;
 			let actualType = target.snapshotCaseType;
 			if (write.via !== undefined) {
