@@ -16,9 +16,8 @@
  * as they stand. It reports identities, counts and finding codes only: no
  * names, ids, expressions or values leave the database.
  *
- * Needs the additive migration `20261208000000_connect_activity_roles` (the
- * `connect_roles` column and the converting fold snapshot). Reads the database
- * the env provides; `--prod` reads production over its public IP as your
+ * Runs before or after the additive `connect_roles` migration. Before it,
+ * all apps hold the released shape. Reads the database the env provides; `--prod` reads production over its public IP as your
  * gcloud IAM identity (`./lib/prodDb.ts`). Never writes.
  */
 import "./lib/loadEnv";

@@ -124,6 +124,28 @@ describe("scanConnectActivities", () => {
 		expect(rows[0].kinds).toBe(0);
 	});
 
+	it("scans released rows before the additive Connect column exists", async () => {
+		await seedReleased("released-before-roles", fixture("learn-default"));
+		await sql`ALTER TABLE public.apps RENAME COLUMN connect_roles TO held_connect_roles`.execute(
+			h.db(),
+		);
+		try {
+			expect(
+				await scanConnectActivities(h.db(), "released-before-roles"),
+			).toMatchObject([
+				{
+					appId: "released-before-roles",
+					outcome: "converted",
+					roles: ["learn"],
+				},
+			]);
+		} finally {
+			await sql`ALTER TABLE public.apps RENAME COLUMN held_connect_roles TO connect_roles`.execute(
+				h.db(),
+			);
+		}
+	});
+
 	it("names what the current document refuses, by place, and skips a converted app", async () => {
 		const released = fixture("learn-default");
 		const [formUuid] = Object.keys(released.forms);

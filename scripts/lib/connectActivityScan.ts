@@ -58,8 +58,8 @@ function activityCounts(doc: {
 	return counts;
 }
 
-/** Every app whose `connect_roles` is NULL (or the one named), converted in
- *  one repeatable-read, read-only transaction. */
+/** Every app still in the released shape, including before the additive
+ * migration, converted in one repeatable-read, read-only transaction. */
 export async function scanConnectActivities(
 	db: Kysely<AppDatabase>,
 	appId?: string,
@@ -69,13 +69,26 @@ export async function scanConnectActivities(
 		.setIsolationLevel("repeatable read")
 		.setAccessMode("read only")
 		.execute(async (tx) => {
+			const {
+				rows: [columns],
+			} = await sql<{ has_roles: boolean; has_type: boolean }>`
+				SELECT
+					COALESCE(bool_or(attname = 'connect_roles'), false) AS has_roles,
+					COALESCE(bool_or(attname = 'connect_type'), false) AS has_type
+				FROM pg_catalog.pg_attribute
+				WHERE attrelid = 'public.apps'::regclass AND attnum > 0 AND NOT attisdropped
+			`.execute(tx);
+			if (!columns.has_type) {
+				if (columns.has_roles) return [];
+				throw new Error("The app table has no recognizable Connect columns.");
+			}
 			const { rows } = await sql<{
 				id: string;
 				project_id: string;
 				deleted: boolean;
 			}>`SELECT id, project_id, deleted_at IS NOT NULL AS deleted
 					FROM public.apps
-					WHERE connect_roles IS NULL
+					WHERE ${columns.has_roles ? sql`connect_roles IS NULL` : sql`TRUE`}
 						${appId === undefined ? sql`` : sql`AND id = ${appId}`}
 					ORDER BY id`.execute(tx);
 			const found: AppOutcome[] = [];
