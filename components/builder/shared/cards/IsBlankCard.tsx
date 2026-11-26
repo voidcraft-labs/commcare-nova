@@ -12,7 +12,6 @@ import {
 	type Expression,
 	isBlank,
 	prop,
-	sessionContext,
 	tableColumn,
 } from "@/lib/domain/expression";
 import {
@@ -22,6 +21,7 @@ import {
 } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
+import { globalSeedSubject } from "./comparisonSeed";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 export function isBlankDefault(
@@ -39,7 +39,7 @@ export function isBlankDefault(
 	// A global slot reads no case. Seed a REAL always-present session
 	// value (never an invented user-data field name); the author swaps
 	// the subject to their own current-user field from the picker.
-	if (!caseDataInScope(ctx)) return isBlank(sessionContext("username"));
+	if (!caseDataInScope(ctx)) return isBlank(globalSeedSubject(ctx).subject);
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties[0];
 	const propName = property?.name ?? "";
