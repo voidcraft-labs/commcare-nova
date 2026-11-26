@@ -554,6 +554,25 @@ describe("the advanced procedure", () => {
 		]) {
 			expect(placed(withLabel(variant))?.kind).toBe("save-to-case");
 		}
+		const openingValue = (field: Uuid) => ({
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: {
+					...doc.forms[formUuid],
+					openingAssignments: [
+						{
+							uuid: OP("before-visit"),
+							field,
+							source: { kind: "own" as const },
+							property: "notes",
+						},
+					],
+				},
+			},
+		});
+		expect(placed(openingValue(U("name")))).toEqual(placed(doc));
+		expect(placed(openingValue(label.uuid))?.kind).toBe("save-to-case");
 	});
 
 	it("tags the chain's loads root first, the own load last, and the worker's after them", () => {

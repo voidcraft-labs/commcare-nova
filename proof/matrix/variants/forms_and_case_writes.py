@@ -430,6 +430,12 @@ def load_writes_a_banner(authoring, app_id):
     _load_writes_a_label(authoring, app_id, ' appearance="floating-good"')
 
 
+def load_writes_a_preloaded_label(authoring, app_id):
+    """The selected member's ordinary passive label also starts from that record."""
+    load_writes_a_label(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/1/preload/~1data~1seen_label", "notes")
+
+
 def _load_writes_a_label(authoring, app_id, appearance):
     _change(
         authoring,

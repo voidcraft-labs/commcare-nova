@@ -710,6 +710,13 @@ def _advanced_own_label_write(use):
         for element in form_source.model.iter()
     ):
         return
+    if any(
+        source is form_source.node(path)
+        for row in actions.get("load_update_cases") or ()
+        if isinstance(row, dict) and isinstance(row.get("preload"), dict)
+        for path in row["preload"]
+    ):
+        return OTHER_ADVANCED_LABEL
     return PASSIVE_LABEL_WRITE if control.get("appearance") in {"minimal", "selectable"} else OTHER_ADVANCED_LABEL
 
 

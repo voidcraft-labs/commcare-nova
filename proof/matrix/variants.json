@@ -1951,6 +1951,23 @@
 		}
 	},
 	{
+		"id": "hq-advanced/load-writes-a-preloaded-label",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
+		"standing": "not-yet",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "named",
+			"name": "load_writes_a_preloaded_label"
+		}
+	},
+	{
 		"id": "hq-advanced/member-opened-under-a-member-against-the-menu-s-household",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection",

@@ -24,6 +24,7 @@
 		"hq-advanced/load-with-a-blank-product-program",
 		"hq-advanced/load-writes-a-banner",
 		"hq-advanced/load-writes-a-label",
+		"hq-advanced/load-writes-a-preloaded-label",
 		"hq-advanced/load-writes-an-interactive-label",
 		"hq-advanced/member-opened-under-a-member-against-the-menu-s-household",
 		"hq-advanced/member-registered-in-an-advanced-form",

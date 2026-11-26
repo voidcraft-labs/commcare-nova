@@ -524,6 +524,7 @@ function readsOwnPassiveLabel(
 		field.askForConfirmation !== true &&
 		field.banner === undefined &&
 		field.default_value === undefined &&
+		!f.form.openingAssignments?.some(({ field }) => field === source.field) &&
 		f.doc.fieldOrder[f.formUuid]?.includes(source.field) === true &&
 		f.submittedChildren.get(f.formUuid)?.includes(source.field) === true
 	);
