@@ -2000,6 +2000,26 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/translations-generated-menu-icon-without-mapping",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "A generated menu icon points to an unmapped local file without an ordinary carrier for the language",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-menu-icon-without-mapping",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the generated locale replaces the menu's icon with an address for which neither reader can find a file.",
+		"subject": "translation-overrides",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ emits the overriding icon URL in app strings. Without a multimedia map entry, Android cannot install a file at that address, and Web Apps cannot resolve the address. Neither reader falls back to the ordinary custom icon."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/translations-generated-key-anything-else",
 		"area": "application-and-settings",
 		"section": "Application",

@@ -431,6 +431,7 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"search-fields": "A search field is",
 	"search-setup": "The search is",
 	"shadow-forms": "A shadow form is",
+	"translation-overrides": "An overriding translation is",
 	"worker-record": "A use of the worker's own record is",
 };
 
@@ -568,6 +569,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"application-and-settings/translations-generated-menu-icon-without-mapping":
+		"A translation points to a missing menu icon file. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
 	"questions/video-inline-as-the-only-content-of-a-help-text":
 		"The inline video in this question’s help cannot play. Add help text and attach the file as a regular video, or move the inline video to the question label.",
 	"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks":

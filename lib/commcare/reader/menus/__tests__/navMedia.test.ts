@@ -765,18 +765,26 @@ describe("an override of a generated media key in `translations`", () => {
 	});
 
 	it.each([
-		"jr://file/commcare/image/unmapped.png",
-		"not-an-installation-file",
+		[
+			"jr://file/commcare/image/unmapped.png",
+			"translations-generated-menu-icon-without-mapping",
+		],
+		[
+			"not-an-installation-file",
+			"translations-generated-navigation-file-not-packaged",
+		],
+		[
+			"http://example.invalid/menu-icon.png",
+			"translations-generated-navigation-file-not-packaged",
+		],
 	])(
 		"refuses an unpackaged generated literal even without a resolved asset (%s)",
-		async (path) => {
+		async (path, entry) => {
 			const outcome = await readWithMedia(app(), (json) => {
 				json.modules[0].media_image = { en: MENU_ICON };
 				overriding(json, { "modules.m0.icon": path });
 			});
-			expect(findings(outcome)).toEqual([
-				"application-and-settings/translations-generated-navigation-file-not-packaged",
-			]);
+			expect(findings(outcome)).toEqual([`application-and-settings/${entry}`]);
 			expect(outcome.claims.handOffs.map((ref) => ref.subject)).not.toContain(
 				path,
 			);

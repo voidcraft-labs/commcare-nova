@@ -2522,6 +2522,52 @@ def translation_key_not_its_own(use, manifest):
     return False
 
 
+def generated_menu_icon_without_mapping(use, manifest):
+    """A real module icon locale whose local file is not mapped in the app."""
+    at = _json(use)
+    if at is None or at.key != "translations" or not isinstance(at.value, dict):
+        return None
+    app = at.app.doc
+    codes = app.get("langs") or []
+    if not isinstance(codes, list) or not codes:
+        return None
+    mapped = app.get("multimedia_map") or {}
+    modules = app.get("modules") or []
+    possible_carriers = None
+    uncertain = False
+    for index, module in enumerate(modules):
+        if not isinstance(module, dict) or module.get("doc_type") != "Module":
+            continue
+        icons = module.get("media_image") or {}
+        if not isinstance(icons, dict):
+            continue
+        same_for_all = module.get("use_default_image_for_all") is True
+        if not any(isinstance(path, str) and path for code, path in icons.items() if code in codes):
+            continue
+        if same_for_all and not icons.get(codes[0]):
+            continue
+        for code in codes:
+            table = at.value.get(code)
+            if not isinstance(table, dict):
+                continue
+            path = table.get(f"modules.m{index}.icon")
+            if (
+                not isinstance(path, str) or path in mapped or path == icons.get(codes[0] if same_for_all else code)
+                or not re.fullmatch(r"jr://file/commcare/image/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*", path)
+            ):
+                continue
+            # Leave a source with another possible carrier to its media checks.
+            if possible_carriers is None:
+                possible_carriers = json.dumps(modules) + "".join(
+                    etree.tostring(form.root, encoding="unicode") for form in at.app.forms.values()
+                )
+            if path in possible_carriers:
+                uncertain = True
+                continue
+            return True
+    return None if uncertain else False
+
+
 def path_not_from_uploader(use, manifest):
     """``application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-…``: a logo slot HQ's uploader
     did not write: an entry that is no object or holds no ``m_id``, which the uploader always stores
@@ -13086,6 +13132,7 @@ VALUE_CLASSES = {
     "application-and-settings/34p-hq-build-spec-below-nova-s-floor": below_floor,
     "application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture": only_hierarchical_fixture,
     "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated": invalid_or_repeated_code,
+    "application-and-settings/translations-generated-menu-icon-without-mapping": generated_menu_icon_without_mapping,
     "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
         translation_key_not_its_own
     ),
