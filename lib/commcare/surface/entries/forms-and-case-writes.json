@@ -5873,7 +5873,7 @@
 		],
 		"valueClass": "load-child-of-previous-load",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: an explicit selection holds the exact name of the connection to the preceding load, including complete dotted names such as `my.parent`. An implicit selection derives its connection from the app's child links, using `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`).",
+		"dispositionCell": "**HELD**: an explicit selection holds the exact name of the connection to the preceding load, including names with periods after the first character such as `my.parent`. An implicit selection derives its connection from the app's child links, using `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6167,7 +6167,7 @@
 		],
 		"valueClass": "auto-select-case-index",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection, including complete dotted names such as `my.parent`.",
+		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection, including names with periods after the first character such as `my.parent`.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6800,7 +6800,7 @@
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
-				"named": "`xform.py::CaseBlock.add_index_ref` passes the name to lxml, which raises Invalid tag name"
+				"named": "`xform.py::CaseBlock.add_index_ref` requires a name that can form one case transaction element"
 			}
 		],
 		"platforms": {
