@@ -241,10 +241,6 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
 		"schema:Itemset.sort",
 	),
-	defaultOnRange: refuse(
-		`${S}default-value-on-a-date-range-input`,
-		"schema:CaseSearchProperty.default_value",
-	),
 	required: take(
 		`${S}required-test-text`,
 		"schema:CaseSearchProperty.required",
