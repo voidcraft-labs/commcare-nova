@@ -303,6 +303,8 @@ export function caseRowDisplaySourceValue(
 			return row.status ?? "";
 		case "external_id":
 			return row.external_id ?? "";
+		case "location_id":
+			return row.location_id ?? "";
 		case "date_opened":
 			return row.opened_on;
 		case "last_modified":

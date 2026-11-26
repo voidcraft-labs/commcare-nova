@@ -16,6 +16,8 @@ import type { CasePlacement, PlacementIneligibilityReason } from "./placements";
  * `to` as two of these.
  */
 export const PLACEMENT_LABELS = [
+	"opening-record",
+	"retired-opening-record",
 	"case-management",
 	"case-actions",
 	"save-to-case",
@@ -30,6 +32,10 @@ export type PlacementLabel = (typeof PLACEMENT_LABELS)[number];
  *  to Case"). */
 export function placementLabelWords(label: PlacementLabel): string {
 	switch (label) {
+		case "opening-record":
+			return "a saved opening record";
+		case "retired-opening-record":
+			return "a removed opening record";
 		case "case-management":
 			return "Case Management";
 		case "case-actions":

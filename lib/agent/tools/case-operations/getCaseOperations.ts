@@ -1,4 +1,5 @@
 import type { CaseOperation, Uuid } from "@/lib/domain";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import {
 	type OperationSemantics,
 	operationSemantics,
@@ -6,12 +7,12 @@ import {
 import { formAnswerWrites } from "../../formAnswerWrites";
 import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
+import { resolveFormAddress } from "../shared/entityAddresses";
 import {
 	type CasePlacementRead,
 	formCasePlacementReads,
 	operationAddressSchema,
 	projectedCaseOperations,
-	resolveOperationAddress,
 } from "./shared";
 
 export type GetCaseOperationsInput = {
@@ -27,6 +28,7 @@ export type GetCaseOperationsResult =
 			 *  result carries the human handle rather than making the caller
 			 *  hold a uuid and a name it never asked for. */
 			readonly form: string;
+			readonly sharedForm?: { readonly formUuid: Uuid; readonly name: string };
 			/** Every case change in the order it runs, this form's own case
 			 *  first, without the placement a published app holds: the read
 			 *  states where each is kept in `placements` instead. */
@@ -52,18 +54,22 @@ export const getCaseOperationsTool = {
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<GetCaseOperationsResult>> {
 		const doc = ctx.snapshot.doc;
-		const address = resolveOperationAddress(doc, input);
+		const address = resolveFormAddress(doc, input);
 		if (!address.ok) {
 			return { kind: "read", data: { error: address.error } };
 		}
-		const placements = formCasePlacementReads(doc, address.formUuid);
+		const content = formContentUuid(doc, address.formUuid);
+		const placements = formCasePlacementReads(doc, content);
 		return {
 			kind: "read",
 			data: {
 				moduleUuid: address.moduleUuid,
 				formUuid: address.formUuid,
-				form: doc.forms[address.formUuid]?.name ?? "",
-				operations: projectedCaseOperations(doc, address.formUuid).map(
+				form: address.form.name,
+				...(address.form.shadowOf && {
+					sharedForm: { formUuid: content, name: doc.forms[content].name },
+				}),
+				operations: projectedCaseOperations(doc, content).map(
 					({ placement: _held, ...operation }) => operation as CaseOperation,
 				),
 				placements: placements.operations,

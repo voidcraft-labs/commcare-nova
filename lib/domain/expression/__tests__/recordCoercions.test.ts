@@ -229,6 +229,49 @@ describe("a read standing as a case change's condition", () => {
 		]);
 	});
 
+	it.each([
+		["a text answer", NOTE],
+		["a choice answer", CHOICE],
+		["a Hidden Value calculated as text", TEXT_HIDDEN],
+		["a Hidden Value calculated as a number", NUMBER_HIDDEN],
+		["a yes or no", FLAG],
+	])(
+		"stands through boolean(...) where it reads %s, true wherever the answer is not empty",
+		(_, uuid) => {
+			expect(
+				findings(CONDITION_SLOT, {
+					kind: "call",
+					fn: "boolean",
+					args: [read(uuid)],
+				}),
+			).toEqual([]);
+		},
+	);
+
+	it("admits boolean(...) of a question alone, and no other call, in a record rule", () => {
+		expect(
+			findings(CONDITION_SLOT, {
+				kind: "call",
+				fn: "boolean",
+				args: [term(prop("site", "note"))],
+			}),
+		).toEqual(["arm-unavailable:call"]);
+		expect(
+			findings(CONDITION_SLOT, {
+				kind: "call",
+				fn: "contains",
+				args: [read(NOTE), term(literal("a"))],
+			}),
+		).toEqual(["arm-unavailable:call"]);
+		expect(
+			findings(COLUMN_SLOT, {
+				kind: "call",
+				fn: "boolean",
+				args: [term(literal("a"))],
+			}),
+		).toEqual(["arm-unavailable:call"]);
+	});
+
 	it("is refused where it reads a case property, which a device holds as text", () => {
 		expect(findings(CONDITION_SLOT, term(prop("site", "note")))).toEqual([
 			"record-position:condition-expected",

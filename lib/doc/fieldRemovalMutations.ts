@@ -14,6 +14,7 @@ import { fieldCaseWriteViews, type Uuid } from "@/lib/domain";
 import { planFieldCaseWrite } from "./fieldCaseWriteMutations";
 import { descendantFieldUuids } from "./fieldWalk";
 import { applyMutations } from "./mutations";
+import { sharedQuestionRemovalRefusal } from "./sharedFormDependents";
 import type { BlueprintDoc, Mutation } from "./types";
 
 export type FieldRemovalPlan =
@@ -30,6 +31,8 @@ export function planFieldRemoval(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
 ): FieldRemovalPlan {
+	const sharedUse = sharedQuestionRemovalRefusal(doc, fieldUuid);
+	if (sharedUse) return { ok: false, message: sharedUse };
 	const mutations: Mutation[] = [];
 	let candidate = doc;
 	for (const uuid of [fieldUuid, ...descendantFieldUuids(doc, fieldUuid)]) {

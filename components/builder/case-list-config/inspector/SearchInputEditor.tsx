@@ -159,6 +159,7 @@ import {
 	propertyFallbackDisplayLabel,
 	propertyTypeLabel,
 } from "@/lib/domain/propertyDisplay";
+import { isDeviceOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import { PlatformNoteRow } from "../../shared/PlatformNoteRow";
 import {
@@ -1789,8 +1790,22 @@ function BindingPicker({
 			? caseTypes.find((c) => c.name === ct.parent_type)
 			: undefined;
 
-	const thisCaseProperties = ct?.properties ?? [];
-	const parentCaseProperties = parentCt?.properties ?? [];
+	// A case's location is no property HQ's case search holds, so a search
+	// field can't offer it (`CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY`).
+	const thisCaseProperties = useMemo(
+		() =>
+			(ct?.properties ?? []).filter(
+				(property) => !isDeviceOnlyCaseProperty(property.name),
+			),
+		[ct],
+	);
+	const parentCaseProperties = useMemo(
+		() =>
+			(parentCt?.properties ?? []).filter(
+				(property) => !isDeviceOnlyCaseProperty(property.name),
+			),
+		[parentCt],
+	);
 	const hasAnyProperties =
 		thisCaseProperties.length + parentCaseProperties.length > 0;
 	const destinationProperties =

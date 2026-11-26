@@ -86,7 +86,11 @@ import {
 	questionIdProblemSentence,
 	sourceWritePropertySentence,
 } from "@/lib/domain/questionId";
-import { standardCasePropertyDisplayLabel } from "@/lib/domain/standardCaseProperties";
+import {
+	isWritableStandardCaseProperty,
+	standardCasePropertyDisplayLabel,
+	WRITABLE_STANDARD_CASE_PROPERTY_WORDS,
+} from "@/lib/domain/standardCaseProperties";
 import {
 	valueKindPhrase,
 	valueKindPluralPhrase,
@@ -153,6 +157,12 @@ const distanceValueNoun = (type: string): string => {
 			return "values";
 	}
 };
+
+/** How a person reads a writable standard case value, "name" otherwise. */
+const standardValueWords = (property: string): string =>
+	isWritableStandardCaseProperty(property)
+		? WRITABLE_STANDARD_CASE_PROPERTY_WORDS[property]
+		: "name";
 
 /** The last sentence of a choice list's row finding: the remedy in Project
  * data, or, for a table CommCare HQ manages (`managedInDomain`), the managed
@@ -316,20 +326,27 @@ function columnRelationSentence(e: ValidationError): string {
 
 function onlyIfChangedSentence(e: ValidationError): string {
 	const property = det(e, "property", "this value");
-	switch (det(e, "reason", "")) {
-		case "new-case":
-			return `${property} is saved to a case this form creates, so there's no earlier value to compare with. You can save it every time instead.`;
-		case "placement":
-			return [
-				"This form's case is saved through Save to Case, which can't save only changed answers.",
-				e.details?.placementSentence,
-				`You can save ${property} every time, or change the form so Case Management can hold it.`,
-			]
-				.filter((part) => part !== undefined && part.length > 0)
-				.join(" ");
-		default:
-			return `Only this form's own case can save just the answers that changed. You can save ${property} every time instead.`;
-	}
+	const facet =
+		e.details?.property === "owner_id"
+			? "owner"
+			: e.details?.property === "case_name"
+				? "name"
+				: undefined;
+	if (e.details?.reason === "facet")
+		return `This change saves its ${facet ?? "value"} only when it changed, but it saves no ${facet ?? "value"}. You can choose one, or save it every time.`;
+	if (e.details?.reason === "never-blank")
+		return "This change's owner is never blank, so it is saved every time. You can turn off saving it only when it changed.";
+	if (e.details?.reason === "registration-name")
+		return "This form makes a new case, so its name has no earlier value to compare with. You can save the name every time.";
+	if (e.details?.placementSentence === undefined)
+		return `This change is saved through Save to Case, which can't save only changed answers. You can save ${property} every time instead.`;
+	return [
+		"This form's case is saved through Save to Case, which can't save only changed answers.",
+		e.details.placementSentence,
+		`You can save ${property} every time, or change the form so Case Management can hold it.`,
+	]
+		.filter((part) => part !== undefined && part.length > 0)
+		.join(" ");
 }
 
 const QUESTION_ID_PROBLEMS: ReadonlySet<string> = new Set<QuestionIdProblem>([
@@ -707,6 +724,12 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} opens on its case list first, which CommCare HQ no longer offers in Web Apps.`,
 		alternative: "open it on Search first",
 	},
+	"auto-select-confirm": {
+		lead: (subject) =>
+			`${subject} opens a record's details automatically when exactly one record matches. Web Apps stops before the form opens.`,
+		alternative:
+			"let workers choose the record or remove its confirmation screen",
+	},
 	"several-cases": {
 		lead: (subject) =>
 			`${subject} lets workers choose several cases, which Android can't do.`,
@@ -744,7 +767,7 @@ const PLATFORM_REFUSAL_FALLBACK =
 	"This isn't available where this app runs. You can change where it runs in App settings.";
 
 /** The owner of a platform finding as the builder names it: a Search field,
- * a question, or a module. */
+ * a question, a form, or a module. */
 const platformFindingSubject = (e: ValidationError): string | undefined =>
 	e.details?.inputName !== undefined
 		? `Search field ${q(e.details.inputName)}`
@@ -752,9 +775,11 @@ const platformFindingSubject = (e: ValidationError): string | undefined =>
 			? `Column ${q(e.details.columnHeader)}`
 			: e.location.fieldId !== undefined
 				? q(e.location.fieldId)
-				: e.location.moduleName !== undefined
-					? q(e.location.moduleName)
-					: undefined;
+				: e.location.formName !== undefined
+					? q(e.location.formName)
+					: e.location.moduleName !== undefined
+						? q(e.location.moduleName)
+						: undefined;
 
 /**
  * A platform refusal (`PLATFORM_FEATURE_UNAVAILABLE`, or the checker's
@@ -1381,6 +1406,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The search field ${q(det(e, "inputName", "in this module"))} has a condition that compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} looks for ${q(det(e, "property", "case information"))}, but that information isn't saved on this case type. Choose information that exists.`,
+	CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} looks for the case's location ID, which CommCare's server search doesn't hold. A property of your own can hold the same value for searching.`,
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} uses a matching option that doesn't fit the information it searches. Choose another matching option or different information.`,
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: (e) =>
@@ -1720,7 +1747,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_CREATE_NAME_MISSING: (e) =>
 		`${q(formName(e))} creates a case, so its case needs a name. You can choose the question that names it.`,
 	CAPTURE_CASE_WRITE_STANDARD_PROPERTY: (e) =>
-		`${q(opName(e))} in ${q(formName(e))} saves the link to a captured file as the case's ${det(e, "property", "") === "external_id" ? "external id" : "name"}, which CommCare keeps as the case's own value rather than a link. You can save the link to a property of its own instead.`,
+		`${q(opName(e))} in ${q(formName(e))} saves the link to a captured file as the case's ${standardValueWords(det(e, "property", ""))}, which CommCare keeps as the case's own value rather than a link. You can save the link to a property of its own instead.`,
 	FORM_TOO_MANY_ATTACHMENTS: (e) =>
 		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form, a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
 	OPEN_CONDITION_WRONG_TYPE: (e) =>
@@ -1767,6 +1794,21 @@ const USER_MESSAGE_BY_CODE: Record<
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} assigns a different case to a destination whose forms read the search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination whose forms read their own case.`,
+	// The rule writes each problem as a whole sentence in Nova's voice.
+	FORM_ENTRY_SETUP: (e) =>
+		det(
+			e,
+			"sentence",
+			`${q(formName(e))} can't open with the records and values it asks for yet. You can review what it opens with.`,
+		),
+	// The rule writes the whole finding, the first blocker's sentence
+	// included (`validator/rules/module.ts::listEntryNeedsAdvancedMenu`).
+	MENU_LIST_ENTRY_NEEDS_ADVANCED: (e) =>
+		det(
+			e,
+			"sentence",
+			"This menu’s list needs an advanced menu in CommCare HQ, and another setting keeps it ordinary. You can review the menu’s record selection settings.",
+		),
 	FORM_LINK_DATUM_UNUSED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a case its destination no longer asks for. Remove that value, or choose a destination that needs it.`,
 	FORM_LINK_DATUM_TARGET_COLLISION: (e) =>

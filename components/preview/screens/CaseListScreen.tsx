@@ -102,7 +102,7 @@ import {
 } from "@/components/shadcn/dialog";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
-import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useEntryCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
 	useOrderedForms,
 	useOrderedMenuForms,
@@ -129,6 +129,7 @@ import {
 	searchScreenTitleText,
 	visibleSearchInputs,
 } from "@/lib/domain";
+import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -285,7 +286,13 @@ import {
 	previewSearchRunFollows,
 	searchAfterClear,
 } from "@/lib/preview/searchStanding";
-import { projectWorkerColumn } from "@/lib/preview/workerModule";
+import {
+	projectWorkerColumn,
+	type WorkerListPurpose,
+	workerListDocument,
+	workerListExcludedOwners,
+	workerListFor,
+} from "@/lib/preview/workerModule";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import {
 	useLocation,
@@ -376,6 +383,18 @@ interface PreviewChoiceStep {
 
 interface CaseListScreenProps {
 	readonly caseListMapConfirmed?: boolean | null;
+	entryStep?: {
+		readonly chosenCaseIds: Readonly<Record<string, string>>;
+		readonly sessionData: Readonly<Record<string, string>>;
+		readonly confirms: boolean;
+		readonly autoSelectSingle: boolean;
+		readonly under?: {
+			readonly caseId: string;
+			readonly caseType: string;
+			readonly identifier: string;
+		};
+		readonly onChoose: (choice: PreviewCaseChoice, automatic: boolean) => void;
+	};
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
 	/** The location on show is a list's. While a step away renders,
@@ -389,6 +408,7 @@ export function CaseListScreen({
 	screen,
 	current,
 	caseListMapConfirmed,
+	entryStep,
 }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
@@ -403,7 +423,7 @@ export function CaseListScreen({
 	 * running-app query compiler and stored insert schema derive from,
 	 * so the list sorts/filters with the same casts and the sample
 	 * generator emits keys the row validation accepts. */
-	const caseTypes = useMaterializableCaseTypes();
+	const caseTypes = useEntryCaseTypes();
 	const appId = useAppId() ?? "";
 	/* The platform Preview plays decides the search and list rules below
 	 * (`lib/preview/platform.ts`). */
@@ -548,13 +568,25 @@ export function CaseListScreen({
 	);
 	/** Whether selecting a case can continue at all. */
 	const canContinue =
+		entryStep !== undefined ||
 		selectsForMenu ||
 		openedFromCaseListMenuItem ||
 		seededFormUuid !== undefined ||
 		caseLoadingForms.length > 0;
 
 	const message = useWorkerMessage();
-	const mod = useWorkerModule(language.language, moduleUuid);
+	const workerMenu = useWorkerModule(language.language, moduleUuid);
+	const listPurpose: WorkerListPurpose | undefined = entryStep
+		? "form-selection"
+		: openedFromCaseListMenuItem &&
+				moduleUuid &&
+				menuEmittedAdvanced(menuSource.doc, moduleUuid)
+			? "advanced-list-item"
+			: undefined;
+	const mod = useMemo(
+		() => workerListFor(workerMenu, listPurpose),
+		[listPurpose, workerMenu],
+	);
 	const menuCaseContext = useMemo(
 		() =>
 			moduleUuid
@@ -612,7 +644,11 @@ export function CaseListScreen({
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
 	const ownWording = caseListOwnWording(platformRules, config);
-	const canonicalConfig = menuSource.doc.modules[moduleUuid]?.caseListConfig;
+	const listDoc = useMemo(
+		() => workerListDocument(menuSource.doc, moduleUuid, listPurpose),
+		[menuSource.doc, moduleUuid, listPurpose],
+	);
+	const canonicalConfig = listDoc.modules[moduleUuid]?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
 	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
@@ -641,7 +677,17 @@ export function CaseListScreen({
 	/* The session at this list's step: the datums chosen before it, which
 	 * its Search screen reads, and the cases chosen in earlier menus, which
 	 * a browse filter reads. */
-	const stepSession = useCaseListStepSession(menuSource.doc, moduleUuid);
+	const ordinaryStep = useCaseListStepSession(menuSource.doc, moduleUuid);
+	const stepSession = useMemo(
+		() =>
+			entryStep
+				? {
+						chosenCaseIds: entryStep.chosenCaseIds,
+						data: entryStep.sessionData,
+					}
+				: ordinaryStep,
+		[entryStep, ordinaryStep],
+	);
 	const searchEnvironment = useMemo<PreviewSearchEnvironment>(
 		() => ({
 			doc: menuSource.doc,
@@ -1002,13 +1048,36 @@ export function CaseListScreen({
 	const activeSearchInputValues = searchActionIsRelevant
 		? searchRun.submitted
 		: undefined;
+	/* After the no-matches form registers a case, Results shows exactly that
+	 * case: the wire's return frame re-keys the inline search to the new
+	 * case id (`CaseListFormWorkflow`), and Search again starts over. Where
+	 * the frame ends on the search, Web Apps lists no row of it
+	 * (`listsNoRow`), and neither does Results. */
+	const registeredCaseIds = useMemo(
+		() =>
+			searchState?.kind === "completed" &&
+			searchState.registeredCaseId !== undefined
+				? searchState.listsNoRow === true
+					? []
+					: [searchState.registeredCaseId]
+				: undefined,
+		[searchState],
+	);
+	/* A completed or submitted search's Results read HQ's search population,
+	 * not the worker's restore; so do the reads of cases chosen from them. */
+	const readsSearchResults =
+		registeredCaseIds !== undefined || activeSearchInputValues !== undefined;
 	/* Assigned-case exclusions constrain the Results population itself. They
 	 * therefore apply on the first load, with or without a visible Search
 	 * screen, and remain active when a worker clears or removes Search fields.
 	 * Read the stored rule rather than the effective Search action: the private
 	 * `searchActionEnabled: false` provenance marker suppresses Search without
 	 * suppressing this independent Results rule. */
-	const excludedOwnerIdsExpression = mod?.caseSearchConfig?.excludedOwnerIds;
+	const excludedOwnerIdsExpression = workerListExcludedOwners(
+		mod,
+		listPurpose,
+		readsSearchResults,
+	);
 	const replacementRevision = useCaseDataReplacementRevision(
 		appId,
 		caseType?.name,
@@ -1445,25 +1514,6 @@ export function CaseListScreen({
 			selectedParentConstraint(menuSource.doc, moduleUuid, selectedParentCases),
 		[menuSource.doc, moduleUuid, selectedParentCases],
 	);
-	/* After the no-matches form registers a case, Results shows exactly that
-	 * case: the wire's return frame re-keys the inline search to the new
-	 * case id (`CaseListFormWorkflow`), and Search again starts over. Where
-	 * the frame ends on the search, Web Apps lists no row of it
-	 * (`listsNoRow`), and neither does Results. */
-	const registeredCaseIds = useMemo(
-		() =>
-			searchState?.kind === "completed" &&
-			searchState.registeredCaseId !== undefined
-				? searchState.listsNoRow === true
-					? []
-					: [searchState.registeredCaseId]
-				: undefined,
-		[searchState],
-	);
-	/* A completed or submitted search's Results read HQ's search population,
-	 * not the worker's restore; so do the reads of cases chosen from them. */
-	const readsSearchResults =
-		registeredCaseIds !== undefined || activeSearchInputValues !== undefined;
 	/* A search action's claim is its remote request's own post, posted as
 	 * soon as a result is chosen; a menu whose forms read the search posts
 	 * as the form opens. */
@@ -1612,7 +1662,7 @@ export function CaseListScreen({
 				: caseType?.name,
 		...(registeredCaseIds === undefined ? {} : { caseIds: registeredCaseIds }),
 		caseListConfig: canonicalConfig,
-		blueprint: menuSource.doc,
+		blueprint: listDoc,
 		...(moduleUuid === undefined ? {} : { moduleUuid }),
 		language: language.language,
 		/* The registered case is the whole population (the wire's frame keys
@@ -1752,7 +1802,7 @@ export function CaseListScreen({
 		ancestorDepth: 0,
 		moduleUuid,
 		caseListConfig: canonicalConfig,
-		blueprint: menuSource.doc,
+		blueprint: listDoc,
 		caseTypes,
 		// A canonical Details URL loads its case by identity rather than off
 		// the page, so this is the one read that could otherwise open a case
@@ -2005,10 +2055,11 @@ export function CaseListScreen({
 		resolveCaseFormContext(menuSource.doc.modules, moduleUuid)
 			?.inlineModuleUuid;
 	const rowAction = caseSelectionRowAction({
-		hasDetails:
-			!inlineDetails &&
-			parentListHasDetails !== false &&
-			detailColumns.length > 0,
+		hasDetails: entryStep
+			? entryStep.confirms
+			: !inlineDetails &&
+				parentListHasDetails !== false &&
+				detailColumns.length > 0,
 		multiple: multipleSelection !== undefined,
 		canContinue,
 	});
@@ -2021,7 +2072,7 @@ export function CaseListScreen({
 		selectsForParentRequest: selectsForParentRequest || !!inlineDetails,
 	});
 	const routeCaseGoesOnRef = useRef<
-		((row: CaseRowWithCalculated) => void) | null
+		((row: CaseRowWithCalculated, automatic?: boolean) => void) | null
 	>(null);
 	const routeCaseWentOnRef = useRef<string | null>(null);
 	const displayedOpenCase = routeCaseId
@@ -2520,6 +2571,25 @@ export function CaseListScreen({
 		explicitRouteCloseRef.current = routeCaseId;
 		goOn(routeCase);
 	}, [routeCase, routeCaseAction, routeCaseId]);
+	// The entry's datum can choose a list's sole record even if it has a
+	// confirmation screen. The module's own list item has no such datum.
+	const automaticallyChosen = useRef(false);
+	useEffect(() => {
+		if (
+			!entryStep?.autoSelectSingle ||
+			!current ||
+			automaticallyChosen.current ||
+			state.kind !== "rows" ||
+			state.totalCount !== 1 ||
+			loadedRows.length !== 1 ||
+			filterText
+		)
+			return;
+		automaticallyChosen.current = true;
+		if (entryStep.confirms) setOpenCase(loadedRows[0]);
+		else routeCaseGoesOnRef.current?.(loadedRows[0], true);
+	}, [entryStep, current, state, loadedRows, filterText]);
+
 	if (mod === undefined) {
 		return (
 			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
@@ -2736,24 +2806,29 @@ export function CaseListScreen({
 	 * when there's no detail). Forms-first → straight into the tapped form;
 	 * case-first → the menu's forms, however many it shows: a menu's command
 	 * names no entry, so CommCare lists the menu (`previewRequestedForm`). */
-	const proceedWithCase = (row: CaseRowWithCalculated) => {
+	const proceedWithCase = (row: CaseRowWithCalculated, automatic = false) => {
 		const claimed = claimedAtResult(row);
 		if (claimed.length === 0) {
-			continueWithChosenCase(row, claimed);
+			continueWithChosenCase(row, claimed, automatic);
 			return;
 		}
 		/* The claim posts as the result is chosen, and the choice goes on once
 		 * it has landed; one that did not land keeps the worker on the list
 		 * with the reason shown. */
 		void postClaim(claimed).then((landed) => {
-			if (landed) continueWithChosenCase(row, claimed);
+			if (landed) continueWithChosenCase(row, claimed, automatic);
 		});
 	};
 	routeCaseGoesOnRef.current = proceedWithCase;
 	const continueWithChosenCase = (
 		row: CaseRowWithCalculated,
 		claimed: readonly string[],
+		automatic = false,
 	) => {
+		if (entryStep) {
+			entryStep.onChoose(previewCaseChoiceOf(row), automatic);
+			return;
+		}
 		if (openedFromCaseListMenuItem) {
 			/* The entry holds no form: nothing opens from the choice. */
 			routeCaseListMenuItemSelection();
@@ -2981,7 +3056,8 @@ export function CaseListScreen({
 			trigger.dataset.caseResultAction ?? row.case_id;
 		if (rowAction === "detail") {
 			setOpenCase(row);
-			if (moduleUuid) navigate.openCaseDetail(moduleUuid, row.case_id);
+			if (moduleUuid && !entryStep)
+				navigate.openCaseDetail(moduleUuid, row.case_id);
 			focusNextFrame(() => detailBackRef.current);
 		} else if (rowAction === "form") proceedWithCase(row);
 	};
@@ -2990,7 +3066,7 @@ export function CaseListScreen({
 			explicitRouteCloseRef.current = routeCaseId;
 		}
 		setOpenCase(null);
-		if (moduleUuid) navigate.openCaseList(moduleUuid);
+		if (moduleUuid && !entryStep) navigate.openCaseList(moduleUuid);
 		restoreResultsFocus();
 	};
 

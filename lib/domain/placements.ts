@@ -43,7 +43,7 @@ export type BasicPlacement = z.infer<typeof basicPlacementSchema>;
  * block at `case_<tag>` and its session value at `case_id_<tag>`, so a tag is
  * one XML element name and never holds `/`.
  */
-export const advancedTagSchema = z.string().regex(XML_ELEMENT_NAME_PATTERN);
+export const advancedTagSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]*$/);
 
 /** A load or an open action of an advanced form's case actions. `row`: the
  *  open action of a repeat that holds fewer than two indexed open actions,

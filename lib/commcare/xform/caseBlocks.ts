@@ -70,12 +70,14 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { appendDefaultOwner, basicAutosetsOwner } from "../workerGroupsWire";
+import { appendDefaultOwner } from "../workerGroupsWire";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { caseById } from "../xpath/wire/rowScope";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
+import { UNOWNED_OWNER_ID } from "./advancedCaseBlocks";
+import { caseOpeningSetvalues } from "./caseOpeningSetvalues";
 
 /**
  * CommCare case-transaction XML namespace. Every `<case>` element on the wire
@@ -220,7 +222,9 @@ function buildCaseBlocks(
 		usercaseAction.condition.type === "always" &&
 		Object.keys(usercaseAction.update).length > 0;
 
+	const ownPreload = actions.case_preload.preload;
 	if (
+		!Object.keys(ownPreload).length &&
 		!isCreate &&
 		!isUpdate &&
 		!isClose &&
@@ -266,6 +270,13 @@ function buildCaseBlocks(
 	};
 
 	if (isCreate) {
+		// HQ sets a new case's owner to the worker unless the update writes
+		// `owner_id`, and otherwise leaves `-` in the create block for the
+		// update leaf to overwrite where it is relevant
+		// (`xform.py::autoset_owner_id_for_open_case`, `add_create_block`).
+		const autosetsOwner = !(
+			isUpdate && Object.hasOwn(updateCase.update, "owner_id")
+		);
 		// `<create>` children mirror CCHQ's fixture order (case_name, owner_id,
 		// case_type) — semantically the case-transaction processor reads by
 		// element name, but matching the canonical shape keeps diffs against the
@@ -273,7 +284,7 @@ function buildCaseBlocks(
 		caseChildren.push(
 			el("create", {}, [
 				el("case_name", {}),
-				el("owner_id", {}, basicAutosetsOwner(actions) ? [] : [text("-")]),
+				el("owner_id", {}, autosetsOwner ? [] : [text(UNOWNED_OWNER_ID)]),
 				el("case_type", {}),
 			]),
 		);
@@ -313,7 +324,7 @@ function buildCaseBlocks(
 		// where it is inert; the local archive stamps it alike. The question's
 		// own requirement is the source's (`builder.ts`).
 		requiredNamePaths.push(validatedNamePath);
-		if (basicAutosetsOwner(actions))
+		if (autosetsOwner)
 			appendDefaultOwner(
 				{ binds, setvalues, context },
 				primaryCreatePath.child("owner_id").toWire(),
@@ -542,6 +553,10 @@ function buildCaseBlocks(
 		subcasesPerRepeatCtx.set(ctx, (subcasesPerRepeatCtx.get(ctx) ?? 0) + 1);
 	}
 
+	setvalues.push(
+		...caseOpeningSetvalues(ownPreload, selectedCaseIdRef, context),
+	);
+
 	// Subcases — each child-case creation gets a dedicated element named
 	// `subcase_{n}` (or, when it's the sole subcase in a repeat, the
 	// `<case>` element directly inside the repeat with no wrapper).
@@ -586,6 +601,11 @@ function buildCaseBlocks(
 		const subcaseDatumId = subcaseSessionDatumId(sc, sIdx, isCreate);
 
 		const scChildren: Element[] = [];
+		// HQ sets the subcase's owner to the worker unless it writes
+		// `owner_id`, relationship-independent, and otherwise leaves `-` for
+		// the update leaf to overwrite where it is relevant
+		// (`xform.py::autoset_owner_id_for_subcase`, `add_create_block`).
+		const subcaseAutosetsOwner = !Object.hasOwn(sc.case_properties, "owner_id");
 		// Subcase `<create>` mirrors the primary case's child order (case_name,
 		// owner_id, case_type) for fixture parity.
 		scChildren.push(
@@ -594,7 +614,7 @@ function buildCaseBlocks(
 				el(
 					"owner_id",
 					{},
-					Object.hasOwn(sc.case_properties, "owner_id") ? [text("-")] : [],
+					subcaseAutosetsOwner ? [] : [text(UNOWNED_OWNER_ID)],
 				),
 				el("case_type", {}),
 			]),
@@ -630,7 +650,7 @@ function buildCaseBlocks(
 		// `add_create_block` runs the same `required="true()"` stamp on the
 		// subcase's name action path. Surface the path for the merge.
 		requiredNamePaths.push(namePath);
-		if (!Object.hasOwn(sc.case_properties, "owner_id"))
+		if (subcaseAutosetsOwner)
 			appendDefaultOwner(
 				{ binds, setvalues, context },
 				subcaseCreatePath.child("owner_id").toWire(),
