@@ -20,6 +20,7 @@ import {
 	FINDING_LABELS,
 	FINDING_NEXT_STEPS,
 	FIX_CAUSE_CLAUSES,
+	FIX_IN_HQ_ENTRY_SENTENCES,
 	FIX_IN_HQ_SENTENCES,
 	FIX_IN_HQ_STEMS,
 	findingLine,
@@ -218,6 +219,29 @@ describe("the sentences of fix-in-hq findings", () => {
 		for (const clause of Object.values(FIX_CAUSE_CLAUSES)) {
 			expect(clause.startsWith("set up in a way"), clause).toBe(true);
 			expect(clause.endsWith("."), clause).toBe(true);
+		}
+	});
+
+	it("holds an entry's own sentence only for a fix-in-hq entry of the manifest, and reads it in place of its subject's", () => {
+		const byId = new Map(manifest.inventory.map((entry) => [entry.id, entry]));
+		for (const [id, sentence] of Object.entries(FIX_IN_HQ_ENTRY_SENTENCES)) {
+			const entry = byId.get(id);
+			expect(entry && standingOf(entry), id).toBe("fix-in-hq");
+			if (
+				entry === undefined ||
+				(entry.disposition !== "HELD-NEW" && entry.disposition !== "REFUSED")
+			)
+				continue;
+			const finding = {
+				code: id,
+				subject: entry.subject,
+				standing: "fix-in-hq",
+				cause: fixCauseOf(entry) ?? undefined,
+				place: { kind: "app" },
+				detail: { name: "région" },
+			} as unknown as ManifestFinding;
+			expect(findingLine(finding)).toEqual({ sentence, named: "région" });
+			expect(sentence).not.toMatch(/—|\.\.\./);
 		}
 	});
 

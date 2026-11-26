@@ -567,6 +567,25 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 	},
 };
 
+/**
+ * A whole sentence for one manifest entry, read in place of its subject's:
+ * an entry whose refusal turns on one exact rule a person can act on (a name
+ * HQ's own checks can't read) says that rule, where it applies and how to
+ * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
+ */
+export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks":
+		"A menu or form display condition here reads a lookup table or column whose name holds a letter outside unaccented a to z, and CommCare HQ checks those conditions with a reader that can't read it, so it won't build the app. Renaming the table or column in CommCare HQ to unaccented letters, digits, _, . and -, or changing the condition, fixes it.",
+	"expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks":
+		"The search button's display condition, or the owners a search leaves out, reads a lookup table or column whose name holds a letter outside unaccented a to z. CommCare HQ's Search options page can't save such an expression, so the search couldn't be changed there. Renaming the table or column in CommCare HQ to unaccented letters, digits, _, . and -, or changing the expression, fixes it.",
+	"expressions-and-data/tag-has-own-property":
+		"CommCare HQ's form builder doesn't open any form in this project space, because a lookup table here is tagged hasOwnProperty, so Nova can't bring in an app from it. Nova can bring the app in once no table in the project space carries that tag.",
+	"expressions-and-data/tag-proto-read-by-a-form":
+		"A form here reads a lookup table tagged __proto__. CommCare HQ's form builder drops that table from the form when it saves it, and CommCare HQ then won't build the form. Reading the table from a case list, a column or a display condition instead keeps it working.",
+	"expressions-and-data/non-ascii-lookup-name-a-form-reads":
+		"A form here reads a lookup table whose export tag holds a letter outside unaccented a to z. CommCare HQ's form builder loses that table from the form when it saves, and CommCare HQ then won't build the form. Renaming the tag in CommCare HQ to unaccented letters, digits, _, . and - fixes it.",
+};
+
 /** The sentence a `fix-in-hq` finding of this subject and cause reads. */
 export function fixInHqSentence(subject: Subject, cause: FixCause): string {
 	const whole = FIX_IN_HQ_SENTENCES[subject]?.[cause];
@@ -657,6 +676,8 @@ function manifestSentence(
 	code: string,
 ): string {
 	if (standing === "fix-in-hq") {
+		if (Object.hasOwn(FIX_IN_HQ_ENTRY_SENTENCES, code))
+			return FIX_IN_HQ_ENTRY_SENTENCES[code];
 		if (cause === undefined)
 			throw new Error(
 				`The finding for "${code}" is something to change in CommCare HQ but carries no cause, so there is no sentence to choose. A manifest finding takes its cause from fixCauseOf(entry).`,
