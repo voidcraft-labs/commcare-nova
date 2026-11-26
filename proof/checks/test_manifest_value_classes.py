@@ -7277,14 +7277,20 @@ def _label_texts():
         body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
     )
     video = _form(
-        data="<q/><r/>",
+        data="<q/><r/><s/><t/>",
         model="""<itext><translation lang="en" default="">
           <text id="blank"><value/><value form="video-inline">jr://file/commcare/example.mp4</value></text>
           <text id="ordinary"><value>Help</value><value form="video-inline">jr://file/commcare/example.mp4</value></text>
           <text id="caption"><value/><value form="video-inline">jr://file/commcare/example.mp4</value></text>
+          <text id="markdown"><value/><value form="video-inline">jr://file/commcare/example.mp4</value>
+            <value form="markdown">Real help</value></text>
+          <text id="ordinary-video"><value/><value form="video-inline">jr://file/commcare/example.mp4</value>
+            <value form="video">jr://file/commcare/example.mp4</value></text>
           </translation></itext>""",
         body="""<input ref="/data/q"><label ref="jr:itext('caption')"/><help ref="jr:itext('blank')"/></input>
-          <input ref="/data/r"><help ref="jr:itext('ordinary')"/></input>""",
+          <input ref="/data/r"><help ref="jr:itext('ordinary')"/></input>
+          <input ref="/data/s"><help ref="jr:itext('markdown')"/></input>
+          <input ref="/data/t"><help ref="jr:itext('ordinary-video')"/></input>""",
     )
     inline = "itext-form:android/video-inline"
     return {
@@ -7292,6 +7298,8 @@ def _label_texts():
             refused("form", video, inline, "translation[1]/text[1]/value[2]/@form"),
             accepted("form", video, inline, "translation[1]/text[2]/value[2]/@form"),
             accepted("form", video, inline, "translation[1]/text[3]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[4]/value[2]/@form"),
+            accepted("form", video, inline, "translation[1]/text[5]/value[2]/@form"),
         ),
         "questions/long-qrcode-or-tts-form-missing-in-default-language": (
             refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),

@@ -1512,7 +1512,7 @@ def inline_video_on_empty_help(use, manifest):
                     continue
                 role = candidate.get("form") or "default"
                 if role == "long" or (
-                    role in {"default", "audio", "image", "video"}
+                    role in {"default", "markdown", "audio", "image", "video"}
                     and (len(candidate) or (candidate.text or "").strip())
                 ):
                     return False

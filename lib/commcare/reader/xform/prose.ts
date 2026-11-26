@@ -1963,6 +1963,7 @@ function readSlotText(
 			media: mediaHolding(owner),
 			...(owner.slot === "help" &&
 				blankEverywhere &&
+				![...markdown.values()].some(holdsContent) &&
 				labelTexts.length === 0 &&
 				!writesMedia(owner, forms) && { helpOnlyInlineVideo: true }),
 			forms,

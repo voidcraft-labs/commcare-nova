@@ -23712,7 +23712,7 @@
 		"id": "hq-media/video-inline-as-only-help",
 		"base": "hq-media",
 		"entry": "questions/video-inline-as-the-only-content-of-a-help-text",
-		"standing": "not-yet",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -23725,6 +23725,24 @@
 			"op": "named",
 			"name": "video_inline_as_only_help"
 		}
+	},
+	{
+		"id": "hq-media/video-as-only-help",
+		"base": "hq-media",
+		"entry": "questions/help-media",
+		"change": {
+			"op": "named",
+			"name": "video_as_only_help"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["animal_name"]],
+				"pointer": "/help_media/video",
+				"value": {
+					"$projectFile": "jr://file/commcare/video/data/animal_name.mp4"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-media/media-key-outside-jr-file",

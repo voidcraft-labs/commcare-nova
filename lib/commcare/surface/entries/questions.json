@@ -9952,17 +9952,17 @@
 			"itext-form:hq/video-inline"
 		],
 		"valueClass": "empty-help-with-inline-video",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: Core's `hasHelp` detects the help element itself. Omitting an otherwise empty entry would remove its Android help button.",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime. Android shows a help button that opens an empty dialog, and Web Apps has no inline help video. Vellum preserves the video form but removes the help element if the entry is saved blank.",
 		"subject": "question-text",
-		"owner": "question-display",
-		"platforms": {
-			"kind": "each",
-			"cell": "IGNORED / RUNS",
-			"webApps": { "reading": "ignored" },
-			"android": { "reading": "runs" }
-		},
-		"emission": { "cell": "help presence", "markers": [] },
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android opens an empty help dialog because its help layout reads ordinary audio, image and video forms, not video-inline"
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
 		"gates": []
 	},
 	{
