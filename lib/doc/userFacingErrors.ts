@@ -1562,7 +1562,9 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `${q(modName(e))} is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering ${q(registrationFormName(e))} there.`
 			: `${q(registrationFormName(e))} is in ${q(det(e, "formModuleName", "its menu"))}, which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
-		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
+		det(e, "reason", "") === "reached"
+			? `In ${q(modName(e))}, ${det(e, "columnHeader", "") === "" ? "the order calculation" : q(det(e, "columnHeader", ""))} reads whichever case its link reaches, of any type, and Search can't supply that case. You can read the parent through a link this app declares, build the calculation from the current case, or delete it.`
+			: `In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>

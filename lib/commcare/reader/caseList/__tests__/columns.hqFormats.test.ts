@@ -287,6 +287,64 @@ describe("CommCare HQ's column formats", () => {
 		},
 	);
 	it.each([
+		["a menu that offers Search", true],
+		["a menu with no Search", false],
+	] as const)(
+		"reads a calculated column over HQ's untyped walk in %s",
+		async (_label, search) => {
+			// Search supplies no case an untyped walk reaches, so a searching
+			// menu's gate refuses the reached read
+			// (`searchRelatedCalculationCompatibility`): the reading leaves the
+			// column to a finding rather than hold a read the gate refuses.
+			const doc = patients(
+				[
+					plainColumn(uuid(1), "case_name", "Name"),
+					calculatedColumn(uuid(2), "Village", {
+						kind: "term",
+						term: { kind: "prop", caseType: "patient", property: "notes" },
+					}),
+				],
+				search ? { search: {} } : {},
+			);
+			const reading = await readLists(doc, {
+				edit: (app) => {
+					const pair = app.modules[0]?.case_details;
+					for (const detail of [pair?.short, pair?.long])
+						Object.assign(detail?.columns[1] ?? {}, {
+							field:
+								"instance('casedb')/casedb/case[@case_id=current()/index/host]/village",
+						});
+				},
+			});
+			const column = listOf(reading).columns.find(
+				(one) => one.uuid === uuid(2) || one.header === "Village",
+			);
+			const reads: unknown[] = [];
+			if (column?.kind === "calculated")
+				walkExpressionTerms(column.expression, (term) => {
+					if (term.kind === "prop") reads.push(term);
+				});
+			const reached = {
+				kind: "prop",
+				caseType: "patient",
+				property: "village",
+				via: { kind: "ancestor", via: [{ identifier: "host" }] },
+				readReached: true,
+			};
+			if (search) {
+				// One finding a detail, under the calculation's own row.
+				expect(closedCodes(reading)).toEqual([
+					"menus-and-case-lists/usexpathexpression-field-xpath-outside-valueexpression",
+					"menus-and-case-lists/usexpathexpression-field-xpath-outside-valueexpression",
+				]);
+				expect(reads).toEqual([]);
+			} else {
+				expect(closedCodes(reading)).toEqual([]);
+				expect(reads).toEqual([reached]);
+			}
+		},
+	);
+	it.each([
 		// The worker's record in a list slot is that read's own row, not held yet.
 		[
 			"user/district",

@@ -85,18 +85,19 @@ export function searchRelatedCalculationCompatibility(
 			lookupTables ?? new Map(),
 		);
 		if (context === undefined) continue;
-		if (
-			classifyRelatedCaseSearchExpression(column.expression, context).kind !==
-			"unsupported"
-		) {
-			continue;
-		}
+		const projection = classifyRelatedCaseSearchExpression(
+			column.expression,
+			context,
+		);
+		if (projection.kind !== "unsupported") continue;
 
 		errors.push(
 			validationError(
 				"CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE",
 				"module",
-				`In "${mod.name}", "${column.header}" uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
+				projection.reached
+					? `In "${mod.name}", "${column.header}" reads whichever case its link reaches, of any type, and Search can't supply that case. You can read the parent through a link this app declares, build the calculation from the current case, or delete this calculated item.`
+					: `In "${mod.name}", "${column.header}" uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					columnUuid: column.uuid,
@@ -104,6 +105,7 @@ export function searchRelatedCalculationCompatibility(
 					index: String(index),
 					slot: `caseListConfig.columns[${index}].expression`,
 					registrySlot: "case_list_column_expression",
+					...(projection.reached && { reason: "reached" }),
 				},
 			),
 		);
@@ -122,23 +124,26 @@ export function searchRelatedCalculationCompatibility(
 			},
 			lookupTables ?? new Map(),
 		);
-		if (
-			!context ||
-			classifyRelatedCaseSearchExpression(rule.expression, context).kind !==
-				"unsupported"
-		)
-			continue;
+		if (!context) continue;
+		const projection = classifyRelatedCaseSearchExpression(
+			rule.expression,
+			context,
+		);
+		if (projection.kind !== "unsupported") continue;
 		errors.push(
 			validationError(
 				"CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE",
 				"module",
-				`The order calculation in "${mod.name}" uses related information that Search cannot supply. Choose one parent property or use this case's information.`,
+				projection.reached
+					? `The order calculation in "${mod.name}" reads whichever case its link reaches, of any type, and Search can't supply that case. You can read the parent through a link this app declares, or use this case's information.`
+					: `The order calculation in "${mod.name}" uses related information that Search cannot supply. Choose one parent property or use this case's information.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					sortUuid: rule.uuid,
 					index: String(index),
 					slot: `caseListConfig.calculatedSorts[${index}].expression`,
 					registrySlot: "case_list_sort_expression",
+					...(projection.reached && { reason: "reached" }),
 				},
 			),
 		);

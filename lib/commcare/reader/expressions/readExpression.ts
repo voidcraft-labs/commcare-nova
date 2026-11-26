@@ -29,7 +29,10 @@ import { formOfField } from "@/lib/domain/fieldForm";
 import type { SelectOptionsSource } from "@/lib/domain/fields/selectOptionsSource";
 import { CASE_LOADING_FORM_TYPES, operationCaseType } from "@/lib/domain/forms";
 import { afterEmptySearchRegistrationFormOf } from "@/lib/domain/menuForms";
-import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import {
+	effectiveCaseSearchConfig,
+	moduleFormsReadSearch,
+} from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { userPropertySlugsByUuid } from "@/lib/domain/users";
@@ -427,7 +430,7 @@ function scopeWith(
 				operationIdPaths,
 				withdrawn,
 				sites,
-				...(pending.ref.slot === "case_list_column_expression" && {
+				...(readsReached(doc, pending.ref) && {
 					readsReached: true as const,
 				}),
 				...(place === undefined ? {} : { place }),
@@ -448,6 +451,19 @@ function scopeWith(
 		...(sourceProjection === undefined ? {} : { sourceProjection }),
 		reading,
 	};
+}
+
+/** Whether the slot reads an untyped index walk as the reached read: a case
+ *  list column's calculation, in a menu that offers no Search, whose Results
+ *  hold no case such a walk reaches (`searchRelatedCalculationCompatibility`
+ *  refuses it there). */
+function readsReached(doc: BlueprintDoc, ref: SlotContextRef): boolean {
+	if (ref.entity !== "module" || ref.slot !== "case_list_column_expression")
+		return false;
+	const module = doc.modules[ref.uuid];
+	return (
+		module !== undefined && effectiveCaseSearchConfig(module) === undefined
+	);
 }
 
 /** The site key of one fold over one span of the source. */

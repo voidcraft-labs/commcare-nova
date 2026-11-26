@@ -190,18 +190,19 @@ export function expressionEditVerdict(
 		if (issue !== undefined)
 			return { ok: false, reason: predicateEditIssueReason(issue) };
 	}
-	if (
+	const projection =
 		(remote || context.runsOnSearchResults) &&
 		(context.slot.slot === "case_list_column_expression" ||
 			context.slot.slot === "case_list_mapping_condition" ||
-			context.slot.slot === "case_list_sort_expression") &&
-		classifyRelatedCaseSearchExpression(candidate, context).kind ===
-			"unsupported"
-	) {
+			context.slot.slot === "case_list_sort_expression")
+			? classifyRelatedCaseSearchExpression(candidate, context)
+			: undefined;
+	if (projection?.kind === "unsupported") {
 		return {
 			ok: false,
-			reason:
-				"Search can show one parent property by itself, but it can't use other related-case information in this calculated item. Choose the parent property by itself, or build the calculation from this case.",
+			reason: projection.reached
+				? "Search can't supply whichever case a link reaches, of any type. You can read the parent through a link this app declares, or build the calculation from this case."
+				: "Search can show one parent property by itself, but it can't use other related-case information in this calculated item. Choose the parent property by itself, or build the calculation from this case.",
 		};
 	}
 	const dateIssue = device
