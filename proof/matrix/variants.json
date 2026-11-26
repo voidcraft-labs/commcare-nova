@@ -42254,7 +42254,7 @@
 		"entry": "case-search/p-where-p-is-not-date-opened-closed-on-or-last-modified",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"village = ''\""
 		},
 		"holds": [
@@ -42286,8 +42286,14 @@
 		"entry": "case-search/match-all-match-none",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
-			"value": "\"match-all()\""
+			"pointer": "/modules/2/search_config/default_properties",
+			"value": [
+				{
+					"property": "_xpath_query",
+					"doc_type": "DefaultCaseSearchProperty",
+					"defaultValue": "\"match-all()\""
+				}
+			]
 		},
 		"holds": [
 			{
@@ -42325,7 +42331,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"not(village = 'south')\""
 		},
 		"holds": [
@@ -42367,7 +42373,7 @@
 		"entry": "case-search/not-q",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"not(village != 'south')\""
 		},
 		"holds": [
@@ -42409,7 +42415,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"subcase-exists('parent', @case_type = 'visit' and match-all())\""
 		},
 		"holds": [
@@ -42438,7 +42444,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"closed_on > datetime('2023-01-01T00:00:00')\""
 		},
 		"holds": [
@@ -42481,7 +42487,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"selected(services, 'nutrition')\""
 		},
 		"holds": [
@@ -42517,7 +42523,7 @@
 		"entry": "case-search/authored-case-type-comparisons-other-than-a-hop-qualifier",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"@case_type = 'client'\""
 		},
 		"holds": [
@@ -42554,7 +42560,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "\"dob > date(19000)\""
 		},
 		"holds": [
@@ -43148,7 +43154,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "if(instance('commcaresession')/session/context/drift > 5, 'match-none()', \"village = 'north'\")"
 		},
 		"holds": [
@@ -43210,7 +43216,7 @@
 		"entry": "case-search/clause-chosen-at-runtime-by-a-condition-over-session-worker",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "if(instance('commcaresession')/session/context/username = 'demo', 'match-none()', \"village = 'north'\")"
 		},
 		"holds": [
@@ -43242,7 +43248,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "if(instance('commcaresession')/session/context/window_width > 600, 'match-none()', \"village = 'north'\")"
 		},
 		"holds": [
@@ -43304,7 +43310,7 @@
 		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"pointer": "/modules/2/search_config/default_properties/2/defaultValue",
 			"value": "concat(\"village = '\", instance('commcaresession')/session/context/applanguage, \"'\")"
 		},
 		"holds": [

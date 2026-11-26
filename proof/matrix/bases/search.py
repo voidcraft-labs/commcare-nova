@@ -60,15 +60,15 @@
    both open and in north, one north and active, and one open elsewhere. HQ
    returns the two in north before the inline detail keeps the open client,
    on both the source and the first publish. The worker opens the retained
-   client and fills the same form.
+   client and fills the same form. The search sends two default order
+   values in sequence. The first uses two leading signs on its first term.
+   HQ keeps the stored text and uses its first sign, so the first publish
+   removes only the redundant sign (``search-order-direction-signs-respelled``).
+   The second order stays as written.
 5. A referrals menu that searches case attributes, a date, an ancestor and
    the worker's owner ID. Independent rows use both the matched and excluded
    prompts. A separate device filter narrows the worker's list after the
-   search returns. Its two order defaults send their values in sequence.
-   The first uses two leading signs on its first term. HQ keeps the stored
-   text and uses its first sign, so the first publish removes only its
-   redundant sign (``search-order-direction-signs-respelled``). The second
-   order stays as written.
+   search returns.
 
 Its configuration is the lane's floor with case search on,
 ``SYNC_SEARCH_CASE_CLAIM``, the flag HQ's Search options stand under,
@@ -281,7 +281,14 @@ def build(authoring) -> str:
 
     follow_up_menu(authoring, app_id, 2, "Visits", "visit_summary", "Summarize the visit")
     save_list_filter(authoring, app_id, 2, LIST_FILTER)
-    save_search(authoring, app_id, 2, rows=[JOINED_ROW], auto_launch=True, inline_search=True)
+    save_search(
+        authoring, app_id, 2, rows=[JOINED_ROW],
+        filters=[
+            ("commcare_sort", "'+-client_code:exact,-dob:date'"),
+            ("commcare_sort", "'+name'"),
+        ],
+        auto_launch=True, inline_search=True,
+    )
     follow_up_menu(authoring, app_id, 3, "Referrals", "referral_note", "What help did the client receive?")
     save_list_filter(authoring, app_id, 3, "standing = 'active'")
 
@@ -303,8 +310,6 @@ def build(authoring) -> str:
             ("standing", "'active'"),
             ("parent/district", "'d1'"),
             ("owner_id", "instance('commcaresession')/session/context/userid"),
-            ("commcare_sort", "'+-client_code:exact,-dob:date'"),
-            ("commcare_sort", "'+name'"),
         ],
         rows=[
             json.dumps("date_opened > '2020-01-01'"),
