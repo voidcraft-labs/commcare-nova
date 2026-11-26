@@ -119,6 +119,14 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Checked answers and proposed record values. No records were submitted; navigation and additional record operations were not checked.",
 	),
 	getForm: read("Inspecting a form", "Inspected a form"),
+	getPreviewSearchSettings: read(
+		"Reading Preview search and map settings",
+		"Read Preview search and map settings",
+	),
+	setPreviewSearchSettings: change(
+		"Recording Preview search and map settings",
+		"Recorded Preview search and map settings",
+	),
 	startAppTest: {
 		kind: "activity",
 		doing: "Starting a test journey",
@@ -219,6 +227,7 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Reordering search fields",
 		"Reordered search fields",
 	),
+	editSearchFilter: change("Updating search filter", "Updated search filter"),
 	setCaseListFilter: change(
 		"Updating available cases",
 		"Updated available cases",

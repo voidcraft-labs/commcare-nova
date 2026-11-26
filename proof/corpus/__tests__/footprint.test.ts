@@ -770,6 +770,13 @@ describe("the footprint's derivations", () => {
 	const renameFlag: Mutation[] = [
 		{ kind: "updateUserProperty", uuid: flag, patch: { slug: "flag_renamed" } },
 	];
+	/** A condition on the worker's id: it reads the session, as `readsFlag` does,
+	 *  without the flag's slug. */
+	const readsWorker = {
+		kind: "eq",
+		left: { kind: "term", term: { kind: "session-context", field: "userid" } },
+		right: { kind: "term", term: { kind: "literal", value: "w" } },
+	} as const;
 	/** A condition that reads nothing at run time: it reaches no instance. */
 	const literalOnly = {
 		kind: "eq",
@@ -909,7 +916,10 @@ describe("the footprint's derivations", () => {
 	const setFilter =
 		(
 			module: string,
-			filter: typeof readsFlag | ReturnType<typeof literalFilter>,
+			filter:
+				| typeof readsFlag
+				| typeof readsWorker
+				| ReturnType<typeof literalFilter>,
 		) =>
 		(doc: BlueprintDoc): Mutation[] => [
 			{
@@ -1661,13 +1671,20 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Visits"),
 		},
 		// The instances the module's case-loading entries declare.
+		// A search button condition reads only what every entry showing the list
+		// already loads (`suite/case-search/buttonCondition.ts`: HQ's build never
+		// declares an action's `relevant`), so it adds no instance to an entry.
 		{
-			name: "a search button condition that reads the worker reaches its module's case-loading forms",
+			name: "a search button condition that reads the worker reaches none of its module's forms where the list's filter reads the worker",
 			document: "tile",
-			setup: (doc) => [addFlag, ...enableSearch("Visits")(doc)],
+			setup: (doc) => [
+				addFlag,
+				...enableSearch("Visits")(doc),
+				...setFilter("Visits", readsFlag)(doc),
+			],
 			batch: searchButton("Visits", readsFlag),
-			reaches: (doc) => formOfType(doc, "Visits", "followup"),
-			leaves: (doc) => formOfType(doc, "Visits", "registration"),
+			reaches: () => [],
+			leaves: (doc) => formsOf(doc, "Visits"),
 		},
 		{
 			name: "a search button condition that reads nothing reaches none of its module's forms",
@@ -1677,9 +1694,13 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
-			name: "a worker property's slug reaches none of the forms of a module whose search button condition reads it",
+			name: "a worker property's slug reaches none of the forms of a module whose search button condition reads it over a list that loads the session",
 			document: "search-remote",
-			setup: (doc) => [addFlag, ...searchButton("Followup", readsFlag)(doc)],
+			setup: (doc) => [
+				addFlag,
+				...setFilter("Followup", readsWorker)(doc),
+				...searchButton("Followup", readsFlag)(doc),
+			],
 			batch: () => renameFlag,
 			reaches: () => [],
 			leaves: (doc) => formsOf(doc, "Followup"),

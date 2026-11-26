@@ -12,6 +12,7 @@ import {
 	extractAstLookupReferences,
 	readReferences,
 } from "@/lib/doc/lookupReferences";
+
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -85,6 +86,7 @@ import {
 	hqCalculatedSortExpression,
 	hqExpressionField,
 } from "../../suite/case-list/orderPlanOptions";
+import { emitSearchFilterValue } from "../../suite/case-search/nativeFilters";
 import { searchPromptWire } from "../../suite/case-search/searchPrompts";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
@@ -1379,6 +1381,17 @@ function printSlotWith(
 						),
 					),
 				);
+			case "search_filter_value":
+				return text(
+					emitSearchFilterValue(
+						expression,
+						ref.member.filterUuid,
+						expressions,
+						searchInstanceOf(mod),
+						naming,
+						caseListStepDatumId(doc, ref.uuid),
+					),
+				);
 			case "case_list_column_expression": {
 				const column = mod.caseListConfig?.columns.find(
 					(candidate) => candidate.uuid === ref.member.columnUuid,
@@ -1399,6 +1412,7 @@ function printSlotWith(
 					),
 				);
 			}
+			case "case_search_filter":
 			case "search_input_predicate":
 				throw new Error("A search filter row prints as CSQL, never here.");
 			default: {

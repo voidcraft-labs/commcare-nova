@@ -29,7 +29,11 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import type { BlueprintDoc, SearchInputDef } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	NO_SEARCH_SCREEN_TITLE,
+	type SearchInputDef,
+} from "@/lib/domain";
 import {
 	eq,
 	input,
@@ -46,10 +50,12 @@ import {
 	type AppJson,
 	closedCodes,
 	codes,
+	emittedApp,
 	listOf,
 	readLists,
 	searchOf,
 } from "../../caseList/__tests__/listReading";
+import { withReadTexts } from "../../caseList/readTexts";
 import { csqlRow } from "../../expressions/__tests__/csqlVectors";
 
 const NOTES: SearchInputDef = {
@@ -246,7 +252,6 @@ describe("additional case types", () => {
 
 describe("a bare prompt's name", () => {
 	it.each([
-		["name", "case-search/prompt-named-for-a-case-attribute-hq-matches-itself"],
 		["_x", "case-search/prompt-key-outside-nova-s-name-grammar"],
 		["date-opened", "case-search/prompt-key-outside-nova-s-name-grammar"],
 		["external-id", "case-search/prompt-key-outside-nova-s-name-grammar"],
@@ -272,7 +277,7 @@ describe("a bare prompt's name", () => {
 });
 
 describe("Nova's zero-input row beside a list filter", () => {
-	it("leaves the filter's clauses unrestated, which Nova's export would send", async () => {
+	it("holds the list's filter apart from a search that sends every case", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, {
 				search: {},
@@ -290,36 +295,63 @@ describe("Nova's zero-input row beside a list filter", () => {
 				},
 			},
 		);
-		expect(codes(reading)).toContain(
-			"case-search/case-list-filter-clause-the-search-does-not-restate",
-		);
+		expect(codes(reading)).toEqual([]);
+		expect(listOf(reading)).toMatchObject({
+			filter: eq(prop("patient", "notes"), literal("open")),
+			searchCondition: { kind: "match-all" },
+		});
 	});
 });
 
 describe("a search on a menu that shows its forms above", () => {
-	it("is a finding when it shows the list first, every boolean at its default", async () => {
+	it("brings in the ordinary search and its desktop clear behavior together", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, { searchInputs: [NOTES] }),
 			{
 				edit: (app) => {
 					(app.modules[0] as Record<string, unknown>).put_in_root = true;
 					Object.assign(searchConfig(app), {
-						auto_launch: false,
-						default_search: false,
+						auto_launch: true,
 						inline_search: false,
+						search_on_clear: true,
+					});
+				},
+			},
+		);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({ searchOnClear: true });
+		expect(listOf(reading).searchInputs.map((input) => input.name)).toContain(
+			NOTES.name,
+		);
+	});
+
+	it("leaves inline search on such a menu to the menu's own HQ build refusal", async () => {
+		const reading = await readLists(
+			patients(COLUMNS, { searchInputs: [NOTES] }),
+			{
+				edit: (app) => {
+					(app.modules[0] as Record<string, unknown>).put_in_root = true;
+					Object.assign(searchConfig(app), {
+						auto_launch: true,
+						default_search: false,
+						inline_search: true,
 					});
 				},
 				firstPassOnly: true,
 			},
 		);
-		expect(codes(reading)).toContain(
-			"case-search/search-on-a-put-in-root-module",
-		);
+		expect(
+			reading.findings
+				.filter((finding) => finding.place.kind === "menu")
+				.map((finding) => finding.code),
+		).toEqual([
+			"menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of",
+		]);
 	});
 });
 
-describe("a row read up to a rewrite", () => {
-	it("reports the rewrite in the reading", async () => {
+describe("a search row on the project space's day beside a list on the worker's", () => {
+	it("holds the two days apart, with no rewrite", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, {
 				searchInputs: [NOTES],
@@ -338,9 +370,14 @@ describe("a row read up to a rewrite", () => {
 			},
 		);
 		expect(closedCodes(reading)).toEqual([]);
-		expect(reading.ctx.facts.rewrites.map((one) => one.id)).toContain(
-			"search-today-device-day",
-		);
+		expect(reading.ctx.facts.rewrites).toEqual([]);
+		expect(listOf(reading)).toMatchObject({
+			filter: lte(prop("patient", "dob"), today()),
+			searchCondition: {
+				kind: "lte",
+				right: { kind: "today", clock: "project-space" },
+			},
+		});
 	});
 });
 
@@ -407,8 +444,10 @@ describe("a row an author wrote around the device's values", () => {
 			predicate: { kind: "when-input-present" },
 		});
 		expect(read).not.toHaveProperty("validation");
-		expect(reading.ctx.facts.rewrites.map((one) => one.id)).toEqual([
-			"search-value-guards",
+		// The row's guards and the check the field gains are each the guards' rewrite, where each is stored.
+		expect(reading.ctx.facts.rewrites.map((one) => [one.id, one.key])).toEqual([
+			["search-value-guards", "schema:DefaultCaseSearchProperty.defaultValue"],
+			["search-value-guards", "schema:CaseSearchProperty.validations"],
 		]);
 	});
 });
@@ -556,10 +595,11 @@ describe("a search title held in only some app languages", () => {
 		expect(registers(reading)).toContain("text-spaces-dropped");
 	});
 
-	// The source language's title is the document's slot, which holds text or no title in every
-	// language, so a title the source shows blank beside another's text has no document. The
-	// refusal is the only finding: the search's rows, which the settle never reaches, stand under it.
-	it("is a finding where the source's is blank and another's is not", async () => {
+	// A language with no title of its own shows the first language's, so a blank first language,
+	// here the source, shows blank beside another's text. The source holds no title, the other
+	// language its own as a translation of the blank source, and Nova's export writes the map back
+	// as HQ held it: each language shows what it showed.
+	it("holds a title blank in the source beside another's text, and writes it back", async () => {
 		const status: SearchInputDef = {
 			uuid: uuid(10),
 			name: "status",
@@ -587,14 +627,50 @@ describe("a search title held in only some app languages", () => {
 				},
 			},
 		);
-		expect(closedCodes(reading)).toEqual([
-			"case-search/title-label-blank-in-some-languages",
-		]);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		});
+		expect(registers(reading)).not.toContain("text-spaces-dropped");
+		const doc = reading.ctx.doc;
+		if (doc === undefined) throw new Error("The reading bound no document.");
+		const exported = await emittedApp(
+			withReadTexts(doc, reading.ctx.translations),
+		);
+		expect(searchConfig(exported).title_label).toEqual({
+			en: "",
+			es: "Buscar",
+		});
+	});
+
+	// A source title only spaces beside the first language's text shows blank there, which Nova
+	// writes no title for: the source takes the first language's text, which a worker there then
+	// reads, so the reading records `text-spaces-dropped`.
+	it("holds a source title only spaces beside the first language's text as that text, and records the change", async () => {
+		const reading = await readLists(titled(), {
+			edit: (app) => {
+				const root = app as Record<string, unknown>;
+				root.langs = ["es", "en"];
+				const translations = (root.translations ?? {}) as Record<
+					string,
+					Record<string, string>
+				>;
+				translations.es = {
+					...translations.es,
+					"app.display.name": "Pacientes",
+				};
+				root.translations = translations;
+				searchConfig(app).title_label = { es: "Buscar", en: "  " };
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({ searchScreenTitle: "Buscar" });
+		expect(registers(reading)).toContain("text-spaces-dropped");
 	});
 });
 
 describe("a check with no message in any language", () => {
-	it("is a finding at the search for a requirement", async () => {
+	it("reads a requirement as one with no message", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, {
 				searchInputs: [{ ...NOTES, required: { message: "Fill it in" } }],
@@ -605,21 +681,14 @@ describe("a check with no message in any language", () => {
 				},
 			},
 		);
-		expect(codes(reading)).toContain(
-			"case-search/a-required-or-validation-test-with-no-message-in-any-language",
-		);
-		// The field stays in the provisional document, with no requirement and no property, so an
-		// expression that reads it binds (`prompts.ts::readPrompt`).
-		expect(
-			listOf(reading).searchInputs.map((one) => ({
-				name: one.name,
-				kind: one.kind,
-				required: "required" in one ? one.required : undefined,
-			})),
-		).toEqual([{ name: "notes", kind: "advanced", required: undefined }]);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).searchInputs[0]).toMatchObject({
+			name: "notes",
+			required: { noMessage: true },
+		});
 	});
 
-	it("is a finding at the search for a validation", async () => {
+	it("reads a validation as one with no message of its own", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, {
 				searchInputs: [
@@ -642,9 +711,16 @@ describe("a check with no message in any language", () => {
 				},
 			},
 		);
-		expect(codes(reading)).toContain(
-			"case-search/a-required-or-validation-test-with-no-message-in-any-language",
-		);
+		expect(closedCodes(reading)).toEqual([]);
+		const [notes] = listOf(reading).searchInputs;
+		expect(
+			notes && "validation" in notes ? notes.validation : undefined,
+		).toBeDefined();
+		expect(
+			notes && "validation" in notes && notes.validation !== undefined
+				? "message" in notes.validation
+				: true,
+		).toBe(false);
 	});
 
 	it("is no finding where the message is Nova's own sentence", async () => {

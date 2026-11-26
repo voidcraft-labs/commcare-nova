@@ -253,7 +253,7 @@ export async function evaluateFormSnapshot(
 				searchAnswers: searchInputInstanceValues(
 					module.caseListConfig?.searchInputs ?? [],
 					new Map(
-						(input.searchAnswers ?? context.searchAnswers ?? []).map(
+						(context.searchAnswers ?? input.searchAnswers ?? []).map(
 							({ name, value }) => [name, value],
 						),
 					),

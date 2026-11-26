@@ -215,6 +215,7 @@ const RUNTIME_READ_WRITE_TABLES = [
  * may row-lock or update a request, step, stage, change-set handle, or
  * receipt row — retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
+	"preview_search_setting_receipts",
 	"thread_source_contents",
 	"thread_source_links",
 	"app_test_steps",
@@ -267,6 +268,7 @@ const RUNTIME_APPEND_ONLY_TABLES = [
  * destination row's lock (`lookup_json_destinations`, read-write, whose rows
  * a settle also inserts and deletes). None of them is ever deleted or locked. */
 const RUNTIME_INSERT_UPDATE_TABLES = [
+	"preview_search_settings",
 	"design_identity_handles",
 	"authoring_session_requests",
 	"app_deployment_confirmations",

@@ -162,7 +162,6 @@ import {
 	collectTranslationUnits,
 	type EntryPointTarget,
 	effectiveAppLocalization,
-	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	entityTargetKey,
 	entryPointByUuid,
@@ -805,8 +804,10 @@ const groupingConnection: ModuleDerivation = {
  *
  * - the filter's and the owner exclusion's, each with its search inputs
  *   substituted away as the nodeset reads it;
- * - the search button's display condition's, on a module whose forms do
- *   not read the search (`compileCcz` drops it on one whose forms do);
+ * - not the search button's display condition's: the commit gate admits a
+ *   condition only where every entry showing the list already declares what
+ *   it reads (`suite/case-search/buttonCondition.ts`, HQ's build declaring
+ *   none for an action's `relevant`), so it adds no instance to an entry;
  * - each emitted calculated column's, under the module's search input
  *   instance (through its own column expression slot).
  *
@@ -846,9 +847,6 @@ const ownEntryInstances: ModuleDerivation = {
 			)
 				.declarations()
 				.map(({ id }) => id);
-		const searchButton = moduleUsesInlineSearch(module)
-			? undefined
-			: effectiveCaseSearchConfig(module)?.searchButtonDisplayCondition;
 		const bindings = detailBindings(side.wire, module);
 		const calculated = new Set<string>();
 		for (const column of module.caseListConfig?.columns ?? []) {
@@ -909,13 +907,6 @@ const ownEntryInstances: ModuleDerivation = {
 					: instances(
 							substituteUnansweredSearchInputs(owners),
 							expressions({ slot: "excluded_owner_ids" }),
-						),
-			searchButton:
-				searchButton === undefined
-					? []
-					: instances(
-							searchButton,
-							expressions({ slot: "search_button_display_condition" }),
 						),
 			calculatedColumns: [...calculated],
 		};

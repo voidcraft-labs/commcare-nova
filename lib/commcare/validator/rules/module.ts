@@ -41,10 +41,13 @@ import { dateColumnPattern } from "./case-list/dateColumnPattern";
 import { detailTabPartition } from "./case-list/detailTabPartition";
 import { detailTabTypeCheck } from "./case-list/detailTabTypeCheck";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
+import { hiddenSearchField } from "./case-list/hiddenSearchField";
 import { idMappingKeyCharacters } from "./case-list/idMappingKeyCharacters";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
+import { nativeSearchFilters } from "./case-list/nativeSearchFilters";
 import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
+import { searchCheckMessage } from "./case-list/searchCheckMessage";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
@@ -54,6 +57,7 @@ import { searchInputReservedName } from "./case-list/searchInputReservedName";
 import { searchInputScreenPredicateTypeCheck } from "./case-list/searchInputScreenPredicateTypeCheck";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
+import { searchTitleLanguages } from "./case-list/searchTitleLanguages";
 import { sortLabel } from "./case-list/sortLabel";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { sortPropertyOwnership } from "./case-list/sortPropertyOwnership";
@@ -346,7 +350,11 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	searchInputScreenPredicateTypeCheck,
 	csqlPredicateRepresentability,
 	searchInputRefUsesWhenInputPresent,
+	nativeSearchFilters,
 	searchInputViaModeCompatibility,
+	hiddenSearchField,
+	searchCheckMessage,
+	searchTitleLanguages,
 	// Case-search-config rules. Slot-specific checks read authored config;
 	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
 	// markerless inputs receive the same validation as the remote request they

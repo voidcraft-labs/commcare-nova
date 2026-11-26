@@ -78,6 +78,31 @@ describe("search match mode admission", () => {
 				propertyDataType: type,
 			});
 	});
+	// The project space's own matching rule, not Nova's range, matches the field.
+	it("admits a date range over text with the project space's matching", () => {
+		const doc = candidate({ kind: "range" }, "text");
+		const module = doc.modules[doc.moduleOrder[0]];
+		const config = module.caseListConfig;
+		if (config === undefined) throw new Error("The fixture lists cases.");
+		expect(
+			findings({
+				...doc,
+				modules: {
+					...doc.modules,
+					[module.uuid]: {
+						...module,
+						caseListConfig: {
+							...config,
+							searchInputs: config.searchInputs.map((input) => ({
+								...input,
+								matching: "project-space" as const,
+							})),
+						},
+					},
+				},
+			}),
+		).toEqual([]);
+	});
 	it("uses a writer-derived text property and standard datetime property", () => {
 		const base = admittedCaseListDoc({
 			fields: [

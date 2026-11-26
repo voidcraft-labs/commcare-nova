@@ -68,7 +68,7 @@ export interface AddSearchInputsSuccess extends MutationSuccess {
 export type AddSearchInputsResult = AddSearchInputsSuccess | { error: string };
 
 export const addSearchInputsTool = {
-	description: `Add Search questions or hidden Search values. Visible questions support requiredness and validation over Search answers and worker values. Hidden values initialize from constants or worker values before answers or record selection. ${SEARCH_INPUT_LOOKUP_ORDER_SENTENCE} ${RESERVED_SEARCH_INPUT_NAMES_SENTENCE}`,
+	description: `Add Search questions or hidden Search values. Visible questions support requiredness and validation over Search answers and worker values. Hidden values initialize from constants or worker values before answers or record selection; one without a value starts blank, and Android shows it for the worker to fill in. ${SEARCH_INPUT_LOOKUP_ORDER_SENTENCE} ${RESERVED_SEARCH_INPUT_NAMES_SENTENCE}`,
 	inputSchema: addSearchInputsInputSchema,
 	async execute(
 		input: AddSearchInputsInput,
