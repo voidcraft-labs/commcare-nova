@@ -217,6 +217,8 @@ export function useCases(args: {
 	/** The search is the menu's default search, run as the list opened,
 	 *  which sends no prompt's answer (`CaseSearchRequest.unsentPrompts`). */
 	defaultSearch?: boolean;
+	searchSubmission?: string;
+	retainSearchResult?: boolean;
 	/** What the device worked out for the search's `_xpath_query` rows,
 	 *  which the server folds (`useSearchCsqlRuntime`). */
 	csqlRuntime?: SearchCsqlRuntimeWire;
@@ -259,6 +261,8 @@ export function useCases(args: {
 		requestScopeKey = "",
 		search = false,
 		defaultSearch = false,
+		searchSubmission,
+		retainSearchResult,
 		csqlRuntime,
 		chosenCaseIds,
 		sortChoice,
@@ -294,7 +298,7 @@ export function useCases(args: {
 	 * re-reads through the case data revision and the settled rows stay on
 	 * screen. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${defaultSearch}\u0000${deviceKey}\u0000${automaticSelection === true}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${defaultSearch}\u0000${deviceKey}\u0000${automaticSelection === true}\u0000${searchSubmission ?? ""}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -375,6 +379,8 @@ export function useCases(args: {
 								personaUuid,
 								...(search && { search }),
 								...(defaultSearch && { defaultSearch }),
+								...(retainSearchResult &&
+									searchSubmission !== undefined && { searchSubmission }),
 								...(csqlRuntime !== undefined && { csqlRuntime }),
 								...(chosenCaseIds !== undefined && { chosenCaseIds }),
 								...(sortChoice !== undefined &&

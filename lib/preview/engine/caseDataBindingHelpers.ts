@@ -585,6 +585,9 @@ export async function readCases(
 		 */
 		searchPopulation?: SearchPopulation;
 	},
+	retainSearchResult?: (
+		instance: import("@/lib/case-store/store").SearchResultInstance,
+	) => Promise<string>,
 ): Promise<LoadCasesResult> {
 	const composedQuery = runningCasePredicate(args);
 	const page = normalizeCaseListPage(args.page);
@@ -614,24 +617,31 @@ export async function readCases(
 	if (args.searchPopulation?.request) {
 		if (!store.querySearchResults)
 			throw new Error("This case store has no completed-search reader.");
-		const found = await store.querySearchResults(
-			{
-				...caseReadCore(args, composedQuery.predicate),
-				...(args.datumOrder
-					? { datumOrder: true as const }
-					: {
-							sort: buildCaseStoreSortKeys(args.order, args.caseType),
-							calculated: runtimeCalculatedColumns(args.caseListConfig),
-							related: runtimeRelatedReads(args.caseListConfig, args.caseType),
-						}),
-				offset: page?.offset,
-				limit: page?.limit ?? args.cap,
-			},
-			grouping?.identifier,
-		);
+		const query = {
+			...caseReadCore(args, composedQuery.predicate),
+			...(args.datumOrder
+				? { datumOrder: true as const }
+				: {
+						sort: buildCaseStoreSortKeys(args.order, args.caseType),
+						calculated: runtimeCalculatedColumns(args.caseListConfig),
+						related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+					}),
+			offset: page?.offset,
+			limit: page?.limit ?? args.cap,
+		};
+		const found = retainSearchResult
+			? await store.querySearchResults(query, grouping?.identifier, true)
+			: await store.querySearchResults(query, grouping?.identifier);
+		if (retainSearchResult && !found.instance)
+			throw new Error("The bounded search did not capture its response.");
+		const resultReceipt =
+			retainSearchResult && found.instance
+				? await retainSearchResult(found.instance)
+				: undefined;
 		const common = {
 			constraintSource: composedQuery.constraintSource,
 			searchMatchCount: found.primaryCount,
+			...(resultReceipt !== undefined && { resultReceipt }),
 		};
 		if (!found.rows.length) {
 			// The empty state may explain what clearing a worker's answers
@@ -3347,7 +3357,8 @@ export function schemaHealingCaseStore(
 		readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
 		readSearchResultInstance: (a) =>
 			heal(() => store.readSearchResultInstance(a)),
-		querySearchResults: (a, g) => heal(() => store.querySearchResults(a, g)),
+		querySearchResults: (...args) =>
+			heal(() => store.querySearchResults(...args)),
 		readSubmittedCaseDatabasePatch: (a) =>
 			store.readSubmittedCaseDatabasePatch(a),
 		queryGrouped: (a) => heal(() => store.queryGrouped(a)),

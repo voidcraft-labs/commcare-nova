@@ -1786,6 +1786,8 @@ export function CaseListScreen({
 		 * screen. */
 		requestScopeKey: selectionScopeKey,
 		search: readsSearchResults,
+		searchSubmission: searchAttempt?.submission,
+		retainSearchResult: searchAttempt?.kind === "running",
 		/* The menu's default search sends no prompt's answer (Formplayer's
 		 * `doQuery` with `isDefaultSearch`), so a starting value narrows only
 		 * where a row or a hidden value reads it. */

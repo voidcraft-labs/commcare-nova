@@ -1166,7 +1166,11 @@ export class PostgresCaseStore implements CaseStore {
 		read: (
 			built: ReturnType<PostgresCaseStore["buildCaseSelect"]>,
 			db: Kysely<Database>,
-			primaryCount?: number,
+			response?: {
+				readonly tx: Transaction<Database>;
+				readonly primary: readonly string[];
+				readonly supporting: readonly string[];
+			},
 		) => Promise<T>,
 		transaction?: Transaction<Database>,
 	): Promise<T> {
@@ -1208,7 +1212,11 @@ export class PostgresCaseStore implements CaseStore {
 				);
 			if (args.datumOrder)
 				qb = qb.orderBy(sql`array_position(${ids}::text[], c.case_id)`);
-			return read({ ...device, qb }, tx, ids.length);
+			return read({ ...device, qb }, tx, {
+				tx,
+				primary: ids,
+				supporting,
+			});
 		};
 		return transaction === undefined
 			? this.dataTransaction(resolve, true)
@@ -1295,10 +1303,20 @@ export class PostgresCaseStore implements CaseStore {
 	async querySearchResults(
 		args: QueryArgs,
 		grouping?: string,
+		captureInstance?: true,
 	): Promise<SearchResultsPage> {
-		return this.withCaseSelect(args, async (built, tx, primaryCount) => {
-			if (primaryCount === undefined)
+		return this.withCaseSelect(args, async (built, tx, response) => {
+			if (response === undefined)
 				throw new Error("A search result page requires a completed request.");
+			const primaryCount = response.primary.length;
+			const instance = captureInstance
+				? await this.readSearchInstanceByIds(
+						response.tx,
+						args.appId,
+						response.primary,
+						response.supporting,
+					)
+				: undefined;
 			const limit = args.limit;
 			const offset = Math.max(0, args.offset ?? 0);
 			const clamp = (total: number) =>
@@ -1323,6 +1341,7 @@ export class PostgresCaseStore implements CaseStore {
 					page = await pageAt(position);
 				return {
 					primaryCount,
+					...(instance && { instance }),
 					totalRows: page.totalRows,
 					rows: page.groups.flatMap((group) => group.rows),
 					offset: position,
@@ -1337,6 +1356,7 @@ export class PostgresCaseStore implements CaseStore {
 			const position = clamp(totalRows);
 			return {
 				primaryCount,
+				...(instance && { instance }),
 				totalRows,
 				offset: position,
 				rows: totalRows
@@ -1372,26 +1392,35 @@ export class PostgresCaseStore implements CaseStore {
 				ids,
 				request,
 			);
-			const allIds = [...ids, ...supporting];
-			const patch = await this.readCaseDatabasePatchInTransaction(tx, {
-				appId: args.appId,
-				projectId: this.requireProjectId(),
-				caseIds: allIds,
-			});
-			const rows = new Map(patch.rows.map((row) => [row.case_id, row]));
-			return {
-				...patch,
-				primaryIds: ids,
-				rows: allIds.map((id) => {
-					const row = rows.get(id);
-					if (!row)
-						throw new Error(
-							"A search result is missing from the snapshot that selected it.",
-						);
-					return row;
-				}),
-			};
+			return this.readSearchInstanceByIds(tx, args.appId, ids, supporting);
 		}, true);
+	}
+
+	private async readSearchInstanceByIds(
+		tx: Transaction<Database>,
+		appId: string,
+		primary: readonly string[],
+		supporting: readonly string[],
+	): Promise<SearchResultInstance> {
+		const allIds = [...primary, ...supporting];
+		const patch = await this.readCaseDatabasePatchInTransaction(tx, {
+			appId,
+			projectId: this.requireProjectId(),
+			caseIds: allIds,
+		});
+		const rows = new Map(patch.rows.map((row) => [row.case_id, row]));
+		return {
+			...patch,
+			primaryIds: primary,
+			rows: allIds.map((id) => {
+				const row = rows.get(id);
+				if (!row)
+					throw new Error(
+						"A search result is missing from the snapshot that selected it.",
+					);
+				return row;
+			}),
+		};
 	}
 
 	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
