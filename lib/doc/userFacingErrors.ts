@@ -705,6 +705,11 @@ type PlatformBuilderCopy =
 	| { readonly sentence: string };
 
 const PLATFORM_BUILDER_COPY = {
+	"android-app-question": {
+		lead: (subject) =>
+			`${subject} opens another app to answer the question. This needs Android.`,
+		alternative: "let the worker enter the answer directly",
+	},
 	"answer-name-requires-android": {
 		lead: (subject) =>
 			`${subject} has an answer ID that Web Apps reserves for its own instructions.`,
