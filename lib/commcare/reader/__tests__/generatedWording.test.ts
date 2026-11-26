@@ -54,7 +54,10 @@ import { bindAppTestAction } from "@/lib/preview/app-tests/addresses";
 import { projectColumnDisplay } from "@/lib/preview/columnDisplay";
 import { columnOutputWording } from "@/lib/preview/localizedCaseProperties";
 import { previewEntryBadge } from "@/lib/preview/menuProjection";
-import { workerDetailTabTitle } from "@/lib/preview/workerModule";
+import {
+	projectWorkerModule,
+	workerDetailTabTitle,
+} from "@/lib/preview/workerModule";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
 import { readHqApp } from "../index";
 import { exportedBody, inputFor } from "./novaExport";
@@ -314,6 +317,138 @@ it("does not register a form badge for the synthetic empty-Search registration c
 	]);
 	const keys = generatedWordingKeys(doc, plan);
 	expect(keys.has("forms.m2f0.badge")).toBe(false);
+});
+
+it("owns a lookup heading on its list route, including the short Search detail's copy", async () => {
+	const initial = twoMenus();
+	for (const [module, heading] of [
+		[ROUTE, "Confidence"],
+		[SOURCE, "Source score"],
+	]) {
+		const list = initial.modules[module].caseListConfig;
+		if (!list) throw Error("Missing route detail.");
+		list.deviceLookup = {
+			action: "org.nova.proof.LOOKUP",
+			label: "Find a patient",
+			extras: [{ name: "mode", value: "scan" }],
+			responses: ["result"],
+			resultHeading: heading,
+		};
+	}
+	initial.modules[ROUTE].caseSearchConfig = {
+		searchScreenTitle: "Find a patient",
+	};
+	initial.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
+		translations: { spa: {} },
+	};
+	const raw = exportedBody(initial);
+	const modules = raw.modules as ReturnType<typeof expandDoc>["modules"];
+	modules[0].case_details.short.lookup_field_header = {
+		en: "Confidence",
+		es: "Confianza",
+	};
+	const key = "case_lists.m0.callout.header";
+	const translations = raw.translations as Record<
+		string,
+		Record<string, string>
+	>;
+	translations.en[key] = "Match score";
+	const read = async (body: ReturnType<typeof exportedBody>) => {
+		const result = readHqApp(
+			await inputFor(body, {
+				appStrings: (doc) => localAppStringTable(doc, []),
+			}),
+			{ claims: "full" },
+		);
+		if (result.kind !== "read") throw Error(JSON.stringify(result.findings));
+		expect([...result.claims.records()]).toContainEqual(
+			expect.objectContaining({
+				entry: "application-and-settings/translations-generated-wording",
+				at: `/translations/en/${key}`,
+			}),
+		);
+		return result.draft.doc;
+	};
+	const adopted = await read(raw);
+	for (const doc of [adopted, await read(exportedBody(adopted))]) {
+		const [route, source] = doc.moduleOrder;
+		const wire = expandDoc(doc);
+		expect(doc.modules[route].caseListConfig?.deviceLookup?.resultHeading).toBe(
+			"Confidence",
+		);
+		expect(wire.modules[0].case_details.short.lookup_field_header).toEqual({
+			en: "Confidence",
+			es: "Confianza",
+		});
+		expect(wire.translations?.en[key]).toBe("Match score");
+		expect(wire.translations?.es[key]).toBeUndefined();
+		const archive = new AdmZip(
+			compileCcz(wire, doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		const suite = new DOMParser().parseFromString(
+			archive.readAsText("suite.xml"),
+			"application/xml",
+		);
+		const detailIds = Array.from(suite.getElementsByTagName("detail"))
+			.filter((detail) =>
+				Array.from(detail.getElementsByTagName("locale")).some(
+					(locale) => locale.getAttribute("id") === key,
+				),
+			)
+			.map((detail) => detail.getAttribute("id"));
+		expect(detailIds.sort()).toEqual(["m0_case_short", "m0_search_short"]);
+		const table = (locale: string) =>
+			readLocaleFileAsCore(archive.readAsText(`${locale}/app_strings.txt`));
+		expect(table("en").get(key)).toBe("Match score");
+		expect(table("es").get(key)).toBe("Confianza");
+		expect(table("en").get("case_lists.m1.callout.header")).toBe(
+			"Source score",
+		);
+		const projected = (uuid: typeof route, language: string) =>
+			projectWorkerModule(doc, language, uuid)?.caseListConfig?.deviceLookup
+				?.resultHeading;
+		expect(projected(route, "eng")).toBe("Match score");
+		expect(projected(route, "spa")).toBe("Confianza");
+		expect(projected(source, "eng")).toBe("Source score");
+	}
+	const [route, source] = adopted.moduleOrder;
+	const mod = adopted.modules[route];
+	const list = mod.caseListConfig;
+	const lookup = list?.deviceLookup;
+	if (!list || !lookup) throw Error("The route lost its lookup.");
+	const id = generatedWordingId(route, "lookupResultHeading");
+	for (const disabled of [undefined, { ...lookup, resultHeading: undefined }]) {
+		const off = {
+			...adopted,
+			modules: {
+				...adopted.modules,
+				[route]: {
+					...mod,
+					caseListConfig: { ...list, deviceLookup: disabled },
+				},
+			},
+		};
+		expect(snapshotTranslationUnits(off).get(id)?.generated?.dormant).toBe(
+			true,
+		);
+		expect(expandDoc(off).translations?.en[key]).toBeUndefined();
+		expect(localAppStringTable(off, []).languages.en[key]).toBeUndefined();
+		expect(
+			projectWorkerModule(off, "eng", route)?.caseListConfig?.deviceLookup
+				?.resultHeading,
+		).toBeUndefined();
+	}
+	const reordered = expandDoc({ ...adopted, moduleOrder: [source, route] });
+	expect(reordered.translations?.en[key]).toBeUndefined();
+	expect(reordered.translations?.en["case_lists.m1.callout.header"]).toBe(
+		"Match score",
+	);
 });
 
 it("keeps separate tab wording through adoption, a source change and publishing", async () => {

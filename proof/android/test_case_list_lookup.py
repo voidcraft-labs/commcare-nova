@@ -266,11 +266,14 @@ def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_
         assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
 
 
-def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_documents):
+@pytest.mark.parametrize("heading", ["ordinary", "generated"])
+def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_documents, heading):
     from proof.android.test_form_reads import _served
     from proof.observe.served import local_archive
 
-    document = android_documents["targeted-case-list-device-lookup"]
+    case = "targeted-case-list-device-lookup"
+    document = android_documents[case if heading == "ordinary" else f"{case}-wording"]
+    expected_heading = "Confidence" if heading == "ordinary" else "Match score"
     database = casedata.CaseDatabase(
         user_id=casedata.USER_ID,
         username=casedata.USERNAME,
@@ -306,14 +309,14 @@ def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_doc
             assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], [], ["Juniper"]]
             assert [result["searchText"] for result in results[:3]] == ["Cedar", "Juniper", "none-matches"]
             assert results[3]["isIdentification"]
-            assert "Confidence" in _view_texts(results[3]["scoreHeader"])
+            assert expected_heading in _view_texts(results[3]["scoreHeader"])
             assert _view_texts(results[3]["scoreRows"]) == ["Juniper", "★★★★★"]
             assert all(result["action"] == ACTION for result in results)
             assert all(result["sent"] == {
                 "visit_mode": "followup", "visit_limit": "3",
                 "worker_name": database.username, "worker_id": database.user_id,
             } for result in results)
-            write_evidence(f"nova-case-list-lookup-{label}", results)
+            write_evidence(f"nova-case-list-lookup-{heading}-{label}", results)
 
 
 def test_nova_lookup_result_filters_both_archives_by_the_same_case_property(hq, android_documents):

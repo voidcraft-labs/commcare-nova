@@ -87,7 +87,8 @@ export function generatedWordingKeys(
 					unit.owner.kind === "case-list-column" ||
 					(unit.owner.kind === "module" &&
 						(unit.generated.role === "caseDetailTabTitle" ||
-							unit.generated.role === "searchDetailTabTitle"))
+							unit.generated.role === "searchDetailTabTitle" ||
+							unit.generated.role === "lookupResultHeading"))
 				)
 					detailModules.add(unit.owner.moduleUuid);
 				if (

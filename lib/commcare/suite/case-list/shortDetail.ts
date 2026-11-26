@@ -113,6 +113,7 @@ import {
 import type { FormIconRef } from "@/lib/domain/builtinIcons";
 import { simplifyForEmission } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
@@ -541,6 +542,7 @@ export function buildShortDetail(args: {
 		const locale = lookupConfidenceLocaleId(moduleIndex);
 		strings[locale] = config.deviceLookup.resultHeading;
 		translationUnits[locale] = caseListWordingUnitId(mod.uuid, "lookup");
+		wordingUnits[locale] = generatedWordingId(mod.uuid, "lookupResultHeading");
 	}
 
 	for (const calc of plan.calculations) {

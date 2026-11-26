@@ -24258,12 +24258,28 @@
 	{
 		"id": "hq-case-lists/translation-overrides-a-lookup-heading",
 		"base": "hq-case-lists",
+		"entry": "application-and-settings/translations-generated-wording",
+		"change": {
+			"op": "named",
+			"name": "translation_overrides_a_lookup_heading"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/deviceLookup/resultHeading",
+				"value": "Confidence"
+			}
+		]
+	},
+	{
+		"id": "hq-search/translation-overrides-a-search-group-heading",
+		"base": "hq-search",
 		"entry": "application-and-settings/translations-generated-key-anything-else",
 		"standing": "not-yet",
 		"place": { "kind": "app" },
 		"change": {
 			"op": "named",
-			"name": "translation_overrides_a_lookup_heading"
+			"name": "translation_overrides_a_search_group_heading"
 		}
 	},
 	{

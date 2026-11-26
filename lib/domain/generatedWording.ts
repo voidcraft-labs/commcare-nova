@@ -47,6 +47,7 @@ export const generatedWordingRoles = {
 	registerButton: "Registration button",
 	selectCase: "Case selection button",
 	emptyList: "Empty case list",
+	lookupResultHeading: "Lookup results heading",
 	searchButton: "Search button",
 	searchTitle: "Search screen title",
 	searchDescription: "Search screen description",
@@ -232,6 +233,18 @@ export function generatedWordingUnits(
 			ownText?.emptyText === undefined
 				? undefined
 				: caseListWordingUnitId(moduleUuid, "empty"),
+		);
+		const lookupHeading = ownText?.deviceLookup?.resultHeading;
+		add(
+			lookupHeading === undefined,
+			owner,
+			moduleUuid,
+			"lookupResultHeading",
+			path,
+			lookupHeading ?? "",
+			lookupHeading === undefined
+				? undefined
+				: caseListWordingUnitId(moduleUuid, "lookup"),
 		);
 		{
 			const slot =
