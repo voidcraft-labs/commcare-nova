@@ -45,6 +45,7 @@ DOCUMENTS = (
     "targeted-tile-hidden-order",
     "targeted-connect-recipient-repeat",
     "targeted-connect-section-order",
+    "targeted-validated-barcode-secret",
 )
 
 
