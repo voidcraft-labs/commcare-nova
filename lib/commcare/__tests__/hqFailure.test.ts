@@ -359,7 +359,7 @@ describe("CommCare HQ's retained answers", () => {
 				peer.get(HOST).intercept({ path: PATH, method: "GET" }),
 				answer,
 			);
-			const result = await readHqJson(CREDS, HOST + PATH, "application", {
+			const result = await readHqJson(CREDS, PATH, "application", {
 				keepRefusedBody: true,
 				maxBytes: HQ_APPLICATION_MAX_BYTES,
 			});
