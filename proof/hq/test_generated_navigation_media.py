@@ -30,4 +30,22 @@ def test_generated_icon_override_keeps_the_unmodified_map_and_named_fallback(hq,
             default = parse_app_strings(native.create_app_strings("default"))
             assert default[KEY] == OVERRIDE
             selected = parse_app_strings(native.create_app_strings("default", "field"))
-            assert selected[KEY] == ORIGINAL
+            assert KEY not in selected
+            assert not native.modules[0].uses_image("field")
+            assert ORIGINAL in native.all_media_paths(lang="en")
+            assert OVERRIDE not in native.all_media_paths()
+
+
+def test_the_override_file_reaches_hq_media_only_through_its_ordinary_carrier(hq, documents):
+    def configure(body):
+        body["modules"][0]["media_image"] = {"en": ORIGINAL}
+        body["modules"][0]["forms"][0]["media_image"] = {"en": OVERRIDE}
+        body["translations"].setdefault("en", {})[KEY] = OVERRIDE
+
+    with published(documents["case-list-inline"], None, configuration="maximum") as app:
+        with app.unit.fork():
+            app._write(edited(configure))
+            native = app._app()
+            assert parse_app_strings(native.create_app_strings("en"))[KEY] == OVERRIDE
+            assert {ORIGINAL, OVERRIDE} <= native.all_media_paths(lang="en")
+
