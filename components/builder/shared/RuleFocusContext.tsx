@@ -127,7 +127,9 @@ export function expressionFocusTitle(value: Expression): string {
 		case "switch":
 			return "Value chosen by matching";
 		case "count":
-			return "Count of related cases";
+			return value.via.kind === "cases"
+				? "Count of cases on this device"
+				: "Count of related cases";
 		case "format-date":
 			return "Formatted date";
 		case "table-lookup":
@@ -186,6 +188,8 @@ export function expressionFocusDescription(value: Expression): string {
 		case "switch":
 			return `${value.cases.length} ${value.cases.length === 1 ? "match" : "matches"}, plus a value for everything else`;
 		case "count":
+			if (value.via.kind === "cases")
+				return "Counts matching cases available on the worker’s device";
 			return value.where === undefined
 				? "Counts every case on the chosen connection"
 				: "Counts connected cases that match a condition";

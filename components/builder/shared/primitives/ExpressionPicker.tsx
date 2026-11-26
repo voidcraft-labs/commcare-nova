@@ -467,8 +467,11 @@ function ExpressionPickerBody({
 						<AlertDialogHeader>
 							<AlertDialogTitle className="font-display tracking-tighter">
 								Use “
-								{pendingTermReplacement?.target.label ?? "a calculated value"}”
-								instead?
+								{pendingTermReplacement === null
+									? "a calculated value"
+									: expressionChoiceCopy(pendingTermReplacement.target, editCtx)
+											.label}
+								” instead?
 							</AlertDialogTitle>
 							<AlertDialogDescription className="text-left">
 								This replaces the saved {pendingTermSourceLabel} and removes its
@@ -803,8 +806,14 @@ function KindReplaceMenu({
 	const pendingSourceLabel =
 		pendingReplacement === null
 			? "saved value"
-			: expressionCardSchemas[pendingReplacement.source.kind].label;
-	const pendingTargetLabel = pendingReplacement?.target.label ?? "new value";
+			: expressionChoiceCopy(
+					expressionCardSchemas[pendingReplacement.source.kind],
+					editCtx,
+				).label;
+	const pendingTargetLabel =
+		pendingReplacement === null
+			? "new value"
+			: expressionChoiceCopy(pendingReplacement.target, editCtx).label;
 
 	const requestReplacement = (schema: ExpressionCardSchema<CardValueKind>) => {
 		const preserved = planPreservedExpressionReplacement(

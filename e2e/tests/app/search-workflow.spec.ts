@@ -63,7 +63,9 @@ test("a Search availability condition can switch from a date to a count of devic
 	await page.getByRole("button", { name: "Condition Always match" }).click();
 	await page.getByRole("menuitem", { name: /^is Exactly this value/ }).click();
 	await page.getByRole("button", { name: "Edit today's date" }).click();
-	await page.getByRole("button", { name: "Change", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Change value type", exact: true })
+		.click();
 	const count = page.getByRole("menuitem", {
 		name: /^Count cases on this device/,
 	});
