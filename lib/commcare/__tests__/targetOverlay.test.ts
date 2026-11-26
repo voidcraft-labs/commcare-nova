@@ -567,7 +567,7 @@ describe("the whole body and its ownership", () => {
 		).toBe(false);
 	});
 
-	it("records what Nova set: the needed add-ons, its two settings and the derived key it sets", () => {
+	it("records what Nova set: the needed add-ons, its settings, case sharing and the derived key it sets", () => {
 		const { ownership } = projectApplicationForTarget(
 			application({ add_ons: { subcases: true, display_conditions: true } }),
 			source({ addOns: { menu_mode: true, calc_xpaths: true } }),
@@ -580,6 +580,7 @@ describe("the whole body and its ownership", () => {
 			profileCustomProperties: ["cc-index-case-search-results"],
 			profileFeatures: ["dependencies"],
 			autoGpsCapture: false,
+			caseSharing: true,
 		});
 		for (const state of ["missing", "not-needed", "unverified"] as const)
 			expect(
