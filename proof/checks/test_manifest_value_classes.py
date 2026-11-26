@@ -2891,7 +2891,7 @@ def _advanced_actions():
                 "schema:AutoSelectCase.value_source",
                 f"{loads}/0/auto_select/value_source",
             ),
-            accepted(
+            unsettled(
                 "app",
                 _advanced_app([_load("region", auto_select=from_table)]),
                 "schema:AutoSelectCase.value_source",

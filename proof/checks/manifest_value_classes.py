@@ -2864,7 +2864,10 @@ def _table_choice_without_its_source(at, form, loads, opens, action, index):
     auto = _auto_select(action, loads)
     if auto is None or auto.get("mode") != "fixture":
         return False
-    return not auto.get("value_source") or not auto.get("value_key")
+    if not auto.get("value_source") or not auto.get("value_key"):
+        return True
+    # A named table and field: whether the project space holds them is the lookup catalog's.
+    return None
 
 
 table_choice_without_its_source = _advanced_reader(_table_choice_without_its_source)
@@ -2872,7 +2875,7 @@ table_choice_without_its_source.__doc__ = """
 ``forms-and-case-writes/automatic-table-choice-without-its-table-or-column``: a ``fixture`` load with no table tag
 (``value_source``) or no field (``value_key``). A table the project space holds is read where the reading resolves
 the tag against its lookup catalog; the app's JSON alone names it and says nothing of whether it is there, so a
-named table and field are read as present here."""
+named table and field are left undecided here (None)."""
 
 
 def _opening_ids(form, loads, opens):
