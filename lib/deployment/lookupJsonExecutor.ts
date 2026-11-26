@@ -27,6 +27,7 @@ import "server-only";
  */
 
 import { HQ_LOOKUP_DETAIL_MAX_BYTES } from "@/lib/commcare/hq/bounds";
+import { withHqRequestDeadline } from "@/lib/commcare/hq/deadline";
 import type {
 	CommCareApiError,
 	CommCareCredentials,
@@ -36,6 +37,7 @@ import {
 	createHqLookupRowJson,
 	createHqLookupTableJson,
 	deleteHqLookupRowJson,
+	HQ_LOOKUP_JSON_WRITE_DEADLINE_MS,
 	type HqLookupJsonDefinition,
 	type HqLookupJsonRow,
 	type HqLookupJsonWrite,
@@ -780,17 +782,25 @@ export function hqLookupJsonPort(
 	expectedBytes = 0,
 ): LookupJsonHq {
 	const rowsBound = Math.max(expectedRows, 1) * 2 + 1_000;
-	const write = async <T>(
-		send: () => Promise<HqLookupJsonWrite<T>>,
-	): Promise<HqLookupJsonWrite<T>> => {
-		const access = await checkHqLookupJsonWrite(creds, domain, cancel);
-		return access === "confirmed"
-			? send()
-			: {
-					kind: "not-applied",
-					error: { success: false, status: access === "denied" ? 403 : 503 },
-				};
-	};
+	const write = <T>(
+		send: (signal: AbortSignal) => Promise<HqLookupJsonWrite<T>>,
+	): Promise<HqLookupJsonWrite<T>> =>
+		withHqRequestDeadline(
+			async (signal) => {
+				const access = await checkHqLookupJsonWrite(creds, domain, signal);
+				return access === "confirmed"
+					? send(signal)
+					: {
+							kind: "not-applied",
+							error: {
+								success: false,
+								status: access === "denied" ? 403 : 503,
+							},
+						};
+			},
+			HQ_LOOKUP_JSON_WRITE_DEADLINE_MS,
+			cancel,
+		);
 	return {
 		listTables: () => listHqLookupTables(creds, domain, { cancel }),
 		async readRows(table) {
@@ -837,14 +847,18 @@ export function hqLookupJsonPort(
 			return remote ?? { success: false, status: 502, cause: "malformed" };
 		},
 		createTable: (definition) =>
-			write(() => createHqLookupTableJson(creds, domain, definition, cancel)),
+			write((signal) =>
+				createHqLookupTableJson(creds, domain, definition, signal),
+			),
 		createRow: (tableId, row) =>
-			write(() => createHqLookupRowJson(creds, domain, tableId, row, cancel)),
+			write((signal) =>
+				createHqLookupRowJson(creds, domain, tableId, row, signal),
+			),
 		updateRow: (tableId, rowId, row) =>
-			write(() =>
-				updateHqLookupRowJson(creds, domain, tableId, rowId, row, cancel),
+			write((signal) =>
+				updateHqLookupRowJson(creds, domain, tableId, rowId, row, signal),
 			),
 		deleteRow: (rowId) =>
-			write(() => deleteHqLookupRowJson(creds, domain, rowId, cancel)),
+			write((signal) => deleteHqLookupRowJson(creds, domain, rowId, signal)),
 	};
 }

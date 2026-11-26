@@ -79,7 +79,7 @@ const REMOTE_ID = /^[a-f0-9]{32}$/;
 const SORT_KEY_MIN = -2_147_483_648;
 const SORT_KEY_MAX = 2_147_483_647;
 /** One write's whole exchange, as the workbook upload's own deadline. */
-const WRITE_DEADLINE_MS = 60_000;
+export const HQ_LOOKUP_JSON_WRITE_DEADLINE_MS = 60_000;
 
 /** A table's definition as the JSON resource takes it. */
 export interface HqLookupJsonDefinition {
@@ -264,7 +264,7 @@ async function write<T>(
 			}
 			return { kind: "applied", value };
 		},
-		WRITE_DEADLINE_MS,
+		HQ_LOOKUP_JSON_WRITE_DEADLINE_MS,
 		cancel,
 	);
 }

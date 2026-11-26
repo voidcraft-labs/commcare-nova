@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { HQ_LOOKUP_JSON_WRITE_DEADLINE_MS } from "@/lib/commcare/hq/lookupJson";
 import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import "server-only";
 
@@ -3454,8 +3455,8 @@ const REMOTE_WRITE_HOLD_SECONDS = {
 	media: 60 + 45 + 60 * 60,
 	/** The workbook upload's deadline, then five minutes. */
 	workbook: 60 + 5 * 60,
-	/** One JSON request for a table or a row: its minute, then five minutes. */
-	"lookup-json": 60 + 5 * 60,
+	/** One permission check and JSON write share a deadline, then five minutes. */
+	"lookup-json": HQ_LOOKUP_JSON_WRITE_DEADLINE_MS / 1_000 + 5 * 60,
 	/** One batch of places: its 30-second deadline, then five minutes. */
 	places: 30 + 5 * 60,
 	/** A worker's create and its places' update, 30 seconds each, then five minutes. */
