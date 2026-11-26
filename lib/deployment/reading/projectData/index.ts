@@ -627,8 +627,7 @@ const UNSERVED_DECLARATION_ENTRY =
  * where CommCare HQ's list lacks the tag, a read of a table that is not
  * there. For each tag a form only declares that the list lacks: a form that
  * cannot open; one the list holds raises nothing. Then, over the tables the document reads as the birth will hold
- * them (`readingLookupSnapshot`): a cell XML cannot carry, the tables
- * together over what one `.ccz` carries, and, with a document, one
+ * them (`readingLookupSnapshot`): a cell XML cannot carry and, with a document, one
  * `table-choices-unusable` a table whose rows cannot be the choices of a
  * question or search field that reads them. Where the app reads places:
  * `place-hierarchy-inconsistent` alone where the source still disagreed with

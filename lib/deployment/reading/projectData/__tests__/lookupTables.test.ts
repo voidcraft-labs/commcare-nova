@@ -1749,7 +1749,7 @@ describe("projectDataReview", () => {
 		).toEqual({ offered: true, goneColumns: [], retypedColumns: [] });
 	});
 
-	it("offers no use-project where two choices at their larger forms pass one app's values together, and both within it", () => {
+	it("offers use-project for two choices whatever values they hold together, which a downloadable app walks a page at a time", () => {
 		const projectOf = (tag: string, columns: number) => {
 			const extra = Array.from({ length: columns - 2 }, (_, index) =>
 				column(`extra${index}`),
@@ -1777,9 +1777,10 @@ describe("projectDataReview", () => {
 				reads,
 				EMPTY_DOC,
 			).tables.map((table) => table.choice?.options["use-project"]);
+		/* 110,000 values together, past one in-memory fixture set. */
 		expect(useProject(11)).toEqual([
-			{ offered: false, why: "fails-a-project-space-rule", name: null },
-			{ offered: false, why: "fails-a-project-space-rule", name: null },
+			{ offered: true, goneColumns: [], retypedColumns: [] },
+			{ offered: true, goneColumns: [], retypedColumns: [] },
 		]);
 		expect(useProject(2)).toEqual([
 			{ offered: true, goneColumns: [], retypedColumns: [] },
