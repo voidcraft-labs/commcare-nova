@@ -109,7 +109,7 @@ describe("the content no export holds", () => {
 				"organization-levels-as-read",
 				"purpose-notes-are-absent",
 				"sort-named-hidden-column-header-is-its-name",
-				"source-wording-fingerprint-as-read",
+				"generated-wording-fingerprint-as-read",
 				"tile-columns-shown-nowhere-are-as-read",
 				"translation-provenance-is-read-as-reviewed",
 				"unprinted-search-guard-translations-are-absent",

@@ -891,7 +891,7 @@ const PAIRS: readonly Pair[] = [
 		other: localized,
 	},
 	{
-		id: "source-wording-fingerprint-as-read",
+		id: "generated-wording-fingerprint-as-read",
 		name: "a home screen title's own wording fingerprinted against itself",
 		other: sourceWordingAgainstItself,
 		afterEarlierRows: true,

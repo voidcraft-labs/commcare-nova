@@ -37,7 +37,10 @@ import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { formWireName } from "@/lib/domain/formWireName";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
-import { languageEntries } from "@/lib/domain/localization";
+import {
+	editableLanguageEntries,
+	languageEntries,
+} from "@/lib/domain/localization";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -567,37 +570,45 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		},
 	},
 	{
-		/** A generated output's own wording in the source language, and the same wording
-		 *  fingerprinted against the text its base gives there: an output's own wording is never
-		 *  out of date, so no export carries the fingerprint, and the reader returns the second
-		 *  (`caseList/readTexts.ts`, `translations.ts::ownWordingEntryFor`). */
-		id: "source-wording-fingerprint-as-read",
+		/** A generated output's own wording in any language, and the same wording fingerprinted
+		 *  against the text its base gives there: an output's own wording (a person's, or an earlier
+		 *  language's of its own) is never out of date, so no export carries the fingerprint, and
+		 *  the reader returns the second (`caseList/readTexts.ts`,
+		 *  `translations.ts::ownWordingEntryFor`). It reads the provenance the row before it settles. */
+		id: "generated-wording-fingerprint-as-read",
 		kind: "not-carried",
 		apply: (doc) => {
 			const localization = doc.localization;
-			const entries = localization?.generatedSourceWording;
-			if (localization === undefined || entries === undefined) return doc;
+			if (localization === undefined) return doc;
 			const units = snapshotTranslationUnits(doc);
-			const moved: [TranslationUnitId, string][] = [];
-			for (const [id, entry] of Object.entries(entries)) {
-				const raw = units.get(id as TranslationUnitId);
-				if (entry === undefined || raw === undefined || entry.workerFallback)
-					continue;
-				const unit = wordingSourceUnit(doc, raw);
-				if (!hasGeneratedWording(unit)) continue;
-				const fingerprint = translationSourceFingerprint(
-					unit.valueKind,
-					defaultWording(doc, localization.sourceLanguage, unit),
-				);
-				if (entry.sourceFingerprint !== fingerprint)
-					moved.push([id as TranslationUnitId, fingerprint]);
-			}
+			const moved: [LanguageTag, TranslationUnitId, string][] = [];
+			for (const language of localization.languageOrder)
+				for (const [id, entry] of Object.entries(
+					languageEntries(localization, language) ?? {},
+				)) {
+					const raw = units.get(id as TranslationUnitId);
+					if (entry === undefined || raw === undefined || entry.workerFallback)
+						continue;
+					const unit = wordingSourceUnit(doc, raw);
+					if (!hasGeneratedWording(unit)) continue;
+					const own =
+						language === localization.sourceLanguage ||
+						entry.origin === "human" ||
+						entry.translatedFrom === language;
+					if (!own) continue;
+					const fingerprint = translationSourceFingerprint(
+						unit.valueKind,
+						defaultWording(doc, language, unit),
+					);
+					if (entry.sourceFingerprint !== fingerprint)
+						moved.push([language, id as TranslationUnitId, fingerprint]);
+				}
 			if (moved.length === 0) return doc;
 			return withCandidate(doc, (draft) => {
-				const into = draft.localization?.generatedSourceWording;
-				if (into === undefined) return;
-				for (const [id, fingerprint] of moved) {
-					const entry = into[id];
+				const loc = draft.localization;
+				if (loc === undefined) return;
+				for (const [language, id, fingerprint] of moved) {
+					const entry = editableLanguageEntries(loc, language, false)?.[id];
 					if (entry !== undefined) entry.sourceFingerprint = fingerprint;
 				}
 			});

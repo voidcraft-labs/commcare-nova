@@ -1394,7 +1394,349 @@
 			{
 				"check": "proof2",
 				"artifact": "app_strings:*",
-				"path": "/*",
+				"path": "/homescreen.title",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/app.display.name",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/lang.current",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.case",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.referral",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.title",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.tab.*.title",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.enum.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.alt_text.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.graph.key.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.graph.key.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.graph.series_*.key.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.graph.series_*.key.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.graph.a.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.graph.a.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_lists.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_list_form.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_lists.m*.callout.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.again",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search_again.m*.again.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.again.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_command.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.required.text",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.validation.*.text",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/custom_assertion.*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/referral_lists.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/reports.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_menu",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_name_header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_description_header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_data_table",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.reports.*.headers.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.reports.*.name",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.reports.*.description",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_last_sync",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.reports_last_updated_on",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.submit_label",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.submit_notification_label",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_list_form.m*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_list_form.m*.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_lists.m*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_lists.m*.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.inputs",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.description",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*_no_items_text",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*_select_text",
 				"kind": "removed"
 			}
 		]
