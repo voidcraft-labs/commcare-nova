@@ -50,9 +50,9 @@ let platformsPeer: Awaited<ReturnType<typeof componentPeer>>;
 let searchPeer: Awaited<ReturnType<typeof componentPeer>>;
 let navigationPeer: Awaited<ReturnType<typeof componentPeer>>;
 
-test.beforeAll(async () => {
+function openPlatformsPeer(browserDefines?: Readonly<Record<string, string>>) {
 	const boundary = resolve("e2e/lib/preview-section-paging-boundary.ts");
-	platformsPeer = await componentPeer(
+	return componentPeer(
 		"e2e/lib/preview-platforms-client.tsx",
 		[],
 		{
@@ -66,7 +66,12 @@ test.beforeAll(async () => {
 			"@/lib/doc/platformChangePreflight": boundary,
 			"@/lib/preview/app-tests/actions": boundary,
 		},
+		browserDefines,
 	);
+}
+
+test.beforeAll(async () => {
+	platformsPeer = await openPlatformsPeer();
 	searchPeer = await componentPeer("e2e/lib/preview-search-client.tsx");
 	const navigation = resolve("e2e/lib/preview-navigation-boundary.ts");
 	navigationPeer = await componentPeer(
@@ -1367,6 +1372,124 @@ for (const [id, scenario] of Object.entries(PREVIEW_PLATFORM_SCENARIOS) as [
 		}
 	});
 }
+
+test("Web Apps address search commits only the current choice and updates the form receiver", async ({
+	page,
+}) => {
+	const peer = await openPlatformsPeer({
+		"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY": JSON.stringify("proof-key"),
+		"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": JSON.stringify("proof-map"),
+	});
+	try {
+		// Supply only the external Places library. The address control, receiver and XPath worker run unmodified.
+		await page.addInitScript(() => {
+			const pending = Promise.withResolvers<void>();
+			let deferRiver = true;
+			Reflect.set(window, "finishOldPlace", pending.resolve);
+			Reflect.set(window, "google", {
+				maps: {
+					async importLibrary(name: string) {
+						if (name !== "places")
+							throw new Error(`Unexpected Maps library ${name}`);
+						return {
+							AutocompleteSessionToken: class {},
+							AutocompleteSuggestion: {
+								async fetchAutocompleteSuggestions({
+									input,
+								}: {
+									input: string;
+								}) {
+									const river = input.startsWith("River");
+									const street = river ? "River Road" : "Harbor Way";
+									const city = river ? "River Town" : "Harbor Town";
+									return {
+										suggestions: [
+											{
+												placePrediction: {
+													placeId: street,
+													text: { text: street },
+													toPlace: () => ({
+														async fetchFields() {
+															if (river && deferRiver) {
+																deferRiver = false;
+																Reflect.set(window, "oldPlaceRequested", true);
+																await pending.promise;
+															}
+														},
+														formattedAddress: `18 ${street}, ${city}`,
+														location: { lat: () => -1.9, lng: () => 35.12 },
+														addressComponents: [
+															{
+																longText: city,
+																shortText: city,
+																types: ["locality"],
+															},
+														],
+													}),
+												},
+											},
+										],
+									};
+								},
+							},
+						};
+					},
+				},
+			});
+		});
+		await page.goto(`${peer.origin}/?scenario=visit-display-web-apps`);
+		await expect(
+			page.locator('[data-preview-engine-ready="true"]'),
+		).toBeVisible({ timeout: 20_000 });
+		const address = page.getByRole("combobox", {
+			name: "Private meeting place",
+		});
+		const city = page.getByRole("textbox", { name: "Meeting city" });
+		const cityCopy = () => answer(page, "/data/questions/recorded_city");
+		const storedAddress = () => answer(page, "/data/questions/address");
+		const choose = async (query: string, choice: string) => {
+			await address.fill(query);
+			await page.getByRole("option", { name: choice, exact: true }).click();
+		};
+
+		await choose("River", "River Road");
+		await expect
+			.poll(() => page.evaluate(() => Reflect.get(window, "oldPlaceRequested")))
+			.toBe(true);
+		await address.fill("Harbor");
+		await page.evaluate(() => Reflect.get(window, "finishOldPlace")());
+		await expect(address).toHaveValue("Harbor");
+		await expect(city).toHaveValue("");
+		await page.getByRole("option", { name: "Harbor Way", exact: true }).click();
+		await expect(address).toHaveValue("18 Harbor Way, Harbor Town");
+		await expect(city).toHaveValue("Harbor Town");
+		await expect.poll(cityCopy).toBe("Harbor Town");
+		expect(JSON.parse((await storedAddress()) ?? "")).toMatchObject({
+			city: "Harbor Town",
+		});
+
+		await address.fill("River");
+		await expect.poll(storedAddress).toBe("");
+		await expect(city).toHaveValue("Harbor Town");
+		await page.getByRole("option", { name: "River Road", exact: true }).click();
+		await expect.poll(cityCopy).toBe("River Town");
+		await page.getByRole("button", { name: "Clear the address" }).click();
+		await expect(address).toHaveValue("");
+		await expect(city).toHaveValue("");
+		await expect.poll(cityCopy).toBe("");
+		await expect.poll(storedAddress).toBe("");
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(async () => {
+					Reflect.get(window, "finishOldPlace")?.();
+					await window.previewPlatforms?.dispose();
+				});
+		} finally {
+			await peer.close();
+		}
+	}
+});
 
 /** Open the navigation peer's fixture as `platform`, on the app's menu. */
 async function openNavigation(
