@@ -18,6 +18,7 @@ import {
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/validator/onDeviceCompatibility";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
+import { saveToCaseActions } from "@/lib/commcare/xform/saveToCaseActions";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
@@ -866,7 +867,16 @@ function validateLinks(
 		}
 		const linkNameProblem = invalidLinkFormat
 			? undefined
-			: caseOperationLinkNameProblem(link.identifier);
+			: caseOperationLinkNameProblem(link.identifier, (action) => {
+					const { placements } = planPlacements(ctx.doc, ctx.formUuid);
+					if (placements.get(operation.uuid)?.placement.kind !== "save-to-case")
+						return false;
+					return saveToCaseActions(
+						operation,
+						ctx.form.type,
+						placements.get("own-close")?.sharesWith === operation.uuid,
+					)[action];
+				});
 		if (linkNameProblem !== undefined) {
 			// The free name avoids every link identifier of the operation.
 			const suggestedId = freeCaseOperationName(link.identifier, allLinkIds);

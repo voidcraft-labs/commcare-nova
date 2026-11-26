@@ -391,10 +391,10 @@ Change IDs and connection names start with a letter or underscore and can
 include letters, numbers, and underscores. Connection names can also include
 hyphens. Saved property names start with a letter and can include hyphens.
 Three names are taken, because CommCare HQ's form builder can't open a form that
-holds them: `instance`, `bind` and `parsererror`. A connection can't be named
-`close` or `create`, and a case change can't save a property named `close`,
-because CommCare HQ's form builder reads those names as closing the case or
-starting a new one.
+holds them: `instance`, `bind` and `parsererror`. In a Save to Case change,
+a connection named `close` or `create` is available when that same change
+already closes or creates the case. CommCare HQ's form builder reads those names
+as actions. A Save to Case change can't save to a property named `close`.
 
 One case change can create or update a case and then close it. Its closing
 condition applies only to the close. A separate condition on the case change

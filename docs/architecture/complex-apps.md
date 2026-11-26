@@ -994,12 +994,14 @@ reducer no-op to report success. No tool-side slug/path/id projection or
 rewrite layer exists. The operation id, write property, and link identifier
 vocabularies share one domain-owned grammar
 (`lib/domain/caseOperationIdentifiers.ts`) with the builder, validator, and
-tool schemas — an operation id or link identifier holds ASCII letters,
-digits, and underscores and starts with a letter or underscore; a write
-property takes the catalog's grammar, a letter first, then letters, digits,
-underscores, and hyphens — so action-illegal facet combinations, platform-owned case
-types, and reserved write properties are unconstructible at the shared tool
-boundary.
+tool schemas. An operation id or link identifier starts with an ASCII letter
+or underscore and can contain letters, digits, and underscores. A link
+identifier can also contain hyphens. A write property takes the catalog's
+grammar, a letter first followed by letters, digits, underscores, or hyphens.
+The shared authoring gate checks whether a link named `create` or `close`
+has the matching direct action in the source block where the case change is
+planned to run. The shared tool boundary also enforces legal combinations of
+action facets, platform-owned case types, and reserved write properties.
 
 Lookup-backed expressions use that same stored tree on the builder, SA, and MCP surfaces: reads return the lookup UUID leaves and
 all three editors may update them without hiding or partially projecting the

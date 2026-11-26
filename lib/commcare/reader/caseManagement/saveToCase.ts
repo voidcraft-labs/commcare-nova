@@ -1922,8 +1922,10 @@ function readBlock(
 	if (index !== undefined)
 		for (const link of children(index)) {
 			const identifier = link.name;
-			const nameProblem = caseOperationLinkNameProblem(identifier);
-			if (nameProblem === "reads_as_case_action" && !parts.has(identifier))
+			const nameProblem = caseOperationLinkNameProblem(identifier, (action) =>
+				parts.has(action),
+			);
+			if (nameProblem === "reads_as_case_action")
 				return fail(SAVE_TO_CASE_CLAIMS.linkActionOnSave, { name: identifier });
 			if (
 				!isCaseOperationLinkIdentifier(identifier) ||
