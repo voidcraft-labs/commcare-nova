@@ -431,6 +431,7 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		// The record's own case type, and the case chosen in an earlier menu
 		// with one of its properties.
 		"record-type": [0, 0],
+		"result-field": [1, 1],
 		"chosen-case": [1, 1],
 		"chosen-case-property": [2, 2],
 		// Several values a case value is compared with by `=` or `!=`, in a

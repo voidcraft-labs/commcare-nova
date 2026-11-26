@@ -25,7 +25,7 @@ import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
 import type { HqLocationType } from "../hq/locations";
-import type { ColumnFieldWordRow } from "../wireIdentity";
+import type { ColumnFieldWordRow, ProjectSearchBinding } from "../wireIdentity";
 import type { WorkKind } from "../workMeter";
 import type { GeneratedNodePurpose } from "../xform/generatedNodes";
 import type {
@@ -87,6 +87,7 @@ export interface ReaderInput {
 	readonly appStrings: (
 		doc: BlueprintDoc,
 		columnWords: readonly ColumnFieldWordRow[],
+		projectSearches?: readonly ProjectSearchBinding[],
 	) => AppStringTable | null;
 	/** Whether the record dialect prints a tree and reads it back. Pure. */
 	readonly recordDialect: RecordDialectJudge;
@@ -101,6 +102,8 @@ export interface ReaderInput {
 	 *  each property, which every property the reading holds takes unless a question that writes
 	 *  it gives values that type cannot hold. Absent for an app Nova has never held. */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** Names people gave their logical searches. HQ carries only the destination id. */
+	readonly knownProjectSearchNames?: BlueprintDoc["appSettings"]["projectSearches"];
 	/** What Nova already holds about this app's languages that no export carries: the language
 	 *  each CommCare HQ code it published names, from the held document's `localization.wireCodes`
 	 *  (`languages.ts::knownLanguageCodesOf`). A code it holds is read as that language whatever
@@ -265,6 +268,7 @@ export interface ReadMenuAndFormIdentities {
 	 *  HQ's build names the column's app strings by. A column the source holds on both screens
 	 *  has a row for each. */
 	readonly columnFieldWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
 }
 
 export interface ReadDraft {

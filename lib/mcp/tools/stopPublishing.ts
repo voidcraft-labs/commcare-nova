@@ -29,6 +29,7 @@ import {
 	hqAppIdSchema,
 } from "@/lib/deployment/types";
 import { orderedOrganizationLevels } from "@/lib/domain";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -81,6 +82,7 @@ export function registerStopPublishing(
 					projectId: access.projectId,
 					role: access.role,
 					actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(ctx, "stop_publishing"),
 				};
 				const stopped = await stopPublishing(
 					scope,

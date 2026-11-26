@@ -46,19 +46,26 @@ export async function recordPublishPlacements(input: {
 		);
 	}
 	try {
-		const receipt = await commitGuardedBatch({
-			appId: input.scope.appId,
-			batchId: crypto.randomUUID(),
-			// Cloned before admission: holds read out of an admitted batch carry
-			// the markers a fresh admission refuses as not canonical.
-			mutations: admitMutationBatch(
-				structuredClone([{ kind: "holdPlacements", holds: input.holds }]),
-			),
-			actorUserId: input.scope.actorUserId,
-			kind: "publish-placement",
-			expectedProjectId: input.scope.projectId,
-			expectedHeadSeq: input.expectedHeadSeq,
-		});
+		const receipt = await commitGuardedBatch(
+			{
+				appId: input.scope.appId,
+				batchId: crypto.randomUUID(),
+				// Cloned before admission: holds read out of an admitted batch carry
+				// the markers a fresh admission refuses as not canonical.
+				mutations: admitMutationBatch(
+					structuredClone([{ kind: "holdPlacements", holds: input.holds }]),
+				),
+				actorUserId: input.scope.actorUserId,
+				kind: "publish-placement",
+				expectedProjectId: input.scope.projectId,
+				expectedHeadSeq: input.expectedHeadSeq,
+			},
+			{
+				beforeWrite: async ({ tx }) => {
+					await input.scope.requireOperation?.(tx);
+				},
+			},
+		);
 		return {
 			kind: "recorded",
 			seq: receipt.seq,

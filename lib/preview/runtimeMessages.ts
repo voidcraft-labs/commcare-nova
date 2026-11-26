@@ -267,6 +267,9 @@ const english = {
 	dataRefusalSubjectMenu: "This menu reads",
 	dataRefusalSubjectSearch: "This search reads",
 	dataRefusalSubjectList: "This case list reads",
+	projectSearchTitle: "This search runs in CommCare HQ",
+	projectSearchBody:
+		"Open the published app in its connected project space to see the results.",
 	dataRefusalPlacesPersona:
 		"{subject} a place, and {worker} is assigned nowhere, so a phone stops here. You can give {worker} a place under Users and personas in App setup.",
 	dataRefusalPlacesMe:
@@ -631,6 +634,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	dataRefusalSubjectMenu: "Este menú lee",
 	dataRefusalSubjectSearch: "Esta búsqueda lee",
 	dataRefusalSubjectList: "Esta lista de casos lee",
+	projectSearchTitle: "Esta búsqueda se realiza en CommCare HQ",
+	projectSearchBody:
+		"Abra la aplicación publicada en el espacio de proyecto conectado para ver los resultados.",
 	dataRefusalPlacesPersona:
 		"{subject} un lugar, y {worker} no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalPlacesMe:
@@ -852,6 +858,11 @@ export function dataRefusalCopy(
 	const body = (key: RuntimeMessage, values: Record<string, string> = {}) =>
 		runtimeMessage(language, key, { subject: lead, ...values });
 	switch (subject.kind) {
+		case "project-search":
+			return {
+				title: body("projectSearchTitle"),
+				body: body("projectSearchBody"),
+			};
 		case "places":
 			return {
 				title,

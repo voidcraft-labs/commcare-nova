@@ -149,6 +149,17 @@ function moduleReadSite(
 			return site(list, ["filter"]);
 		case "search_button_display_condition":
 			return site(search, ["searchButtonDisplayCondition"]);
+		case "project_search_parameter": {
+			const projectSearch =
+				search && "projectSearch" in search ? search.projectSearch : undefined;
+			const position =
+				projectSearch?.defaults.findIndex(
+					(parameter) => parameter.uuid === ref.member.parameterUuid,
+				) ?? -1;
+			return position < 0
+				? undefined
+				: site(search, ["projectSearch", "defaults", position, "value"]);
+		}
 		case "excluded_owner_ids":
 			return site(search, ["excludedOwnerIds"]);
 		case "case_list_sort_expression": {

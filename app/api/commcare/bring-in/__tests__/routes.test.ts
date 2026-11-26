@@ -243,7 +243,10 @@ const CREATE_ANSWERS: readonly [string, CreateAnswer][] = [
 
 beforeEach(() => {
 	requireSessionMock.mockReset();
-	requireSessionMock.mockResolvedValue({ user: { id: USER } });
+	requireSessionMock.mockResolvedValue({
+		user: { id: USER },
+		session: { id: "browser-session" },
+	});
 	vi.mocked(authorizeBringIn).mockReset();
 	vi.mocked(authorizeBringIn).mockResolvedValue(ACTOR);
 	vi.mocked(readHqAppForReview).mockReset();
@@ -399,10 +402,14 @@ describe("the stream", () => {
 				...STAGES,
 				{ type: "done", answer },
 			]);
-			expect(readHqAppForReview).toHaveBeenCalledWith(ACTOR, KEY, {
-				onEvent: expect.any(Function),
-				cancel: expect.any(AbortSignal),
-			});
+			expect(readHqAppForReview).toHaveBeenCalledWith(
+				{ ...ACTOR, requireOperation: expect.any(Function) },
+				KEY,
+				{
+					onEvent: expect.any(Function),
+					cancel: expect.any(AbortSignal),
+				},
+			);
 		},
 	);
 
@@ -426,9 +433,13 @@ describe("the stream", () => {
 				{ type: "stage", stage: "creating" },
 				{ type: "done", answer },
 			]);
-			expect(createFromReview).toHaveBeenCalledWith(ACTOR, INPUT, {
-				onEvent: expect.any(Function),
-			});
+			expect(createFromReview).toHaveBeenCalledWith(
+				{ ...ACTOR, requireOperation: expect.any(Function) },
+				INPUT,
+				{
+					onEvent: expect.any(Function),
+				},
+			);
 		},
 	);
 

@@ -166,6 +166,7 @@ export async function prepareCompileRequest<
 			actorUserId: access.actorUserId,
 		},
 		{
+			compiledAtSeq: app.mutation_seq,
 			format: mode === "ccz" ? "ccz" : "json",
 			...(server !== undefined && { server }),
 			...(assignmentAccess && {

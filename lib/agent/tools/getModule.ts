@@ -207,6 +207,7 @@ export type GetModuleResult =
 			details_column_order: Uuid[];
 			detail_tabs?: { tabUuid: Uuid; title: string; columnUuids: Uuid[] }[];
 			case_search_config: CaseSearchConfig | null;
+			available_project_searches?: readonly { uuid: string; name: string }[];
 			/** What the menu opens on, or `null` where it has no search. */
 			searchWorkflow: SearchWorkflow | null;
 			/** True when the menu's forms read the search. */
@@ -377,6 +378,11 @@ export const getModuleTool = {
 					.map((column) => column.uuid),
 				details_column_order: shownDetails.map((column) => column.uuid),
 				case_search_config: caseSearchConfig ?? null,
+				...(doc.appSettings.projectSearches && {
+					available_project_searches: Object.entries(
+						doc.appSettings.projectSearches,
+					).map(([uuid, search]) => ({ uuid, name: search.name })),
+				}),
 				searchWorkflow: moduleSearchWorkflow(mod) ?? null,
 				formsReadSearch: moduleFormsReadSearch(mod),
 				menuLayout: mod.menuLayout ?? "list",

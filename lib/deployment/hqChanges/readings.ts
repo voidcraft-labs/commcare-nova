@@ -40,10 +40,15 @@ import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import {
+	baselineSearchBindings,
+	projectSearchLineage,
+} from "@/lib/commcare/reader/projectSearchLineage";
+import {
+	type ProjectSearchBinding,
 	targetWireIdentity,
-	type WireIdentityOverride,
 } from "@/lib/commcare/wireIdentity";
 import type { FormParseIssueCode } from "@/lib/commcare/xpath/formParseIssues";
+import type { Uuid } from "@/lib/domain";
 import type { CheckErrorCode } from "@/lib/domain/expression/typeChecker";
 import { isMediaKind } from "@/lib/domain/multimedia";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
@@ -65,6 +70,7 @@ import {
 	type ReadingMediaPlan,
 	readingMediaIndex,
 } from "../reading/projectData/media";
+import type { TargetIdentity } from "../targetIdentity";
 import {
 	alignedFromSource,
 	inStoredKeyOrder,
@@ -118,7 +124,7 @@ export interface HqChangeReadingsInput {
 	readonly caseListActionsApplied?: boolean;
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
 	/** The entities of the deployment's target-identity record (`store.ts::readTargetIdentity`). */
-	readonly overrides: readonly WireIdentityOverride[];
+	readonly targetIdentity: TargetIdentity;
 	readonly media: {
 		/** Every file the reference publishes to the deployment, settled against the source now
 		 *  (`hqMediaStandings`, then `settleHqMedia`): no path `moved` or `unrecorded`. */
@@ -307,15 +313,32 @@ export function* makeHqChangeReadingsSteps(
 	input: HqChangeReadingsInput,
 ): Generator<void, HqChangeReadingsResult, void> {
 	const { appId, reference, data } = input;
+	const target = input.targetIdentity;
 	const lookup = readerLookupContext(data);
-	const resolver = matchingResolver(
-		appId,
-		externalIdentityMap(
-			reference.identityDoc,
-			targetWireIdentity(input.overrides),
-			lookupWireNaming(lookup.definitions),
-		),
+	const reserved = new Set(
+		Object.keys(
+			reference.identityDoc.appSettings.projectSearches ?? {},
+		) as Uuid[],
 	);
+	const resolverWith = (bindings: readonly ProjectSearchBinding[]) =>
+		matchingResolver(
+			appId,
+			externalIdentityMap(
+				reference.identityDoc,
+				targetWireIdentity(target.entities, target.columnWords, bindings),
+				lookupWireNaming(lookup.definitions),
+			),
+			reserved,
+		);
+	const baseSource = sourceFromBaseline(input.baselineSource);
+	yield;
+	const publishedBindings = baselineSearchBindings(
+		reference.doc,
+		baseSource,
+		targetWireIdentity(target.entities, target.columnWords),
+		target.projectSearches ?? [],
+	);
+	const resolver = resolverWith(publishedBindings);
 	const shared = {
 		appId,
 		target: input.target,
@@ -327,6 +350,7 @@ export function* makeHqChangeReadingsSteps(
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
+		knownProjectSearchNames: reference.doc.appSettings.projectSearches,
 		...(input.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: input.saveOnlyEditedApplied,
 		}),
@@ -335,8 +359,6 @@ export function* makeHqChangeReadingsSteps(
 		}),
 	} satisfies Omit<ReaderInput, "source" | "modules" | "media">;
 
-	const baseSource = sourceFromBaseline(input.baselineSource);
-	yield;
 	const current =
 		data.suiteDetails && normalizedHqAppSource(input.now.source.raw);
 	const baseInput: ReaderInput = {
@@ -361,6 +383,11 @@ export function* makeHqChangeReadingsSteps(
 	const nowInput: ReaderInput = {
 		...shared,
 		suiteDetails: data.suiteDetails,
+		resolver: publishedBindings.length
+			? resolverWith(
+					projectSearchLineage(publishedBindings, baseSource, nowSource),
+				)
+			: resolver,
 		source: nowSource,
 		modules: input.now.modules,
 		media: nowIndex(nowSource, appId, input.media.published, input.media.now),

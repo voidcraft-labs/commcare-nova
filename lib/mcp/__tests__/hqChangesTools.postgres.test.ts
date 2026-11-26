@@ -21,6 +21,7 @@ import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HqSaveCounter, withHqPeer } from "@/__tests__/helpers/hqSaveCounter";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import {
 	type RetainedHqAnswer,
 	retainedBodyText,
@@ -173,12 +174,14 @@ async function broughtIn(): Promise<string> {
 }
 
 /** The two tools and `get_deployment`, called as `userId`. */
-function withTools<T>(
+async function withTools<T>(
 	run: (client: Client) => Promise<T>,
 	userId = MEMBER,
 ): Promise<T> {
+	const ctx = await installationCredential(h.db(), userId, [
+		...new Set([...SCOPES, "nova.read", "nova.write"]),
+	]);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes: SCOPES, authKind: "api-key" as const };
 		registerReadHqChanges(server, ctx);
 		registerBringInHqChanges(server, ctx);
 		registerGetDeployment(server, ctx);

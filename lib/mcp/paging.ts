@@ -22,7 +22,6 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
  * cut at.
  */
 export const PAGE_LIMIT_CHARS = 80_000;
-
 /** The most characters of JSON one piece of a page takes, its comma included. */
 export const PIECE_MAX_CHARS = 30_000;
 
@@ -196,7 +195,7 @@ export function toolText(body: unknown): string {
 }
 
 export function reviewedPageDigest(
-	operation: "birth" | "changes",
+	operation: "birth" | "changes" | "search-connections",
 	reviewDigest: string,
 	from: number,
 ): string {

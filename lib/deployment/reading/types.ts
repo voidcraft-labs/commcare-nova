@@ -157,6 +157,9 @@ export interface ReadingReview {
 	readonly kept: readonly KeptLabelId[];
 	/** The lookup tables the app reads, by tag. */
 	readonly tables: readonly ReviewTable[];
+	readonly projectSearches?: ReturnType<
+		typeof import("../targetIdentity").projectSearchDestinationRows
+	>;
 	/** The places the app's logic reads, or null where it reads none. */
 	readonly places: ReviewPlaces | null;
 	/**
@@ -225,6 +228,7 @@ export type CreateAnswer =
  * is open.
  */
 export const READING_REFUSALS = [
+	"session_ended",
 	"no_project_access",
 	"invalid_input",
 	"name_missing",
@@ -238,6 +242,7 @@ export type ReadingRefusal = (typeof READING_REFUSALS)[number];
 
 /** The status a route answers a refusal with: 200 where it rides the stream's last line. */
 export const READING_REFUSAL_STATUS = {
+	session_ended: 200,
 	no_project_access: 403,
 	invalid_input: 400,
 	name_missing: 200,

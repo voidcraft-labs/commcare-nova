@@ -5,6 +5,7 @@ import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import {
 	applicationAnswer,
 	retainedBodyText,
@@ -97,13 +98,15 @@ const GET = "get_deployment",
 	REFRESH = "refresh_deployment",
 	WITHDRAW = "withdraw_deployment_confirmation",
 	STOP = "stop_publishing";
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.hq.read", "nova.hq.write", "nova.hq.import"],
 ) {
+	const ctx = await installationCredential(h.db(), userId, [
+		...new Set([...scopes, "nova.read", "nova.write"]),
+	]);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes, authKind: "oauth" as const };
 		registerGetDeployment(server, ctx);
 		registerRefreshDeployment(server, ctx);
 		registerWithdrawDeploymentConfirmation(server, ctx);

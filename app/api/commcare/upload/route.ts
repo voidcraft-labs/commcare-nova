@@ -76,6 +76,7 @@ import {
 	landedFirstPublish,
 	publishAppToHq,
 } from "@/lib/deployment/service";
+import { sessionManagementGrant } from "@/lib/deployment/sessionManagementGrant";
 import {
 	type DeploymentConfirmationKey,
 	deploymentConfirmationKeySchema,
@@ -309,6 +310,10 @@ export async function POST(req: NextRequest) {
 			projectId: access.projectId,
 			role: access.role,
 			actorUserId: session.user.id,
+			requireOperation: sessionManagementGrant(
+				session.user.id,
+				session.session.id,
+			),
 		};
 		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
 		const appId = body.appId;

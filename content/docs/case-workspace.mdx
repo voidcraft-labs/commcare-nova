@@ -468,6 +468,26 @@ empty link can also depend on earlier changes to that record. An isolated App
 Test with newly created records lets you exercise the empty, linked and cleared
 states. These searches remain available on the published app.
 
+### Use a search supplied by a project space
+
+If your team already has a search in its CommCare HQ project space, a menu can
+send answers to that search and show the cases it returns. In the Search
+inspector, **Where matches come from** lets you name the search or choose one
+another menu already uses. You can also describe it to the Solutions Architect.
+
+The project space decides which cases match. Switching an existing menu shows
+which field matching rules will be replaced. Each question keeps its name,
+label and answer. **Send this answer** lets the search use it directly. A
+field with that setting off can still supply a named value. For example, a
+region question can supply the value the search expects under `district`.
+Named values are sent in order. A supplied empty value can mean something
+different from leaving a name out.
+
+The team that manages the search can change its results without editing the
+Nova app. Preview tells you when a search needs the project space. To try the
+worker journey, open the published app there. Each destination has its own
+search connection in the Publish dialog.
+
 ### Hints, required fields, and checks
 
 Each search field can carry a **Hint**, a short line under its label that

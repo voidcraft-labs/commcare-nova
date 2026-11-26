@@ -30,6 +30,7 @@ import type { ReadingKey } from "@/lib/deployment";
 import {
 	ANOTHER_SPACE_NEW_APP_LINE,
 	BRING_IN_ACTIONS,
+	projectSearchMenuLine,
 	REVIEW_AFTER_DRIFT_LINE,
 	REVIEW_AFTER_SECTION,
 	REVIEW_APP_NAME_LABEL,
@@ -368,6 +369,33 @@ export function BringInReview({
 								}
 								onChooseAnotherProject={chooseAgain}
 							/>
+						))}
+					</ReviewSection>
+				) : null}
+
+				{review.projectSearches?.length ? (
+					<ReviewSection heading="Searches supplied by this project space">
+						<p className="text-sm text-nova-text-secondary">
+							{domain} manages these searches and determines which cases workers
+							can find. Publishing to another project space needs a connection
+							there.
+						</p>
+						{review.projectSearches.map((search) => (
+							<div
+								key={search.searchUuid}
+								className="grid gap-1 text-sm [overflow-wrap:anywhere]"
+							>
+								<p className="font-medium">
+									{search.name}
+									{search.endpointId !== null &&
+										` · Search ID ${search.endpointId}`}
+								</p>
+								{search.menus.map((menu) => (
+									<p key={menu.menuUuid} className="text-nova-text-secondary">
+										{projectSearchMenuLine(menu)}
+									</p>
+								))}
+							</div>
 						))}
 					</ReviewSection>
 				) : null}

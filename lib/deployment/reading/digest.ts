@@ -9,10 +9,9 @@
  * between the two requests: the document and the target-identity record come
  * keyed by each file's content (`mediaIds.ts::reviewMediaId`).
  *
- * When a declaration would remove physical HQ file references, the receipt
- * includes their paths and file IDs, the normalized source and its working
- * save counter. Otherwise a save that changes none of the reviewed values
- * can proceed. Birth records the current file IDs at retained paths.
+ * The receipt includes the normalized source and working save counter when
+ * the review lists connected searches or physical HQ file removals. For file
+ * removals it also includes the paths and file IDs. Birth records the current file IDs at retained paths.
  */
 
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";

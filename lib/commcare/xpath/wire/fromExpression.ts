@@ -9,6 +9,7 @@ import {
 	activeRowScope,
 	type ExpressionContext,
 	pushRowScope,
+	readsProjectSearchResults,
 } from "@/lib/domain/expression/context";
 import {
 	DISTANCE_UNITS,
@@ -433,6 +434,8 @@ function rowLeafSteps(input: Term, ctx: Context): readonly WireStep[] {
 					"A projected property cannot traverse another relation.",
 				);
 			return [casePropertyStep(input.property)];
+		case "search-result-field":
+			return [w.step(input.name)];
 		case "case-row-type":
 			return [w.attr("case_type")];
 		case "case-index":
@@ -517,6 +520,8 @@ function term(input: Term, ctx: Context): WireExpr {
 
 		case "case-type":
 			return w.str(input.caseType);
+		case "search-result-field":
+			return w.context([w.step(input.name)]);
 		case "case-row-type":
 			return w.context([w.attr("case_type")]);
 		case "case-index":
@@ -1061,7 +1066,8 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			const child = queryContext(expr, ctx);
 			const root = expr.source === "casedb" ? "casedb" : "results:inline";
 			return caseNodes(root, [
-				...(expr.source === "search-results"
+				...(expr.source === "search-results" &&
+				!readsProjectSearchResults(ctx.types)
 					? [
 							w.not(
 								w.eq(

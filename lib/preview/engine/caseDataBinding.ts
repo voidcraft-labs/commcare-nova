@@ -75,7 +75,7 @@ import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
-import { searchOwnerOverride } from "@/lib/domain/modules";
+import { projectSearchOf, searchOwnerOverride } from "@/lib/domain/modules";
 import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -611,6 +611,16 @@ async function prepareRunningCaseRead(
 			};
 		}
 	}
+	// A worker can complete this request only in the connected project space.
+	// Check the saved module as well as live Builder edits before querying local cases.
+	if (
+		searched &&
+		!keyedSearch &&
+		args.moduleUuid &&
+		(projectSearchOf(context.blueprint?.modules[args.moduleUuid]) ||
+			projectSearchOf(environment?.doc.modules[args.moduleUuid]))
+	)
+		return { kind: "data-refused", reason: { kind: "project-search" } };
 	const chosenCaseIds = parseChosenCaseIds(args.chosenCaseIds);
 	/* A blank value compared where CommCare's search cannot compare one, or
 	 * a row whose obligations the device found holding: the exported search

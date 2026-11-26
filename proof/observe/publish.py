@@ -70,7 +70,7 @@ AUTHORED = "authored"
 # The project data a base holds beside its app, each a file ``<name>.json`` under ``AUTHORED`` where the base holds
 # any, made before the app in this order (``create_authored``): its lookup tables, its levels and places, and its
 # practice workers.
-AUTHORED_PROJECT_DATA = ("tables", "places", "practice-workers")
+AUTHORED_PROJECT_DATA = ("tables", "places", "practice-workers", "project-searches")
 
 
 def _json(value):
@@ -219,8 +219,11 @@ def create_authored(unit, document):
     workbook is uploaded."""
     from proof.hq import operations
 
+    from proof.hq.project_search import install_project_searches
+
     directory = document.root / AUTHORED
     for name, save in (
+        ("project-searches", install_project_searches),
         ("tables", operations.save_authored_tables),
         ("places", operations.save_authored_places),
         ("practice-workers", _save_practice_workers),

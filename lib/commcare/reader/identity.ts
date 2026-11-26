@@ -46,6 +46,8 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"caseDetailTab",
 	"searchInput",
 	"searchFilter",
+	"projectSearch",
+	"projectSearchParameter",
 	"caseOperation",
 	"formLink",
 	"entryPoint",
@@ -184,6 +186,19 @@ export const externalKey = {
 			kind: "searchFilter",
 			parts: [moduleUniqueId, target, ordinal(n)],
 		};
+	},
+	projectSearchParameter(
+		menuId: string,
+		name: string,
+		occurrence: number,
+	): ExternalKey {
+		return {
+			kind: "projectSearchParameter",
+			parts: [menuId, name, ordinal(occurrence)],
+		};
+	},
+	projectSearch(endpointId: number): ExternalKey {
+		return { kind: "projectSearch", parts: [endpointId] };
 	},
 	searchInput(moduleUniqueId: string, name: string): ExternalKey {
 		return { kind: "searchInput", parts: [moduleUniqueId, name] };
@@ -416,8 +431,9 @@ export function freeEntityUuid(
 export function matchingResolver(
 	appId: string,
 	known: readonly IdentityMapEntry[],
+	reserved: ReadonlySet<Uuid> = new Set(),
 ): IdentityResolver {
-	return Object.freeze({ uuidOf: matchingUuidOf(appId, known) });
+	return Object.freeze({ uuidOf: matchingUuidOf(appId, known, reserved) });
 }
 
 /** A map that names one key or one UUID at two entries, counted from 0. */
@@ -437,6 +453,7 @@ function namedTwice(what: string, first: number, second: number): Error {
 export function matchingUuidOf(
 	appId: string,
 	known: readonly IdentityMapEntry[],
+	reserved: ReadonlySet<Uuid> = new Set(),
 ): IdentityResolver["uuidOf"] {
 	const byKey = new Map<string, Uuid>();
 	const keyOfUuid = new Map<Uuid, ExternalKey>();
@@ -487,7 +504,10 @@ export function matchingUuidOf(
 		return freeEntityUuid(
 			appId,
 			key,
-			(uuid) => keyOfUuid.has(uuid) || Boolean(claimed?.has(uuid)),
+			(uuid) =>
+				keyOfUuid.has(uuid) ||
+				reserved.has(uuid) ||
+				Boolean(claimed?.has(uuid)),
 		);
 	};
 }

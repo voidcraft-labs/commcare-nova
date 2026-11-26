@@ -28,6 +28,7 @@ import type {
 } from "../reading/projectData/reviewTypes";
 import {
 	canonicalTargetIdentity,
+	type SearchDestinationChange,
 	type TargetIdentity,
 } from "../targetIdentity";
 
@@ -38,6 +39,10 @@ export interface HqChangesDigestInput {
 	};
 	/** The reviewed mapping and its continuous claim of this HQ app. */
 	readonly authority: ReturnType<typeof appConfirmationScope>;
+	readonly projectSearchReview?: {
+		readonly endings: number;
+		readonly changes: readonly SearchDestinationChange[];
+	};
 	/** The stored baseline's `source_digest`: the source the base reading read. */
 	readonly baselineDigest: string;
 	readonly approvedRemovals?: readonly string[];
@@ -86,6 +91,9 @@ export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 			next: canonicalTargetIdentity(input.identity.next),
 		},
 		authority: input.authority,
+		...(input.projectSearchReview && {
+			projectSearchReview: input.projectSearchReview,
+		}),
 		baselineDigest: input.baselineDigest,
 		sourceDigest: input.sourceDigest,
 		headSeq: input.headSeq,

@@ -45,6 +45,7 @@ import {
 } from "../wireIdentity";
 import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
 import type { ReadContext } from "./context";
+import { readProjectSearchBindings } from "./context";
 import type { ProjectionFacts } from "./heldExpansions";
 import type { ReadMediaReference } from "./types";
 
@@ -70,6 +71,7 @@ interface Built {
 	readonly kept: ReadonlyMap<string, string>;
 	/** How many media references the reading held when these were built. */
 	readonly references: number;
+	readonly projectSearchCount: number;
 }
 
 const BUILT = new WeakMap<ReadContext, Built>();
@@ -192,7 +194,8 @@ function built(ctx: ReadContext): Built {
 	const known = BUILT.get(ctx);
 	if (
 		known !== undefined &&
-		known.references === ctx.facts.mediaReferences.length
+		known.references === ctx.facts.mediaReferences.length &&
+		known.projectSearchCount === ctx.draft.projectSearches.size
 	)
 		return known;
 	const overrides: WireIdentityOverride[] = [];
@@ -232,8 +235,9 @@ function built(ctx: ReadContext): Built {
 		domain: ctx.input.target.domain,
 	};
 	const naming = readerLookupNamingDefinitions(ctx.input.lookup);
+	const projectSearches = readProjectSearchBindings(ctx);
 	const inputs: ReadProjectionInputs = {
-		identity: targetWireIdentity(overrides),
+		identity: targetWireIdentity(overrides, [], projectSearches),
 		attachmentTarget,
 		lookupNaming: lookupWireNaming(naming),
 		assets: assets as AssetManifest,
@@ -241,6 +245,7 @@ function built(ctx: ReadContext): Built {
 	const result: Built = {
 		inputs,
 		facts: {
+			projectSearches,
 			overrides: overrides.map((one) => ({ ...one })),
 			attachmentTarget: { ...attachmentTarget },
 			naming: structuredClone(naming),
@@ -250,6 +255,7 @@ function built(ctx: ReadContext): Built {
 			[...kept].map(([assetId, reference]) => [assetId, reference.path]),
 		),
 		references: ctx.facts.mediaReferences.length,
+		projectSearchCount: projectSearches.length,
 	};
 	BUILT.set(ctx, result);
 	return result;

@@ -17,6 +17,7 @@ import {
 	type UnknownRow,
 } from "kysely";
 import { describe, expect, it, vi } from "vitest";
+import { deploymentSession } from "@/__tests__/helpers/deploymentSession";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { getSession } from "@/lib/auth-utils";
 import { seenByHq } from "@/lib/commcare/hq/appsSeen";
@@ -418,6 +419,7 @@ describe("endDeployment", () => {
 					recordRefreshedAppBaseline(scope, TARGET, {
 						...fence,
 						remoteAppId: HQ_APP,
+
 						comparedDigest: stored.sourceDigest,
 						comparedPushToken: appMappingToken(birth.deployment),
 						read: {
@@ -677,8 +679,10 @@ describe("a released claim", () => {
 });
 
 describe("stopPublishingAction", () => {
-	function signedInAs(userId: string): void {
-		vi.mocked(getSession).mockResolvedValue({ user: { id: userId } } as never);
+	async function signedInAs(userId: string) {
+		vi.mocked(getSession).mockResolvedValue(
+			(await deploymentSession(h.db(), userId)) as never,
+		);
 	}
 	const input = {
 		appId: APP,
@@ -693,20 +697,20 @@ describe("stopPublishingAction", () => {
 		await member("a-viewer", "viewer");
 		await member("an-admin", "admin");
 
-		signedInAs("an-editor");
+		await signedInAs("an-editor");
 		expect(await stopPublishingAction(input)).toEqual({
 			success: false,
 			code: "not_permitted",
 			message: NOT_PERMITTED,
 		});
-		signedInAs("a-viewer");
+		await signedInAs("a-viewer");
 		expect(await stopPublishingAction(input)).toMatchObject({
 			success: false,
 			code: "not_found",
 		});
 		expect(await heldRows()).toBe(5);
 
-		signedInAs("an-admin");
+		await signedInAs("an-admin");
 		const stopped = await stopPublishingAction(input);
 		if (!stopped.success) throw new Error(stopped.message);
 		expect(stopped.data).toMatchObject({
@@ -811,7 +815,7 @@ describe("stopPublishingAction", () => {
 			targetFacts: null,
 		});
 
-		signedInAs(OWNER);
+		await signedInAs(OWNER);
 		const stopped = await stopPublishingAction(input);
 		if (!stopped.success) throw new Error(stopped.message);
 
@@ -846,7 +850,7 @@ describe("stopPublishingAction", () => {
 				return args.result;
 			},
 		};
-		signedInAs(OWNER);
+		await signedInAs(OWNER);
 		__setAppDbForTests(h.db().withPlugin(faulting));
 		let stopped: Awaited<ReturnType<typeof stopPublishingAction>>;
 		try {

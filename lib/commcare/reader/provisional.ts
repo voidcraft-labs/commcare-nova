@@ -272,6 +272,9 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 			: { localization: draft.localization }),
 		appSettings: {
 			...draft.appSettings,
+			...(draft.appSettings.projectSearches && {
+				projectSearches: draft.appSettings.projectSearches,
+			}),
 			showSavedForms:
 				draft.appSettings.showSavedForms ?? NEW_APP_SETTINGS.showSavedForms,
 			showIncompleteForms:

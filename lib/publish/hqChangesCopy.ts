@@ -219,10 +219,47 @@ export function whereHqKeepsLines(changes: {
 	readonly keyedPrefixes: readonly string[];
 	readonly mediaPaths: number;
 	readonly columnFields: readonly string[];
+	readonly searchConnections?: readonly import("@/lib/deployment/targetIdentity").SearchConnectionChange[];
+	readonly projectSearches?: readonly import("@/lib/deployment/targetIdentity").SearchDestinationChange[];
 }): readonly string[] {
 	const quoted = (names: readonly string[]) =>
 		namesInWords(names.map((name) => `“${name}”`));
 	const lines: string[] = [];
+	for (const search of changes.projectSearches ?? []) {
+		const describe = (value: typeof search.before) =>
+			value === null
+				? "ordinary case search"
+				: `“${value.name}” (${value.id === null ? "no connected ID" : "search " + value.id})`;
+		const contract = (value: typeof search.before) => {
+			if (!value) return describe(value);
+			const parameters = value.parameters.length
+				? value.parameters.join(", ")
+				: "no named values";
+			const results = value.results
+				.map((field) => field.name + " (" + field.type + ")")
+				.join(", ");
+			return (
+				describe(value) + ", sending " + parameters + " and reading " + results
+			);
+		};
+		lines.push(
+			`In “${search.menu}”, the search changed from ${contract(search.before)} to ${contract(search.after)}.`,
+		);
+
+		if (search.after)
+			lines.push(
+				"This project space controls which cases the connected search returns. Its results can change there.",
+			);
+	}
+	for (const connection of changes.searchConnections ?? []) {
+		const prior =
+			connection.before === null ? "no connection" : `ID ${connection.before}`;
+		const next =
+			connection.after === null ? "no connection" : `ID ${connection.after}`;
+		lines.push(
+			`For the next publish here, the saved connection for “${connection.name}” will change from ${prior} to ${next}.`,
+		);
+	}
 	if (changes.keyedPrefixes.length > 0) {
 		const one = changes.keyedPrefixes.length === 1;
 		lines.push(

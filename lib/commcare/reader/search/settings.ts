@@ -215,7 +215,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}search-on-clear-with-the-case-list-s-auto-select-checked-whether`,
 		"schema:CaseSearch.search_on_clear",
 	),
-	endpoint: refuse(
+	endpoint: take(
 		`${S}case-search-endpoint-id`,
 		"schema:CaseSearch.case_search_endpoint_id",
 	),
@@ -1186,8 +1186,6 @@ export function readSearchSettings(
 	}
 	const findings: [string, typeof T.additionalTypes][] = [
 		["custom_related_case_property", T.relatedProperty],
-
-		["case_search_endpoint_id", T.endpoint],
 	];
 	for (const [key, claim] of findings)
 		if (!claimed.has(key) && cursor.used(key)) {
@@ -1513,6 +1511,7 @@ type SearchSlotRef = Parameters<SearchConfigRewrites>[0];
 
 /** The key a search slot's level is kept under. */
 function searchSlotKey(ref: SearchSlotRef): string {
+	if ("parameterUuid" in ref) return `${ref.slot}/${ref.parameterUuid}`;
 	return "searchInputUuid" in ref
 		? `${ref.slot}/${ref.searchInputUuid}`
 		: ref.slot;
@@ -1523,6 +1522,13 @@ function searchSlotTree(
 	mod: Module,
 	ref: SearchSlotRef,
 ): Expression | undefined {
+	if ("parameterUuid" in ref) {
+		const config = mod.caseSearchConfig;
+		return config && "projectSearch" in config
+			? config.projectSearch?.defaults.find((p) => p.uuid === ref.parameterUuid)
+					?.value
+			: undefined;
+	}
 	if (!("searchInputUuid" in ref)) {
 		const config = mod.caseSearchConfig;
 		if (config === undefined) return undefined;
@@ -1571,12 +1577,15 @@ function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
 		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
 		if (expression === undefined || level === undefined) continue;
-		const member = (ref as { readonly member?: { searchInputUuid?: string } })
-			.member;
-		const key =
-			member?.searchInputUuid === undefined
-				? ref.slot
-				: `${ref.slot}/${member.searchInputUuid}`;
+		const member = "member" in ref ? ref.member : undefined;
+		const uuid =
+			member &&
+			("searchInputUuid" in member
+				? member.searchInputUuid
+				: "parameterUuid" in member
+					? member.parameterUuid
+					: undefined);
+		const key = uuid ? `${ref.slot}/${uuid}` : ref.slot;
 		held.set(key, { tree: expression, level });
 	}
 	return (ref) => {

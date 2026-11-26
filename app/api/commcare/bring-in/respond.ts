@@ -40,6 +40,10 @@ import type {
 } from "@/lib/deployment";
 import { authorizeBringIn, type BringInActor } from "@/lib/deployment/reading";
 import { READING_REFUSAL_STATUS } from "@/lib/deployment/reading/types";
+import {
+	DeploymentSessionEndedError,
+	sessionManagementGrant,
+} from "@/lib/deployment/sessionManagementGrant";
 import { log } from "@/lib/logger";
 import { READING_REFUSAL_COPY } from "@/lib/publish/hqReadingCopy";
 
@@ -107,7 +111,10 @@ export async function answerBringIn<
 		body = parsed.data;
 		const authorized = await authorizeBringIn(userId, body.projectId);
 		if (authorized === null) return refused("no_project_access");
-		actor = authorized;
+		actor = {
+			...authorized,
+			requireOperation: sessionManagementGrant(userId, session.session.id),
+		};
 	} catch (err) {
 		const response = handleApiError(
 			err instanceof Error ? err : new Error("Bring-in request failed"),
@@ -138,6 +145,13 @@ export async function answerBringIn<
 				});
 				write({ type: "done", answer });
 			} catch (error) {
+				if (error instanceof DeploymentSessionEndedError) {
+					write({
+						type: "done",
+						answer: { kind: "refused", refusal: "session_ended" },
+					});
+					return;
+				}
 				log.error("[reading] failed", error, {
 					...(appId !== null && { appId }),
 					projectId: body.projectId,

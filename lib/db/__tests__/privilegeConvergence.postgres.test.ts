@@ -906,6 +906,8 @@ describe("database privilege convergence", () => {
 				sql`INSERT INTO app_deployment_keyed_case_ids
 					(deployment_id, nova_operation_uuid, case_type, case_id_prefix)
 					VALUES (${ledgerDeployment}::uuid, gen_random_uuid(), 'patient', ${keyedPrefix})`,
+				sql`INSERT INTO app_deployment_search_bindings (deployment_id, search_uuid, endpoint_id)
+					VALUES (${ledgerDeployment}::uuid, gen_random_uuid(), 47)`,
 				sql`INSERT INTO app_deployment_column_field_words
 					(deployment_id, nova_column_uuid, screen, field_word)
 					VALUES (${ledgerDeployment}::uuid, gen_random_uuid(), 'short', 'case_name')`,
@@ -921,6 +923,8 @@ describe("database privilege convergence", () => {
 				sql`SELECT deployment_id FROM app_deployment_identities FOR UPDATE`,
 				sql`SELECT deployment_id FROM app_deployment_media_paths FOR SHARE`,
 				sql`SELECT deployment_id FROM app_deployment_keyed_case_ids FOR KEY SHARE`,
+				sql`UPDATE app_deployment_search_bindings SET endpoint_id=endpoint_id`,
+				sql`SELECT deployment_id FROM app_deployment_search_bindings FOR UPDATE`,
 				sql`UPDATE app_deployment_column_field_words SET field_word = field_word`,
 				sql`SELECT deployment_id FROM app_deployment_column_field_words FOR UPDATE`,
 			]) {
@@ -935,6 +939,7 @@ describe("database privilege convergence", () => {
 					WHERE deployment_id = ${ledgerDeployment}::uuid`,
 				sql`DELETE FROM app_deployment_keyed_case_ids
 					WHERE deployment_id = ${ledgerDeployment}::uuid`,
+				sql`DELETE FROM app_deployment_search_bindings WHERE deployment_id=${ledgerDeployment}::uuid`,
 				sql`DELETE FROM app_deployment_column_field_words
 					WHERE deployment_id = ${ledgerDeployment}::uuid`,
 			]) {

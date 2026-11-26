@@ -31,6 +31,7 @@ import {
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import { isProjectSearchParameter } from "../../hq/projectSearch";
 import {
 	bindLookupRead,
 	lookupReadNames,
@@ -486,6 +487,7 @@ export function readSearchPrompts(
 	module: DraftModule,
 	config: JsonCursor,
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
+	projectService = false,
 ): readonly PromptReading[] {
 	const place = searchPlace(module);
 	const prompts = config.list(
@@ -540,6 +542,7 @@ export function readSearchPrompts(
 			defaultFilterNames,
 			grouped,
 			suiteSources,
+			projectService,
 		);
 		if (reading !== undefined) out.push(reading);
 	}
@@ -554,6 +557,7 @@ function readPrompt(
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
 	grouped: boolean,
 	suiteSources: ReadonlyMap<string, string>,
+	projectService: boolean,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
@@ -681,7 +685,12 @@ function readPrompt(
 	const requiredMap = requiredRead.texts;
 	// A key CommCare HQ reads as part of the request (a setting, a tag, an unsearched key, an
 	// owner, project space or reverse-index filter, CSQL) never searches the property it names.
-	if (isReservedSearchInputName(name)) refuseWith("name", P.nameReserved);
+	if (
+		projectService
+			? !isProjectSearchParameter(name)
+			: isReservedSearchInputName(name)
+	)
+		refuseWith("name", P.nameReserved);
 	else if (!SEARCH_INPUT_NAME_PATTERN.test(name))
 		refuseWith("name", P.nameOutside);
 	else if (defaultFilterNames.has(name)) {
@@ -726,7 +735,7 @@ function readPrompt(
 	// is read as a Hidden Value, and each key whose meaning the refusal names (its checks, its
 	// widget, `exclude`) stands under the refusal's finding.
 	const widget = carriesWidget(prompt);
-	const hiddenArm = hidden && exclude && !widget;
+	const hiddenArm = hidden && (exclude || projectService) && !widget;
 	let hiddenRefused = false;
 	let addressRefused: Finding | undefined;
 	// Web Apps draws "Include results where … is blank" under a shown prompt whose
@@ -1117,6 +1126,7 @@ function readPrompt(
 			// as the simple field's property: a name Nova's property grammar refuses (`_x`,
 			// `date-opened`, `external-id`) names a property no document can hold.
 			if (
+				!projectService &&
 				!exclude &&
 				!ATTRIBUTE_PROMPT_NAMES.has(name) &&
 				!authoredCasePropertyNameSchema.safeParse(name).success
@@ -1137,10 +1147,12 @@ function readPrompt(
 	if (!refusedHere("name")) {
 		prompt.take(
 			"name",
-			!exclude && ATTRIBUTE_PROMPT_NAMES.has(name) ? P.nameAttribute : P.name,
+			!projectService && !exclude && ATTRIBUTE_PROMPT_NAMES.has(name)
+				? P.nameAttribute
+				: P.name,
 			String,
 		).value;
-		if (name === "owner_id" && exclude)
+		if (!projectService && name === "owner_id" && exclude)
 			ctx.accounting.claimEntry(
 				{ json: prompt, key: "name" },
 				P.ownerKey.entry,
@@ -1418,6 +1430,7 @@ function readPrompt(
 			name,
 			label: common.label,
 			kind: "hidden",
+			...(projectService && !exclude && { sendAnswer: true as const }),
 			...(defaultIndex !== undefined && {
 				value: pendingPlaceholder("value"),
 			}),
@@ -1436,21 +1449,23 @@ function readPrompt(
 		// A refused field reads no property: it stands in the provisional document only so the
 		// expressions that read it bind.
 		entry = (
-			exclude || refused
-				? {
-						...widget,
-						kind: "advanced",
-						predicate: pendingPlaceholder("condition"),
-					}
-				: {
-						...widget,
-						kind: "simple",
-						property: name === "name" ? "case_name" : name,
-						...((ATTRIBUTE_PROMPT_NAMES.has(name) || type === "date") && {
-							matching: "project-space",
-						}),
-						...(type === "date-range" && { mode: { kind: "range" } }),
-					}
+			projectService
+				? { ...widget, kind: "parameter", sendAnswer: !exclude }
+				: exclude || refused
+					? {
+							...widget,
+							kind: "advanced",
+							predicate: pendingPlaceholder("condition"),
+						}
+					: {
+							...widget,
+							kind: "simple",
+							property: name === "name" ? "case_name" : name,
+							...((ATTRIBUTE_PROMPT_NAMES.has(name) || type === "date") && {
+								matching: "project-space",
+							}),
+							...(type === "date-range" && { mode: { kind: "range" } }),
+						}
 		) as SearchInputDef;
 	}
 	return {

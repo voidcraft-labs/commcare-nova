@@ -1738,3 +1738,20 @@ to enter a storage format. These checks do not exercise maps or device GPS.
 ## System reminders
 
 A few read results (`get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent, for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.
+
+## Searches supplied by a project space
+
+An agent can use `configure_project_search` to name or reuse a search and
+set the values a menu sends. A viewer with delegated HQ read access can
+inspect `get_project_search_destination` for a selected server and project
+space. Follow each `next_page` using the tool’s `page` argument. Long reviews
+label each search, menu, parameter and result field, splitting a long name
+into numbered parts. The final page holds the version that confirms the
+connections. A restarted review reflects a change to the app or destination.
+A saved connection can outlive its last menu. An editor can clear its ID
+and connect another search to that ID in the same reviewed change.
+An editor with delegated HQ write access can use
+`connect_project_searches` to save the reviewed connections. If the app or
+destination has changed, the agent reads the current connections and reviews
+them again. For an app with these searches, `compile_app` needs the server,
+project space and delegated HQ read access.

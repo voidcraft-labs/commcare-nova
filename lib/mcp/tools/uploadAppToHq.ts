@@ -234,6 +234,7 @@ import {
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import type { WebAppsChange } from "@/lib/publish/webApps";
 import { initMcpCall } from "../context";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import {
 	type McpErrorType,
 	type McpToolErrorResult,
@@ -813,6 +814,7 @@ export function registerUploadAppToHq(
 							projectId: access.projectId,
 							role: access.role,
 							actorUserId: ctx.userId,
+							requireOperation: toolWriteGrant(ctx, "upload_app_to_hq"),
 						},
 						doc,
 						compiledAtSeq: app.mutation_seq,

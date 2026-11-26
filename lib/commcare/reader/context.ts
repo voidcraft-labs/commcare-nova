@@ -61,6 +61,8 @@ export interface DraftApp {
 	 *  draft stays in `modules` so every key of it is read; it is no menu of the document, its
 	 *  one form is the host's last, and its HQ id is listed under `syntheticModuleUuid(formUuid)`. */
 	readonly foldedMenus: FoldedMenu[];
+	/** Services observed in this source only. Several menus can use one service. */
+	readonly projectSearches: Map<number, Uuid>;
 }
 
 /** A hidden registration menu read as its host's registration after an empty search. */
@@ -154,6 +156,13 @@ function emptyFacts(input: ReaderInput): MutableReadFacts {
 	};
 }
 
+export function readProjectSearchBindings(ctx: ReadContext) {
+	return Array.from(ctx.draft.projectSearches, ([endpointId, searchUuid]) => ({
+		endpointId,
+		searchUuid,
+	}));
+}
+
 /** The context a reading starts with: no draft written, the root cursor open. */
 export function createReadContext(
 	input: ReaderInput,
@@ -180,6 +189,7 @@ export function createReadContext(
 			locationProperties: [],
 			caseTypes: null,
 			foldedMenus: [],
+			projectSearches: new Map(),
 		},
 		translations: translationSink(),
 		pending: pendingRegistry(),

@@ -66,6 +66,7 @@ import {
 import { HqNotConnected } from "@/components/builder/HqNotConnected";
 import type { HqChangesSettled } from "@/components/builder/hqChangesPanelModel";
 import type { ShownRefreshedView } from "@/components/builder/keptListModel";
+import { ProjectSearchConnections } from "@/components/builder/ProjectSearchConnections";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
@@ -143,6 +144,7 @@ import type {
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import { useNeedsProjectSearchDestination } from "@/lib/doc/hooks/useAppSettings";
 import {
 	CONNECTION_CHECK_FAILED,
 	DRIFT_STOP_EDITOR_LINE,
@@ -276,7 +278,8 @@ export interface PublishDialogProps {
 	) => Promise<PublishProjectSpaceCompatibilityOutcome>;
 	onDownloadJson: (
 		server?: CommCareServer,
-		privateDomain?: string,
+		domain?: string,
+		privateData?: boolean,
 	) => Promise<PublishDownloadOutcome>;
 	/** A CCZ is made for one project space this app is published to. */
 	onDownloadCcz: (target: {
@@ -413,6 +416,7 @@ export function PublishDialogBody({
 	const compatibilityControllerRef = useRef<AbortController | null>(null);
 	const operationGenerationRef = useRef(0);
 	const storeAppName = useAppName();
+	const needsSearchDestination = useNeedsProjectSearchDestination();
 	const [reviewing, setReviewing] = useState(false);
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const stepHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -935,7 +939,7 @@ export function PublishDialogBody({
 	};
 
 	const compatibilityDomain =
-		target === "hq"
+		target === "hq" || (target === "web" && needsSearchDestination)
 			? selectedDomain ||
 				(availableDomains.length === 1 ? availableDomains[0].name : undefined)
 			: undefined;
@@ -992,7 +996,7 @@ export function PublishDialogBody({
 	const handleTargetChange = useCallback(
 		(next: PublishTarget) => {
 			const nextDomain =
-				next === "hq"
+				next === "hq" || (next === "web" && needsSearchDestination)
 					? selectedDomain ||
 						(availableDomains.length === 1
 							? availableDomains[0].name
@@ -1013,6 +1017,7 @@ export function PublishDialogBody({
 		},
 		[
 			availableDomains,
+			needsSearchDestination,
 			compatibilityDomain,
 			invalidateCompatibilityReport,
 			selectedDomain,
@@ -1460,20 +1465,35 @@ export function PublishDialogBody({
 		[focusLater],
 	);
 
+	const assignmentDomains = needsSearchDestination
+		? availableDomains.filter((domain) => domain.name === selectedDomain)
+		: availableDomains;
+
 	const handleDownload = useCallback(
 		async (downloadTarget: "web" | "mobile") => {
 			/* A CCZ is made for one project space; the button stays off until
 			 * one is chosen, so there is nothing to send without it. */
 			if (downloadTarget === "mobile" && cczTarget === null) return;
+			if (
+				downloadTarget === "web" &&
+				needsSearchDestination &&
+				(!connectionServer || !selectedDomain)
+			)
+				return;
 			const generation = ++operationGenerationRef.current;
 			setStatus({ type: "downloading", target: downloadTarget });
 			const outcome = await (cczTarget !== null && downloadTarget === "mobile"
 				? onDownloadCcz(cczTarget)
 				: onDownloadJson(
-						privateDomain
+						needsSearchDestination || privateDomain
 							? (connectionServer ?? undefined)
 							: downloadServer || undefined,
-						privateDomain || undefined,
+						needsSearchDestination
+							? selectedDomain
+							: privateDomain || undefined,
+						needsSearchDestination
+							? privateDomain.length > 0 && privateDomain === selectedDomain
+							: privateDomain.length > 0,
 					));
 			if (operationGenerationRef.current !== generation) return;
 			if (!outcome.ok) {
@@ -1504,6 +1524,8 @@ export function PublishDialogBody({
 			cczTarget,
 			privateDomain,
 			connectionServer,
+			needsSearchDestination,
+			selectedDomain,
 		],
 	);
 
@@ -1573,10 +1595,18 @@ export function PublishDialogBody({
 	};
 	const mobileUnavailable =
 		target === "mobile" && cczHasNoChoice(downloadTargets);
+	const searchTarget =
+		target === "mobile"
+			? cczTarget
+			: connectionServer && selectedDomain
+				? { server: connectionServer, domain: selectedDomain }
+				: null;
 	const canReview =
 		target === "hq"
 			? !notConfigured && Boolean(selectedDomain) && appName.trim().length > 0
-			: target !== "mobile" || cczTarget !== null;
+			: target === "mobile"
+				? cczTarget !== null
+				: !needsSearchDestination || Boolean(searchTarget);
 	const showCompatibilityPreflight =
 		status.type !== "landed" &&
 		!downloadComplete &&
@@ -1674,7 +1704,7 @@ export function PublishDialogBody({
 							</FieldDescription>
 						</Field>
 
-						{target === "web" && (
+						{target === "web" && !needsSearchDestination && (
 							<Field className="mt-4 gap-1.5">
 								<FieldLabel htmlFor="download-server">
 									CommCare HQ server
@@ -1719,9 +1749,48 @@ export function PublishDialogBody({
 							</Field>
 						)}
 						{target === "web" &&
+							needsSearchDestination &&
+							(notConfigured ? (
+								<HqNotConnected
+									title="Connect a project space"
+									body="This file uses searches from one project space. Connect that space in Settings to choose its searches."
+									isRefreshing={isRefreshingHqConnection}
+									onRefresh={onRefreshHqConnection}
+								/>
+							) : (
+								<Field className="mt-4 gap-1.5">
+									<FieldLabel htmlFor="download-search-space">
+										Project space
+									</FieldLabel>
+									<Select
+										value={selectedDomain}
+										items={domainItems}
+										disabled={isWorking}
+										onValueChange={(value) =>
+											handleSelectedDomainChange(value ?? "")
+										}
+									>
+										<SelectTrigger id="download-search-space">
+											<SelectValue placeholder="Choose a project space" />
+										</SelectTrigger>
+										<SelectContent>
+											{availableDomains.map((domain) => (
+												<SelectItem key={domain.name} value={domain.name}>
+													{domain.displayName}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<FieldDescription>
+										This file uses the searches configured in the selected
+										project space.
+									</FieldDescription>
+								</Field>
+							))}
+						{target === "web" &&
 							canEdit &&
 							connectionServer &&
-							availableDomains.length > 0 && (
+							assignmentDomains.length > 0 && (
 								<Field className="mt-4 gap-1.5">
 									<FieldLabel htmlFor="download-private-data">
 										Worker assignments
@@ -1730,7 +1799,7 @@ export function PublishDialogBody({
 										value={privateDomain}
 										items={[
 											{ value: "", label: "Connect data after importing" },
-											...availableDomains.map((d) => ({
+											...assignmentDomains.map((d) => ({
 												value: d.name,
 												label: d.name,
 											})),
@@ -1748,7 +1817,7 @@ export function PublishDialogBody({
 											<SelectItem value="">
 												Connect data after importing
 											</SelectItem>
-											{availableDomains.map((d) => (
+											{assignmentDomains.map((d) => (
 												<SelectItem key={d.name} value={d.name}>
 													{d.name}
 												</SelectItem>
@@ -1773,6 +1842,14 @@ export function PublishDialogBody({
 								onPublish={
 									canUploadToHq ? () => handleTargetChange("hq") : undefined
 								}
+							/>
+						)}
+						{target !== "hq" && needsSearchDestination && searchTarget && (
+							<ProjectSearchConnections
+								key={target + searchTarget.server + ":" + searchTarget.domain}
+								appId={getAppId()}
+								{...searchTarget}
+								canEdit={canEdit}
 							/>
 						)}
 						{target === "hq" ? (
@@ -1814,6 +1891,14 @@ export function PublishDialogBody({
 											publishPlanContext,
 										)}
 									/>
+									{needsSearchDestination && searchTarget && (
+										<ProjectSearchConnections
+											key={searchTarget.server + ":" + searchTarget.domain}
+											appId={getAppId()}
+											{...searchTarget}
+											canEdit={canEdit}
+										/>
+									)}
 									{publishOverChosen ? (
 										<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 											{PUBLISH_OVER_CHOSEN_LINE}

@@ -1868,6 +1868,7 @@ export function addressSearchLine(
 
 /** Where the review shows a create's refusal: under the name, above the footer, or not at all. */
 const REVIEW_REFUSAL_AT = {
+	session_ended: "footer",
 	name_missing: "name",
 	choice_not_offered: "footer",
 	choice_missing: "footer",

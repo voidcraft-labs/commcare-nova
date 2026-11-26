@@ -319,6 +319,7 @@ async function bringInInRoom(
 	}
 
 	/* Each arm writes; the room stops nothing from here on. */
+	await scope.requireOperation?.();
 	room.beginWrites();
 	try {
 		if (
@@ -418,6 +419,7 @@ async function recordReadsTheSame(
 	const written = await recordRefreshedAppBaseline(scope, target, {
 		expectedEndings: basis.deployment.endings,
 		remoteAppId: basis.live.remoteId,
+
 		comparedDigest: basis.baseline.sourceDigest,
 		comparedPushToken: basis.live.pushToken,
 		comparedRevision: basis.baseline.novaRevision,

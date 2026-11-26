@@ -36,6 +36,7 @@ import {
 import { AS_ORIGIN } from "@/lib/hostnames";
 import { broughtInToolMessage } from "@/lib/publish/bringInCopy";
 import { CREATE_ANSWER_LEADS } from "@/lib/publish/hqReadingCopy";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -247,9 +248,16 @@ export function registerBringInHqApp(
 					tableChoices: args.table_choices,
 					ownerRuleChoices: args.owner_rule_choices,
 				};
-				const answer = await createFromReview(call.actor, input, {
-					onEvent: bringInProgress(extra),
-				});
+				const answer = await createFromReview(
+					{
+						...call.actor,
+						requireOperation: toolWriteGrant(ctx, "bring_in_hq_app"),
+					},
+					input,
+					{
+						onEvent: bringInProgress(extra),
+					},
+				);
 				if (answer.kind === "refused")
 					throw mapReadingRefusal(answer.refusal, args.project_id);
 				const key: ReadingKey = {

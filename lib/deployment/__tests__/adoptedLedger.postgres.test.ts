@@ -376,6 +376,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 		const written = await recordRefreshedAppBaseline(birth.scope, TARGET, {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
+
 			comparedDigest: stored.sourceDigest,
 			comparedPushToken: appMappingToken(birth.deployment),
 			read: {

@@ -183,6 +183,7 @@ import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
 	type ColumnFieldWordRow,
 	DERIVED_WIRE_IDENTITY,
+	type ProjectSearchBinding,
 	targetWireIdentity,
 	type WireIdentity,
 	type WireIdentityOverride,
@@ -2968,6 +2969,9 @@ async function reviewOverPeer(input: {
 			`A review of ${prepared.source.id} could not read the app's source from the capture peer (${JSON.stringify(read)}).`,
 		);
 	}
+	const hqVersion = peer.saveCounter();
+	if (hqVersion === null)
+		throw new Error("The reviewed app is missing from the capture peer.");
 	const source = read.source;
 	const remoteRevision = peer.saveCounter();
 	if (remoteRevision === null)
@@ -3144,7 +3148,7 @@ async function reviewOverPeer(input: {
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		reference,
-		overrides: input.targetIdentity.entities,
+		targetIdentity: input.targetIdentity,
 		media: { published, base: null, now: null },
 	});
 	if (first.kind === "no-base") {
@@ -3752,6 +3756,7 @@ export interface HqAuthoredA {
 	readonly mediaPaths: ReadonlyMap<string, string>;
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
 }
 
 /** The held paths an export boundary takes for `mediaPaths`: each without `jr://file/`. */
@@ -4095,7 +4100,11 @@ async function adoptedA(
 			},
 		),
 		target: { server: PROOF_SERVER, domain: peer.state.domain },
-		identity: targetWireIdentity(adopted.identity, adopted.columnWords),
+		identity: targetWireIdentity(
+			adopted.identity,
+			adopted.columnWords,
+			adopted.projectSearches,
+		),
 		novaRevision: prepared.source.compiledAtSeq,
 		mediaFiles,
 		observedAt: CAPTURE_OBSERVED_AT,
@@ -4200,7 +4209,11 @@ export async function capturePublish(
 	const adoptedIdentity: WireIdentity =
 		adopted === undefined
 			? DERIVED_WIRE_IDENTITY
-			: targetWireIdentity(adopted.identity, adopted.columnWords);
+			: targetWireIdentity(
+					adopted.identity,
+					adopted.columnWords,
+					adopted.projectSearches,
+				);
 	const heldMediaPaths =
 		adopted === undefined ? undefined : heldMediaPathsOf(adopted.mediaPaths);
 	const keyedCaseIds = adopted?.keyedCaseIds ?? [];
@@ -4216,6 +4229,9 @@ export async function capturePublish(
 						([assetId, wirePath]) => ({ assetId, wirePath }),
 					),
 					columnWords: adopted.columnWords,
+					...(adopted.projectSearches?.length && {
+						projectSearches: adopted.projectSearches,
+					}),
 				});
 	const languageNames: LanguageNames =
 		adopted === undefined ? "nova" : "target";
@@ -4648,7 +4664,11 @@ export async function localCcz(
 		readonly targetIdentity?: TargetIdentity;
 		readonly adopted?: Pick<
 			HqAuthoredA,
-			"identity" | "mediaPaths" | "keyedCaseIds" | "columnWords"
+			| "identity"
+			| "mediaPaths"
+			| "keyedCaseIds"
+			| "columnWords"
+			| "projectSearches"
 		>;
 	} = {},
 ): Promise<Buffer | LocalCczRefused | null> {
@@ -4704,7 +4724,13 @@ export async function localCcz(
 				{ server: target.server, domain: target.domain, appId: target.hqAppId },
 				adopted === undefined
 					? exported.identity
-					: targetWireIdentity(adopted.identity, adopted.columnWords),
+					: targetWireIdentity(
+							adopted.identity,
+							adopted.columnWords,
+							options.targetIdentity
+								? record.projectSearches
+								: adopted.projectSearches,
+						),
 				{
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,
@@ -4736,6 +4762,7 @@ export async function localCcz(
 export async function importFile(
 	source: PublishDocument,
 	domain: string,
+	projectSearches: readonly ProjectSearchBinding[],
 ): Promise<Buffer> {
 	const choice = chooseDownloadTarget(
 		[
@@ -4763,6 +4790,7 @@ export async function importFile(
 		managedLookupWorkbooks,
 	} = prepared;
 	const hqJson = expandDoc(doc, {
+		identity: targetWireIdentity([], [], projectSearches),
 		attachmentTarget: prepared.attachmentTarget,
 		...(assets.size > 0 && { assets }),
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),

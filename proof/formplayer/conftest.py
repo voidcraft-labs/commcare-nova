@@ -25,6 +25,8 @@ DOCUMENTS = (
     "case-operation-query",
     "case-operation-sequence",
     "hq-empty-search",
+    "hq-project-database-search",
+    "hq-project-search",
     "media-rich",
     "navigation-base",
     "no-matches-basic",

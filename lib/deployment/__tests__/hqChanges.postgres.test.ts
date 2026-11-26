@@ -509,6 +509,87 @@ describe("recordHqChangesTaken", () => {
 		);
 	});
 
+	it("keeps the reviewed search service while a publish is sending to it", async () => {
+		const birth = await born();
+		const write = await admitAppWrite(birth.scope, TARGET, {
+			expectedEndings: 0,
+			remoteAppId: HQ_APP,
+			observedPushToken: appMappingToken(birth.deployment),
+			compiledIdentity: birth.targetIdentity,
+			compiledAtSeq: 1,
+			writeKind: "import",
+		});
+		if (write.kind !== "admitted")
+			throw new Error("Expected an admitted import.");
+		const targetIdentity = {
+			read: birth.targetIdentity,
+			next: {
+				...EMPTY_TARGET_IDENTITY,
+				projectSearches: [{ searchUuid: testUuid("service"), endpointId: 17 }],
+			},
+		};
+		const before = await ledger();
+		const refresh = () =>
+			recordRefreshedAppBaseline(birth.scope, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				comparedPushToken: appMappingToken(birth.deployment),
+				comparedHead: 1,
+				comparedDigest: digestOf(SOURCE),
+				read: stored(SOURCE, CHANGED_AT),
+				targetIdentity,
+			});
+		try {
+			expect((await refresh()).outcome).toBe("superseded");
+			await expect(
+				recordHqChangesTaken(AT_HEAD, taken(birth, { targetIdentity })),
+			).rejects.toMatchObject({ fence: "target-identity" });
+			expect(await ledger()).toEqual(before);
+			expect(await readTargetIdentity(birth.scope, TARGET)).toEqual(
+				birth.targetIdentity,
+			);
+		} finally {
+			await settleRemoteWrites([write.writeId], { kind: "settled" });
+		}
+		expect((await refresh()).outcome).toBe("current");
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).projectSearches,
+		).toEqual(targetIdentity.next.projectSearches);
+	});
+
+	it("rejects an old app claim at the same physical destination and a moved app head", async () => {
+		const birth = await born();
+		const next = await pushed(birth);
+		const before = await ledger();
+		const read = { sourceDigest: digestOf(SOURCE), novaRevision: 2 };
+		await expect(
+			recordHqChangesTaken({ kind: "own", headSeq: 2 }, taken(birth, { read })),
+		).rejects.toMatchObject({ fence: "mapping-token" });
+		await expect(
+			recordHqChangesTaken(AT_HEAD, taken(next, { read })),
+		).rejects.toMatchObject({ fence: "app-head" });
+		const refresh = (pushToken: string, observedAt: string) =>
+			recordRefreshedAppBaseline(birth.scope, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				comparedPushToken: pushToken,
+				comparedHead: 2,
+				comparedDigest: read.sourceDigest,
+				read: stored(SOURCE, observedAt),
+				targetIdentity: {
+					read: birth.targetIdentity,
+					next: EMPTY_TARGET_IDENTITY,
+				},
+			});
+		expect(
+			(await refresh(appMappingToken(birth.deployment), CHANGED_AT)).outcome,
+		).toBe("superseded");
+		expect(
+			(await refresh(appMappingToken(next.deployment), "2026-11-11T00:00:00Z"))
+				.outcome,
+		).toBe("superseded");
+		expect(await ledger()).toEqual(before);
+	});
 	it("records the sequence of the commit it rides on, and nothing where that commit fails after it", async () => {
 		const birth = await born();
 		const head = await headOf(APP);
@@ -2235,6 +2316,10 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 				...(current.source as Record<string, unknown>),
 				name: "Survey, read again",
 			};
+			const live = (await readDeployment(scope, KEY_TARGET))?.active.find(
+				(row) => row.kind === "app",
+			);
+			if (!live) throw new Error("Expected the app's live deployment.");
 			await recordRefreshedAppBaseline(scope, KEY_TARGET, {
 				expectedEndings: 0,
 				remoteAppId: current.remoteAppId,

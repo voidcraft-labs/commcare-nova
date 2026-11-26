@@ -15,6 +15,7 @@ import {
 	readHttpRequestBody,
 	readMultipartRequest,
 } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
 	applicationAnswer,
@@ -179,30 +180,10 @@ async function asUser<T>(
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.write", "nova.hq.write"],
 ) {
-	const clientId = "publish-fixture";
-	const issuedAt = Math.floor(Date.now() / 1000);
-	await sql`INSERT INTO auth_oauth_client(id,"clientId","redirectUris","createdAt","updatedAt") VALUES (${clientId},${clientId},'[]'::jsonb,now(),now()) ON CONFLICT DO NOTHING`.execute(
-		h.db(),
-	);
-	await sql`INSERT INTO auth_oauth_consent(id,"clientId","userId",scopes,"createdAt","updatedAt")
- SELECT ${`${userId}-consent`},${clientId},id,${JSON.stringify(scopes)}::jsonb,now(),now() FROM auth_user WHERE id=${userId}
- ON CONFLICT(id) DO UPDATE SET scopes=excluded.scopes`.execute(h.db());
-	return withMcpClient(
-		(server) =>
-			registerUploadAppToHq(server, {
-				userId,
-				scopes,
-				authKind: "oauth",
-				grant: {
-					kind: "oauth",
-					clientId,
-					issuedAt,
-					expiresAt: issuedAt + 3600,
-					scopes,
-				},
-			}),
-		run,
-	);
+	const ctx = await installationCredential(h.db(), userId, [
+		...new Set([...scopes, "nova.read", "nova.write"]),
+	]);
+	return withMcpClient((server) => registerUploadAppToHq(server, ctx), run);
 }
 /**
  * Every confirmation an upload can ask for. The cases are about what an

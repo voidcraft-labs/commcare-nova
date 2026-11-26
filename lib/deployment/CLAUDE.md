@@ -2851,3 +2851,27 @@ and replaying that write require both the read grant and
 A settings edit carries only changed scalars and indexed rule splices under the current revision. The Builder transport and the SA/MCP tool share the same 64 KiB change budget. Complete confirmed profiles remain readable. `previewSearchPages.ts` pages destination summaries and twelve ordered rules at a time under a fresh Project/role snapshot. Its continuation binds the app, Project, target and revisions and gives an explicit restart if the selection changed. The stream sends bounded profile segments and the Builder exposes only the complete Project snapshot.
 
 The nullable `caseListMap` field uses the same Project/target/revision, consent and role fences. Older JSON without the field remains readable and unrelated scalar edits preserve that absence. An explicit false records an unavailable Web Apps record map.
+
+### Destination-bound searches
+
+`app_deployment_search_bindings` maps an app's logical search UUID to a
+positive service ID within a single deployment. The app's catalog contains
+names and logical identities. A numeric service ID first seen in HQ belongs
+to that exact space. `inspectProjectSearchDestination` reads configured and
+missing bindings under the viewer's Project access. A contributor confirms
+the current app, actor, role, target and bindings before replacing them.
+The writer rechecks edit access and refuses a conflicting open remote write.
+
+A request includes the fields the menu sends, named defaults and any keys the
+selected route adds for ownership or parent selection. The capability probe
+answers whether the space supports external search. HQ's application API does
+not expose the service's query or verify what rows it returns. Every physical
+publish write checks the planned bindings against the locked deployment.
+
+
+The first bring-in review and the saved destination review derive search contracts
+from the same logical uses and target-owned bindings. Each menu shows its request
+parameter names and the returned fields it actually reads. A source service ID
+stays on the adopted deployment. A binding whose last menu was removed remains
+visible for an editor to release explicitly. Complete paged MCP reviews bind
+continuations to the original reading and return approval on the final page.

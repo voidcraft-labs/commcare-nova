@@ -52,6 +52,7 @@ import * as userSettingsConnectionEpoch from "./20261207060000_user_settings_con
 import * as lookupJsonDestinations from "./20261208000000_lookup_json_destinations";
 import * as caseIndexHistory from "./20261208020000_case_index_history";
 import * as previewSearchSettings from "./20261208050000_preview_search_settings";
+import * as projectSearchBindings from "./20261208060000_project_search_bindings";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -275,6 +276,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261208000000_lookup_json_destinations": lookupJsonDestinations,
 	"20261208020000_case_index_history": caseIndexHistory,
 	"20261208050000_preview_search_settings": previewSearchSettings,
+	"20261208060000_project_search_bindings": projectSearchBindings,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

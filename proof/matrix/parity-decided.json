@@ -342,6 +342,8 @@
 	],
 	"hq-project-languages": [],
 	"hq-question-display": [],
+	"hq-project-database-search": [],
+	"hq-project-search": [],
 	"hq-questions": [
 		"hq-questions/action-inside-control",
 		"hq-questions/appearance-android-inside-held",

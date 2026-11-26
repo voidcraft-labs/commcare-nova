@@ -1,0 +1,38 @@
+{
+	"catalog": [
+		{
+			"name": "visit",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "district",
+					"data_type": "single_select",
+					"options": [
+						"north",
+						"south"
+					]
+				},
+				{
+					"name": "priority",
+					"data_type": "int",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": null
+	},
+	"cases": [
+		{
+			"type": "visit",
+			"properties": {
+				"district": "north"
+			}
+		}
+	]
+}

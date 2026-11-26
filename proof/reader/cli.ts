@@ -220,7 +220,11 @@ function heldOf(
 	const uuidOfKey = new Map(
 		externalIdentityMap(
 			reading.doc,
-			targetWireIdentity(reading.identity),
+			targetWireIdentity(
+				reading.identity,
+				reading.columnWords,
+				reading.projectSearches,
+			),
 			reading.lookup && lookupWireNaming(reading.lookup.definitions),
 		).map((entry) => [
 			externalKeyText({ kind: entry.kind, parts: entry.parts }),

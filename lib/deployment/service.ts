@@ -63,6 +63,7 @@ import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { declaresWebApps, organizationLevelsOf } from "@/lib/domain";
 import { describeCarrier, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { projectSearchDependencies } from "@/lib/domain/projectSearches";
 import { verifyAssignmentWitness } from "@/lib/export/privateAssignments";
 import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
@@ -921,11 +922,6 @@ export async function publishAppToHq(
 			}
 			existing = await readDeployment(input.scope, target);
 		}
-		/* Every store write of this publish carries the count of endings read
-		 * here, 0 where the target has no record yet. */
-		const fence: DeploymentFence = {
-			expectedEndings: existing?.deployment.endings ?? 0,
-		};
 		/* Where this project space keeps what the document doesn't hold: the
 		 * ids of menus and forms, the prefix each keyed create's cases stand
 		 * under, the paths of files. Every body this publish builds prints
@@ -934,6 +930,15 @@ export async function publishAppToHq(
 			existing === null
 				? EMPTY_TARGET_IDENTITY
 				: await readTargetIdentity(input.scope, target);
+		const usedSearches = projectSearchDependencies(doc);
+		/* Every store write of this publish carries the count of endings read
+		 * here, 0 where the target has no record yet. */
+		const fence: DeploymentFence = {
+			expectedEndings: existing?.deployment.endings ?? 0,
+			searchConnections: targetIdentity.projectSearches?.filter((row) =>
+				usedSearches.has(row.searchUuid),
+			),
+		};
 		/* Update in place, fill the empty app an earlier try made, or create.
 		 * The predicates live in `resources.ts`, which the publish dialog also
 		 * reads to say which will happen before the button is pressed. */
@@ -4318,12 +4323,17 @@ export async function refreshDeployment(
 	if (observation.kind === "unavailable") {
 		throw new DeploymentError("invalid", observation.message);
 	}
-	const { view } = await applyDeploymentObservation(scope, target, {
-		observedRemoteId: remote.remoteId,
-		observedPushToken: remote.pushToken,
-		outcomes: observation.outcomes,
-		remoteRevision: observation.remoteRevision,
-	});
+	const { view } = await applyDeploymentObservation(
+		scope,
+		target,
+		{
+			observedRemoteId: remote.remoteId,
+			observedPushToken: remote.pushToken,
+			outcomes: observation.outcomes,
+			remoteRevision: observation.remoteRevision,
+		},
+		scope.requireOperation,
+	);
 	return {
 		deployment: view,
 		artifact: await setupArtifactFor(scope, view, doc, organization),
@@ -4609,6 +4619,7 @@ export async function refreshKeptValues(
 	const written = await recordRefreshedAppBaseline(scope, target, {
 		expectedEndings: existing.deployment.endings,
 		remoteAppId: remote.remoteId,
+
 		comparedDigest: baseline.sourceDigest,
 		comparedPushToken: remote.pushToken,
 		keptMediaMap: compared.mediaMap,

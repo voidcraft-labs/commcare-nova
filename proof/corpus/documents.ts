@@ -34,6 +34,7 @@ import { z } from "zod";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import type {
 	ColumnFieldWordRow,
+	ProjectSearchBinding,
 	WireIdentityOverride,
 } from "@/lib/commcare/wireIdentity";
 import type { AdoptedKeyedCaseId } from "@/lib/deployment/adoption";
@@ -134,6 +135,7 @@ export interface HqAuthoredFacts {
 	 * its local archive print the column under. Empty where A holds none.
 	 */
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
 	/**
 	 * Absolute path of the base's retained directory (`proof/hq-apps/<base>/`),
 	 * whose files the entry writer copies into the document's `authored/` and

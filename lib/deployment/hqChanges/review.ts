@@ -57,7 +57,6 @@ import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import { readWorkLimit, sourceCharacters } from "@/lib/commcare/reader/work";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { WorkCancelled, WorkLimitReached } from "@/lib/commcare/workMeter";
 import {
 	findReadyAssetIdsByProjectAndHashes,
@@ -197,6 +196,7 @@ import {
 import {
 	exportIdentityOf,
 	formIdsAgree,
+	observedSearchChanges,
 	observedTargetIdentity,
 	resolveTargetIdentity,
 	sameTargetIdentity,
@@ -494,6 +494,7 @@ export function takenTargetIdentity(input: {
 	readonly draft: ReadDraft;
 	readonly files: readonly AdoptedMediaFile[];
 	readonly assetNames?: ReadonlyMap<MediaAssetId, MediaAssetId>;
+	readonly baseline: ReadDraft;
 	readonly doc: BlueprintDoc;
 }): {
 	readonly read: TargetIdentity;
@@ -524,7 +525,12 @@ export function takenTargetIdentity(input: {
 	if (!observed.ok) return null;
 	return {
 		read,
-		next: resolveTargetIdentity(read, observed.observed, input.doc),
+		next: resolveTargetIdentity(
+			read,
+			observed.observed,
+			input.doc,
+			input.baseline.identities.projectSearches ?? [],
+		),
 	};
 }
 
@@ -1600,7 +1606,8 @@ function resolverOf(fetched: HqChangesBasis, data: ReadingProjectData) {
 		fetched.scope.appId,
 		externalIdentityMap(
 			fetched.reference.identityDoc,
-			targetWireIdentity(fetched.targetIdentity.entities),
+			exportIdentityOf(fetched.reference.identityDoc, fetched.targetIdentity)
+				.identity,
 			lookupWireNaming(readerLookupContext(data).definitions),
 		),
 	);
@@ -1647,7 +1654,7 @@ function readingsWith(
 			caseListActionsApplied: fetched.caseListActionsApplied,
 		}),
 		reference: fetched.reference,
-		overrides: fetched.targetIdentity.entities,
+		targetIdentity: fetched.targetIdentity,
 		media: { published: fetched.published, base, now },
 		heldExpansions: pieces.expansions,
 	});
@@ -1919,7 +1926,13 @@ export async function checkHqChanges(
 	// for storage and then in the content namespace used by the receipt.
 	// Deduplicating identical files before assigning their paths gives both
 	// requests the same proposed record, including a previously parked file.
-	const input = { fetched, draft, files: targetFiles, doc: targetDoc };
+	const input = {
+		fetched,
+		draft,
+		baseline: readings.base.draft,
+		files: targetFiles,
+		doc: targetDoc,
+	};
 	const recorded = await pieces
 		.at("the target identity")
 		.run(() => takenTargetIdentity(input));
@@ -1930,6 +1943,26 @@ export async function checkHqChanges(
 				.run(() => takenTargetIdentity({ ...input, assetNames }))
 		: recorded;
 	if (!receipt) return identityRowsDefect(fetched);
+	const identityChanges = await pieces
+		.at("where HQ keeps")
+		.run(() =>
+			targetIdentityChanges(
+				receipt.read,
+				receipt.next,
+				targetDoc,
+				fetched.head.doc,
+				assetNames,
+			),
+		);
+	// Compare the two HQ readings even when the local draft removed a search.
+	const serviceChanges = observedSearchChanges(
+		readings.base.draft.doc,
+		readings.base.draft.identities.projectSearches ?? [],
+		draft.doc,
+		draft.identities.projectSearches ?? [],
+	);
+	const reviewsSearch =
+		serviceChanges.length > 0 || !!identityChanges.searchConnections?.length;
 	// Older passive refreshes could advance the source while retaining a card
 	// from another reading. Otherwise compare the concrete file references:
 	// the same register entry can describe a different path or a different file.
@@ -2004,6 +2037,12 @@ export async function checkHqChanges(
 						: "changed-publish-subjects",
 			}),
 			authority: reviewAuthority(fetched),
+			...(reviewsSearch && {
+				projectSearchReview: {
+					endings: fetched.deployment.endings,
+					changes: serviceChanges,
+				},
+			}),
 			baselineDigest: fetched.baseline.sourceDigest,
 			sourceDigest: fetched.normalized.digest,
 			headSeq: fetched.head.seq,
@@ -2081,24 +2120,16 @@ export async function checkHqChanges(
 		publishChanges.push(
 			`This publish removes ${unused.length} unused file ${unused.length === 1 ? "reference" : "references"}.`,
 		);
-	const whereHqKeeps = await pieces
-		.at("where HQ keeps")
-		.run(() => [
-			...(fetched.androidPrivilegeLost
-				? [ANDROID_APPS_PRIVILEGE_LOST_LINE]
-				: []),
-			...whereHqKeepsLines(
-				targetIdentityChanges(
-					receipt.read,
-					receipt.next,
-					plan.kind === "changes" ? plan.target : fetched.head.doc,
-					fetched.head.doc,
-					assetNames,
-				),
-			),
-		]);
+	const whereHqKeeps = await pieces.at("where HQ keeps").run(() => [
+		...(fetched.androidPrivilegeLost ? [ANDROID_APPS_PRIVILEGE_LOST_LINE] : []),
+		...whereHqKeepsLines({
+			...identityChanges,
+			projectSearches: serviceChanges,
+		}),
+	]);
 	if (
 		!requiresReview &&
+		!reviewsSearch &&
 		(plan.kind === "nothing" ||
 			(plan.batch.length === 0 && plan.renamedInNova.length === 0))
 	)

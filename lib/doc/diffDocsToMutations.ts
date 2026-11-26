@@ -774,6 +774,30 @@ function* diffGranularSteps(
 	if (prev.logo !== next.logo) {
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
 	}
+	const oldSearches = prev.appSettings.projectSearches ?? {};
+	const searches = next.appSettings.projectSearches ?? {};
+	for (const [key, search] of Object.entries(searches)) {
+		const uuid = asUuid(key);
+		const old = oldSearches[uuid];
+		if (old?.name !== search.name)
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: {
+					projectSearch: {
+						operation: old ? "rename" : "add",
+						uuid,
+						name: search.name,
+					},
+				},
+			});
+	}
+	for (const key of Object.keys(oldSearches)) {
+		if (!Object.hasOwn(searches, key))
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: { projectSearch: { operation: "remove", uuid: asUuid(key) } },
+			});
+	}
 	const settingsPatch = appSettingsPatch(prev.appSettings, next.appSettings);
 	if (settingsPatch !== undefined) {
 		appLevel.push({ kind: "setAppSettings", settings: settingsPatch });

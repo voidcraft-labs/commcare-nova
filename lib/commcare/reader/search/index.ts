@@ -25,6 +25,10 @@ import { recordFromEntries } from "@/lib/domain/records";
 import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import {
+	isProjectSearchId,
+	isProjectSearchParameter,
+} from "../../hq/projectSearch";
 import { searchButtonUndeclaredInstances } from "../../suite/case-search/buttonCondition";
 import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import {
@@ -112,6 +116,18 @@ const MARKERS = MARKERS_HELD;
 
 export const SEARCH_CLAIMS = defineClaims("search", {
 	configShared: take(ROUND_TRIP, "schema:ShadowModule.search_config"),
+	parameterRows: take(
+		`${S}case-search-endpoint-id`,
+		"schema:CaseSearch.default_properties",
+	),
+	parameter: take(
+		`${S}case-search-endpoint-id`,
+		"schema:DefaultCaseSearchProperty",
+	),
+	parameterName: take(
+		`${S}case-search-endpoint-id`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
 	configModule: take(ROUND_TRIP, "schema:Module.search_config"),
 	configAdvanced: take(ROUND_TRIP, "schema:AdvancedModule.search_config"),
 	inactive: derived(ROUND_TRIP, "schema:CaseSearch"),
@@ -245,6 +261,7 @@ interface SearchReading {
 	readonly rows: readonly SearchRow[];
 	readonly formsReadSearch: boolean;
 	readonly zeroInput: boolean;
+	readonly usesProjectSearch: boolean;
 	/** Whether the default filters are only HQ's two markers, on a menu with no prompt. */
 	readonly markersOnly: boolean;
 	readonly whole: boolean;
@@ -610,6 +627,107 @@ function recordInactiveSearchRespellings(
 			);
 }
 
+/** A repeated key is a second value in the request. Its ordinal distinguishes its
+ * expression from the first value, while the service identity is shared across menus. */
+function readProjectSearch(
+	ctx: ReadContext,
+	module: DraftModule,
+	cursor: JsonCursor,
+	endpointId: number,
+	config: Partial<OrdinaryCaseSearchConfig>,
+): ReturnType<typeof readDefaultFilters> {
+	const place = searchPlace(module);
+	let searchUuid = ctx.draft.projectSearches.get(endpointId);
+	if (searchUuid === undefined) {
+		searchUuid = ctx.accounting.identity(
+			ctx.identities.claim(
+				externalKey.projectSearch(endpointId),
+				module.uniqueId,
+			),
+			place,
+			"schema:CaseSearch.case_search_endpoint_id",
+		);
+		if (searchUuid !== undefined) {
+			const uuid = searchUuid;
+			const name =
+				ctx.input.knownProjectSearchNames?.[uuid]?.name ??
+				`${module.module.name || "Project"} search`;
+			ctx.writeDraft(() => {
+				ctx.draft.projectSearches.set(endpointId, uuid);
+				ctx.draft.appSettings.projectSearches ??= recordFromEntries([]);
+				ctx.draft.appSettings.projectSearches[uuid] = { name };
+			});
+		}
+	}
+	cursor.take("case_search_endpoint_id", SETTING_CLAIMS.endpoint, Number).value;
+	const defaults: NonNullable<
+		OrdinaryCaseSearchConfig["projectSearch"]
+	>["defaults"] = [];
+	const names = new Map<string, string[]>();
+	let ok = searchUuid !== undefined;
+	for (const row of cursor.list(
+		"default_properties",
+		"DefaultCaseSearchProperty",
+		C.parameterRows,
+	)) {
+		const name = row.peek("property");
+		const value = row.peek("defaultValue");
+		if (
+			typeof name !== "string" ||
+			!isProjectSearchParameter(name) ||
+			typeof value !== "string" ||
+			!value.trim()
+		) {
+			// Leave the exact unread key for accounting. A malformed service request cannot be adopted.
+			ok = false;
+			continue;
+		}
+		const sites = names.get(name) ?? [];
+		const ordinal = sites.length;
+		sites.push(`${row.pointer}/property`);
+		names.set(name, sites);
+		const uuid = ctx.accounting.identity(
+			ctx.identities.claim(
+				externalKey.projectSearchParameter(module.uniqueId, name, ordinal),
+				row.pointer,
+			),
+			place,
+			"schema:DefaultCaseSearchProperty.property",
+		);
+		if (!uuid) {
+			ok = false;
+			continue;
+		}
+		row.takeClass(C.parameter).value;
+		row.take("property", C.parameterName, String).value;
+		ctx.pending.register(
+			{
+				ref: {
+					entity: "module",
+					uuid: module.uuid,
+					slot: "project_search_parameter",
+					member: { parameterUuid: uuid },
+				},
+				text: value,
+				mode: { target: "hq-json", interpolation: "none" },
+				place,
+				key: "schema:DefaultCaseSearchProperty.defaultValue",
+			},
+			{ json: row, key: "defaultValue" },
+		);
+		defaults.push({ uuid, name, value: pendingPlaceholder("value") });
+	}
+	if (searchUuid !== undefined) config.projectSearch = { searchUuid, defaults };
+	return {
+		ok,
+		rows: [],
+		names,
+		filters: [],
+		zeroInput: false,
+		markersOnly: false,
+	};
+}
+
 /** Before any expression binds: every menu's search, read from its `search_config`, and the type each date
  *  Search field declares written into the draft's catalog before any expression binds. */
 export function readSearches(ctx: ReadContext, app: DraftApp): void {
@@ -660,9 +778,19 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const hasPrompts =
 			Array.isArray(cursor.peek("properties")) &&
 			(cursor.peek("properties") as unknown[]).length > 0;
-		const filters = readDefaultFilters(ctx, module, cursor, hasPrompts);
+		const endpoint = cursor.peek("case_search_endpoint_id");
+		const usesProjectSearch = isProjectSearchId(endpoint);
+		const filters = usesProjectSearch
+			? readProjectSearch(ctx, module, cursor, endpoint, config)
+			: readDefaultFilters(ctx, module, cursor, hasPrompts);
 		const caseType = module.module.caseType;
-		const prompts = readSearchPrompts(ctx, module, cursor, filters.names);
+		const prompts = readSearchPrompts(
+			ctx,
+			module,
+			cursor,
+			filters.names,
+			usesProjectSearch,
+		);
 		// A property the search's rows read, and a simple Search field's, is a property of the
 		// catalog, as every expression's is. A record attribute an order names (`@case_type`,
 		// `@status`) is the record's own, never a property (`requestOrder.ts::ATTRIBUTE_KEYS`).
@@ -679,6 +807,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			),
 			...filters.rows.flatMap((row) => searchRowProperties(row.text)),
 			...prompts.flatMap((prompt) =>
+				!usesProjectSearch &&
 				!prompt.refused &&
 				prompt.input.kind === "simple" &&
 				prompt.input.via === undefined
@@ -759,6 +888,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			rows: filters.rows,
 			formsReadSearch: workflow?.formsReadSearch === true,
 			zeroInput: filters.zeroInput,
+			usesProjectSearch,
 			markersOnly: filters.markersOnly,
 			whole:
 				filters.ok &&
@@ -1233,14 +1363,15 @@ function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
 			coverUnsettledRows(ctx, reading);
 			continue;
 		}
-		classifySearchRows(ctx, module, {
-			rows: reading.rows,
-			prompts: reading.prompts,
-			formsReadSearch: reading.formsReadSearch,
-			zeroInput: reading.zeroInput,
-			markersOnly: reading.markersOnly,
-		});
-		fieldsOverAnotherType(ctx, reading);
+		if (!reading.usesProjectSearch)
+			classifySearchRows(ctx, module, {
+				rows: reading.rows,
+				prompts: reading.prompts,
+				formsReadSearch: reading.formsReadSearch,
+				zeroInput: reading.zeroInput,
+				markersOnly: reading.markersOnly,
+			});
+		if (!reading.usesProjectSearch) fieldsOverAnotherType(ctx, reading);
 		placed.push(reading);
 	}
 	settleUntoldChecks(ctx, placed);

@@ -631,6 +631,7 @@ export function compileCczParts(
 		});
 	});
 	const linkContext = formLinkProjectionContext(doc, {
+		projectSearchId: opts.identity?.projectSearchId,
 		expressionDoc: authoredDoc,
 		runtimeTarget: opts.runtimeTarget,
 		writesWorker: (formUuid) => {
@@ -842,6 +843,11 @@ export function compileCczParts(
 			const remoteRequestEmission =
 				caseSearchConfig && !formsReadSearch
 					? buildRemoteRequest({
+							projectSearchId:
+								caseSearchConfig.projectSearch &&
+								opts.identity?.projectSearchId?.(
+									caseSearchConfig.projectSearch.searchUuid,
+								),
 							runtimeTarget: opts.runtimeTarget,
 							module: { ...mod, caseSearchConfig },
 							moduleIndex: mIdx,

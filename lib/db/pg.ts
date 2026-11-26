@@ -2078,6 +2078,11 @@ export interface AppDatabase {
 	app_deployment_media_paths: AppDeploymentMediaPathsTable;
 	app_deployment_keyed_case_ids: AppDeploymentKeyedCaseIdsTable;
 	app_deployment_column_field_words: AppDeploymentColumnFieldWordsTable;
+	app_deployment_search_bindings: {
+		deployment_id: string;
+		search_uuid: string;
+		endpoint_id: number;
+	};
 	hq_remote_writes: HqRemoteWritesTable;
 	app_deployment_confirmations: AppDeploymentConfirmationsTable;
 	app_deployment_baselines: AppDeploymentBaselinesTable;

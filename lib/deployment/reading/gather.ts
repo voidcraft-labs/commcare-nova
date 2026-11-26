@@ -122,6 +122,7 @@ import {
 	canonicalTargetIdentity,
 	EMPTY_TARGET_IDENTITY,
 	observedTargetIdentity,
+	projectSearchDestinationRows,
 	resolveTargetIdentity,
 	type TargetIdentity,
 } from "../targetIdentity";
@@ -1971,9 +1972,11 @@ async function checkWith(
 			accepted,
 			lookup,
 			mediaFiles,
+			searchBindings: targetIdentity.projectSearches,
 			identity: targetWireIdentity(
 				targetIdentity.entities,
 				targetIdentity.columnWords,
+				targetIdentity.projectSearches,
 			),
 		}),
 	);
@@ -2010,7 +2013,8 @@ async function checkWith(
 				user: scope.userId,
 				role: input.actorRole ?? null,
 			},
-			...(review.runsOn.some((choice) => choice.removesFiles?.length)
+			...(review.projectSearches?.length ||
+			review.runsOn.some((choice) => choice.removesFiles?.length)
 				? {
 						source: {
 							digest: canonicalJsonDigest(
@@ -2077,6 +2081,7 @@ function* reviewOf(input: {
 	readonly mediaFiles: readonly AdoptedMediaFile[];
 	/** The ids and column words the birth's first import prints under. */
 	readonly identity: WireIdentity;
+	readonly searchBindings: TargetIdentity["projectSearches"];
 }): Generator<void, ReadingReview, void> {
 	const { appId, key, fetched, draft, plan, choices, accepted } = input;
 	const { source } = fetched;
@@ -2197,6 +2202,7 @@ function* reviewOf(input: {
 		mintingResolver(appId),
 	);
 
+	const searches = projectSearchDestinationRows(doc, input.searchBindings);
 	const datetimeSplit = choices.choices.find((choice) => choice.split);
 	return {
 		appName: source.name ?? "",
@@ -2225,6 +2231,7 @@ function* reviewOf(input: {
 		platformsOut,
 		kept: facts === null ? [] : keptListFor(facts),
 		tables: projectReview.tables,
+		...(searches.length > 0 && { projectSearches: searches }),
 		places: projectReview.places,
 		ownerRules: readingOwnerRules(
 			fetched.data,
