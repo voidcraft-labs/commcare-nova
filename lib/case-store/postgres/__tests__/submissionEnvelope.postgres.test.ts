@@ -1238,6 +1238,20 @@ describe("ordered selected-case batches", () => {
 			},
 		};
 		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		await expect(
+			store.applySubmission({
+				...claim,
+				operations: {
+					...claim.operations,
+					scopeOrder: claim.operations.scopeOrder.slice(0, -1),
+				},
+			}),
+		).rejects.toThrow("schedule each live row once");
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({
+			notes: "original",
+		});
 		const saved = await store.applySubmission(claim);
 		expect(
 			saved.operations.map((effect) => [
