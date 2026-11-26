@@ -33,7 +33,7 @@ def database():
     ))
 
 
-def _unfiltered(source):
+def unfiltered_source(source):
     form = etree.fromstring(source.encode() if isinstance(source, str) else source)
     (itemset,) = form.xpath("//*[local-name()='select1' and @ref='/data/clinic']/*[local-name()='itemset']")
     assert itemset.get("nodeset").startswith(NODESET + "[@case_type")
@@ -48,7 +48,7 @@ def release_unfiltered(holder):
     from casexml.apps.case.mock import CaseBlock
     from corehq.apps.hqcase.utils import submit_case_blocks
 
-    write = apps.form_written(holder, {"0.0": _unfiltered})
+    write = apps.form_written(holder, {"0.0": unfiltered_source})
 
     def change(stored):
         blocks = [
