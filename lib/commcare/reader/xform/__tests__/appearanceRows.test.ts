@@ -2,8 +2,8 @@
  * The appearance table held to the manifest's section "Appearances": every
  * entry of the section is read by a rule of `appearances.ts` (a refused-class
  * port, a row, or rule 4), every row's entry is in that section or is a kind
- * row of the field kind table, and no row's entry is HELD, since every row is
- * claimed with `account`, which a HELD entry does not permit. It would catch
+ * row of the field kind table. Every held row must take the attribute into
+ * the document; other rows account for it in the review. It would catch
  * an entry no rule reaches, a row under an entry another section holds, and a
  * row whose entry became HELD while no code reads its value.
  */
@@ -39,13 +39,13 @@ describe("APPEARANCE_ROWS", () => {
 		).toEqual([]);
 	});
 
-	it("holds no row under a HELD entry", () => {
+	it("takes each held row into its document and accounts for every remaining finding", () => {
 		const index = inventoryIndex();
-		expect(
-			APPEARANCE_ROWS.filter(
-				(row) => index.entry(row.claim.entry)?.standing === "held",
-			).map((row) => row.claim.entry),
-		).toEqual([]);
-		for (const row of APPEARANCE_ROWS) expect(row.claim.use).toBe("account");
+		for (const row of APPEARANCE_ROWS) {
+			expect([row.claim.entry, row.claim.use]).toEqual([
+				row.claim.entry,
+				index.entry(row.claim.entry)?.standing === "held" ? "take" : "account",
+			]);
+		}
 	});
 });

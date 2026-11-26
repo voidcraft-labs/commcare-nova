@@ -10,10 +10,24 @@ themselves.
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "hq-question-display",
+    "media-language-files",
+    "case-list-action-advanced",
+    "case-list-action-basic",
+    "prompt-periods",
+    "prompt-period-spellings",
+    "prompt-period-fallback",
+    "targeted-receiving-answers",
+    "targeted-receiving-answers-android",
+
     "case-operation-conditional",
     "case-operation-key",
     "case-operation-query",
@@ -24,17 +38,60 @@ DOCUMENTS = (
     "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0",
     "localization-bilingual",
     "navigation-base",
+    "targeted-menu-badges",
+    "targeted-media-slots",
+    "prompt-checkboxes",
+    "targeted-worker-messages",
+    "targeted-repeat-invitations",
+    "targeted-capture-widgets",
+    "targeted-face-photo",
+    "search-named-parent",
+    "search-remote-grouped-prompts",
+    "search-remote-address-picker",
     "targeted-form-link-hidden-target",
+    "targeted-forms-in-menu-above-one-case",
+    "targeted-case-choice-values",
+    "targeted-sorted-case-choices",
+    "targeted-case-choice-reopen",
+    "targeted-case-map",
+    "targeted-case-list-icon-action",
+    "targeted-case-list-device-lookup",
+    "targeted-case-list-device-lookup-count",
+    "targeted-case-list-device-lookup-property",
+    "targeted-reached-choice-columns",
+    "targeted-relative-case-dates",
     "targeted-hidden-column",
+    "targeted-independent-case-order",
+    "targeted-nearest-clinics",
     "targeted-hidden-from-menu",
+    "targeted-listed-forms",
+    "targeted-menu-layouts",
+    "targeted-independent-form-choices",
     "targeted-missing-media",
     "targeted-multi-select-destinations",
     "targeted-number-keypad",
+    "targeted-question-calendar",
+    "targeted-android-app-answers",
     "targeted-plain-help",
     "targeted-plain-labels",
+    "targeted-named-answer-root",
     "targeted-preview-android-renders",
+    "targeted-search-workflow",
+    "targeted-search-workflow-android",
+    "targeted-shared-visit-entries",
     "targeted-styled-value",
+    "targeted-submitted-groups",
     "targeted-tile-hidden-order",
+    "tile-detail-layout",
+    "tile-detail-tabs",
+    "tile-named-layout",
+    "tile-persistent-external",
+    "tile-persistent-inline",
+    "tile-persistent-line",
+    "targeted-connect-recipient-repeat",
+    "targeted-connect-section-order",
+    "targeted-validated-barcode-secret",
+    "targeted-saved-form-descriptor",
 )
 
 
@@ -60,3 +117,13 @@ def android_documents():
             " the Android reader's own tests read. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+@pytest.fixture
+def android_walk_evidence(request):
+    """The unchanged device walk, including its stopping screen or native exception."""
+    def write(walk):
+        directory = Path(os.environ.get("PROOF_OUT") or "/tmp") / "android" / request.node.name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "walk.json").write_text(json.dumps(walk, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    return write

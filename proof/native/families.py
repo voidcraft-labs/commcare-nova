@@ -133,6 +133,7 @@ FAMILIES = {
         _script("static-quote", "emit-static-quote-evidence.ts"),
         _script("tile", "emit-tile-evidence.ts"),
         _script("worker", "emit-worker-evidence.ts"),
+        _script("worker-journey", "emit-worker-journey-evidence.ts"),
         _script("xml", "emit-xml-evidence.ts"),
         _script("xpath", "emit-xpath-evidence.ts"),
         # The admitted expander corpus and the HQ-JSON oracle probes are
@@ -147,6 +148,8 @@ FAMILIES = {
 CORE_CLASSES = {
     # targeted-advanced-module's advanced forms, from their suite sessions, on HQ's build and the local injection.
     "AdvancedFormRuntimeTest": "case",
+    "IndependentFormChoicesRuntimeTest": "case",
+    "SharedFormEntryRuntimeTest": "case",
     "ArithmeticRuntimeTest": "arithmetic",
     "CaseCaptureRuntimeTest": "case",
     "CaseChoiceRuntimeTest": "case-choice",

@@ -78,8 +78,11 @@ export const SCOPES = {
 	hqRead: "nova.hq.read",
 	hqWrite: "nova.hq.write",
 	hqImport: "nova.hq.import",
+	previewSearchRead: "nova.preview.search.read",
+	previewSearchWrite: "nova.preview.search.write",
 	projectsRead: "nova.projects.read",
 	projectsWrite: "nova.projects.write",
+	projectDataExport: "nova.projects.data.export",
 } as const;
 
 /** Union of the scope literals derived from `SCOPES`. */
@@ -99,9 +102,17 @@ export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
  * CommCare HQ's rows in.
  */
 export const TOOL_SCOPES = {
+	get_preview_search_settings: [SCOPES.previewSearchRead],
+	set_preview_search_settings: [
+		SCOPES.previewSearchRead,
+		SCOPES.previewSearchWrite,
+	],
 	get_hq_connection: [SCOPES.hqRead],
 	check_project_space_compatibility: [SCOPES.hqRead],
 	get_deployment: [SCOPES.hqRead],
+	prepare_place_id_workbook: [SCOPES.projectDataExport],
+	get_project_search_destination: [SCOPES.hqRead],
+	connect_project_searches: [SCOPES.hqWrite],
 	upload_app_to_hq: [SCOPES.hqWrite],
 	refresh_deployment: [SCOPES.hqWrite],
 	withdraw_deployment_confirmation: [SCOPES.hqWrite],
@@ -114,6 +125,7 @@ export const TOOL_SCOPES = {
 	read_hq_changes: [SCOPES.hqImport],
 	bring_in_hq_changes: [SCOPES.hqImport],
 	refresh_managed_data: [SCOPES.hqImport],
+	inspect_lookup_source: [SCOPES.hqImport],
 	set_lookup_table_management: [SCOPES.hqWrite, SCOPES.hqImport],
 	list_members: [SCOPES.projectsRead],
 	create_project: [SCOPES.projectsWrite],
@@ -124,6 +136,10 @@ export const TOOL_SCOPES = {
 
 /** A tool `TOOL_SCOPES` names. */
 export type ScopedToolName = keyof typeof TOOL_SCOPES;
+
+export function isScopedToolName(name: string): name is ScopedToolName {
+	return Object.hasOwn(TOOL_SCOPES, name);
+}
 
 /** Scopes knowable from the request before consulting the app. A normal
  * deployment refresh only observes the build; the kept-settings mode imports
@@ -198,6 +214,16 @@ export function parseScopes(scope: string | undefined): string[] {
  * `registerScopedTool` throws nothing: it hands this error to the shared
  * serializer and answers its envelope before the handler runs.
  */
+export class McpCredentialInactiveError extends Error {
+	constructor(kind: AuthKind) {
+		super(
+			kind === "api-key"
+				? "This API key no longer authorizes this change. Check the key and its scopes in Settings, then review the change again."
+				: "This client no longer has permission for this change. Reauthorize it with the required scopes, then review the change again.",
+		);
+		this.name = "McpCredentialInactiveError";
+	}
+}
 export class McpScopeError extends Error {
 	constructor(
 		public readonly requiredScope: Scope,

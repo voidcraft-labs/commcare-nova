@@ -1,3 +1,4 @@
+import { lineParts as boundedJsonTextParts } from "@/lib/utils/jsonTextParts";
 /**
  * The one pager and the one serialiser of the tools that answer a reading of
  * an app in CommCare HQ: `read_hq_app`, `bring_in_hq_app`, `read_hq_changes`
@@ -14,6 +15,7 @@
  */
 
 import { cutShown } from "@/lib/publish/shownText";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 /**
  * The most characters of JSON one answer holds, under the result size the
@@ -21,15 +23,32 @@ import { cutShown } from "@/lib/publish/shownText";
  * cut at.
  */
 export const PAGE_LIMIT_CHARS = 80_000;
-
 /** The most characters of JSON one piece of a page takes, its comma included. */
 export const PIECE_MAX_CHARS = 30_000;
 
 /** The most characters of JSON the rest of a page takes, so any one piece fits beside it. */
 export const SHELL_MAX_CHARS = PAGE_LIMIT_CHARS - PIECE_MAX_CHARS;
 
-/** The most characters of JSON one code unit takes: `\uXXXX`. */
-const JSON_CHARS_PER_UNIT = 6;
+/** A control code in the JSON body can take seven characters inside SDK TextContent. */
+const JSON_CHARS_PER_UNIT = 7;
+
+/** Serialized characters a JSON fragment occupies inside an MCP TextContent string. */
+export function encodedJsonChars(value: unknown): number {
+	return JSON.stringify(JSON.stringify(value)).length - 2;
+}
+
+/** Budget the complete SDK result, reserving the error flag by default. */
+export function toolResultChars(body: unknown, isError = true): number {
+	return JSON.stringify({
+		...(isError && { isError: true }),
+		content: [{ type: "text", text: JSON.stringify(body) }],
+	}).length;
+}
+
+/** The full SDK response, including JSON escaping, must fit the review page. */
+export function fitsReviewResult(body: unknown, isError = false): boolean {
+	return toolResultChars(body, isError) <= PAGE_LIMIT_CHARS;
+}
 
 /**
  * `value` where its JSON is at most `maxChars` characters (by default a
@@ -43,13 +62,14 @@ export function fitPiece<T>(
 	value: T,
 	maxChars: number = PIECE_MAX_CHARS - 1,
 ): T {
-	if (JSON.stringify(value).length <= maxChars) return value;
+	if (encodedJsonChars(value) <= maxChars) return value;
 	let strings = 0;
-	const structure = JSON.stringify(value, (_key, held: unknown) => {
+	const empty = JSON.stringify(value, (_key, held: unknown) => {
 		if (typeof held !== "string") return held;
 		strings += 1;
 		return "";
-	}).length;
+	});
+	const structure = JSON.stringify(empty).length - 2;
 	const units = Math.floor(
 		(maxChars - structure) / (JSON_CHARS_PER_UNIT * Math.max(1, strings)),
 	);
@@ -66,6 +86,51 @@ export function fitPiece<T>(
 	) as T;
 }
 
+/** One immutable read and its display context own this incremental projection.
+ * Validating a continuation and rendering it share the same pieces. A fresh
+ * read reconstructs only through the first piece beyond the requested page. */
+export function indexedReview<Review extends object, Piece>(
+	projectPieces: (
+		review: Review,
+		project: string,
+		domain: string,
+	) => Iterable<Piece>,
+) {
+	type Index = {
+		has: (index: number) => boolean;
+		get: (index: number) => Piece;
+	};
+	const indexes = new WeakMap<
+		Review,
+		{ project: string; domain: string; index: Index }
+	>();
+	return (review: Review, project: string, domain: string): Index => {
+		const existing = indexes.get(review);
+		if (existing?.project === project && existing.domain === domain)
+			return existing.index;
+		const iterator = projectPieces(review, project, domain)[Symbol.iterator]();
+		const values: Piece[] = [];
+		function has(at: number) {
+			while (values.length <= at) {
+				const next = iterator.next();
+				if (next.done) return false;
+				values.push(next.value);
+			}
+			return true;
+		}
+		const index = {
+			has,
+			get: (at: number) => {
+				if (!has(at))
+					throw new RangeError("The review has no piece at this position.");
+				return values[at];
+			},
+		};
+		indexes.set(review, { project, domain, index });
+		return index;
+	};
+}
+
 /**
  * Where a page that starts at `from` ends: pieces are taken while the shell
  * (`shellChars`, the JSON of the whole answer with no piece, its cursor at
@@ -77,7 +142,7 @@ export function fitPiece<T>(
  * piece past `PIECE_MAX_CHARS` throws, as a fault of the caller's.
  */
 export function cutPage(input: {
-	readonly count: number;
+	readonly count: number | ((index: number) => boolean);
 	readonly from: number;
 	readonly shellChars: number;
 	readonly pieceChars: (index: number, taken: number) => number;
@@ -92,7 +157,7 @@ export function cutPage(input: {
 		);
 	let size = shellChars;
 	let end = from;
-	while (end < count) {
+	while (typeof count === "number" ? end < count : count(end)) {
 		const taken = end - from;
 		const alone = input.alone?.(end) === true;
 		if (taken > 0 && alone) break;
@@ -112,7 +177,7 @@ export function cutPage(input: {
 
 /** The JSON a value adds to an array that holds `taken` values already: its own, and a comma after the first. */
 export function arrayItemChars(value: unknown, taken: number): number {
-	return JSON.stringify(value).length + (taken > 0 ? 1 : 0);
+	return encodedJsonChars(value) + (taken > 0 ? 1 : 0);
 }
 
 /**
@@ -122,9 +187,26 @@ export function arrayItemChars(value: unknown, taken: number): number {
  */
 export function toolText(body: unknown): string {
 	const text = JSON.stringify(body);
-	if (text.length > PAGE_LIMIT_CHARS)
+	const size = toolResultChars(body, false);
+	if (size > PAGE_LIMIT_CHARS)
 		throw new Error(
-			`An answer came to ${text.length} characters, more than the ${PAGE_LIMIT_CHARS} one answer holds, so Nova sent none of it. Every list in an answer is paged by lib/mcp/paging.ts::cutPage; look at what this one held outside its pages.`,
+			`An answer came to ${size} characters, more than the ${PAGE_LIMIT_CHARS} one answer holds, so Nova sent none of it. Every list in an answer is paged by lib/mcp/paging.ts::cutPage; look at what this one held outside its pages.`,
 		);
 	return text;
+}
+
+export function reviewedPageDigest(
+	operation: "birth" | "changes" | "search-connections",
+	reviewDigest: string,
+	from: number,
+): string {
+	return canonicalJsonDigest([operation, "page", from, reviewDigest]);
+}
+
+export const LINE_PART_MAX_CHARS = PIECE_MAX_CHARS - 1;
+export function lineParts(
+	line: string,
+	limit = LINE_PART_MAX_CHARS,
+): readonly string[] {
+	return boundedJsonTextParts(line, limit, true);
 }

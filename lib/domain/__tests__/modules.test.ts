@@ -46,6 +46,7 @@ import {
 	ordinaryCaseSearchConfigSchema,
 	phoneColumn,
 	plainColumn,
+	type SearchAddressReceiver,
 	type SimpleSearchInputDef,
 	searchInputDefSchema,
 	searchScreenTitleText,
@@ -399,7 +400,7 @@ describe("columnSchema — authored display shapes", () => {
 	});
 
 	it.each(["", " ", "two words"])(
-		"rejects a blank or whitespace-bearing mapping value: %j",
+		"keeps a blank or whitespace-bearing mapping value: %j",
 		(value) => {
 			expect(
 				columnSchema.safeParse({
@@ -409,7 +410,7 @@ describe("columnSchema — authored display shapes", () => {
 					header: "Region",
 					mapping: [{ value, label: "North" }],
 				}).success,
-			).toBe(false);
+			).toBe(true);
 		},
 	);
 
@@ -443,8 +444,11 @@ describe("columnSchema — authored display shapes", () => {
 		},
 	);
 
+	/* A blank or spaced key is the comparison HQ's build makes of it
+	 * (`selected(field, '<key>')`, menus-and-case-lists/5pp-…), so the row
+	 * keeps the key as saved. */
 	it.each(["", " ", "two words"])(
-		"rejects a blank or whitespace-bearing image-map value: %j",
+		"keeps a blank or whitespace-bearing image-map value as saved: %j",
 		(value) => {
 			expect(
 				columnSchema.safeParse({
@@ -454,7 +458,7 @@ describe("columnSchema — authored display shapes", () => {
 					header: "Status",
 					mapping: [{ value, assetId: asMediaAssetId(u(20)) }],
 				}).success,
-			).toBe(false);
+			).toBe(true);
 		},
 	);
 
@@ -900,7 +904,7 @@ describe("searchInputDefSchema — authored prompt shapes", () => {
 		},
 	);
 
-	it("rejects a scalar default on either date-range arm", () => {
+	it("holds a starting expression on either date-range arm", () => {
 		const simple = searchInputDefSchema.safeParse({
 			uuid: u(1),
 			kind: "simple",
@@ -909,7 +913,10 @@ describe("searchInputDefSchema — authored prompt shapes", () => {
 			type: "date-range",
 			property: "visit_date",
 			mode: { kind: "range" },
-			default: { kind: "today" },
+			default: {
+				kind: "term",
+				term: { kind: "literal", value: "2024-03-01 to 2024-04-01" },
+			},
 		});
 		const advanced = searchInputDefSchema.safeParse({
 			uuid: u(2),
@@ -918,10 +925,13 @@ describe("searchInputDefSchema — authored prompt shapes", () => {
 			label: "Window",
 			type: "date-range",
 			predicate: { kind: "match-all" },
-			default: { kind: "today" },
+			default: {
+				kind: "term",
+				term: { kind: "literal", value: "2024-03-01 to 2024-04-01" },
+			},
 		});
-		expect(simple.success).toBe(false);
-		expect(advanced.success).toBe(false);
+		expect(simple.success).toBe(true);
+		expect(advanced.success).toBe(true);
 	});
 });
 
@@ -943,6 +953,12 @@ describe("multi-select search answer delimiter", () => {
 });
 
 describe("SearchInputDef builders — helper construction", () => {
+	const addressReceiver = {
+		kind: "address",
+		source: u(5),
+		parts: ["us_state", "city"],
+	} satisfies SearchAddressReceiver;
+
 	it("simpleSearchInputDef → schema round-trip", () => {
 		const built = simpleSearchInputDef(
 			u(1),
@@ -950,8 +966,9 @@ describe("SearchInputDef builders — helper construction", () => {
 			"Patient name",
 			"text",
 			"full_name",
-			{ mode: { kind: "fuzzy" } },
+			{ mode: { kind: "fuzzy" }, addressReceiver },
 		);
+		expect(built.addressReceiver).toEqual(addressReceiver);
 		const parsed = searchInputDefSchema.safeParse(built);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(built);
@@ -964,7 +981,9 @@ describe("SearchInputDef builders — helper construction", () => {
 			"Complex",
 			"text",
 			{ kind: "match-all" },
+			{ addressReceiver },
 		);
+		expect(built.addressReceiver).toEqual(addressReceiver);
 		const parsed = searchInputDefSchema.safeParse(built);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(built);

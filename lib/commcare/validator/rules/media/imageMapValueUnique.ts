@@ -22,6 +22,7 @@
  */
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import { caseMappingRowKey } from "@/lib/domain/caseMappingRows";
 import { type ValidationError, validationError } from "../../errors";
 
 export function imageMapValueUnique(
@@ -42,30 +43,31 @@ export function imageMapValueUnique(
 		const firstSeen = new Map<string, number>();
 		for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 			const entry = column.mapping[rowIndex];
-			const prior = firstSeen.get(entry.value);
+			const comparison = caseMappingRowKey(entry);
+			const prior = firstSeen.get(comparison);
 			if (prior !== undefined) {
 				errors.push(
 					validationError(
 						"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
 						"module",
-						`Image-map column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has two rows that share the value "${entry.value}" (rows ${prior + 1} and ${rowIndex + 1}). Each case-property value can map to at most one image, so only the first row's image displays. Change one row's value, or delete the duplicate.`,
+						`Image-map column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" uses the same rule in rows ${prior + 1} and ${rowIndex + 1}. Change one rule or remove the duplicate.`,
 						{ moduleUuid, moduleName: mod.name },
 						{
 							// `slot` keys the case-workspace boundary verdicts
 							// (`lib/doc/commitVerdicts.ts::caseWorkspaceBoundaryVerdicts`)
 							// — a column finding without it never reaches the
 							// workspace's broken-column marks.
-							slot: `caseListConfig.columns[${columnIndex}].mapping[${rowIndex}].value`,
+							slot: `caseListConfig.columns[${columnIndex}].mapping[${rowIndex}].${entry.when ? "when" : "value"}`,
 							columnIndex: String(columnIndex),
 							firstRowIndex: String(prior),
 							duplicateRowIndex: String(rowIndex),
 							columnUuid: column.uuid,
-							value: entry.value,
+							...(entry.value !== undefined && { value: entry.value }),
 						},
 					),
 				);
 			} else {
-				firstSeen.set(entry.value, rowIndex);
+				firstSeen.set(comparison, rowIndex);
 			}
 		}
 	}

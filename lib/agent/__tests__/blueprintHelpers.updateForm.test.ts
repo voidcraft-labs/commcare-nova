@@ -11,22 +11,20 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { eq, formField, literal } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
-import {
-	addFormMutations,
-	refineFormConnectMutations,
-	updateFormMutations,
-} from "../blueprintHelpers";
+import { addFormMutations, updateFormMutations } from "../blueprintHelpers";
 
 const MODULE_UUID = testUuid("update-form-module");
 const FORM_UUID = testUuid("update-form-form");
 const FIELD_UUID = testUuid("update-form-field");
 const OWN_UUID = testUuid("update-form-own");
 
+const LESSON = testUuid("update-form-lesson");
+
 function docWithEveryHelperClearableSlot(): BlueprintDoc {
 	const doc: BlueprintDoc = {
 		appId: "update-form-wire",
 		appName: "Update form wire",
-		connectType: "learn",
+		connectRoles: ["learn"],
 		// A Connect app runs on Android alone.
 		appSettings: {
 			showSavedForms: false,
@@ -54,18 +52,21 @@ function docWithEveryHelperClearableSlot(): BlueprintDoc {
 				purpose: "Collect the final status",
 				closeCondition: eq(formField(FIELD_UUID), literal("yes")),
 				caseOperations: [{ uuid: OWN_UUID, id: "patient", action: "own" }],
-				connect: {
-					learn_module: {
-						id: "intro",
-						name: "Module",
-						description: "Learn",
-						time_estimate: 10,
-					},
-				},
 				postSubmit: "app_home",
 			},
 		},
 		fields: {
+			[LESSON]: {
+				uuid: LESSON,
+				id: "intro",
+				kind: "connect_activity",
+				activity: {
+					kind: "learning-module",
+					name: "Module",
+					description: "Learn",
+					estimatedHours: 10,
+				},
+			},
 			[FIELD_UUID]: {
 				uuid: FIELD_UUID,
 				id: "ready",
@@ -75,8 +76,8 @@ function docWithEveryHelperClearableSlot(): BlueprintDoc {
 		},
 		moduleOrder: [MODULE_UUID],
 		formOrder: { [MODULE_UUID]: [FORM_UUID] },
-		fieldOrder: { [FORM_UUID]: [FIELD_UUID] },
-		fieldParent: { [FIELD_UUID]: FORM_UUID },
+		fieldOrder: { [FORM_UUID]: [FIELD_UUID, LESSON] },
+		fieldParent: { [FIELD_UUID]: FORM_UUID, [LESSON]: FORM_UUID },
 	};
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
@@ -119,7 +120,8 @@ describe("form metadata and Connect helper ownership", () => {
 		for (const key of ["purpose", "closeCondition", "postSubmit"] as const) {
 			expect(Object.hasOwn(form ?? {}, key)).toBe(false);
 		}
-		expect(form?.connect).toEqual(doc.forms[FORM_UUID].connect);
+		expect(next.fields[LESSON]).toEqual(doc.fields[LESSON]);
+		expect(next.fieldOrder[FORM_UUID]).toEqual(doc.fieldOrder[FORM_UUID]);
 	});
 
 	it("turns a form's text formatting off and on again through admission and JSON", () => {
@@ -164,42 +166,6 @@ describe("form metadata and Connect helper ownership", () => {
 		expect(formatted).not.toMatchObject({ form: { plainText: true } });
 	});
 
-	it("refines an existing participant but cannot remove participation", () => {
-		const doc = docWithEveryHelperClearableSlot();
-		const refined = {
-			learn_module: {
-				id: "intro",
-				name: "Module",
-				description: "Refined",
-				time_estimate: 15,
-			},
-		};
-		const mutations = refineFormConnectMutations(doc, FORM_UUID, refined);
-		expect(mutations).toEqual([
-			{
-				kind: "updateForm",
-				uuid: FORM_UUID,
-				patch: { connect: refined },
-			},
-		]);
-
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, admitMutationBatch(mutations));
-		});
-		expect(next.forms[FORM_UUID].connect).toEqual(refined);
-		expect(runValidation(next, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		expect(doc.forms[FORM_UUID].connect).not.toEqual(refined);
-
-		for (const value of [null, undefined]) {
-			expect(
-				Reflect.apply(refineFormConnectMutations, undefined, [
-					doc,
-					FORM_UUID,
-					value,
-				]),
-			).toEqual([]);
-		}
-	});
 	it("does not acquire participation through extra properties on generic form inputs", () => {
 		const doc = docWithEveryHelperClearableSlot();
 		const original = structuredClone(doc);
@@ -243,9 +209,6 @@ describe("form metadata and Connect helper ownership", () => {
 			type: "survey",
 		});
 		expect(Object.hasOwn(added.forms[uuid], "connect")).toBe(false);
-		expect(refineFormConnectMutations(added, uuid, proposedConnect)).toEqual(
-			[],
-		);
 		expect(runValidation(added, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const patch = { purpose: "Revised purpose", connect: proposedConnect };
 		const updated = produce(added, (draft) => {
@@ -257,8 +220,9 @@ describe("form metadata and Connect helper ownership", () => {
 		expect(updated.forms[uuid].purpose).toBe("Revised purpose");
 		expect(runValidation(updated, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		expect(Object.hasOwn(updated.forms[uuid], "connect")).toBe(false);
-		expect(updated.forms[FORM_UUID].connect).toEqual(
-			original.forms[FORM_UUID].connect,
+		expect(updated.fields[LESSON]).toEqual(original.fields[LESSON]);
+		expect(updated.fieldOrder[FORM_UUID]).toEqual(
+			original.fieldOrder[FORM_UUID],
 		);
 		expect(doc).toEqual(original);
 	});

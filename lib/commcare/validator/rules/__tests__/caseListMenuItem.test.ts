@@ -133,19 +133,10 @@ describe("a submenu of another case type", () => {
 		return doc;
 	}
 
-	it("is refused under a bare case list", () => {
-		const doc = nested(patients({ caseListMenuItem: {}, forms: [] }));
+	it("can open from a parent with a case list, with or without a parent form", () => {
 		expect(
-			findings(doc).map(({ code, moduleUuid }) => [code, moduleUuid]),
-		).toEqual([["NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM", VISITS]]);
-	});
-
-	it("is admitted under a root whose case list entry stands beside a form", () => {
-		const doc = nested(patients({ caseListMenuItem: {} }));
-		expect(
-			findings(doc).filter(
-				({ code }) => code === "NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
-			),
+			findings(nested(patients({ caseListMenuItem: {}, forms: [] }))),
 		).toEqual([]);
+		expect(findings(nested(patients({ caseListMenuItem: {} })))).toEqual([]);
 	});
 });

@@ -36,7 +36,12 @@ import {
 	unavailablePlatform,
 	unavailableUses,
 } from "@/lib/domain";
-import { type DatetimeSplit, planDatetimeSplits } from "./datetimeSplit";
+import {
+	DATETIME_SPLIT_REFUSAL_MESSAGES,
+	type DatetimeSplit,
+	type DatetimeSplitRefusal,
+	planDatetimeSplits,
+} from "./datetimeSplit";
 import { applyMutations } from "./mutations";
 import type { Mutation } from "./types";
 
@@ -60,7 +65,7 @@ export type ContentDeclarationPlan =
 	| {
 			readonly kind: "split-refused";
 			readonly fieldUuid: Uuid;
-			readonly reason: "self-read-through-a-filter";
+			readonly reason: DatetimeSplitRefusal;
 	  };
 
 /** The feature ids among `used` that read `unavailable` on `platform`, in
@@ -136,7 +141,7 @@ export function planContentDeclaration(
 		return {
 			kind: "split-refused",
 			fieldUuid: split.fieldUuid,
-			reason: "self-read-through-a-filter",
+			reason: split.reason,
 		};
 	return {
 		kind: "declared",
@@ -160,7 +165,7 @@ export class PlatformDeclarationBlocked extends Error {
 		super(
 			plan.kind === "runs-on-neither"
 				? `This document's content runs on neither platform: Web Apps can't run ${plan.webAppsUnavailable.join(", ")}, and Android can't run ${plan.androidUnavailable.join(", ")}. Take out one platform's uses, or give the document the declaration it should keep.`
-				: `This document runs on neither platform until its date-and-time questions are split, and the split of field ${plan.fieldUuid} is refused (${plan.reason}). Write the question's own rule over "." and try again.`,
+				: `This document runs on neither platform until its date-and-time questions are split, and the split of field ${plan.fieldUuid} is refused. ${DATETIME_SPLIT_REFUSAL_MESSAGES[plan.reason]}`,
 		);
 		this.name = "PlatformDeclarationBlocked";
 	}
@@ -238,7 +243,11 @@ function declared(runsOnlyOn: Platform | undefined): readonly Platform[] {
  */
 export function planDeclarationChoices(
 	doc: BlueprintDoc,
-	options: { readonly webAppsOnInHq: boolean },
+	options: {
+		readonly webAppsOnInHq: boolean;
+		/** Platforms excluded by a Project data reference the document holds by identity. */
+		readonly unavailableDataPlatforms?: ReadonlySet<Platform>;
+	},
 ): DeclarationChoices {
 	const holdsDatetime = Object.values(doc.fields).some(
 		(field) => field.kind === "datetime",
@@ -271,7 +280,10 @@ export function planDeclarationChoices(
 				...(splitting && split !== undefined ? split.mutations : []),
 			],
 			splits: splitting && split !== undefined ? split.splits : [],
-			runs: unavailableUses(over, declared(runsOnlyOn)).length === 0,
+			runs:
+				!declared(runsOnlyOn).some((platform) =>
+					options.unavailableDataPlatforms?.has(platform),
+				) && unavailableUses(over, declared(runsOnlyOn)).length === 0,
 		};
 	};
 	const both = candidate(undefined, false);

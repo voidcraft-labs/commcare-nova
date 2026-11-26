@@ -29,6 +29,7 @@ import {
 	hqAppIdSchema,
 } from "@/lib/deployment/types";
 import { orderedOrganizationLevels } from "@/lib/domain";
+import { credentialWriteGrant, toolWriteGrant } from "../credentialWriteGrant";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -36,6 +37,7 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { registerScopedTool } from "../scopedTool";
+import { SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
 import { landedNovaRevisions, landedResourceIdentities } from "./landedReads";
@@ -50,7 +52,7 @@ export function registerStopPublishing(
 		"stop_publishing",
 		{
 			description:
-				"Stop publishing an app to one CommCare HQ project space. The app in CommCare HQ stays exactly as it is, this Nova app stops publishing to it, and it can be brought in to Nova again as a new app once any publish to it that was running has finished. Pass the `hq_app_id` `get_deployment` shows for this project space: the stop ends publishing to that HQ app or does nothing. Calling it again for the same `hq_app_id` answers the stopped deployment. If this app publishes to a different HQ app there by then, the call returns `deployment_changed` and stops nothing: read `get_deployment` again and ask the user before stopping that one. A later upload to that project space makes a new app there, beside the one that stays. Nothing is sent to CommCare HQ. Only an admin or owner of the app's Project can do this: an editor gets `permission_denied` with who can, and someone who cannot edit the app gets `not_found`, as every tool that changes an app answers them. This cannot be undone from Nova, so call it only when the user asked for exactly this, after telling them what it does. Once publishing has stopped, the answer says so even where Nova could not read everything back: `setup_artifact` is then null, and `get_deployment` reads it again.",
+				"Stop publishing an app to one CommCare HQ project space. The app in CommCare HQ stays exactly as it is, this Nova app stops publishing to it, and it can be brought in to Nova again as a new app once any publish to it that was running has finished. Pass the `hq_app_id` `get_deployment` shows for this project space: the stop ends publishing to that HQ app or does nothing. Calling it again for the same `hq_app_id` answers the stopped deployment. If this app publishes to a different HQ app there by then, the call returns `deployment_changed` and stops nothing: read `get_deployment` again and ask the user before stopping that one. A later upload to that project space makes a new app there, beside the one that stays. Nothing is sent to CommCare HQ. Ending a destination with named installation bindings or a pending installation review requires HQ Write and HQ Import. Only an admin or owner of the app's Project can do this: an editor gets `permission_denied` with who can, and someone who cannot edit the app gets `not_found`, as every tool that changes an app answers them. This cannot be undone from Nova, so call it only when the user asked for exactly this, after telling them what it does. Once publishing has stopped, the answer says so even where Nova could not read everything back: `setup_artifact` is then null, and `get_deployment` reads it again.",
 			/* Strict, so the served schema is closed: the SDK converts an input
 			 * schema on its input side, where a plain object stays open. The
 			 * shapes are the browser boundary's, field by field. */
@@ -77,10 +79,16 @@ export function registerStopPublishing(
 					"edit",
 				);
 				const scope = {
+					requireInstallationManagement: credentialWriteGrant(
+						ctx,
+						"stop_publishing",
+						[SCOPES.hqWrite, SCOPES.hqImport],
+					),
 					appId: args.app_id,
 					projectId: access.projectId,
 					role: access.role,
 					actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(ctx, "stop_publishing"),
 				};
 				const stopped = await stopPublishing(
 					scope,

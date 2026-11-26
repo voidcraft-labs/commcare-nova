@@ -1,3 +1,10 @@
+import {
+	bytesMember,
+	type StreamMember,
+	streamZip,
+	textMember,
+} from "../streamZip";
+import { mediaMember, mediaMembers } from "./streamMedia";
 // lib/commcare/multimedia/hqJsonExportArchive.ts
 //
 // Assembles the HQ import file: always a ZIP. CommCare HQ has no single
@@ -38,7 +45,7 @@
 // over already-resolved inputs: no Postgres and no expand.
 
 import { type BlueprintDoc, declaresWebApps } from "@/lib/domain";
-import { carriesViaBulkUpload, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { bulkUploadAssetIds } from "@/lib/domain/mediaRefs";
 import { driftDate } from "@/lib/publish/driftReference";
 import {
 	MANUAL_IMPORT_LOOKUP_WORKBOOK,
@@ -95,10 +102,7 @@ export function bulkUploadAssets(
 	doc: BlueprintDoc,
 	assets: AssetManifest,
 ): AssetManifest {
-	const carried = new Set<string>();
-	for (const ref of walkAssetRefs(doc)) {
-		if (carriesViaBulkUpload(ref.location)) carried.add(ref.assetId);
-	}
+	const carried = bulkUploadAssetIds(doc);
 	return new Map([...assets].filter(([assetId]) => carried.has(assetId)));
 }
 
@@ -154,6 +158,7 @@ interface ManagedWorkbookMember {
 	/** The domain, with its server's label where another member has the same domain. */
 	readonly projectSpace: string;
 	readonly bytes: LookupWorkbook["bytes"];
+	readonly tags: ReadonlySet<string>;
 }
 
 /** A project space's name as a ZIP member carries it: every character but a letter, digit, dot, underscore or hyphen becomes a hyphen. */
@@ -214,6 +219,7 @@ function managedWorkbookMembers(
 			? `${workbook.domain} (${serverLabel(workbook.server)})`
 			: workbook.domain,
 		bytes: workbook.workbook.bytes,
+		tags: new Set(workbook.workbook.tables.map((table) => table.tag)),
 	}));
 }
 
@@ -229,10 +235,15 @@ function managedWorkbookMembers(
  * Dimagi turns off, so they get a step of their own.
  */
 export function hqImportFileGuide(input: {
+	readonly manualLookupTables?: readonly string[];
 	readonly appName: string;
 	readonly doc: BlueprintDoc;
 	readonly assets: AssetManifest;
 	readonly lookupWorkbook: LookupWorkbook | undefined;
+	readonly extraWorkbooks?: readonly {
+		path: string;
+		tables: readonly { tableId: string; tag: string }[];
+	}[];
 	/** The workbooks of the tables CommCare HQ manages, one per project space that manages some. */
 	readonly managedLookupWorkbooks: readonly HqImportFileManagedWorkbook[];
 	/** The tables those workbooks carry, in the definitions' order. */
@@ -244,8 +255,44 @@ export function hqImportFileGuide(input: {
 }): readonly ManualImportStep[] {
 	const logo = logoMember(input.doc, input.assets);
 	return manualImportGuide({
+		manualLookupTables: input.manualLookupTables,
+		practiceInstallations: Object.values(
+			input.doc.appSettings.installationProfiles ?? {},
+		)
+			.filter((profile) => profile.requiresPracticeWorker)
+			.map(({ name, languages }) => ({ name, languages })),
 		appFileName: appFileName(input.appName),
 		lookupTags: input.lookupWorkbook?.tables.map((table) => table.tag) ?? [],
+		additionalLookupFiles: input.extraWorkbooks?.map((file) => ({
+			path: file.path,
+			tags: file.tables.map((table) => table.tag),
+		})),
+		referencedTables: input.lookupNaming?.tables
+			.filter(
+				(table) =>
+					!input.lookupWorkbook?.tables.some(
+						(sent) => sent.tableId === table.tableId,
+					) &&
+					!input.managedLookupWorkbooks.some((group) =>
+						group.workbook.tables.some(
+							(sent) => sent.tableId === table.tableId,
+						),
+					) &&
+					!input.extraWorkbooks?.some((file) =>
+						file.tables.some((sent) => sent.tableId === table.tableId),
+					),
+			)
+			.map((table) => {
+				const source = input.managedLookupTables.find(
+					(managed) => managed.tag === table.tag,
+				);
+				return {
+					tag: table.tag,
+					...(source && {
+						projectSpace: `${source.domain} (${serverLabel(source.server)})`,
+					}),
+				};
+			}),
 		/* The guide is made on the server for whoever opens the ZIP, so it has
 		 * no reader's locale: the day is the UTC day, spelled as every drift
 		 * sentence's default spells one. */
@@ -257,7 +304,9 @@ export function hqImportFileGuide(input: {
 			tables: input.managedLookupTables
 				.filter(
 					(table) =>
-						table.server === member.server && table.domain === member.domain,
+						table.server === member.server &&
+						table.domain === member.domain &&
+						member.tags.has(table.tag),
 				)
 				.map((table) => ({
 					tag: table.tag,
@@ -309,6 +358,37 @@ export function hqImportFileGuide(input: {
  * `buildMediaBulkUploadZip` throws. The workbooks arrive already built, from
  * the same validated lookup generation the export boundary measured.
  */
+export function streamHqJsonExportArchive(
+	appName: string,
+	doc: BlueprintDoc,
+	hqJson: HqApplication,
+	assets: AssetManifest,
+	lookupWorkbook: LookupWorkbook | undefined,
+	managedLookupWorkbooks: readonly HqImportFileManagedWorkbook[],
+	readme: string,
+	additional: readonly StreamMember[] = [],
+) {
+	const members: StreamMember[] = [
+		textMember(`${appFileName(appName)}.json`, JSON.stringify(hqJson, null, 2)),
+	];
+	const bulk = bulkUploadAssets(doc, assets);
+	if (bulk.size > 0)
+		members.push({
+			path: MANUAL_IMPORT_MEDIA_ZIP,
+			open: () => streamZip(mediaMembers(bulk)),
+		});
+	const logo = doc.logo === undefined ? undefined : assets.get(doc.logo);
+	if (logo) members.push(mediaMember(logo, `logo${logo.extension}`));
+	if (lookupWorkbook)
+		members.push(
+			bytesMember(MANUAL_IMPORT_LOOKUP_WORKBOOK, lookupWorkbook.bytes),
+		);
+	for (const item of managedWorkbookMembers(managedLookupWorkbooks))
+		members.push(bytesMember(item.fileName, item.bytes));
+	members.push(...additional, textMember("README.txt", readme));
+	return streamZip(members);
+}
+
 export function buildHqJsonExportArchive(
 	appName: string,
 	doc: BlueprintDoc,

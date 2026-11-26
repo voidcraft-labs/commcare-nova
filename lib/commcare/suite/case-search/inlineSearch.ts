@@ -22,10 +22,10 @@ import {
 	makeTranslationUnitId,
 	moduleFormsReadSearch,
 	type OrdinaryCaseSearchConfig,
-	searchScreenTitleText,
 	type WireStringSource,
 } from "@/lib/domain";
 import type { DatumRef } from "@/lib/domain/expression/types";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { LookupWireNaming } from "../../lookup/naming";
 import type {
@@ -35,7 +35,7 @@ import type {
 } from "../../session";
 import { buildSearchQuery, searchQueryHasPrompts } from "./searchSession";
 import { searchWireShape } from "./searchWireShape";
-import type { WireShape } from "./types";
+import { inlineSearchInstance, type WireShape } from "./types";
 
 export interface InlineSearchEmission {
 	readonly query: SessionQuery;
@@ -62,9 +62,9 @@ function inlineSearchPlan(mod: Module, moduleIndex: number) {
 	}
 	const caseListConfig: CaseListConfig =
 		mod.caseListConfig ?? emptyCaseListConfig();
-	const wire = searchWireShape(caseSearchConfig);
+	const wire = searchWireShape(caseSearchConfig, mod.searchResultsName);
 	const metadata: SessionQueryMetadata = {
-		storageInstance: "results:inline",
+		storageInstance: inlineSearchInstance(mod.searchResultsName),
 		caseType: mod.caseType,
 		hasPrompts: searchQueryHasPrompts(caseListConfig),
 		defaultSearch: wire.defaultSearch,
@@ -91,6 +91,7 @@ export function inlineSearchQueryMetadata(
  */
 export function buildInlineSearch(args: {
 	readonly module: Module;
+	readonly projectSearchId?: number;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
 	readonly expressions: ModuleExpressionContexts;
@@ -112,6 +113,7 @@ export function buildInlineSearch(args: {
 		expressions: args.expressions,
 		lookupNaming: args.lookupNaming,
 		runtimeTarget: args.runtimeTarget,
+		projectSearchId: args.projectSearchId,
 		ancestorCaseType: args.ancestorCaseType,
 		...(args.datumId === undefined ? {} : { datumId: args.datumId }),
 	});
@@ -144,16 +146,13 @@ export function searchScreenTranslationUnits(
 ): Record<string, WireStringSource> {
 	const moduleId = `m${moduleIndex}`;
 	const units: Record<string, WireStringSource> = {
-		// A search with no title writes a blank literal, with no unit.
-		...(searchScreenTitleText(caseSearchConfig) !== null
-			? {
-					[`case_search.${moduleId}.inputs`]: makeTranslationUnitId(
-						"module",
-						mod.uuid,
-						"search-title",
-					),
-				}
-			: {}),
+		// A search with no title holds its unit blank, so each language's
+		// table writes the title that language shows, blank or its own.
+		[`case_search.${moduleId}.inputs`]: makeTranslationUnitId(
+			"module",
+			mod.uuid,
+			"search-title",
+		),
 		...(caseSearchConfig.searchScreenSubtitle !== undefined
 			? {
 					[`case_search.${moduleId}.description`]: makeTranslationUnitId(
@@ -165,11 +164,8 @@ export function searchScreenTranslationUnits(
 			: {}),
 	};
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
-		units[`search_property.${moduleId}.${input.name}`] = makeTranslationUnitId(
-			"search-input",
-			input.uuid,
-			"label",
-		);
+		units[`search_property.${moduleId}.${searchInputRequestKey(input)}`] =
+			makeTranslationUnitId("search-input", input.uuid, "label");
 	}
 	return units;
 }

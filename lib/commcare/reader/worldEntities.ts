@@ -35,7 +35,9 @@ import {
 } from "@/lib/domain";
 import type { Term } from "@/lib/domain/expression/types";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
+import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import type { HqLocationType } from "../hq/locations";
 import { userPropertySlugVerdict } from "../validator/userPropertySlug";
@@ -58,14 +60,13 @@ const APP = { kind: "app" } as const;
  * The key two names are one name by where CommCare HQ compares them
  * lowercased: a worker property's and a location property's slug, which HQ's
  * custom data schema holds unique lowercased
- * (`custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_duplicates`),
- * and a level's name, which Nova holds unique lowercased though HQ's
- * `LocationType` holds it unique as written (`locations/models.py`,
- * `unique_together` `('domain', 'name')`). The gate compares each by the same
- * key (`validator/rules/users.ts::userPropertySlugs`,
- * `validator/userPropertySlug.ts::userPropertySlugVerdict`, the
- * `nameKey` of `validator/rules/organization.ts`), so a reading holds one name
- * of a key.
+ * (`custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_duplicates`).
+ * The gate compares each by the same key
+ * (`validator/rules/users.ts::userPropertySlugs`,
+ * `validator/userPropertySlug.ts::userPropertySlugVerdict`), so a reading holds
+ * one name of a key. A level's name is not folded: HQ's `LocationType` holds
+ * it unique as written (`locations/models.py`, `unique_together`
+ * `('domain', 'name')`), and so does the gate.
  */
 function foldKey(name: string): string {
 	return name.trim().toLowerCase();
@@ -82,22 +83,11 @@ function holdable(level: HqLocationType): boolean {
 /**
  * Every level CommCare HQ lists, as document levels, each parent before its
  * children and siblings in HQ's order. A level's case flow is read from the
- * two settings the API returns: it holds workers, owns cases where HQ shares
- * them, and reaches every place below where HQ views descendants. Its
- * address book is HQ's default. `administrative` is not read: HQ sets it from
- * CommTrack and reads `has_users`, which no API returns.
- *
- * A level whose code or name the document's schema refuses, or whose name a
- * level already placed spells in other letters only (HQ holds `Clinic` and
- * `clinic` apart, and the gate refuses the pair,
- * `ORGANIZATION_LEVEL_NAME_DUPLICATE`), is the circumstance
- * `place-not-holdable` at the organization, named by the level, and it and
- * every level beneath it are left out, so the levels never hold one the gate
- * would refuse. Levels are placed parent before child, siblings in HQ's
- * order, and only a placed level takes a name: one left out for any reason
- * refuses no other. So is a level whose parent is not in the list,
- * or whose chain of parents never reaches the top.
- */
+ * observable case settings. Stock tracking is the inverse of administrative.
+ * The resource omits both has_users and expansion settings, so the explicit
+ * starting setup holds workers at each level and gives each its own branch.
+ * Codes and display names compare exactly, as they do on HQ. A field whose
+ * spelling cannot be held is named at its own level. */
 export function levelsFromHq(
 	levels: readonly HqLocationType[],
 	claims: IdentityClaims,
@@ -113,7 +103,7 @@ export function levelsFromHq(
 	const notHoldable = (level: HqLocationType) => {
 		refused.add(level.code);
 		findings.push(
-			circumstanceFinding("place-not-holdable", ORGANIZATION, {
+			circumstanceFinding("place-field-unusable", ORGANIZATION, {
 				name: level.name,
 			}),
 		);
@@ -132,7 +122,7 @@ export function levelsFromHq(
 			const parent =
 				level.parentCode === null ? undefined : uuidOf.get(level.parentCode);
 			if (level.parentCode !== null && parent === undefined) continue;
-			if (names.has(foldKey(level.name))) {
+			if (names.has(level.name)) {
 				notHoldable(level);
 				continue;
 			}
@@ -145,11 +135,12 @@ export function levelsFromHq(
 				continue;
 			}
 			uuidOf.set(level.code, claim.uuid);
-			names.add(foldKey(level.name));
+			names.add(level.name);
 			out.push({
 				uuid: claim.uuid,
 				code: level.code,
 				name: level.name,
+				tracksStock: !level.administrative,
 				...(parent === undefined ? {} : { parentLevelUuid: parent }),
 				caseFlow: {
 					workers: "assigned",
@@ -384,7 +375,7 @@ export function levelsAsPublished(doc: BlueprintDoc): HqLocationType[] {
 					level.parentLevelUuid === undefined
 						? null
 						: (levels[level.parentLevelUuid]?.code ?? null),
-				administrative: false,
+				administrative: !(level.tracksStock ?? false),
 				sharesCases: levelOwnsCases(level),
 				viewDescendants: levelDescendantCases(level).kind !== "none",
 			},
@@ -446,17 +437,6 @@ function orderedLevels(doc: BlueprintDoc): OrganizationLevel[] {
 	});
 }
 
-/** Whether a node of the document is a case operation that writes the worker's record. */
-function isWorkerRecordOperation(node: Record<string, unknown>): boolean {
-	const target = node.target as { kind?: unknown } | undefined;
-	return (
-		typeof node.action === "string" &&
-		node.action !== "own" &&
-		target?.kind === "worker-record" &&
-		Array.isArray(node.writes)
-	);
-}
-
 /** What `doc`'s logic reads of the worker and of places, as a reading meets it: each worker field
  *  by name, each worker property by its slug, each name a write of the worker's record saves to,
  *  and each location property by its slug. A read of a field CommCare HQ writes on every
@@ -471,7 +451,18 @@ function worldReadsOf(doc: BlueprintDoc): {
 	const byName: string[] = [];
 	const userFields: string[] = [];
 	const sessionUserFields: string[] = [];
-	const writtenUserFields: string[] = [];
+	const writtenUserFields = doc.moduleOrder.flatMap((module) =>
+		(doc.formOrder[module] ?? []).flatMap((uuid) => {
+			const form = doc.forms[uuid];
+			return (form?.caseOperations ?? []).flatMap((operation) =>
+				addressesWorkerRecord(form, operation, doc.modules[module]?.caseType)
+					? (operation.writes ?? []).flatMap((write) =>
+							holdsWorkerRecordWrite(write.property) ? [write.property] : [],
+						)
+					: [],
+			);
+		}),
+	);
 	const locationDataSlugs: string[] = [];
 	const worker = (slug: string, source: unknown, named: boolean) => {
 		if (source === "worker-record" && USERCASE_BUILT_IN_KEYS.includes(slug))
@@ -489,6 +480,16 @@ function worldReadsOf(doc: BlueprintDoc): {
 		const node = value as Record<string, unknown>;
 		if (node.kind === "session-user" && typeof node.field === "string")
 			worker(node.field, node.source, true);
+		else if (
+			node.readFrom === "worker-record" &&
+			typeof node.field === "string" &&
+			!isStandardCaseListProperty(node.field)
+		)
+			worker(
+				node.field,
+				"worker-record",
+				node.workerPropertyUuid === undefined,
+			);
 		else if (node.kind === "user-ref" && typeof node.property === "string")
 			worker(node.property, "worker-record", true);
 		else if (
@@ -502,17 +503,6 @@ function worldReadsOf(doc: BlueprintDoc): {
 					node.kind === "user-property-ref" ? "worker-record" : node.source,
 					false,
 				);
-		} else if (
-			// A write of the worker's record saves to a worker property the app
-			// declares (`caseManagement/index.ts::workerRecordWriteSlugs`).
-			isWorkerRecordOperation(node)
-		) {
-			for (const write of node.writes as readonly { property?: unknown }[])
-				if (
-					typeof write.property === "string" &&
-					!USERCASE_BUILT_IN_KEYS.includes(write.property)
-				)
-					writtenUserFields.push(write.property);
 		} else if (node.kind === "location-field") {
 			const field = node.field as { property?: Uuid } | undefined;
 			const held =
@@ -680,6 +670,11 @@ function rebindWorkerReads(
 		) as Term;
 	};
 	const rewrite: SlotReadRewrite = {
+		mapWorkerColumn: (field, uuid) => {
+			if (uuid && !named.has(uuid)) return undefined;
+			const slug = uuid ? named.get(uuid) : field;
+			return slug ? { field: slug, uuid: bound.get(slug) } : undefined;
+		},
 		mapTerm(term) {
 			if (term.kind === "session-user-property") {
 				const slug = named.get(term.userPropertyUuid);

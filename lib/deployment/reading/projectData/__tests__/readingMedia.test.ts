@@ -199,7 +199,7 @@ describe("readingMediaIndex", () => {
 });
 
 describe("planReadingMedia", () => {
-	it("makes one plan file per file, with its provisional id, no verdict, nothing kept and nothing published", () => {
+	it("makes one plan file per file, with its provisional id, no verdict, nothing staged and nothing published", () => {
 		const { plan, media } = planned();
 		expect(media.contentValid).toBe("yes");
 		expect(plan).toEqual({
@@ -230,7 +230,7 @@ describe("planReadingMedia", () => {
 				},
 			],
 			verdicts: {},
-			kept: new Map(),
+			staged: new Map(),
 			published: {},
 		});
 	});
@@ -332,7 +332,7 @@ describe("readingMediaFindings", () => {
 		});
 	});
 
-	it("is not complete where the request stopped at the byte ceiling, and carries the budget finding", () => {
+	it("is complete with no finding where the held files together pass what one in-memory export takes", () => {
 		const { plan, media } = planned();
 		const half = MAX_MEDIA_EXPORT_BYTES / 2 + 10 * 1024 * 1024;
 		const out = readingMediaFindings({
@@ -340,32 +340,11 @@ describe("readingMediaFindings", () => {
 			plan: withVerdicts(plan, {
 				"CommCareAudio/s": held("s", half),
 				"CommCareImage/a": held("a", half),
+				"CommCareImage/b": held("b", half),
 			}),
 			runsOn: ["web-apps", "android"],
 		});
-		expect(out.complete).toBe(false);
-		expect(out.findings).toEqual([
-			{
-				code: "expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
-				standing: "not-yet",
-				place: { kind: "app" },
-				subject: "media-files",
-				detail: { name: "220 MB of media (the limit is 200 MB)" },
-			},
-		]);
-	});
-
-	it("counts two files of the same bytes once against the budget", () => {
-		const { plan, media } = planned();
-		const half = MAX_MEDIA_EXPORT_BYTES / 2 + 10 * 1024 * 1024;
-		const out = readingMediaFindings({
-			media,
-			plan: withVerdicts(plan, {
-				"CommCareImage/a": held("same", half),
-				"CommCareImage/b": held("same", half),
-			}),
-			runsOn: ["web-apps", "android"],
-		});
+		expect(out.complete).toBe(true);
 		expect(out.findings).toEqual([]);
 	});
 });

@@ -8,6 +8,8 @@ export const describeArchiveImpactAction = readOrganizationAction;
 export const moveLocationAction = readOrganizationAction;
 export const setLocationArchivedAction = readOrganizationAction;
 export const updateLocationAction = readOrganizationAction;
+export const readPlacePageAction = readOrganizationAction;
+export const readPlaceRuleIssuesAction = readOrganizationAction;
 
 export async function getAllLookupDefinitionsAction(): Promise<never> {
 	throw new Error("Unexpected lookup Server Action in native module settings");

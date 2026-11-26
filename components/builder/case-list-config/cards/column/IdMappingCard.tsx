@@ -14,10 +14,10 @@
 //     Order is significant: the runtime walks the list top-to-
 //     bottom and renders the first match, and the list orders the
 //     column by entry position, so the table's order is the sort
-//     order. A saved value can't hold a space, nor any of the five
+//     order. A saved value can be blank or hold spaces. The five
 //     characters CommCare HQ's ID mapping can't store (`&`, `<`,
 //     `>`, `"`, `'`; the validator's
-//     `CASE_LIST_ID_MAPPING_KEY_CHARACTERS`), so neither is staged.
+//     `CASE_LIST_ID_MAPPING_KEY_CHARACTERS`) are refused before staging.
 //
 // Why move-up / move-down (not drag-and-drop): mapping tables
 // are typically 2-10 entries authored once. The complexity of
@@ -27,21 +27,30 @@
 
 "use client";
 import { useState } from "react";
+import { v4 } from "uuid";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { useStableListIdentity } from "@/components/builder/shared/useStableListIdentity";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import {
 	type Column,
 	type IdMappingEntry,
-	idMappingColumn,
 	idMappingEntry,
 	idMappingValueHoldsForbiddenCharacter,
 } from "@/lib/domain";
+import { asUuid } from "@/lib/domain/uuid";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { columnWithSource } from "../../columnSources";
 import { ColumnFieldRow } from "./ColumnFieldRow";
+import { MappingSourceEditor } from "./MappingSourceEditor";
 import {
 	AddMappingButton,
 	MappingEmptyNotice,
@@ -69,35 +78,27 @@ export function IdMappingCard({
 	const [adding, setAdding] = useState(false);
 	const [pendingValue, setPendingValue] = useState("");
 	const [pendingLabel, setPendingLabel] = useState("");
-	const slots = {
-		sort: value.sort,
-		visibleInList: value.visibleInList,
-		visibleInDetail: value.visibleInDetail,
-		notOnList: value.notOnList,
-		tile: value.tile,
-		via: value.via,
-	};
-	const setField = (next: string) =>
-		onChange(
-			idMappingColumn(value.uuid, next, value.header, value.mapping, slots),
-		);
-	const setHeader = (next: string) =>
-		onChange(
-			idMappingColumn(value.uuid, value.field, next, value.mapping, slots),
-		);
-	const setMapping = (next: readonly IdMappingEntry[]) =>
-		onChange(
-			idMappingColumn(value.uuid, value.field, value.header, next, slots),
-		);
+	const setField = (field: string) => onChange({ ...value, field });
+	const setHeader = (header: string) => onChange({ ...value, header });
+	const setMapping = (mapping: readonly IdMappingEntry[]) =>
+		onChange({ ...value, mapping: [...mapping] });
 
 	const updateEntry = (
 		index: number,
 		patch: Partial<IdMappingEntry>,
 	): string | null => {
 		const next = value.mapping.map((entry, entryIndex) =>
-			entryIndex === index ? { ...entry, ...patch } : entry,
+			entryIndex === index
+				? (Object.fromEntries(
+						Object.entries({ ...entry, ...patch }).filter(
+							([, v]) => v !== undefined,
+						),
+					) as IdMappingEntry)
+				: entry,
 		);
-		const issue = mappingValueIssue(next[index]?.value ?? "", next, index);
+		const issue = next[index].when
+			? null
+			: mappingValueIssue(next[index].value ?? "", next, index, value.behavior);
 		if (issue !== null) return issue;
 		rowIdentity.stage(next, { kind: "replace" });
 		setMapping(next);
@@ -136,9 +137,16 @@ export function IdMappingCard({
 			pendingValue,
 			value.mapping,
 			value.mapping.length,
+			value.behavior,
 		);
 		if (issue !== null) return;
-		const next = [...value.mapping, idMappingEntry(pendingValue, pendingLabel)];
+		const next = [
+			...value.mapping,
+			{
+				...idMappingEntry(pendingValue, pendingLabel),
+				uuid: asUuid(v4()),
+			},
+		];
 		rowIdentity.stage(next, {
 			kind: "splice",
 			index: value.mapping.length,
@@ -154,14 +162,17 @@ export function IdMappingCard({
 		pendingValue,
 		value.mapping,
 		value.mapping.length,
+		value.behavior,
 	);
 
 	return (
 		<div className="space-y-4">
 			<ColumnFieldRow
 				via={value.via}
-				onSourceChange={(via, field) =>
-					onChange(columnWithSource(value, via, field))
+				readFrom={value.readFrom}
+				showOwner={value.showOwner}
+				onSourceChange={(via, field, readFrom, showOwner) =>
+					onChange(columnWithSource(value, via, field, readFrom, showOwner))
 				}
 				field={value.field}
 				onFieldChange={setField}
@@ -169,6 +180,40 @@ export function IdMappingCard({
 				onHeaderChange={setHeader}
 				errors={errors}
 			/>
+			<div>
+				<div className={INSPECTOR_LABEL_CLS}>Which labels to show</div>
+				<Select
+					value={value.behavior ?? "each"}
+					onValueChange={(choice) => {
+						if (!choice) return;
+						const { behavior: _behavior, ...rest } = value;
+						onChange(
+							choice === "first-match"
+								? { ...rest, behavior: "first-match" }
+								: rest,
+						);
+					}}
+				>
+					<SelectTrigger aria-label="Which labels to show">
+						<SelectValue>
+							{value.behavior === "first-match"
+								? "The first matching label"
+								: "A label for each saved choice"}
+						</SelectValue>
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem
+							value="each"
+							disabled={value.mapping.some((row) => row.when)}
+						>
+							A label for each saved choice
+						</SelectItem>
+						<SelectItem value="first-match">
+							The first matching label
+						</SelectItem>
+					</SelectContent>
+				</Select>
+			</div>
 			<div ref={rootRef} className="space-y-3 [&_input]:!text-[14px]">
 				<MappingSectionLabel />
 				{value.mapping.length === 0 && (
@@ -178,10 +223,12 @@ export function IdMappingCard({
 				)}
 				{value.mapping.map((entry, i) => (
 					<MappingRow
+						ctx={ctx}
+						column={value}
 						// Clone-safe sidecar identity preserves same-slot edits,
 						// moves with reorders, and mints only for true inserts. Row
 						// drafts follow their authored entry, not array position.
-						key={rowIdentity.keys[i]}
+						key={entry.uuid ?? rowIdentity.keys[i]}
 						index={i}
 						entry={entry}
 						isFirst={i === 0}
@@ -213,10 +260,11 @@ export function IdMappingCard({
 									value={pendingValue}
 									onChange={(event) => setPendingValue(event.target.value)}
 									aria-label={`Value ${value.mapping.length + 1} saved value`}
+									placeholder="Blank value"
 									autoComplete="off"
 									data-1p-ignore
 								/>
-								{pendingValueIssue !== null && pendingValue.length > 0 ? (
+								{pendingValueIssue !== null ? (
 									<p className="mt-1.5 text-[13px] leading-5 text-nova-rose">
 										{pendingValueIssue}
 									</p>
@@ -247,13 +295,17 @@ export function IdMappingCard({
 				) : (
 					<AddMappingButton onClick={() => setAdding(true)} />
 				)}
-				{ctx.ordersByMapping === true && <MappingOrderNote />}
+				{ctx.ordersByMapping === true && (
+					<MappingOrderNote byLabel={value.behavior === "first-match"} />
+				)}
 			</div>
 		</div>
 	);
 }
 
 interface MappingRowProps {
+	readonly ctx: ColumnEditContext;
+	readonly column: Extract<Column, { kind: "id-mapping" }>;
 	readonly index: number;
 	readonly entry: IdMappingEntry;
 	readonly isFirst: boolean;
@@ -268,6 +320,8 @@ interface MappingRowProps {
  *  Both inputs use the same blur-commit pattern as
  *  `BlurCommitTextInput`: local draft + late commit. */
 function MappingRow({
+	ctx,
+	column,
 	index,
 	entry,
 	isFirst,
@@ -277,7 +331,6 @@ function MappingRow({
 	onMoveUp,
 	onMoveDown,
 }: MappingRowProps) {
-	const [valueIssue, setValueIssue] = useState<string | null>(null);
 	return (
 		<MappingRowShell
 			index={index}
@@ -288,19 +341,13 @@ function MappingRow({
 			onRemove={onRemove}
 		>
 			<div className="grid grid-cols-1 gap-3">
-				<div>
-					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
-					<BlurCommitTextInput
-						value={entry.value}
-						onCommit={(next) => setValueIssue(onUpdate({ value: next }))}
-						ariaLabel={`Value ${index + 1} saved value`}
-					/>
-					{valueIssue !== null ? (
-						<p className="mt-1.5 text-[13px] leading-5 text-nova-rose">
-							{valueIssue}
-						</p>
-					) : null}
-				</div>
+				<MappingSourceEditor
+					column={column}
+					row={entry}
+					index={index}
+					ctx={ctx}
+					onChange={onUpdate}
+				/>
 				<div>
 					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Label shown</div>
 					{/* Both sides use ordinary body type. A stored value can be
@@ -322,10 +369,12 @@ function mappingValueIssue(
 	candidate: string,
 	entries: readonly IdMappingEntry[],
 	candidateIndex: number,
+	behavior?: "first-match",
 ): string | null {
-	if (candidate.length === 0) return "Enter a saved value.";
-	if (/\s/.test(candidate)) return "Saved values cannot contain spaces.";
-	if (idMappingValueHoldsForbiddenCharacter(candidate)) {
+	if (
+		behavior !== "first-match" &&
+		idMappingValueHoldsForbiddenCharacter(candidate)
+	) {
 		return "Saved values can't hold &, <, >, \" or '.";
 	}
 	return entries.some(

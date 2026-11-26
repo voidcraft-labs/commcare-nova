@@ -65,6 +65,8 @@ function idsByEntity(doc: BlueprintDoc, hq: HqApplication) {
 		modules.set(moduleUuid, module.unique_id);
 		doc.formOrder[moduleUuid].forEach((formUuid, fIdx) => {
 			const form = module.forms[fIdx];
+			if (form.doc_type === "ShadowForm")
+				throw new Error("Expected an ordinary form with its own namespace.");
 			forms.set(formUuid, { uniqueId: form.unique_id, xmlns: form.xmlns });
 		});
 	});

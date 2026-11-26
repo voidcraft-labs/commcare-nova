@@ -99,6 +99,15 @@ export type SidebarState = { open: boolean; stashed: boolean | undefined };
  */
 export interface PreviewCaseChoice {
 	readonly caseId: string;
+	/** The type of the selected row in a menu that offers more than one kind of record. */
+	readonly caseType?: string;
+	/** The completed search that supplied this choice, held through a form
+	 * menu or a parent selection. The server reconstructs and verifies it. */
+	readonly searchSource?: {
+		readonly moduleUuid: Uuid;
+		readonly defaultSearch?: true;
+		readonly answers: readonly { name: string; value: string }[];
+	};
 	readonly caseName?: string;
 	/** Chosen from a search's Results while the worker's device does not hold
 	 *  it: the claim CommCare posts for this choice writes a claim row
@@ -107,7 +116,17 @@ export interface PreviewCaseChoice {
 	readonly claimable?: true;
 }
 
+/** One manual choice in a form's entry, in execution order. */
+export interface PreviewEntryChoice extends PreviewCaseChoice {
+	readonly selectionUuid: Uuid;
+	/** Functions already valued before this manual input retain their values on replay. */
+	readonly earlierValues?: Readonly<Record<string, string>>;
+}
+
 export interface PreviewCaseTarget {
+	entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
+	opening?: import("@/lib/preview/engine/formOpeningSnapshot").FormOpeningState;
+	entryChoices?: readonly PreviewEntryChoice[];
 	formUuid: Uuid;
 	cases?: readonly PreviewCaseChoice[];
 	/** The Register action that opened a case list registration form: the
@@ -270,10 +289,20 @@ export type PreviewSearchState =
 			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly matchCount: number;
+			readonly resultReceipt?: string;
 			readonly deviceValues?: PreviewSearchDeviceValues;
 			/** Set once the no-matches form registers a case: Results then
 			 * shows that one case, as the wire's return frame does. */
 			readonly registeredCaseId?: string;
+			/** Set beside `registeredCaseId` where the return frame ends on
+			 * this search (a list action returning to the list): Web Apps
+			 * lands on that list with no row, though the search holds the
+			 * registered case. Formplayer rebuilds the frame counting no query
+			 * step toward a full entity screen
+			 * (`MenuSessionFactory.rebuildSessionFromFrame`), and Core lists no
+			 * reference on a screen it did not fully build
+			 * (`EntityScreen.initListSubScreen`). */
+			readonly listsNoRow?: true;
 			/** The menu's default search, which the list ran as it opened:
 			 *  no answer the worker gave, so history taking it back runs the
 			 *  default search again, whatever answers were given since
@@ -297,12 +326,14 @@ export interface PreviewSearchLaunch {
 /** Which case list's Register action opened a form it always offers. */
 export interface PreviewCaseListRegistrationLaunch {
 	readonly hostModuleUuid: Uuid;
+	/** Exactly the earlier selections the invoking list maps into this entry. */
+	readonly selections?: Readonly<Record<string, PreviewMenuCaseSelection>>;
 }
 
 /**
  * The one entry of a form that a case list's Register action opened, which
  * after submit returns where that list's choice says
- * (`lib/preview/engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`).
+ * (`lib/preview/engine/caseListRegisterAction.ts::caseListActionReturn`).
  * It names the form it opened, in its own menu, so a form screen reached any
  * other way is by construction not this launch, and it lasts while the
  * running app stays on that launch's own path

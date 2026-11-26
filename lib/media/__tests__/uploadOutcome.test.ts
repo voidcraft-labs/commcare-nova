@@ -165,6 +165,19 @@ describe("mediaAttachWarnings", () => {
 		expect(mediaAttachWarnings({ failures: [] })).toEqual([]);
 	});
 
+	it("names the affected part of the app when HQ accepted the upload but its current file could not be verified", () => {
+		const outcome = interpretMediaAttach({
+			unmatched: [{ ...IMG, unverified: true }],
+			hqErrors: [],
+			assetWirePath: WIRE_PATHS,
+			doc: doc(),
+		});
+		expect(mediaAttachWarnings(outcome)).toEqual([
+			expect.stringMatching(
+				/^Nova couldn't verify the image on field "photo".*publish again/,
+			),
+		]);
+	});
 	it("writes a 'couldn't attach' line per failure, naming the carrier", () => {
 		const lines = mediaAttachWarnings({
 			failures: [

@@ -42,21 +42,19 @@ import {
 	NO_SEARCH_SCREEN_TITLE,
 	plainColumn,
 } from "@/lib/domain/modules";
-import { proseText } from "@/lib/domain/prose";
 import { SEARCH_RUNTIME_VALIDATION_MESSAGES } from "@/lib/domain/searchRuntimeValidationMessages";
 import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUnits";
 import type { Uuid } from "@/lib/domain/uuid";
+import { localAppStringTable } from "../../appStrings";
 import { compileCcz } from "../../compiler";
 import { expandDoc } from "../../expander";
 import { localeFileIssue } from "../../localeFile";
-import { commCareLocalization } from "../../localization";
 import { runValidation } from "../../validator/runner";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
 import { holdText, unheldText } from "../heldText";
 import { cleanTrans } from "../hqText";
 import { readHqApp } from "../index";
 import { inSpanish } from "../menus/__tests__/menuReading";
-import type { AppStringTable } from "../types";
 import { exportedBody, inputFor } from "./novaExport";
 
 type JsonObject = Record<string, unknown>;
@@ -375,7 +373,11 @@ const SURFACES = {
 async function read(doc: BlueprintDoc, edit: (body: JsonObject) => void) {
 	const body = exportedBody(doc);
 	edit(body);
-	const outcome = readHqApp(await inputFor(body));
+	const outcome = readHqApp(
+		await inputFor(body, {
+			appStrings: (read) => localAppStringTable(read, []),
+		}),
+	);
 	expect(outcome.defects).toEqual([]);
 	if (outcome.kind !== "read")
 		throw new Error(
@@ -786,7 +788,7 @@ describe("the app's name read from CommCare HQ", () => {
 		]);
 	});
 
-	it("only spaces in a language's own name beside the source's takes the source's name there", async () => {
+	it("only spaces in a language's own display name holds no wording there, and that language takes the source's name", async () => {
 		const { body, draft } = await read(PROMPTS, (body) => {
 			const translations = body.translations as Record<string, JsonObject>;
 			translations.es = { ...translations.es, "app.display.name": "  " };
@@ -803,23 +805,23 @@ describe("the app's name read from CommCare HQ", () => {
 			),
 		).toEqual([
 			{
-				entry: "application-and-settings/translations-app-display-name",
+				entry: "application-and-settings/translations-generated-wording",
 				path: "/translations/es/app.display.name",
 				register: "text-spaces-dropped",
 			},
 		]);
 	});
 
-	// A language that stores no `app.display.name` shows `name`: where the source language's own
-	// display name is read as the app's name, that language takes `name` as its translation, and a
-	// respelling of it is CommCare HQ's `name`, the one path that holds it.
-	it("folded from the source language's own display name records another language's respelling at `name`, never at a display name it does not store", async () => {
+	// A language that stores no `app.display.name` shows `name`, and the source language's own
+	// display name is the app name's own wording there, never the app's name: a respelling of the
+	// name is CommCare HQ's `name`, the one path that holds it.
+	it("beside the source language's own display name records the name's respelling at `name`, never at a display name", async () => {
 		const doc = localizationWireFixture("prompts");
 		const localization = doc.localization;
 		if (localization === undefined)
 			throw new Error("The prompts fixture holds two languages.");
 		/* English first and the source, Spanish translating Nova's sentences, so Spanish never
-		 * reads as the source, and an English display name other than `name` is the fold's. */
+		 * reads as the source, and an English display name other than `name` is its own wording. */
 		doc.localization = {
 			...localization,
 			defaultLanguage: "eng" as LanguageTag,
@@ -835,7 +837,7 @@ describe("the app's name read from CommCare HQ", () => {
 				"app.display.name": "Health override",
 			};
 		});
-		expect(draft.doc.appName).toBe("Health override");
+		expect(draft.doc.appName).toBe("Health app");
 		expect(
 			draft.facts.sameStateRewrites.filter(
 				(record) =>
@@ -851,41 +853,21 @@ describe("the app's name read from CommCare HQ", () => {
 	});
 });
 
-describe("an app translation folded over an app string", () => {
-	/** Nova's build of the first column's two headers, in each language, through the production
-	 *  projection. */
-	const headerStrings = (doc: BlueprintDoc): AppStringTable => {
-		const module = doc.modules[doc.moduleOrder[0] as string];
-		const column = module?.caseListConfig?.columns[0];
-		if (column === undefined) throw new Error("The fixture has a column.");
-		const unit = makeTranslationUnitId("column", column.uuid, "header");
-		const headers = commCareLocalization(doc).textMap(unit);
-		const keys = [SHORT_HEADER, LONG_HEADER];
-		return {
-			languages: Object.fromEntries(
-				LANGS.map((lang) => [
-					lang,
-					Object.fromEntries(keys.map((key) => [key, headers[lang] ?? ""])),
-				]),
-			),
-			units: Object.fromEntries(keys.map((key) => [key, unit])),
-		};
-	};
+describe("an app translation over an app string", () => {
 	const SHORT_HEADER = "m0.case_short.case_name_1.header";
 	const LONG_HEADER = "m0.case_long.case_name_1.header";
-
-	it("with a space at its start is held without it, which workers then read, recorded at the key", async () => {
+	/** The headers' own wordings in Spanish after a reading, and the column header's own text. */
+	const read = async (value: string) => {
 		const body = exportedBody(PROMPTS);
 		const translations = body.translations as Record<string, JsonObject>;
-		// One unit feeds both headers' keys, so an override words both.
 		translations.es = {
 			...translations.es,
-			[SHORT_HEADER]: " Nombre",
-			[LONG_HEADER]: " Nombre",
+			[SHORT_HEADER]: value,
+			[LONG_HEADER]: value,
 		};
 		const outcome = readHqApp({
 			...(await inputFor(body)),
-			appStrings: headerStrings,
+			appStrings: (doc) => localAppStringTable(doc, []),
 		});
 		expect(outcome.defects).toEqual([]);
 		if (outcome.kind !== "read")
@@ -893,59 +875,47 @@ describe("an app translation folded over an app string", () => {
 				JSON.stringify(outcome.findings.map((one) => [one.code, one.detail])),
 			);
 		const draft = outcome.draft;
-		expect(draft.facts.foldedTranslationKeys).toHaveLength(2);
 		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const column =
 			draft.doc.modules[draft.doc.moduleOrder[0] as string]?.caseListConfig
 				?.columns[0];
-		expect(
-			draft.doc.localization?.translations.spa?.[
-				makeTranslationUnitId("column", column?.uuid ?? "", "header")
-			]?.value,
-		).toBe("Nombre");
+		const spanish = draft.doc.localization?.translations.spa ?? {};
+		return {
+			draft,
+			header:
+				spanish[makeTranslationUnitId("column", column?.uuid ?? "", "header")]
+					?.value,
+			wordings: Object.entries(spanish)
+				.filter(([unit]) => unit.includes(":generated"))
+				.map(([, entry]) => entry.value),
+		};
+	};
+
+	it("with a space at its start is held without it, which workers then read, recorded at the key", async () => {
+		const { draft, header, wordings } = await read(" Nombre");
+		expect(wordings).toEqual(["Nombre", "Nombre"]);
+		expect(header).not.toBe("Nombre");
 		expect(
 			draft.facts.sameStateRewrites.filter(
 				(record) => record.register === "text-spaces-dropped",
 			),
 		).toEqual([
 			{
-				entry:
-					"application-and-settings/translations-generated-key-over-one-text",
+				entry: "application-and-settings/translations-generated-wording",
 				path: `/translations/es/${SHORT_HEADER}`,
+				register: "text-spaces-dropped",
+			},
+			{
+				entry: "application-and-settings/translations-generated-wording",
+				path: `/translations/es/${LONG_HEADER}`,
 				register: "text-spaces-dropped",
 			},
 		]);
 	});
 
 	it("over the two characters `\\n` is held as the line break a device shows there", async () => {
-		const body = exportedBody(PROMPTS);
-		const translations = body.translations as Record<string, JsonObject>;
-		translations.es = {
-			...translations.es,
-			[SHORT_HEADER]: "Nom\\nbre",
-			[LONG_HEADER]: "Nom\\nbre",
-		};
-		const outcome = readHqApp({
-			...(await inputFor(body)),
-			appStrings: headerStrings,
-		});
-		expect(outcome.defects).toEqual([]);
-		if (outcome.kind !== "read")
-			throw new Error(
-				JSON.stringify(outcome.findings.map((one) => [one.code, one.detail])),
-			);
-		const draft = outcome.draft;
-		expect(draft.facts.foldedTranslationKeys).toHaveLength(2);
-		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		const column =
-			draft.doc.modules[draft.doc.moduleOrder[0] as string]?.caseListConfig
-				?.columns[0];
-		expect(
-			draft.doc.localization?.translations.spa?.[
-				makeTranslationUnitId("column", column?.uuid ?? "", "header")
-			]?.value,
-		).toBe("Nom\nbre");
-		// No worker reads another header: HQ's build writes the line break as those two characters.
+		const { draft, wordings } = await read("Nom\\nbre");
+		expect(wordings).toEqual(["Nom\nbre", "Nom\nbre"]);
 		expect(
 			draft.facts.sameStateRewrites.filter(
 				(record) => record.register === "text-spaces-dropped",
@@ -963,7 +933,7 @@ describe("an app translation folded over an app string", () => {
 		};
 		const outcome = readHqApp({
 			...(await inputFor(body)),
-			appStrings: headerStrings,
+			appStrings: (doc) => localAppStringTable(doc, []),
 		});
 		expect(outcome.defects).toEqual([]);
 		expect(outcome.kind).toBe("account");
@@ -1767,13 +1737,14 @@ describe("a Search text compared with what CommCare HQ shows", () => {
 });
 
 /**
- * A choice's label folded from an app translation is held as a device shows it, as a text unit's
- * fold is: the two characters `\n` a line break, the text before a carriage return whose rest
- * defines no string, no space at either end. The failure it catches: such a fold refused as
- * wording Nova cannot hold, or folded raw into a document the gate refuses.
+ * An app translation over a choice's label is that output's own wording, held as a device shows
+ * it: the two characters `\n` a line break, the text before a carriage return whose rest defines
+ * no string, no space at either end. The failure it catches: such a wording refused as text Nova
+ * cannot hold, or held raw into a document the gate refuses; and the label itself changed.
  */
-describe("an app translation folded over a choice's label", () => {
-	const KEY = "m0.case_short.case_stage_1.enum.ka";
+describe("an app translation over a choice's label", () => {
+	/** The key Nova's build writes the choice's label under on the case list's row. */
+	const KEY = "m0.case_short.case_stage_2.enum.knova_text_0";
 	const UNIT = casePropertyOptionTranslationUnitId("patient", "stage", "a");
 	const fra = "fra" as LanguageTag;
 	const optionDoc = (): BlueprintDoc => {
@@ -1837,19 +1808,13 @@ describe("an app translation folded over a choice's label", () => {
 			},
 		};
 	};
-	/** Nova's build of the choice's label under one generated key, the unit's text in each
-	 *  language. */
-	const optionStrings = (): AppStringTable => ({
-		languages: { en: { [KEY]: "Active" }, fr: { [KEY]: "Active" } },
-		units: { [KEY]: UNIT },
-	});
 	const fold = async (value: string) => {
 		const body = exportedBody(optionDoc());
 		const translations = body.translations as Record<string, JsonObject>;
 		translations.fr = { ...translations.fr, [KEY]: value };
 		const outcome = readHqApp({
 			...(await inputFor(body)),
-			appStrings: optionStrings,
+			appStrings: (read) => localAppStringTable(read, []),
 		});
 		expect(outcome.defects).toEqual([]);
 		if (outcome.kind !== "read")
@@ -1857,14 +1822,15 @@ describe("an app translation folded over a choice's label", () => {
 				JSON.stringify(outcome.findings.map((one) => [one.code, one.detail])),
 			);
 		const draft = outcome.draft;
-		expect(draft.facts.foldedTranslationKeys).toHaveLength(1);
 		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const held = Object.entries(
+			draft.doc.localization?.translations[fra] ?? {},
+		).filter(([unit]) => unit.includes(":generated"));
+		// The choice's own label keeps its text: no app translation folds into it.
+		expect(draft.doc.localization?.translations[fra]?.[UNIT]).toBeUndefined();
+		expect(held).toHaveLength(1);
 		return {
-			value: (
-				draft.doc.localization?.translations[fra] as
-					| Record<string, { value: unknown }>
-					| undefined
-			)?.[UNIT]?.value,
+			value: held[0]?.[1].value,
 			workerRecords: draft.facts.sameStateRewrites.filter(
 				(record) => record.register === "text-spaces-dropped",
 			),
@@ -1873,29 +1839,28 @@ describe("an app translation folded over a choice's label", () => {
 
 	it("over the two characters `\\n` is held as the line break a device shows, which no worker reads otherwise", async () => {
 		const read = await fold("Act\\nive");
-		expect(read.value).toEqual(proseText("Act\nive"));
+		expect(read.value).toBe("Act\nive");
 		expect(read.workerRecords).toEqual([]);
 	});
 
 	it("over a backslash before `#` is held as the `#` a device shows, which no worker reads otherwise", async () => {
 		const read = await fold("Act\\#ive");
-		expect(read.value).toEqual(proseText("Act#ive"));
+		expect(read.value).toBe("Act#ive");
 		expect(read.workerRecords).toEqual([]);
 	});
 
 	it("with a carriage return whose rest defines no string is held as the text before it", async () => {
 		const read = await fold("Activo\rtodavía activo");
-		expect(read.value).toEqual(proseText("Activo"));
+		expect(read.value).toBe("Activo");
 		expect(read.workerRecords).toEqual([]);
 	});
 
 	it("with a space at its start is held without it, which workers then read, recorded at the key", async () => {
 		const read = await fold(" Activo");
-		expect(read.value).toEqual(proseText("Activo"));
+		expect(read.value).toBe("Activo");
 		expect(read.workerRecords).toEqual([
 			{
-				entry:
-					"application-and-settings/translations-generated-key-over-one-text",
+				entry: "application-and-settings/translations-generated-wording",
 				path: `/translations/fr/${KEY}`,
 				register: "text-spaces-dropped",
 			},

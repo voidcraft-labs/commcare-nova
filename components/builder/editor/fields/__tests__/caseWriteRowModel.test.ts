@@ -31,9 +31,9 @@ import {
 	ancestorCaseWriteChoices,
 	caseWriteRowModel,
 	KEPT_IN_SAVE_TO_CASE_REASON,
-	NEW_CASE_NO_EARLIER_VALUE_REASON,
 	OPENS_WITH_CASE_VALUE_LINE,
 	onlyIfChangedDestination,
+	SAVE_ONLY_IF_ANSWERED_LINE,
 	SAVE_ONLY_IF_CHANGED_LABEL,
 	SAVE_ONLY_IF_CHANGED_LINE,
 	STARTS_BLANK_LINE,
@@ -577,6 +577,55 @@ describe("the cases above it", () => {
 		]);
 	});
 
+	it("offers an unambiguous basic user connection and saves it through the current gate", () => {
+		const doc = produce(aboveFixture("followup"), (draft) => {
+			const member = draft.caseTypes?.find(({ name }) => name === "member");
+			if (member === undefined)
+				throw new Error("The fixture needs a member type.");
+			member.relations = [
+				{ identifier: "user", targetType: "household", relationship: "child" },
+			];
+		});
+		const caseTypes = doc.caseTypes ?? [];
+		const view = fieldCaseWriteViews(doc, ABOVE_NOTE)[0];
+		if (view === undefined) throw new Error("The note saves nowhere.");
+		const basic = formCasePlacementView(doc, view.formUuid).own?.placement.kind;
+		expect(basic).toBe("basic");
+		const choice = ancestorCaseWriteChoices(
+			caseTypes,
+			"member",
+			"followup",
+			true,
+		).find(({ via }) => via[0].identifier === "user");
+		expect(choice?.via).toEqual([
+			{ identifier: "user", throughCaseType: "household" },
+		]);
+		if (choice === undefined)
+			throw new Error("The user connection should be offered.");
+		const verdict = caseWriteChoiceVerdict(
+			doc,
+			ABOVE_NOTE,
+			{
+				destination: {
+					caseType: choice.caseType,
+					property: "note",
+					via: choice.via,
+				},
+				replace: fieldCaseWriteViewKey(view),
+			},
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict).toMatchObject({ ok: true });
+		if (verdict.ok) {
+			const row = rowWith(committed(doc, verdict.mutations), ABOVE_NOTE);
+			expect(row.destination).toBe("Household linked through user · Note");
+			expect(row.readOnly).toBe(false);
+		}
+		expect(
+			ancestorCaseWriteChoices(caseTypes, "member", "followup"),
+		).not.toContainEqual(choice);
+	});
+
 	it("lists an extension's host from a menu over the extension", () => {
 		const doc = aboveFixture("followup");
 		expect(
@@ -670,22 +719,52 @@ describe("the Save only if changed switch", () => {
 		expect(switchVerdict(turnedOn, ABOVE_NOTE)).toMatchObject({ ok: true });
 	});
 
-	it("is not offered on a name, a new child case or the worker's record", () => {
+	it("is offered on a follow-up's rename and turns on as the name's flag, and not on a new case's name", () => {
 		const doc = aboveFixture("followup");
-		expect(rowWith(doc, ABOVE_NAME).onlyIfChanged).toBeUndefined();
-		const followup = fixture("followup");
-		expect(rowOf(followup, VISIT_NOTE).onlyIfChanged).toBeUndefined();
-		expect(rowOf(followup, REGION).onlyIfChanged).toBeUndefined();
+		const row = rowWith(doc, ABOVE_NAME);
+		expect(row.onlyIfChanged).toMatchObject({
+			on: false,
+			line: SAVE_ONLY_IF_CHANGED_LINE,
+		});
+		const on = switchVerdict(doc, ABOVE_NAME);
+		expect(on).toMatchObject({ ok: true });
+		if (!on.ok) return;
+		const turnedOn = committed(doc, on.mutations);
+		const form = Object.values(turnedOn.forms)[0];
+		expect(
+			form?.caseOperations?.find((operation) => operation.action === "own"),
+		).toMatchObject({ nameOnlyIfChanged: true });
+		expect(rowWith(turnedOn, ABOVE_NAME).onlyIfChanged?.on).toBe(true);
+		const registration = aboveFixture("registration");
+		expect(rowWith(registration, ABOVE_NAME).onlyIfChanged).toBeUndefined();
 	});
 
-	it("is disabled on a registration, whose new case has no earlier value", () => {
+	it("is offered on a new child case, saying it saves only a given answer, and on the worker's record", () => {
+		const followup = fixture("followup");
+		const child = rowOf(followup, VISIT_NOTE).onlyIfChanged;
+		expect(child).toMatchObject({
+			on: false,
+			line: SAVE_ONLY_IF_ANSWERED_LINE,
+		});
+		expect(child?.disabledReason).toBeUndefined();
+		expect(switchVerdict(followup, VISIT_NOTE)).toMatchObject({ ok: true });
+		const worker = rowOf(followup, REGION).onlyIfChanged;
+		expect(worker).toMatchObject({
+			on: false,
+			line: SAVE_ONLY_IF_CHANGED_LINE,
+		});
+		expect(switchVerdict(followup, REGION)).toMatchObject({ ok: true });
+	});
+
+	it("is offered on a registration, whose new case saves only an answer the worker gives", () => {
 		const doc = aboveFixture("registration");
 		const row = rowWith(doc, ABOVE_NOTE);
-		expect(row.onlyIfChanged?.disabledReason).toBe(
-			NEW_CASE_NO_EARLIER_VALUE_REASON,
-		);
-		// The gate refuses the same switch.
-		expect(switchVerdict(doc, ABOVE_NOTE).ok).toBe(false);
+		expect(row.onlyIfChanged).toMatchObject({
+			line: SAVE_ONLY_IF_ANSWERED_LINE,
+		});
+		expect(row.onlyIfChanged?.disabledReason).toBeUndefined();
+		// The gate admits the same switch.
+		expect(switchVerdict(doc, ABOVE_NOTE).ok).toBe(true);
 	});
 
 	it("is disabled while CommCare HQ keeps the change in Save to Case", () => {

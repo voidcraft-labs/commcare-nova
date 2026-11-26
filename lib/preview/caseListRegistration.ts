@@ -3,7 +3,7 @@
  * offered after an empty search (`Module.caseListRegistrationForm`,
  * `afterEmptySearchRegistrationFormOf`). A form a case list always offers
  * is an ordinary form of its own menu, opened from the list with a launch
- * that only decides where it returns (`alwaysOfferedRegistrationReturn`).
+ * that only decides where it returns (`caseListActionReturn`).
  *
  * On the wire the form is reachable only through the Register action on
  * Results, relevant when the inline search found nothing
@@ -15,7 +15,7 @@
  * with matches) is refused, and the screen says where to go instead.
  */
 
-import type { BlueprintDoc, Form, SearchInputDef, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, SearchInputDef, Uuid } from "@/lib/domain";
 import {
 	afterEmptySearchRegistrationFormOf,
 	moduleUuidOfForm,
@@ -30,7 +30,10 @@ import {
 	searchInputInstanceValues,
 } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewSearchEnvironment } from "@/lib/preview/engine/searchExpressionEvaluation";
-import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
+import {
+	openSearchRunState,
+	withHiddenValues,
+} from "@/lib/preview/engine/searchRunState";
 import { searchAttemptOf } from "@/lib/session/previewSearchState";
 import type {
 	PreviewSearchAnswers,
@@ -41,7 +44,9 @@ import type {
 /* The Register action a list draws, for either arm, and the return of a form
  * a list always offers, which read the wire owner's frames. */
 export {
-	alwaysOfferedRegistrationReturn,
+	caseListActionChoices,
+	caseListActionCreatedDatum,
+	caseListActionReturn,
 	type PreviewRegisterAction,
 	previewRegisterAction,
 	registeredCaseOnDevice,
@@ -64,21 +69,11 @@ export function isCaseListRegistrationForm(
 	);
 }
 
-/** A case list registration's native return takes precedence over ordinary
- * after-submit routing. Explicit `firstMenu` is the only alternative. */
-export function caseListRegistrationPostSubmit(
-	doc: RegistrationDoc,
-	formUuid: Uuid,
-): "firstMenu" | "results" | undefined {
-	const form: Pick<Form, "postSubmit"> | undefined = doc.forms[formUuid];
-	if (form === undefined || !isCaseListRegistrationForm(doc, formUuid))
-		return undefined;
-	return form.postSubmit === "firstMenu" ? "firstMenu" : "results";
-}
-
 export type CaseListRegistrationAdmission =
 	/** Not a case list registration form: nothing to admit. */
 	| { readonly kind: "not-applicable" }
+	/** An explicit opening from a different list, with no answer from the owning search. */
+	| { readonly kind: "other-list" }
 	/** Opened from the Register action; these are the search's answers. */
 	| { readonly kind: "admitted"; readonly answers: PreviewSearchAnswers }
 	| { readonly kind: "refused"; readonly reason: CaseListRegistrationRefusal };
@@ -103,12 +98,23 @@ export function caseListRegistrationAdmission(args: {
 	readonly moduleUuid: Uuid | undefined;
 	/** The launch on the form's case target, when the target names this form. */
 	readonly launch: PreviewSearchLaunch | undefined;
+	readonly actionHost?: Uuid;
 	readonly searchState: PreviewSearchState | undefined;
 }): CaseListRegistrationAdmission {
 	const { doc, formUuid, moduleUuid, launch } = args;
 	if (!isCaseListRegistrationForm(doc, formUuid)) {
 		return { kind: "not-applicable" };
 	}
+	const action =
+		args.actionHost === undefined
+			? undefined
+			: doc.modules[args.actionHost]?.caseListRegistrationForm;
+	if (
+		args.actionHost !== moduleUuid &&
+		action?.kind === "always" &&
+		action.formUuid === formUuid
+	)
+		return { kind: "other-list" };
 	if (launch === undefined) return { kind: "refused", reason: "no-launch" };
 	if (moduleUuid === undefined || launch.moduleUuid !== moduleUuid) {
 		return { kind: "refused", reason: "foreign-module" };
@@ -215,7 +221,7 @@ export function formSearchAnswers(args: {
 			searchInputs,
 			new Map(Object.entries(admission.answers)),
 		);
-	if (admission.kind === "refused" || !formsReadSearch) return undefined;
+	if (admission.kind !== "not-applicable" || !formsReadSearch) return undefined;
 	return formReadsCompletedSearch(searchState, args.openedByLink)
 		? searchInputInstanceValues(
 				searchInputs,
@@ -274,16 +280,20 @@ export function readFormSearchAnswers(args: {
 	let defaults = NO_STARTING_VALUES;
 	if (formOpensSearchScreen(args) && args.world !== undefined) {
 		const { session, environment } = args.world;
-		const opened = readPreviewScreen(() =>
-			openSearchRunState(
+		/* The query step seeds each hidden prompt's value beside the starting
+		 * values (`RemoteQuerySessionManager.initUserAnswers`), and the form
+		 * reads both. */
+		const opened = readPreviewScreen(() => {
+			const state = openSearchRunState(
 				environment.moduleUuid,
 				args.searchInputs,
 				session,
 				environment,
-			),
-		);
+			);
+			return withHiddenValues(state.defaults, state.resolveHidden());
+		});
 		if (opened.kind === "refused") return opened;
-		defaults = opened.value.defaults;
+		defaults = opened.value;
 	}
 	return { kind: "read", value: formSearchAnswers({ ...args, defaults }) };
 }

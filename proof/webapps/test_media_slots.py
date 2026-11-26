@@ -85,3 +85,37 @@ def test_web_apps_shows_a_questions_label_media_and_no_group_hint_or_message_med
     # The worker went on with the answer the constraint takes, and the form was submitted.
     submitted = replayed.answered("submit-all")
     assert len(submitted) == 1 and submitted[0].json()["status"] == "success", submitted
+
+
+def test_a_worker_sees_the_question_and_help_files_in_the_chosen_language(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    with webapps_hq.project(webapps_documents["media-language-files"]) as project:
+        with project.released(formplayer_runner) as release:
+            screens = {}
+            for language in ("en", "fra"):
+                made = steps.open_app("Two language visits")
+                if language == "fra":
+                    made += steps.choose_language(language, steps.arrive(any_screen=True))
+                made += [
+                    *steps.choose("Visits"),
+                    *steps.choose("Record visit"),
+                    steps.SCREEN,
+                    *steps.click("#webforms .help-text-trigger", visible=True),
+                    {"eval": '() => document.querySelector("#webforms .modal.show img")?.getAttribute("src")'},
+                ]
+                run = Session(release, editor_driver).run(made)
+                assert run.page_errors == []
+                (screen,) = run.screens
+                screens[language] = {"questions": screen["form"]["questions"], "helpImage": run.value(-1)}
+    evidence("localized-files", screens)
+    for language, (label_file, help_file) in {
+        "en": (LABEL_IMAGE, f"{UNSHOWN_IMAGE}.png"),
+        "fra": (f"{GROUP_IMAGE}.png", LABEL_IMAGE),
+    }.items():
+        street, choose = screens[language]["questions"]
+        assert "Street" in street["label"] and "Choose" in choose["label"], screens[language]
+        assert [item["src"].rsplit("/", 1)[-1] for item in street["media"] if item["kind"] == "img"] == [label_file]
+        assert (screens[language]["helpImage"] or "").endswith(f"/{help_file}"), screens[language]
+        # Formplayer passes static choices to this client as text alone (PromptToJson.parseSelect).
+        assert choose["media"] == [], choose

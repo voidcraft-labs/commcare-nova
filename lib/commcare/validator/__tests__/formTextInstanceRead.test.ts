@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	evaluatePreparedMutationCandidate,
 	mutationCommitVerdict,
@@ -28,10 +28,10 @@ import type { Mutation } from "@/lib/doc/types";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
-	type ConnectConfig,
 	makeTranslationUnitId,
 	proseText,
 } from "@/lib/domain";
+import type { ConnectActivity } from "@/lib/domain/fields/connectActivity";
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 import type { ValidationError } from "../errors";
 import { runValidation } from "../runner";
@@ -61,24 +61,38 @@ function surveyDoc(name = "Practice"): BlueprintDoc {
 	});
 }
 
+const ACTIVITY = testUuid("instance-text-activity");
+
 function connectDoc(
-	connectType: "learn" | "deliver",
-	connect: ConnectConfig,
+	role: "learn" | "deliver",
+	activity: ConnectActivity,
 ): BlueprintDoc {
 	return buildDoc({
 		appName: "Instance text",
-		connectType,
+		connectRoles: [role],
+		appSettings: {
+			showIncompleteForms: false,
+			showSavedForms: false,
+			runsOnlyOn: "android",
+		},
 		modules: [
 			{
-				uuid: "instance-text-module",
+				uuid: MODULE,
 				name: "Training",
 				forms: [
 					{
-						uuid: "instance-text-form",
+						uuid: FORM,
 						name: "Lesson",
 						type: "survey",
-						connect,
-						fields: [{ kind: "text", id: "notes", label: proseText("Notes") }],
+						fields: [
+							f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							f({
+								kind: "connect_activity",
+								uuid: ACTIVITY,
+								id: "activity_one",
+								activity,
+							}),
+						],
 					},
 				],
 			},
@@ -86,8 +100,11 @@ function connectDoc(
 	});
 }
 
-const learn = (name: string, description: string): ConnectConfig => ({
-	learn_module: { id: "lesson_one", name, description, time_estimate: 5 },
+const learn = (name: string, description: string): ConnectActivity => ({
+	kind: "learning-module",
+	name,
+	description,
+	estimatedHours: 5,
 });
 
 const instanceFindings = (findings: readonly ValidationError[]) =>
@@ -207,15 +224,16 @@ describe("FORM_TEXT_READ_AS_INSTANCE", () => {
 		expect(finding.details?.match).toBe(long.slice(0, 40));
 	});
 
-	it("refuses a learn module's description edited through updateForm, and admits it with the space", () => {
+	it("refuses a learn module's description edited through the activity field, and admits it with the space", () => {
 		const doc = connectDoc("learn", learn("Lesson one", "Shows the case list"));
 		expectAdmitted(doc);
 		const findings = gateFindings(doc, [
 			{
-				kind: "updateForm",
-				uuid: FORM,
+				kind: "updateField",
+				targetKind: "connect_activity",
+				uuid: ACTIVITY,
 				patch: {
-					connect: learn("Lesson one", `Shows how ${READ} works`),
+					activity: learn("Lesson one", `Shows how ${READ} works`),
 				},
 			},
 		]);
@@ -234,10 +252,11 @@ describe("FORM_TEXT_READ_AS_INSTANCE", () => {
 		expect(
 			gateFindings(doc, [
 				{
-					kind: "updateForm",
-					uuid: FORM,
+					kind: "updateField",
+					targetKind: "connect_activity",
+					uuid: ACTIVITY,
 					patch: {
-						connect: learn("Lesson one", `Shows how ${OFFERED} works`),
+						activity: learn("Lesson one", `Shows how ${OFFERED} works`),
 					},
 				},
 			]),
@@ -261,7 +280,8 @@ describe("FORM_TEXT_READ_AS_INSTANCE", () => {
 			},
 		]);
 		const deliverDoc = connectDoc("deliver", {
-			deliver_unit: { id: "visit_unit", name: "Visit instance( 'b' )" },
+			kind: "delivery",
+			name: "Visit instance( 'b' )",
 		});
 		expect(
 			instanceFindings(
@@ -269,11 +289,9 @@ describe("FORM_TEXT_READ_AS_INSTANCE", () => {
 			).map((f) => f.details),
 		).toEqual([{ site: "deliver-unit-name", match: "instance( 'b' )" }]);
 		const taskDoc = connectDoc("deliver", {
-			task: {
-				id: "follow_up",
-				name: "Read instance('c')",
-				description: "then instance('d')",
-			},
+			kind: "assigned-task",
+			name: "Read instance('c')",
+			description: "then instance('d')",
 		});
 		expect(
 			instanceFindings(runValidation(taskDoc, LOOKUP_CONTEXT_UNAVAILABLE)).map(

@@ -860,22 +860,36 @@ export class Accounting implements ClaimLedger {
 	/**
 	 * `finding`'s relation, made of the value at `pointer` in the app's JSON (a basic case
 	 * action's condition, judged against the question it names): its entry is recorded at
-	 * every node its class reads there (`#recordAround`).
+	 * every node its class reads there (`#recordAround`). Where the effective default is
+	 * itself the cause, the relation can be located there without claiming a source use.
 	 */
 	findingAt(
 		claim: Claim,
 		place: HqPlace,
 		pointer: string,
 		detail?: FindingDetail,
+		options?: { readonly atDefault: boolean },
 	): void {
 		this.finding(claim, place, detail);
 		const entry = this.#index.entry(claim.entry);
 		if (
-			entry !== undefined &&
-			(claim.use === "refuse" || claim.use === "account") &&
-			this.#makesFinding("account", entry.standing)
+			entry === undefined ||
+			(claim.use !== "refuse" && claim.use !== "account") ||
+			!this.#makesFinding("account", entry.standing)
 		)
+			return;
+		if (options?.atDefault) {
+			if (this.#full)
+				this.#records.push({
+					artifact: "app.json",
+					where: () => pointer,
+					key: null,
+					entry: entry.id,
+					standing: entry.standing,
+				});
+		} else {
 			this.#recordAround(pointer, entry.id);
+		}
 	}
 
 	/**
@@ -892,6 +906,15 @@ export class Accounting implements ClaimLedger {
 		detail?: FindingDetail,
 	): void {
 		this.finding(claim, place, detail);
+		this.recordAtNode(claim, node, key);
+	}
+
+	/**
+	 * A finding's entry recorded at one more node it is made of, where one
+	 * cause spans two nodes (the two Connect activities one submission
+	 * cannot hold together), with the finding itself standing at the other.
+	 */
+	recordAtNode(claim: Claim, node: XmlNode, key: string): void {
 		const entry = this.#index.entry(claim.entry);
 		if (
 			entry === undefined ||
@@ -982,7 +1005,7 @@ export class Accounting implements ClaimLedger {
 	}
 
 	/**
-	 * Applies, by entry id, a further class of a key `claimEntry` already claims
+	 * Applies, by entry id, a further class of a key the cursor or `claimEntry` already claims
 	 * at the node under another entry: a value that holds the key in several
 	 * classes (a search row, whose every text HQ's search parses on its own) is
 	 * a use in each, recorded beside the first. The entry is answered as
@@ -998,7 +1021,10 @@ export class Accounting implements ClaimLedger {
 		const ledgerSite = this.#site(site);
 		if (ledgerSite === undefined) return;
 		const state = this.#state(ledgerSite);
-		const first = state.entries?.get(key);
+		// A key the node's `take` declared is claimed there as one claimed by entry.
+		const first =
+			state.entries?.get(key) ??
+			(state.declaredKey === key ? state.declared : undefined);
 		const entry = this.#index.entry(entryId);
 		const registered = claimNameForEntry(entryId);
 		if (

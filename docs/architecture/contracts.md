@@ -48,6 +48,29 @@ This is accepted downtime, not a staged rollout: there are no dual readers,
 dual writes, temporary schemas, aliases, feature flags, version gates, or
 traffic-split controllers.
 
+At an incompatible app fold, each live HQ target keeps the comparison for the
+revision it received. In the conversion transaction Nova checks its original
+revision, bound baseline digest, mapping and pending changes under lock. The
+conversion verifies the resulting conflict, renamed case properties and
+identity projection against that target’s original comparison, including the
+reason one was already unavailable. An editor’s intervening change stays
+unpublished. Recoverable apps in the trash take the same conversion. The
+read-only scan on the previous schema and the scan after the candidate DDL
+produce the same receipt for unchanged targets. That receipt pins the deployed decoder’s source commit, Git tree, dependency lock, executable bytes and the exact converter and settings. The old release reads old snapshots, certificates and mutations. Serving reads the converted snapshot from its new horizon. The converter verifies targets
+one at a time in the app transaction. A released HQ claim keeps its comparison
+for a possible reclaim. Only a request made under the current claim can use it.
+A review that would associate an HQ change with an existing Nova head checks that
+head under lock. Active HQ app imports hold the fold. A publish prepared below
+the current horizon asks for a new publish before sending app content. A saved
+case-property rename has the same effect on the take decision across every fold,
+including when an old property name is reused. The certificate records the old
+release’s review at the cut and, separately, the origins of surviving case
+properties from its admitted commands and effective storage schema. An
+immediate second fold preserves both. The published take honors every displayed
+rename and every move of surviving data, including a move the released review
+missed. A later edit composes with the surviving
+origins so moving data under a newly reused name still holds the take.
+
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the
 MCP API. Private agent work may be incomplete; only valid checkpoints become saved
@@ -476,6 +499,10 @@ These decisions are closed unless the project owner explicitly reopens them.
   A tool needs the scope that covers everything its answers can carry, a
   refusal and a changed review included (`lib/mcp/scopes.ts::TOOL_SCOPES`, held
   by `lib/mcp/scopedTool.ts::registerScopedTool`).
+  Reading Preview destinations and team-confirmed search settings and Web Apps record map availability takes
+  `nova.preview.search.read`. Changing them takes that scope and
+  `nova.preview.search.write`, including an exact retry through saved work.
+  The shared MCP adapter checks the grant before opening an app or work session.
 - What Nova holds about another Project (who manages an HQ app there) is
   released only on CommCare HQ's own answer, in the same request, that the
   caller's key reaches that app (`lib/commcare/hq/appsSeen.ts::HqAppsSeen`),
@@ -828,6 +855,11 @@ not masquerade as a child of that tree.
 - **Project data** is a URL-owned workspace for Project-shared lookup tables. It
   is reachable from expanded and collapsed desktop navigation and the mobile path
   menu, and it always states that changes affect every referencing app.
+  A search covers the complete table. Row pages, retained drafts and conflict
+  decisions bind stable IDs to the table revision. Large rows open by individual
+  values. Text file uploads and partial replacements verify the original
+  UTF-8 bytes and revision before committing. A connected editor can inspect
+  protected source inventory. Worker preview uses the worker’s own projection.
 - **App setup** is a URL-owned workspace with Users and personas, Organization,
   Languages, Automations, and Publishing sections.
 - Configuration workspaces own breadcrumbs, deep links, route recovery, viewer
@@ -841,3 +873,11 @@ not masquerade as a child of that tree.
   not polish deferred beyond the feature PR.
 - Automations do not pretend to execute inside Preview. The UI explains cadence
   and may show a safe read-only "currently matches N cases" evaluation.
+
+An app's required Android apps are ordered installation requirements. App
+settings and the shared editing tool use their product names. The simulated
+phone's installed apps belong to the device. Android checks before its Start
+button opens a menu. Web Apps ignores the setting. Publishing a selection
+requires the target's App Dependencies confirmation. An older publish that
+never owned these requirements cannot clear a different existing selection
+without a fresh, digest-bound review of that destination.

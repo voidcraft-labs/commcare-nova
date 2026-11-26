@@ -1,0 +1,22 @@
+{
+	"catalog": [
+		{
+			"name": "site",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "zone",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

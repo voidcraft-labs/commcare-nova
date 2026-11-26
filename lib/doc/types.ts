@@ -1,3 +1,10 @@
+import {
+	holdsLabelOnlyMedia,
+	LABEL_ONLY_MEDIA_MESSAGE,
+	translatedMediaSchema,
+} from "@/lib/domain/multimedia";
+import { navigationLanguageEntrySchema } from "@/lib/domain/navigationMedia";
+
 // lib/doc/types.ts
 //
 // Defines the doc-layer `Mutation` union and re-exports the handful of
@@ -26,9 +33,11 @@ import {
 	automationSetupOnlyCriterionSchema,
 	automationTimedEventSchema,
 	automationUserDataFilterSchema,
-	CONNECT_TYPES,
 	type Column,
+	calculatedSortSchema,
+	caseListDeviceLookupSchema,
 	caseListMenuItemSchema,
+	caseListWordingSchema,
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
@@ -37,6 +46,7 @@ import {
 	caseWriteKeySchema,
 	columnSchema,
 	columnSortSchema,
+	connectRolesSchema,
 	fieldHoldsHeldKey,
 	fieldKinds,
 	fieldPatchSchemaByKind,
@@ -56,10 +66,16 @@ import {
 	moduleSchema,
 	ordinaryCaseSearchConfigSchema,
 	organizationLevelSchema,
+	otherRecordTypesSchema,
 	ownerOnlyCaseSearchConfigSchema,
 	personaSchema,
+	readCasePropertyNameSchema,
 	type SearchInputDef,
+	searchFilterSchema,
 	searchInputDefSchema,
+	searchInputGroupSchema,
+	searchOrderFilterSchema,
+	searchValueFilterSchema,
 	selectOptionSchema,
 	selectOptionsSourceSchema,
 	tileCellSchema,
@@ -70,18 +86,24 @@ import {
 	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import { caseFormContextSchema } from "@/lib/domain/caseFormContext";
+import { caseRelationSchema } from "@/lib/domain/caseRelations";
+import { detailTabsSchema } from "@/lib/domain/detailTabs";
 import {
 	entryPointIdSchema,
 	entryPointTargetSchema,
 	formEntryPointSchema,
 } from "@/lib/domain/entryPoints";
 import { conditionSchema } from "@/lib/domain/expression/types";
+import { detailTileSchema } from "@/lib/domain/modules";
 import {
+	advancedTagSchema,
 	casePlacementSchema,
 	ownClosePlacementSchema,
 } from "@/lib/domain/placements";
 import { proseTemplateSchema } from "@/lib/domain/prose";
 import { queryRepeatPlacementSchema } from "@/lib/domain/queryRepeatPlacement";
+import { formEntryChangeSchema } from "./formEntryMutations";
 
 /**
  * The two field message slots a `Media` bundle attaches to: the ones a
@@ -209,9 +231,15 @@ function caseOperationPatchSchemaFor(
 	// Identity and destination action are represented once on the outer update
 	// arm. Writes and links have their own keyed merge units. The own arm's
 	// case type, target, condition and repeat are the form's, so only its name
-	// and owner are scalar slots of its own.
+	// and owner, and whether each is saved only when changed, are scalar slots
+	// of its own.
 	const ownOperationPatchSchema = clearablePartialPatch(arms.own)
-		.pick({ name: true, owner: true })
+		.pick({
+			name: true,
+			nameOnlyIfChanged: true,
+			owner: true,
+			ownerOnlyIfChanged: true,
+		})
 		.strict();
 	const createOperationPatchSchema = clearablePartialPatch(arms.create)
 		.omit({ action: true, writes: true, links: true })
@@ -343,6 +371,13 @@ function caseSearchConfigPatchSchemaFor(
 ) {
 	return z
 		.strictObject({
+			projectSearch: z.strictObject({
+				before: configSchema.shape.projectSearch.unwrap().nullable(),
+				after: configSchema.shape.projectSearch.unwrap().nullable(),
+			}),
+			relatedRecords: configSchema.shape.relatedRecords.nullable(),
+			relatedRecordIdProperty:
+				configSchema.shape.relatedRecordIdProperty.nullable(),
 			excludedOwnerIds: configSchema.shape.excludedOwnerIds.nullable(),
 			searchScreenTitle: configSchema.shape.searchScreenTitle.nullable(),
 			searchScreenSubtitle: configSchema.shape.searchScreenSubtitle.nullable(),
@@ -351,6 +386,8 @@ function caseSearchConfigPatchSchemaFor(
 			/** `null` is search first. */
 			workflow: configSchema.shape.workflow.nullable(),
 			formsReadSearch: configSchema.shape.formsReadSearch.nullable(),
+			searchOnClear: configSchema.shape.searchOnClear.nullable(),
+			requestOrder: configSchema.shape.requestOrder.nullable(),
 		})
 		.partial();
 }
@@ -487,6 +524,7 @@ const userDataValuePatchSchema = z.strictObject({
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 	.omit({
+		formsFromMenu: true,
 		entryPoint: true,
 		caseListEntryPoint: true,
 		id: true,
@@ -496,6 +534,7 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		caseSearchConfig: true,
 		icon: true,
 		audioLabel: true,
+		mediaByLanguage: true,
 		// The case list menu item is set whole by `setCaseListMenuItem`.
 		caseListMenuItem: true,
 		// Whether CommCare HQ holds the menu as an advanced module is held by
@@ -503,16 +542,24 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		heldKind: true,
 	})
 	.extend({
+		/** Source changes never replace the route’s form links or per-form visibility. */
+		formsFromMenu: z.strictObject({ menuUuid: uuidSchema }).nullish(),
 		/** Whole config snapshots have granular owners. These null-only slots are
 		 * the direct structural teardown payloads. */
 		caseListConfig: z.null().optional(),
 		caseSearchConfig: z.null().optional(),
 	});
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
+	caseSelections: true,
+	shadowOf: true,
+	computedDatums: true,
 	entryPoint: true,
 	id: true,
 	name: true,
 	caseOperations: true,
+	// Starting values are entities with their own four entry changes; a
+	// whole-array replacement would drop a concurrent add.
+	openingAssignments: true,
 	// Links are entities with their own four kinds below; a whole-array
 	// replacement would erase identity and never survives the wire.
 	formLinks: true,
@@ -520,9 +567,14 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	otherwise: true,
 	icon: true,
 	audioLabel: true,
+	mediaByLanguage: true,
 	// Where a published app keeps the own close is held by `holdPlacements`
 	// alone; no form patch writes it.
 	ownClosePlacement: true,
+	heldSelectionTags: true,
+	// That an adopted basic form keeps its own record's starting values in
+	// HQ's case settings slot is held by `holdPlacements` alone.
+	heldBasicOpening: true,
 });
 
 /**
@@ -532,10 +584,14 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
  */
 function formHoldsPlacement(form: {
 	readonly ownClosePlacement?: unknown;
+	readonly heldSelectionTags?: unknown;
+	readonly heldBasicOpening?: unknown;
 	readonly caseOperations?: readonly { readonly placement?: unknown }[];
 }): boolean {
 	return (
+		form.heldSelectionTags !== undefined ||
 		form.ownClosePlacement !== undefined ||
+		form.heldBasicOpening !== undefined ||
 		(form.caseOperations ?? []).some(
 			(operation) => operation.placement !== undefined,
 		)
@@ -543,7 +599,7 @@ function formHoldsPlacement(form: {
 }
 
 const HELD_FORM_PLACEMENT_MESSAGE =
-	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.";
+	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `heldSelectionTags`, `ownClosePlacement`, `heldBasicOpening` and each case change's `placement`, and the form takes the placements its shape gives.";
 
 /**
  * `addModule`'s module: any module, holding no kind. Whether CommCare HQ
@@ -701,6 +757,10 @@ const updateFieldPatchSchemaByKind = {
 	signature: fieldPatchWithValidId(fieldPatchSchemaByKind.signature),
 	label: fieldPatchWithValidId(fieldPatchSchemaByKind.label),
 	hidden: fieldPatchWithValidId(fieldPatchSchemaByKind.hidden),
+	case_change: fieldPatchWithValidId(fieldPatchSchemaByKind.case_change),
+	connect_activity: fieldPatchWithValidId(
+		fieldPatchSchemaByKind.connect_activity,
+	),
 	secret: fieldPatchWithValidId(fieldPatchSchemaByKind.secret),
 	group: fieldPatchWithValidId(fieldPatchSchemaByKind.group),
 	section: fieldPatchWithValidId(fieldPatchSchemaByKind.section),
@@ -838,6 +898,16 @@ function reportHeldPlacementInPayload(
 				"This form update also sets where a published app keeps the form's own close. No edit chooses that, so leave `ownClosePlacement` out of the patch.",
 		});
 	}
+	if (
+		isPlainRecord(value.patch) &&
+		Object.hasOwn(value.patch, "heldSelectionTags")
+	)
+		ctx.addIssue({
+			code: "custom",
+			path: ["patch", "heldSelectionTags"],
+			message:
+				"A publish records the saved names of a form’s opening records. You can edit a record choice to change its name.",
+		});
 	const change = value.caseOperationChange;
 	if (
 		isPlainRecord(change) &&
@@ -912,6 +982,17 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 /** One held placement, set or cleared. `null` clears the target's held slot. */
 export const placementHoldSchema = z.discriminatedUnion("target", [
 	z.strictObject({
+		target: z.literal("form-selection"),
+		formUuid: uuidSchema,
+		selectionUuid: uuidSchema,
+		placement: z
+			.strictObject({
+				kind: z.literal("selection-tag"),
+				tag: advancedTagSchema,
+			})
+			.nullable(),
+	}),
+	z.strictObject({
 		target: z.literal("case-operation"),
 		formUuid: uuidSchema,
 		operationUuid: uuidSchema,
@@ -932,6 +1013,11 @@ export const placementHoldSchema = z.discriminatedUnion("target", [
 		moduleUuid: uuidSchema,
 		placement: z.literal("advanced").nullable(),
 	}),
+	z.strictObject({
+		target: z.literal("basic-opening"),
+		formUuid: uuidSchema,
+		placement: z.literal(true).nullable(),
+	}),
 ]);
 export type PlacementHoldEntry = z.infer<typeof placementHoldSchema>;
 
@@ -948,19 +1034,29 @@ export function placementTargetKey(
 				readonly formUuid: string;
 				readonly operationUuid: string;
 		  }
+		| {
+				readonly target: "form-selection";
+				readonly formUuid: string;
+				readonly selectionUuid: string;
+		  }
 		| { readonly target: "own-close"; readonly formUuid: string }
 		| { readonly target: "query-repeat"; readonly fieldUuid: string }
-		| { readonly target: "module-kind"; readonly moduleUuid: string },
+		| { readonly target: "module-kind"; readonly moduleUuid: string }
+		| { readonly target: "basic-opening"; readonly formUuid: string },
 ): string {
 	switch (target.target) {
 		case "case-operation":
 			return `case-operation:${target.formUuid}:${target.operationUuid}`;
+		case "form-selection":
+			return `form-selection:${target.formUuid}:${target.selectionUuid}`;
 		case "own-close":
 			return `own-close:${target.formUuid}`;
 		case "query-repeat":
 			return `query-repeat:${target.fieldUuid}`;
 		case "module-kind":
 			return `module-kind:${target.moduleUuid}`;
+		case "basic-opening":
+			return `basic-opening:${target.formUuid}`;
 	}
 }
 
@@ -1061,6 +1157,13 @@ function createMutationSchema({
 				kind: z.literal("updateModule"),
 				uuid: uuidSchema,
 				patch: mutationModuleUpdatePatchSchema,
+				listedForm: z
+					.strictObject({
+						sourceUuid: uuidSchema,
+						formUuid: uuidSchema,
+						included: z.boolean(),
+					})
+					.optional(),
 				ensureCaseListConfig: z.literal(true).optional(),
 				caseSearchConfigOperation: z
 					.enum([
@@ -1075,6 +1178,18 @@ function createMutationSchema({
 				caseSearchConfigPatch: mutationCaseSearchConfigPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
+				if (
+					mutation.listedForm &&
+					(Object.keys(mutation.patch).length ||
+						mutation.ensureCaseListConfig ||
+						mutation.caseSearchConfigOperation ||
+						mutation.caseSearchConfigPatch)
+				)
+					ctx.addIssue({
+						code: "custom",
+						path: ["listedForm"],
+						message: "Changing which form is shown is a complete edit.",
+					});
 				if (
 					mutation.ensureCaseListConfig &&
 					Object.hasOwn(mutation.patch, "caseListConfig")
@@ -1181,13 +1296,17 @@ function createMutationSchema({
 				kind: z.literal("updateForm"),
 				uuid: uuidSchema,
 				patch: mutationFormUpdatePatchSchema,
+				entryChange: formEntryChangeSchema.optional(),
 				caseOperationChange: mutationCaseOperationChangeSchema.optional(),
 				caseOperationPatch: mutationCaseOperationPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
 				if (
-					mutation.caseOperationChange !== undefined &&
-					mutation.caseOperationPatch !== undefined
+					[
+						mutation.caseOperationChange,
+						mutation.caseOperationPatch,
+						mutation.entryChange,
+					].filter((value) => value !== undefined).length > 1
 				) {
 					ctx.addIssue({
 						code: "custom",
@@ -1248,6 +1367,7 @@ function createMutationSchema({
 		// destination's array and re-anchors references.
 		z.object({
 			kind: z.literal("moveField"),
+			where: z.enum(["screen", "submission"]).optional(),
 			uuid: uuidSchema,
 			toParentUuid: uuidSchema,
 			/** The uuid this field now follows under the target parent, or `null`
@@ -1282,17 +1402,15 @@ function createMutationSchema({
 		// App-level
 		z.object({ kind: z.literal("setAppName"), name: z.string() }),
 		z.object({
-			kind: z.literal("setConnectType"),
-			connectType: z.enum(CONNECT_TYPES).nullable(),
+			kind: z.literal("setConnectRoles"),
+			roles: connectRolesSchema,
 		}),
 		// `logo` is `mediaAssetIdSchema.optional()` on the doc — there is no
 		// stored `null`. The payload is `.nullable()` (not optional) so the
 		// mutation always carries an explicit intent: an asset id sets the
 		// logo, `null` clears it. The reducer maps `null → undefined` so the
 		// cleared key drops off the doc rather than persisting as a literal
-		// `null` the schema would reject. Distinct from `setConnectType`,
-		// whose `connectType` slot is genuinely `.nullable()` and stores the
-		// `null` verbatim.
+		// `null` the schema would reject.
 		z.object({
 			kind: z.literal("setAppLogo"),
 			logo: mediaAssetIdSchema.nullable(),
@@ -1324,6 +1442,33 @@ function createMutationSchema({
 		}),
 		z.object({ kind: z.literal("removeLanguage"), code: languageTagSchema }),
 		z.object({
+			kind: z.literal("rebindLanguageCodes"),
+			changes: z
+				.array(
+					z.strictObject({
+						language: languageTagSchema,
+						from: languageWireCodeSchema,
+						to: languageWireCodeSchema,
+					}),
+				)
+				.min(1),
+		}),
+		z.object({
+			kind: z.literal("rebaseSourceLanguage"),
+			from: languageTagSchema,
+			to: languageTagSchema,
+		}),
+		z.object({
+			kind: z.literal("setProjectLanguageDirection"),
+			code: languageTagSchema,
+			direction: z.enum(["ltr", "rtl"]),
+		}),
+		z.object({
+			kind: z.literal("moveLanguage"),
+			code: languageTagSchema,
+			after: languageTagSchema.nullable(),
+		}),
+		z.object({
 			kind: z.literal("setDefaultLanguage"),
 			code: languageTagSchema,
 		}),
@@ -1332,6 +1477,14 @@ function createMutationSchema({
 			language: languageTagSchema,
 			unitId: translationUnitIdSchema,
 			entry: translationEntrySchema.nullable(),
+			// Historical replay may restore a formerly stale draft. Both the current
+			// source and previous entry must match what the diff inspected.
+			restoreAgainst: z
+				.strictObject({
+					sourceFingerprint: z.string().min(1),
+					previous: translationEntrySchema.nullable(),
+				})
+				.optional(),
 		}),
 		z.object({
 			kind: z.literal("reviewTranslation"),
@@ -1351,7 +1504,9 @@ function createMutationSchema({
 				.array(
 					z.strictObject({
 						caseType: z.string().min(1),
-						from: authoredCasePropertyNameSchema,
+						// A brought-in name past the authored bound can be renamed
+						// away from; the new name keeps the authored grammar.
+						from: readCasePropertyNameSchema,
 						to: authoredCasePropertyNameSchema,
 					}),
 				)
@@ -1372,7 +1527,7 @@ function createMutationSchema({
 			kind: z.literal("addCaseProperty"),
 			caseType: z.string(),
 			property: casePropertySchema,
-			after: authoredCasePropertyNameSchema.nullable().optional(),
+			after: readCasePropertyNameSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("setCaseProperty"),
@@ -1380,12 +1535,24 @@ function createMutationSchema({
 			property: casePropertySchema,
 		}),
 		z.object({
+			kind: z.literal("moveCaseProperty"),
+			caseType: z.string(),
+			property: readCasePropertyNameSchema,
+			after: readCasePropertyNameSchema.nullable(),
+		}),
+		z.object({
 			kind: z.literal("removeCaseProperty"),
 			caseType: z.string(),
-			property: authoredCasePropertyNameSchema,
+			property: readCasePropertyNameSchema,
 		}),
 		z.object({
 			kind: z.literal("setCaseTypeMeta"),
+			relationChange: z
+				.strictObject({
+					action: z.enum(["add", "remove"]),
+					edge: caseRelationSchema,
+				})
+				.optional(),
 			caseType: z.string(),
 			parent_type: z.string().nullable().optional(),
 			relationship: z.enum(["child", "extension"]).nullable().optional(),
@@ -1663,13 +1830,95 @@ function createMutationSchema({
 		// The module's case-list metadata that is NOT a membership array — the
 		// always-on `filter` predicate, selection behavior, and the tile.
 		// Each slot is nullable so a clear crosses the JSON wire as `null`.
+		z.strictObject({
+			kind: z.literal("addCalculatedSort"),
+			moduleUuid: uuidSchema,
+			sort: calculatedSortSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("updateCalculatedSort"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			after: uuidSchema.nullable().optional(),
+			patch: z.strictObject({
+				expression: calculatedSortSchema.shape.expression.optional(),
+				direction: calculatedSortSchema.shape.direction.optional(),
+				priority: calculatedSortSchema.shape.priority.optional(),
+				comparator: calculatedSortSchema.shape.comparator.nullable(),
+				blanks: calculatedSortSchema.shape.blanks.nullable(),
+				label: calculatedSortSchema.shape.label.nullable(),
+			}),
+		}),
+		z.strictObject({
+			kind: z.literal("removeCalculatedSort"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+		}),
 		z.object({
 			kind: z.literal("setCaseListMeta"),
 			uuid: uuidSchema,
 			patch: z.strictObject({
 				filter: mutationConditionSchema.nullable().optional(),
+				listCondition: mutationConditionSchema.nullable().optional(),
+				searchCondition: mutationConditionSchema.nullable().optional(),
+				searchInputGroups: z
+					.array(searchInputGroupSchema)
+					.min(1)
+					.nullable()
+					.optional(),
+				searchGroupAssignments: z
+					.array(
+						z.strictObject({
+							input: uuidSchema,
+							group: uuidSchema.nullable(),
+						}),
+					)
+					.optional(),
+				additionalCaseTypes: otherRecordTypesSchema.nullable().optional(),
+				searchFilterEdit: z
+					.discriminatedUnion("operation", [
+						z.strictObject({
+							operation: z.literal("add"),
+							filter: searchFilterSchema,
+							after: uuidSchema.nullable().optional(),
+						}),
+						z.strictObject({
+							operation: z.literal("edit"),
+							uuid: uuidSchema,
+							patch: z.union([
+								searchValueFilterSchema.omit({ uuid: true }).partial(),
+								searchOrderFilterSchema.pick({ order: true }),
+							]),
+						}),
+						z
+							.strictObject({
+								operation: z.literal("replace"),
+								uuid: uuidSchema,
+								filter: searchFilterSchema,
+							})
+							.refine((edit) => edit.uuid === edit.filter.uuid, {
+								error: "Keep the identity of the search setting being changed.",
+							}),
+						z.strictObject({
+							operation: z.literal("move"),
+							uuid: uuidSchema,
+							after: uuidSchema.nullable(),
+						}),
+						z.strictObject({
+							operation: z.literal("remove"),
+							uuid: uuidSchema,
+						}),
+					])
+					.optional(),
 				selection: caseSelectionSchema.nullable().optional(),
 				tile: caseTileLayoutSchema.nullable().optional(),
+				detailTabs: detailTabsSchema.nullable().optional(),
+				detailTile: detailTileSchema.nullable().optional(),
+				contextAboveForm: caseFormContextSchema.nullable().optional(),
+				emptyText: caseListWordingSchema.nullable().optional(),
+				selectButtonText: caseListWordingSchema.nullable().optional(),
+				optimizations: z.literal(true).nullable().optional(),
+				deviceLookup: caseListDeviceLookupSchema.nullable().optional(),
 			}),
 		}),
 		// The module's case list as its own menu entry, set whole as
@@ -1723,24 +1972,43 @@ function createMutationSchema({
 		// `undefined`-valued keys, so a clear can only ever be `null` on the
 		// wire). Mirrors `setAppLogo`.
 		//
-		// The generic `update*` reducers DO treat `null` as delete on their
-		// clearable slots — `setConnectType` is the lone exception: its slot is
-		// genuinely `.nullable()` and stores `null` as a real value, so it is NOT
-		// a patch reducer and never gets the null-as-delete treatment.
-		z.object({
-			kind: z.literal("setFieldMedia"),
-			fieldUuid: uuidSchema,
-			slot: z.enum(FIELD_MEDIA_SLOTS),
-			media: mediaSchema.nullable(),
-		}),
+		z
+			.object({
+				kind: z.literal("setFieldMedia"),
+				sharedOnly: z.literal(true).optional(),
+				fieldUuid: uuidSchema,
+				slot: z.enum(FIELD_MEDIA_SLOTS),
+				language: languageTagSchema.optional(),
+				optionUuid: uuidSchema.optional(),
+				languageEntry: translatedMediaSchema.nullable().optional(),
+				media: mediaSchema.nullable(),
+			})
+			.refine(
+				// Only a question's label plays an inline video.
+				(mut) =>
+					(mut.slot === "label" && mut.optionUuid === undefined) ||
+					(!holdsLabelOnlyMedia(mut.media ?? undefined) &&
+						mut.languageEntry?.videoInline === undefined),
+				{ message: LABEL_ONLY_MEDIA_MESSAGE },
+			),
 		z.object({
 			kind: z.literal("setModuleMedia"),
+			language: languageTagSchema.optional(),
+			caseListItem: z.literal(true).optional(),
+			languageEntry: navigationLanguageEntrySchema(moduleIconRefSchema)
+				.nullable()
+				.optional(),
 			uuid: uuidSchema,
 			icon: moduleIconRefSchema.nullable(),
 			audioLabel: mediaAssetIdSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("setFormMedia"),
+			language: languageTagSchema.optional(),
+			registrationOf: uuidSchema.optional(),
+			languageEntry: navigationLanguageEntrySchema(formIconRefSchema)
+				.nullable()
+				.optional(),
 			uuid: uuidSchema,
 			icon: formIconRefSchema.nullable(),
 			audioLabel: mediaAssetIdSchema.nullable(),

@@ -205,6 +205,7 @@ export function useCases(args: {
 	caseTypes?: readonly CaseType[];
 	/** Optional bounded server window for a real Results surface. */
 	page?: { readonly offset: number; readonly limit: number };
+	automaticSelection?: true;
 	/** Stable caller identity for surfaces that may query the same case type
 	 * with different modules/configuration. Rows stay stale only within this
 	 * scope while prompt edits revalidate. */
@@ -213,6 +214,11 @@ export function useCases(args: {
 	 *  (submitted `inputValues` say the same), so it reads the search's
 	 *  population rather than the worker's restore. */
 	search?: boolean;
+	/** The search is the menu's default search, run as the list opened,
+	 *  which sends no prompt's answer (`CaseSearchRequest.unsentPrompts`). */
+	defaultSearch?: boolean;
+	searchSubmission?: string;
+	retainSearchResult?: boolean;
 	/** What the device worked out for the search's `_xpath_query` rows,
 	 *  which the server folds (`useSearchCsqlRuntime`). */
 	csqlRuntime?: SearchCsqlRuntimeWire;
@@ -251,8 +257,12 @@ export function useCases(args: {
 		parentCase,
 		caseTypes,
 		page,
+		automaticSelection,
 		requestScopeKey = "",
 		search = false,
+		defaultSearch = false,
+		searchSubmission,
+		retainSearchResult,
 		csqlRuntime,
 		chosenCaseIds,
 		sortChoice,
@@ -288,7 +298,7 @@ export function useCases(args: {
 	 * re-reads through the case data revision and the settled rows stay on
 	 * screen. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${deviceKey}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${defaultSearch}\u0000${deviceKey}\u0000${automaticSelection === true}\u0000${searchSubmission ?? ""}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -364,9 +374,13 @@ export function useCases(args: {
 									pageOffset === undefined || pageLimit === undefined
 										? undefined
 										: { offset: pageOffset, limit: pageLimit },
+								...(automaticSelection && { automaticSelection }),
 								viewerTimeZone: viewerTimeZone(),
 								personaUuid,
 								...(search && { search }),
+								...(defaultSearch && { defaultSearch }),
+								...(retainSearchResult &&
+									searchSubmission !== undefined && { searchSubmission }),
 								...(csqlRuntime !== undefined && { csqlRuntime }),
 								...(chosenCaseIds !== undefined && { chosenCaseIds }),
 								...(sortChoice !== undefined &&
@@ -634,9 +648,11 @@ export function useCaseData(args: {
 	ancestorDepth: number;
 	/** Optional one-row display projection for canonical Details URLs. */
 	caseListConfig?: CaseListConfig;
+	language?: string;
 	/** Exact live document and menu that own the calculated projection. */
 	blueprint?: BlueprintDoc;
 	moduleUuid?: string;
+	selectionMenuUuid?: string;
 	/** Live compiler catalog paired with `caseListConfig`. */
 	caseTypes?: readonly CaseType[];
 	/** The review surface's View case dialog reads a HELD case by
@@ -676,6 +692,7 @@ export function useCaseData(args: {
 		caseListConfig,
 		blueprint,
 		moduleUuid,
+		selectionMenuUuid,
 		caseTypes,
 		includeHeld,
 		deviceScoped,
@@ -683,6 +700,7 @@ export function useCaseData(args: {
 		search = false,
 		positionScreen,
 		searchAnswers,
+		language,
 	} = args;
 	const searchAnswersKey =
 		searchAnswers === undefined ? "" : JSON.stringify(searchAnswers);
@@ -707,7 +725,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}\u0000${language ?? ""}\u0000${selectionMenuUuid ?? ""}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -769,6 +787,9 @@ export function useCaseData(args: {
 									: null,
 								withNavigationWidth(device),
 								searchAnswers,
+								...(language === undefined && selectionMenuUuid === undefined
+									? ([] as const)
+									: ([language, selectionMenuUuid] as const)),
 							),
 						}),
 					},

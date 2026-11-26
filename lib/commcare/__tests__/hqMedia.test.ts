@@ -8,11 +8,16 @@
  * what these cases would catch.
  */
 
+import { createHash } from "node:crypto";
 import type { MockAgent } from "undici";
 import { afterEach, expect, it, vi } from "vitest";
 import { withHttpPeer, withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { log } from "@/lib/logger";
-import { readHqMediaFile } from "../hq/media";
+import {
+	type HqMediaSink,
+	readHqMediaFile,
+	streamHqMediaFile,
+} from "../hq/media";
 
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
 const HOST = "https://india.commcarehq.org";
@@ -253,4 +258,113 @@ it("ends the read with nothing kept when cancel aborts mid-body", async () => {
 	} finally {
 		await pending;
 	}
+});
+
+/** A sink the test holds: what each attempt wrote, finished and aborted. */
+function recordingSinks(options: { readonly failWrite?: Error } = {}) {
+	const attempts: {
+		chunks: Uint8Array[];
+		finished: boolean;
+		aborted: boolean;
+	}[] = [];
+	const open = (): HqMediaSink<string> => {
+		const attempt = {
+			chunks: [] as Uint8Array[],
+			finished: false,
+			aborted: false,
+		};
+		attempts.push(attempt);
+		return {
+			async write(chunk) {
+				if (options.failWrite) throw options.failWrite;
+				attempt.chunks.push(chunk.slice());
+			},
+			async finish() {
+				attempt.finished = true;
+				return `object-${attempts.length}`;
+			},
+			async abort() {
+				attempt.aborted = true;
+			},
+		};
+	};
+	return { attempts, open };
+}
+
+const stream = (
+	open: () => HqMediaSink<string>,
+	options: { maxBytes?: number } = {},
+) =>
+	streamHqMediaFile(CREDS, "CommCareImage", "abc123", {
+		maxBytes: options.maxBytes ?? 4096,
+		open,
+	});
+
+it("streams a file into its sink, counting and hashing the bytes as they arrive", async () => {
+	const body = Buffer.alloc(3000, 7);
+	await withHttpPeer(async (peer) => {
+		intercept(peer).reply(200, body, {
+			headers: { "Content-Type": "image/png" },
+		});
+		const sinks = recordingSinks();
+		expect(await stream(sinks.open)).toEqual({
+			kind: "streamed",
+			written: "object-1",
+			sizeBytes: 3000,
+			sha256: createHash("sha256").update(body).digest("hex"),
+		});
+		expect(Buffer.concat(sinks.attempts[0]?.chunks ?? [])).toEqual(body);
+		expect(sinks.attempts[0]).toMatchObject({ finished: true, aborted: false });
+	});
+});
+
+it("aborts the sink of a file past the streamed bound, and answers too-large", async () => {
+	await withHttpPeer(async (peer) => {
+		intercept(peer).reply(200, Buffer.alloc(4097), {
+			headers: { "Content-Type": "image/png" },
+		});
+		const sinks = recordingSinks();
+		expect(await stream(sinks.open, { maxBytes: 4096 })).toEqual({
+			kind: "too-large",
+			maxBytes: 4096,
+		});
+		expect(sinks.attempts).toEqual([
+			expect.objectContaining({ finished: false, aborted: true }),
+		]);
+	});
+});
+
+it("opens no sink for HQ's 404, and gives the resend a sink of its own", async () => {
+	await withHttpPeer(async (peer) => {
+		intercept(peer).reply(404, "no such file");
+		const missing = recordingSinks();
+		expect(await stream(missing.open)).toEqual({ kind: "missing" });
+		expect(missing.attempts).toEqual([]);
+	});
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	await withHttpPeer(async (peer) => {
+		intercept(peer).reply(503, "busy");
+		intercept(peer).reply(200, Buffer.from(PNG), {
+			headers: { "Content-Type": "image/png" },
+		});
+		const sinks = recordingSinks();
+		const answer = stream(sinks.open);
+		await untilWaitScheduled();
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(await answer).toMatchObject({ kind: "streamed", sizeBytes: 8 });
+		/* The 503 opened no sink: its body is HQ's refusal, never the file's. */
+		expect(sinks.attempts).toHaveLength(1);
+	});
+});
+
+it("throws a failure of Nova's own storage as itself, never as CommCare HQ's", async () => {
+	await withHttpPeer(async (peer) => {
+		intercept(peer).reply(200, Buffer.from(PNG), {
+			headers: { "Content-Type": "image/png" },
+		});
+		const refused = new Error("The bucket refused the staged object.");
+		const sinks = recordingSinks({ failWrite: refused });
+		await expect(stream(sinks.open)).rejects.toBe(refused);
+		expect(sinks.attempts[0]).toMatchObject({ aborted: true });
+	});
 });

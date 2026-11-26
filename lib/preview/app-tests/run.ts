@@ -1,13 +1,20 @@
 import type { AppTestScope } from "@/lib/db/appTests";
+import { workerWording } from "@/lib/doc/localizationWorkspace";
 import {
 	assignedLocationUuids,
 	caseSelectionCardinality,
-	moduleFormsReadSearch,
+	effectiveCaseSearchConfig,
 	orderedColumns,
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMapSources } from "@/lib/domain/caseMap";
+import {
+	type GeneratedWordingRole,
+	generatedWordingId,
+} from "@/lib/domain/generatedWording";
 import { languageDirection } from "@/lib/domain/languageRegistry";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	effectiveAppLocalization,
 	parseLanguageTag,
@@ -15,9 +22,13 @@ import {
 import {
 	projectLocalizedAppName,
 	projectLocalizedForm,
-	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
 import { PLATFORM_LABELS } from "@/lib/domain/platforms";
+import {
+	androidAppName,
+	missingAndroidApps,
+	type RequiredAndroidApp,
+} from "@/lib/domain/requiredAndroidApps";
 import { locationFixtureRows } from "@/lib/organization/footprint";
 import type {
 	PreviewCaseChoice,
@@ -26,11 +37,19 @@ import type {
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { caseListMenuItemDetailAction } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
+import { caseListActionChoices } from "../caseListRegistration";
+import { caseMapRows, workerMapOffered } from "../caseMap";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import { appReadsPlaces } from "../engine/expressionCaseReads";
+import { searchInputInstanceValues } from "../engine/runtimeBindings";
+import {
+	SearchChoiceUnavailable,
+	searchClaimMemberships,
+} from "../engine/searchClaimSelection";
+import { drawnSearchInputs } from "../engine/searchRunState";
 import { availablePages } from "../engine/sectionPaging";
 import {
 	recordsReadSearch,
@@ -39,8 +58,9 @@ import {
 } from "../engine/serverSearchRead";
 import {
 	type CaseDatabaseSnapshot,
-	formReadsSearchResults,
-	type SearchResultsSnapshot,
+	type CompletedFormSearch,
+	formReadsSearchScore,
+	formSearchReads,
 } from "../engine/xpathInstances";
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
 import {
@@ -49,6 +69,7 @@ import {
 	formEntryClaimChoices,
 	previewCaseChoiceOf,
 } from "../searchClaims";
+import { searchAfterClear } from "../searchStanding";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import {
@@ -56,7 +77,11 @@ import {
 	appTestRefusalSentence,
 	readingSurface,
 } from "./dataRefusal";
-import { appTestCellProjector, appTestDetails } from "./details";
+import {
+	appTestCellProjector,
+	appTestDetails,
+	appTestFormCaseContext,
+} from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
 	appTestCanContinue,
@@ -76,7 +101,11 @@ import {
 	isCaseListMenuItemList,
 	selectAppTestRecords,
 } from "./navigation";
-import { appTestRecords, prepareAppTestRecords } from "./records";
+import {
+	appTestRecords,
+	appTestSearchWorld,
+	prepareAppTestRecords,
+} from "./records";
 import { submitAppTest } from "./submission";
 import type {
 	AppTestAction,
@@ -96,6 +125,20 @@ type CompletedFormObservation = {
 	readonly result: Awaited<ReturnType<typeof evaluateForm>>;
 };
 
+function controlText(
+	context: AppTestContext,
+	owner: string,
+	role: GeneratedWordingRole,
+	overrideOnly = false,
+) {
+	return workerWording(
+		context.doc,
+		context.language,
+		generatedWordingId(owner, role),
+		overrideOnly,
+	);
+}
+
 /** The entry's device world: its cases and, for an app whose forms read
  * places, the worker's `locations` fixture, which the session's restore
  * delivers beside them (as Preview's snapshot carries it). */
@@ -104,13 +147,15 @@ function appTestEntryCases(
 	state: AppTestSessionState,
 	cases: CaseDatabaseSnapshot,
 ): CaseDatabaseSnapshot {
-	if (!appReadsPlaces(context.doc)) return cases;
+	const workerGroups = context.workerGroups;
+	if (!appReadsPlaces(context.doc)) return { ...cases, workerGroups };
 	const persona =
 		state.personaUuid === null
 			? undefined
 			: context.doc.personas?.[state.personaUuid];
 	return {
 		...cases,
+		workerGroups,
 		locations:
 			persona === undefined ||
 			orderedOrganizationLevels(context.doc).length === 0
@@ -126,44 +171,53 @@ function appTestEntryCases(
  * (`searchResultsSnapshot.ts`). A form reached without that search has none
  * to read, which the device never allows.
  */
-async function appTestSearchResults(
+async function appTestCompletedSearch(
 	context: AppTestContext,
 	scope: AppTestScope,
 	state: AppTestSessionState,
-	screen: FormScreen,
-): Promise<SearchResultsSnapshot | undefined> {
-	const mod = context.doc.modules[screen.moduleUuid];
-	if (
-		mod?.caseType === undefined ||
-		!moduleFormsReadSearch(mod) ||
-		!formReadsSearchResults(context.doc, screen.formUuid)
-	)
-		return undefined;
+	supplier: Uuid,
+	needsResults: boolean,
+	needsScore: boolean,
+): Promise<CompletedFormSearch> {
 	const refused = () =>
 		new AppTestActionError(
 			`${runtimeMessage(context.language, "searchResultsRefusalTitle")}. ${runtimeMessage(context.language, "searchResultsRefusalBody")}`,
 		);
-	const visited: readonly AppTestScreen[] = state.history;
-	const searchedScreen = [...visited]
-		.reverse()
-		.find(
-			(prior): prior is Extract<AppTestScreen, { kind: "records" }> =>
-				prior.kind === "records" &&
-				prior.moduleUuid === screen.moduleUuid &&
-				(prior.searchAnswers !== undefined ||
-					prior.registeredCaseId !== undefined),
+	for (let index = state.history.length - 1; index >= 0; index--) {
+		const prior = state.history[index];
+		if (prior.kind === "form" || prior.kind === "home") break;
+		if (prior.kind !== "records" || prior.moduleUuid !== supplier) continue;
+		if (
+			prior.searchAnswers === undefined &&
+			prior.registeredCaseId === undefined
+		)
+			throw refused();
+		const { read, refusal } = await prepareAppTestRecords(context, scope, {
+			...state,
+			selections: prior.shownWith,
+			screen: prior,
+		});
+		if (refusal !== undefined) throw new AppTestActionError(refusal);
+		const results = needsResults
+			? await readingSurface("search", () =>
+					serverSearchResults(context.store, read, needsScore),
+				)
+			: undefined;
+		if (needsResults && !results) throw refused();
+		const answers = searchInputInstanceValues(
+			context.doc.modules[supplier].caseListConfig?.searchInputs ?? [],
+			new Map(
+				(prior.searchAnswers ?? []).map(({ name, value }) => [name, value]),
+			),
 		);
-	if (searchedScreen === undefined) throw refused();
-	const { read, refusal } = await prepareAppTestRecords(context, scope, {
-		...state,
-		screen: searchedScreen,
-	});
-	if (refusal !== undefined) throw new AppTestActionError(refusal);
-	const found = await readingSurface("search", () =>
-		serverSearchResults(context.store, read),
-	);
-	if (found === undefined) throw refused();
-	return found;
+		return {
+			menu: supplier,
+			submission: `${supplier}/${index}`,
+			answers: [...answers],
+			...(results && { results }),
+		};
+	}
+	throw refused();
 }
 
 /**
@@ -181,11 +235,48 @@ async function appTestFormContext(
 	state: AppTestSessionState,
 	screen: FormScreen,
 ) {
-	const searchResults =
-		screen.searchResults ??
-		(await appTestSearchResults(context, scope, state, screen));
+	let searches = screen.searches;
+	let searchResults = screen.searchResults;
+	if (searches === undefined) {
+		const frames: CompletedFormSearch[] = [];
+		for (const [supplier, read] of formSearchReads(
+			context.doc,
+			screen.formUuid,
+			screen.moduleUuid,
+		)) {
+			if (supplier === screen.moduleUuid) {
+				if (read.readsResults && !searchResults)
+					searchResults = (
+						await appTestCompletedSearch(
+							context,
+							scope,
+							state,
+							supplier,
+							true,
+							formReadsSearchScore(context.doc, screen.formUuid),
+						)
+					).results;
+			} else {
+				frames.push(
+					await appTestCompletedSearch(
+						context,
+						scope,
+						state,
+						supplier,
+						read.readsResults,
+						formReadsSearchScore(context.doc, screen.formUuid),
+					),
+				);
+			}
+		}
+		searches = frames;
+	}
+
 	return {
-		screen: searchResults === undefined ? screen : { ...screen, searchResults },
+		screen:
+			searches.length || searchResults !== undefined
+				? { ...screen, searches, searchResults }
+				: screen,
 		formContext: {
 			identity: context.identity,
 			device: context.device,
@@ -193,7 +284,14 @@ async function appTestFormContext(
 			lookup: context.lookup,
 			entry: screen.entry,
 			captureEntry: true,
-			session: { appId: scope.appId, menuSelections: state.selections },
+			session: {
+				appId: scope.appId,
+				menuSelections:
+					screen.caseListRegistrationLaunch?.selections ?? state.selections,
+				entryChoices: screen.entryChoices,
+				heldEntryValues: screen.heldEntryValues,
+			},
+			searches,
 			...(searchResults === undefined ? {} : { searchResults }),
 		},
 	};
@@ -272,11 +370,7 @@ async function observeScreen(
 				state,
 				observation: {
 					screen: "menu",
-					name: projectLocalizedModule(
-						context.doc,
-						context.language,
-						screen.moduleUuid,
-					)?.name,
+					name: controlText(context, screen.moduleUuid, "menuTitle"),
 					worker,
 					menus: appTestMenus(context, screen.moduleUuid, state),
 					forms: screenFormsObservation(context, state, screen.moduleUuid),
@@ -296,22 +390,19 @@ async function observeScreen(
 							state,
 							screen.moduleUuid,
 						);
-						const ownLabel =
-							context.doc.modules[screen.moduleUuid].caseListMenuItem?.label;
 						return entry === undefined
 							? undefined
 							: {
-									name:
-										ownLabel ??
-										projectLocalizedModule(
-											context.doc,
-											context.language,
-											screen.moduleUuid,
-										)?.name,
+									name: controlText(
+										context,
+										screen.moduleUuid,
+										"caseListEntry",
+									),
 								};
 					})(),
 					recordsAvailable:
-						context.doc.modules[screen.moduleUuid].caseType !== undefined,
+						menuWithInheritedCaseSettings(context.doc, screen.moduleUuid)
+							?.caseType !== undefined,
 					selected: appTestMenuSelection(context, state, screen.moduleUuid)
 						?.cases,
 				},
@@ -349,6 +440,7 @@ async function observeScreen(
 						workflow: search.workflow,
 						formsReadSearch: search.formsReadSearch,
 						searchRelevant: search.relevant,
+						searchReopened: read.state.screen.searchEntry?.cleared === true,
 						hasSubmitted: search.hasSubmitted,
 						submittedFoundNothing: read.result?.kind === "empty",
 						rules: context.rules,
@@ -369,7 +461,12 @@ async function observeScreen(
 									),
 								}
 							: {
-									questions: (mod.caseListConfig?.searchInputs ?? [])
+									/* The fields the platform's Search screen draws:
+									 * Web Apps draws no field marked hidden. */
+									questions: drawnSearchInputs(
+										mod.caseListConfig?.searchInputs ?? [],
+										context.rules,
+									)
 										.filter((input) => input.kind !== "hidden")
 										.map((input) => ({
 											name: input.name,
@@ -377,13 +474,31 @@ async function observeScreen(
 											type: input.type,
 											hint: input.hint,
 										})),
-									answers: search.draft,
+									answers: search.displayedAnswers,
 									errors: search.errors,
 								},
 					results: read.result,
 					renderedResults:
 						read.result?.kind === "rows"
 							? {
+									...(mod.caseListConfig &&
+										workerMapOffered(
+											state.platform,
+											caseMapSources(mod.caseListConfig, "list").locations
+												.length > 0,
+											read.result.rows.length > 0,
+											null,
+										) && {
+											availableMap: caseMapRows(
+												state.platform,
+												mod.caseListConfig,
+												read.result.rows,
+												searchedReading(read.searched).columns,
+											).map(({ row, geometry }) => ({
+												recordId: row.case_id,
+												...geometry,
+											})),
+										}),
 									rows: read.result.rows.map((row) => ({
 										recordId: row.case_id,
 										cells: cells(row),
@@ -396,7 +511,12 @@ async function observeScreen(
 								}
 							: undefined,
 					registration: registration
-						? { uuid: registration.form.uuid, name: registration.form.name }
+						? {
+								uuid: registration.form.uuid,
+								name:
+									controlText(context, screen.moduleUuid, "registerButton") ??
+									registration.form.name,
+							}
 						: undefined,
 				},
 			};
@@ -408,25 +528,29 @@ async function observeScreen(
 				observation: {
 					screen: "details",
 					worker,
-					name: projectLocalizedModule(
-						context.doc,
-						context.language,
-						screen.moduleUuid,
-					)?.name,
+					name: controlText(context, screen.moduleUuid, "menuTitle"),
 					record: read.result.kind === "row" ? read.result.row : undefined,
 					unavailable: read.result.kind !== "row",
 					fields: read.fields,
+					...(read.tabs && { tabs: read.tabs }),
 					canContinue:
 						read.result.kind === "row" &&
 						appTestCanContinue(context, screen.source),
 					/* What `continue` presses here: Android's Done on a case list
-					 * menu entry's detail, which returns to the list. */
-					...(isCaseListMenuItemList(context, screen.source) && {
-						continueLabel: runtimeMessage(
-							context.language,
-							caseListMenuItemDetailAction(context.rules).message,
-						),
-					}),
+					 * menu entry's detail, which returns to the list. The list's
+					 * own Continue wording labels only Web Apps' several-case
+					 * Continue (`multi_select_continue_button.html`), never a
+					 * single case's detail. */
+					continueLabel: runtimeMessage(
+						context.language,
+						isCaseListMenuItemList(context, screen.source)
+							? caseListMenuItemDetailAction(context.rules).message
+							: "continue",
+					),
+					title:
+						controlText(context, "app", "caseTitle", true) ??
+						((read.result.kind === "row" && read.result.row.case_name) ||
+							runtimeMessage(context.language, "case")),
 					actions:
 						read.result.kind === "row" &&
 						appTestCanContinue(context, screen.source)
@@ -458,6 +582,7 @@ async function observeScreen(
 			 * on Web Apps, so no page turn is offered there. */
 			const pages = availablePages(evaluated.screens);
 			const currentPage = pages.findIndex((page) => page.current);
+			const caseContext = await appTestFormCaseContext(context, scope, state);
 			return {
 				state: {
 					...state,
@@ -465,6 +590,7 @@ async function observeScreen(
 				},
 				observation: {
 					screen: "form",
+					...(caseContext && { caseContext }),
 					worker,
 					name: projectLocalizedForm(
 						context.doc,
@@ -505,12 +631,46 @@ export async function observeAppTest(
 	}
 }
 
+function requiredAppName(
+	context: AppTestContext,
+	app: RequiredAndroidApp,
+): string {
+	const code = effectiveAppLocalization(context.doc.localization).wireCodes[
+		context.language
+	];
+	return androidAppName(app, code, context.androidAppLabels);
+}
+
 async function observeAppTestWithEvaluation(
 	context: AppTestContext,
 	scope: AppTestScope,
 	state: AppTestSessionState,
 	completedForm?: CompletedFormObservation,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
+	const missing = missingAndroidApps(
+		state.platform,
+		context.doc.appSettings.requiredAndroidApps,
+		state.installedAndroidApps,
+	);
+	if (state.awaitingAndroidApps && missing.length > 0) {
+		return {
+			state,
+			observation: {
+				screen: "required-android-apps",
+				missingApps: missing.map((app) => ({
+					app,
+					name: requiredAppName(context, app),
+				})),
+				actions: ["observe", "back", "finish"],
+				platform: {
+					selected: state.platform,
+					label: PLATFORM_LABELS[state.platform],
+				},
+				recovery:
+					"Start a test with the required apps in installedAndroidApps to try opening the app on this phone.",
+			},
+		};
+	}
 	const result = await observeScreen(context, scope, state, completedForm);
 	const screen = result.state.screen;
 	const identity = parseLanguageTag(context.language);
@@ -545,10 +705,21 @@ async function observeAppTestWithEvaluation(
 			actions.push("select", "page");
 		if (result.observation.registration) actions.push("form");
 	}
+	if (
+		screen.kind === "details" &&
+		Array.isArray(result.observation.tabs) &&
+		result.observation.tabs.length > 1
+	)
+		actions.push("detailTab");
 	if (screen.kind === "details" && result.observation.canContinue)
 		actions.push("continue", "routeContinue");
 	if (screen.kind === "form") {
 		actions.push("answer", "section");
+		if (
+			(result.observation.caseContext as { expandable?: boolean } | undefined)
+				?.expandable
+		)
+			actions.push("caseContext");
 		const pageNavigation = result.observation.pageNavigation as {
 			canNext: boolean;
 			canPrevious: boolean;
@@ -568,6 +739,39 @@ async function observeAppTestWithEvaluation(
 					if (screen.kind === "device-home" && action === "continue")
 						return [
 							[action, runtimeMessage(context.language, "deviceHomeStart")],
+						];
+					if (screen.kind === "form" && action === "submit") {
+						return [
+							[
+								action,
+								(context.rules.submitLabel === "submit"
+									? controlText(context, screen.formUuid, "submitButton", true)
+									: undefined) ??
+									runtimeMessage(context.language, context.rules.submitLabel),
+							],
+						];
+					}
+					if (
+						screen.kind === "details" &&
+						(action === "continue" || action === "routeContinue")
+					) {
+						const label = result.observation.continueLabel;
+						return [
+							[
+								action,
+								typeof label === "string"
+									? label
+									: runtimeMessage(context.language, "continue"),
+							],
+						];
+					}
+					if (screen.kind === "records" && action === "search")
+						return [
+							[
+								action,
+								controlText(context, screen.moduleUuid, "searchButton") ??
+									runtimeMessage(context.language, "search"),
+							],
 						];
 					const label =
 						action === "routeBack" || action === "pagePrevious"
@@ -592,7 +796,7 @@ async function observeAppTestWithEvaluation(
 			},
 			language: {
 				selected: identity,
-				direction: languageDirection(identity),
+				direction: languageDirection(identity, context.doc.localization),
 				runtime: runtimeLanguage(context.language),
 				available: effectiveAppLocalization(
 					context.doc.localization,
@@ -672,9 +876,84 @@ async function postAppTestClaims(
 			: [];
 	const posted = claimableCaseIds([...atResult, ...atForm]);
 	if (posted.length === 0) return { context, state: next };
+	const visited = [...before.history, ...next.history].reverse();
+	const sourceFrame = (moduleUuid: Uuid) =>
+		resultSource?.moduleUuid === moduleUuid
+			? resultSource
+			: visited.find(
+					(frame): frame is Extract<typeof frame, { kind: "records" }> =>
+						frame.kind === "records" &&
+						frame.moduleUuid === moduleUuid &&
+						frame.searchAnswers !== undefined,
+				);
+	const bySource = new Map<
+		Uuid,
+		{ caseIds: string[]; answers: { name: string; value: string }[] }
+	>();
+	for (const choice of [...atResult, ...atForm]) {
+		if (!choice.claimable) continue;
+		// Earlier retained sessions may still carry a choice made before
+		// selections held their search. Its original records screen is durable.
+		const menu =
+			choice.searchSource?.moduleUuid ??
+			(atResult.includes(choice) ? resultSource?.moduleUuid : undefined) ??
+			Object.values(context.doc.modules).find((mod) =>
+				next.selections[mod.uuid]?.cases.some(
+					(row) => row.caseId === choice.caseId,
+				),
+			)?.uuid ??
+			(screen.kind === "form" ? screen.moduleUuid : undefined);
+		const answers =
+			menu &&
+			(choice.searchSource?.answers ?? sourceFrame(menu)?.searchAnswers);
+		if (!menu || !answers)
+			throw new AppTestActionError(new SearchChoiceUnavailable().message);
+		const group = bySource.get(menu) ?? { caseIds: [], answers: [...answers] };
+		if (!group.caseIds.includes(choice.caseId))
+			group.caseIds.push(choice.caseId);
+		bySource.set(menu, group);
+	}
+	const memberships = [];
+	for (const [moduleUuid, source] of bySource) {
+		const frame = sourceFrame(moduleUuid);
+		const selections =
+			frame && "shownWith" in frame
+				? (frame.shownWith as AppTestSessionState["selections"])
+				: before.selections;
+		const prior = Object.entries(selections).flatMap(([id, selection]) => {
+			const menu = context.doc.modules[id];
+			if (!menu || !selection.cases.length) return [];
+			const answers =
+				selection.cases[0].searchSource?.answers ??
+				(selection.cases.some((choice) => choice.claimable)
+					? sourceFrame(menu.uuid)?.searchAnswers
+					: undefined);
+			return [
+				{
+					moduleUuid: menu.uuid,
+					caseIds: selection.cases.map((row) => row.caseId),
+					...(answers && { answers: [...answers] }),
+				},
+			];
+		});
+		try {
+			memberships.push(
+				...(await searchClaimMemberships(
+					appTestSearchWorld(context, scope, before),
+					[{ moduleUuid, ...source }],
+					prior,
+				)),
+			);
+		} catch (error) {
+			if (error instanceof SearchChoiceUnavailable)
+				throw new AppTestActionError(error.message);
+			throw error;
+		}
+	}
 	const { created } = await context.store.claimCases({
 		appId: scope.appId,
 		caseIds: posted,
+		fromSearches: memberships,
 	});
 	/* Android follows every claim with a sync, so a claim of a case the
 	 * worker already claimed still reads its device again there. */
@@ -700,6 +979,81 @@ async function postAppTestClaims(
 /** Only actions available on the observed screen can advance this worker. A
  *  screen a phone stops on, because a menu reads data the device lacks, is the
  *  worker's refusal, in the words Preview shows it in. */
+/** Follow only automatic choices after a fresh navigation step. Back returns
+ * the saved user-input boundary without selecting its single row again. */
+async function advanceAutomaticChoices(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestSessionState,
+): Promise<AppTestSessionState> {
+	let cursor = state;
+	while (cursor.screen.kind === "records") {
+		const screen = cursor.screen;
+		const selection = menuWithInheritedCaseSettings(
+			context.doc,
+			screen.moduleUuid,
+		)?.caseListConfig?.selection;
+		if (
+			!screen.formEntry &&
+			selection?.autoSelect &&
+			appTestCanContinue(context, screen)
+		) {
+			const read = await appTestRecords(
+				context,
+				scope,
+				cursor,
+				undefined,
+				selection.maximum,
+			);
+			if (read.result?.kind !== "rows") return read.state;
+			const count = Math.max(
+				read.result.totalCount ?? 0,
+				read.result.rows.length,
+			);
+			if (count > selection.maximum)
+				throw new AppTestActionError(
+					runtimeMessage(context.language, "automaticSelectionTooMany", {
+						count,
+						maximum: selection.maximum,
+					}),
+				);
+			if (isCaseListMenuItemList(context, read.state.screen))
+				return caseListMenuItemLanding(context, read.state);
+			const next = selectAppTestRecords(context, read.state, read.result.rows);
+			({ context, state: cursor } = await postAppTestClaims(
+				context,
+				scope,
+				cursor,
+				next,
+				read.result.rows.map(previewCaseChoiceOf),
+				read.state.screen,
+			));
+			continue;
+		}
+		if (!screen.formEntry?.next.autoSelectSingle) return cursor;
+		const read = await appTestRecords(context, scope, cursor);
+		if (
+			read.result?.kind !== "rows" ||
+			read.result.totalCount !== 1 ||
+			read.result.rows.length !== 1
+		)
+			return read.state;
+		const [row] = read.result.rows;
+		if (screen.formEntry.next.confirms)
+			return {
+				...read.state,
+				screen: {
+					kind: "details",
+					moduleUuid: cursor.screen.moduleUuid,
+					caseId: row.case_id,
+					source: read.state.screen,
+				},
+			};
+		cursor = selectAppTestRecords(context, read.state, [row]);
+	}
+	return cursor;
+}
+
 export async function advanceAppTest(
 	context: AppTestContext,
 	scope: Scope,
@@ -707,6 +1061,33 @@ export async function advanceAppTest(
 	action: AppTestAction,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
 	try {
+		const missing = missingAndroidApps(
+			state.platform,
+			context.doc.appSettings.requiredAndroidApps,
+			state.installedAndroidApps,
+		);
+		if (
+			missing.length &&
+			!state.awaitingAndroidApps &&
+			state.screen.kind === "device-home" &&
+			action.kind === "continue"
+		) {
+			return await observeAppTest(context, scope, {
+				...state,
+				awaitingAndroidApps: true,
+			});
+		}
+		if (state.awaitingAndroidApps && missing.length) {
+			if (action.kind === "back")
+				return await observeAppTest(context, scope, {
+					...state,
+					awaitingAndroidApps: false,
+				});
+			if (action.kind !== "observe")
+				throw new AppTestActionError(
+					`This Android phone needs ${missing.map((app) => requiredAppName(context, app)).join(", ")} before the worker can open the app.`,
+				);
+		}
 		return await advanceAppTestOnScreen(context, scope, state, action);
 	} catch (error) {
 		throw appTestDataRefusal(context, error);
@@ -727,6 +1108,50 @@ async function advanceAppTestOnScreen(
 		case "language":
 		case "observe":
 			break;
+		case "caseContext": {
+			if (screen.kind !== "form")
+				throw new AppTestActionError("Open a form with case context first.");
+			const candidate = {
+				...state,
+				screen: {
+					...screen,
+					contextExpanded: action.expanded ? (true as const) : undefined,
+					contextTabUuid: action.tabUuid,
+				},
+			};
+			const contextView = await appTestFormCaseContext(
+				context,
+				scope,
+				candidate,
+			);
+			if (
+				!contextView?.expandable ||
+				(action.tabUuid &&
+					(!action.expanded ||
+						!("details" in contextView) ||
+						!contextView.details?.tabs?.some(
+							(tab) => tab.uuid === action.tabUuid,
+						)))
+			)
+				throw new AppTestActionError(
+					"This form has no matching expandable case detail.",
+				);
+			next = candidate;
+			break;
+		}
+		case "detailTab": {
+			if (screen.kind !== "details")
+				throw new AppTestActionError(
+					"Open case details before choosing a tab.",
+				);
+			const read = await appTestDetails(context, scope, state);
+			if (!read.tabs?.some((tab) => tab.uuid === action.tabUuid))
+				throw new AppTestActionError(
+					"This tab is unavailable for the selected case.",
+				);
+			next = { ...state, screen: { ...screen, tabUuid: action.tabUuid } };
+			break;
+		}
 		case "routeBack":
 		case "back": {
 			next = appTestStepBack(state);
@@ -945,7 +1370,7 @@ async function advanceAppTestOnScreen(
 			if (
 				(listedEntry === undefined &&
 					!(screen.kind === "menu" && named === screen.moduleUuid)) ||
-				!context.doc.modules[named]?.caseType
+				!menuWithInheritedCaseSettings(context.doc, named)?.caseType
 			)
 				throw new AppTestActionError(
 					"That case list is not available on the current screen.",
@@ -1023,6 +1448,12 @@ async function advanceAppTestOnScreen(
 					throw new AppTestActionError(
 						"This form is not offered by the current record list.",
 					);
+				const supplied = caseListActionChoices(
+					context.doc,
+					screen.moduleUuid,
+					action.formUuid,
+					state.selections,
+				);
 				/* A form offered after an empty search reads that search; a form
 				 * the list always offers opens in its own menu, carrying the
 				 * launch that decides where it returns. */
@@ -1037,15 +1468,21 @@ async function advanceAppTestOnScreen(
 									caseIds: [],
 									entryCases: state.deviceCases,
 									searchAnswers: read.search.submitted,
+									caseListRegistrationLaunch: {
+										hostModuleUuid: screen.moduleUuid,
+									},
 								}
 							: {
 									kind: "form",
 									moduleUuid: registration.moduleUuid,
 									formUuid: action.formUuid,
-									caseIds: [],
+									caseIds: (supplied[registration.moduleUuid]?.cases ?? []).map(
+										(choice) => choice.caseId,
+									),
 									entryCases: state.deviceCases,
 									caseListRegistrationLaunch: {
 										hostModuleUuid: screen.moduleUuid,
+										selections: supplied,
 									},
 								},
 					history: [
@@ -1079,7 +1516,12 @@ async function advanceAppTestOnScreen(
 			});
 			const recordsScreen = read.state.screen;
 			const mod = context.doc.modules[recordsScreen.moduleUuid];
-			const multiple = caseSelectionCardinality(mod) !== "single";
+			if (!recordsScreen.formEntry && mod.caseListConfig?.selection?.autoSelect)
+				throw new AppTestActionError(
+					"This list chooses eligible records automatically.",
+				);
+			const multiple =
+				!recordsScreen.formEntry && caseSelectionCardinality(mod) !== "single";
 			const rowAction = caseSelectionRowAction({
 				hasDetails: appTestRecordsHaveDetails(
 					context,
@@ -1137,10 +1579,68 @@ async function advanceAppTestOnScreen(
 			};
 			break;
 		}
+		case "clearSearch": {
+			if (screen.kind !== "records" || !context.rules.searchClear)
+				throw new AppTestActionError("This screen has no Clear button.");
+			const current = await prepareAppTestRecords(context, scope, state);
+			if (
+				!current.search.relevant ||
+				(!current.search.hasSubmitted && current.search.draft.length === 0)
+			)
+				throw new AppTestActionError("This screen has no search to clear.");
+			const module = context.doc.modules[screen.moduleUuid];
+			const alsoSearch =
+				module !== undefined &&
+				searchAfterClear(
+					effectiveCaseSearchConfig(module)?.searchOnClear === true &&
+						module.caseListConfig?.selection?.autoSelect !== true,
+					context.rules,
+					context.device.windowWidth,
+				);
+			const cleared = {
+				...state,
+				screen: {
+					...screen,
+					searchEntry: { cleared: true as const, draft: [], errors: {} },
+					searchAnswers: undefined,
+					registeredCaseId: undefined,
+					offset: 0,
+				},
+			};
+			const read = await appTestRecords(
+				context,
+				scope,
+				cleared,
+				alsoSearch ? [] : undefined,
+			);
+			/* The search Web Apps runs after Clear is quiet: a blank required
+			 * field stops it without an error (`query.js::updateSearchResults`),
+			 * so the cleared screen shows none. */
+			next =
+				read.state.screen.kind === "records" &&
+				read.state.screen.searchAnswers === undefined
+					? {
+							...read.state,
+							screen: {
+								...read.state.screen,
+								searchEntry: {
+									cleared: true as const,
+									draft: read.state.screen.searchEntry?.draft ?? [],
+									errors: {},
+								},
+							},
+						}
+					: read.state;
+			extra = { completed: true };
+			break;
+		}
 		case "search": {
 			const read = await appTestRecords(context, scope, state, action.answers);
 			next = read.state;
-			extra = { completed: Object.keys(read.search.errors).length === 0 };
+			extra = {
+				completed:
+					read.result?.kind === "rows" || read.result?.kind === "empty",
+			};
 			break;
 		}
 		case "pageNext":
@@ -1274,6 +1774,9 @@ async function advanceAppTestOnScreen(
 			);
 	}
 	try {
+		if (action.kind !== "back" && next.screen !== state.screen) {
+			next = await advanceAutomaticChoices(context, scope, next);
+		}
 		const observed = await observeAppTestWithEvaluation(
 			context,
 			scope,
@@ -1314,10 +1817,10 @@ function screenFormsObservation(
 	parent: Uuid | null,
 ) {
 	return appTestScreenForms(context, state, parent).map(
-		({ form, moduleUuid, visibility }) => ({
+		({ form, moduleUuid, visibility, badge }) => ({
+			...(badge && { badge }),
 			uuid: form.uuid,
-			name: projectLocalizedForm(context.doc, context.language, form.uuid)
-				?.name,
+			name: controlText(context, form.uuid, "formTitle"),
 			menuUuid: moduleUuid,
 			visibility,
 		}),
@@ -1334,9 +1837,7 @@ function screenCaseListsObservation(
 	return appTestScreenCaseLists(context, state, parent).map(
 		({ moduleUuid, visibility }) => ({
 			menuUuid: moduleUuid,
-			name:
-				context.doc.modules[moduleUuid]?.caseListMenuItem?.label ??
-				projectLocalizedModule(context.doc, context.language, moduleUuid)?.name,
+			name: controlText(context, moduleUuid, "caseListEntry"),
 			visibility,
 		}),
 	);

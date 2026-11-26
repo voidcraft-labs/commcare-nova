@@ -64,6 +64,11 @@ describe("the guide's platform sentences", () => {
 		],
 		[
 			"expressions",
+			"Menu badges on updateModule and updateForm use badge with kind text and a text label, or kind calculation and a value expression.",
+			"menu-badge",
+		],
+		[
+			"expressions",
 			"here() is the worker's current GPS position, a geopoint, available only in a calculated Results or Details column.",
 			"case-list-here",
 		],

@@ -45,7 +45,9 @@ import {
 } from "../wireIdentity";
 import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
 import type { ReadContext } from "./context";
+import { readProjectSearchBindings } from "./context";
 import type { ProjectionFacts } from "./heldExpansions";
+import { readInstallationBindings } from "./installationBindings";
 import type { ReadMediaReference } from "./types";
 
 export interface ReadProjectionInputs {
@@ -70,6 +72,8 @@ interface Built {
 	readonly kept: ReadonlyMap<string, string>;
 	/** How many media references the reading held when these were built. */
 	readonly references: number;
+	readonly projectSearchCount: number;
+	readonly profiles: ReadContext["draft"]["appSettings"]["installationProfiles"];
 }
 
 const BUILT = new WeakMap<ReadContext, Built>();
@@ -80,10 +84,22 @@ function isLookupDataType(value: string): value is LookupDataType {
 
 /** The catalog's tables as the wire naming reads them. A column typed outside a
  *  table's own types breaks the catalog's contract, which its builder holds. */
-function namingDefinitions(ctx: ReadContext): LookupNamingDefinition[] {
-	return [...ctx.input.lookup.definitions.values()].map((table) => ({
+export function readerLookupNamingDefinitions(
+	lookup: ReadContext["input"]["lookup"],
+): LookupNamingDefinition[] {
+	// A read of a row's attribute or a field's property names its member by
+	// id, so the naming carries each table's attributes and each column's
+	// properties and repetition, as the emission's own naming does.
+	return [...lookup.definitions.values()].map((table) => ({
 		id: table.id,
 		tag: table.tag,
+		...(table.attributes?.length && {
+			attributes: table.attributes.map(({ id, wireName, label }) => ({
+				id,
+				wireName,
+				label,
+			})),
+		}),
 		columns: table.columns.map((column) => {
 			if (!isLookupDataType(column.dataType))
 				throw new Error(
@@ -94,6 +110,14 @@ function namingDefinitions(ctx: ReadContext): LookupNamingDefinition[] {
 				wireName: column.wireName,
 				label: column.label,
 				dataType: column.dataType,
+				...(column.repeated && { repeated: true as const }),
+				...(column.properties?.length && {
+					properties: column.properties.map(({ id, wireName, label }) => ({
+						id,
+						wireName,
+						label,
+					})),
+				}),
 			};
 		}),
 	}));
@@ -146,10 +170,11 @@ export function* readExpansionSteps(
 	doc: BlueprintDoc,
 ): Generator<void, HqApplication, void> {
 	const { inputs, facts } = built(ctx);
+	const comparison = { ...inputs, readingComparison: true as const };
 	if (ctx.heldExpansions === undefined)
-		return yield* expandDocSteps(doc, inputs);
+		return yield* expandDocSteps(doc, comparison);
 	return yield* ctx.heldExpansions.expansionSteps(doc, facts, () =>
-		expandDocSteps(doc, inputs),
+		expandDocSteps(doc, comparison),
 	);
 }
 
@@ -172,7 +197,9 @@ function built(ctx: ReadContext): Built {
 	const known = BUILT.get(ctx);
 	if (
 		known !== undefined &&
-		known.references === ctx.facts.mediaReferences.length
+		known.references === ctx.facts.mediaReferences.length &&
+		known.projectSearchCount === ctx.draft.projectSearches.size &&
+		known.profiles === ctx.draft.appSettings.installationProfiles
 	)
 		return known;
 	const overrides: WireIdentityOverride[] = [];
@@ -211,9 +238,11 @@ function built(ctx: ReadContext): Built {
 		origin: ctx.input.target.origin,
 		domain: ctx.input.target.domain,
 	};
-	const naming = namingDefinitions(ctx);
+	const naming = readerLookupNamingDefinitions(ctx.input.lookup);
+	const projectSearches = readProjectSearchBindings(ctx);
+	const profiles = readInstallationBindings(ctx);
 	const inputs: ReadProjectionInputs = {
-		identity: targetWireIdentity(overrides),
+		identity: targetWireIdentity(overrides, [], projectSearches, profiles),
 		attachmentTarget,
 		lookupNaming: lookupWireNaming(naming),
 		assets: assets as AssetManifest,
@@ -221,6 +250,8 @@ function built(ctx: ReadContext): Built {
 	const result: Built = {
 		inputs,
 		facts: {
+			projectSearches,
+			profiles,
 			overrides: overrides.map((one) => ({ ...one })),
 			attachmentTarget: { ...attachmentTarget },
 			naming: structuredClone(naming),
@@ -230,6 +261,8 @@ function built(ctx: ReadContext): Built {
 			[...kept].map(([assetId, reference]) => [assetId, reference.path]),
 		),
 		references: ctx.facts.mediaReferences.length,
+		projectSearchCount: projectSearches.length,
+		profiles: ctx.draft.appSettings.installationProfiles,
 	};
 	BUILT.set(ctx, result);
 	return result;

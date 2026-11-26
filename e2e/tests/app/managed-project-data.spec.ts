@@ -7,23 +7,27 @@ import type {
 import {
 	appsThatReadIt,
 	CONNECT_TO_REFRESH_TABLE,
+	KEEP_IN_HQ,
 	MANAGE_IN_NOVA,
 	MANAGED_PLACES_LABEL,
 	MANAGED_PLACES_NO_PERSONA,
 	MANAGED_TABLE_BADGE,
 	MANAGEMENT_NEEDS_ADMIN,
 	MANAGEMENT_REVIEW_MOVED,
-	managedInNovaBanner,
 	managedPlacesLevelsNote,
 	managedTableBanner,
 	manageInNovaTitle,
 	OPEN_IN_HQ,
 	REFRESH_FROM_HQ,
+	SEPARATE_TABLE,
+	SEPARATE_TABLE_CONFIRM,
+	SEPARATE_TABLE_INDEXES,
+	separateTableTitle,
 } from "@/lib/publish/managedData";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { MANAGED_DATA_SEED } from "../../lib/managedDataSeed";
-import { openBuilder } from "../../lib/pageLoads";
+import { openBuilder, openPage } from "../../lib/pageLoads";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 
 /**
@@ -34,15 +38,15 @@ import { createSmokeContext } from "../../lib/smokeNetwork";
  * and Manage in Nova, and an editor with no connection is invited to connect
  * instead of refreshing. Manage in Nova names the app that reads the table;
  * where a teammate makes a second app read it while the dialog is open, the
- * confirmation changes nothing, says why and names both apps; confirmed
- * again, the grid is editable in this tab and in a second one without a
- * reload. Organization says where the places live, offers no
- * place control, says what Nova assumed of the levels, and Users invites a
- * persona.
+ * confirmation changes nothing, says why and names both apps, and in a
+ * second tab too the table offers no edit. Organization says where the
+ * places live, offers no place control, says what Nova assumed of the
+ * levels, and Users invites a persona.
  *
- * Refresh and the hand-back read CommCare HQ from the Next server, which no
- * page route here answers, so this journey offers them and never presses
- * them; what they do is held by the deployment services' own tests.
+ * Refresh, the hand-back and a confirmed Manage in Nova each read CommCare
+ * HQ from the Next server, which no page route here answers, so this journey
+ * offers them and never lets one reach CommCare HQ; what they do is held by
+ * the deployment services' own tests.
  */
 
 const seed = MANAGED_DATA_SEED;
@@ -137,7 +141,7 @@ async function makeReaderAppReadTable(
 	}
 }
 
-test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the table to Nova in every open tab", {
+test("data CommCare HQ manages reads as a copy, and Manage in Nova changes nothing over a review a teammate moved", {
 	tag: "@seed:managed-data",
 }, async ({ scenario, page, browser, baseURL }) => {
 	const fixture = seedFor(scenario, "managed-data");
@@ -231,7 +235,7 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the tab
 			await expectNoTableEdits(second);
 		});
 
-		await test.step("Manage in Nova names the app that reads the table, and confirmed, the grid is editable in both tabs", async () => {
+		await test.step("Manage in Nova names the app that reads the table, and over a moved review changes nothing in either tab", async () => {
 			await tableBanner(page, MANAGED_TABLE_BADGE)
 				.getByRole("button", { name: MANAGE_IN_NOVA, exact: true })
 				.click();
@@ -276,23 +280,16 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the tab
 			).toBeVisible();
 			await expectNoTableEdits(page);
 			await expect(confirm).toBeEnabled();
-			await confirm.click();
+			/* Confirmed again, the hand-over reads the table from CommCare HQ
+			 * on the Next server first, which this journey never reaches (see
+			 * above); the owner keeps it there instead, and neither tab offers
+			 * an edit. */
+			await dialog
+				.getByRole("button", { name: KEEP_IN_HQ, exact: true })
+				.click();
 			await expect(dialog).toHaveCount(0);
-			await expect(
-				main.getByRole("button", { name: "Add row", exact: true }),
-			).toBeVisible({ timeout: 20_000 });
-			await expect(
-				page.getByText(managedInNovaBanner(seed.domain), { exact: true }),
-			).toBeVisible();
-			// The stamped definition reaches the other tab as a manifest frame.
-			await expect(
-				second
-					.locator("main")
-					.getByRole("button", { name: "Add row", exact: true }),
-			).toBeVisible({ timeout: 20_000 });
-			await expect(
-				second.getByText(managedInNovaBanner(seed.domain), { exact: true }),
-			).toBeVisible();
+			await expectNoTableEdits(page);
+			await expectNoTableEdits(second);
 		});
 	} finally {
 		await closePageWithUnload(second);
@@ -337,4 +334,124 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the tab
 			main.getByText(MANAGED_PLACES_NO_PERSONA, { exact: true }),
 		).toBeVisible({ timeout: 20_000 });
 	});
+});
+
+test("Create a separate table points the chosen app at a new Nova table and leaves the copy CommCare HQ manages as it was", {
+	tag: "@seed:managed-data",
+}, async ({ scenario, page }) => {
+	const { managedData } = seedFor(scenario, "managed-data");
+	const { routes } = managedData;
+	test.setTimeout(120_000);
+	const main = page.locator("main");
+	await openBuilder(page, routes.table);
+	await expect(tableBanner(page, MANAGED_TABLE_BADGE)).toBeVisible({
+		timeout: 20_000,
+	});
+	await main.getByRole("button", { name: SEPARATE_TABLE, exact: true }).click();
+	const dialog = page.getByRole("alertdialog", {
+		name: separateTableTitle(seed.table.name),
+	});
+	await expect(dialog).toBeVisible({ timeout: 20_000 });
+	/* CommCare HQ never said which of the copy's columns are indexed, so the
+	 * confirmation says the new table indexes none. */
+	await expect(
+		dialog.getByText(SEPARATE_TABLE_INDEXES, { exact: true }),
+	).toBeVisible();
+	const confirm = dialog.getByRole("button", {
+		name: SEPARATE_TABLE_CONFIRM,
+		exact: true,
+	});
+	await expect(confirm).toBeDisabled();
+	const name = dialog.getByRole("textbox", {
+		name: "New table's name",
+		exact: true,
+	});
+	await expect(name).toHaveValue(`${seed.table.name} 2`);
+	await name.fill(`${seed.table.name} for visits`);
+	await dialog
+		.getByRole("checkbox", { name: seed.appName, exact: true })
+		.click();
+	await expect(confirm).toBeEnabled();
+	/* The app this builder holds is one the change rebinds, so the builder
+	 * reloads it once the change lands; the page is left only after that. */
+	const appId = new URL(page.url()).pathname.split("/")[2];
+	const reloaded = page.waitForResponse(
+		(response) =>
+			new URL(response.url()).pathname === `/api/apps/${appId}` &&
+			response.request().method() === "GET",
+		{ timeout: 20_000 },
+	);
+	await confirm.click();
+	await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+	expect((await reloaded).ok()).toBe(true);
+
+	await openBuilder(page, routes.tables);
+	await expect(
+		main.getByRole("button", {
+			name: new RegExp(`${seed.table.name} for visits`),
+		}),
+	).toBeVisible({ timeout: 20_000 });
+	/* The copy is still CommCare HQ's, and offers no edit. */
+	await openBuilder(page, routes.table);
+	await expect(tableBanner(page, MANAGED_TABLE_BADGE)).toBeVisible({
+		timeout: 20_000,
+	});
+	await expectNoTableEdits(page);
+});
+
+test("a disconnected source editor cannot read staged inventory or a mobile worker’s data", {
+	tag: "@seed:source-inventory",
+}, async ({ page, scenario }) => {
+	const { sourceInventory } = seedFor(scenario, "source-inventory");
+	await openBuilder(page, sourceInventory.route);
+	const openSource = page.getByRole("button", {
+		name: "View source inventory",
+	});
+	await expect(openSource).toBeVisible();
+	const settings = await page.context().newPage();
+	try {
+		await openPage(settings, "/settings");
+		const disconnect = settings.getByRole("button", {
+			name: "Disconnect",
+			exact: true,
+		});
+		await disconnect.click();
+		await expect(disconnect).toHaveCount(0);
+	} finally {
+		await settings.close();
+	}
+	await openSource.click();
+	const dialog = page.getByRole("dialog", { name: "Source inventory" });
+	await expect(dialog.getByRole("alert")).toContainText(/connection/i);
+	await expect(
+		dialog.getByRole("button", { name: "Read first row" }),
+	).toHaveCount(0);
+	await expect(dialog.getByText(/rows recorded|refresh has read/)).toHaveCount(
+		0,
+	);
+	// The footer's Close, beside the dialog's corner one of the same name.
+	await dialog
+		.locator('[data-slot="dialog-footer"]')
+		.getByRole("button", { name: "Close", exact: true })
+		.click();
+	await page.getByRole("button", { name: "Check source access" }).click();
+	const access = page.getByRole("dialog", { name: "Check source access" });
+	const worker = access.getByLabel("Mobile worker username");
+	await expect(worker).toHaveValue("");
+	await expect(
+		access.getByText(/leave this blank to check your connected account/),
+	).toBeVisible();
+	await expect(
+		access.getByLabel("Selected-table workbook (.xlsx, up to 768 KiB)"),
+	).toBeVisible();
+	await expect(
+		access.getByRole("button", { name: "Check and record workbook" }),
+	).toBeDisabled();
+	await worker.fill("clinic-worker");
+	await access.getByRole("button", { name: "Check worker data" }).click();
+	await expect(access.getByRole("alert")).toContainText(
+		/connection|connect|available/i,
+	);
+	await expect(access.getByText("Hill clinic", { exact: true })).toHaveCount(0);
+	await expect(access.getByText(/could read [0-9]+ rows?/)).toHaveCount(0);
 });

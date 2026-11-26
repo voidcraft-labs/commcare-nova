@@ -17,22 +17,6 @@ import {
 import { OrganizationError } from "./errors";
 import type { OrganizationRevision } from "./types";
 
-/**
- * How many places one app's organization holds.
- *
- * Declared Nova policy, not a platform limit. It is what makes the whole
- * tree a bounded read — every authoring surface loads the organization in
- * one snapshot, which is only honest with a ceiling — and it is generous
- * enough for the real trees this exists to serve, where leaf levels run to
- * thousands of nodes.
- *
- * The bound that actually governs a device is not this one: it is the
- * per-worker FOOTPRINT, which the address book scopes and unit 9's fixture
- * budget bounds. An app may legitimately hold far more places than any one
- * worker ever carries — that gap is the point of the address-book dials.
- */
-export const MAX_LOCATIONS_PER_APP = 10_000;
-
 export { MAX_ATOMIC_LOCATION_DESCENDANTS } from "@/lib/domain";
 
 /** `SQLLocation.site_code` is `models.CharField(max_length=255)`. */
@@ -71,7 +55,7 @@ export const siteCodeSchema = z
  * negative zero. Postgres uses the matching numeric typmod; reads pass through
  * the same normalizer because the driver preserves the column scale.
  */
-const COORDINATE_PATTERN = /^-?(?:0|[1-9]\d{0,2})(?:\.\d{1,10})?$/;
+const COORDINATE_PATTERN = /^-?(?:0|[1-9]\d{0,9})(?:\.\d{1,10})?$/;
 
 export function canonicalCoordinate(value: string): string {
 	const negative = value.startsWith("-");

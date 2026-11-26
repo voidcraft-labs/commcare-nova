@@ -1,5 +1,5 @@
 /**
- * The "Register from this list" setting's model: the whole slot each change
+ * The "Form button on the list" setting's model: the whole slot each change
  * writes, the After registering helpers for the host's shape, the note that
  * names the form's own after-submit, and the form's "Also offered on" line.
  */

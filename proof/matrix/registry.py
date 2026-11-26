@@ -17,16 +17,19 @@ A row names a menu or a form of its base by position, never by an id or an
 f]}`` and, for the form's ``xmlns``, ``{"$xmlns": [m, f]}``, each an object
 with that one key (``proof.matrix.ops.reference_of``). A reference stands in
 a set-json change's value, at any depth, which ``ops.set_json`` resolves to
-what the stored app holds at that position before the change, and a menu or
-an ``xmlns`` reference in a ``holds`` fragment's key given as a list
-(``[kind, ...parts]``), which the lane writes as the key's text with the id
-HQ keeps for the base's menu there and the base's form's ``xmlns``
-(``retain.py::hold_key``). ``load_variants`` refuses one anywhere else, a
-form's id in a ``holds`` key (no external key names a form by its id), and
-one that is not well formed.
+what the stored app holds at that position before the change, and in a
+``holds`` fragment's key given as a list (``[kind, ...parts]``), which the
+lane writes as the key's text with the id HQ keeps for the base's menu there,
+the base's form's ``xmlns``, and for a form reference the real id the
+variant's own application resource serves for the form at that position, as
+the reader keys a shared entry, which holds no ``xmlns``
+(``retain.py::hold_key``).
+``load_variants`` refuses one anywhere else and one that is not well formed.
 
 A holding row names ``holds``, a list, which is empty where no fragment of
-the document changes (an INERT entry, or one whose held value Nova derives):
+the document changes (an INERT entry, or one whose held value Nova derives).
+A fragment keyed by ``app`` reads its pointer from the document root. An entity
+fragment names its external key. In either case,
 such a row is held by its reading being ``read`` and its claim log counting
 the entry.
 
@@ -83,7 +86,8 @@ class Base:
     (``test_retained.py::test_a_base_exhibits_what_it_names``). ``vellum``
     names each ``(menu, form)`` position saved once in HQ's form builder
     after ``build``. ``declaration`` is the one it is read under, or None for
-    the reading's preselected one. ``worker_location`` is the site code of the
+    the reading's preselected one. ``owner_rule_choices`` answers the owner-rule
+    questions its reading asks, by level code. ``worker_location`` is the site code of the
     place its builder names as the worker's, or None. ``cases`` names each
     case its case database holds beside the generated ones, as ``(case type,
     ((property, value), ...))``, putting together values A gives one by one
@@ -100,6 +104,9 @@ class Base:
     worker_location: str | None = None
     # The cases the base names beside the generated ones, which the case seed records.
     cases: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
+    # The base's answers to its reading's owner-rule questions, ``(level code, answer)`` each, as a person gives
+    # them to the create (``BringInInput.ownerRuleChoices``); none where its reading asks none.
+    owner_rule_choices: tuple[tuple[str, str], ...] = ()
 
     def as_json(self):
         """The base as ``base.json`` records it: its configuration as one entry of a corpus document's
@@ -117,6 +124,7 @@ class Base:
                 "caseSearchEnabled": configuration.case_search_enabled,
             },
             "declaration": "preselected" if self.declaration is None else self.declaration.as_json(),
+            **({"ownerRuleChoices": dict(self.owner_rule_choices)} if self.owner_rule_choices else {}),
             "exhibits": sorted(self.exhibits),
         }
 
@@ -127,21 +135,36 @@ from proof.matrix.bases import (  # noqa: E402
     case_lists,
     connect_deliver,
     connect_learn,
+    empty_search,
     hq_advanced,
     hq_case_management,
     hq_expressions,
     hq_media,
+    hq_question_display,
     hq_questions,
     kept_settings,
     languages,
+    large_media,
+    legacy_related_case_text,
+    lookup_aliases,
+    lookup_data,
+    lookup_name_lists,
+    lookup_names,
+    lookup_types,
     lookups,
     menus,
     names,
     new_app,
     nova_then_builder,
+    owner_rules,
     places,
     plain,
+    project_languages,
+    runtime_name_tables,
+    project_search,
+    project_search_sql,
     saved_pages,
+    shared_table_journey,
     search,
     starter_agriculture,
     starter_health,
@@ -156,16 +179,31 @@ BASES: tuple[Base, ...] = (
     starter_agriculture.BASE,
     starter_wash.BASE,
     hq_media.BASE,
+    large_media.BASE,
     kept_settings.BASE,
     languages.BASE,
+    project_languages.BASE,
     menus.BASE,
     names.BASE,
     case_lists.BASE,
+    legacy_related_case_text.BASE,
     search.BASE,
+    empty_search.BASE,
+    project_search.BASE,
+    project_search_sql.BASE,
     lookups.BASE,
+    shared_table_journey.BASE,
+    lookup_aliases.BASE,
+    lookup_names.BASE,
+    lookup_data.BASE,
+    lookup_types.BASE,
+    lookup_name_lists.BASE,
+    runtime_name_tables.BASE,
     places.BASE,
+    owner_rules.BASE,
     connect_deliver.BASE,
     connect_learn.BASE,
+    hq_question_display.BASE,
     hq_questions.BASE,
     hq_expressions.BASE,
     hq_case_management.BASE,
@@ -239,6 +277,9 @@ class Variant:
     also: tuple[Mapping, ...] = ()
     hq_never_serves: Mapping | None = None
     key: str | None = None  # the surface key a row expecting ``unrecognized`` names
+    # The declaration the variant is read under where its change leaves the base's one unoffered (an answer only
+    # Android keeps reads under Android alone); None reads it under the base's.
+    declaration: Declaration | None = None
 
     @property
     def refusing(self) -> bool:
@@ -288,19 +329,35 @@ def _check_place(row_id, place):
             f"The variant {row_id} names the place {place!r}; a place is an HqPlace (lib/publish/hqFindings.ts),"
             f" whose kind is one of {list(PLACE_KINDS)}."
         )
+    if place["kind"] == "question" and not {"menuName", "formName", "path"} <= set(place):
+        raise VariantsRefused(
+            f"The variant {row_id} names the question place {place!r}; a question's place names its menuName, its"
+            " formName and its path, as lib/publish/hqFindings.ts writes one."
+        )
 
 
 def _refused_reference(row_id, error):
     return VariantsRefused(
         f"The variant {row_id} names a menu or form by position where the lane cannot resolve it: {error} A row names"
-        " one by position only in a set-json value, and a menu or a form's xmlns in a holds key given as a list."
+        " one by position only in a set-json value and in a holds key given as a list."
     )
 
 
+def project_files_in(value):
+    """Every Project file ``value`` names (``{"$projectFile": path}``), at any depth, in document order."""
+    from proof.matrix.ops import project_file_of
+
+    path = project_file_of(value)
+    if path is not None:
+        return [path]
+    children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else ()
+    return [one for child in children for one in project_files_in(child)]
+
+
 def _check_references(row_id, row):
-    """Each reference a row holds well formed, and only where the lane resolves one: a set-json value, and a menu or a
-    form's xmlns in a list key of a ``holds`` fragment."""
-    from proof.matrix.ops import ValueNotSet, references_in
+    """Each reference a row holds well formed, and only where the lane resolves one: a set-json value and a list key
+    of a ``holds`` fragment."""
+    from proof.matrix.ops import PROJECT_FILE, ValueNotSet, project_file_of, references_in
 
     allowed = []
     for change in (
@@ -314,18 +371,22 @@ def _check_references(row_id, row):
         if isinstance(key, list):
             allowed.append(("in a holds key", key))
     try:
-        for where, value in allowed:
-            found = references_in(value)
-            if where == "in a holds key" and any(kind == "form" for kind, _ in found):
-                raise _refused_reference(
-                    row_id, 'a holds key names a form by its xmlns ({"$xmlns": [m, f]}), never by its id.'
-                )
+        for _where, value in allowed:
+            references_in(value)
         # Every reference the row holds, beside those where the lane resolves one, is misplaced.
         everywhere = len(references_in(dict(row)))
     except ValueNotSet as error:
         raise _refused_reference(row_id, str(error)) from None
     if everywhere != sum(len(references_in(value)) for _, value in allowed):
         raise _refused_reference(row_id, "a place, a holds value or an hqNeverServes holds one.")
+    held_files = sum(
+        project_file_of(hold.get("value")) is not None for hold in row.get("holds") or () if isinstance(hold, Mapping)
+    )
+    if len(project_files_in(dict(row))) != held_files:
+        raise VariantsRefused(
+            f"The variant {row_id} names a Project file ({{{PROJECT_FILE!r}: <path>}}) where the lane reads none: a"
+            " holds value names one as the whole value, and nothing else does."
+        )
 
 
 def _check_change(row_id, change, named):
@@ -419,6 +480,14 @@ def load_variants(path: Path = VARIANTS, *, bases: tuple[Base, ...] | None = Non
         for change in (row["change"], *(one["change"] for one in composed)):
             if change["op"] == "named":
                 used.add(change["name"])
+        declared = row.get("declaration")
+        if declared is not None and (
+            not isinstance(declared, Mapping) or set(declared) != {"runsOnlyOn", "splitDatetime"}
+        ):
+            raise VariantsRefused(
+                f"The variant {row_id} declares {declared!r}; a declaration is {{runsOnlyOn, splitDatetime}}, as a"
+                " base's is written."
+            )
         if never is not None and set(never) not in ({"raised"}, {"notServedAt"}):
             raise VariantsRefused(
                 f"The variant {row_id}'s hqNeverServes is {never!r}; it is {{raised: <exception class>}} or"
@@ -437,6 +506,9 @@ def load_variants(path: Path = VARIANTS, *, bases: tuple[Base, ...] | None = Non
                 also=tuple(also or ()),
                 hq_never_serves=never,
                 key=key,
+                declaration=None
+                if declared is None
+                else Declaration(declared["runsOnlyOn"], bool(declared["splitDatetime"])),
             )
         )
     unused = sorted(set(named) - used)

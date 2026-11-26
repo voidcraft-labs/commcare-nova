@@ -58,6 +58,7 @@ import {
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { caseOperationMultiplicityScopes } from "./caseOperationOrder";
 import { deepEqual } from "./deepEqual";
+import { entryCaseCreationsLeftBy } from "./entryCaseCreationCascade";
 import { descendantFieldUuids } from "./fieldWalk";
 import { catalogMutationsForOperations } from "./scaffolds";
 import type { Mutation } from "./types";
@@ -355,6 +356,7 @@ export function joinableChildCreate(
 			operation.forEach?.repeat === repeat &&
 			operation.target.kind === "new" &&
 			operation.target.idFrom === undefined &&
+			operation.target.expr === undefined &&
 			operation.condition === undefined &&
 			isChildOfOwnCase(ctx, operation),
 	);
@@ -404,8 +406,21 @@ export function insertionIndexForScope(
 
 /** One value a plan saves: an operation's name or owner, or one write. */
 type SavedValue =
-	| { readonly slot: "name" | "owner"; readonly value: Expression }
+	| {
+			readonly slot: "name" | "owner";
+			readonly value: Expression;
+			/** The name or owner is saved only when changed
+			 *  (`CaseFacetOnlyIfChanged`). */
+			readonly onlyIfChanged?: true;
+	  }
 	| { readonly slot: "write"; readonly write: CaseOperationWrite };
+
+/** The flag that saves `slot` of an operation only when changed. */
+function slotFlag(
+	slot: "name" | "owner",
+): "nameOnlyIfChanged" | "ownerOnlyIfChanged" {
+	return slot === "name" ? "nameOnlyIfChanged" : "ownerOnlyIfChanged";
+}
 
 interface PlanDraft {
 	readonly ctx: CaseWriteFormContext;
@@ -445,7 +460,9 @@ function patchSlot(
 	draft: PlanDraft,
 	operation: CaseOperation,
 	slot: "name" | "owner",
-	value: Expression | null,
+	/** The slot's new value, `null` to clear it, absent to keep it. */
+	value: Expression | null | undefined,
+	onlyIfChanged?: true | null,
 ): void {
 	draft.mutations.push(
 		formEdit(draft.ctx.formUuid, {
@@ -453,7 +470,12 @@ function patchSlot(
 				operation: "update",
 				uuid: operation.uuid,
 				targetAction: operation.action,
-				patch: { [slot]: value },
+				patch: {
+					...(value !== undefined && { [slot]: value }),
+					...(onlyIfChanged !== undefined && {
+						[slotFlag(slot)]: onlyIfChanged,
+					}),
+				},
 			} as NonNullable<
 				Extract<Mutation, { kind: "updateForm" }>["caseOperationPatch"]
 			>,
@@ -541,6 +563,7 @@ function removeViewWrite(draft: PlanDraft, view: FieldCaseWriteView): void {
 	}
 	if (view.slot === "name") delete operation.name;
 	else delete operation.owner;
+	delete operation[slotFlag(view.slot)];
 	draft.shrunk.add(operation.uuid);
 	// A new case's name cannot be cleared: the create goes, or the plan is
 	// refused, once the batch is planned.
@@ -571,16 +594,33 @@ function saveOn(
 	saved: SavedValue,
 ): string | undefined {
 	if (saved.slot !== "write") {
+		const flag = slotFlag(saved.slot);
 		const current = operation[saved.slot];
+		const flagged = (operation as { readonly [key: string]: unknown })[flag];
 		if (current !== undefined) {
-			if (deepEqual(current, saved.value)) return undefined;
-			return alreadySavedMessage(
-				saved.slot === "name" ? "case_name" : "owner_id",
-				caseLabel(draft.ctx, operation),
+			if (!deepEqual(current, saved.value))
+				return alreadySavedMessage(
+					saved.slot === "name" ? "case_name" : "owner_id",
+					caseLabel(draft.ctx, operation),
+				);
+			if ((flagged === true) === (saved.onlyIfChanged === true))
+				return undefined;
+			if (saved.onlyIfChanged === true)
+				(operation as Record<string, unknown>)[flag] = true;
+			else delete (operation as Record<string, unknown>)[flag];
+			patchSlot(
+				draft,
+				operation,
+				saved.slot,
+				undefined,
+				saved.onlyIfChanged ?? null,
 			);
+			return undefined;
 		}
 		operation[saved.slot] = saved.value;
-		patchSlot(draft, operation, saved.slot, saved.value);
+		if (saved.onlyIfChanged === true)
+			(operation as Record<string, unknown>)[flag] = true;
+		patchSlot(draft, operation, saved.slot, saved.value, saved.onlyIfChanged);
 		return undefined;
 	}
 	const key = caseWriteKeyOf(saved.write);
@@ -618,13 +658,24 @@ function savedValueFor(
 	value: Expression,
 	facets: Pick<CaseOperationWrite, "condition" | "via" | "onlyIfChanged"> = {},
 ): SavedValue {
+	// A name or owner saved only when changed is its facet's flag
+	// (`CaseFacetOnlyIfChanged`); a new case's name has no earlier value, so
+	// there it stays the write the gate refuses.
 	const scalar =
 		facets.via === undefined &&
 		facets.condition === undefined &&
-		facets.onlyIfChanged === undefined &&
-		operation.action !== "update";
-	if (scalar && property === "case_name") return { slot: "name", value };
-	if (scalar && property === "owner_id") return { slot: "owner", value };
+		operation.action !== "update" &&
+		!(
+			facets.onlyIfChanged !== undefined &&
+			property === "case_name" &&
+			operation.action === "create"
+		);
+	const flag =
+		facets.onlyIfChanged === undefined ? {} : { onlyIfChanged: true as const };
+	if (scalar && property === "case_name")
+		return { slot: "name", value, ...flag };
+	if (scalar && property === "owner_id")
+		return { slot: "owner", value, ...flag };
 	return {
 		slot: "write",
 		write: {
@@ -648,7 +699,7 @@ function saveOnChild(
 	relationship: CaseOperationLink["relationship"],
 	property: string,
 	value: Expression,
-	facets: Pick<CaseOperationWrite, "condition"> = {},
+	facets: Pick<CaseOperationWrite, "condition" | "onlyIfChanged"> = {},
 ): string | undefined {
 	const { ctx } = draft;
 	const create = joinableChildCreate(ctx, draft.operations, caseType, repeat);
@@ -658,7 +709,11 @@ function saveOnChild(
 			create,
 			savedValueFor(create, property, value, facets),
 		);
-	if (property !== "case_name" || facets.condition !== undefined)
+	if (
+		property !== "case_name" ||
+		facets.condition !== undefined ||
+		facets.onlyIfChanged !== undefined
+	)
 		return saveNewCaseNameFirstMessage(caseType);
 	addOperation(draft, {
 		uuid: asUuid(uuidv4()),
@@ -686,9 +741,15 @@ function saveOnWorkerRecord(
 	draft: PlanDraft,
 	property: string,
 	value: Expression,
+	onlyIfChanged?: true,
 ): string | undefined {
 	const update = workerRecordUpdate(draft.operations);
-	const saved = savedValueFor({ action: "update" }, property, value);
+	const saved = savedValueFor(
+		{ action: "update" },
+		property,
+		value,
+		onlyIfChanged === undefined ? {} : { onlyIfChanged },
+	);
 	if (update !== undefined) return saveOn(draft, update, saved);
 	if (saved.slot !== "write") return undefined;
 	addOperation(draft, {
@@ -750,6 +811,7 @@ function finish(draft: PlanDraft): string | undefined {
 		}),
 	);
 	draft.mutations.unshift(...catalog);
+	draft.mutations.push(...entryCaseCreationsLeftBy(ctx.form, draft.operations));
 	return undefined;
 }
 
@@ -971,7 +1033,12 @@ export function planFieldCaseWrite(
 			case "refused":
 				return { ok: false, message: resolved.message };
 			case "worker-record":
-				refusal = saveOnWorkerRecord(draft, destination.property, value);
+				refusal = saveOnWorkerRecord(
+					draft,
+					destination.property,
+					value,
+					destination.onlyIfChanged,
+				);
 				break;
 			case "child":
 				refusal = saveOnChild(
@@ -981,6 +1048,9 @@ export function planFieldCaseWrite(
 					resolved.relationship,
 					destination.property,
 					value,
+					destination.onlyIfChanged === undefined
+						? {}
+						: { onlyIfChanged: destination.onlyIfChanged },
 				);
 				break;
 			case "own": {

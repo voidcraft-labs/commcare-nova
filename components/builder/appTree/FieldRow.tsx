@@ -53,6 +53,7 @@ import { useIsFieldSelected } from "@/lib/routing/hooks";
 export const FieldRow = memo(function FieldRow({
 	uuid,
 	moduleUuid,
+	sharedRouteUuid = null,
 	formUuid,
 	onSelect,
 	depth,
@@ -64,6 +65,7 @@ export const FieldRow = memo(function FieldRow({
 }: {
 	uuid: Uuid;
 	moduleUuid: Uuid;
+	sharedRouteUuid?: Uuid | null;
 	formUuid: Uuid;
 	onSelect: TreeSelectHandler;
 	depth: number;
@@ -84,7 +86,7 @@ export const FieldRow = memo(function FieldRow({
 
 	/** Boolean selection: URL-driven via useIsFieldSelected.
 	 *  Only this field + the old selection re-render on change. */
-	const isSelected = useIsFieldSelected(uuid);
+	const isSelected = useIsFieldSelected(uuid, sharedRouteUuid);
 
 	/** Shared provider: resolves label chips against this row's own form. */
 	const provider = useReferenceProvider();
@@ -238,6 +240,7 @@ export const FieldRow = memo(function FieldRow({
 							key={childUuid}
 							uuid={childUuid}
 							moduleUuid={moduleUuid}
+							sharedRouteUuid={sharedRouteUuid}
 							formUuid={formUuid}
 							onSelect={onSelect}
 							depth={depth + 1}

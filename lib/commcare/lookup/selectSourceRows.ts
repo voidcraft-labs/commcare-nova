@@ -31,14 +31,18 @@ import {
 	type LookupOptionsSourceCarrier,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
+import { readColumnId, readMemberIds } from "@/lib/domain/lookupRead";
 import type {
-	LookupColumn,
 	LookupFixtureDataSnapshot,
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import { type ValidationError, validationError } from "../validator/errors";
-import { lookupFixtureCellText } from "./cellText";
+import {
+	lookupReadNodes,
+	type ResolvedLookupRead,
+	resolveLookupRead,
+} from "./read";
 import { lookupTableManagedInDomain } from "./xmlText";
 
 const XML_WHITESPACE = /[\t\n\r ]/;
@@ -96,14 +100,29 @@ function rowRemedy(
 			);
 }
 
-function sourceFindings(args: {
-	readonly carrier: LookupOptionsSourceCarrier;
+function lookupFindingTarget(
+	read: LookupOptionsSourceCarrier["source"]["valueColumnId"],
+) {
+	const columnId = readColumnId(read),
+		members = readMemberIds(read);
+	return {
+		...(columnId && { columnId }),
+		...(members.length && { memberId: members[0] }),
+	};
+}
+
+export function lookupChoiceBaseFindings(args: {
+	readonly source: LookupOptionsSourceCarrier["source"];
+	readonly location: LookupOptionsSourceCarrier["location"];
+	readonly owner: string;
 	readonly table: LookupTableDefinition;
 	readonly rows: readonly LookupFixtureRow[];
-	readonly valueColumn: LookupColumn;
-	readonly labelColumn: LookupColumn;
+	readonly valueColumn: ResolvedLookupRead;
+	readonly labelColumn: ResolvedLookupRead;
 }): ValidationError[] {
-	const { carrier, table, rows, valueColumn, labelColumn } = args;
+	const { source, location, owner, table, rows, valueColumn, labelColumn } =
+		args;
+	const ambiguous: RowOffence[] = [];
 	const blankValues: RowOffence[] = [];
 	const whitespaceValues: RowOffence[] = [];
 	const blankLabels: RowOffence[] = [];
@@ -111,10 +130,29 @@ function sourceFindings(args: {
 
 	rows.forEach((row, index) => {
 		const offence = { position: index + 1, rowId: row.id };
-		const value = lookupFixtureCellText(
-			valueColumn.dataType,
-			row.values[valueColumn.id],
-		);
+		const scalar = (
+			read: LookupOptionsSourceCarrier["source"]["valueColumnId"],
+			resolved: ResolvedLookupRead,
+		) => {
+			const nodes = lookupReadNodes(row, read, resolved);
+			const first = nodes.next();
+			if (first.done) return "";
+			if (!nodes.next().done) return undefined;
+			return first.value.text;
+		};
+		const value = scalar(source.valueColumnId, valueColumn);
+		const label = scalar(source.labelColumnId, labelColumn);
+		const sort = source.sortColumnId;
+		const sortResolved =
+			sort === undefined ? undefined : resolveLookupRead(table, sort);
+		if (
+			value === undefined ||
+			label === undefined ||
+			(sort && sortResolved && scalar(sort, sortResolved) === undefined)
+		) {
+			ambiguous.push(offence);
+			return;
+		}
 		if (value === "") {
 			blankValues.push(offence);
 		} else if (XML_WHITESPACE.test(value)) {
@@ -124,10 +162,7 @@ function sourceFindings(args: {
 			if (seen === undefined) positionsByValue.set(value, [offence]);
 			else seen.push(offence);
 		}
-		const label = lookupFixtureCellText(
-			labelColumn.dataType,
-			row.values[labelColumn.id],
-		);
+
 		if (label.trim().length === 0) blankLabels.push(offence);
 	});
 
@@ -146,19 +181,28 @@ function sourceFindings(args: {
 		tableName: table.name,
 		...(managedInDomain !== undefined && { managedInDomain }),
 	};
-	const location = carrier.location;
-	const owner = describeLookupOptionsSourceOwner(carrier.owner);
+
 	const errors: ValidationError[] = [];
+	if (ambiguous.length)
+		errors.push(
+			validationError(
+				"LOOKUP_SELECT_SOURCE_AMBIGUOUS",
+				location.scope,
+				`${owner} reads more than one value per row in “${table.name}”. You can choose a position or a detail that matches one value.`,
+				location,
+				{ ...baseDetails, ...offenceDetails(ambiguous) },
+			),
+		);
 	if (blankValues.length > 0) {
 		errors.push(
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_BLANK",
-				carrier.location.scope,
+				location.scope,
 				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${blankValues.length} row(s) leave that column blank (row ${blankValues[0].position} first). ${rowRemedy(managedInDomain, "Fill in those rows", "another value column")}`,
 				location,
 				{
 					...baseDetails,
-					columnId: valueColumn.id as string,
+					...lookupFindingTarget(source.valueColumnId),
 					columnLabel: valueColumn.label,
 					...offenceDetails(blankValues),
 				},
@@ -169,12 +213,12 @@ function sourceFindings(args: {
 		errors.push(
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
-				carrier.location.scope,
+				location.scope,
 				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${whitespaceValues.length} row(s) contain spaces, tabs, or line breaks there (row ${whitespaceValues[0].position} first). A saved choice value cannot contain whitespace. ${rowRemedy(managedInDomain, "Tidy those rows", "another value column")}`,
 				location,
 				{
 					...baseDetails,
-					columnId: valueColumn.id as string,
+					...lookupFindingTarget(source.valueColumnId),
 					columnLabel: valueColumn.label,
 					...offenceDetails(whitespaceValues),
 				},
@@ -185,12 +229,12 @@ function sourceFindings(args: {
 		errors.push(
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE",
-				carrier.location.scope,
+				location.scope,
 				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${duplicateValues.length} value(s) appear in more than one row (for example "${duplicateValues[0]}"). ${rowRemedy(managedInDomain, "Make the values unique", "another value column")}`,
 				location,
 				{
 					...baseDetails,
-					columnId: valueColumn.id as string,
+					...lookupFindingTarget(source.valueColumnId),
 					columnLabel: valueColumn.label,
 					duplicateValueCount: String(duplicateValues.length),
 					firstDuplicateValue: duplicateValues[0],
@@ -203,12 +247,12 @@ function sourceFindings(args: {
 		errors.push(
 			validationError(
 				"LOOKUP_SELECT_SOURCE_LABEL_BLANK",
-				carrier.location.scope,
+				location.scope,
 				`${owner} builds its choices from lookup table "${table.name}", using "${labelColumn.label}" as the label, but ${blankLabels.length} row(s) leave that column blank (row ${blankLabels[0].position} first). ${rowRemedy(managedInDomain, "Fill in those rows", "another label column")}`,
 				location,
 				{
 					...baseDetails,
-					columnId: labelColumn.id as string,
+					...lookupFindingTarget(source.labelColumnId),
 					columnLabel: labelColumn.label,
 					...offenceDetails(blankLabels),
 				},
@@ -274,22 +318,41 @@ export function lookupSelectSourceRowFindings(
 		const table = tablesById.get(carrier.source.tableId);
 		if (table === undefined) continue;
 		const rows = snapshot.rowsByTable.get(carrier.source.tableId);
-		if (rows === undefined) continue;
+		if (rows === undefined) {
+			errors.push(
+				validationError(
+					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+					"app",
+					`“${table.name}” needs verified rows for its workers before these choices can be used.`,
+					{},
+					{
+						tableId: table.id,
+						tableName: table.name,
+						...lookupFindingTarget(carrier.source.valueColumnId),
+					},
+				),
+			);
+			continue;
+		}
 		// An empty table refuses on a device whatever its columns are, so it is
 		// reported even when a column is stale too.
 		if (rows.length === 0) {
 			errors.push(emptySourceFinding(carrier, table));
 			continue;
 		}
-		const valueColumn = table.columns.find(
-			(column) => column.id === carrier.source.valueColumnId,
-		);
-		const labelColumn = table.columns.find(
-			(column) => column.id === carrier.source.labelColumnId,
-		);
+		const valueColumn = resolveLookupRead(table, carrier.source.valueColumnId);
+		const labelColumn = resolveLookupRead(table, carrier.source.labelColumnId);
 		if (valueColumn === undefined || labelColumn === undefined) continue;
 		errors.push(
-			...sourceFindings({ carrier, table, rows, valueColumn, labelColumn }),
+			...lookupChoiceBaseFindings({
+				source: carrier.source,
+				location: carrier.location,
+				owner: describeLookupOptionsSourceOwner(carrier.owner),
+				table,
+				rows,
+				valueColumn,
+				labelColumn,
+			}),
 		);
 	}
 	return errors;

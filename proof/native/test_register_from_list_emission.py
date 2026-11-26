@@ -21,6 +21,8 @@ from proof.native.hq_support import hq_commit, parse_xml_xpaths, sha256, shape, 
 FAMILIES = ("menu-screens",)
 
 DOCUMENTS = (
+    "case-list-action-roles-basic",
+    "case-list-action-roles-advanced",
     "register-from-case-list",
     "register-from-case-list-web-apps",
     "register-from-case-list-other-returns",

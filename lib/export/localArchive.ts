@@ -1,3 +1,5 @@
+import { installationArchiveIssue } from "@/lib/domain";
+import { resolvedLanguageEnglishName } from "@/lib/domain/languageRegistry/names";
 /**
  * The one assembly of a locally installable `.ccz` from a prepared export.
  *
@@ -9,14 +11,11 @@
 
 import "server-only";
 
-import { compileCcz } from "@/lib/commcare/compiler";
+import { appStringsMemberPath } from "@/lib/commcare/cczMembers";
+import { compileCcz, compileCczParts } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
-import type { TargetFacts } from "@/lib/commcare/targetFacts";
-import type { WireIdentity } from "@/lib/commcare/wireIdentity";
-import type { Uuid } from "@/lib/domain/uuid";
-import type { PreparedExportBoundary } from "./boundaryValidation";
-
+import { installationDownloadIssue } from "@/lib/commcare/installationProfiles";
+import { localeFileText } from "@/lib/commcare/localeFile";
 /**
  * The `.ccz` for a document the export boundary prepared in `ccz` mode.
  *
@@ -45,11 +44,21 @@ import type { PreparedExportBoundary } from "./boundaryValidation";
  * `mutation_seq`, the sequence, as every form's and locale's version, so a
  * later download is newer in every resource the document changed.
  */
-export function compileLocalArchive(
+import { suiteWithStreamedRows } from "@/lib/commcare/lookup/streamSuite";
+import { mediaMembers } from "@/lib/commcare/multimedia/streamMedia";
+import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import { streamZip, textMember } from "@/lib/commcare/streamZip";
+import type { TargetFacts } from "@/lib/commcare/targetFacts";
+import type { WireIdentity } from "@/lib/commcare/wireIdentity";
+import type { Uuid } from "@/lib/domain/uuid";
+import type { PreparedExportBoundary } from "./boundaryValidation";
+
+function localArchiveInput(
 	prepared: PreparedExportBoundary,
 	runtimeTarget: RuntimeTarget,
 	identity: WireIdentity,
 	deployment: {
+		readonly installationProfileUuid?: Uuid;
 		readonly emptyCaseListText: boolean;
 		readonly earlierHqApps: number;
 		/** The deployment's live app mapping is one Nova brought in. */
@@ -57,14 +66,27 @@ export function compileLocalArchive(
 		readonly targetFacts: TargetFacts | null;
 		readonly keyedCaseIdPrefixes: ReadonlyMap<Uuid, string>;
 	},
-): Buffer {
+) {
 	if (prepared.mode !== "ccz") {
 		throw new Error(
 			`A local archive is built from a document the export boundary prepared for one (mode "ccz"), which embeds its lookup data; this one was prepared for "${prepared.mode}".`,
 		);
 	}
 	const { doc, assets, attachmentTarget, compiledAtSeq } = prepared;
+	const profileIssue =
+		installationDownloadIssue(
+			doc,
+			deployment.installationProfileUuid,
+			identity,
+		) ??
+		installationArchiveIssue(
+			doc,
+			deployment.installationProfileUuid,
+			resolvedLanguageEnglishName,
+		);
+	if (profileIssue) throw new Error(profileIssue);
 	const hqJson = expandDoc(doc, {
+		installationProfileUuid: deployment.installationProfileUuid,
 		runtimeTarget,
 		identity,
 		assets,
@@ -74,15 +96,53 @@ export function compileLocalArchive(
 		}),
 		keyedCaseIdPrefixes: deployment.keyedCaseIdPrefixes,
 	});
-	return compileCcz(hqJson, doc.appName, doc, {
-		runtimeTarget,
-		identity,
-		assets,
-		compiledAtSeq,
-		earlierHqApps: deployment.earlierHqApps,
-		emptyCaseListText: deployment.emptyCaseListText,
-		adopted: deployment.adopted,
-		targetFacts: deployment.targetFacts,
-		...(prepared.lookupWire !== undefined && { lookup: prepared.lookupWire }),
+	return {
+		hqJson,
+		doc,
+		options: {
+			installationProfileUuid: deployment.installationProfileUuid,
+			runtimeTarget,
+			identity,
+			assets,
+			compiledAtSeq,
+			earlierHqApps: deployment.earlierHqApps,
+			emptyCaseListText: deployment.emptyCaseListText,
+			adopted: deployment.adopted,
+			targetFacts: deployment.targetFacts,
+			...(prepared.lookupWire !== undefined && { lookup: prepared.lookupWire }),
+		},
+	};
+}
+
+export function compileLocalArchive(
+	...input: Parameters<typeof localArchiveInput>
+): Buffer {
+	if (input[0].streamedTables?.length)
+		throw new Error("Paged lookup data needs the streaming archive writer.");
+	const { hqJson, doc, options } = localArchiveInput(...input);
+	return compileCcz(hqJson, doc.appName, doc, options);
+}
+
+export function streamLocalArchive(
+	...input: Parameters<typeof localArchiveInput>
+) {
+	const { hqJson, doc, options } = localArchiveInput(...input);
+	const { lookup, ...rest } = options;
+	const parts = compileCczParts(hqJson, doc.appName, doc, {
+		...rest,
+		streamMedia: true,
+		lookupNaming: lookup?.naming,
+		lookupFixtures: lookup?.fixtures,
 	});
+	return streamZip([
+		...Object.entries(parts.files).map(([path, text]) =>
+			path === "suite.xml" && input[0].streamedTables?.length
+				? suiteWithStreamedRows(text, input[0].streamedTables)
+				: textMember(path, text),
+		),
+		...Object.entries(parts.tables).map(([dir, table]) =>
+			textMember(appStringsMemberPath(dir), localeFileText(table)),
+		),
+		...mediaMembers(options.assets),
+	]);
 }

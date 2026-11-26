@@ -37,7 +37,11 @@ import {
 } from "./formLinkEvaluation";
 import { previewSessionValues } from "./identity";
 import { previewLookupData } from "./lookupEvaluation";
-import { resolvePreviousTask, selectionsForModuleTask } from "./previousTask";
+import {
+	resolvePreviousTask,
+	selectionsForModuleTask,
+	selectionsForStaticModuleTask,
+} from "./previousTask";
 
 /** One frame the submission pushes, routed when it is pushed: where it
  *  goes, the menu selections its steps install, and the several-case
@@ -109,12 +113,14 @@ export async function evaluatePostSubmissionSnapshot(
 	 * the form read, created cases included. */
 	const entry = entrySessionData(doc, args.formUuid, {
 		appId: context.session?.appId,
+		lookupData: previewLookupData(context.lookup),
 		entryKey: args.mutation.entryKey,
 		boundCases:
 			"caseIds" in args.mutation
 				? args.mutation.caseIds.map((caseId) => ({ caseId }))
 				: [],
 		menuSelections: args.selections,
+		...(context.searches === undefined ? {} : { searches: context.searches }),
 		...(context.searchResults === undefined
 			? {}
 			: { searchResults: context.searchResults }),
@@ -134,6 +140,7 @@ export async function evaluatePostSubmissionSnapshot(
 		),
 		caseDatabase: context.cases,
 		lookupData: previewLookupData(context.lookup),
+		...(entry.searches === undefined ? {} : { searches: entry.searches }),
 		...(entry.searchResults === undefined
 			? {}
 			: { searchResults: entry.searchResults }),
@@ -213,6 +220,7 @@ export async function evaluatePostSubmissionSnapshot(
 			const route = afterSubmitRoute({
 				previousTask: () =>
 					resolvePreviousTask({
+						platform: context.device.platform,
 						doc,
 						formUuid: args.formUuid,
 						submittedCaseIds: ids,
@@ -295,7 +303,15 @@ export async function evaluatePostSubmissionSnapshot(
 				selections:
 					moduleDestination === undefined
 						? selections
-						: selectionsForModuleTask(doc, moduleDestination, selections),
+						: route.kind === "post-submit"
+							? selectionsForStaticModuleTask(
+									doc,
+									moduleDestination,
+									selections,
+									input.sessionDatums,
+									context.cases,
+								)
+							: selectionsForModuleTask(doc, moduleDestination, selections),
 				collection,
 			});
 		}

@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { isCaptureFieldKind } from "@/lib/domain/fields";
 import { menuScreenOf, screenChoosesCaseFirst } from "@/lib/domain/menuScreens";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -36,8 +37,9 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { visitSyntax } from "../../xpath/formSyntax";
+import { declaredInstance, instanceForRead } from "../../xpath/instanceSources";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
 import { sameJson } from "../jsonCursor";
@@ -59,6 +61,58 @@ export type SlotName = SlotContextRef["slot"];
  * for INERT, `refuse` for HELD-NEW and REFUSED.
  */
 export const EXPRESSION_CLAIMS = defineClaims("expressions", {
+	"case-list-action-condition": take(
+		"menus-and-case-lists/case-list-form-relevancy-expression-with-followup-forms-as-case",
+		"schema:CaseListForm.relevancy_expression",
+	),
+	"navigation-condition-outside-typed-worker-context": refuse(
+		"menus-and-case-lists/navigation-condition-outside-typed-worker-context",
+		"schema:Module.module_filter",
+	),
+	"form-badge": take(
+		"forms-and-case-writes/custom-icons-0",
+		"schema:CustomIcon.xpath",
+	),
+	"module-badge": take(
+		"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+		"schema:CustomIcon.xpath",
+	),
+	"badge-calculation-outside-typed-values": refuse(
+		"menus-and-case-lists/badge-calculation-outside-typed-values",
+		"schema:CustomIcon.xpath",
+	),
+	"default-properties-entry-keyed-by-a-plain-property-property-p": take(
+		"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"default-properties-entry-keyed-by-an-ancestor-path-parent-p": take(
+		"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"default-properties-entry-keyed-owner-id-case-id-commcare-project": take(
+		"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"blacklisted-owner-ids-expression-without-that-clause": take(
+		"case-search/blacklisted-owner-ids-expression-without-that-clause",
+		"schema:CaseSearch.blacklisted_owner_ids_expression",
+	),
+	"default-properties-entry-keyed-commcare-blacklisted-owner-ids": take(
+		"case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"native-filter-value-outside-screen-scope": refuse(
+		"case-search/native-filter-value-outside-screen-scope",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"entry-calculated-value": take(
+		"forms-and-case-writes/arbitrary-datums-datum-id-datum-function",
+		"schema:ArbitraryDatum.datum_function",
+	),
+	"entry-selected-by-expression": take(
+		"forms-and-case-writes/auto-select-mode-raw-value-key",
+		"schema:AutoSelectCase.value_key",
+	),
 	"search-button-display-condition-lifting-into-predicate": take(
 		"case-search/search-button-display-condition-lifting-into-predicate",
 		"schema:CaseSearch.search_button_display_condition",
@@ -82,6 +136,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"itemset-nodeset-filter-predicate-outside-predicate": refuse(
 		"case-search/itemset-nodeset-filter-predicate-outside-predicate",
 		"schema:Itemset.nodeset",
+	),
+	"default-value-on-a-date-range-input": take(
+		"case-search/default-value-on-a-date-range-input",
+		"schema:CaseSearchProperty.default_value",
 	),
 	"default-value-lifting-into-valueexpression": take(
 		"case-search/default-value-lifting-into-valueexpression",
@@ -242,17 +300,17 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"csql-metadata:@case_type",
 	),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:date_opened":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:date_opened",
 		),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:closed_on":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:closed_on",
 		),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:last_modified":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:last_modified",
 		),
@@ -462,8 +520,8 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"case-search/several-xpath-query-rows",
 		"csql-key:_xpath_query",
 	),
-	"xpath-query-condition-outside-what-nova-types": refuse(
-		"case-search/xpath-query-condition-outside-what-nova-types",
+	"xpath-query-condition-nova-s-checker-refuses": refuse(
+		"case-search/xpath-query-condition-nova-s-checker-refuses",
 		"csql-key:_xpath_query",
 	),
 	"casedb-jr-instance-casedb": take(
@@ -486,13 +544,17 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
 		"session-path:session/data/*",
 	),
-	"session-data-supply-point-id-in-an-advanced-form-whose-computed": refuse(
+	"session-data-supply-point-id-in-an-advanced-form-whose-computed": take(
 		"expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed",
 		"session-path:session/data/*",
 	),
 	"session-data-stringquery": take(
 		"expressions-and-data/session-data-stringquery",
 		"session-path:session/data/stringquery",
+	),
+	"companion-lookup-count": take(
+		"expressions-and-data/companion-lookup-count",
+		"session-path:session/data/fingerprintquery",
 	),
 	"session-data-fingerprintquery": refuse(
 		"expressions-and-data/session-data-fingerprintquery",
@@ -548,7 +610,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/item-list-tag-read-in-any-other-expression",
 		"instance-scheme:item-list",
 	),
-	"groups-jr-fixture-user-groups": refuse(
+	"groups-jr-fixture-user-groups": take(
 		"expressions-and-data/groups-jr-fixture-user-groups",
 		"instance-scheme:groups",
 	),
@@ -621,7 +683,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"instance-scheme:search-input",
 	),
 	"search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu":
-		refuse(
+		take(
 			"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
 			"instance-scheme:search-input",
 		),
@@ -1203,7 +1265,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"forms-and-case-writes/form-filter-lifting-into-predicate-a-direct-own-case-property-in",
 		"schema:Form.form_filter",
 	),
-	"form-filter-outside-predicate-parent-host-user-usercase-reads": refuse(
+	"form-filter-outside-predicate-parent-host-user-usercase-reads": take(
 		"forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads",
 		"schema:Form.form_filter",
 	),
@@ -1256,7 +1318,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
 		"schema:Form.actions",
 	),
-	"user-prop-in-module-filter-form-filter-case-list-slots-the": refuse(
+	"user-prop-in-module-filter-form-filter-case-list-slots-the": take(
 		"forms-and-case-writes/user-prop-in-module-filter-form-filter-case-list-slots-the",
 		"schema:Form.form_filter",
 	),
@@ -1272,7 +1334,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"menus-and-case-lists/form-filter-false-or-false-and-rest-form-reached-only-by-links",
 		"schema:Form.form_filter",
 	),
-	"module-filter-value-outside-predicate-any-xpath-hq-s-validator": refuse(
+	"module-filter-value-outside-predicate-any-xpath-hq-s-validator": take(
 		"menus-and-case-lists/module-filter-value-outside-predicate-any-xpath-hq-s-validator",
 		"parser:MenuParser/menu@relevant",
 	),
@@ -1283,6 +1345,38 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"module-filter-failing-hq-s-validate-xpath": refuse(
 		"menus-and-case-lists/module-filter-failing-hq-s-validate-xpath",
 		"parser:MenuParser/menu@relevant",
+	),
+	"form-context-value": take(
+		"menus-and-case-lists/detail-persist-case-context-persistent-case-context-xml",
+		"schema:Detail.persistent_case_context_xml",
+	),
+	"form-context-value-outside": refuse(
+		"menus-and-case-lists/form-context-expression-outside-its-case-scope",
+		"schema:Detail.persistent_case_context_xml",
+	),
+	"tab-child-filter": take(
+		"menus-and-case-lists/data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset",
+		"schema:DetailTab.nodeset_filter",
+	),
+	"tab-custom-rows": take(
+		"menus-and-case-lists/data-tab-over-a-custom-nodeset-xpath",
+		"schema:DetailTab.nodeset",
+	),
+	"tab-child-filter-outside": refuse(
+		"menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+		"schema:DetailTab.nodeset_filter",
+	),
+	"tab-custom-rows-outside": refuse(
+		"menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+		"schema:DetailTab.nodeset",
+	),
+	"tab-condition": take(
+		"menus-and-case-lists/tab-relevant-lifts-into-predicate-not",
+		"schema:DetailTab.relevant",
+	),
+	"tab-condition-outside-scope": refuse(
+		"menus-and-case-lists/tab-display-condition-outside-its-case-scope",
+		"schema:DetailTab.relevant",
 	),
 	"detail-filter-value-lifts-into-predicate": take(
 		"menus-and-case-lists/detail-filter-value-lifts-into-predicate",
@@ -1295,6 +1389,26 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"detail-filter-failing-etree-xpath-dummy-filter": refuse(
 		"menus-and-case-lists/detail-filter-failing-etree-xpath-dummy-filter",
 		"schema:Detail.filter",
+	),
+	"mapping-label-condition": take(
+		"menus-and-case-lists/20-conditional-enum",
+		"schema:MappingItem.key",
+	),
+	"mapping-image-condition": take(
+		"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot",
+		"schema:MappingItem.key",
+	),
+	"mapping-condition-untyped": refuse(
+		"menus-and-case-lists/mapping-condition-outside-predicate",
+		"schema:MappingItem.key",
+	),
+	"calculated-order": take(
+		"menus-and-case-lists/sort-calculation-authored-calculation-row-field",
+		"schema:SortElement.sort_calculation",
+	),
+	"calculated-order-untyped": refuse(
+		"menus-and-case-lists/sort-calculation-without-a-typed-value",
+		"schema:SortElement.sort_calculation",
 	),
 	"usexpathexpression-field-xpath-lifting-into-valueexpression": take(
 		"menus-and-case-lists/usexpathexpression-field-xpath-lifting-into-valueexpression",
@@ -1348,6 +1462,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"mug:SaveToCase",
 	),
+	"savetocase-case-id-expression-on-a-create": take(
+		"questions/savetocase-case-id-expression-on-a-create",
+		"xform:setvalue@value",
+	),
 	"savetocase-update-case-id-xpath": take(
 		"questions/savetocase-update-case-id-xpath",
 		"mug:SaveToCase",
@@ -1359,6 +1477,22 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"savetocase-expressions-outside-nova-s-typed-vocabularies-case-id": refuse(
 		"questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id",
 		"mug:SaveToCase",
+	),
+	"a-close-only-savetocase-block-with-a-close-condition": take(
+		"questions/a-close-only-savetocase-block-with-a-close-condition",
+		"xform:model/bind@relevant",
+	),
+	"a-savetocase-block-that-creates-or-updates-and-also-closes-under": take(
+		"questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under",
+		"xform:model/bind@relevant",
+	),
+	"savetocase-owner-id-condition": take(
+		"questions/savetocase-owner-id-condition",
+		"xform:model/bind@relevant",
+	),
+	"savetocase-targeted-update-owner-condition": take(
+		"questions/savetocase-targeted-update-owner-condition",
+		"xform:model/bind@relevant",
 	),
 	"savetocase-open-case-condition": take(
 		"questions/savetocase-open-case-condition",
@@ -1389,6 +1523,22 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"bind-required-expr": take(
 		"questions/bind-required-expr",
 		"xform:model/bind@required",
+	),
+	"label-required": take(
+		"questions/bind-required-on-a-label",
+		"xform:model/bind@required",
+	),
+	"attachment-constraint": take(
+		"questions/bind-constraint-on-a-capture-question-or-a-label",
+		"xform:model/bind@constraint",
+	),
+	"attachment-default": take(
+		"questions/default-on-a-capture-question-or-a-label",
+		"xform:setvalue@value",
+	),
+	"capture-default-not-blank": refuse(
+		"questions/default-other-than-blank-on-a-capture-question",
+		"xform:setvalue@value",
 	),
 	"bind-constraint": take(
 		"questions/bind-constraint",
@@ -1435,12 +1585,9 @@ const M3 = C["a-form-expression-outside-what-nova-types"].entry;
 const M5 = C["required-or-validation-test-reading-the-case"].entry;
 /** M6: a search test outside what Nova types. */
 const M6 = C["required-or-validation-test-outside-what-nova-types"].entry;
-/** M7: a search filter outside what Nova types. */
-const M7 = C["xpath-query-condition-outside-what-nova-types"].entry;
-/** M8: a child menu's form reading its inline-search parent's Search fields. */
-const M8 =
-	C["search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu"]
-		.entry;
+/** M7: a search filter Nova's checker refuses for a reason no other row names. A comparison HQ's
+ *  search converts is held (`csqlRead.ts::holdsHqConvertedComparison`). */
+const M7 = C["xpath-query-condition-nova-s-checker-refuses"].entry;
 
 // ── By slot ──────────────────────────────────────────────────────────
 
@@ -1465,16 +1612,37 @@ function fixed(held: string | undefined, refused: string): SlotRow {
 function displayCondition(
 	held: string,
 	offTheMenu: string,
-	refused: string,
+	restoredRecords: string,
 ): SlotRow {
 	return {
 		held: (_doc, _ref, bound) =>
 			bound.kind === "match-none" ||
 			(bound.kind === "and" && bound.clauses[0]?.kind === "match-none")
 				? offTheMenu
-				: held,
-		refused: () => refused,
+				: readsNavigationData(bound)
+					? restoredRecords
+					: held,
+		refused: () => C["navigation-condition-outside-typed-worker-context"].entry,
 	};
+}
+function readsNavigationData(bound: Expression): boolean {
+	let found = false;
+	walkExpression(bound, {
+		visitExpression(node) {
+			if (
+				["cases", "table-rows", "project", "table-lookup"].includes(node.kind)
+			)
+				found = true;
+		},
+		visitTerm(term) {
+			if (term.kind === "prop" && term.via && term.via.kind !== "self")
+				found = true;
+		},
+		visitRelation(via) {
+			if (via.kind !== "self") found = true;
+		},
+	});
+	return found;
 }
 /** A form slot: a refusal takes M2 or M3 by its code. */
 function formSlot(held: string | undefined): SlotRow {
@@ -1579,7 +1747,10 @@ const SAVE_TO_CASE_ROWS =
  *  field's own condition, which is a search filter row that
  *  `csqlRead.ts::readSearchFilterRow` reads where the search is settled,
  *  answering its own claim. */
-export type RegisteredSlotName = Exclude<SlotName, "search_input_predicate">;
+export type RegisteredSlotName = Exclude<
+	SlotName,
+	"search_input_predicate" | "case_search_filter"
+>;
 
 /** Each slot's held entry and its refusal's default entry, by slot name. `held` and
  *  `refused` take the document because a row can choose by the slot's owner
@@ -1588,19 +1759,35 @@ export type RegisteredSlotName = Exclude<SlotName, "search_input_predicate">;
  *  `refused` answers `"form-default"` where a refusal takes M2 or M3 by its code. */
 export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	relevant: formSlot(C["bind-relevant"].entry),
-	validate: formSlot(C["bind-constraint"].entry),
-	required: {
-		held: (_doc, _ref, bound) =>
-			bound.kind === "match-all"
-				? C["bind-required-true"].entry
-				: C["bind-required-expr"].entry,
+	validate: {
+		held: (doc, ref) => {
+			const kind =
+				ref.entity === "field" ? doc.fields[ref.uuid]?.kind : undefined;
+			return kind !== undefined &&
+				(kind === "label" || kind === "geopoint" || isCaptureFieldKind(kind))
+				? C["attachment-constraint"].entry
+				: C["bind-constraint"].entry;
+		},
 		refused: () => "form-default",
 	},
+	required: {
+		held: (doc, ref, bound) =>
+			ref.entity === "field" && doc.fields[ref.uuid]?.kind === "label"
+				? C["label-required"].entry
+				: bound.kind === "match-all"
+					? C["bind-required-true"].entry
+					: C["bind-required-expr"].entry,
+		refused: () => "form-default",
+	},
+	android_app_input: formSlot(undefined),
 	calculate: formSlot(C["bind-calculate-on-a-hidden-value"].entry),
 	default_value: {
 		held(doc, ref, bound) {
 			if (readsFormNode(bound))
 				return C["a-default-value-that-reads-form-nodes"].entry;
+			const kind = doc.fields[ref.uuid]?.kind;
+			if (kind !== undefined && (kind === "label" || isCaptureFieldKind(kind)))
+				return C["attachment-default"].entry;
 			return insideRepeat(doc, ref.uuid)
 				? C["setvalue-event-jr-insert-default-inside-a-repeat-not-reading"]
 						.entry
@@ -1618,7 +1805,24 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	hint: PROSE,
 	help: PROSE,
 	validate_msg: PROSE,
+	extended_text: PROSE,
+	extended_hint: PROSE,
+	extended_help: PROSE,
+	extended_validate_msg: PROSE,
+	option_extended_text: PROSE,
+	qr_code: PROSE,
+	spoken_text: PROSE,
+	addFirstLabel: PROSE,
+	addLabel: PROSE,
 	option_label: PROSE,
+	form_badge: fixed(
+		C["form-badge"].entry,
+		C["badge-calculation-outside-typed-values"].entry,
+	),
+	module_badge: fixed(
+		C["module-badge"].entry,
+		C["badge-calculation-outside-typed-values"].entry,
+	),
 	form_display_condition: displayCondition(
 		C["form-filter-lifting-into-predicate-a-direct-own-case-property-in"].entry,
 		C["form-filter-false-or-false-and-rest-form-reached-only-by-links"].entry,
@@ -1626,6 +1830,8 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	),
 	// Part of the case reader's structured actions: no text is registered.
 	form_open_condition: formSlot(undefined),
+	form_entry_value: formSlot(C["entry-calculated-value"].entry),
+	form_selection_source: formSlot(C["entry-selected-by-expression"].entry),
 	// Registered only from a Save to Case block: the own close's condition,
 	// its group's `relevant` or the own arm's close in its block.
 	form_close_condition: fixed(
@@ -1635,6 +1841,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	assessment_user_score: formSlot(C["connect-assessment"].entry),
 	deliver_entity_id: formSlot(C["connect-deliver-unit"].entry),
 	deliver_entity_name: formSlot(C["connect-deliver-unit"].entry),
+	deliver_work_area_id: formSlot(C["connect-deliver-unit"].entry),
 	// A form whose destinations hold two or more conditions, any two of which may hold together:
 	// every destination whose condition holds runs, in author order.
 	form_link_condition: {
@@ -1658,6 +1865,24 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["savetocase-owner"].entry,
 		SAVE_TO_CASE_REFUSED,
 	),
+	case_operation_type_condition: fixed(
+		C["savetocase-create-case-type-literal-case-name-owner-id-uuid-case"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
+	case_operation_owner_condition: {
+		held(doc, ref) {
+			const operation =
+				ref.entity === "form" && ref.slot === "case_operation_owner_condition"
+					? doc.forms[ref.uuid]?.caseOperations?.find(
+							({ uuid }) => uuid === ref.member.operationUuid,
+						)
+					: undefined;
+			return operation?.action === "update"
+				? C["savetocase-targeted-update-owner-condition"].entry
+				: C["savetocase-owner-id-condition"].entry;
+		},
+		refused: () => SAVE_TO_CASE_REFUSED,
+	},
 	case_operation_rename: fixed(SAVE_TO_CASE_ROWS, SAVE_TO_CASE_REFUSED),
 	case_operation_write_value: fixed(SAVE_TO_CASE_ROWS, SAVE_TO_CASE_REFUSED),
 	case_operation_write_condition: fixed(
@@ -1678,10 +1903,35 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		},
 		refused: () => SAVE_TO_CASE_REFUSED,
 	},
-	case_operation_target_expression: fixed(
-		C["savetocase-update-case-id-xpath"].entry,
-		SAVE_TO_CASE_REFUSED,
-	),
+	case_operation_close_condition: {
+		held(doc, ref) {
+			const operation =
+				ref.entity === "form" && ref.slot === "case_operation_close_condition"
+					? doc.forms[ref.uuid]?.caseOperations?.find(
+							({ uuid }) => uuid === ref.member.operationUuid,
+						)
+					: undefined;
+			return operation?.action === "close"
+				? C["a-close-only-savetocase-block-with-a-close-condition"].entry
+				: C["a-savetocase-block-that-creates-or-updates-and-also-closes-under"]
+						.entry;
+		},
+		refused: () => SAVE_TO_CASE_REFUSED,
+	},
+	case_operation_target_expression: {
+		held(doc, ref) {
+			const operation =
+				ref.entity === "form" && ref.slot === "case_operation_target_expression"
+					? doc.forms[ref.uuid]?.caseOperations?.find(
+							({ uuid }) => uuid === ref.member.operationUuid,
+						)
+					: undefined;
+			return operation?.action === "create"
+				? C["savetocase-case-id-expression-on-a-create"].entry
+				: C["savetocase-update-case-id-xpath"].entry;
+		},
+		refused: () => SAVE_TO_CASE_REFUSED,
+	},
 	case_operation_link_target_expression: fixed(
 		C["savetocase-link-index-name-child-extension-and-unlink-empty"].entry,
 		SAVE_TO_CASE_REFUSED,
@@ -1691,18 +1941,56 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["module-filter-false-or-false-and-rest-menu-reached-only-by-links"].entry,
 		C["module-filter-value-outside-predicate-any-xpath-hq-s-validator"].entry,
 	),
+	case_form_context_line: fixed(
+		C["form-context-value"].entry,
+		C["form-context-value-outside"].entry,
+	),
+	case_detail_tab_filter: fixed(
+		C["tab-child-filter"].entry,
+		C["tab-child-filter-outside"].entry,
+	),
+	case_detail_tab_rows: fixed(
+		C["tab-custom-rows"].entry,
+		C["tab-custom-rows-outside"].entry,
+	),
+	case_detail_tab_condition: fixed(
+		C["tab-condition"].entry,
+		C["tab-condition-outside-scope"].entry,
+	),
 	case_list_filter: fixed(
 		C["detail-filter-value-lifts-into-predicate"].entry,
 		C["detail-filter-value-outside-predicate"].entry,
+	),
+	case_list_mapping_condition: {
+		held: (doc, ref) => {
+			if (ref.entity !== "module" || ref.slot !== "case_list_mapping_condition")
+				return undefined;
+			const column = doc.modules[ref.uuid]?.caseListConfig?.columns.find(
+				(c) => c.uuid === ref.member.columnUuid,
+			);
+			return column?.kind === "image-map"
+				? C["mapping-image-condition"].entry
+				: C["mapping-label-condition"].entry;
+		},
+		refused: () => C["mapping-condition-untyped"].entry,
+	},
+	case_list_sort_expression: fixed(
+		C["calculated-order"].entry,
+		C["calculated-order-untyped"].entry,
 	),
 	case_list_column_expression: fixed(
 		C["usexpathexpression-field-xpath-lifting-into-valueexpression"].entry,
 		C["usexpathexpression-field-xpath-outside-valueexpression"].entry,
 	),
+	case_list_action_condition: fixed(
+		C["case-list-action-condition"].entry,
+		"unrecognized",
+	),
 	search_button_display_condition: fixed(
 		C["search-button-display-condition-lifting-into-predicate"].entry,
 		C["search-button-display-condition-outside-predicate"].entry,
 	),
+	project_search_parameter: formSlot("case-search/case-search-endpoint-id"),
 	excluded_owner_ids: fixed(
 		C["blacklisted-owner-ids-expression-lifting-into-valueexpression"].entry,
 		C["blacklisted-owner-ids-expression-outside-valueexpression"].entry,
@@ -1711,10 +1999,59 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["itemset-nodeset-filter-predicate-lifting-into-predicate"].entry,
 		C["itemset-nodeset-filter-predicate-outside-predicate"].entry,
 	),
-	search_input_default: fixed(
-		C["default-value-lifting-into-valueexpression"].entry,
-		C["default-value-outside-valueexpression"].entry,
-	),
+	search_filter_value: {
+		held: (doc, ref) => {
+			if (ref.entity !== "module" || ref.slot !== "search_filter_value")
+				return undefined;
+			const filter = doc.modules[ref.uuid]?.caseListConfig?.searchFilters?.find(
+				(f) => f.uuid === ref.member.filterUuid,
+			);
+			const target = filter && "target" in filter ? filter.target : undefined;
+			if (target === undefined) return undefined;
+			if (target.kind === "excluded-owners")
+				return target.placement === "search-setting"
+					? "case-search/blacklisted-owner-ids-expression-without-that-clause"
+					: "case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids";
+			if (
+				target.kind === "record-name" ||
+				(target.kind === "property" && !target.ancestors)
+			)
+				return "case-search/default-properties-entry-keyed-by-a-plain-property-property-p";
+			if (target.kind === "property")
+				return "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p";
+			return "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project";
+		},
+		refused: (doc, ref) => {
+			if (ref.entity === "module" && ref.slot === "search_filter_value") {
+				const filter = doc.modules[
+					ref.uuid
+				]?.caseListConfig?.searchFilters?.find(
+					(row) => row.uuid === ref.member.filterUuid,
+				);
+				if (
+					filter &&
+					"target" in filter &&
+					filter.target.kind === "excluded-owners" &&
+					filter.target.placement === "search-setting"
+				)
+					return "case-search/blacklisted-owner-ids-expression-outside-valueexpression";
+			}
+			return "case-search/native-filter-value-outside-screen-scope";
+		},
+	},
+	search_input_default: {
+		held(doc, ref) {
+			if (ref.entity === "module" && ref.slot === "search_input_default") {
+				const input = doc.modules[ref.uuid]?.caseListConfig?.searchInputs.find(
+					(candidate) => candidate.uuid === ref.member.searchInputUuid,
+				);
+				if (input?.kind !== "hidden" && input?.type === "date-range")
+					return C["default-value-on-a-date-range-input"].entry;
+			}
+			return C["default-value-lifting-into-valueexpression"].entry;
+		},
+		refused: () => C["default-value-outside-valueexpression"].entry,
+	},
 	search_input_hidden_value: fixed(
 		C["default-value-lifting-into-valueexpression"].entry,
 		C["default-value-outside-valueexpression"].entry,
@@ -1726,7 +2063,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 /** The row of a registration's slot. No reader registers a Search field's own
  *  condition: it is a search filter row, read at the search's settle. */
 export function slotEntries(slot: SlotName): SlotRow {
-	if (slot === "search_input_predicate")
+	if (slot === "search_input_predicate" || slot === "case_search_filter")
 		throw new Error(
 			"A Search field's own condition was registered with the expression stage, but it is a search filter row, which `csqlRead.ts::readSearchFilterRow` reads where the search is settled. Read it there instead of registering it.",
 		);
@@ -1786,37 +2123,7 @@ export function rawTextEntry(
 	};
 }
 
-/** Every node of a syntax tree, pre-order. */
-export function visitSyntax(
-	node: FormSyntax,
-	visit: (node: FormSyntax) => void,
-): void {
-	visit(node);
-	switch (node.kind) {
-		case "group":
-		case "negative":
-		case "axis":
-			visitSyntax(node.value, visit);
-			return;
-		case "child":
-			if (node.left !== undefined) visitSyntax(node.left, visit);
-			visitSyntax(node.step, visit);
-			return;
-		case "filter":
-			visitSyntax(node.base, visit);
-			visitSyntax(node.where, visit);
-			return;
-		case "binary":
-			visitSyntax(node.left, visit);
-			visitSyntax(node.right, visit);
-			return;
-		case "call":
-			for (const arg of node.args) visitSyntax(arg, visit);
-			return;
-		default:
-			return;
-	}
-}
+export { visitSyntax } from "../../xpath/formSyntax";
 
 // ── By parse issue ───────────────────────────────────────────────────
 
@@ -1902,6 +2209,29 @@ function namesIn(node: FormSyntax | undefined): {
  *  form declares it from where it declares one, then by the scheme of its id.
  *  A declared source outside every scheme is the unrecognized-source entry;
  *  an undeclared id outside every scheme the undeclared-id entry. */
+/** The entry an instance id no scheme names, declared by no source, reads under. */
+const UNKNOWN_SCHEME_INSTANCE =
+	C[
+		"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
+	].entry;
+
+/** The REFUSED class of a case detail's or a form context's expression that cannot be bound to
+ *  the selected case, by its slot; undefined for any other slot. */
+function caseScopedSlotEntry(slot: string): string | undefined {
+	switch (slot) {
+		case "case_detail_tab_condition":
+			return C["tab-condition-outside-scope"].entry;
+		case "case_detail_tab_rows":
+			return C["tab-custom-rows-outside"].entry;
+		case "case_detail_tab_filter":
+			return C["tab-child-filter-outside"].entry;
+		case "case_form_context_line":
+			return C["form-context-value-outside"].entry;
+		default:
+			return undefined;
+	}
+}
+
 function instanceEntry(
 	id: string | undefined,
 	sources: ReadonlyMap<string, string> | undefined,
@@ -1913,14 +2243,12 @@ function instanceEntry(
 			C["declared-and-referenced-instance-with-an-unrecognized-src"].entry
 		);
 	return (
-		schemeEntry(id) ??
+		(sources === undefined ? schemeEntry(id) : undefined) ??
 		C[
 			"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
 		].entry
 	);
 }
-
-const TABLE_ID = "item-list:";
 
 /** The tag of the table an `instance-unknown` issue's read names: by the
  *  source the slot's form declares for the id read
@@ -1936,11 +2264,11 @@ export function tableReadTag(
 	if (issue.code !== "instance-unknown") return undefined;
 	const id = namesIn(spannedSyntax(pending, issue)).strings[0];
 	if (id === undefined) return undefined;
-	const src = form.instanceSources.get(id);
-	const read = src === undefined ? id : canonicalInstanceId(src);
-	return read?.startsWith(TABLE_ID) && read.length > TABLE_ID.length
-		? read.slice(TABLE_ID.length)
-		: undefined;
+	const source = instanceForRead(
+		id,
+		pending.mode.target === "xform" ? form.instanceSources : undefined,
+	);
+	return source?.kind === "table" ? source.tag : undefined;
 }
 
 /** The id a declared source names an instance by, as CommCare HQ's build
@@ -1949,12 +2277,30 @@ export function tableReadTag(
  *  `jr://instance/remote/<id>`, `ledgerdb` for the ledger's source, and the
  *  legacy `search-input` for `jr://instance/search-input`. */
 function sourceSchemeId(src: string): string | undefined {
-	if (src === "jr://instance/ledgerdb") return "ledgerdb";
-	if (src === LEGACY_SEARCH_INPUT_SOURCE) return "search-input";
-	for (const prefix of ["jr://fixture/", "jr://instance/remote/"])
-		if (src.startsWith(prefix) && src.length > prefix.length)
-			return src.slice(prefix.length);
-	return undefined;
+	const bound = declaredInstance(src);
+	switch (bound?.kind) {
+		case "table":
+			return `item-list:${bound.tag}`;
+		case "selected":
+			return "selected_cases";
+		case "native":
+			return bound.id;
+		default:
+			return undefined;
+	}
+}
+
+/** The identity for the account of a form's declared source, including
+ * runtime data whose read the app model cannot yet hold. HQ's locations
+ * factory historically produces the same tree as the commtrack factory. */
+export function classifiedInstanceId(
+	id: string,
+	src: string | undefined,
+): string | undefined {
+	if (src === undefined) return id;
+	if (id === "locations" && src === "jr://fixture/commtrack:locations")
+		return id;
+	return sourceSchemeId(src);
 }
 
 /** The entry an instance id's scheme claims, the text before its first colon;
@@ -1999,8 +2345,7 @@ function schemeEntry(id: string | undefined): string | undefined {
 	}
 }
 
-/** The source HQ's build declares the legacy `search-input` instance from. */
-const LEGACY_SEARCH_INPUT_SOURCE = "jr://instance/search-input";
+/** A read of the legacy search input after the search has ended. */
 const LEGACY_SEARCH_INPUT =
 	C["legacy-search-input-read-after-the-query-in-the-results-detail"].entry;
 
@@ -2207,7 +2552,13 @@ export function parseIssueEntry(
 				return answer(
 					C["detail-filter-failing-etree-xpath-dummy-filter"].entry,
 				);
-			return answer("unrecognized");
+			// A rule's key that is no expression is no condition a case meets
+			// (`proof/checks/manifest_value_classes.py::mapping_condition_outside_predicate`).
+			if (ref.slot === "case_list_mapping_condition")
+				return answer(C["mapping-condition-untyped"].entry);
+			// So is a case detail's or a form context's expression: no condition, rows or
+			// value of the selected case (`manifest_value_classes.py::_scoped_verdict`).
+			return answer(caseScopedSlotEntry(ref.slot) ?? "unrecognized");
 		case "unknown-hashtag":
 			return bindAscii
 				? answer(C["an-invalid-xpath-in-a-bind-attribute"].entry)
@@ -2261,8 +2612,13 @@ export function parseIssueEntry(
 							.entry,
 					)
 				: answer("slot-default");
-		case "groups-held":
-			return answer(C["groups-jr-fixture-user-groups"].entry);
+		case "search-answer-unloaded":
+			return ref.entity === "form" || ref.entity === "field"
+				? answer(
+						C["search-input-read-in-form-expressions-reached-through-a-search"]
+							.entry,
+					)
+				: answer("slot-default");
 		case "search-results-remote":
 			// A form opened after a search that is not inline finds no results;
 			// any other slot that reads them is a setting Nova's record rule
@@ -2280,9 +2636,7 @@ export function parseIssueEntry(
 			if (names.includes("supply_point_id"))
 				return answer(
 					form.computedDatums.has("supply_point_id")
-						? C[
-								"session-data-supply-point-id-in-an-advanced-form-whose-computed"
-							].entry
+						? M1
 						: C[
 								"session-data-supply-point-id-anywhere-except-in-an-advanced-form"
 							].entry,
@@ -2302,13 +2656,20 @@ export function parseIssueEntry(
 		case "instance-unknown": {
 			const { strings } = namesIn(spanned());
 			const entry = instanceEntry(strings[0], form.instanceSources);
+			// An instance no scheme names, read by a case detail's or a form context's
+			// expression, leaves it unbound to the selected case: the slot's own class, whose
+			// entry names an unresolved instance among its causes.
+			const scoped = caseScopedSlotEntry(ref.slot);
+			if (scoped !== undefined && entry === UNKNOWN_SCHEME_INSTANCE)
+				return answer(scoped);
 			// A Search field's own slots run while the query is built, where
 			// the legacy id reads: Nova holds no such read, for a reason of its
 			// own.
 			const queryBuild =
 				ref.entity === "module" &&
 				(ref.slot.startsWith("search_input_") ||
-					ref.slot === "excluded_owner_ids");
+					ref.slot === "excluded_owner_ids" ||
+					ref.slot === "project_search_parameter");
 			return entry === LEGACY_SEARCH_INPUT && queryBuild
 				? answer("slot-default")
 				: answer(entry);
@@ -2353,20 +2714,8 @@ export function parseIssueEntry(
 		case "relative-no-context":
 		case "instance-argument":
 		case "search-results-unexcluded":
+		case "unknown-search-input":
 			return answer("slot-default");
-		case "unknown-search-input": {
-			// A child menu's form reads no Search field of its own menu; where
-			// its parent's forms read the search, the read is its parent's.
-			const owner =
-				ref.entity === "form"
-					? ref.uuid
-					: ref.entity === "field"
-						? formOfField(doc, ref.uuid)
-						: undefined;
-			return owner !== undefined && childOfInlineSearchMenu(doc, owner)
-				? answer(M8)
-				: answer("slot-default");
-		}
 		default: {
 			const exhaustive: never = issue;
 			throw new Error(
@@ -2411,21 +2760,6 @@ function sessionUserDataName(
 	return term?.kind === "session-user" && term.source !== "worker-record"
 		? term.field
 		: undefined;
-}
-
-/** The worker-record leaf a node is or ends at. */
-function workerRecordLeaf(node: Expression | Term | undefined): boolean {
-	const term =
-		node === undefined
-			? undefined
-			: "term" in node && node.kind === "term"
-				? node.term
-				: (node as Term);
-	return (
-		term !== undefined &&
-		(term.kind === "session-user" || term.kind === "session-user-property") &&
-		term.source === "worker-record"
-	);
 }
 
 /** The untyped relation identifier a refused `project` reads through, where
@@ -2508,6 +2842,13 @@ export function childOfInlineSearchMenu(
 	);
 }
 
+/** What a checker error is about: the slot, and whether the text is a search
+ *  filter row, which `csqlRead.ts` reads as CSQL, rather than a registration. */
+export interface CheckedText {
+	readonly ref: SlotContextRef;
+	readonly searchRow?: true;
+}
+
 const SYSTEM_DATES: ReadonlySet<string> = new Set([
 	"date_opened",
 	"closed_on",
@@ -2550,13 +2891,6 @@ function comparesSystemDate(
 	return found;
 }
 
-/** What a checker error is about: the slot, and whether the text is a search
- *  filter row, which `csqlRead.ts` reads as CSQL, rather than a registration. */
-export interface CheckedText {
-	readonly ref: SlotContextRef;
-	readonly searchRow?: true;
-}
-
 /** "By checker code", before the slot's default: the entry, or
  *  `"slot-default"`, with the `detail.reason`. `candidate` is the tree the
  *  error is about; without it the slot's stored tree is read. */
@@ -2588,6 +2922,8 @@ export function checkErrorEntry(
 				"a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes"
 			].entry,
 		);
+	if (error.code === "capture-default-not-blank")
+		return answer(C["capture-default-not-blank"].entry);
 	if (error.code === "time-ordering")
 		return answer(
 			C[
@@ -2602,18 +2938,6 @@ export function checkErrorEntry(
 			return answer(C["jr-choice-name-on-a-lookup-itemset-select"].entry);
 	}
 	if (error.code === "search-answer-unavailable") {
-		const form =
-			ref.entity === "form"
-				? ref.uuid
-				: ref.entity === "field"
-					? formOfField(doc, ref.uuid)
-					: undefined;
-		if (
-			error.reason === "not-forms-read-search" &&
-			form !== undefined &&
-			childOfInlineSearchMenu(doc, form)
-		)
-			return answer(M8);
 		return answer(
 			C["search-input-read-in-form-expressions-reached-through-a-search"].entry,
 		);
@@ -2647,11 +2971,6 @@ export function checkErrorEntry(
 			C[
 				"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:date_opened"
 			].entry,
-		);
-	const recordSlot = searchRow || !inFormLogic(ref);
-	if (recordSlot && workerRecordLeaf(node))
-		return answer(
-			C["user-prop-in-module-filter-form-filter-case-list-slots-the"].entry,
 		);
 	if (error.code === "arm-unavailable" && error.reason === "project") {
 		const identifier = untypedRelation(node);
@@ -2725,6 +3044,7 @@ export function formRefusalEntry(code: CheckErrorCode): string {
 		case "expected-value":
 		case "constraint-value":
 		case "default-not-a-choice":
+		case "capture-default-not-blank":
 		case "arm-unavailable":
 		case "search-answer-unavailable":
 		case "search-results-not-supplied":
@@ -2736,6 +3056,7 @@ export function formRefusalEntry(code: CheckErrorCode): string {
 		case "datetime-literal-precision":
 		case "format-date-pattern-not-fixed":
 		case "closed-on-not-on-device":
+		case "location-not-in-search":
 		case "case-type-ordering":
 		case "epoch-fraction-on-device":
 		case "runtime-selected-value-type":

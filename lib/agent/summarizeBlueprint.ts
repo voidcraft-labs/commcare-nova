@@ -1,3 +1,7 @@
+import {
+	detailTabForColumn,
+	detailTabSearchChildType,
+} from "@/lib/domain/detailTabs";
 /**
  * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and
  * emits domain-vocabulary text (`field`, `kind`, `caseWrite`) — no
@@ -15,12 +19,13 @@ import {
 import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
-	CaseTileLayout,
 	Column,
 	Expression,
 	FormLinkTarget,
 	Module,
+	SearchFilterTarget,
 	SearchInputDef,
+	SearchRequestOrder,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -51,6 +56,7 @@ import {
 	userTypesOf,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { ANDROID_APP_NAMES } from "@/lib/domain/requiredAndroidApps";
 import { formCasePlacementReads } from "./authoring/casePlacementWords";
 import {
 	queryRepeatRows,
@@ -161,7 +167,7 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
 	const afterSubmit = afterSubmitLine(doc, formUuid);
 	if (afterSubmit !== undefined) extras.push(afterSubmit);
-	if (form.connect) extras.push("    [Connect enabled]");
+
 	// The conditions print as the form logic `updateForm` accepts, through
 	// the printer, with field names projected from their identities.
 	if (form.type === "registration" && form.openCondition !== undefined)
@@ -211,19 +217,37 @@ function summarizeCaseList(mod: Module): string | undefined {
 	if (
 		config.columns.length === 0 &&
 		config.searchInputs.length === 0 &&
-		config.selection === undefined
+		config.selection === undefined &&
+		!config.calculatedSorts?.length &&
+		config.selection === undefined &&
+		config.searchFilters === undefined &&
+		config.searchCondition === undefined
 	) {
 		return undefined;
 	}
 	const lines: string[] = ["    case_list:"];
+	const context = config.contextAboveForm;
+	if (context) {
+		const source =
+			context.kind === "line"
+				? "one line from the chosen case"
+				: context.kind === "own-tile"
+					? "this Results tile"
+					: `Results tile of menu ${context.moduleUuid}`;
+		lines.push(
+			`      above forms: ${source}${context.kind !== "line" && context.expandDetails ? " with expandable Details" : ""}`,
+		);
+	}
+	if (config.detailTile)
+		lines.push("      Details layout: tile in Web Apps, rows on Android");
 	if (config.selection !== undefined) {
 		lines.push(
-			`      selection: workers choose up to ${config.selection.maximum} ${config.selection.maximum === 1 ? "case" : "cases"} before continuing`,
+			`      selection: ${config.selection.autoSelect ? "automatically chooses up to" : "workers choose up to"} ${config.selection.maximum} ${config.selection.maximum === 1 ? "case" : "cases"} before continuing`,
 		);
 	}
 	if (config.tile !== undefined) {
 		lines.push(
-			`      layout: tile${config.tile.persistOnForms === true ? " (kept on screen once its case is chosen)" : ""}`,
+			`      layout: tile${config.tile.namedSlots ? " with named image and text positions" : ""}${config.tile.persistOnForms === true ? " (kept on screen once its case is chosen)" : ""}`,
 		);
 		// Grouping changes what a placement MEANS — a cell in the header band
 		// is drawn once per group, from the group's first case — so a read
@@ -254,17 +278,33 @@ function summarizeCaseList(mod: Module): string | undefined {
 			// cell the layout does not draw is deliberately silent: telling the
 			// model a field sits at 4,0 when nothing renders there makes it reason
 			// around an obstacle that is not on the grid.
-			lines.push(`        - ${formatColumn(col, tilePlace(col, config.tile))}`);
+			lines.push(
+				`        - ${formatColumn(col, tilePlace(tileCellFor(col, config.tile)))}`,
+			);
 		}
 	}
 	if (details.length > 0) {
 		lines.push("      details:");
 		for (const col of details) {
-			// Details is never a tile — long-detail tiles are out of scope by
-			// contract — so no placement is reported here even when the column
-			// carries one for Results. A column the detail alone holds says so.
+			const tab = detailTabForColumn(config, col.uuid);
+			if (tab?.startColumnUuid === col.uuid) {
+				const row = tab.rowSource;
+				const type = detailTabSearchChildType(tab);
+				const records =
+					row?.kind === "children"
+						? ` (open ${type} children)`
+						: row
+							? ` (records from ${row.rows.kind})`
+							: "";
+				lines.push(
+					`        tab ${tab.title}${records}${tab.displayCondition ? " (shown conditionally)" : ""}`,
+				);
+			}
+			const use = tab?.orderFields?.includes(col.uuid)
+				? " (orders tab rows; hidden)"
+				: "";
 			lines.push(
-				`        - ${formatColumn(col, "")}${columnOnList(col) ? "" : " (not on the list)"}`,
+				`        - ${formatColumn(col, tilePlace(config.detailTile?.cells[col.uuid]))}${columnOnList(col) ? "" : " (not on the list)"}${use}`,
 			);
 		}
 	}
@@ -293,22 +333,48 @@ function summarizeCaseList(mod: Module): string | undefined {
 			lines.push(`        - ${formatColumn(col, "")}`);
 		}
 	}
-	const sortedColumns = orderedColumns(config, "list")
-		.filter((column) => column.sort !== undefined)
-		// Priority decides the order; Results position breaks a tie, which is what
-		// the author sees when two carriers share a priority — so the walk starts
-		// in the Results sequence and leans on `sort` being stable. The order
-		// plan every export and Preview read
-		// (`lib/domain/caseListOrder.ts::caseListOrderPlan`) ties the same way,
-		// and a tied pair the SA reads here has to match what it emits.
-		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
-	if (sortedColumns.length > 0) {
+	// Priority decides the order across column rules and independent
+	// calculations alike. Two column rules may share one (two carriers), and
+	// Results position breaks that tie, which is what the author sees, so the
+	// walk starts in the Results sequence and leans on `sort` being stable. The
+	// order plan every export and Preview read
+	// (`lib/domain/caseListOrder.ts::caseListOrderPlan`) ties the same way, and
+	// a tied pair the SA reads here has to match what it emits.
+	const orderRules = [
+		...orderedColumns(config, "list").flatMap((col) =>
+			col.sort === undefined
+				? []
+				: [
+						{
+							priority: col.sort.priority,
+							line: `${col.uuid}: "${col.header}"`,
+							sort: col.sort,
+							menuPosition: col.sort.menuPosition,
+							name:
+								col.sort.label === undefined ? "" : sortByName(col.sort.label),
+						},
+					],
+		),
+		...(config.calculatedSorts ?? []).map((rule) => ({
+			priority: rule.priority,
+			line: `${rule.uuid}: ${rule.label === undefined ? "unnamed calculation" : `calculation ${JSON.stringify(rule.label)}`}`,
+			sort: rule,
+			menuPosition: undefined,
+			// A calculation's name is the handle in its line.
+			name: "",
+		})),
+	].sort((a, b) => a.priority - b.priority);
+	if (orderRules.length > 0) {
 		lines.push("      default_order:");
-		for (const col of sortedColumns) {
-			const name =
-				col.sort?.label === undefined ? "" : sortByName(col.sort.label);
+		for (const { line, sort, menuPosition, name } of orderRules) {
+			const comparison = sort.comparator
+				? `, compare as ${sort.comparator}`
+				: "";
+			const blanks = sort.blanks ? `, blanks ${sort.blanks}` : "";
+			const position =
+				menuPosition === undefined ? "" : `, menuPosition ${menuPosition}`;
 			lines.push(
-				`        - ${col.uuid}: "${col.header}" (${col.sort?.direction === "asc" ? "ascending" : "descending"}${name})`,
+				`        - ${line} (${sort.direction === "asc" ? "ascending" : "descending"}${comparison}${blanks}${position}${name})`,
 			);
 		}
 	}
@@ -318,10 +384,75 @@ function summarizeCaseList(mod: Module): string | undefined {
 			lines.push(`        - ${formatSearchInput(input)}`);
 		}
 	}
-	if (config.filter !== undefined) {
-		lines.push(`      filter: (predicate kind: ${config.filter.kind})`);
+	// With no stored search condition the one condition is both surfaces,
+	// and the line stays as every existing app's summary has it.
+	if (config.searchCondition === undefined) {
+		if (config.filter !== undefined)
+			lines.push(`      filter: (predicate kind: ${config.filter.kind})`);
+	} else {
+		if (config.filter !== undefined)
+			lines.push(
+				`      list_filter (device list only): (predicate kind: ${config.filter.kind})`,
+			);
+		lines.push(
+			`      search_condition (online search only): ${
+				config.searchCondition.kind === "match-all"
+					? "all records"
+					: `(predicate kind: ${config.searchCondition.kind})`
+			}`,
+		);
+	}
+	if (config.searchFilters !== undefined) {
+		lines.push("      search_filters:");
+		for (const filter of config.searchFilters)
+			lines.push(
+				`        - ${filter.uuid}: ${
+					"target" in filter
+						? searchFilterTargetText(filter.target)
+						: filter.kind === "order"
+							? `order ${filter.order.map(orderTermText).join(", then ")}`
+							: filter.kind === "request-record-type"
+								? `request records of type ${filter.caseType}`
+								: `follow the record ID in ${filter.property}`
+				}`,
+			);
 	}
 	return lines.join("\n");
+}
+
+/** One term of a search's server order, as the SA reads it. */
+function orderTermText(term: SearchRequestOrder[number]): string {
+	return `${term.property} as ${term.comparison}, ${term.direction}`;
+}
+
+/** What one search filter matches, as the SA reads it. */
+function searchFilterTargetText(target: SearchFilterTarget): string {
+	const through =
+		"ancestors" in target && target.ancestors !== undefined
+			? ` of the ${target.ancestors.map((step) => step.identifier).join("'s ")} case`
+			: "";
+	switch (target.kind) {
+		case "property":
+			return `property ${target.property}${through}`;
+		case "record-id":
+			return "the record's id";
+		case "record-name":
+			return `the record's name${through}`;
+		case "attribute":
+			return `the record's ${target.attribute}${through}`;
+		case "owner":
+			return "the record's owner";
+		case "excluded-owners":
+			return target.placement === "search-setting"
+				? "owners left out of the online matches (search setting)"
+				: "owners left out of the online matches (default filter)";
+		case "project-space":
+			return "the project space";
+		case "include-related-records":
+			return "include related records when the result is nonempty";
+		case "link":
+			return `the record linked as ${target.identifier}`;
+	}
 }
 
 /**
@@ -340,8 +471,7 @@ function summarizeCaseList(mod: Module): string | undefined {
  * A case list with no drawn placements renders byte-identically to before,
  * which keeps every untiled app's prompt prefix cacheable.
  */
-function tilePlace(col: Column, layout: CaseTileLayout | undefined): string {
-	const cell = tileCellFor(col, layout);
+function tilePlace(cell: ReturnType<typeof tileCellFor>): string {
 	return cell === undefined
 		? ""
 		: ` @ ${cell.x},${cell.y} ${cell.width}x${cell.height} ${cell.horizontalAlign} ${cell.verticalAlign} ${cell.fontSize}`;
@@ -372,17 +502,19 @@ function formatColumn(col: Column, place: string): string {
 /**
  * One-line search-input summary — uuid + kind + name + label, then the
  * prompt slots a visible input carries as bare markers, so the SA can see
- * that a hint, a required condition, a check, or lookup choices exist
- * without re-reading the module.
+ * that a hint, a required condition, a check, lookup choices, or a search
+ * for blank exist without re-reading the module.
  */
 function formatSearchInput(input: SearchInputDef): string {
 	if (input.kind === "hidden") {
-		return `${input.uuid}: (hidden) ${input.name} (system value, "${input.label}")`;
+		return `${input.uuid}: (hidden) ${input.name} (${input.value === undefined ? "no value" : "system value"}, "${input.label}")`;
 	}
 	const body =
 		input.kind === "simple"
 			? `(simple) ${input.name} → ${input.property} (${input.type}, "${input.label}")`
-			: `(advanced) ${input.name} (${input.type}, "${input.label}")`;
+			: input.kind === "parameter"
+				? `(project search) ${input.name} (${input.type}, "${input.label}", ${input.sendAnswer ? "sent with the request" : "used by other values"})`
+				: `(advanced) ${input.name} (${input.type}, "${input.label}")`;
 	const markers: string[] = [];
 	if (input.hint !== undefined) markers.push("hint");
 	if (input.required !== undefined) {
@@ -398,6 +530,8 @@ function formatSearchInput(input: SearchInputDef): string {
 				: `lookup choices sorted by column ${input.options.sortColumnId}`,
 		);
 	}
+	if (input.allowBlank === true) markers.push("finds blank");
+	if (input.hidden === true) markers.push("hidden in Web Apps");
 	const suffix = markers.length === 0 ? "" : ` [${markers.join(", ")}]`;
 	return `${input.uuid}: ${body}${suffix}`;
 }
@@ -412,16 +546,20 @@ function formatSearchInput(input: SearchInputDef): string {
  *
  * Output shape:
  *
- *   `case_search: display={titleSet,subtitleSet,…} advanced={excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst>[, forms read it]`
+ *   `case_search: display={titleSet,subtitleSet,…} advanced={requestOrder, excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst|listFirstWithDefaultResults>[, forms read it]`
  *
  * Display cluster summary: comma-separated list of the slot names that
  * are non-undefined; `none` when every slot is cleared. Advanced
- * cluster summary: the excluded-owners filter, or `none`. `workflow=`
+ * cluster summary: the server order and the excluded-owners rule that are
+ * set, or `none`. `workflow=`
  * is what the menu opens on, as `setCaseSearchAdvanced.searchWorkflow`
  * names it, followed by `forms read it` when the menu's forms read the
  * search. The one-liner stays at a fixed width to keep the prompt cheap.
  */
-function summarizeCaseSearch(mod: Module): string | undefined {
+function summarizeCaseSearch(
+	doc: BlueprintDoc,
+	mod: Module,
+): string | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
 	if (isOwnerOnlyCaseSearchConfig(config)) {
@@ -439,12 +577,17 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 		setDisplaySlots.length === 0
 			? "display={none}"
 			: `display={${setDisplaySlots.join(", ")}}`;
-	const advancedSummary =
-		config.excludedOwnerIds === undefined
-			? "advanced={none}"
-			: "advanced={excludedOwnerIds}";
-	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}`;
-	return `    case_search: ${displaySummary} ${advancedSummary} ${workflowSummary}`;
+	const advancedSlots = [
+		...(config.requestOrder !== undefined ? ["requestOrder"] : []),
+		...(config.excludedOwnerIds !== undefined ? ["excludedOwnerIds"] : []),
+	];
+	const advancedSummary = `advanced={${advancedSlots.length === 0 ? "none" : advancedSlots.join(", ")}}`;
+	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}${config.searchOnClear ? ", clearing runs a new search on desktop Web Apps" : ""}`;
+	const service = config.projectSearch;
+	const source = service
+		? ` supplied by ${doc.appSettings.projectSearches?.[service.searchUuid]?.name ?? "project space"} (${service.searchUuid}), named values ${service.defaults.map((row) => row.name + " (" + row.uuid + ")").join(", ") || "none"}`
+		: "";
+	return `    case_search: ${displaySummary} ${advancedSummary} ${workflowSummary}${source}`;
 }
 
 /**
@@ -463,7 +606,7 @@ function summarizeCaseListRegistration(
 	const form = doc.forms[slot.formUuid];
 	const formName = form?.name ?? slot.formUuid;
 	if (slot.kind === "after-empty-search")
-		return `    case list registration: ${formName} ("${slot.label ?? formName}")`;
+		return `    case list registration: ${formName} ("${slot.label ?? formName}")${slot.afterSubmit === "new-case" ? (form?.postSubmit === "firstMenu" ? "; after registering: first menu" : "; after registering: continue with the new case") : ""}`;
 	const formModuleUuid = moduleUuidOfForm(doc, slot.formUuid);
 	const menuName =
 		formModuleUuid === undefined
@@ -476,7 +619,19 @@ function summarizeCaseListRegistration(
 			: returnTo?.kind === "new-case"
 				? "on with the new case"
 				: "back to the list";
-	return `    case list offers "${formName}" (in "${menuName}"); after registering: ${after}`;
+	const target =
+		slot.target?.kind === "created-case"
+			? ` for the record created by ${slot.target.operationUuid}`
+			: slot.target?.kind === "chosen-parent"
+				? ` for the parent selected in "${doc.modules[slot.target.moduleUuid]?.name ?? ""}"`
+				: "";
+	const visibility =
+		slot.showWhen?.kind === "empty-search"
+			? " after an empty search"
+			: slot.showWhen?.kind === "condition"
+				? " when its button condition is met"
+				: "";
+	return `    case list offers "${formName}" (in "${menuName}")${target}${visibility}; after submit: ${after}`;
 }
 
 /** Where a module that shows its forms in the menu above lists them. */
@@ -518,11 +673,11 @@ function summarizeModule(
 		mod.parentModuleUuid === undefined
 			? " [top-level menu]"
 			: ` [child menu of uuid ${mod.parentModuleUuid}]`;
-	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listInMenu}${offTheMenu}${formsInMenuAboveInfo(doc, moduleUuid)}`;
+	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listInMenu}${offTheMenu}${formsInMenuAboveInfo(doc, moduleUuid)}${mod.menuLayout === "grid" ? " (individual grid layout)" : ""}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(indentBlock(caseList, indent));
-	const caseSearch = summarizeCaseSearch(mod);
+	const caseSearch = summarizeCaseSearch(doc, mod);
 	if (caseSearch) sections.push(indentBlock(caseSearch, indent));
 	const registration = summarizeCaseListRegistration(doc, moduleUuid, mod);
 	if (registration) sections.push(indentBlock(registration, indent));
@@ -540,10 +695,21 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	const lines: string[] = [];
 
 	lines.push(`### App: "${doc.appName}"`);
-	if (doc.connectType) lines.push(`Connect type: ${doc.connectType}`);
+	if (doc.connectRoles.length)
+		lines.push(`Connect roles: ${doc.connectRoles.join(", ")}`);
 	lines.push(
+		`Menu layouts: first menu ${doc.appSettings.firstMenuLayout ?? "list"}, other menus ${doc.appSettings.formMenuLayout ?? "list"}`,
+		`Automatic location on Android: ${doc.connectRoles.length > 0 ? "on for all forms through Connect" : doc.appSettings.captureLocation ? "on for all forms" : "chosen by each form"}`,
 		`Form lists: saved forms ${doc.appSettings.showSavedForms ? "on" : "off"}, incomplete forms ${doc.appSettings.showIncompleteForms ? "on" : "off"}`,
 	);
+	if (doc.appSettings.caseSharing === true)
+		lines.push(
+			"Case sharing: on. A new case a form gives the default owner goes to the worker's case-sharing group.",
+		);
+	if (doc.appSettings.requiredAndroidApps?.length)
+		lines.push(
+			`Workers on Android need ${doc.appSettings.requiredAndroidApps.map((app) => ANDROID_APP_NAMES[app]).join(", ")}.`,
+		);
 	lines.push(`Runs on: ${platformDeclarationLabel(declaredPlatforms(doc))}`);
 
 	if (doc.caseTypes?.length) {

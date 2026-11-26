@@ -1,6 +1,7 @@
 // lib/domain/caseScalarTextGuard.ts
 //
-// The questions a form's case names and external ids come from. Core trims
+// The questions a form's case names, external ids and locations come from
+// (and `hq_user_id`, which HQ copies into the external id). Core trims
 // the submitted text and caps it at 255 UTF-16 code units. HQ's SQL case
 // processor keeps the submitted text and caps it at 255 Unicode code points.
 // Nova writes Core's trimmed value into the form submission and requires a
@@ -25,9 +26,19 @@ type GuardDoc = Pick<
 	"forms" | "modules" | "formOrder" | "caseTypes" | "fieldParent" | "refIndex"
 >;
 
-/** A case property Nova trims before submitting it to CommCare. */
+/** A case property Nova trims before submitting it to CommCare: the case's
+ *  name, its external id, its location, and `hq_user_id`, which HQ copies
+ *  into the external id. HQ keeps each of the last three in a 255-character
+ *  column it fills without a length check (`update_strategy.py::
+ *  SqlCaseUpdateStrategy._apply_update_action`), so the form holds them to
+ *  that bound. */
 export function isCaseScalarTextProperty(property: string): boolean {
-	return property === "case_name" || property === "external_id";
+	return (
+		property === "case_name" ||
+		property === "external_id" ||
+		property === "location_id" ||
+		property === "hq_user_id"
+	);
 }
 
 /**
@@ -186,7 +197,22 @@ function deriveFormCaseScalarText(
 			)
 			.map((operation) => operation.uuid),
 	);
-	for (const [fieldUuid, views] of formCaseWriteViews(doc, formUuid)) {
+	const written = [...formCaseWriteViews(doc, formUuid)];
+	// The caller's predicates, answered once per operation into plain sets.
+	const operations = [
+		...new Set(
+			written.flatMap(([, views]) => views.map((view) => view.operationUuid)),
+		),
+	];
+	const placed =
+		placedBasic === undefined
+			? undefined
+			: new Set(operations.filter(placedBasic));
+	const readingSibling =
+		readsSibling === undefined
+			? undefined
+			: new Set(operations.filter(readsSibling));
+	for (const [fieldUuid, views] of written) {
 		for (const view of views) {
 			// Only a basic or an advanced action reads the trimmed sibling. Any
 			// other operation is a Save to Case block, which trims and checks its
@@ -198,11 +224,11 @@ function deriveFormCaseScalarText(
 			// case and a child under it, and an advanced form's open and load
 			// actions carry a case of any destination.
 			if (view.destination === "worker-record") continue;
-			if (placedBasic !== undefined && !placedBasic(view.operationUuid))
-				continue;
+			if (placed !== undefined && !placed.has(view.operationUuid)) continue;
 			if (view.link) continue;
 			if (!isCaseScalarTextProperty(view.property)) continue;
-			if (readsSibling?.(view.operationUuid) ?? true) siblings.add(fieldUuid);
+			if (readingSibling?.has(view.operationUuid) ?? true)
+				siblings.add(fieldUuid);
 			if (view.property === "case_name") {
 				guards.set(fieldUuid, "reject");
 				if (creates.has(view.operationUuid)) createNames.add(fieldUuid);

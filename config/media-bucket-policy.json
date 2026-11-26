@@ -18,6 +18,15 @@
 					"age": 7,
 					"matchesPrefix": ["captures-staged/"]
 				}
+			},
+			{
+				"action": {
+					"type": "Delete"
+				},
+				"condition": {
+					"age": 1,
+					"matchesPrefix": ["private-exports/"]
+				}
 			}
 		]
 	},

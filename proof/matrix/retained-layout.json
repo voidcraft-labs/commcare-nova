@@ -12,17 +12,25 @@
 				"expected.json",
 				"location-types.json",
 				"locations.json",
+				"locations-v1.json",
 				"lookup-tables.json",
 				"media-reads.json",
 				"media.json",
 				"places.json",
 				"practice-workers.json",
+				"project-spaces-case-list-actions.json",
+				"project-searches.json",
 				"project-spaces-flag.json",
 				"project-spaces.json",
 				"seed.json",
+				"source-factories.json",
 				"tables.json"
 			],
-			"patterns": ["fixture-rows-[A-Za-z_][A-Za-z0-9_.-]*\\.json"],
+			"patterns": [
+				"fixture-rows-[A-Za-z_][A-Za-z0-9_.-]*\\.json",
+				"fixture-rows~[0-9a-f]{1,6}(?:-[0-9a-f]{1,6}){0,31}\\.json",
+				"(?:lookup-definition|fixture-detail)-[0-9a-f]{32}\\.json"
+			],
 			"media": {
 				"directory": "media",
 				"name": "(?:0|[1-9][0-9]*)",

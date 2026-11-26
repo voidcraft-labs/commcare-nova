@@ -26,12 +26,15 @@ import {
 	type CompletionResult,
 	completionKeymap,
 	ifNotIn,
+	insertCompletionText,
+	pickedCompletion,
 	snippetCompletion,
 } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import type { NodeType, SyntaxNode } from "@lezer/common";
+import { lookupFixtureId } from "@/lib/commcare/lookup/naming";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
 	caseRefAcceptMap,
@@ -39,6 +42,7 @@ import {
 	caseReferencePrefix,
 	caseReferenceText,
 } from "@/lib/domain";
+import { quoteXPathLiteral } from "@/lib/domain/expression/stringLiteral";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import { USER_PROPERTIES } from "@/lib/references/provider";
 import type {
@@ -179,13 +183,26 @@ function typedHashtagNamespace(text: string): string | undefined {
 // ── Completion sources ─────────────────────────────────────────────────
 
 /** XPath function completions — uses NameTest/FunctionName tree nodes. */
-function functionSource(ctx: CompletionContext): CompletionResult | null {
+function functionSource(
+	ctx: CompletionContext,
+	reads: ExpressionReads | undefined,
+): CompletionResult | null {
+	const options = reads?.openingSupplies?.length
+		? [
+				...functionCompletions,
+				...reads.openingSupplies.map((supply) => ({
+					label: supply.formula,
+					detail: supply.label,
+					type: "variable",
+				})),
+			]
+		: functionCompletions;
 	const node = syntaxTree(ctx.state).resolveInner(ctx.pos, -1);
 	if (is(node, T.NameTest) || is(node, T.FunctionName)) {
-		return { from: node.from, options: functionCompletions };
+		return { from: node.from, options };
 	}
 	// Explicit trigger (Ctrl+Space) at an arbitrary position
-	return ctx.explicit ? { from: ctx.pos, options: functionCompletions } : null;
+	return ctx.explicit ? { from: ctx.pos, options } : null;
 }
 
 /**
@@ -352,7 +369,7 @@ export function hashtagSource(
 }
 
 /** /data/... path completions — uses Child/Descendant + NameTest tree nodes. */
-function dataPathSource(
+export function dataPathSource(
 	getReference: () => FormReferenceContext | undefined,
 ): (ctx: CompletionContext) => CompletionResult | null {
 	return (ctx) => {
@@ -368,10 +385,13 @@ function dataPathSource(
 			left = left.firstChild;
 		const firstNameTest = left.getChild("NameTest");
 		if (!firstNameTest) return null;
-		if (state.doc.sliceString(firstNameTest.from, firstNameTest.to) !== "data")
+		const reference = getReference();
+		if (
+			state.doc.sliceString(firstNameTest.from, firstNameTest.to) !==
+			(reference?.rootName ?? "data")
+		)
 			return null;
 
-		const reference = getReference();
 		// No form paths after the form has closed: same rule as `#form/`.
 		if (!reference || reference.scope === "session") return null;
 
@@ -481,7 +501,8 @@ function isOpenQuote(node: SyntaxNode | null, text: TextOf): boolean {
 /**
  * Where the cursor sits inside a quoted value: the literal itself, or the
  * text after a quote not yet closed. `container` is the node the quoted
- * value is a direct child of.
+ * value is a direct child of; `closed` says whether a closing quote sits
+ * at `to`.
  */
 function quotedValueAt(
 	node: SyntaxNode,
@@ -493,6 +514,7 @@ function quotedValueAt(
 			readonly quote: number;
 			readonly from: number;
 			readonly to: number;
+			readonly closed: boolean;
 	  }
 	| undefined {
 	if (is(node, T.StringLiteral) && node.parent !== null) {
@@ -502,6 +524,7 @@ function quotedValueAt(
 			quote: node.from,
 			from: node.from + 1,
 			to: node.to - 1,
+			closed: true,
 		};
 	}
 	let current: SyntaxNode | null = node;
@@ -514,6 +537,7 @@ function quotedValueAt(
 					quote: child.from,
 					from: child.to,
 					to: pos,
+					closed: false,
 				};
 			child = child.nextSibling;
 		}
@@ -534,7 +558,7 @@ function instanceIds(reads: ExpressionReads): Completion[] {
 		{ label: "casedb", detail: "Cases", type: "namespace" },
 		{ label: "commcaresession", detail: "Session", type: "namespace" },
 		...reads.tables.map((table) => ({
-			label: table.tag,
+			label: table.instanceId,
 			detail: table.name,
 			type: "namespace",
 		})),
@@ -550,24 +574,26 @@ function instanceIds(reads: ExpressionReads): Completion[] {
 						type: "namespace",
 					},
 				]),
-		...(reads.searchResults === undefined
-			? []
-			: [
-					{
-						label: "results:inline",
-						detail: "What the search found",
-						type: "namespace",
-					},
-				]),
-		...(reads.searchInputs === undefined
-			? []
-			: [
-					{
-						label: "search-input:results:inline",
-						detail: "The search answers",
-						type: "namespace",
-					},
-				]),
+		...(reads.searches ?? []).flatMap((search) => [
+			...(search.properties === undefined
+				? []
+				: [
+						{
+							label: search.resultsId,
+							detail: `What ${search.menu} found`,
+							type: "namespace",
+						},
+					]),
+			...(search.inputs === undefined
+				? []
+				: [
+						{
+							label: `search-input:${search.resultsId}`,
+							detail: `Search answers from ${search.menu}`,
+							type: "namespace",
+						},
+					]),
+		]),
 	];
 }
 
@@ -611,9 +637,9 @@ function caseValueName(name: string): string {
 }
 
 /** A search result's values: the row attributes and the searched type's properties. */
-function resultValues(
-	results: NonNullable<ExpressionReads["searchResults"]>,
-): Completion[] {
+function resultValues(results: {
+	readonly properties: readonly NamedRead[];
+}): Completion[] {
 	return [
 		...[...CASE_NODE_ATTRIBUTE_PROPERTIES].map((name) => step(`@${name}`)),
 		...results.properties
@@ -642,6 +668,13 @@ function caseRowValues(
 			step(`index/${relation}`, "Related record"),
 		),
 	];
+}
+
+function tableReadByInstance(reads: ExpressionReads, instance: string) {
+	return reads.tables.find(
+		(table) =>
+			table.instanceId === instance || lookupFixtureId(table.tag) === instance,
+	);
 }
 
 /** The steps an instance offers after the steps already written. */
@@ -688,29 +721,31 @@ function instanceSteps(
 		if (at === "results") return [step("value")];
 		return [];
 	}
-	if (id === "results:inline" && reads.searchResults !== undefined) {
+	const search = reads.searches?.find((search) => search.resultsId === id);
+	if (search?.properties !== undefined) {
 		if (at === "") return [step("results/")];
 		if (at === "results")
 			return [{ ...step(SEARCH_RESULTS_ROW), detail: "What the search found" }];
-		if (at === "results/case") return resultValues(reads.searchResults);
+		if (at === "results/case")
+			return resultValues({ properties: search.properties });
 		return [];
 	}
-	if (
-		id === "search-input:results:inline" &&
-		reads.searchInputs !== undefined
-	) {
+	const prompts = reads.searches?.find(
+		(search) => `search-input:${search.resultsId}` === id,
+	)?.inputs;
+	if (prompts !== undefined) {
 		// Core's shape for a Search answer (`VirtualInstances.java::
 		// buildSearchInputInstance`), the one the parser reads.
 		if (at === "") return [step("input/")];
 		if (at === "input")
-			return reads.searchInputs.map((name) =>
+			return prompts.map((name) =>
 				step(`field[@name = '${name}']`, "Search answer"),
 			);
 		return [];
 	}
-	const tag = id.startsWith("item-list:") ? id.slice("item-list:".length) : id;
-	const table = reads.tables.find((each) => each.tag === tag);
+	const table = tableReadByInstance(reads, id);
 	if (table === undefined) return [];
+	const { tag } = table;
 	if (at === "") return [step(`${tag}_list/`)];
 	if (at === `${tag}_list`) return [step(tag, table.name)];
 	if (at === `${tag}_list/${tag}`)
@@ -798,16 +833,16 @@ function rowPredicateValues(
 		return at === "locations/location" && reads.places !== undefined
 			? placeValues(reads.places, true)
 			: [];
-	if (id === "results:inline")
-		return at === "results/case" && reads.searchResults !== undefined
-			? resultValues(reads.searchResults)
+	const search = reads.searches?.find((search) => search.resultsId === id);
+	if (search)
+		return at === "results/case" && search.properties !== undefined
+			? resultValues({ properties: search.properties })
 			: [];
 	if (id === "casedb")
 		return at === "casedb/case" ? caseRowValues(reads, caseType()) : [];
 	if (id === "commcaresession") return [];
-	const tag = id.startsWith("item-list:") ? id.slice("item-list:".length) : id;
-	const table = reads.tables.find((each) => each.tag === tag);
-	return table !== undefined && at === `${tag}_list/${tag}`
+	const table = tableReadByInstance(reads, id);
+	return table !== undefined && at === `${table.tag}_list/${table.tag}`
 		? table.columns.map((column) => step(column.wireName, column.label))
 		: [];
 }
@@ -849,6 +884,37 @@ function insidePredicate(node: SyntaxNode): boolean {
 	return false;
 }
 
+/**
+ * A static select's choice as a completion inside an open quote. A value
+ * free of that quote mark goes between the quotes as typed; one holding it
+ * replaces the whole literal, quotes included, with the spelling that reads
+ * back as the value: the other quote mark, or a `concat` of pieces when the
+ * value holds both.
+ */
+function choiceCompletion(
+	choice: NamedRead,
+	quoted: NonNullable<ReturnType<typeof quotedValueAt>>,
+	text: TextOf,
+): Completion {
+	const completion: Completion = {
+		label: choice.name,
+		type: "constant",
+		...(choice.label === undefined ? {} : { detail: choice.label }),
+	};
+	if (!choice.name.includes(text(quoted.quote, quoted.quote + 1)))
+		return completion;
+	const literal = quoteXPathLiteral(choice.name);
+	const closing = quoted.closed ? 1 : 0;
+	return {
+		...completion,
+		apply: (view, picked, from, to) =>
+			view.dispatch({
+				...insertCompletionText(view.state, literal, from - 1, to + closing),
+				annotations: pickedCompletion.of(picked),
+			}),
+	};
+}
+
 /** The completions for a quoted value, from what sits opposite it. */
 function quotedOptions(
 	reads: ExpressionReads,
@@ -870,11 +936,9 @@ function quotedOptions(
 	}
 	// A static select's starting value is one of its choices.
 	if (is(container, T.XPath))
-		return (reads.slotChoices ?? []).map((choice) => ({
-			label: choice.name,
-			type: "constant",
-			...(choice.label === undefined ? {} : { detail: choice.label }),
-		}));
+		return (reads.slotChoices ?? []).map((choice) =>
+			choiceCompletion(choice, quoted, text),
+		);
 	if (!is(container, T.EqualsExpr) && !is(container, T.NotEqualsExpr))
 		return [];
 	const left = container.firstChild;
@@ -913,11 +977,9 @@ function quotedOptions(
 		}));
 	// Opposite a static select's answer: its choices.
 	if (insidePredicate(container)) return [];
-	return reads.choicesOpposite(text(other.from, other.to)).map((choice) => ({
-		label: choice.name,
-		type: "constant",
-		...(choice.label === undefined ? {} : { detail: choice.label }),
-	}));
+	return reads
+		.choicesOpposite(text(other.from, other.to))
+		.map((choice) => choiceCompletion(choice, quoted, text));
 }
 
 /**
@@ -1061,7 +1123,7 @@ export function xpathAutocomplete(
 	// quoted text, a quote not yet closed included.
 	const wrappedFunctionSource = ifNotIn(
 		["StringLiteral", "HashtagRef", "Child", "Descendant"],
-		outsideQuotedValue(functionSource),
+		outsideQuotedValue((ctx) => functionSource(ctx, getReads())),
 	);
 	const wrappedHashtagSource = ifNotIn(
 		["StringLiteral"],

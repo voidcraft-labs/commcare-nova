@@ -33,9 +33,12 @@
  * This file reads no reader state: the form, case, menu and list readers call
  * it before any expression is bound.
  */
+
 import type { RuleSet } from "@/lib/domain/expression/profiles";
+import { recordFromEntries } from "@/lib/domain/records";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { chargeWork, rethrowWorkStop } from "../workMeter";
-import type { FormSyntax } from "../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../xpath/formSyntax";
 import { readFormSyntax } from "./syntaxRead";
 
 export interface CompareOptions {
@@ -80,6 +83,25 @@ export function firstDifference(
 	return found;
 }
 
+/** A held form expression whose original worker behavior an import changes,
+ * normalized by the same Core spelling rules the reader already applied.
+ * Token positions are diagnostics, not program identity. */
+export function sourceFormExpression(text: string): string {
+	const syntax = readFormSyntax(text);
+	if (!syntax.ok || !syntax.node)
+		throw new Error("A held form expression has no readable source.");
+	const before = normalized;
+	const node = comparable(syntax.node, { ruleSet: "form" }, "source");
+	chargeWork("compare", normalized - before);
+	return canonicalJsonText(
+		JSON.parse(
+			JSON.stringify(node, (key, value) =>
+				key === "from" || key === "to" ? undefined : value,
+			),
+		),
+	);
+}
+
 /** Nodes `comparable` has normalized, which a comparison charges the work meter by. */
 let normalized = 0;
 
@@ -98,6 +120,28 @@ export function sameXPathText(
 	if (left.node === undefined || right.node === undefined)
 		return left.node === right.node;
 	return sameSyntax(left.node, right.node, options);
+}
+
+/** The identity of a standalone order calculation across an HQ edit. Core's
+ * grammar and the accepted spelling rules keep formatting edits from renaming
+ * the calculation. An unreadable expression retains its own source diagnostic. */
+export function recordSyntaxKey(text: string): string {
+	const parsed = readSyntax(text);
+	if (!parsed?.ok || parsed.node === undefined)
+		return JSON.stringify(["unread", text]);
+	const before = normalized;
+	const node = comparable(parsed.node, RECORD, "source");
+	chargeWork("compare", normalized - before);
+	return JSON.stringify(node, (_key, value) => {
+		if (value && typeof value === "object" && !Array.isArray(value))
+			return recordFromEntries(
+				Object.keys(value)
+					.filter((key) => key !== "from" && key !== "to")
+					.sort()
+					.map((key) => [key, value[key]]),
+			);
+		return value;
+	});
 }
 
 function readSyntax(
@@ -181,17 +225,11 @@ function comparable(
 							name: "selected",
 							args: at.args.map((arg) => normalize(arg, position)),
 						};
-					if (
-						at.name === "instance" &&
-						at.args.length === 1 &&
-						at.args[0].kind === "string" &&
-						options.instanceId !== undefined
-					)
+					const id = literalInstanceId(at);
+					if (id !== undefined && options.instanceId !== undefined)
 						return {
 							...at,
-							args: [
-								{ ...at.args[0], value: options.instanceId(at.args[0].value) },
-							],
+							args: [{ ...id, value: options.instanceId(id.value) }],
 						};
 					if (
 						at.name === "jr:itext" &&

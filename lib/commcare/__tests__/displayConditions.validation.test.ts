@@ -209,6 +209,71 @@ describe("module display-condition validation", () => {
 	});
 });
 
+describe("one value read from a query on a menu", () => {
+	const rows: Expression = { kind: "table-rows", tableId: TABLE, where: [] };
+	const devicePatients: Expression = {
+		kind: "cases",
+		source: "casedb",
+		where: [],
+	};
+	const regionOf = (of: Expression): Expression => ({
+		kind: "project",
+		of,
+		value: tableColumn(TABLE, VALUE),
+	});
+
+	it("refuses a table row's value in a menu condition, and admits the table's count", () => {
+		expect(
+			validateModuleFindings(eq(regionOf(rows), literal("North")))[0]?.message,
+		).toContain("stops the whole menu");
+		expect(validateModule(gt(count(rows), literal(0)))).toEqual([]);
+	});
+
+	it("refuses a device record's value in a form condition once a case is chosen", () => {
+		const statusOf: Expression = {
+			kind: "project",
+			of: devicePatients,
+			value: prop("patient", "status"),
+		};
+		expect(
+			validateFormFindings(eq(statusOf, literal("open")))[0]?.message,
+		).toContain("stops the whole menu");
+		expect(validateForm(gt(count(devicePatients), literal(0)))).toEqual([]);
+	});
+
+	it("refuses a table row's value as a menu badge", () => {
+		const doc = buildDoc({
+			appName: "Display",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [f({ kind: "text", id: "answer" })],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		admitted(doc);
+		doc.modules[moduleUuid].badge = {
+			kind: "calculation",
+			expression: regionOf(rows),
+		};
+		expect(runValidation(doc, lookupContext)[0]?.message).toContain(
+			"stops the whole menu",
+		);
+		doc.modules[moduleUuid].badge = {
+			kind: "calculation",
+			expression: count(rows),
+		};
+		expect(runValidation(doc, lookupContext)).toEqual([]);
+	});
+});
+
 describe("a display condition that spells off the menu", () => {
 	const supervisor = eq(sessionUser("user_type"), literal("supervisor"));
 
@@ -309,16 +374,24 @@ describe("form display-condition validation", () => {
 		).toContain("FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE");
 	});
 
-	it("rejects related reads and counts even in a case-first module", () => {
+	it("admits related reads and counts once the module has chosen the case", () => {
+		const parent = ancestorPath(relationStep("parent", "household"));
+		expect(
+			validateFormFindings(
+				eq(prop("patient", "family_name", parent), literal("Smith")),
+			).map((error) => [error.code, error.message]),
+		).toEqual([]);
+		expect(validateForm(gt(count(selfPath()), literal(0)))).toEqual([]);
+	});
+
+	it("refuses related reads and device queries before a case is chosen", () => {
 		const parent = ancestorPath(relationStep("parent", "household"));
 		expect(
 			validateForm(
-				eq(prop("household", "family_name", parent), literal("Smith")),
+				eq(prop("patient", "family_name", parent), literal("Smith")),
+				"survey",
 			),
 		).toContain("FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE");
-		expect(validateForm(gt(count(selfPath()), literal(0)))).toContain(
-			"FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
-		);
 	});
 
 	it("rejects non-portable on-device operators", () => {

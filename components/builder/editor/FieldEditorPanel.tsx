@@ -18,12 +18,14 @@
 "use client";
 import { fieldEditorSchemas } from "@/components/builder/editor/fieldEditorSchemas";
 import { InspectorSection } from "@/components/builder/inspector/inspectorChrome";
+import { useHasRepeatChild } from "@/lib/doc/hooks/useQuestionChannels";
 import type { Field } from "@/lib/domain";
 import type {
 	FieldEditorContext,
 	FieldEditorEntry,
 	FieldEditorSchema,
 } from "@/lib/domain/kinds";
+import { canOfferDisplaySetting } from "@/lib/domain/questionDisplay";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { FieldEditorSection } from "./FieldEditorSection";
 import { sectionHasContent } from "./partitionEditorEntries";
@@ -64,6 +66,7 @@ interface FieldEditorPanelProps {
 
 export function FieldEditorPanel({ field }: FieldEditorPanelProps) {
 	const schema = schemaFor(field);
+	const hasRepeat = useHasRepeatChild(field.uuid);
 	// Read once here and hand down: every entry predicate that depends on
 	// where the field lives (a followup form in a one-case module) sees the
 	// same module + form the URL selection resolved to.
@@ -90,7 +93,11 @@ export function FieldEditorPanel({ field }: FieldEditorPanelProps) {
 			<Section
 				title="Appearance"
 				section="ui"
-				entries={schema.ui}
+				entries={schema.ui.filter(
+					(entry) =>
+						entry !== undefined &&
+						canOfferDisplaySetting(field, String(entry.key), hasRepeat),
+				)}
 				field={field}
 				context={context}
 			/>

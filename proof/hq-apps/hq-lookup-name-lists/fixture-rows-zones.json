@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"clé\": \"upland\", \"code\": \"upland\", \"code.1\": \"on\", \"région\": \"Upland\", \"zone.name\": \"Upper zone\", \"名前\": \"upper\"}, \"fixture_type\": \"zones\", \"id\": \"d7471feb91ba498d894c94e220b8a995\", \"resource_uri\": \"\"}, {\"fields\": {\"clé\": \"lowland\", \"code\": \"lowland\", \"code.1\": \"off\", \"région\": \"Lowland\", \"zone.name\": \"Lower zone\", \"名前\": \"lower\"}, \"fixture_type\": \"zones\", \"id\": \"52fa61a42af04d7887468971c63f50d0\", \"resource_uri\": \"\"}]}"
+}

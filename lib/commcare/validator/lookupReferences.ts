@@ -8,7 +8,17 @@ import {
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
-import { reservedInstanceTagCause } from "@/lib/lookup/constants";
+import { declaredPlatforms } from "@/lib/domain/platforms";
+import {
+	formBuilderTagCollisionSentence,
+	formBuilderTagSuggestion,
+	hqManagedTagRefusal,
+	reservedInstanceTagCause,
+} from "@/lib/lookup/constants";
+import {
+	lookupPathNameIssue,
+	lookupPathNameSentence,
+} from "@/lib/lookup/pathNames";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
 	type ValidationError,
@@ -159,6 +169,34 @@ export function validateLookupReferences(
 	// result column and its match column); a missing table is one problem
 	// with that read, so it is reported once per carrier slot.
 	const goneReads = new Set<string>();
+	const checkedTags = new Set<string>();
+	const platforms = declaredPlatforms(doc);
+	function checkName(
+		occurrence: LookupReferenceOccurrence,
+		name: string,
+		part: "tag" | "column",
+	): void {
+		const slot = occurrence.registrySlot;
+		const issue = lookupPathNameIssue(name, slot, part, platforms);
+		if (issue === null) return;
+		const readableInWebApps =
+			issue === "unreadable-name" &&
+			lookupPathNameIssue(name, slot, part, ["web-apps"]) === null;
+		errors.push(
+			validationError(
+				"LOOKUP_PATH_NAME_UNAVAILABLE",
+				occurrence.location.scope,
+				lookupPathNameSentence({ name, part, issue, readableInWebApps }),
+				occurrenceLocation(occurrence),
+				occurrenceDetails(occurrence, {
+					name,
+					part,
+					issue,
+					...(readableInWebApps && { readableInWebApps: "yes" }),
+				}),
+			),
+		);
+	}
 
 	for (const occurrence of occurrences) {
 		const table = definitions.get(occurrence.tableId);
@@ -175,7 +213,13 @@ export function validateLookupReferences(
 			}
 			continue;
 		}
-		const reserved = reservedInstanceTagCause(table.tag);
+		// A table CommCare HQ manages is never written by Nova, so a tag that
+		// collides with the form builder's own ids comes in as it is
+		// (`lib/lookup/constants.ts::hqManagedTagRefusal`).
+		const reserved =
+			table.hq?.managedBy === "commcare-hq"
+				? hqManagedTagRefusal(table.tag)
+				: reservedInstanceTagCause(table.tag);
 		if (reserved !== null) {
 			errors.push(
 				validationError(
@@ -183,7 +227,11 @@ export function validateLookupReferences(
 					occurrence.location.scope,
 					reserved.kind === "name"
 						? `The lookup table ${table.name} uses the export tag ${table.tag}, which CommCare reserves for its own data. Rename the export tag in Project data, then try again.`
-						: `The lookup table ${table.name} uses the export tag ${table.tag}, which contains ${reserved.word}, and CommCare reads any tag containing ${reserved.word} as its own data. Rename the export tag in Project data, then try again.`,
+						: reserved.kind === "form-builder"
+							? table.hq?.managedBy === "commcare-hq"
+								? `The lookup table ${table.name}, which CommCare HQ manages, uses the export tag ${table.tag}. ${formBuilderTagCollisionSentence(reserved.collision)} You can choose another table for this setting.`
+								: `The lookup table ${table.name} uses the export tag ${table.tag}, and Nova would put it into CommCare HQ on a publish. ${formBuilderTagCollisionSentence(reserved.collision)} You can rename the export tag in Project data, to ${formBuilderTagSuggestion(table.tag)} for example, then publish again.`
+							: `The lookup table ${table.name} uses the export tag ${table.tag}, which contains ${reserved.word}, and CommCare reads any tag containing ${reserved.word} as its own data. Rename the export tag in Project data, then try again.`,
 					occurrenceLocation(occurrence),
 					occurrenceDetails(occurrence, {
 						tag: table.tag,
@@ -196,6 +244,38 @@ export function validateLookupReferences(
 			);
 			continue;
 		}
+		const tagUse = JSON.stringify([
+			occurrence.carrierUuid,
+			occurrence.registrySlot,
+			table.id,
+		]);
+		if (!checkedTags.has(tagUse)) {
+			checkedTags.add(tagUse);
+			checkName(occurrence, table.tag, "tag");
+		}
+		if (occurrence.memberId !== undefined) {
+			const members =
+				occurrence.columnId === undefined
+					? table.attributes
+					: table.columns.find((column) => column.id === occurrence.columnId)
+							?.properties;
+			const member = members?.find(
+				(candidate) => candidate.id === occurrence.memberId,
+			);
+			if (member === undefined) {
+				errors.push(
+					validationError(
+						"LOOKUP_COLUMN_NOT_AVAILABLE",
+						occurrence.location.scope,
+						"This lookup detail is no longer available in its table. Choose a current detail or change the source.",
+						occurrenceLocation(occurrence),
+						{ ...occurrenceDetails(occurrence), memberId: occurrence.memberId },
+					),
+				);
+				continue;
+			}
+			checkName(occurrence, member.wireName, "column");
+		}
 		if (occurrence.columnId === undefined) continue;
 
 		const column = table.columns.find(
@@ -205,6 +285,8 @@ export function validateLookupReferences(
 			errors.push(columnNotAvailableFinding(occurrence));
 			continue;
 		}
+
+		checkName(occurrence, column.wireName, "column");
 
 		const accepted = occurrence.acceptedColumnTypes;
 		if (

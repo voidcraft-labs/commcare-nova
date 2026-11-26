@@ -38,21 +38,33 @@ import {
 	columnPropertyCaseType,
 	DATE_FORMAT_PRESET_DEFINITIONS,
 	dateColumn,
+	dateCountColumn,
 	effectiveDataType,
+	formattedTextColumn,
 	idMappingColumn,
 	imageMapColumn,
 	intervalColumn,
 	linkColumn,
+	mapLayerColumn,
+	mapLocationColumn,
+	overdueMarkerColumn,
 	phoneColumn,
 	plainColumn,
+	workerDistanceColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
 import { CalculatedColumnCard } from "./cards/column/CalculatedColumnCard";
 import { DateColumnCard } from "./cards/column/DateColumnCard";
+import {
+	DateCountColumnCard,
+	OverdueMarkerColumnCard,
+} from "./cards/column/DateCountColumnCard";
+import { FormattedTextColumnCard } from "./cards/column/FormattedTextColumnCard";
 import { IdMappingCard } from "./cards/column/IdMappingCard";
 import { ImageMapColumnCard } from "./cards/column/ImageMapColumnCard";
 import { IntervalCard } from "./cards/column/IntervalCard";
 import { LinkColumnCard } from "./cards/column/LinkColumnCard";
+import { MapLayerColumnCard } from "./cards/column/MapLayerColumnCard";
 import { PhoneColumnCard } from "./cards/column/PhoneColumnCard";
 import { PlainColumnCard } from "./cards/column/PlainColumnCard";
 import { newUuid } from "./uuid";
@@ -239,6 +251,100 @@ export const columnCardSchemas: {
 		applicableForProperty: applicableFor("date"),
 		applicabilityRequirement: "date or date-and-time information",
 	},
+	"worker-distance": {
+		kind: "worker-distance",
+		label: "Distance from worker",
+		icon: tablerTextSize,
+		description: "Show how far the worker is from this case on Android",
+		component: FormattedTextColumnCard,
+		defaultValue: (ctx) => {
+			const field =
+				pickFirstProperty(ctx, (p) => p.data_type === "geopoint") ??
+				pickFirstAny(ctx);
+			return field === undefined
+				? undefined
+				: workerDistanceColumn(newUuid(), field, "");
+		},
+		applicableForProperty: applicableFor("worker-distance"),
+		applicabilityRequirement: null,
+	},
+	"map-location": {
+		kind: "map-location",
+		label: "Map location",
+		icon: tablerTextSize,
+		description: "Place this case on a map using its saved coordinates",
+		component: FormattedTextColumnCard,
+		defaultValue: (ctx) => {
+			const field =
+				pickFirstProperty(ctx, (p) => p.data_type === "geopoint") ??
+				pickFirstAny(ctx);
+			return field === undefined
+				? undefined
+				: mapLocationColumn(newUuid(), field, "");
+		},
+		applicableForProperty: applicableFor("map-location"),
+		applicabilityRequirement: null,
+	},
+	"map-layer": {
+		kind: "map-layer",
+		label: "Map layer",
+		icon: tablerTextSize,
+		description: "Draw a boundary or additional points around a case",
+		component: MapLayerColumnCard,
+		defaultValue: (ctx) => {
+			const field = pickFirstAny(ctx);
+			return field === undefined
+				? undefined
+				: mapLayerColumn(newUuid(), field, "", "boundary");
+		},
+		applicableForProperty: applicableFor("map-layer"),
+		applicabilityRequirement: null,
+	},
+	"formatted-text": {
+		kind: "formatted-text",
+		label: "Formatted text",
+		icon: tablerTextSize,
+		description: "Show emphasis, lists and links in saved text",
+		component: FormattedTextColumnCard,
+		defaultValue: (ctx) => {
+			const field = pickFirstAny(ctx);
+			return field === undefined
+				? undefined
+				: formattedTextColumn(newUuid(), field, "");
+		},
+		applicableForProperty: applicableFor("formatted-text"),
+		applicabilityRequirement: null,
+	},
+	"overdue-marker": {
+		kind: "overdue-marker",
+		label: "Overdue marker",
+		icon: tablerHourglass,
+		description: "Mark cases with a missing date or a date past its deadline",
+		component: OverdueMarkerColumnCard,
+		defaultValue: (ctx) => {
+			const field = pickFirstDate(ctx);
+			return field === undefined
+				? undefined
+				: overdueMarkerColumn(newUuid(), field, "", 0);
+		},
+		applicableForProperty: applicableFor("overdue-marker"),
+		applicabilityRequirement: "date or date-and-time information",
+	},
+	"date-count": {
+		kind: "date-count",
+		label: "Time since or until",
+		icon: tablerHourglass,
+		description: "Show how long ago a date was or how long until it arrives",
+		component: DateCountColumnCard,
+		defaultValue: (ctx) => {
+			const field = pickFirstDate(ctx);
+			return field === undefined
+				? undefined
+				: dateCountColumn(newUuid(), field, "", "days-since");
+		},
+		applicableForProperty: applicableFor("date-count"),
+		applicabilityRequirement: "date or date-and-time information",
+	},
 	phone: {
 		kind: "phone",
 		label: "Phone number",
@@ -388,12 +494,13 @@ export function resolveColumnProperty(
 	ctx: ColumnEditContext,
 	field: string,
 	via?: ColumnVia,
+	readFrom?: "worker-record",
 ): CaseProperty | undefined {
 	if (field === "") return undefined;
 	// A column read through a relation reads a property of the case its walk
 	// reaches.
 	const caseType = columnPropertyCaseType(
-		{ via },
+		{ via, readFrom },
 		ctx.currentCaseType,
 		ctx.caseTypes,
 	);

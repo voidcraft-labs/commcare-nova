@@ -15,6 +15,7 @@ import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain";
+import { gt, literal } from "@/lib/domain/expression/builders";
 import { createFormTool } from "../createForm";
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
@@ -104,6 +105,53 @@ async function readModule(h: ReturnType<typeof harness>, moduleUuid: string) {
 }
 
 describe("register_from_case_list on update_module", () => {
+	it("offers an eligible form under a saved condition, rejects an empty-search rule without an inline search and clears it explicitly", async () => {
+		const h = harness();
+		// A count of the worker's records reads the casedb the list loads; a read
+		// of the session here would read an instance HQ's build leaves undeclared.
+		const condition = gt(
+			{ kind: "count", via: { kind: "cases", source: "casedb", where: [] } },
+			literal(0),
+		);
+		const offered = await h.runTool(updateModuleTool, {
+			moduleUuid: HOST,
+			register_from_case_list: {
+				formUuid: REGISTER,
+				show_when: { kind: "condition", condition },
+			},
+		});
+		if ("error" in offered.result) throw new Error(offered.result.error);
+		expect((await readModule(h, HOST)).caseListRegistrationForm).toMatchObject({
+			formUuid: REGISTER,
+			showWhen: { kind: "condition", condition },
+		});
+		const refused = await h.runTool(updateModuleTool, {
+			moduleUuid: HOST,
+			register_from_case_list: {
+				formUuid: REGISTER,
+				show_when: { kind: "empty-search" },
+			},
+		});
+		expect(refused.mutations).toEqual([]);
+		expect((await readModule(h, HOST)).caseListRegistrationForm).toMatchObject({
+			showWhen: { kind: "condition", condition },
+		});
+		const cleared = await h.runTool(updateModuleTool, {
+			moduleUuid: HOST,
+			register_from_case_list: {
+				formUuid: REGISTER,
+				show_when: null,
+			},
+		});
+		if ("error" in cleared.result) throw new Error(cleared.result.error);
+		expect((await readModule(h, HOST)).caseListRegistrationForm).toEqual(
+			expect.objectContaining({ formUuid: REGISTER }),
+		);
+		expect(
+			(await readModule(h, HOST)).caseListRegistrationForm,
+		).not.toHaveProperty("showWhen");
+	});
+
 	it("stores the first offer back to the list where after_submit is omitted, and reads it from both ends", async () => {
 		const h = harness();
 		const offered = await h.runTool(updateModuleTool, {

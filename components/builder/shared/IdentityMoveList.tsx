@@ -13,7 +13,14 @@ import type { IdentityMove } from "@/lib/doc/identityMoves";
 import type { IdentityMoveOrigin } from "@/lib/doc/pendingIdentityMove";
 
 /** What the change does to the answers' place, said for how it was made. */
-export function identityMoveLead(origin: IdentityMoveOrigin): string {
+export function identityMoveLead(
+	origin: IdentityMoveOrigin,
+	moves: readonly IdentityMove[] = [],
+): string {
+	if (moves.some((move) => move.subject.kind === "form-selection"))
+		return origin === "conflict"
+			? "A publish just recorded the names your app uses. You can review how this edit changes them."
+			: "You can review how this changes the names and records your published app uses.";
 	/* An edit a publish overtook: the publish recorded the place the edit
 	 * now moves, so the lead says that rather than what the edit does. */
 	if (origin === "conflict")
@@ -64,7 +71,7 @@ export function IdentityMoveReviewNote({
 	return (
 		<section aria-label="Where CommCare HQ keeps these answers">
 			<p className="mb-2 text-[13px] leading-5 text-nova-text-secondary">
-				{identityMoveLead("edit")}
+				{identityMoveLead("edit", moves)}
 			</p>
 			<IdentityMoveList moves={moves} />
 		</section>

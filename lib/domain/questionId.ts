@@ -43,6 +43,13 @@ export interface ReservedNames {
 	readonly exact: ReadonlySet<string>;
 }
 
+/** Bare element names used by the form designer to find its own XML elements. */
+export const FORM_SOURCE_READER_NAMES: ReadonlySet<string> = new Set([
+	"instance",
+	"bind",
+	"parsererror",
+]);
+
 /**
  * The names no question, group, repeat, section or Connect block may take.
  * The pins are kept by the controls `targeted-reserved-node-names` and
@@ -52,8 +59,8 @@ export interface ReservedNames {
  * reviewed change.
  */
 export const RESERVED_QUESTION_IDS: ReservedNames = {
-	anyCase: new Set(["meta", "case", "registration", "script"]),
-	exact: new Set(["instance", "bind", "parsererror"]),
+	anyCase: new Set(["meta", "case"]),
+	exact: FORM_SOURCE_READER_NAMES,
 };
 
 /** The names CommCare Connect's receiver keeps for itself, exact. */
@@ -245,13 +252,16 @@ export function caseOperationIdNameProblem(
 /**
  * Why a link identifier can't be used beyond its format, or `undefined`. A
  * link names an element under the block's `<case>/<index>`, where the form
- * builder also reads `close` and `create` as the block's action.
+ * builder also reads `close` and `create` as actions. A direct action
+ * already present in the same block keeps its implementation on save.
  */
 export function caseOperationLinkNameProblem(
 	identifier: string,
+	hasAction?: (action: FormBuilderCaseAction) => boolean,
 ): CaseOperationNameProblem | undefined {
 	if (stopsFormBuilder(identifier)) return "stops_form_builder";
-	if (formBuilderCaseAction(identifier) !== undefined)
+	const action = formBuilderCaseAction(identifier);
+	if (action !== undefined && !hasAction?.(action))
 		return "reads_as_case_action";
 	return undefined;
 }

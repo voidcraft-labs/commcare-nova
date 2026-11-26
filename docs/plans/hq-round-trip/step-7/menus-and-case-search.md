@@ -147,6 +147,16 @@ argument, collection order, collision on create, stale manifest and failure leav
 
 ## M3. Display conditions and badges
 
+Extend the lookup reader’s source-keyed instance resolution to the complete suite entry that evaluates a
+condition. In HQ’s `suite_xml/post_process/instances.py`, `_get_all_xpaths_for_entry` scans the command,
+reachable details, datums, search request, assertions and stack frames, and selects menu expressions by build
+version. `_get_custom_instances` joins declarations to the command’s owning form. The same local ID may be
+absent in a neighboring entry. Group 1 witnesses a grouped lookup ID with and without a scanner-visible
+sibling in one search request. Carry this pair through a gated Search default, a referenced detail, a
+form’s custom instance and an unrelated command when the shared menu/entry projection can name those owners.
+Retain the exact built suite’s per-entry declarations and both readers’ worker outcomes for the M3 corpus.
+
+
 Reuse the existing typed `Expression`, slot scopes and typed relation/table/property references.
 `Module.displayCondition` has the menu session context. A form condition may read the case only when its actual
 screen already chose it and the HQ build can resolve it on that command. The wider boolean slot admits supported
@@ -711,12 +721,15 @@ two kinds of `outside-predicate`, or request placement versus a device filter.
 | `case-search/search-field-over-a-property-of-another-type` | S3 |
 | `case-search/itemset-nodeset-filter-predicate-outside-predicate` | S3 |
 | `case-search/itemset-without-the-item-list-its-instance-id-names` | S3 |
+| `case-search/itemset-nodeset-other-than-a-table-s-item-list` | S3 |
 | `case-search/default-value-on-a-date-range-input` | S3 |
 | `case-search/default-value-outside-valueexpression` | S3 |
 | `case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no` | S3 |
 | `case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or` | S3 |
 | `case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or` | S3 |
 | `case-search/allow-blank-value` | S3 |
+| `case-search/allow-blank-value-on-a-hidden-prompt` | S3 |
+| `case-search/allow-blank-value-on-a-prompt-named-owner-id` | S3 |
 | `case-search/required-or-validation-test-outside-what-nova-types` | S3 |
 | `case-search/a-required-or-validation-test-with-no-message-in-any-language` | S3 |
 | `case-search/receiver-expression` | S3 |
@@ -728,3 +741,4 @@ two kinds of `outside-predicate`, or request placement versus a device filter.
 | `case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s` | S2 |
 | `case-search/case-list-filter-clause-the-search-does-not-restate` | S2 |
 | `case-search/xpath-query-condition-outside-what-nova-types` | S2 |
+| `case-search/xpath-query-condition-nova-s-checker-refuses` | S2 |

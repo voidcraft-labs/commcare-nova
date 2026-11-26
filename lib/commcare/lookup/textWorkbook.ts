@@ -13,7 +13,7 @@ const PACKAGE_REL =
 const CONTENT_TYPES =
 	"http://schemas.openxmlformats.org/package/2006/content-types";
 
-function columnName(index: number): string {
+export function columnName(index: number): string {
 	let name = "";
 	for (
 		let column = index + 1;
@@ -39,6 +39,39 @@ export function buildTextWorkbook(
 		if (!entry) throw new Error(`Workbook archive omitted ${name}`);
 		entry.header.time = new Date(2000, 0, 1);
 	};
+	addWorkbookHeaders(sheets, addXml);
+	sheets.forEach((sheet, index) => {
+		const width = sheet.rows.reduce((max, row) => Math.max(max, row.length), 1);
+		const rowElements = sheet.rows.map((row, rowIndex) => {
+			const cells = row.map((value, columnIndex) =>
+				el(
+					"c",
+					{
+						r: `${columnName(columnIndex)}${rowIndex + 1}`,
+						t: "inlineStr",
+					},
+					[el("is", {}, [el("t", { "xml:space": "preserve" }, [text(value)])])],
+				),
+			);
+			return el("row", { r: String(rowIndex + 1) }, cells);
+		});
+		addXml(
+			`xl/worksheets/sheet${index + 1}.xml`,
+			el("worksheet", { xmlns: MAIN }, [
+				el("dimension", {
+					ref: `A1:${columnName(width - 1)}${Math.max(1, sheet.rows.length)}`,
+				}),
+				el("sheetData", {}, rowElements),
+			]),
+		);
+	});
+	return zip.toBuffer();
+}
+
+export function addWorkbookHeaders(
+	sheets: readonly { name: string }[],
+	addXml: (name: string, element: ReturnType<typeof el>) => void,
+) {
 	addXml(
 		"[Content_Types].xml",
 		el("Types", { xmlns: CONTENT_TYPES }, [
@@ -101,30 +134,4 @@ export function buildTextWorkbook(
 			),
 		),
 	);
-	sheets.forEach((sheet, index) => {
-		const width = sheet.rows.reduce((max, row) => Math.max(max, row.length), 1);
-		const rowElements = sheet.rows.map((row, rowIndex) => {
-			const cells = row.map((value, columnIndex) =>
-				el(
-					"c",
-					{
-						r: `${columnName(columnIndex)}${rowIndex + 1}`,
-						t: "inlineStr",
-					},
-					[el("is", {}, [el("t", { "xml:space": "preserve" }, [text(value)])])],
-				),
-			);
-			return el("row", { r: String(rowIndex + 1) }, cells);
-		});
-		addXml(
-			`xl/worksheets/sheet${index + 1}.xml`,
-			el("worksheet", { xmlns: MAIN }, [
-				el("dimension", {
-					ref: `A1:${columnName(width - 1)}${Math.max(1, sheet.rows.length)}`,
-				}),
-				el("sheetData", {}, rowElements),
-			]),
-		);
-	});
-	return zip.toBuffer();
 }

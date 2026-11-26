@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"build_comment\": null, \"built_from_app_id\": null, \"built_on\": null, \"id\": \"d753ed80-c0a3-11f1-9613-afde8197df1a\", \"is_released\": false, \"modules\": [{\"case_properties\": [\"name\"], \"case_type\": \"patient\", \"forms\": [{\"name\": {\"en\": \"Followup Form\"}, \"questions\": [{\"comment\": null, \"constraint\": null, \"group\": null, \"hashtagValue\": \"#form/note\", \"is_group\": false, \"label\": \"Visit note\", \"label_ref\": \"note-label\", \"relevant\": null, \"repeat\": null, \"required\": false, \"setvalue\": null, \"tag\": \"input\", \"translations\": {\"en\": \"Visit note\"}, \"type\": \"Text\", \"value\": \"/data/note\"}], \"unique_id\": \"515ee1eacbbb415d83e1a3a0aef903ff\", \"xmlns\": \"http://openrosa.org/formdesigner/5aa6d64d-aba2-4d08-8fd5-e35b97dab92f\"}], \"name\": {\"en\": \"Patients\"}, \"unique_id\": \"3140c4f601f04f1f9e886f32d25eddac\"}], \"name\": \"Related case wording\", \"resource_uri\": \"\", \"version\": 7, \"versions\": []}"
+}

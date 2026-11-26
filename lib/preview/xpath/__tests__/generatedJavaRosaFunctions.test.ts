@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CSQL_LIST_ITEM_UNSAFE_PATTERN } from "@/lib/commcare/csql/segment";
+import { CONNECT_RECIPIENT_PATTERN } from "@/lib/domain/connectRecipientRule";
 import {
 	GEOPOINT_CENTER_PATTERN,
 	GEOPOINT_RAW_CENTER_PATTERN,
@@ -8,6 +9,7 @@ import { invokeGeneratedJavaRosaFunction } from "../generatedJavaRosaFunctions";
 import { javaRosaRegex, javaRosaReplace } from "../javaPatternRuntime";
 
 const GENERATED_PATTERNS = [
+	CONNECT_RECIPIENT_PATTERN,
 	GEOPOINT_RAW_CENTER_PATTERN,
 	GEOPOINT_CENTER_PATTERN,
 	"^\\s+|\\s+$",
@@ -70,6 +72,24 @@ describe("generated JavaRosa functions", () => {
 					});
 				}
 			}
+		}
+	});
+
+	it("counts the complete recipient ID in Unicode code points including newlines", () => {
+		for (const value of [
+			"🪶".repeat(255),
+			"🪶".repeat(255) + "\n",
+			"🪶".repeat(254) + "\n",
+			"界".repeat(256),
+		]) {
+			const accepted = Array.from(value).length <= 255;
+			expect(javaRosaRegex(value, CONNECT_RECIPIENT_PATTERN)).toBe(accepted);
+			expect(
+				invokeGeneratedJavaRosaFunction("regex", [
+					value,
+					CONNECT_RECIPIENT_PATTERN,
+				]),
+			).toEqual({ kind: "handled", value: accepted });
 		}
 	});
 

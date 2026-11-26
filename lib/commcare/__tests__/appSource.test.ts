@@ -23,6 +23,7 @@ import { log } from "@/lib/logger";
 import {
 	type HqAppSourceParseNote,
 	parseHqAppSource,
+	publishReadingFactsMoved,
 	type ReadHqAppSourceOptions,
 	readHqAppSource,
 } from "../hq/appSource";
@@ -391,22 +392,35 @@ describe("readHqAppSource", () => {
 		);
 	});
 
-	it("reads no name, no save time and no media map where HQ sent none, and refuses nothing for them", async () => {
+	it("reads no name or save time where HQ sent none", async () => {
 		const { plain } = await readUnderBoth(
 			changed(retainedPublishRead("source-live"), (body) => {
 				body.name = 7;
 				delete body.last_modified;
-				body.multimedia_map = [];
+				body.multimedia_map = {};
 			}),
 		);
 		const source = sourceOf(plain);
 		expect(source.name).toBeNull();
 		expect(source.lastModified).toBeNull();
-		expect(source.multimediaMap).toBeNull();
+		expect(source.multimediaMap).toEqual([]);
 	});
+	it.each(["absent", "array"] as const)(
+		"refuses a live source with an %s media map under either reading",
+		async (kind) => {
+			const outcomes = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), (body) => {
+					if (kind === "absent") delete body.multimedia_map;
+					else body.multimedia_map = [];
+				}),
+			);
+			expect(outcomes.plain).toEqual(MALFORMED);
+			expect(outcomes.any).toEqual(MALFORMED);
+		},
+	);
 
-	it.each(["hq-built/app-source", "reading/source-shadow"])(
-		"refuses %s under the default and reads it with its mirror menus and shadow form under admit any",
+	it.each(["hq-built/app-source", "reading/source-shadow"] as const)(
+		"%s reads mirror case types and shared form namespaces in both modes",
 		async (file) => {
 			const answer =
 				file === "reading/source-shadow"
@@ -417,8 +431,8 @@ describe("readHqAppSource", () => {
 				unknown
 			>[];
 			const { plain, any } = await readUnderBoth(answer);
-			expect(plain).toEqual(MALFORMED);
 			const source = sourceOf(any);
+			expect(sourceOf(plain).modules).toEqual(source.modules);
 			expect(source.modules.map((module) => module.docType)).toEqual(
 				sent.map((module) => module.doc_type),
 			);
@@ -538,6 +552,78 @@ describe("readHqAppSource", () => {
 		expect(sourceOf(any).buildProfiles).toEqual(expected);
 	});
 
+	it("reads the active profile binding from the target source", async () => {
+		const { plain, any } = await readUnderBoth(
+			changed(retainedPublishRead("source-live"), (body) => {
+				body.build_profiles = {
+					field: {
+						name: "Field team",
+						langs: ["fra", "en"],
+						practice_mobile_worker_id: "practice-a",
+					},
+				};
+			}),
+		);
+		for (const response of [plain, any]) {
+			expect(sourceOf(response).buildProfiles).toEqual([
+				{
+					id: "field",
+					name: "Field team",
+					langs: ["fra", "en"],
+					practiceWorkerId: "practice-a",
+				},
+			]);
+		}
+	});
+
+	it.each([
+		"",
+		"clinic&west",
+		"a+b",
+		"clinic%2Fwest",
+		"north#visits",
+		"north/south",
+		"back\\slash",
+		".",
+		"..",
+		"default",
+		"en",
+		"suite.xml",
+		"practice_user_restore.xml",
+		"media_profile.ccpr",
+		"modules-0",
+		"ules-0",
+		"n",
+		"team\u0000",
+	])(
+		"identifies an installation key its native link cannot select (%s)",
+		async (key) => {
+			const reads = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), (body) => {
+					body.build_profiles = { [key]: { name: "Team", langs: ["en"] } };
+				}),
+			);
+			for (const read of [reads.plain, reads.any])
+				expect(read).toEqual({
+					...MALFORMED,
+					installationProfileKeyUnusable: true,
+				});
+		},
+	);
+
+	it.each(["north-team", "a=b", "district%", "a%zz"])(
+		"retains the physical key its native link selects (%s)",
+		async (key) => {
+			const reads = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), (body) => {
+					body.build_profiles = { [key]: { name: "Team", langs: ["en"] } };
+				}),
+			);
+			for (const read of [reads.plain, reads.any])
+				expect(sourceOf(read).buildProfiles[0]?.id).toBe(key);
+		},
+	);
+
 	it("reads an app with no build profile as none", async () => {
 		const { plain } = await readUnderBoth(
 			changed(retainedPublishRead("source-live"), (body) => {
@@ -552,6 +638,18 @@ describe("readHqAppSource", () => {
 			"no build_profiles",
 			(body: Record<string, unknown>) => {
 				delete body.build_profiles;
+			},
+		],
+		[
+			"a malformed practice binding",
+			(body: Record<string, unknown>) => {
+				body.build_profiles = {
+					field: {
+						name: "Field team",
+						langs: ["en"],
+						practice_mobile_worker_id: 42,
+					},
+				};
 			},
 		],
 		[
@@ -708,5 +806,65 @@ describe("readHqAppSource", () => {
 				await pending;
 			}
 		});
+	});
+});
+
+describe("publishReadingFactsMoved", () => {
+	const NOVA = "jr://file/commcare/image/nova.png";
+	const OTHER = "jr://file/commcare/image/other.png";
+	const entry = (id: string) => ({
+		media_type: "CommCareImage",
+		multimedia_id: id,
+	});
+	const withMap = (map: Record<string, unknown>) =>
+		liveWith((body) => {
+			body.multimedia_map = map;
+		});
+	const parsed = (body: Record<string, unknown>) => {
+		const result = parseHqAppSource(body);
+		if (result.kind !== "source") throw new Error(result.key);
+		return result.source;
+	};
+	const moved = (
+		before: Record<string, unknown>,
+		after: Record<string, unknown>,
+		settled: readonly string[] = [],
+	) =>
+		publishReadingFactsMoved(
+			withMap(before),
+			parsed(withMap(after)),
+			new Set(settled),
+		);
+
+	it("reads a map that grew by a settled path as unmoved, and by any other path as moved", () => {
+		expect(moved({}, { [NOVA]: entry("nova-file") }, [NOVA])).toBe(false);
+		expect(moved({}, { [NOVA]: entry("nova-file") })).toBe(true);
+		expect(
+			moved({}, { [NOVA]: entry("nova-file"), [OTHER]: entry("hq-file") }, [
+				NOVA,
+			]),
+		).toBe(true);
+	});
+
+	it("reads another id at a path as moved unless the path is settled", () => {
+		const before = { [NOVA]: entry("first") };
+		const after = { [NOVA]: entry("second") };
+		expect(moved(before, after)).toBe(true);
+		expect(moved(before, after, [NOVA])).toBe(false);
+	});
+
+	it("reads a path that left the map as moved, settled or not, even where another took its place", () => {
+		expect(moved({ [NOVA]: entry("first") }, {}, [NOVA])).toBe(true);
+		expect(
+			moved({ [NOVA]: entry("first") }, { [OTHER]: entry("second") }, [
+				NOVA,
+				OTHER,
+			]),
+		).toBe(true);
+	});
+
+	it("reads the same map as unmoved", () => {
+		const map = { [NOVA]: entry("first"), [OTHER]: entry("second") };
+		expect(moved(map, structuredClone(map))).toBe(false);
 	});
 });

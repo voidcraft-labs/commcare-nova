@@ -25,6 +25,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createFromReview } from "@/lib/deployment/reading";
 import { accountOfOne } from "@/lib/deployment/reading/answers";
+import { OWNER_RULE_CHOICES } from "@/lib/deployment/reading/projectData/reviewTypes";
 import {
 	type BringInInput,
 	type CreateAnswer,
@@ -35,14 +36,16 @@ import {
 import { AS_ORIGIN } from "@/lib/hostnames";
 import { broughtInToolMessage } from "@/lib/publish/bringInCopy";
 import { CREATE_ANSWER_LEADS } from "@/lib/publish/hqReadingCopy";
+import { credentialWriteGrant, toolWriteGrant } from "../credentialWriteGrant";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { toolText } from "../paging";
+import { fitPiece, toolText } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
 import { registerScopedTool } from "../scopedTool";
+import { SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { bringInProgress, openBringInCall } from "./readHqApp";
 import {
@@ -102,11 +105,12 @@ function bodyOf(
 	switch (answer.kind) {
 		case "created": {
 			const { receipt } = answer;
+			const appName = fitPiece(receipt.blueprint.appName);
 			return {
 				status: "created",
 				app_id: receipt.appId,
 				project_id: receipt.projectId,
-				app_name: receipt.blueprint.appName,
+				app_name: appName,
 				url: `${AS_ORIGIN}/build/${receipt.appId}`,
 				/* The app's id derives from the key, so the receipt's adoption is the key's. */
 				brought_in_from: {
@@ -114,7 +118,7 @@ function bodyOf(
 					domain: key.domain,
 					hq_app_id: key.remoteAppId,
 				},
-				message: broughtInToolMessage(receipt.blueprint.appName, key.domain),
+				message: broughtInToolMessage(appName, key.domain),
 			};
 		}
 		case "changed": {
@@ -165,7 +169,7 @@ export function registerBringInHqApp(
 		"bring_in_hq_app",
 		{
 			description:
-				"Create a Nova app from a CommCare HQ app that `read_hq_app` answered a review for. Call it only after the user has seen the review and answered it. Every answer is theirs: never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them, and never default to the preselected choice without saying so and hearing yes. Send the `project_id`, `domain` and `hq_app_id` the read was given, the `reading_id` it returned, and `review_digest`, the review they answered. `runs_only_on` and `split_datetime` together must be one of `review.runs_on`. `table_choices` holds one answer for each table whose review entry has a `choice`, on every page of the review, by tag, and `{}` where none has. The result's `status` is `created` (the app exists, in that Project, and publishes back to the CommCare HQ app it came from); `changed` (something changed in CommCare HQ or the Project since the review, no app was created, and `reading` holds what stands now, to show the user again; where it is longer than one answer it is the first page, and `read_hq_app` with its `next_page` as `page` reads the rest); `read_again` (a lookup table the app reads changed in the Project while Nova was creating the app, and no app was created: call `read_hq_app` again and show the user the new review); `check_failed` (one of Nova's own checks stopped the create, no app was created, and `reading` holds what Nova reported); or `held` (no app was created and `stop` says why, such as a key CommCare HQ turned down). Creating changes nothing in CommCare HQ. A `bring_in_refused` error whose `refusal` is `publish_in_flight` means another Nova app's publish to that HQ app is still finishing, after someone stopped publishing it there: no app was created, the review stands, and the same call can be made again in a few minutes. If this call ends before you get an answer, call it again with the same arguments. It answers the app if it was created, and creates it if it was not. Before the first `upload_app_to_hq`, relay `first_publish`, from the chosen `review.runs_on` entry or from `check_project_space_compatibility`: `workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`.",
+				"Create a Nova app from a CommCare HQ app that `read_hq_app` answered a review for. Call it only after the user has seen the review and answered it. Every answer is theirs: never choose the name, where the app runs, the date-and-time split, a lookup table's answer or an owner rule's answer for them, and never default to the preselected choice without saying so and hearing yes. Send the `project_id`, `domain` and `hq_app_id` the read was given, the `reading_id` it returned, and `review_digest`, the review they answered. `runs_only_on` and `split_datetime` together must be one of `review.runs_on`. `table_choices` holds one answer for each table whose review entry has a `choice`, on every page of the review, by tag, and `{}` where none has. `owner_rule_choices` holds one answer for each entry of `review.owner_rules`, by level: each names a level whose rule for which place owns a case can't find exactly one place in CommCare HQ's organization, and the user either gives those cases to the worker who fills in the form (`worker`) or changes the places in CommCare HQ and reads the app again; `{}` where it is empty. The result's `status` is `created` (the app exists, in that Project, and publishes back to the CommCare HQ app it came from); `changed` (something changed in CommCare HQ or the Project since the review, no app was created, and `reading` holds what stands now, to show the user again; where it is longer than one answer it is the first page, and `read_hq_app` with its `next_page` as `page` reads the rest); `read_again` (a lookup table the app reads changed in the Project while Nova was creating the app, and no app was created: call `read_hq_app` again and show the user the new review); `check_failed` (one of Nova's own checks stopped the create, no app was created, and `reading` holds what Nova reported); or `held` (no app was created and `stop` says why, such as a key CommCare HQ turned down). Creating changes nothing in CommCare HQ. A `bring_in_refused` error whose `refusal` is `publish_in_flight` means another Nova app's publish to that HQ app is still finishing, after someone stopped publishing it there: no app was created, the review stands, and the same call can be made again in a few minutes. If this call ends before you get an answer, call it again with the same arguments. It answers the app if it was created, and creates it if it was not. Before the first `upload_app_to_hq`, relay `first_publish`, from the chosen `review.runs_on` entry or from `check_project_space_compatibility`: `workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`.",
 			inputSchema: z.strictObject({
 				project_id: z
 					.string()
@@ -217,6 +221,11 @@ export function registerBringInHqApp(
 					.describe(
 						"The user's answer for each lookup table whose review entry has a choice, by tag. {} where none has.",
 					),
+				owner_rule_choices: z
+					.record(z.string(), z.enum(OWNER_RULE_CHOICES))
+					.describe(
+						'The user\'s answer for each entry of review.owner_rules, by its level. "worker" gives those cases to the worker who fills in the form. {} where review.owner_rules is empty.',
+					),
 			}),
 			_meta: LARGE_RESULT_META,
 		},
@@ -238,10 +247,23 @@ export function registerBringInHqApp(
 					runsOnlyOn: args.runs_only_on,
 					splitDatetime: args.split_datetime,
 					tableChoices: args.table_choices,
+					ownerRuleChoices: args.owner_rule_choices,
 				};
-				const answer = await createFromReview(call.actor, input, {
-					onEvent: bringInProgress(extra),
-				});
+				const answer = await createFromReview(
+					{
+						...call.actor,
+						requireOperation: toolWriteGrant(ctx, "bring_in_hq_app"),
+					},
+					input,
+					{
+						onEvent: bringInProgress(extra),
+						requireInstallationManagement: credentialWriteGrant(
+							ctx,
+							"bring_in_hq_app",
+							[SCOPES.hqImport, SCOPES.hqWrite],
+						),
+					},
+				);
 				if (answer.kind === "refused")
 					throw mapReadingRefusal(answer.refusal, args.project_id);
 				const key: ReadingKey = {

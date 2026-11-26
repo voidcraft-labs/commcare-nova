@@ -10,6 +10,7 @@ import type {
 } from "@/lib/domain";
 import {
 	isOwnerOnlyCaseSearchConfig,
+	isVisibleSearchInput,
 	searchInputDefault,
 	searchInputScreenExpressions,
 } from "@/lib/domain";
@@ -32,8 +33,14 @@ type UpdateSearchInputMutation = Extract<
 
 export type SearchInputRemovalDependency =
 	| {
+			readonly kind: "search-address-receiver";
+			readonly label: string;
+			readonly inputUuid: Uuid;
+	  }
+	| {
 			readonly kind: "cases-available";
-			readonly label: "Cases available";
+			readonly label: "Cases available" | "Online search";
+			readonly surface?: "search";
 			readonly paths: SearchInputOccurrencePaths;
 	  }
 	| {
@@ -53,6 +60,14 @@ export type SearchInputRemovalDependency =
 	| {
 			readonly kind: "assigned-cases";
 			readonly label: "Assigned cases";
+			readonly paths: SearchInputOccurrencePaths;
+	  }
+	/** A search filter whose value reads the answer, on the Online search
+	 * surface of Results' Cases available. */
+	| {
+			readonly kind: "search-filter";
+			readonly label: string;
+			readonly filterUuid: Uuid;
 			readonly paths: SearchInputOccurrencePaths;
 	  }
 	| {
@@ -79,10 +94,11 @@ export type SearchInputRemovalDependency =
 			readonly uses: number;
 	  };
 
-/** How many places one dependency reads the answer in. */
+/** How many places one dependency uses the Search field in. */
 export function searchInputDependencyUses(
 	dependency: SearchInputRemovalDependency,
 ): number {
+	if (dependency.kind === "search-address-receiver") return 1;
 	return dependency.kind === "form-field"
 		? dependency.uses
 		: dependency.paths.length;
@@ -119,7 +135,7 @@ function expressionInputPaths(
 	return paths;
 }
 
-/** Gate-valid rules that still consume the answer of a field being removed. */
+/** Gate-valid uses of a Search field being removed. */
 export function searchInputRemovalDependencies(
 	config: CaseListConfig,
 	searchConfig: CaseSearchConfig | undefined,
@@ -140,6 +156,18 @@ export function searchInputRemovalDependencies(
 			});
 		}
 	}
+	if (config.searchCondition !== undefined) {
+		const paths = nonEmptyPaths(
+			expressionInputPaths(config.searchCondition, target.uuid),
+		);
+		if (paths)
+			dependencies.push({
+				kind: "cases-available",
+				surface: "search",
+				label: "Online search",
+				paths,
+			});
+	}
 	// A sibling's custom match, required condition, and check rule all read
 	// answers; each is its own dependency so the review can open the exact
 	// condition. The target's own conditions leave with the row.
@@ -147,6 +175,18 @@ export function searchInputRemovalDependencies(
 		if (input.uuid === target.uuid) continue;
 		const siblingLabel =
 			input.label.trim() || input.name.trim() || "Another search field";
+		if (
+			target.kind === "address" &&
+			isVisibleSearchInput(input) &&
+			input.addressReceiver?.kind === "address" &&
+			input.addressReceiver.source === target.uuid
+		) {
+			dependencies.push({
+				kind: "search-address-receiver",
+				label: siblingLabel,
+				inputUuid: input.uuid,
+			});
+		}
 		const conditions: readonly {
 			readonly slot: SearchInputConditionSlot;
 			readonly predicate: NonNullable<CaseListConfig["filter"]>;
@@ -201,6 +241,22 @@ export function searchInputRemovalDependencies(
 			kind: "search-field-default",
 			label: `“${input.label.trim() || input.name.trim() || "Another search field"}” starting value`,
 			inputUuid: input.uuid,
+			paths,
+		});
+	}
+	// A search filter's value is checked against the declared inputs
+	// (`nativeSearchFilters.ts`), so a removal that orphans a ref there would
+	// bounce off the commit gate without this entry.
+	for (const [index, filter] of (config.searchFilters ?? []).entries()) {
+		if (!("value" in filter)) continue;
+		const paths = nonEmptyPaths(
+			expressionInputPaths(filter.value, target.uuid),
+		);
+		if (paths === undefined) continue;
+		dependencies.push({
+			kind: "search-filter",
+			label: `Search filter ${index + 1}`,
+			filterUuid: filter.uuid,
 			paths,
 		});
 	}

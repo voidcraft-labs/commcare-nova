@@ -564,6 +564,15 @@ export function identityProjectionRoute(
 	});
 }
 
+/** The case changes of the Referral visits menu's follow-up form. */
+export function caseWritesFollowupOperationsRoute(appId: string): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "form-operations",
+		moduleUuid: CASE_CHANGES_SEED.caseWrites.moduleUuid,
+		formUuid: CASE_CHANGES_SEED.caseWrites.followup.formUuid,
+	});
+}
+
 /** A question of the Referral visits menu, selected in its form. */
 export function caseWriteFieldRoute(
 	appId: string,

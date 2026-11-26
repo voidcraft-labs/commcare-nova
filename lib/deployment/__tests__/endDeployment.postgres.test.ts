@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * Ending a deployment, in real Postgres: who may stop publishing to a project
  * space, what the ending writes and keeps, the fence it raises against a
@@ -16,7 +17,10 @@ import {
 	type UnknownRow,
 } from "kysely";
 import { describe, expect, it, vi } from "vitest";
+import { deploymentSession } from "@/__tests__/helpers/deploymentSession";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { restoreApp as restoreAppAction } from "@/app/(app)/(site)/app-actions";
 import { getSession } from "@/lib/auth-utils";
 import { seenByHq } from "@/lib/commcare/hq/appsSeen";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -25,6 +29,7 @@ import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { claimHqAppInTransaction } from "@/lib/db/hqAppClaims";
 import { __setAppDbForTests, withAppTx } from "@/lib/db/pg";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
+import { credentialWriteGrant } from "@/lib/mcp/credentialWriteGrant";
 import { PUBLISH_CLAIMS_CHANGED } from "@/lib/publish/stopPublishing";
 import { stopPublishingAction } from "../actions";
 import { DeploymentEndedError } from "../errors";
@@ -38,10 +43,10 @@ import {
 	leftBehindResources,
 	nextPublishAction,
 } from "../resources";
-import { publishAppToHq, refreshDeployment } from "../service";
+import { refreshDeployment } from "../service";
 import {
+	admitAppCreate,
 	applyDeploymentObservation,
-	beginDeploymentContentWrite,
 	type DeploymentScope,
 	endDeployment,
 	finishDeploymentContentWrite,
@@ -57,9 +62,15 @@ import {
 	settleReleasedClaims,
 } from "../store";
 import type { AppBaselineWrite } from "../types";
-import { type AdoptedBirth, birthAdoptedApp } from "./adoptedBirth";
+import {
+	type AdoptedBirth,
+	appMappingToken,
+	birthAdoptedApp,
+} from "./adoptedBirth";
+import { admitEntryPointImport } from "./entryPointWrite";
 import { readable } from "./readableRecord";
 
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
 
 const h = setupAppStateTestDb("end_deployment_", {
@@ -316,7 +327,7 @@ describe("endDeployment", () => {
 		const stored = await readAppBaseline(scope, TARGET);
 		if (stored === null || stored.origin === "unread")
 			throw new Error("Expected a read baseline");
-		const generation = await beginDeploymentContentWrite(scope, TARGET, {
+		const { generation } = await admitEntryPointImport(scope, TARGET, {
 			expectedEndings: 0,
 		});
 		await endDeployment(scope, TARGET, HQ_APP);
@@ -343,8 +354,12 @@ describe("endDeployment", () => {
 					),
 			],
 			[
-				"beginDeploymentContentWrite",
-				() => beginDeploymentContentWrite(scope, TARGET, fence),
+				"admitAppCreate",
+				() =>
+					admitAppCreate(scope, TARGET, {
+						...fence,
+						firstContentGeneration: crypto.randomUUID(),
+					}),
 			],
 			[
 				"recordCreatedRemoteApp",
@@ -408,7 +423,9 @@ describe("endDeployment", () => {
 					recordRefreshedAppBaseline(scope, TARGET, {
 						...fence,
 						remoteAppId: HQ_APP,
+
 						comparedDigest: stored.sourceDigest,
+						comparedPushToken: appMappingToken(birth.deployment),
 						read: {
 							sourceGzip: gzipSync(Buffer.from(text)),
 							sourceBytes: Buffer.byteLength(text),
@@ -472,6 +489,148 @@ describe("a released claim", () => {
 			h.db(),
 		);
 	}
+
+	it.each(["binding", "private-review"] as const)(
+		"settles only the selected destination and checks live authority for its %s before changing a released claim",
+		async (protectedBy) => {
+			const birth = await born();
+			const otherTarget = { ...TARGET, domain: "plain-destination" };
+			const otherId = "b".repeat(32);
+			await foldDeploymentAttempt(
+				birth.scope,
+				otherTarget,
+				"preflight",
+				{ status: "succeeded", at: new Date().toISOString() },
+				{ ensure: true, expectedEndings: 0 },
+			);
+			await recordCreatedRemoteApp(birth.scope, otherTarget, {
+				expectedEndings: 0,
+				remoteId: otherId,
+				baseline: unreadBaseline(otherId),
+			});
+			const deploymentId = birth.deployment.deployment.id;
+			if (protectedBy === "binding") {
+				await sql`INSERT INTO app_deployment_installation_profiles(deployment_id,nova_profile_uuid,profile_key) VALUES (${deploymentId},${testUuid("installation")} ,'visits')`.execute(
+					h.db(),
+				);
+			} else {
+				await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${deploymentId},${OWNER},'{"previousKeys":[]}'::jsonb)`.execute(
+					h.db(),
+				);
+			}
+			await release();
+			const taker = await birthAdoptedApp(h, {
+				appId: testUuid("installation-taker"),
+				projectId: PROJECT,
+				actorUserId: OWNER,
+				target: TARGET,
+				remoteAppId: HQ_APP,
+			});
+			const editor = await member("claim-editor", "editor");
+			const scopes = [
+				"nova.read",
+				"nova.write",
+				"nova.hq.write",
+				"nova.hq.import",
+			];
+			const key = await installationCredential(
+				h.db(),
+				editor.actorUserId,
+				scopes,
+			);
+			const scoped = {
+				...editor,
+				requireInstallationManagement: credentialWriteGrant(
+					key,
+					"upload_app_to_hq",
+					["nova.hq.write", "nova.hq.import"],
+				),
+			};
+			await sql`UPDATE auth_apikey SET permissions=${JSON.stringify({ scope: scopes.filter((s) => s !== "nova.hq.import") })} WHERE "referenceId"=${editor.actorUserId}`.execute(
+				h.db(),
+			);
+			const protectedBefore = await readDeployment(editor, TARGET);
+			expect((await settleReleasedClaims(scoped, otherTarget)).settled).toBe(
+				true,
+			);
+			expect(
+				(await readDeployment(editor, otherTarget))?.active[0].releasedAt,
+			).toBeNull();
+			expect(await readDeployment(editor, TARGET)).toEqual(protectedBefore);
+			await expect(settleReleasedClaims(scoped, TARGET)).rejects.toMatchObject({
+				name: "McpCredentialInactiveError",
+			});
+			expect(await readDeployment(editor, TARGET)).toEqual(protectedBefore);
+			const fresh = await installationCredential(
+				h.db(),
+				editor.actorUserId,
+				scopes,
+			);
+			const done = await settleReleasedClaims(
+				{
+					...editor,
+					requireInstallationManagement: credentialWriteGrant(
+						fresh,
+						"upload_app_to_hq",
+						["nova.hq.write", "nova.hq.import"],
+					),
+				},
+				TARGET,
+			);
+			expect(done).toEqual({
+				settled: true,
+				stoppedPublishing: [TARGET],
+				waiting: [],
+			});
+			expect(
+				(await readDeployment(taker.scope, TARGET))?.active[0].releasedAt,
+			).toBeNull();
+		},
+	);
+	it("checks the protected recently deleted holder before an unprotected deployment takes its mapping back", async () => {
+		const own = await born();
+		await release();
+		const holder = await birthAdoptedApp(h, {
+			appId: testUuid("holder-with-installations"),
+			projectId: PROJECT,
+			actorUserId: OWNER,
+			target: TARGET,
+			remoteAppId: HQ_APP,
+		});
+		await sql`INSERT INTO app_deployment_installation_profiles(deployment_id,nova_profile_uuid,profile_key) VALUES (${holder.deployment.deployment.id},${testUuid("holder-profile")},'existing')`.execute(
+			h.db(),
+		);
+		await softDeleteApp(holder.scope.appId, OWNER);
+		const key = await installationCredential(h.db(), OWNER, [
+			"nova.read",
+			"nova.write",
+			"nova.hq.write",
+		]);
+		const before = await readDeployment(own.scope, TARGET);
+		await expect(
+			settleReleasedClaims(
+				{
+					...own.scope,
+					requireInstallationManagement: credentialWriteGrant(
+						key,
+						"upload_app_to_hq",
+						["nova.hq.write", "nova.hq.import"],
+					),
+				},
+				TARGET,
+			),
+		).rejects.toThrow();
+		expect(await readDeployment(own.scope, TARGET)).toEqual(before);
+		const retained = await h
+			.db()
+			.selectFrom("app_deployment_resources")
+			.select(["released_at", "push_token"])
+			.where("deployment_id", "=", holder.deployment.deployment.id)
+			.where("kind", "=", "app")
+			.executeTakeFirstOrThrow();
+		expect(retained.released_at).toBeNull();
+		expect(retained.push_token).toBe(holder.deployment.active[0].pushToken);
+	});
 
 	it("is not named by Preview until a settle takes the HQ app back", async () => {
 		const birth = await born();
@@ -666,8 +825,10 @@ describe("a released claim", () => {
 });
 
 describe("stopPublishingAction", () => {
-	function signedInAs(userId: string): void {
-		vi.mocked(getSession).mockResolvedValue({ user: { id: userId } } as never);
+	async function signedInAs(userId: string) {
+		vi.mocked(getSession).mockResolvedValue(
+			(await deploymentSession(h.db(), userId)) as never,
+		);
 	}
 	const input = {
 		appId: APP,
@@ -676,26 +837,114 @@ describe("stopPublishingAction", () => {
 		hqAppId: HQ_APP,
 	};
 
+	it.each(["stop", "restore"] as const)(
+		"holds the browser session that requested the protected %s until the claim decision commits",
+		async (operation) => {
+			const birth = await born();
+			const oldMapping = birth.deployment.active[0].pushToken;
+			await sql`INSERT INTO app_deployment_installation_reviews (deployment_id,actor_id,checkpoint) VALUES (${birth.deployment.deployment.id},${OWNER},'{"previousKeys":[]}'::jsonb)`.execute(
+				h.db(),
+			);
+			if (operation === "restore") {
+				await softDeleteApp(APP, OWNER);
+				await birthAdoptedApp(h, {
+					appId: testUuid("browser-session-holder"),
+					projectId: PROJECT,
+					actorUserId: OWNER,
+					target: TARGET,
+					remoteAppId: HQ_APP,
+				});
+			}
+			const mapping = () =>
+				h
+					.db()
+					.selectFrom("app_deployment_resources")
+					.select(["push_token", "released_at", "superseded_at"])
+					.where("deployment_id", "=", birth.deployment.deployment.id)
+					.where("kind", "=", "app")
+					.executeTakeFirstOrThrow();
+			const retained = await mapping();
+			if (operation === "stop") expect(retained.push_token).toBe(oldMapping);
+			else expect(retained.released_at).not.toBeNull();
+			const prior = crypto.randomUUID(),
+				current = crypto.randomUUID();
+			for (const id of [prior, current])
+				await sql`INSERT INTO auth_session(id,token,"userId","createdAt","updatedAt","expiresAt") VALUES (${id},${id},${OWNER},now(),now(),now()+interval '1 day')`.execute(
+					h.db(),
+				);
+			const authenticated = (id: string) => ({
+				user: { id: OWNER },
+				session: { id },
+			});
+			vi.mocked(getSession).mockImplementationOnce(async () => {
+				const request = authenticated(prior);
+				await sql`DELETE FROM auth_session WHERE id=${prior}`.execute(h.db());
+				return request as never;
+			});
+			const act = () =>
+				operation === "stop"
+					? stopPublishingAction(input)
+					: restoreAppAction(APP);
+			const lost = await act();
+			expect(lost).toMatchObject({
+				success: false,
+				...(operation === "stop"
+					? { code: "not_permitted" }
+					: { error: expect.stringContaining("Sign in again") }),
+			});
+			expect(await mapping()).toEqual(retained);
+			const actingAdmin = "impersonating-admin";
+			await member(actingAdmin, "admin");
+			const impersonated = crypto.randomUUID();
+			await sql`INSERT INTO auth_session(
+				id,token,"userId","impersonatedBy","createdAt","updatedAt","expiresAt"
+			) VALUES (${impersonated},${impersonated},${OWNER},${actingAdmin},now(),now(),now()+interval '1 day')`.execute(
+				h.db(),
+			);
+			vi.mocked(getSession).mockImplementationOnce(async () => {
+				const request = authenticated(impersonated);
+				// Leave the impersonated session and its effective account intact.
+				await sql`UPDATE auth_user SET banned=true WHERE id=${actingAdmin}`.execute(
+					h.db(),
+				);
+				return request as never;
+			});
+			expect(await act()).toMatchObject({
+				success: false,
+				...(operation === "stop"
+					? { code: "not_permitted" }
+					: { error: expect.stringContaining("Sign in again") }),
+			});
+			expect(await mapping()).toEqual(retained);
+
+			vi.mocked(getSession).mockResolvedValueOnce(
+				authenticated(current) as never,
+			);
+			expect(await act()).toMatchObject({ success: true });
+			expect((await mapping()).superseded_at).not.toBeNull();
+		},
+	);
+
 	it("answers an editor not_permitted with who can, a viewer not_found, and an admin the ended record", async () => {
 		await born();
 		await member("an-editor", "editor");
 		await member("a-viewer", "viewer");
 		await member("an-admin", "admin");
 
-		signedInAs("an-editor");
+		await signedInAs("an-editor");
 		expect(await stopPublishingAction(input)).toEqual({
 			success: false,
 			code: "not_permitted",
 			message: NOT_PERMITTED,
 		});
-		signedInAs("a-viewer");
+		await signedInAs("a-viewer");
 		expect(await stopPublishingAction(input)).toMatchObject({
 			success: false,
 			code: "not_found",
 		});
 		expect(await heldRows()).toBe(5);
 
-		signedInAs("an-admin");
+		await signedInAs("an-admin");
 		const stopped = await stopPublishingAction(input);
 		if (!stopped.success) throw new Error(stopped.message);
 		expect(stopped.data).toMatchObject({
@@ -800,7 +1049,7 @@ describe("stopPublishingAction", () => {
 			targetFacts: null,
 		});
 
-		signedInAs(OWNER);
+		await signedInAs(OWNER);
 		const stopped = await stopPublishingAction(input);
 		if (!stopped.success) throw new Error(stopped.message);
 
@@ -819,7 +1068,10 @@ describe("stopPublishingAction", () => {
 		const birth = await born();
 		const faulting: KyselyPlugin = {
 			transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
-				if (JSON.stringify(args.node).includes('"app_deployment_baselines"')) {
+				if (
+					args.node.kind === "SelectQueryNode" &&
+					JSON.stringify(args.node).includes('"app_deployment_baselines"')
+				) {
 					throw Object.assign(new Error("terminating connection"), {
 						code: "57P01",
 					});
@@ -832,7 +1084,7 @@ describe("stopPublishingAction", () => {
 				return args.result;
 			},
 		};
-		signedInAs(OWNER);
+		await signedInAs(OWNER);
 		__setAppDbForTests(h.db().withPlugin(faulting));
 		let stopped: Awaited<ReturnType<typeof stopPublishingAction>>;
 		try {

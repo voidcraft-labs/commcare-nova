@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 // Submission-program acceptance: the ENGINE's collected answers flow
 // through the PURE program builder into the REAL storage executor —
 // proving the production supplier produces executor-compatible programs
@@ -21,9 +22,11 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import { arithmeticFixture } from "@/lib/commcare/__tests__/arithmeticFixture";
 import type { AppDatabase } from "@/lib/db/pg";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
+	and,
 	eq,
 	formField,
 	literal,
@@ -38,14 +41,22 @@ import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBa
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { sharedVisitEntries } from "../../../../proof/targeted/documents/sharedVisitEntries";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
 	buildSubmissionReceiptIdentity,
 	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
-import type { FormEngine } from "../formEngine";
+import { buildEngineInput } from "../engineInput";
+import { FormEngine } from "../formEngine";
+import {
+	type FormOpeningProjection,
+	formNeedsOpeningEvidence,
+	openingCaseData,
+} from "../formOpeningSnapshot";
 import type { ResolvedPreviewIdentity } from "../identity";
+import { signFormOpening, verifyFormOpening } from "../signedFormOpening";
 import {
 	acceptanceDoc,
 	conditionalCloseDoc,
@@ -94,13 +105,16 @@ const IDENTITY: ResolvedPreviewIdentity = {
 	usercase: { role: "supervisor" },
 };
 
-function makeStore(): CaseStore {
+function makeStore(checkAuthorizedSequence = false): CaseStore {
 	return new PostgresCaseStore({
 		projectId: PROJECT,
 		actorUserId: ACTOR,
 		ownerId: ACTOR,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
+		...(checkAuthorizedSequence && {
+			authorizeMutation: async () => ({ appMutationSeq: 0 }),
+		}),
 	});
 }
 
@@ -193,6 +207,420 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it("applies a root worker update only on the committed condition to the scoped row", async () => {
+		const field = testUuid("worker-condition-answer");
+		const form = testUuid("worker-condition-form");
+		const property = testUuid("worker-condition-property");
+		const workerCaseId = SECOND_SESSION_CASE;
+		const replacementId = SESSION_CASE;
+		const doc = buildDoc(
+			{
+				appId: APP_ID,
+				modules: [
+					{
+						name: "Worker notes",
+						forms: [
+							{
+								uuid: form,
+								name: "Review",
+								type: "survey",
+								fields: [f({ kind: "text", uuid: field, id: "decision" })],
+							},
+						],
+					},
+				],
+			},
+			(draft) => {
+				draft.userProperties = {
+					[property]: {
+						uuid: property,
+						slug: "visit_note",
+						label: "Visit note",
+					},
+				};
+				draft.userPropertyOrder = [property];
+				draft.forms[form].caseOperations = [
+					{
+						uuid: OP_ROOT,
+						id: "worker",
+						action: "update",
+						caseType: "commcare-user",
+						target: { kind: "worker-record" },
+						condition: or(
+							eq(term(formField(field)), literal("save")),
+							and(
+								eq(term(formField(field)), literal("check")),
+								eq(
+									term({
+										kind: "session-user-property",
+										userPropertyUuid: property,
+										source: "worker-record",
+									}),
+									literal("before"),
+								),
+							),
+						),
+						writes: [
+							{ property: "visit_note", value: term(literal("updated")) },
+						],
+					},
+				];
+			},
+		);
+		expect(formNeedsOpeningEvidence(doc, form)).toBe(true);
+		const identity = {
+			...IDENTITY,
+			session: {
+				...IDENTITY.session,
+				userPropertySlugs: { [property]: "visit_note" },
+			},
+		};
+		const store = makeStore(true);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "commcare-user",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		const apply = (
+			decision: string,
+			entryKey: string,
+			expectedAppMutationSeq = 0,
+			opening?: FormOpeningProjection,
+		) => {
+			const input = buildEngineInput(doc, form, null);
+			if (!input) throw new Error("Expected the worker survey");
+			const engine = new FormEngine(input);
+			engine.setValue("/data/decision", decision);
+			const mutation = engine.computeSubmissionMutation({ entryKey });
+			const projection = validateCaptureSubmissionProjection(mutation);
+			const built = buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation,
+				projection,
+				identity,
+				opening,
+			});
+			return store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, {
+					...built,
+					submissionReceipt: {
+						...buildSubmissionReceiptIdentity({
+							appId: APP_ID,
+							identity,
+							mutation,
+							projection,
+						}),
+						expectedAppMutationSeq,
+						blueprintDigest: "0".repeat(64),
+					},
+				}),
+			);
+		};
+		const entry = (last: number) =>
+			`11111111-1111-4111-8111-11111111111${last}`;
+		const audienceFor = (entryKey: string) => ({
+			app: APP_ID,
+			project: PROJECT,
+			actor: ACTOR,
+			worker: ACTOR,
+			session: "session",
+			persona: null,
+			device: webAppsDevice(),
+			module: doc.moduleOrder[0],
+			form,
+			entry: entryKey,
+			run: entry(7),
+			revision: 0,
+			blueprintDigest: "0".repeat(64),
+		});
+		const secret = "synthetic worker entry signing key";
+		const openingFor = async (
+			entryKey: string,
+			rows: Parameters<typeof openingCaseData>[0]["rows"],
+		) => {
+			const audience = audienceFor(entryKey);
+			const signed = await signFormOpening(secret, audience, {
+				cases: openingCaseData({ rows, indices: [] }),
+				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+				choices: [],
+				primaryCaseIds: [],
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+			});
+			return {
+				signed,
+				projection: await verifyFormOpening(secret, audience, signed),
+			};
+		};
+		const workerRows = () =>
+			store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "commcare-user",
+			});
+		const noWorker = await openingFor(entry(1), []);
+		const skipped = await apply("keep", entry(1), 0, noWorker.projection);
+		expect(skipped.operations).toEqual([
+			expect.objectContaining({ executed: false, caseId: "" }),
+		]);
+		expect(skipped.caseDatabasePatch?.rows).toEqual([]);
+		await expect(
+			apply("keep", entry(2), 99, (await openingFor(entry(2), [])).projection),
+		).rejects.toThrow("The form changed");
+		const absentAtOpening = (await openingFor(entry(3), [])).projection;
+		await expect(apply("save", entry(3), 0, absentAtOpening)).rejects.toThrow(
+			"worker's record is missing or has changed",
+		);
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: workerCaseId,
+				case_type: "commcare-user",
+				case_name: "Worker",
+				status: "open",
+				properties: { hq_user_id: ACTOR, visit_note: "before" },
+			},
+		});
+		// A newly synced row cannot become the target of that older form.
+		await expect(apply("save", entry(3), 0, absentAtOpening)).rejects.toThrow(
+			"worker's record is missing or has changed",
+		);
+		const before = await workerRows();
+		const held = await apply(
+			"keep",
+			entry(4),
+			0,
+			(await openingFor(entry(4), before)).projection,
+		);
+		expect(held.caseDatabasePatch?.rows).toEqual([]);
+		const { signed, projection: opening } = await openingFor(entry(6), before);
+		await expect(
+			verifyFormOpening(
+				secret,
+				{ ...audienceFor(entry(6)), worker: "another-worker" },
+				signed,
+			),
+		).rejects.toThrow();
+		const changed = await apply(
+			"save",
+			entry(5),
+			0,
+			(await openingFor(entry(5), before)).projection,
+		);
+		expect(changed.operations).toEqual([
+			expect.objectContaining({ executed: true, caseId: workerCaseId }),
+		]);
+		expect(changed.caseDatabasePatch?.rows).toMatchObject([
+			{ case_id: workerCaseId },
+		]);
+		const [row] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "commcare-user",
+		});
+		expect(row?.properties).toEqual({
+			hq_user_id: ACTOR,
+			visit_note: "updated",
+		});
+		// Live now says "updated". The "check" condition is true only against
+		// the worker property retained by the authorized opening.
+		const fromOpening = await apply("check", entry(6), 0, opening);
+		expect(fromOpening.operations).toEqual([
+			expect.objectContaining({ executed: true, caseId: workerCaseId }),
+		]);
+		const earlier = (await openingFor(entry(8), before)).projection;
+		await sql`UPDATE cases
+			SET properties = jsonb_set(properties, '{hq_user_id}', to_jsonb('former-worker'::text))
+			WHERE app_id = ${APP_ID} AND project_id = ${PROJECT} AND case_id = ${workerCaseId}
+		`.execute(dbHandle.db);
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: replacementId,
+				case_type: "commcare-user",
+				case_name: "Replacement",
+				status: "open",
+				properties: { hq_user_id: ACTOR, visit_note: "replacement" },
+			},
+		});
+		await expect(apply("save", entry(8), 0, earlier)).rejects.toThrow(
+			"worker's record is missing or has changed",
+		);
+		const current = new Map(
+			(await workerRows()).map((row) => [
+				row.case_id,
+				row.properties.visit_note,
+			]),
+		);
+		expect(current).toEqual(
+			new Map([
+				[workerCaseId, "updated"],
+				[replacementId, "replacement"],
+			]),
+		);
+	});
+
+	it("submits a shared entry’s parent answers to the case selected by that entry", async () => {
+		const doc = hydratePersistedBlueprint(sharedVisitEntries().doc);
+		const entry = Object.values(doc.forms).find(
+			(form) => form.name === "Follow a referral",
+		);
+		if (!entry?.shadowOf) throw new Error("Expected the referral entry.");
+		const store = makeStore();
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "person",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		for (const id of [SESSION_CASE, SECOND_SESSION_CASE]) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: id,
+					case_type: "person",
+					case_name: id,
+					external_id: "",
+					status: "open",
+					properties: {},
+				},
+			});
+		}
+		const input = buildEngineInput(doc, entry.uuid, null);
+		if (!input) throw new Error("Expected the shared visit form.");
+		const engine = new FormEngine(input);
+		engine.setValue("/data/visit_note", "Reached at home");
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [SECOND_SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		const projection = validateCaptureSubmissionProjection(mutation);
+		expect(projection.formUuid).toBe(entry.uuid);
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection,
+			identity: IDENTITY,
+		});
+		expect(built.program?.formUuid).toBe(entry.shadowOf.form);
+		await store.applySubmission(
+			submissionEnvelopeArgs(mutation, APP_ID, {
+				...built,
+				submissionReceipt: {
+					...buildSubmissionReceiptIdentity({
+						appId: APP_ID,
+						identity: IDENTITY,
+						mutation,
+						projection,
+					}),
+					expectedAppMutationSeq: 0,
+					blueprintDigest: "0".repeat(64),
+				},
+			}),
+		);
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "person",
+		});
+		expect(
+			rows.find((row) => row.case_id === SESSION_CASE)?.properties,
+		).toEqual({});
+		expect(
+			rows.find((row) => row.case_id === SECOND_SESSION_CASE)?.properties,
+		).toEqual({ visit_note: "Reached at home" });
+	});
+
+	it("checks Connect's submitted delivery before case effects and replays the committed worker facts", async () => {
+		const formUuid = testUuid("connect-visit-followup");
+		const activity = testUuid("connect-visit-delivery");
+		const doc = buildDoc({
+			connectRoles: ["deliver"],
+			appSettings: {
+				runsOnlyOn: "android",
+				showSavedForms: false,
+				showIncompleteForms: false,
+			},
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "visit_note", label: proseText("Visit note") }],
+				},
+			],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Follow up",
+							uuid: formUuid,
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "person", label: "Person" }),
+								f({
+									kind: "text",
+									id: "note",
+									label: "Visit note",
+									caseWrite: { caseType: "patient", property: "visit_note" },
+								}),
+								f({
+									kind: "connect_activity",
+									id: "visit",
+									uuid: activity,
+									activity: {
+										kind: "delivery",
+										name: "Visit",
+										entityId: "#form/person",
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const store = makeStore();
+		await seedSessionCase(store, doc);
+		const engine = engineFor(doc, formUuid);
+		engine.setValue("/data/note", "Reached the household");
+		engine.setValue("/data/person", "🌿".repeat(256));
+		await expect(submit(doc, engine, store)).rejects.toThrow("255 characters");
+		expect((await loadCase(store, SESSION_CASE))?.properties).toEqual({});
+		const entries = await sql<{
+			count: number;
+		}>`SELECT count(*)::int AS count FROM form_submission_intents WHERE entry_key = ${ENTRY_KEY}`.execute(
+			dbHandle.db,
+		);
+		expect(entries.rows[0]?.count).toBe(0);
+		const entityId = "🌿".repeat(255);
+		engine.setValue("/data/person", entityId);
+		const result = await submit(doc, engine, store);
+		expect(result.activities).toEqual([
+			{
+				fieldUuid: activity,
+				rows: [],
+				kind: "delivery",
+				id: "visit",
+				name: "Visit",
+				entityId,
+				entityName: "",
+				workAreaId: "",
+			},
+		]);
+		expect((await loadCase(store, SESSION_CASE))?.properties).toMatchObject({
+			visit_note: "Reached the household",
+		});
+		const replay = await submit(doc, engine, store);
+		expect(replay.activities).toEqual(result.activities);
+	});
+
 	it.each([false, true])(
 		"operation reads and repeated effects inherit relevance: %s",
 		async (participates) => {
@@ -200,6 +628,7 @@ describe("engine → builder → executor acceptance", () => {
 			const store = makeStore();
 			await seedSessionCase(store, doc);
 			const engine = engineFor(doc, formUuid);
+			engine.addRepeat("/data/visits");
 			engine.setValue("/data/external_code", participates ? "yes" : "no");
 			const result = await submit(doc, engine, store);
 			expect((await loadCase(store, SESSION_CASE))?.properties).toEqual({
@@ -341,6 +770,86 @@ describe("engine → builder → executor acceptance", () => {
 		expect(ids.size).toBe(4);
 	});
 
+	it("refuses zero or multiple eligible groups and writes the single restored owner to the actual case rows", async () => {
+		const { doc, formUuid } = ordinaryAuthorityDoc();
+		const sharing = {
+			...doc,
+			appSettings: { ...doc.appSettings, caseSharing: true },
+		};
+		const owners = [{ id: "north-circle", name: "North", details: [] }];
+		expect(() => ordinaryAuthorityMutation(sharing, formUuid, [])).toThrow();
+		expect(() =>
+			ordinaryAuthorityMutation(sharing, formUuid, [...owners, ...owners]),
+		).toThrow();
+		const store = makeStore();
+		for (const type of doc.caseTypes ?? [])
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: type.name,
+				caseTypeSchemas: buildCaseTypeMap(sharing),
+			});
+		const mutation = ordinaryAuthorityMutation(sharing, formUuid, owners),
+			projection = validateCaptureSubmissionProjection(mutation);
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: sharing,
+			identity: IDENTITY,
+			projection,
+			mutation,
+			workerGroups: owners,
+			workerScopeRevision: { project: "0", places: "0" },
+		});
+		const expectedOperations = built.program?.groupDefaults?.operations;
+		expect(expectedOperations?.length).toBeGreaterThan(0);
+		const submission = submissionEnvelopeArgs(mutation, APP_ID, {
+			...built,
+			submissionReceipt: {
+				...buildSubmissionReceiptIdentity({
+					appId: APP_ID,
+					identity: IDENTITY,
+					mutation,
+					projection,
+				}),
+				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
+			},
+		});
+		await sql`INSERT INTO lookup_project_state(project_id,revision) VALUES (${PROJECT},1) ON CONFLICT(project_id) DO UPDATE SET revision=1`.execute(
+			dbHandle.db,
+		);
+		await expect(store.applySubmission(submission)).rejects.toThrow(
+			/groups or places changed/,
+		);
+		expect(
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			}),
+		).toEqual([]);
+		const fresh = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: sharing,
+			identity: IDENTITY,
+			projection,
+			mutation,
+			workerGroups: owners,
+			workerScopeRevision: { project: "1", places: "0" },
+		});
+		await store.applySubmission(
+			submissionEnvelopeArgs(mutation, APP_ID, {
+				...fresh,
+				submissionReceipt: submission.submissionReceipt,
+			}),
+		);
+		const [patient] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(patient.owner_id).toBe(owners[0].id);
+	});
+
 	it.each([
 		["no", 0, undefined],
 		["yes", 1, "open"],
@@ -448,6 +957,101 @@ describe("engine → builder → executor acceptance", () => {
 			}
 		},
 	);
+
+	it("uses the captured answer to resolve a dynamic create type through the Preview program", async () => {
+		const answer = testUuid("case-type-answer");
+		const doc = buildDoc(
+			{
+				appId: APP_ID,
+				caseTypes: [
+					{ name: "person", properties: [] },
+					{ name: "visitor", properties: [] },
+				],
+				modules: [
+					{
+						name: "Intake",
+						forms: [
+							{
+								name: "Check in",
+								type: "survey",
+								fields: [f({ kind: "text", id: "selection", uuid: answer })],
+							},
+						],
+					},
+				],
+			},
+			(draft) => {
+				const form = Object.values(draft.forms)[0];
+				if (form === undefined) throw new Error("Expected the intake form.");
+				form.caseOperations = [
+					{
+						uuid: OP_ROOT,
+						id: "new_record",
+						action: "create",
+						caseType: "person",
+						target: { kind: "new" },
+						name: term(literal("Checked in")),
+						typeChoice: {
+							condition: eq(formField(answer), literal("person")),
+							otherwise: "visitor",
+						},
+						writes: [{ property: "selection", value: term(formField(answer)) }],
+					},
+				];
+			},
+		);
+		const formUuid = Object.keys(doc.forms)[0] as Uuid;
+		const store = makeStore();
+		const caseTypeSchemas = buildCaseTypeMap(doc);
+		for (const caseType of ["person", "visitor"])
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType,
+				caseTypeSchemas,
+			});
+		const input = buildEngineInput(doc, formUuid, null);
+		if (input === undefined) throw new Error("Expected the intake form.");
+		const engine = new FormEngine(input);
+		engine.setValue("/data/selection", "guest");
+		const mutation = engine.computeSubmissionMutation({ entryKey: ENTRY_KEY });
+		const projection = validateCaptureSubmissionProjection(mutation);
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection,
+			identity: IDENTITY,
+		});
+		await store.applySubmission(
+			submissionEnvelopeArgs(mutation, APP_ID, {
+				...built,
+				submissionReceipt: {
+					...buildSubmissionReceiptIdentity({
+						appId: APP_ID,
+						identity: IDENTITY,
+						mutation,
+						projection,
+					}),
+					expectedAppMutationSeq: 0,
+					blueprintDigest: "0".repeat(64),
+				},
+			}),
+		);
+		const readCases = (caseType: string) =>
+			store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType,
+			});
+		expect(await readCases("person")).toEqual([]);
+		expect(await readCases("visitor")).toEqual([
+			expect.objectContaining({
+				case_type: "visitor",
+				case_name: "Checked in",
+				properties: { selection: "guest" },
+			}),
+		]);
+	});
 
 	it("closes the complete ordered selection when the committed close condition holds", async () => {
 		const { doc, formUuid } = conditionalCloseDoc();
@@ -624,6 +1228,7 @@ describe("engine → builder → executor acceptance", () => {
 		await seedSessionCase(store, doc);
 
 		const engine = engineFor(doc, formUuid);
+		engine.addRepeat("/data/visits");
 		engine.addRepeat("/data/visits");
 		engine.setValue("/data/visits[0]/visit_note", "first visit");
 		engine.setValue("/data/visits[1]/visit_note", "second visit");

@@ -4,6 +4,7 @@ import {
 	CasePropertiesValidationError,
 	SubmissionRejectedError,
 } from "@/lib/case-store/errors";
+import { CaseSearchUnavailableError } from "@/lib/case-store/searchRequest";
 import { AppTestUnavailableError } from "@/lib/db/appTests";
 import { FormEvaluationInputError } from "../engine/formEvaluationTypes";
 
@@ -12,6 +13,7 @@ export class AppTestActionError extends AppTestUnavailableError {}
 export function expectedAppTestRefusal(error: unknown): error is Error {
 	return (
 		error instanceof AppTestActionError ||
+		error instanceof CaseSearchUnavailableError ||
 		error instanceof FormEvaluationInputError ||
 		error instanceof CaptureSubmissionRejectedError ||
 		error instanceof CaseNotFoundError ||

@@ -7,8 +7,9 @@
  * and project data's narrowing hold the same fact, so a choice the narrowing
  * kept and the validator refuses means the two disagree. And export
  * readiness never answers `MEDIA_EXPORT_TOO_LARGE`, whatever the files
- * weigh, over every document the proof lane publishes: the export's media
- * budget is project data's own finding, never the gate's.
+ * weigh, over every document the proof lane publishes: the in-memory
+ * export mode's media budget is no rule of the gate's, and a reading holds an
+ * app to none.
  *
  * Plausible failures: a choice the narrowing kept and the validator refuses,
  * offered at the review; a code the gate is said never to answer, answered.

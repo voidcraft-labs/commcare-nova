@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { sql, type Transaction } from "kysely";
+import type { WorkerProjectionAccess } from "@/lib/deployment/workerLookupProjection";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -12,12 +13,14 @@ import {
 	evidenceBytes,
 	inspectAppTestEvidence,
 } from "@/lib/preview/app-tests/evidence";
+import type { AppTestLookupProof } from "@/lib/preview/app-tests/types";
 import { blueprintRevisionDigest } from "@/lib/preview/engine/caseDataBindingClient";
 import {
 	EvaluationDeadlineError,
 	remainingEvaluationTime,
 	withEvaluationDeadline,
 } from "@/lib/preview/engine/evaluationDeadline";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { AppAccessError, resolveAppScopeInTransaction } from "./appAccess";
 import { loadAppInTransaction } from "./apps";
 import { type AppDatabase, withAppTx } from "./pg";
@@ -45,6 +48,10 @@ type JsonRecord = Record<string, unknown>;
 export class AppTestUnavailableError extends Error {}
 
 export interface AppTestScope {
+	/** Server-only authorization facts, never tool/action inputs. */
+	workerGrant?: WorkerProjectionAccess["grant"];
+	workerProofKey?: string;
+	workerGrantChecks?: readonly import("@/lib/deployment/workerLookupProjection").WorkerProjectionGrantCheck[];
 	appId: string;
 	actorUserId: string;
 	projectId: string;
@@ -89,9 +96,80 @@ async function authorize(tx: Transaction<AppDatabase>, scope: AppTestScope) {
 	);
 	if (access.projectId !== scope.projectId)
 		throw new AppAccessError("not_found");
+	for (const check of scope.workerGrantChecks ?? []) await check(tx);
 	return access;
 }
 
+/** Replays created before a table became private have no worker witness for
+ * that table. A removed table has no owner that could authorize its old rows. */
+function uncertifiedLookup() {
+	return sql<boolean>`EXISTS (
+		SELECT 1 FROM jsonb_array_elements(coalesce(app_test_sessions.snapshot #> '{lookup,definitions}', '[]'::jsonb)) AS def
+		LEFT JOIN lookup_tables t ON t.project_id=app_test_sessions.project_id AND t.id=(def->>'id')::uuid
+		WHERE NOT (coalesce(app_test_sessions.snapshot #> '{lookup,proof,tableIds}', '[]'::jsonb) ? (def->>'id'))
+		AND (t.id IS NULL OR t.worker_access='assigned' OR (t.hq_server IS NOT NULL AND t.hq_taken_over_at IS NULL
+			AND t.hq_canonical->'source' IS NOT NULL AND (
+			t.hq_canonical #>> '{source,storage}' = 'generation' OR t.hq_canonical #>> '{source,inventory}' IS DISTINCT FROM 'complete'
+			OR t.hq_canonical #>> '{source,distribution}' IS DISTINCT FROM 'global')))
+	)`;
+}
+function assertCurrentLookup(classification: boolean) {
+	if (classification)
+		throw new AppTestUnavailableError(
+			"This journey used shared data that is no longer available that way. You can start a test with the worker’s current data.",
+		);
+}
+function assertLookupProof(
+	scope: AppTestScope,
+	proof: unknown,
+	creator: string,
+) {
+	if (
+		proof &&
+		(creator !== scope.actorUserId ||
+			!scope.workerGrantChecks?.length ||
+			scope.workerProofKey !== canonicalJsonDigest(proof))
+	)
+		throw new AppTestUnavailableError(
+			"This journey’s worker data is no longer available to this account. You can start a test with the worker’s current data.",
+		);
+}
+function storedLookupProof(snapshot: Record<string, unknown>) {
+	return (snapshot.lookup as { proof?: AppTestLookupProof } | undefined)?.proof;
+}
+/** Read only the scope of a protected receipt before a current worker
+ * restore. Each later result compares it again before revealing any bytes. */
+export async function appTestLookupProof(
+	scope: AppTestScope,
+	selector: { testId: string } | { requestId: string },
+) {
+	return withAppTx(async (tx) => {
+		await authorize(tx, scope);
+		const query = tx
+			.selectFrom("app_test_sessions")
+			.select([
+				sql<AppTestLookupProof | null>`snapshot #> '{lookup,proof}'`.as(
+					"proof",
+				),
+				"created_by",
+				uncertifiedLookup().as("uncertified"),
+			])
+			.where("app_id", "=", scope.appId)
+			.where("project_id", "=", scope.projectId);
+		const row = await ("testId" in selector
+			? query.where("id", "=", selector.testId)
+			: query
+					.where("request_id", "=", selector.requestId)
+					.where("created_by", "=", scope.actorUserId)
+		).executeTakeFirst();
+		if (row) assertCurrentLookup(row.uncertified);
+		if (row?.proof && row.created_by !== scope.actorUserId)
+			throw new AppTestUnavailableError(
+				"This journey uses another author’s worker data. You can start a test using your own worker connection.",
+			);
+		return row?.proof;
+	});
+}
 type StartReceiptScope = AppTestScope & {
 	requestId: string;
 	requestDigest: string;
@@ -104,11 +182,18 @@ async function startReceipt(
 	const prior = await tx
 		.selectFrom("app_test_sessions")
 		.selectAll()
+		.select(uncertifiedLookup().as("uncertified"))
 		.where("app_id", "=", args.appId)
 		.where("created_by", "=", args.actorUserId)
 		.where("request_id", "=", args.requestId)
 		.executeTakeFirst();
 	if (prior) {
+		assertCurrentLookup(prior.uncertified);
+		assertLookupProof(
+			args,
+			storedLookupProof(prior.snapshot),
+			prior.created_by,
+		);
 		if (prior.request_digest !== args.requestDigest)
 			throw new AppTestUnavailableError(
 				"This test request was already used with different inputs.",
@@ -255,6 +340,7 @@ export async function advanceAppTestSession(
 			context: AdvanceSource,
 			item: { sessionId?: string; action: JsonRecord; expect?: JsonRecord },
 		) => Promise<{
+			snapshot?: JsonRecord;
 			state: JsonRecord;
 			observation: JsonRecord;
 			finished?: boolean;
@@ -287,6 +373,7 @@ export async function advanceAppTestSession(
 				const test = await tx
 					.selectFrom("app_test_sessions")
 					.selectAll()
+					.select(uncertifiedLookup().as("uncertified"))
 					.where("id", "=", args.testId)
 					.where("app_id", "=", args.appId)
 					.where("project_id", "=", scope.projectId)
@@ -297,6 +384,12 @@ export async function advanceAppTestSession(
 					throw new AppTestUnavailableError(
 						"This test is unavailable for this app and account. List this app's recent tests to find its full identity.",
 					);
+				assertCurrentLookup(test.uncertified);
+				assertLookupProof(
+					args,
+					storedLookupProof(test.snapshot),
+					test.created_by,
+				);
 				// Reauthorization precedes replay; source, state and aliases follow it.
 				const receipt = await tx
 					.selectFrom("app_test_requests")
@@ -359,6 +452,7 @@ export async function advanceAppTestSession(
 							"This test reached its 200-step limit. Finish it or start a new test for the next journey.",
 						);
 				}
+				let snapshot = test.snapshot;
 				let state = test.state;
 				let step = test.step;
 				let finished = test.disposed_at !== null;
@@ -385,7 +479,7 @@ export async function advanceAppTestSession(
 							: await args.advance(
 									tx,
 									{
-										snapshot: test.snapshot,
+										snapshot,
 										state,
 										blueprintSeq: Number(test.blueprint_seq),
 										blueprintDigest: test.blueprint_digest,
@@ -419,6 +513,7 @@ export async function advanceAppTestSession(
 					}
 					finished = next.finished === true;
 					state = finished ? {} : next.state;
+					if (next.snapshot) snapshot = next.snapshot;
 					results.push({
 						testId: test.id,
 						step,
@@ -438,6 +533,9 @@ export async function advanceAppTestSession(
 					.set({
 						step,
 						state: JSON.stringify(state),
+						...(snapshot !== test.snapshot && {
+							snapshot: JSON.stringify(snapshot),
+						}),
 						...(finished
 							? { disposed_at: sql<Date>`COALESCE(disposed_at, now())` }
 							: {}),
@@ -508,6 +606,10 @@ export async function readAppTestSteps(
 				"blueprint_seq",
 				"runtime_version",
 				"created_by",
+				sql<AppTestLookupProof | null>`snapshot #> '{lookup,proof}'`.as(
+					"worker_proof",
+				),
+				uncertifiedLookup().as("uncertified"),
 				"expires_at",
 				"disposed_at",
 				"step",
@@ -520,6 +622,8 @@ export async function readAppTestSteps(
 			throw new AppTestUnavailableError(
 				"This test is unavailable for this app and account. List this app's recent tests to find its full identity.",
 			);
+		assertCurrentLookup(test.uncertified);
+		assertLookupProof(args, test.worker_proof, test.created_by);
 		const throughStep = window.throughStep ?? test.step;
 		if (throughStep > test.step)
 			throw new AppTestUnavailableError(
@@ -660,6 +764,11 @@ export async function listAppTests(scope: AppTestScope) {
 			])
 			.where("app_id", "=", scope.appId)
 			.where("project_id", "=", scope.projectId)
+			.where(sql<boolean>`NOT ${uncertifiedLookup()}`)
+			.where(
+				// Parenthesized, or the OR would escape the app and Project filter.
+				sql<boolean>`(snapshot #> '{lookup,proof}' IS NULL OR created_by=${scope.actorUserId})`,
+			)
 			.orderBy("created_at", "desc")
 			.limit(30)
 			.execute();

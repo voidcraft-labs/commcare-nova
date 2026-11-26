@@ -4,12 +4,14 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	entryDatumSupplies,
 	formLinkTargetSupplies,
+	loadedSearchModules,
 	rootSelectionAlignment,
 } from "../entryDatumSupplies";
 import {
 	instanceReadsDoc,
 	reads,
 } from "../expression/__tests__/instanceReadsFixture";
+import { implicitFormSelectionId } from "../formEntryCases";
 import { type CaseOperation, caseOperationSchema } from "../forms";
 import type { Uuid } from "../uuid";
 import { chosen, chosenCaseDoc } from "./chosenCaseFixture";
@@ -18,6 +20,16 @@ const ROOT = testUuid("datum-root");
 const CHILD = testUuid("datum-child");
 const ROOT_FORM = testUuid("datum-root-form");
 const CHILD_FORM = testUuid("datum-child-form");
+
+/** The synthetic choice a form with no explicit list opens with, read in its
+ * own logic as the form's opening record. */
+const implicitChoice = (form: Uuid, module: Uuid, scalar = true) => ({
+	ref: {
+		kind: "form-selection",
+		selection: implicitFormSelectionId(form, module),
+	},
+	scalar,
+});
 
 function selectionDoc() {
 	return buildDoc({
@@ -42,6 +54,55 @@ function selectionDoc() {
 }
 
 describe("entry datums at their evaluation points", () => {
+	it("two searches sharing a name across a non-searching selection expose no unambiguous source", () => {
+		const middle = testUuid("datum-middle");
+		const doc = buildDoc({
+			caseTypes: [
+				{ name: "town", properties: [] },
+				{ name: "home", parent_type: "town", properties: [] },
+				{ name: "member", parent_type: "home", properties: [] },
+			],
+			modules: [
+				{
+					uuid: ROOT,
+					name: "Towns",
+					caseType: "town",
+					caseSearchConfig: { formsReadSearch: true },
+					forms: [{ uuid: ROOT_FORM, name: "Town", type: "followup" }],
+				},
+				{
+					uuid: middle,
+					name: "Homes",
+					caseType: "home",
+					parentCaseModuleUuid: ROOT,
+					forms: [{ name: "Home", type: "followup" }],
+				},
+				{
+					uuid: CHILD,
+					name: "Members",
+					caseType: "member",
+					parentCaseModuleUuid: middle,
+					caseSearchConfig: { formsReadSearch: true },
+					forms: [{ uuid: CHILD_FORM, name: "Visit", type: "followup" }],
+				},
+			],
+		});
+		doc.modules[middle].searchResultsName = "Homes";
+		const entry = { kind: "form", module: CHILD, form: CHILD_FORM } as const;
+		expect(loadedSearchModules(entryDatumSupplies(doc, entry))).toEqual([]);
+		const named = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[CHILD]: { ...doc.modules[CHILD], searchResultsName: "Members" },
+			},
+		};
+		expect(loadedSearchModules(entryDatumSupplies(named, entry))).toEqual([
+			ROOT,
+			CHILD,
+		]);
+	});
+
 	it("supplies a selection to a case-first form menu after selection", () => {
 		const doc = selectionDoc();
 		const selected = {
@@ -51,7 +112,7 @@ describe("entry datums at their evaluation points", () => {
 		expect(
 			entryDatumSupplies(doc, { kind: "form", module: ROOT, form: ROOT_FORM })
 				.refs,
-		).toEqual([selected]);
+		).toEqual([selected, implicitChoice(ROOT_FORM, ROOT)]);
 		expect(
 			entryDatumSupplies(doc, {
 				kind: "form-menu",
@@ -90,6 +151,7 @@ describe("entry datums at their evaluation points", () => {
 		});
 		expect(entryDatumSupplies(doc, point).refs).toEqual([
 			{ ref: { kind: "selected-case", module: CHILD }, scalar: true },
+			implicitChoice(CHILD_FORM, CHILD),
 			{ ref: { kind: "selected-case", module: ROOT }, scalar: true },
 		]);
 		expect(
@@ -123,6 +185,7 @@ describe("entry datums at their evaluation points", () => {
 		});
 		expect(entryDatumSupplies(doc, point).refs).toEqual([
 			{ ref: { kind: "selected-case", module: CHILD }, scalar: false },
+			implicitChoice(CHILD_FORM, CHILD, false),
 		]);
 	});
 
@@ -270,6 +333,7 @@ describe("entry datums at their evaluation points", () => {
 				.refs,
 		).toEqual([
 			{ ref: { kind: "selected-case", module: ROOT }, scalar: true },
+			implicitChoice(ROOT_FORM, ROOT),
 			{ ref: { kind: "new-child-case", caseType: "visit" }, scalar: true },
 		]);
 	});

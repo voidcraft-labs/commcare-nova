@@ -10,6 +10,7 @@
 
 import {
 	type LookupColumnReferenceTarget,
+	type LookupMemberReferenceTarget,
 	type LookupReferenceTargetSet,
 	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
@@ -61,6 +62,7 @@ export interface LookupReferenceScanObservation {
  * both sides while only the column edge differs.
  */
 export interface LookupReferenceTargetDifference {
+	readonly memberTargets?: readonly LookupMemberReferenceTarget[];
 	readonly tableIds: readonly LookupTableId[];
 	readonly columnTargets: readonly LookupColumnReferenceTarget[];
 }
@@ -142,8 +144,26 @@ export function compareLookupReferenceTargetSets(
 	const stored = normalizeLookupReferenceTargetSet(storedInput);
 	const byId = (a: LookupTableId, b: LookupTableId) => a.localeCompare(b);
 
+	const compareMembers = (
+		a: LookupMemberReferenceTarget,
+		b: LookupMemberReferenceTarget,
+	) =>
+		a.tableId.localeCompare(b.tableId) ||
+		(a.columnId ?? "").localeCompare(b.columnId ?? "") ||
+		a.memberId.localeCompare(b.memberId);
+	const structuralMembers = sortedDifference(
+		structural.memberTargets ?? [],
+		stored.memberTargets ?? [],
+		compareMembers,
+	);
+	const storedMembers = sortedDifference(
+		stored.memberTargets ?? [],
+		structural.memberTargets ?? [],
+		compareMembers,
+	);
 	return {
 		structuralOnly: {
+			...(structuralMembers.length ? { memberTargets: structuralMembers } : {}),
 			tableIds: sortedDifference(structural.tableIds, stored.tableIds, byId),
 			columnTargets: sortedDifference(
 				structural.columnTargets,
@@ -152,6 +172,7 @@ export function compareLookupReferenceTargetSets(
 			),
 		},
 		storedOnly: {
+			...(storedMembers.length ? { memberTargets: storedMembers } : {}),
 			tableIds: sortedDifference(stored.tableIds, structural.tableIds, byId),
 			columnTargets: sortedDifference(
 				stored.columnTargets,
@@ -163,7 +184,11 @@ export function compareLookupReferenceTargetSets(
 }
 
 function targetCount(targets: LookupReferenceTargetDifference): number {
-	return targets.tableIds.length + targets.columnTargets.length;
+	return (
+		targets.tableIds.length +
+		targets.columnTargets.length +
+		(targets.memberTargets?.length ?? 0)
+	);
 }
 
 function byApp(a: LookupReferenceScanApp, b: LookupReferenceScanApp): number {
@@ -266,7 +291,7 @@ function appHeading(app: LookupReferenceScanApp): string {
 }
 
 function countLabel(targets: LookupReferenceTargetDifference): string {
-	return `${targets.tableIds.length} table(s), ${targets.columnTargets.length} column(s)`;
+	return `${targets.tableIds.length} table(s), ${targets.columnTargets.length} column(s)${targets.memberTargets?.length ? `, ${targets.memberTargets.length} detail(s)` : ""}`;
 }
 
 function renderDifference(
@@ -276,6 +301,10 @@ function renderDifference(
 	if (targetCount(targets) === 0) return [];
 	return [
 		`  ${label}: ${countLabel(targets)}`,
+		...(targets.memberTargets ?? []).map(
+			({ tableId, columnId, memberId }) =>
+				`    detail ${tableId} / ${columnId ?? "row"} / ${memberId}`,
+		),
 		...targets.tableIds.map((tableId) => `    table ${tableId}`),
 		...targets.columnTargets.map(
 			({ tableId, columnId }) => `    column ${tableId} / ${columnId}`,

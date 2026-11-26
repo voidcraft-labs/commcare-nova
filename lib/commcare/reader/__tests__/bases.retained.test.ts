@@ -78,10 +78,26 @@ function retainedAnswers(base: RetainedHqApp): Map<string, string> {
 	]);
 	if (base.projectSpaces !== undefined) {
 		answers.set("projectSpaces:all", "project-spaces.json");
-		answers.set("projectSpaces:flagged", "project-spaces-flag.json");
+		// A reading that resolves a factory asks for the flagged list among its
+		// factory reads (`source-factories.json`); the lane keeps the flagged
+		// file beside the full list then, which the corpus reads as one pair.
+		const flaggedAmongFactories = Object.keys(
+			base.sourceFactoryReads ?? {},
+		).some((path) => path.includes("feature_flag="));
+		if (!flaggedAmongFactories && base.projectSpaces.flagged !== undefined)
+			answers.set("projectSpaces:flagged", "project-spaces-flag.json");
+		if (base.projectSpaces.caseListActions !== undefined)
+			answers.set(
+				"projectSpaces:caseListActions",
+				"project-spaces-case-list-actions.json",
+			);
 	}
 	for (const tag of Object.keys(base.fixtureRows ?? {}))
 		answers.set(`fixtureRows:${tag}`, `fixture-rows-${tag}.json`);
+	for (const id of Object.keys(base.lookupDefinitions ?? {}))
+		answers.set(`lookupDefinition:${id}`, `lookup-definition-${id}.json`);
+	for (const id of Object.keys(base.fixtureDetails ?? {}))
+		answers.set(`fixtureDetail:${id}`, `fixture-detail-${id}.json`);
 	if (base.locationTypes !== undefined)
 		answers.set("locationTypes", "location-types.json");
 	if (base.locations !== undefined) answers.set("locations", "locations.json");
@@ -205,6 +221,10 @@ function discrepancies(base: RetainedHqApp, reading: LaneReading): string[] {
 	if (reading.kind === "declaration-not-offered")
 		return [
 			`The base ${base.id} is to be read under ${words(reading.stated)}, and its reading offers only ${reading.offered.map(words).join(", ")}.`,
+		];
+	if (reading.kind === "owner-rules-not-answered")
+		return [
+			`The base ${base.id} answers the owner rules ${JSON.stringify(reading.stated)}, and its reading asks about the levels ${JSON.stringify(reading.askedLevels)}. Give its ownerRuleChoices one answer a level it asks about (proof/matrix/bases/).`,
 		];
 	const expected = base.expected;
 	const changes = [

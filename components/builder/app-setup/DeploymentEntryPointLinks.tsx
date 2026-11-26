@@ -66,6 +66,10 @@ export function DeploymentEntryPointLinks({
 				server: view.deployment.deployment.server,
 				domain: view.deployment.deployment.domain,
 				entryPointUuid: entry.entryPoint.uuid,
+				creations: entry.requiredCreations.map((row) => ({
+					operationUuid: row.operationUuid,
+					caseId: values[row.operationUuid] ?? "",
+				})),
 				selections: entry.requiredSelections.map((selection) => ({
 					moduleUuid: selection.moduleUuid,
 					caseIds: (values[selection.moduleUuid] ?? "")
@@ -150,6 +154,25 @@ export function DeploymentEntryPointLinks({
 									cases are separate and aren't substituted here.
 								</p>
 							)}
+							{entry.requiredCreations.map((creation) => (
+								<div key={creation.operationUuid} className="space-y-1">
+									<Label htmlFor={`new-case-${creation.operationUuid}`}>
+										New {creation.caseType} case ID
+									</Label>
+									<Input
+										id={`new-case-${creation.operationUuid}`}
+										value={values[creation.operationUuid] ?? ""}
+										disabled={!canEdit || pending}
+										onChange={(event) => {
+											setValues({
+												...values,
+												[creation.operationUuid]: event.target.value,
+											});
+											setCopied(false);
+										}}
+									/>
+								</div>
+							))}
 							{entry.requiredSelections.map((selection) => (
 								<div key={selection.moduleUuid} className="space-y-2">
 									<Label htmlFor={`${prefix}-${selection.moduleUuid}`}>
@@ -204,6 +227,9 @@ export function DeploymentEntryPointLinks({
 									disabled={
 										pending ||
 										Boolean(entry.issue) ||
+										entry.requiredCreations.some(
+											(row) => !(values[row.operationUuid] ?? "").trim(),
+										) ||
 										entry.requiredSelections.some(
 											(selection) =>
 												!(values[selection.moduleUuid] ?? "").trim(),

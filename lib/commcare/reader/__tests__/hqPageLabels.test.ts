@@ -130,24 +130,13 @@ describe("a finding's name", () => {
 		).toContain("Previous Screen");
 	});
 
-	it("names a `late-flag` column by the format menu's label", async () => {
-		const findings = await readColumnChange({
-			format: "late-flag",
-			late_flag: 30,
-		});
-		const flag = findings.find(
-			(one) => one.code === `${M}6-late-flag-late-flag-1`,
-		);
-		expect(flag?.detail).toMatchObject({ name: "Late Flag" });
-	});
-
 	it("never shows a stored word, a surface key or a column HQ named for itself", async () => {
 		const readings = await Promise.all([
 			readPreviousOnSeveralCases(),
 			...[
-				{ format: "late-flag", late_flag: 30 },
-				{ format: "late-flag", late_flag: 0 },
-				{ format: "time-ago" },
+				{ format: "audio" },
+				{ format: "graph" },
+				{ format: "time-ago", time_ago_interval: 14 },
 				{ format: "address" },
 				{ format: "distance" },
 				{ format: "picture" },
@@ -199,15 +188,13 @@ describe("a finding's name", () => {
 	it("names a column over a property Nova's grammar cannot hold by its own entry", async () => {
 		const hashed = await readColumnChange({ field: "#notes" });
 		expect(hashed.map((one) => one.code)).toContain(
-			`${M}column-field-outside-nova-s-property-grammar`,
+			`${M}column-reading-an-unknown-hash-property`,
 		);
 		const long = await readColumnChange({ field: `n${"o".repeat(255)}` });
-		expect(long.map((one) => one.code)).toContain(
-			`${M}column-field-outside-nova-s-property-grammar`,
-		);
+		expect(long).toEqual([]);
 		const nearOwner = await readColumnChange({ field: "#owner_names" });
 		expect(nearOwner.map((one) => one.code)).toContain(
-			`${M}column-field-outside-nova-s-property-grammar`,
+			`${M}column-reading-an-unknown-hash-property`,
 		);
 		expect(nearOwner.map((one) => one.code)).not.toContain(`${M}owner-name`);
 		const failing = await readColumnChange({ field: "no tes" });

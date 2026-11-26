@@ -4,7 +4,7 @@
  *
  * `builder.ts::buildXFormSource` writes three such kinds of text. A Connect
  * block's name and description are text nodes of the form's data
- * (`builder.ts::buildConnectBlocks`), which CommCare Connect and HQ's form
+ * (`builder.ts::buildActivityParts`), which CommCare Connect and HQ's form
  * builder read as the element's own text. The form's name in the app's
  * default language is the text of `<h:title>` and the data root's `name`
  * attribute (`dataRootAttributes.ts`), which HQ's form builder writes again on
@@ -20,6 +20,7 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { connectActivitySites } from "@/lib/domain/connectActivitySites";
 import { formWireName } from "@/lib/domain/formWireName";
 
 export type FormSourceTextSite =
@@ -59,24 +60,28 @@ export function formSourceTexts(
 	const texts: FormSourceText[] = [
 		{ site: "form-name", text: formWireName(doc, formUuid) },
 	];
-	const connect = form.connect;
-	if (connect === undefined) return texts;
-	if ("learn_module" in connect && connect.learn_module !== undefined) {
-		texts.push(
-			{ site: "learn-module-name", text: connect.learn_module.name },
-			{
-				site: "learn-module-description",
-				text: connect.learn_module.description,
-			},
-		);
-	}
-	if ("deliver_unit" in connect && connect.deliver_unit !== undefined)
-		texts.push({ site: "deliver-unit-name", text: connect.deliver_unit.name });
-	if ("task" in connect && connect.task !== undefined) {
-		texts.push(
-			{ site: "task-name", text: connect.task.name },
-			{ site: "task-description", text: connect.task.description },
-		);
+	for (const {
+		field: { activity },
+	} of connectActivitySites(doc, formUuid)) {
+		switch (activity.kind) {
+			case "learning-module":
+				texts.push(
+					{ site: "learn-module-name", text: activity.name },
+					{ site: "learn-module-description", text: activity.description },
+				);
+				break;
+			case "delivery":
+				texts.push({ site: "deliver-unit-name", text: activity.name });
+				break;
+			case "assigned-task":
+				texts.push(
+					{ site: "task-name", text: activity.name },
+					{ site: "task-description", text: activity.description },
+				);
+				break;
+			case "assessment":
+				break;
+		}
 	}
 	return texts;
 }

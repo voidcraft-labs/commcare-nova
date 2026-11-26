@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
 # Inherit dependency layers instead of copying the full node_modules tree.
 FROM deps AS sources
 COPY . .
-RUN node scripts/harden-agent-react-devtools.mjs
+RUN node scripts/harden-agent-react-devtools.mjs && node scripts/fix-yazl-descriptors.mjs
 
 FROM sources AS migration-build
 RUN npx esbuild scripts/migrate.ts \
@@ -144,6 +144,19 @@ COPY --from=maintenance-build --chown=nextjs:nodejs /app/*.cjs ./
 USER nextjs
 # Safe default: the repair CLI scans unless an operator explicitly executes it.
 CMD ["node", "legacy-preplan-repair.cjs"]
+
+# The reviewed reader and converter are source bundles prepared before the window.
+# Only these files enter the image. The private conversion plan stays in GCS.
+FROM maintenance-build AS maintenance-step7-build
+RUN npx esbuild scripts/job-hq-round-trip-completion.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=hq-round-trip-completion.cjs
+
+FROM maintenance AS maintenance-step7
+COPY --from=maintenance-step7-build --chown=nextjs:nodejs /app/hq-round-trip-completion.cjs ./
+COPY --from=step7-artifacts --chown=nextjs:nodejs \
+    artifacts.json released.mjs convert.mjs ./step7-artifacts/
 
 # The registry seed is copied directly inside BuildKit into its writable cache
 # mount. It never passes through the build context or an application layer.

@@ -46,6 +46,8 @@ import { v4 as uuidv4 } from "uuid";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
+import { reorderDetailTabFields } from "@/lib/doc/caseDetailTabMutations";
+import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	type CaseListRegistrationDependentsPlan,
 	planCaseListRegistrationDependentsOnRemove,
@@ -69,7 +71,6 @@ import { planFieldMoveCaseWrites } from "@/lib/doc/fieldCaseWriteMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
-import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import {
 	formRecordNameMutations,
 	type PreparedFormRecordName,
@@ -124,8 +125,10 @@ import {
 	caseListModuleMutations,
 	caseTypeCatalogMutations,
 	formScaffoldMutations,
+	sharedFormMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
+import { planFormDependentsOnRemove } from "@/lib/doc/sharedFormDependents";
 import type {
 	BlueprintDoc,
 	Mutation,
@@ -154,8 +157,9 @@ import {
 	type AutomationSchedule,
 	asUuid,
 	type CaseProperty,
+	CONNECT_ROLES,
 	type CommitOutcome,
-	type ConnectConfig,
+	type ConnectRole,
 	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
@@ -178,10 +182,24 @@ import {
 	type UserProperty,
 	type UserType,
 } from "@/lib/domain";
+import {
+	canAskConnectRecipient,
+	connectRecipientRule,
+} from "@/lib/domain/connectRecipientRule";
 import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
+import { freeQuestionId } from "@/lib/domain/questionId";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { pendingIdentityMoveSlot } from "@/lib/session/store";
+import {
+	listedFormMenuMutations,
+	listedFormVisibilityMutation,
+} from "../scaffolds";
+import { offerSearchNameMutations } from "../searchResultsNaming";
+import {
+	changeListedMenuSource,
+	withListedMenuHierarchy,
+} from "../sharedMenuHierarchy";
 
 /**
  * Outcome of an entity-adding dispatch: the minted uuid on success, the
@@ -388,11 +406,11 @@ export interface DuplicateFieldResult {
 
 type ModuleUpdatePatch = ModuleAuthoringPatch;
 type FormMutationPatch = Extract<Mutation, { kind: "updateForm" }>["patch"];
-type FormAuthoringPatch = Omit<FormMutationPatch, "connect"> & {
+type FormAuthoringPatch = FormMutationPatch & {
 	/** Form display names persist through the identity-specific rename kind. */
 	name?: Form["name"];
 };
-type NewFormAuthoringInput = Omit<Form, "uuid" | "connect"> & {
+type NewFormAuthoringInput = Omit<Form, "uuid"> & {
 	uuid?: string;
 };
 
@@ -427,6 +445,13 @@ export interface BlueprintMutations {
 			atIndex?: number;
 		},
 	) => AddCommitOutcome;
+	/** Insert a repeated delivery and the worker's required, unique recipient
+	 * question in one undoable edit. Both IDs are ordinary editable fields. */
+	addDeliveryWithRecipient: (
+		parentUuid: Uuid,
+		id: string,
+		atIndex: number,
+	) => AddCommitOutcome;
 	/**
 	 * Update fields on an existing field entity. Callers pass `undefined` for
 	 * any field value to clear it — no `null` coercion needed.
@@ -458,6 +483,7 @@ export interface BlueprintMutations {
 	moveField: (
 		uuid: Uuid,
 		opts: {
+			where?: "screen" | "submission";
 			toParentUuid?: Uuid;
 			afterUuid?: Uuid;
 			beforeUuid?: Uuid;
@@ -532,12 +558,6 @@ export interface BlueprintMutations {
 		value: Expression,
 		prepared?: Pick<PreparedFormRecordName, "slot">,
 	) => CommitOutcome;
-	/**
-	 * Refine the complete configuration of a form that already participates
-	 * in Connect. This cannot add or remove participation; those membership
-	 * changes belong exclusively to the app-wide exact target planner.
-	 */
-	refineFormConnect: (uuid: Uuid, connect: ConnectConfig) => CommitOutcome;
 	/**
 	 * Set or clear form menu media via the dedicated null-carrying mutation
 	 * so clears survive JSON replay.
@@ -716,6 +736,24 @@ export interface BlueprintMutations {
 		locationIds: readonly string[],
 	) => CommitOutcome;
 
+	createListedFormMenu: (args: {
+		menuUuid: Uuid;
+		name?: string;
+		parentModuleUuid?: Uuid;
+		after?: Uuid | null;
+	}) => AddCommitOutcome;
+	setListedMenuSource: (
+		route: Uuid,
+		previous: Uuid,
+		source: Uuid,
+	) => CommitOutcome;
+	setFormListed: (
+		route: Uuid,
+		source: Uuid,
+		form: Uuid,
+		included: boolean,
+	) => CommitOutcome;
+
 	createCaseListModule: (args: {
 		caseType: string;
 		name?: string;
@@ -736,6 +774,11 @@ export interface BlueprintMutations {
 	 * one gated batch. A bare case list keeps its case list entry beside the
 	 * new form. Returns the new form's uuid for navigation.
 	 */
+	createSharedForm: (
+		moduleUuid: Uuid,
+		parentUuid: Uuid,
+		index?: number,
+	) => AddCommitOutcome;
 	createForm: (
 		moduleUuid: Uuid,
 		type: FormType,
@@ -744,8 +787,7 @@ export interface BlueprintMutations {
 
 	// ── App-level ─────────────────────────────────────────────────────────
 	/**
-	 * App-name edit. The complete Connect target state has a separate
-	 * app-wide owner in `lib/doc/connectTargetState.ts`.
+	 * Change the app name.
 	 */
 	updateApp: (patch: { app_name: string }) => CommitOutcome;
 	/**
@@ -766,6 +808,7 @@ export interface BlueprintMutations {
 	 * changes, so a switch that sets one never writes over a peer's change to
 	 * the other.
 	 */
+	setConnectRole: (role: ConnectRole, enabled: boolean) => CommitOutcome;
 	setAppSettings: (settings: AppSettingsPatch) => CommitOutcome;
 	/**
 	 * Rename one or more case properties app-wide as one simultaneous,
@@ -1005,7 +1048,12 @@ export function createBlueprintMutations(
 				return { ok: false, messages: admission.messages };
 			}
 			const doc = get();
-			const authored = isMutationList(batch) ? batch : batch.authored;
+			/* A menu hierarchy edit carries the listing menus' submenus with
+			 * it. A batch it adds nothing to stays the very batch admitted,
+			 * so a stated batch commits as the one the dialog showed. */
+			const stated = isMutationList(batch) ? batch : batch.authored;
+			const listed = withListedMenuHierarchy(doc, stated);
+			const authored = listed.length === stated.length ? stated : listed;
 			/* The waiting batch was projected into the worker language when
 			 * it was dispatched, and the gate admitted it as it stands;
 			 * projecting it again would read its own translation writes as
@@ -1107,16 +1155,6 @@ export function createBlueprintMutations(
 		const toOutcome = (
 			applied: ReturnType<typeof guardedApply>,
 		): CommitOutcome => (applied.ok ? COMMITTED : applied);
-		const rejectConnectOwnership = (): {
-			ok: false;
-			messages: string[];
-		} => {
-			const messages = [
-				"Connect participation must be changed through the app-wide Connect configuration.",
-			];
-			if (announce) notifyRejectedCommit(messages);
-			return { ok: false, messages };
-		};
 		/* Removing a form a case list always offers is refused naming each
 		 * list. The toast's "Stop offering it" clears the offer on every named
 		 * list that still offers the form, in one gated batch on the
@@ -1236,6 +1274,62 @@ export function createBlueprintMutations(
 				return { ok: true, uuid };
 			},
 
+			addDeliveryWithRecipient(parentUuid, id, atIndex) {
+				const doc = get();
+				if (!canAskConnectRecipient(doc, parentUuid))
+					return {
+						ok: false,
+						messages: ["This repeat changed. Open it again to add a delivery."],
+					};
+				const recipient = asUuid(uuidv4()),
+					delivery = asUuid(uuidv4());
+				const siblingIds = new Set(
+					(doc.fieldOrder[parentUuid] ?? []).map((uuid) => doc.fields[uuid].id),
+				);
+				siblingIds.add(id);
+				const applied = guardedApply([
+					{
+						kind: "addField",
+						parentUuid,
+						after: fieldSlotAfter(doc, parentUuid, { index: atIndex }),
+						field: {
+							uuid: recipient,
+							kind: "text",
+							id: freeQuestionId("recipient_id", siblingIds),
+							label: proseText("Person or place ID"),
+							required: { kind: "match-all" },
+							validate: connectRecipientRule(parentUuid, recipient),
+							validate_msg: proseText(
+								"Each delivery needs a different person or place ID of up to 255 characters.",
+							),
+						},
+					},
+					{
+						kind: "addField",
+						parentUuid,
+						after: recipient,
+						field: {
+							uuid: delivery,
+							kind: "connect_activity",
+							id,
+							activity: {
+								kind: "delivery",
+								name: "New delivery",
+								entityId: {
+									kind: "term",
+									term: {
+										kind: "field",
+										uuid: recipient,
+										spelling: "relative",
+									},
+								},
+							},
+						},
+					},
+				]);
+				return applied.ok ? { ok: true, uuid: delivery } : applied;
+			},
+
 			updateField(uuid, targetKind, patch) {
 				const doc = get();
 				if (!doc.fields[uuid]) {
@@ -1330,27 +1424,41 @@ export function createBlueprintMutations(
 				// is unreachable in practice because every field has a parent
 				// entry in `fieldOrder`. Read the parent directly from the
 				// store-maintained `fieldParent` reverse index (O(1)).
-				const toParentUuid = opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
+				const toParentUuid =
+					opts.toParentUuid ??
+					(opts.where === "submission"
+						? field.submissionPlacement?.parent
+						: undefined) ??
+					doc.fieldParent[uuid] ??
+					uuid;
 
 				// Resolve the requested slot to a landing in the destination
 				// parent's sequence, excluding the moved field from the neighbour
 				// set — a same-parent reorder places it among the OTHER siblings.
-				const after = fieldSlotAfter(
-					doc,
-					toParentUuid,
-					{
-						index: opts.toIndex,
-						beforeUuid: opts.beforeUuid,
-						afterUuid: opts.afterUuid,
-					},
-					uuid,
-				);
+				// A submitted answer names only its group: its place among the
+				// group's values is the one the form designer writes.
+				const after =
+					opts.where === "submission"
+						? null
+						: fieldSlotAfter(
+								doc,
+								toParentUuid,
+								{
+									index: opts.toIndex,
+									beforeUuid: opts.beforeUuid,
+									afterUuid: opts.afterUuid,
+								},
+								uuid,
+							);
 
 				// A write to a case the form creates in one repeat follows the
 				// move to the create of the field's new repeat; the form's own
 				// case and the worker's record keep theirs, and the gate judges
 				// a write read from inside a repeat.
-				const rehoming = planFieldMoveCaseWrites(doc, uuid, toParentUuid);
+				const rehoming =
+					opts.where === undefined
+						? planFieldMoveCaseWrites(doc, uuid, toParentUuid)
+						: { ok: true as const, mutations: [] };
 				if (!rehoming.ok) {
 					const messages = [rehoming.message];
 					if (announce) notifyRejectedCommit(messages);
@@ -1358,7 +1466,13 @@ export function createBlueprintMutations(
 				}
 				return toOutcome(
 					guardedApply([
-						{ kind: "moveField", uuid, toParentUuid, after },
+						{
+							kind: "moveField",
+							uuid,
+							toParentUuid,
+							after,
+							...(opts.where && { where: opts.where }),
+						},
 						...rehoming.mutations,
 					]),
 				);
@@ -1538,12 +1652,6 @@ export function createBlueprintMutations(
 					warnUnresolved("addForm", { moduleUuid });
 					return NOOP_REJECTION;
 				}
-				/* Runtime backstop for untyped callers: the public input omits
-				 * `connect`, but a cast or stale bundle must not smuggle a new
-				 * participant through the generic form writer. */
-				if (Object.hasOwn(form, "connect")) {
-					return rejectConnectOwnership();
-				}
 				const maybeUuid = form.uuid;
 				const formUuid = asUuid(
 					typeof maybeUuid === "string" && maybeUuid.length > 0
@@ -1567,11 +1675,6 @@ export function createBlueprintMutations(
 				if (!form) {
 					warnUnresolved("updateForm", { uuid });
 					return NOOP_REJECTION;
-				}
-				/* The type omits `connect`; keep the same ownership invariant
-				 * at runtime for JavaScript, casts, and version-skewed clients. */
-				if (Object.hasOwn(patch, "connect")) {
-					return rejectConnectOwnership();
 				}
 				const { name, type, ...metadata } = patch;
 				const mutations: Mutation[] = [];
@@ -1618,31 +1721,6 @@ export function createBlueprintMutations(
 				}
 			},
 
-			refineFormConnect(uuid, connect) {
-				const doc = get();
-				const form = doc.forms[uuid];
-				if (!form) {
-					warnUnresolved("refineFormConnect", { uuid });
-					return NOOP_REJECTION;
-				}
-				/* Refinement is intentionally narrower than membership:
-				 * a nonparticipant cannot be added here, and null/undefined
-				 * cannot remove one. The exact target planner is the only
-				 * owner of either transition. */
-				if (form.connect === undefined || connect == null) {
-					return rejectConnectOwnership();
-				}
-				return toOutcome(
-					guardedApply([
-						{
-							kind: "updateForm",
-							uuid,
-							patch: { connect },
-						},
-					]),
-				);
-			},
-
 			setFormMedia(uuid, media) {
 				const doc = get();
 				if (!doc.forms[uuid]) {
@@ -1681,7 +1759,7 @@ export function createBlueprintMutations(
 				 * would dangle. The shared planner refuses naming every link
 				 * (`lib/doc/formLinkDependents.ts`); the SA's `removeForm` tool
 				 * consults the same planner, so both surfaces refuse alike. */
-				const dependents = planFormLinkDependentsOnRemove(doc, {
+				const dependents = planFormDependentsOnRemove(doc, {
 					kind: "form",
 					formUuid: uuid,
 				});
@@ -1761,6 +1839,12 @@ export function createBlueprintMutations(
 									patch.caseType,
 								)
 							: caseTypeCatalogMutations(doc, retirement, patch.caseType)),
+						...(patch.parentCaseModuleUuid !== undefined &&
+						!Object.hasOwn(patch, "searchResultsName")
+							? offerSearchNameMutations(doc, uuid, {
+									parentCaseModuleUuid: patch.parentCaseModuleUuid,
+								})
+							: []),
 						...moduleMutations,
 					]),
 				);
@@ -1800,6 +1884,16 @@ export function createBlueprintMutations(
 					return at <= 0 ? null : sequence[at - 1];
 				})();
 				if (after === currentAfter) return COMMITTED;
+				if (surface === "detail" && config.detailTabs) {
+					const reordered = [...others];
+					reordered.splice(clamped, 0, uuid);
+					const plan = reorderDetailTabFields(moduleUuid, config, reordered);
+					if ("error" in plan) {
+						if (announce) notifyRejectedCommit([plan.error]);
+						return { ok: false, messages: [plan.error] };
+					}
+					return toOutcome(guardedApply(plan.mutations));
+				}
 				return toOutcome(
 					guardedApply([
 						{ kind: "moveColumn", moduleUuid, uuid, surface, after },
@@ -1851,7 +1945,10 @@ export function createBlueprintMutations(
 					return NOOP_REJECTION;
 				}
 				return toOutcome(
-					guardedApply([{ kind: "moveModule", uuid, ...placement }]),
+					guardedApply([
+						...offerSearchNameMutations(get(), uuid, placement),
+						{ kind: "moveModule", uuid, ...placement },
+					]),
 				);
 			},
 
@@ -1882,7 +1979,7 @@ export function createBlueprintMutations(
 				 * into it would dangle; the shared planner refuses naming each
 				 * (`lib/doc/formLinkDependents.ts`). Links on the module's own
 				 * forms leave with them. */
-				const dependents = planFormLinkDependentsOnRemove(doc, {
+				const dependents = planFormDependentsOnRemove(doc, {
 					kind: "module",
 					moduleUuid: uuid,
 				});
@@ -1900,6 +1997,7 @@ export function createBlueprintMutations(
 				}
 				return toOutcome(
 					guardedApply([
+						...retireCaseFormContextTile(doc, uuid, true),
 						{ kind: "removeModule", uuid },
 						...(retirement.kind === "retire" ? retirement.mutations : []),
 					]),
@@ -2203,6 +2301,35 @@ export function createBlueprintMutations(
 				return toOutcome(guardedApply(removePersonaMutations(uuid)));
 			},
 
+			createListedFormMenu(args) {
+				const plan = listedFormMenuMutations(get(), args);
+				if (!plan.ok) return { ok: false, messages: [plan.message] };
+				const result = guardedApply(plan.mutations);
+				return result.ok ? { ok: true, uuid: plan.moduleUuid } : result;
+			},
+			setListedMenuSource(route, previous, source) {
+				const plan = changeListedMenuSource(get(), route, previous, source);
+				return plan.ok
+					? guardedApply(plan.mutations)
+					: { ok: false, messages: [plan.message] };
+			},
+			setFormListed(route, source, form, included) {
+				const mut = listedFormVisibilityMutation(
+					get(),
+					route,
+					source,
+					form,
+					included,
+				);
+				if (!mut)
+					return {
+						ok: false,
+						messages: [
+							"This menu's form source changed. Choose it again to continue.",
+						],
+					};
+				return guardedApply([mut]);
+			},
 			createCaseListModule({ caseType, name, parentModuleUuid, after }) {
 				const { mutations, moduleUuid } = caseListModuleMutations(get(), {
 					caseType,
@@ -2223,6 +2350,15 @@ export function createBlueprintMutations(
 				const applied = guardedApply(mutations);
 				if (!applied.ok) return applied;
 				return { ok: true, uuid: moduleUuid };
+			},
+
+			createSharedForm(moduleUuid, parentUuid, index) {
+				const scaffold = sharedFormMutations(get(), moduleUuid, parentUuid, {
+					index,
+				});
+				if (!scaffold) return NOOP_REJECTION;
+				const result = guardedApply(scaffold.mutations);
+				return result.ok ? { ok: true, uuid: scaffold.formUuid } : result;
 			},
 
 			createForm(moduleUuid, type, index) {
@@ -2251,6 +2387,28 @@ export function createBlueprintMutations(
 				// explicit `MediaAssetId | null`; the reducer maps `null →
 				// undefined` so a clear drops the optional key off the doc.
 				return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
+			},
+
+			setConnectRole(role, enabled) {
+				const doc = get();
+				if (enabled && doc.appSettings.runsOnlyOn === "web-apps")
+					return {
+						ok: false,
+						messages: [
+							"You can choose Android only under Where workers use this app. Nova will check that your forms and media work on Android.",
+						],
+					};
+				const roles = CONNECT_ROLES.filter((candidate) =>
+					candidate === role ? enabled : doc.connectRoles.includes(candidate),
+				);
+				const mutations: Mutation[] = [];
+				if (enabled && doc.appSettings.runsOnlyOn !== "android")
+					mutations.push({
+						kind: "setAppSettings",
+						settings: { runsOnlyOn: "android" },
+					});
+				mutations.push({ kind: "setConnectRoles", roles });
+				return toOutcome(guardedApply(mutations));
 			},
 
 			setAppSettings(settings) {

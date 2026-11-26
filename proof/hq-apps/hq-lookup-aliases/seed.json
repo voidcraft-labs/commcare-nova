@@ -1,0 +1,10 @@
+{
+	"catalog": [],
+	"values": {},
+	"userData": [
+		"commcare_location_id"
+	],
+	"worker": {
+		"location": "north-1"
+	}
+}

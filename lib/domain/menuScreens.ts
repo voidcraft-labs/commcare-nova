@@ -18,6 +18,7 @@
 // so it takes a `BlueprintDoc` where the rest of this file takes a
 // `MenuScreenSource`.
 
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { advancedLoadTags, menuEmittedAdvanced } from "./advancedEntryDatums";
 import type { BlueprintDoc } from "./blueprint";
 import {
@@ -27,9 +28,15 @@ import {
 	rootSelectionAlignment,
 } from "./entryDatumSupplies";
 import { CASE_LOADING_FORM_TYPES } from "./forms";
-import { menuFormUuidsOf, type PreparedMenuForm } from "./menuForms";
-import { projectedModulePreorder } from "./moduleHierarchy";
 import {
+	formRouteUuids,
+	listedMenuIsEmpty,
+	menuWithInheritedCaseSettings,
+} from "./listedForms";
+import { menuFormUuidsOf, type PreparedMenuForm } from "./menuForms";
+import { moduleParent, projectedModulePreorder } from "./moduleHierarchy";
+import {
+	caseSelectionMaximum,
 	moduleHasCaseListMenuItem,
 	moduleShowsFormsInMenuAbove,
 } from "./modules";
@@ -129,14 +136,21 @@ function screensOf(doc: MenuScreenSource): Screens {
 	for (const moduleUuid of projectedModulePreorder(doc)) {
 		const own = menuScreenKey(menuScreenOf(doc, moduleUuid));
 		push(contributors, own, moduleUuid);
-		const mod = doc.modules[moduleUuid];
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 		if (mod === undefined) continue;
 		for (const formUuid of menuFormUuidsOf(doc, moduleUuid))
 			push(entries, own, { kind: "form", moduleUuid, formUuid });
 		if (moduleHasCaseListMenuItem(mod))
 			push(entries, own, { kind: "case-list", moduleUuid });
 		const tile = menuTileScreenOf(doc, moduleUuid);
-		if (tile !== undefined && menuScreenKey(tile) !== own)
+		// A menu listing another menu's forms that shows none of them has no
+		// `<menu>` on the device, as HQ's build writes none without a command
+		// (`suite_xml/sections/menus.py`), so no tile opens it.
+		if (
+			tile !== undefined &&
+			menuScreenKey(tile) !== own &&
+			!listedMenuIsEmpty(doc, moduleUuid)
+		)
 			push(entries, menuScreenKey(tile), { kind: "menu", moduleUuid });
 	}
 	return { contributors, entries };
@@ -198,6 +212,47 @@ export function menuScreenContributors(
 	screen: MenuScreen,
 ): Uuid[] {
 	return [...(knownScreens(doc).contributors.get(menuScreenKey(screen)) ?? [])];
+}
+
+/** Layout on the suite menu contributed by this module. The first menu
+ * takes the app's own layout, including when no module contributes to it.
+ * HQ marks only grids. List contributions therefore carry no style. A menu
+ * listing another menu's forms is a `ShadowModule` on the wire, which holds
+ * no choice of its own: only the app-wide grid reaches it
+ * (`suite_xml/sections/menus.py::get_module_contributions` asks
+ * `hasattr(module, 'grid_display_style')`, which only `Module` has). */
+export function menuContributionLayout(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): "grid" | undefined {
+	if (menuScreenOf(doc, moduleUuid).kind === "first-menu")
+		return doc.appSettings.firstMenuLayout;
+	if (doc.appSettings.formMenuLayout === "grid") return "grid";
+	const mod = doc.modules[moduleUuid];
+	if (
+		doc.appSettings.formMenuLayout === "individual" &&
+		mod?.formsFromMenu === undefined
+	)
+		return mod?.menuLayout;
+	return undefined;
+}
+
+/** Core considers all contributions with this screen's id, even ones
+ * whose commands are hidden. An absent style does not conflict with grid.
+ * HQ omits contributions that have no commands. */
+export function menuScreenLayout(
+	doc: BlueprintDoc,
+	screen: MenuScreen,
+): "list" | "grid" {
+	if (screen.kind === "first-menu")
+		return doc.appSettings.firstMenuLayout ?? "list";
+	const hasGrid = menuScreenContributors(doc, screen).some(
+		(uuid) =>
+			menuContributionLayout(doc, uuid) === "grid" &&
+			(menuFormUuidsOf(doc, uuid).length > 0 ||
+				moduleHasCaseListMenuItem(doc.modules[uuid])),
+	);
+	return hasGrid ? "grid" : "list";
 }
 
 /** Everything the screen lists, in the order a worker meets it. */
@@ -310,8 +365,9 @@ function advancedDatumKey(tag: string): string {
  * alignWithRootMenu`, which a basic case list entry passes through as a
  * form's does, HQ's `add_parent_datums` over `entry_for_module`), so it reads
  * the root entry's own key: its first form's, read the same way, so an
- * advanced root's `case_id_<tag>`, or its basic case list's where it has no
- * form (HQ aligns with nothing there and the child keeps its basic id).
+ * advanced root's `case_id_<tag>`. A root with no form aligns nothing (HQ's
+ * `add_parent_datums` returns the child's datums as they are), so the child
+ * keeps its own basic id.
  * Otherwise a basic entry starts with its first selection (`entrySelections`'
  * key), and a form of a menu emitted advanced with its first load's datum,
  * `case_id_<tag>` (`advancedEntryDatums.ts::advancedLoadTags`): a held tag as
@@ -328,8 +384,12 @@ function entryFirstDatumKey(
 	if (visiting.has(entry.module)) return undefined;
 	if (entry.kind === "browse" && menuEmittedAdvanced(doc, entry.module))
 		return advancedDatumKey(
-			`case_${doc.modules[entry.module]?.caseType ?? ""}`,
+			`case_${menuWithInheritedCaseSettings(doc, entry.module)?.caseType ?? ""}`,
 		);
+	if (entry.kind === "form") {
+		const choices = entrySelectionSettings(doc.forms[entry.form]);
+		if (choices && choices[0]?.source.kind !== "choose") return undefined;
+	}
 	const [first] = entrySelections(doc, entry);
 	if (first === undefined) return undefined;
 	const alignment = rootSelectionAlignment(doc, entry);
@@ -337,16 +397,24 @@ function entryFirstDatumKey(
 		(pair) => pair.targetModuleUuid === first.module,
 	);
 	const parent = alignment.parentEntry;
-	if (match !== undefined && parent !== undefined) {
+	if (match !== undefined && parent?.kind === "form") {
 		const [parentFirst] = entrySelections(doc, parent);
 		if (parentFirst?.module !== match.sourceModuleUuid) return first.key;
-		return parent.kind === "form"
-			? entryFirstDatumKey(doc, parent, new Set([...visiting, entry.module]))
-			: parentFirst.key;
+		return entryFirstDatumKey(
+			doc,
+			parent,
+			new Set([...visiting, entry.module]),
+		);
 	}
-	if (entry.kind === "browse" || !menuEmittedAdvanced(doc, entry.module))
+	if (
+		entry.kind === "browse" ||
+		!menuEmittedAdvanced(
+			doc,
+			doc.modules[entry.module]?.formsFromMenu?.menuUuid ?? entry.module,
+		)
+	)
 		return first.key;
-	const [tag] = advancedLoadTags(doc, entry.form);
+	const tag = advancedLoadTags(doc, entry.form)[0];
 	return tag === undefined ? first.key : advancedDatumKey(tag);
 }
 
@@ -356,7 +424,7 @@ function caseListEntryKey(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): string | undefined {
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (mod === undefined || !moduleHasCaseListMenuItem(mod)) return undefined;
 	return entryFirstDatumKey(doc, { kind: "browse", module: moduleUuid });
 }
@@ -396,11 +464,17 @@ export function screenShapeBlocker(
 	if (screenIsBareCaseList(doc, screen)) return { reason: "bare-case-list" };
 	for (const moduleUuid of menuScreenContributors(doc, screen)) {
 		// A form of a module with no case type loads no case, whatever its type.
-		const hasCaseType = doc.modules[moduleUuid]?.caseType !== undefined;
+		const hasCaseType =
+			menuWithInheritedCaseSettings(doc, moduleUuid)?.caseType !== undefined;
 		const formUuid = menuFormUuidsOf(doc, moduleUuid, prepared).find((uuid) => {
 			const type = formTypeOf(doc, uuid, prepared);
 			return (
-				!hasCaseType || type === undefined || !CASE_LOADING_FORM_TYPES.has(type)
+				!hasCaseType ||
+				type === undefined ||
+				(entrySelectionSettings(doc.forms[uuid]) === undefined
+					? !CASE_LOADING_FORM_TYPES.has(type)
+					: entrySelectionSettings(doc.forms[uuid])?.[0]?.source.kind !==
+						"choose")
 			);
 		});
 		if (formUuid !== undefined)
@@ -470,12 +544,25 @@ export function screenChoosesCaseFirst(
 ): boolean {
 	if (screenCaseFirstBlocker(doc, screen, prepared) !== undefined) return false;
 	return menuScreenContributors(doc, screen).some((moduleUuid) => {
-		const mod = doc.modules[moduleUuid];
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 		return (
 			menuFormUuidsOf(doc, moduleUuid, prepared).length > 0 ||
 			(mod !== undefined && moduleHasCaseListMenuItem(mod))
 		);
 	});
+}
+
+/** The first route whose worker has yet to choose a case when this form is
+ * listed. A display condition is stored once and runs on all of its routes. */
+export function formRouteBeforeCase(
+	doc: BlueprintDoc,
+	owner: Uuid,
+	form: Uuid,
+	prepared?: PreparedMenuForm,
+): Uuid | undefined {
+	return formRouteUuids(doc, owner, form).find(
+		(route) => !screenChoosesCaseFirst(doc, menuScreenOf(doc, route), prepared),
+	);
 }
 
 /**
@@ -494,27 +581,109 @@ export function screenChoosesCaseFirst(
  * Each call reads a view of its own, so the selection projection's per-document
  * cache never outlives a reducer's write to the same draft.
  */
-export function firstMenuOpensOneCase(doc: EntrySelectionSource): boolean {
+function firstMenuSelection(doc: EntrySelectionSource) {
 	const view: EntrySelectionSource = {
 		modules: doc.modules,
 		moduleOrder: doc.moduleOrder,
 		forms: doc.forms,
 		formOrder: doc.formOrder,
 	};
-	let shared: string | undefined;
+	let shared: ReturnType<typeof entrySelections>[number] | undefined;
 	for (const moduleUuid of projectedModulePreorder(view)) {
 		if (!moduleShowsFormsInMenuAbove(view.modules[moduleUuid])) continue;
-		for (const formUuid of view.formOrder[moduleUuid] ?? []) {
+		for (const formUuid of (view.modules[moduleUuid]?.formsFromMenu
+			? menuFormUuidsOf(view, moduleUuid)
+			: view.formOrder[moduleUuid]) ?? []) {
 			if (view.forms[formUuid] === undefined) continue;
-			const key = entrySelections(view, {
+			const choice = entrySelections(view, {
 				kind: "form",
 				module: moduleUuid,
 				form: formUuid,
-			})[0]?.key;
-			if (key === undefined || (shared !== undefined && key !== shared))
-				return false;
-			shared = key;
+			})[0];
+			if (
+				choice === undefined ||
+				(shared !== undefined && choice.key !== shared.key)
+			)
+				return undefined;
+			shared ??= choice;
 		}
 	}
-	return shared !== undefined;
+	return shared && { choice: shared, view };
+}
+
+/** A static module return reads the same datum out of the submitting entry.
+ * A survey or registration which never selected it cannot supply it. */
+export function formSuppliesFirstMenuCase(
+	doc: EntrySelectionSource,
+	module: Uuid,
+	form: Uuid,
+): boolean {
+	const shared = firstMenuSelection(doc);
+	if (!shared) return false;
+	return entrySelections(shared.view, { kind: "form", module, form }).some(
+		(candidate) =>
+			candidate.key === shared.choice.key &&
+			candidate.scalar &&
+			shared.choice.scalar &&
+			shared.view.modules[candidate.module]?.caseType ===
+				shared.view.modules[shared.choice.module]?.caseType,
+	);
+}
+
+export function firstMenuOpensOneCase(doc: EntrySelectionSource): boolean {
+	return firstMenuSelection(doc) !== undefined;
+}
+
+/** Android keeps a commandless frame's datum when opening the next command,
+ * even if that command loads a different case type under the same name.
+ * MenuScreensRuntimeTest exercises this with an alpha case and a beta form.
+ * Unrelated datum names and independently named selections remain safe. */
+export function firstMenuCaseOpensAnotherType(
+	doc: EntrySelectionSource,
+): boolean {
+	const shared = firstMenuSelection(doc);
+	if (!shared) return false;
+	const { choice, view } = shared;
+	const caseType = view.modules[choice.module]?.caseType;
+	const collides = (entry: DatumEntry) =>
+		entrySelections(view, entry).some(
+			(other) =>
+				other.key === choice.key &&
+				(view.modules[other.module]?.caseType !== caseType ||
+					caseSelectionMaximum(view.modules[other.module]) !==
+						caseSelectionMaximum(view.modules[choice.module])),
+		);
+	return view.moduleOrder.some(
+		(module) =>
+			(view.formOrder[module] ?? []).some((form) =>
+				collides({ kind: "form", module, form }),
+			) ||
+			(moduleHasCaseListMenuItem(view.modules[module]) &&
+				collides({ kind: "browse", module })),
+	);
+}
+
+/** Whether a module's form and case list entries are off the menu: a module
+ * whose condition they carry (`menuScreens.ts::conditionModulesOf`, the module
+ * and, where it shows its forms above, its parent) is off the menu, or the
+ * module keeps its screen under a parent that keeps its screen and is off the
+ * menu, so no menu reaches the module's own screen. */
+export function moduleEntriesOffTheMenu(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): boolean {
+	if (
+		conditionModulesOf(doc, moduleUuid).some(
+			(uuid) => doc.modules[uuid]?.hiddenFromMenu === true,
+		)
+	)
+		return true;
+	const parentUuid = moduleParent(doc, moduleUuid);
+	return (
+		moduleHasOwnScreen(doc, moduleUuid) &&
+		parentUuid !== undefined &&
+		parentUuid !== null &&
+		moduleHasOwnScreen(doc, parentUuid) &&
+		doc.modules[parentUuid]?.hiddenFromMenu === true
+	);
 }

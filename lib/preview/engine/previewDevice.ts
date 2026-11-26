@@ -40,8 +40,17 @@ import {
 	WEB_APPS_APPVERSION,
 	WEB_APPS_DEVICE_ID,
 } from "../platform";
+import {
+	type PreviewSearchTarget,
+	previewSearchTargetSchema,
+} from "../searchSettings";
 
 export interface PreviewDevice {
+	/** Selects a saved Preview profile. The server resolves the actual facts. */
+	readonly searchConfiguration?: {
+		readonly target?: PreviewSearchTarget;
+		readonly revision: string;
+	};
 	readonly platform: Platform;
 	/** The UUID part of Android's `deviceid`; ignored on Web Apps. */
 	readonly androidDeviceId: string;
@@ -62,6 +71,12 @@ const PREVIEW_DEVICE_SHAPE_MESSAGE =
 const previewDeviceSchema = z
 	.strictObject({
 		platform: z.enum(PLATFORMS),
+		searchConfiguration: z
+			.strictObject({
+				target: previewSearchTargetSchema.optional(),
+				revision: z.string().min(1),
+			})
+			.optional(),
 		androidDeviceId: z.uuid(),
 		appLanguage: z.string().min(1).max(32),
 		windowWidth: z.number().int().min(1).max(100_000).optional(),
@@ -80,6 +95,9 @@ export function previewDeviceInput(value: unknown): PreviewDevice {
 	if (!parsed.success) throw new Error(PREVIEW_DEVICE_SHAPE_MESSAGE);
 	const { platform, androidDeviceId, appLanguage, windowWidth } = parsed.data;
 	return {
+		...(parsed.data.searchConfiguration && {
+			searchConfiguration: parsed.data.searchConfiguration,
+		}),
 		platform,
 		androidDeviceId,
 		appLanguage,
@@ -198,12 +216,13 @@ export function samePreviewDevice(a: PreviewDevice, b: PreviewDevice): boolean {
 		a.platform === b.platform &&
 		a.androidDeviceId === b.androidDeviceId &&
 		a.appLanguage === b.appLanguage &&
-		a.windowWidth === b.windowWidth
+		a.windowWidth === b.windowWidth &&
+		a.searchConfiguration?.revision === b.searchConfiguration?.revision
 	);
 }
 
 /** A request identity for the device's platform, install and language; the
  *  window width is read per request and is no part of it. */
 export function previewDeviceKey(device: PreviewDevice): string {
-	return `${device.platform}\u0000${device.androidDeviceId}\u0000${device.appLanguage}`;
+	return `${device.platform}\u0000${device.androidDeviceId}\u0000${device.appLanguage}\u0000${device.searchConfiguration?.revision ?? ""}`;
 }

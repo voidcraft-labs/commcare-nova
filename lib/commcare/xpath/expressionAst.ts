@@ -1,7 +1,10 @@
+import { namedEntrySupplies } from "@/lib/domain/advancedEntryDatums";
 import { expressionChildren } from "@/lib/domain/expression/children";
+import { fixedChoiceText } from "@/lib/domain/expression/choiceValue";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { printFormExpression } from "@/lib/domain/expression/print";
 import { type ExpressionSpans, spanKey } from "@/lib/domain/expression/spans";
+import { xpathLiteralParts } from "@/lib/domain/expression/stringLiteral";
 import {
 	CALL_FUNCTIONS,
 	type CallFunction,
@@ -15,6 +18,7 @@ import {
 } from "@/lib/domain/expressionFunctions";
 import { readCaseReference } from "@/lib/domain/hashtagSegments";
 import { organizationLevelsOf } from "@/lib/domain/organization";
+import { caseTextWireKey } from "../suite/case-list/calculationText";
 import { itextIdFor, itextUnitForId } from "../xform/itextIds";
 import { formNodeProjection } from "./formNodeProjection";
 import {
@@ -97,7 +101,15 @@ export function parseFormExpression(
 		};
 	if (syntax.node === undefined)
 		return { ok: true, expression: undefined, spans: new Map() };
-	const rootNode = syntax.node;
+	return bindFormSyntax(source, scope, syntax.node);
+}
+
+/** Bind an existing syntax tree to the identities of this slot. */
+export function bindFormSyntax(
+	source: string,
+	scope: FormParseScope,
+	rootNode: FormSyntax,
+): FormParseResult {
 	const context = formScopeContext(scope);
 	if (context === undefined)
 		return {
@@ -144,7 +156,7 @@ export function parseFormExpression(
 					if (child.kind !== "relation") collect(child.value, child.path);
 			};
 			collect(scope.current, []);
-			matchFormSyntax(before.node, syntax.node, (oldNode, newNode) => {
+			matchFormSyntax(before.node, rootNode, (oldNode, newNode) => {
 				if (formSyntaxKey(oldNode) !== formSyntaxKey(newNode)) return;
 				const hint = byBounds.get(`${oldNode.from}:${oldNode.to}`);
 				if (hint !== undefined) hints.set(newNode, hint);
@@ -183,35 +195,34 @@ export function parseFormExpression(
 		opposite: Expression,
 		ctx: ExpressionContext,
 	): Expression {
-		if (
-			value.kind !== "term" ||
-			value.term.kind !== "literal" ||
-			typeof value.term.value !== "string"
-		)
-			return value;
 		const other = expressionTerm(opposite);
 		const bounds = positions.get(value) ?? rootNode;
-		if (other?.kind === "case-row-type")
-			return term({ kind: "case-type", caseType: value.term.value }, bounds);
-		if (other?.kind === "location-field" && other.field === "type") {
-			const code = value.term.value;
-			const levels = Object.values(organizationLevelsOf(scope.doc)).filter(
-				(level) => level.code === code,
-			);
-			if (levels.length !== 1)
-				refuse(
-					"unknown-level",
-					bounds,
-					`There's no organization level with the code ${value.term.value}. You can check the level codes in App setup, Organization.`,
+		const scalar = expressionTerm(value);
+		if (scalar?.kind === "literal" && typeof scalar.value === "string") {
+			if (other?.kind === "case-row-type")
+				return term({ kind: "case-type", caseType: scalar.value }, bounds);
+			if (other?.kind === "location-field" && other.field === "type") {
+				const code = scalar.value;
+				const levels = Object.values(organizationLevelsOf(scope.doc)).filter(
+					(level) => level.code === code,
 				);
-			return term(
-				{ kind: "location-level", levelUuid: levels[0].uuid },
-				bounds,
-			);
+				if (levels.length !== 1)
+					refuse(
+						"unknown-level",
+						bounds,
+						`There's no organization level with the code ${code}. You can check the level codes in App setup, Organization.`,
+					);
+				return term(
+					{ kind: "location-level", levelUuid: levels[0].uuid },
+					bounds,
+				);
+			}
 		}
 		if (other?.kind !== "field" || other.role !== undefined) return value;
 		const field = ctx.form?.fields.get(other.uuid);
 		if (field?.choices?.kind !== "inline") return value;
+		const text = fixedChoiceText(value);
+		if (text === undefined) return value;
 		const prior = hints.get(bounds);
 		const priorTerm = prior?.kind === "term" ? prior.term : prior;
 		if (
@@ -224,10 +235,7 @@ export function parseFormExpression(
 			)
 		)
 			return term(priorTerm, bounds);
-		const values =
-			field.kind === "multi_select"
-				? value.term.value.split(/\s+/u).filter(Boolean)
-				: [value.term.value];
+		const values = field.kind === "multi_select" ? text.split(" ") : [text];
 		const options = values.map((selected) =>
 			field.choices?.kind === "inline"
 				? field.choices.options.find((option) => option.value === selected)
@@ -267,22 +275,38 @@ export function parseFormExpression(
 			node.namespace === "search" ||
 			node.namespace === "case"
 		) {
-			if (node.segments.length !== 1)
+			if (
+				node.segments.length !== 1 &&
+				!(node.namespace === "search" && node.segments.length === 2)
+			)
 				refuse("unknown-hashtag", node, RECORD_REFERENCE_SHAPE);
-			const property = node.segments[0];
+			const property = node.segments[node.segments.length - 1];
 			if (node.namespace === "user")
 				return term(formUserProperty(scope, property, "worker-record"), node);
 			if (node.namespace === "search") {
 				const matches =
-					ctx.form?.searchInputs.filter((input) => input.name === property) ??
-					[];
+					ctx.form?.searchInputs.filter(
+						(input) =>
+							input.name === property &&
+							input.supplierId ===
+								(node.segments.length === 2 ? node.segments[0] : undefined),
+					) ?? [];
 				if (matches.length !== 1)
 					refuse(
 						"unknown-search-input",
 						node,
 						`This menu's search has no field called ${property}.`,
 					);
-				return term({ kind: "input", searchInputUuid: matches[0].uuid }, node);
+				return term(
+					{
+						kind: "input",
+						searchInputUuid: matches[0].uuid,
+						...(matches[0].supplier !== undefined && {
+							supplier: matches[0].supplier,
+						}),
+					},
+					node,
+				);
 			}
 			const selected = scope.authoring?.selectedCaseType;
 			if (selected === undefined)
@@ -305,6 +329,46 @@ export function parseFormExpression(
 		node: Extract<FormSyntax, { kind: "call" }>,
 		ctx: ExpressionContext,
 	): Expression {
+		if (!scope.reading && node.name === "case-list-lookup-count") {
+			const module = ctx.caseListLookupCountSource;
+			if (node.args.length !== 0 || module === undefined)
+				refuse(
+					"unknown-datum",
+					node,
+					"This form needs to open directly from one case list with a companion lookup before it can read the lookup count.",
+				);
+			return remember({ kind: "case-list-lookup-count", module }, node);
+		}
+		if (
+			!scope.reading &&
+			(node.name === "opening-record" || node.name === "opening-value")
+		) {
+			const label = node.args[0];
+			if (node.args.length !== 1 || label?.kind !== "string" || !ctx.form)
+				refuse(
+					"unknown-datum",
+					node,
+					"An opening value needs one record or value name in quotes.",
+				);
+			const kind =
+				node.name === "opening-record" ? "form-selection" : "entry-value";
+			const supplies = namedEntrySupplies(scope.doc, ctx.form.formUuid).filter(
+				(row) => row.ref.kind === kind,
+			);
+			const identity = supplies.find((row) => row.uuid === label.value);
+			const matches = identity
+				? [identity]
+				: supplies.filter((row) => row.name === label.value);
+			if (matches.length !== 1)
+				refuse(
+					"unknown-datum",
+					node,
+					matches.length
+						? "Several supplies have this name. You can use the stable ID of the one you mean."
+						: "This form has no opening record or value with that name. You can choose one of the form’s opening supplies.",
+				);
+			return term({ kind: "session-datum", datum: matches[0].ref }, node);
+		}
 		const special =
 			node.name === "jr:itext"
 				? { minArgs: 1, maxArgs: 1, returnType: "string" as const }
@@ -430,13 +494,26 @@ export function parseFormExpression(
 				return remember({ kind: "not", clause: args[0] }, node);
 			case "is-blank":
 				return remember({ kind: "is-blank", left: args[0] }, node);
-			case "concat":
-				return args.length === 0
-					? literal("", node)
-					: remember(
-							{ kind: "concat", parts: args as [Expression, ...Expression[]] },
-							node,
-						);
+			case "concat": {
+				if (args.length === 0) return literal("", node);
+				// Reopening a formula keeps a text literal whose only XPath spelling
+				// uses both delimiters. Other concatenations remain authored calls.
+				if (node.args.every((part) => part.kind === "string")) {
+					const pieces = node.args.map((part) => part.value);
+					const value = pieces.join("");
+					const encoded = xpathLiteralParts(value);
+					if (
+						encoded.length > 1 &&
+						encoded.length === pieces.length &&
+						encoded.every((piece, i) => piece === pieces[i])
+					)
+						return literal(value, node);
+				}
+				return remember(
+					{ kind: "concat", parts: args as [Expression, ...Expression[]] },
+					node,
+				);
+			}
 			case "coalesce":
 				return remember(
 					{ kind: "coalesce", values: args as [Expression, ...Expression[]] },
@@ -562,12 +639,18 @@ export function parseFormExpression(
 					return literal(-written.value, node);
 				return remember({ kind: "negate", value: bind(node.value, ctx) }, node);
 			}
-			case "variable":
+			case "variable": {
+				const piece = ctx.caseTexts?.find(
+					(item) => caseTextWireKey(item.uuid) === node.name,
+				);
+				if (piece)
+					return remember({ kind: "case-text", textUuid: piece.uuid }, node);
 				return refuse(
 					"variable",
 					node,
 					`Form expressions have no variables like $${node.name}. You can read the question or property that holds the value.`,
 				);
+			}
 			case "binary": {
 				if (node.op === "|")
 					refuse(
@@ -648,11 +731,11 @@ export function parseFormExpression(
 		worker: (slug, source) => formUserProperty(scope, slug, source),
 	};
 	try {
-		let expression = bind(syntax.node, context);
+		let expression = bind(rootNode, context);
 		if (scope.slot.entity === "field" && scope.slot.slot === "default_value")
 			expression = choiceFor(
 				expression,
-				term({ kind: "field", uuid: scope.slot.uuid }, syntax.node),
+				term({ kind: "field", uuid: scope.slot.uuid }, rootNode),
 				context,
 			);
 		const spans = new Map<string, Bounds>();
@@ -666,7 +749,7 @@ export function parseFormExpression(
 			for (const child of expressionChildren(node, path))
 				if (child.kind !== "relation") visit(child.value, child.path, bounds);
 		};
-		visit(expression, [], syntax.node);
+		visit(expression, [], rootNode);
 		return { ok: true, expression, spans };
 	} catch (error) {
 		if (!(error instanceof FormParseRefusal)) throw error;

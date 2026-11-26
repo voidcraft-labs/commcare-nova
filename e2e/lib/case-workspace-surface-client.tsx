@@ -28,13 +28,16 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import {
+	ancestorPath,
 	and,
 	dateLiteral,
 	eq,
+	gt,
 	input,
 	literal,
 	lt,
 	prop,
+	relationStep,
 	sessionContext,
 	term,
 	today,
@@ -55,6 +58,8 @@ const nameId = uuidSchema.parse("00000000-0000-7000-8000-000000006001"),
 	dobId = uuidSchema.parse("00000000-0000-7000-8000-000000006002"),
 	searchId = uuidSchema.parse("00000000-0000-7000-8000-000000006003");
 const siblingId = uuidSchema.parse("00000000-0000-7000-8000-000000006004");
+const registerFormId = uuidSchema.parse("00000000-0000-7000-8000-000000006005");
+const viewer = scenario.endsWith("-viewer");
 const caseTypes: CaseType[] = [
 	{
 		name: "patient",
@@ -67,8 +72,27 @@ const caseTypes: CaseType[] = [
 		],
 	},
 ];
+if (scenario === "map") {
+	caseTypes[0].properties.push(
+		{
+			name: "home_point",
+			label: proseText("Home location"),
+			data_type: "geopoint",
+		},
+		{
+			name: "service_area",
+			label: proseText("Assigned area"),
+			data_type: "text",
+		},
+		{
+			name: "priority_color",
+			label: proseText("Visit color"),
+			data_type: "text",
+		},
+	);
+}
 // Clients belong to households, whose address a column can show.
-if (scenario === "related") {
+if (scenario === "related" || scenario === "search-direct-parent") {
 	caseTypes[0] = { ...caseTypes[0], parent_type: "household" } as CaseType;
 	caseTypes.push({
 		name: "household",
@@ -84,19 +108,50 @@ if (scenario === "related") {
 }
 const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 config.columns = [
-	plainColumn(nameId, "case_name", "Client name"),
+	scenario === "map"
+		? plainColumn(nameId, "priority_color", "Visit color")
+		: plainColumn(nameId, "case_name", "Client name"),
 	plainColumn(dobId, "dob", "Birth date"),
 ];
 config.listColumnOrder = [nameId, dobId];
 config.detailColumnOrder = [dobId, nameId];
+if (scenario === "choice-labels-and-values") {
+	caseTypes[0]?.properties.push({
+		name: "village",
+		label: proseText("Village"),
+		data_type: "single_select",
+		options: [{ value: "south", label: proseText("Southern district") }],
+	});
+	config.columns = [
+		plainColumn(nameId, "village", "Village"),
+		plainColumn(dobId, "village", "Village code"),
+	];
+}
 if (scenario.startsWith("search"))
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "name", "Name", "text", "case_name"),
+	];
+if (scenario === "search-direct-parent")
+	config.searchInputs = [
+		simpleSearchInputDef(
+			searchId,
+			"parent_address",
+			"Parent address",
+			"text",
+			"address",
+			{ matching: "project-space", via: ancestorPath(relationStep("parent")) },
+		),
 	];
 if (scenario === "search-date")
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "dob", "Birth date", "date", "dob", {
 			default: today(),
+		}),
+	];
+if (scenario === "search-calendar-calculation")
+	config.searchInputs = [
+		simpleSearchInputDef(searchId, "dob", "Birth dates", "date-range", "dob", {
+			default: term(literal("2024-03-01 to 2024-03-31")),
 		}),
 	];
 if (scenario === "search-text")
@@ -119,6 +174,43 @@ if (scenario === "search-clone")
 			),
 		),
 	];
+if (scenario === "search-address-removal") {
+	const otherAddressId = uuidSchema.parse(
+		"00000000-0000-7000-8000-000000006006",
+	);
+	config.searchInputs = [
+		{
+			kind: "address",
+			type: "address",
+			uuid: searchId,
+			name: "address",
+			label: "Find an address",
+			excludeFromRequest: true,
+		},
+		{
+			kind: "address",
+			type: "address",
+			uuid: otherAddressId,
+			name: "backup_address",
+			label: "Alternative address",
+			excludeFromRequest: true,
+		},
+		{
+			...simpleSearchInputDef(siblingId, "region", "Region", "text", "region"),
+			addressReceiver: { kind: "address", source: searchId, parts: ["city"] },
+		},
+		{
+			...simpleSearchInputDef(
+				uuidSchema.parse("00000000-0000-7000-8000-000000006007"),
+				"name",
+				"Client name",
+				"text",
+				"case_name",
+			),
+			addressReceiver: { kind: "address", source: searchId, parts: ["city"] },
+		},
+	];
+}
 if (scenario === "search-dependencies") {
 	const dependency = whenInput(
 		input(searchId),
@@ -214,8 +306,49 @@ const source = buildDoc({
 				},
 			],
 		},
+		// A menu holding the registration a list action offers on Clients.
+		{
+			name: "Registration",
+			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					uuid: registerFormId,
+					name: "Register client",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "client_name",
+							label: proseText("Client name"),
+							caseWrite: { caseType: "patient", property: "case_name" },
+						},
+					],
+				},
+			],
+		},
 	],
 });
+// Clients' list offers Registration's form, with a condition a viewer reads.
+if (scenario.startsWith("list-action"))
+	source.modules[source.moduleOrder[0]].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: registerFormId,
+		afterSubmit: "case-list",
+		...(scenario === "list-action-viewer" && {
+			showWhen: {
+				kind: "condition" as const,
+				// The list reads the worker's records, so its button may count them.
+				condition: gt(
+					{
+						kind: "count",
+						via: { kind: "cases", source: "casedb", where: [] },
+					},
+					literal(0),
+				),
+			},
+		}),
+	};
 const gate = evaluateCommit({
 	nextDoc: structuredClone(source),
 	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
@@ -408,13 +541,13 @@ createRoot(root).render(
 			appId,
 			projectId: "native-project",
 			role: "owner",
-			canEdit: scenario !== "selection-viewer",
+			canEdit: !viewer,
 		}}
 	>
 		<BlueprintDocProvider
 			initialDoc={persisted}
 			appId={appId}
-			canEdit={scenario !== "selection-viewer"}
+			canEdit={!viewer}
 		>
 			<CaseListWorkspaceProvider
 				controllerComponent={CaseListWorkspaceControllerBridge}

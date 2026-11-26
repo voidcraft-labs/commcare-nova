@@ -100,7 +100,7 @@ describe("assemblePersistedBlueprintJsonText", () => {
 			"historical-app",
 			{
 				app_name: "Historical app",
-				connect_type: null,
+				connect_roles: [],
 				case_types_text: null,
 				app_settings_text:
 					'{"showSavedForms":false,"showIncompleteForms":true}',
@@ -123,7 +123,7 @@ describe("assemblePersistedBlueprintJsonText", () => {
 				"unsettled-app",
 				{
 					app_name: "Unsettled app",
-					connect_type: null,
+					connect_roles: [],
 					case_types_text: null,
 					app_settings_text: null,
 					logo: null,
@@ -423,7 +423,7 @@ describe("persisted JSON source boundaries", () => {
 
 		for (const relative of [
 			"lib/db/canonicalCommitKernel.ts",
-			"lib/db/mediaDeletion.ts",
+			"lib/db/persistedReferenceApps.ts",
 			"scripts/lib/persistedLookupReferenceScan.ts",
 		]) {
 			const source = readFileSync(path.join(root, relative), "utf8");

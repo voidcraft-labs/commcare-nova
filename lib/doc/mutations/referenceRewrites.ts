@@ -1,7 +1,7 @@
 /** Registry-driven case-property renames over the one Expression tree. */
 import {
+	type BlueprintDoc,
 	type CaseType,
-	columnPropertyCaseType,
 	type Field,
 	FORM_REFERENCE_SLOTS,
 	type Form,
@@ -18,6 +18,7 @@ import {
 	mapCasePropertiesInExpression,
 } from "@/lib/domain/expression/rewrite";
 import { isExpression } from "@/lib/domain/expression/types";
+import { moduleCaseProperties } from "../moduleCaseProperties";
 
 export interface FieldSlotRewriteOps {
 	resolveCaseProperty: CasePropertyNameResolver;
@@ -82,13 +83,14 @@ export function rewriteFieldReferenceSlots(
 					field.optionsSource.kind === "cases"
 				) {
 					const source = field.optionsSource;
-					const next = ops.resolveCaseProperty(
-						source.caseType,
-						source.labelProperty,
-					);
-					if (next !== undefined && next !== source.labelProperty) {
-						source.labelProperty = next;
-						changed++;
+					for (const key of ["labelProperty", "sortProperty"] as const) {
+						const property = source[key];
+						if (property === undefined) continue;
+						const next = ops.resolveCaseProperty(source.caseType, property);
+						if (next !== undefined && next !== property) {
+							source[key] = next;
+							changed++;
+						}
 					}
 				}
 				break;
@@ -97,6 +99,7 @@ export function rewriteFieldReferenceSlots(
 			case "entity-uuid":
 			case "relation-path":
 			case "datum-ref":
+			case "worker-property-ref":
 				break;
 			default: {
 				const exhaustive: never = slot.kind;
@@ -155,9 +158,9 @@ export interface ModuleCaseRefRewrites {
 export function rewriteModuleCaseRefs(
 	mod: Module,
 	resolveCaseProperty: CasePropertyNameResolver,
-	caseTypes: readonly CaseType[],
+	doc: BlueprintDoc,
 ): ModuleCaseRefRewrites {
-	const ops = { resolveCaseProperty, caseTypes };
+	const ops = { resolveCaseProperty, caseTypes: doc.caseTypes ?? [] };
 	let columnsRewritten = 0;
 	let astRefsRewritten = 0;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
@@ -165,40 +168,15 @@ export function rewriteModuleCaseRefs(
 			astRefsRewritten += rewriteExpressions(mod, slot.path, ops);
 		if (slot.kind === "options-source")
 			astRefsRewritten += rewriteExpressions(mod, `${slot.path}.filter`, ops);
-		if (slot.slot === "case_list_column_field" && mod.caseType !== undefined) {
-			for (const column of mod.caseListConfig?.columns ?? []) {
-				if (column.kind === "calculated") continue;
-				// A column read through a relation names a property of the case
-				// its walk reaches, so a rename of that type's property renames it.
-				const caseType = columnPropertyCaseType(
-					column,
-					mod.caseType,
-					caseTypes,
-				);
-				if (caseType === undefined) continue;
-				const next = resolveCaseProperty(caseType, column.field);
-				if (next !== undefined && next !== column.field) {
-					column.field = next;
-					columnsRewritten++;
-				}
-			}
-		}
-		if (slot.slot === "search_input_property") {
-			for (const input of mod.caseListConfig?.searchInputs ?? []) {
-				if (input.kind !== "simple") continue;
-				const destination = resolveRelationDestination(
-					input.via,
-					mod.caseType,
-					caseTypes,
-				);
-				if (!destination.ok) continue;
-				const next = resolveCaseProperty(destination.caseType, input.property);
-				if (next !== undefined && next !== input.property) {
-					input.property = next;
-					astRefsRewritten++;
-				}
-			}
-		}
+	}
+	for (const property of moduleCaseProperties(doc, mod)) {
+		const next = property.types
+			.map((type) => resolveCaseProperty(type, property.name))
+			.find((name) => name !== undefined);
+		if (next === undefined || next === property.name) continue;
+		property.rename(next);
+		if (property.slot === "case_list_column_field") columnsRewritten++;
+		else astRefsRewritten++;
 	}
 	return { columnsRewritten, astRefsRewritten };
 }

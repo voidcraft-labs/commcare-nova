@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"data_type_id\": \"f0c71f8e17ed4176be1313f94b046a27\", \"fields\": {\"id\": {\"field_list\": [{\"field_value\": \"millet\", \"properties\": {}}]}, \"name\": {\"field_list\": [{\"field_value\": \"Millet\", \"properties\": {\"lang\": \"en\"}}, {\"field_value\": \"Bajra\", \"properties\": {\"lang\": \"hin\"}}]}, \"note\": {\"field_list\": [{\"field_value\": \"\", \"properties\": {}}]}}, \"id\": \"55ef933313784ba9acbe16e3706f5768\", \"item_attributes\": {\"code\": \"c-millet\"}, \"resource_uri\": \"\", \"sort_key\": 3}"
+}

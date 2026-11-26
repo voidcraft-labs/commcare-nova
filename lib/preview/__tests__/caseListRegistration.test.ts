@@ -6,9 +6,14 @@
  * Register action on its module's empty search fails here.
  */
 
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	actionRoleIds,
+	caseListActionRolesFixture,
+} from "@/lib/commcare/__tests__/caseListActionRolesFixture";
 import {
 	type BlueprintDoc,
 	type CaseListRegistrationReturn,
@@ -25,9 +30,8 @@ import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import type { PreviewSearchState } from "@/lib/session/types";
 import {
-	alwaysOfferedRegistrationReturn,
+	caseListActionReturn,
 	caseListRegistrationAdmission,
-	caseListRegistrationPostSubmit,
 	caseListRegistrationRefusalCopy,
 	formSearchAnswers,
 	isCaseListRegistrationForm,
@@ -52,6 +56,10 @@ function docWith(postSubmit?: "firstMenu") {
 				uuid: "mod-patients",
 				name: "Patients",
 				caseType: "patient",
+				caseSearchConfig: { formsReadSearch: true },
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				caseListRegistrationForm: { formUuid: "form-register" },
 				forms: [
 					{ uuid: "form-visit", name: "Visit", type: "followup" },
@@ -273,13 +281,56 @@ describe("isCaseListRegistrationForm", () => {
 	});
 });
 
-describe("caseListRegistrationPostSubmit", () => {
-	it("returns to Results unless the form holds firstMenu", () => {
-		expect(caseListRegistrationPostSubmit(doc, REGISTER)).toBe("results");
-		expect(caseListRegistrationPostSubmit(docWith("firstMenu"), REGISTER)).toBe(
-			"firstMenu",
-		);
-		expect(caseListRegistrationPostSubmit(doc, VISIT)).toBeUndefined();
+describe("return from an empty search", () => {
+	const launched = { hostModuleUuid: MODULE };
+	it("keys Results to the registration and lets First menu override the list return", () => {
+		expect(
+			caseListActionReturn(doc, REGISTER, launched, "new-id"),
+		).toMatchObject({
+			screen: { kind: "menu", moduleUuid: MODULE },
+			selectingModuleUuids: [],
+			newCaseSearchModuleUuids: [MODULE],
+		});
+		expect(
+			caseListActionReturn(docWith("firstMenu"), REGISTER, launched, "new-id"),
+		).toBeUndefined();
+	});
+	// Formplayer rebuilds a frame that ends on a search without the list's rows
+	// (`MenuSessionFactory.rebuildSessionFromFrame`, `EntityScreen.initListSubScreen`):
+	// Web Apps lands on the empty list, the action hidden, for Nova's publish and for
+	// the same journey made on HQ's pages alike (`proof/formplayer/test_search.py`).
+	it("ends on the host's search returning to the list, and selects past it going on with the case", () => {
+		expect(
+			caseListActionReturn(doc, REGISTER, launched, "new-id")?.endsOnSearchOf,
+		).toBe(MODULE);
+		const continueWithCase = produce(doc, (draft) => {
+			const slot = draft.modules[MODULE]?.caseListRegistrationForm;
+			if (slot?.kind === "after-empty-search") slot.afterSubmit = "new-case";
+		});
+		expect(
+			caseListActionReturn(continueWithCase, REGISTER, launched, "new-id")
+				?.endsOnSearchOf,
+		).toBeUndefined();
+	});
+	it("selects the committed new case, and leaves the menu unselected when the create condition is false", () => {
+		const continueWithCase = produce(doc, (draft) => {
+			const slot = draft.modules[MODULE]?.caseListRegistrationForm;
+			if (slot?.kind === "after-empty-search") slot.afterSubmit = "new-case";
+		});
+		expect(
+			caseListActionReturn(continueWithCase, REGISTER, launched, "new-id")
+				?.selectingModuleUuids,
+		).toEqual([MODULE]);
+		expect(
+			caseListActionReturn(continueWithCase, REGISTER, launched, undefined)
+				?.selectingModuleUuids,
+		).toEqual([]);
+		expect(
+			caseListActionReturn(continueWithCase, REGISTER, undefined, "new-id"),
+		).toBeUndefined();
+		expect(
+			caseListActionReturn(continueWithCase, VISIT, launched, "new-id"),
+		).toBeUndefined();
 	});
 });
 
@@ -580,10 +631,10 @@ describe("previewRegisterAction", () => {
 	});
 });
 
-describe("alwaysOfferedRegistrationReturn", () => {
+describe("caseListActionReturn", () => {
 	it("goes on to the host's forms with the new case chosen", () => {
 		expect(
-			alwaysOfferedRegistrationReturn(
+			caseListActionReturn(
 				offeringDoc("new-case"),
 				OFFERED,
 				launch,
@@ -598,12 +649,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 
 	it("returns to the host's screen with no case chosen where the form created none", () => {
 		expect(
-			alwaysOfferedRegistrationReturn(
-				offeringDoc("new-case"),
-				OFFERED,
-				launch,
-				undefined,
-			),
+			caseListActionReturn(offeringDoc("new-case"), OFFERED, launch, undefined),
 		).toEqual({
 			screen: { kind: "menu", moduleUuid: HOST },
 			selectingModuleUuids: [],
@@ -614,7 +660,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 	it("returns Back to this list with no case chosen, a created case or not", () => {
 		for (const created of ["new-case-id", undefined])
 			expect(
-				alwaysOfferedRegistrationReturn(
+				caseListActionReturn(
 					offeringDoc("case-list"),
 					OFFERED,
 					launch,
@@ -630,12 +676,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 	it("returns Back to this list on the host's forms where its screen lists forms first", () => {
 		const doc = offeringDoc("case-list", { formsFirst: true });
 		expect(screenChoosesCaseFirst(doc, menuScreenOf(doc, HOST))).toBe(false);
-		const landing = alwaysOfferedRegistrationReturn(
-			doc,
-			OFFERED,
-			launch,
-			"new-case-id",
-		);
+		const landing = caseListActionReturn(doc, OFFERED, launch, "new-case-id");
 		expect(landing).toEqual({
 			screen: { kind: "menu", moduleUuid: HOST },
 			selectingModuleUuids: [],
@@ -656,7 +697,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 
 	it("carries no selection onto a bare case list, whose frame is its command alone", () => {
 		expect(
-			alwaysOfferedRegistrationReturn(
+			caseListActionReturn(
 				offeringDoc("new-case", { bare: true }),
 				OFFERED,
 				launch,
@@ -672,14 +713,14 @@ describe("alwaysOfferedRegistrationReturn", () => {
 	it("keys the host's search to the registered case where its forms read the search", () => {
 		const doc = offeringDoc("new-case", { formsReadSearch: true });
 		for (const created of ["new-case-id", undefined])
-			expect(
-				alwaysOfferedRegistrationReturn(doc, OFFERED, launch, created),
-			).toMatchObject({
-				screen: { kind: "menu", moduleUuid: HOST },
-				newCaseSearchModuleUuids: [HOST],
-			});
+			expect(caseListActionReturn(doc, OFFERED, launch, created)).toMatchObject(
+				{
+					screen: { kind: "menu", moduleUuid: HOST },
+					newCaseSearchModuleUuids: [HOST],
+				},
+			);
 		expect(
-			alwaysOfferedRegistrationReturn(
+			caseListActionReturn(
 				offeringDoc("case-list", { formsReadSearch: true }),
 				OFFERED,
 				launch,
@@ -689,16 +730,16 @@ describe("alwaysOfferedRegistrationReturn", () => {
 			screen: { kind: "menu", moduleUuid: HOST },
 			selectingModuleUuids: [],
 			newCaseSearchModuleUuids: [HOST],
+			// The frame ends on the host's search: Web Apps lists no row there.
+			endsOnSearchOf: HOST,
 		});
 	});
 
 	it("is ordinary routing for a form opened another way, or with its own after-submit", () => {
 		const doc = offeringDoc("new-case");
+		expect(caseListActionReturn(doc, OFFERED, undefined, "id")).toBeUndefined();
 		expect(
-			alwaysOfferedRegistrationReturn(doc, OFFERED, undefined, "id"),
-		).toBeUndefined();
-		expect(
-			alwaysOfferedRegistrationReturn(
+			caseListActionReturn(
 				doc,
 				OFFERED,
 				{ hostModuleUuid: OFFERED_MENU },
@@ -706,7 +747,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 			),
 		).toBeUndefined();
 		expect(
-			alwaysOfferedRegistrationReturn(
+			caseListActionReturn(
 				offeringDoc("new-case", { formPostSubmit: "firstMenu" }),
 				OFFERED,
 				launch,
@@ -768,5 +809,51 @@ describe("selectionsAfterRegistrationReturn", () => {
 				undefined,
 			),
 		).toEqual({ [OTHER]: elsewhere });
+	});
+});
+
+describe("a Register return that also registers the list's parent", () => {
+	it("chooses the household the form created, as HQ's frame keys the parent to it", () => {
+		// HQ matches the members list's household datum to the form's new
+		// household (`_find_best_match`), not to the household chosen before.
+		const doc = caseListActionRolesFixture();
+		const landing = caseListActionReturn(
+			doc,
+			actionRoleIds.register,
+			{ hostModuleUuid: actionRoleIds.registerList },
+			"new-member",
+		);
+		const ownHousehold = doc.forms[actionRoleIds.register].caseOperations?.find(
+			(operation) => operation.action === "own",
+		)?.uuid;
+		expect(landing?.createdSelections).toEqual([
+			{
+				moduleUuid: actionRoleIds.households,
+				operationUuid: ownHousehold,
+				datumId: "case_id_new_household_0",
+				caseType: "household",
+			},
+		]);
+		if (!landing) throw new Error("The list returns to the new member.");
+		const chosen = { caseType: "household", cases: [{ caseId: "chosen" }] };
+		const next = selectionsAfterRegistrationReturn(
+			{ [actionRoleIds.households]: chosen },
+			landing,
+			actionRoleIds.registerList,
+			"person",
+			{ caseId: "new-member", caseName: "Ada" },
+			undefined,
+			(operationUuid, caseType) =>
+				operationUuid === ownHousehold && caseType === "household"
+					? { caseId: "new-household", caseName: "Banda" }
+					: undefined,
+		);
+		expect(next[actionRoleIds.households]).toEqual({
+			caseType: "household",
+			cases: [{ caseId: "new-household", caseName: "Banda" }],
+		});
+		expect(next[actionRoleIds.registerList]?.cases[0]?.caseId).toBe(
+			"new-member",
+		);
 	});
 });

@@ -252,7 +252,11 @@ function propertyScope(
 			destination: string;
 	  }
 	| undefined {
-	if (property.via === undefined || property.via.kind === "self")
+	if (
+		property.readReached ||
+		property.via === undefined ||
+		property.via.kind === "self"
+	)
 		return undefined;
 	const relation = canonicalizeRelationPath(property.via, {
 		...context,
@@ -292,7 +296,11 @@ function inspect(
 		else inspection.related.set(scope.key, scope);
 		return;
 	}
-	if (node.kind === "case-index" || node.kind === "case-row-type") {
+	if (
+		node.kind === "case-index" ||
+		node.kind === "case-row-type" ||
+		node.kind === "search-result-field"
+	) {
 		inspection.self++;
 		return;
 	}

@@ -4,6 +4,7 @@ import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	columnSort,
+	localizeTranslationUnit,
 	makeTranslationUnitId,
 	NO_SEARCH_SCREEN_TITLE,
 	plainColumn,
@@ -224,11 +225,26 @@ describe("a search's title unit", () => {
 		).toBe("Find a patient");
 	});
 
-	it("is not listed for a search with no title", () => {
-		expect(
-			translationUnitsById(
-				searchModule({ searchScreenTitle: NO_SEARCH_SCREEN_TITLE }),
-			).has(title),
-		).toBe(false);
+	// Another language may show a title of its own beside a source with none, so the unit stays,
+	// blank in the source; a language with no title of its own has nothing to translate.
+	it("is listed blank for a search with no title, ready where no language holds its own", () => {
+		const doc = searchModule({ searchScreenTitle: NO_SEARCH_SCREEN_TITLE });
+		const unit = translationUnitsById(doc).get(title);
+		expect(unit?.source).toBe("");
+		if (unit === undefined) throw new Error("Expected the title unit.");
+		const withSpanish = {
+			...doc,
+			localization: {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "spa"],
+				translations: {},
+				wireCodes: { eng: "en", spa: "es" },
+			},
+		};
+		expect(localizeTranslationUnit(withSpanish, "spa", unit)).toMatchObject({
+			effective: "",
+			status: "ready",
+		});
 	});
 });

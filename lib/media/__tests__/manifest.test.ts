@@ -79,6 +79,28 @@ describe("resolveMediaManifest wire paths", () => {
 	if (household === undefined) throw new Error("The catalog lost household");
 	const iconPath = wirePathFor(household.contentHash, ".png");
 
+	it("resolves translated files through the same Project read and counts a file shared by two translations once", async () => {
+		const localized = doc();
+		const menu = localized.modules[localized.moduleOrder[0]];
+		const unknown = testMediaAssetId("other-project-image");
+		menu.mediaByLanguage = { fra: { icon: unknown }, spa: { icon: unknown } };
+		localized.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "fra", "spa"],
+			translations: { fra: {}, spa: {} },
+			wireCodes: { eng: "en", fra: "fr", spa: "es" },
+		};
+		const manifest = await resolveMediaManifest(localized, PROJECT, {
+			withBytes: false,
+		});
+		const [[requested, project]] = vi.mocked(loadAssetsByIds).mock.calls;
+		expect(project).toBe(PROJECT);
+		expect(requested.filter((id) => id === unknown)).toEqual([unknown]);
+		expect(manifest.has(unknown)).toBe(false);
+		expect(downloadAssetBytes).not.toHaveBeenCalled();
+	});
+
 	it("gives a file its content-hash path where the target holds none", async () => {
 		const manifest = await resolveMediaManifest(doc(), PROJECT, {
 			withBytes: false,

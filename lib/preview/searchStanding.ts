@@ -61,6 +61,7 @@ import type {
 	PreviewSearchAnswers,
 	PreviewSearchState,
 } from "@/lib/session/types";
+import type { PreviewPlatformRules } from "./platform";
 
 /**
  * A screen of the session, as the searches it keeps see it: the menu it is
@@ -385,8 +386,9 @@ export function previewSearchReopened(
  * `QueryView.clear`, which sets the field's value and re-renders, firing no
  * field change, so no validation round trip writes the page's query inputs and
  * the address keeps its `force_manual_search`): the query screen stays on
- * show rather than the menu running its default search. Nova writes no
- * `search_on_clear`, the one setting under which Clear searches at once.
+ * show rather than the menu running its default search. A menu with
+ * `searchOnClear` searches again after Clear where `searchAfterClear` says the
+ * platform does; that quiet submit is the Search pane's, not this state's.
  */
 export function previewSearchAfterClear(
 	standing: PreviewSearchState | undefined,
@@ -411,4 +413,16 @@ export function previewSearchClearOffered(args: {
 	readonly typed: boolean;
 }): boolean {
 	return args.platformClears && (args.searched || args.typed);
+}
+
+/** Whether Clear also runs the search: the menu asks for it and the
+ *  platform searches after Clear at the window's width
+ *  (`PreviewPlatformRules.searchOnClearMinWidth`). */
+export function searchAfterClear(
+	enabled: boolean,
+	rules: Pick<PreviewPlatformRules, "searchOnClearMinWidth">,
+	windowWidth: number | undefined,
+): boolean {
+	const minimum = rules.searchOnClearMinWidth;
+	return enabled && minimum !== undefined && (windowWidth ?? 0) >= minimum;
 }

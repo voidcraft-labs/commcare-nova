@@ -261,6 +261,61 @@ async function readRunFenceState(appId: string) {
 }
 
 describe("commitGuardedBatch (Postgres)", () => {
+	it("checks occupied installation identities and a profile another editor removed before an authenticated commit", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const uuid = testUuid("named installation");
+		const commit = (actorUserId: string, mutations: Mutation[]) =>
+			commitGuardedBatch({
+				appId,
+				actorUserId,
+				expectedProjectId: PROJECT,
+				kind: "mcp",
+				runId: "external-installation-edit",
+				batchId: crypto.randomUUID(),
+				mutations,
+			});
+		const add = (uuid: Uuid): Mutation => ({
+			kind: "setAppSettings",
+			settings: {
+				installationProfile: {
+					operation: "add",
+					profile: {
+						uuid,
+						name: "Outreach",
+						languages: ["eng"],
+						requiresPracticeWorker: false,
+					},
+				},
+			},
+		});
+		const remove: Mutation = {
+			kind: "setAppSettings",
+			settings: { installationProfile: { operation: "remove", uuid } },
+		};
+		const edit: Mutation = {
+			kind: "setAppSettings",
+			settings: {
+				installationProfile: {
+					operation: "update",
+					uuid,
+					patch: { name: "Visits" },
+				},
+			},
+		};
+		await expect(commit(MEMBER, [add(villageUuid(doc))])).rejects.toThrow(
+			BlueprintCommitRejectedError,
+		);
+		await commit(MEMBER, [add(uuid)]);
+		await commit(OWNER, [remove]);
+		for (const stale of [edit, remove]) {
+			await expect(commit(MEMBER, [stale])).rejects.toThrow(
+				BlueprintCommitRejectedError,
+			);
+		}
+		expect(await readSeq(appId)).toBe(2);
+		expect(await readStream(appId)).toHaveLength(2);
+	});
 	it("exercises the exact writer inside a caller-owned rollback transaction", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);

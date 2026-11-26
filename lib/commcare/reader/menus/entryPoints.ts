@@ -9,22 +9,30 @@
 import {
 	type BlueprintDoc,
 	entryPointIdProblem,
+	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
 import { recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import {
+	availableEntryCaseCreations,
+	createEntryPointProjector,
+} from "../../entryPointProjection";
+import { formLinkProjectionContext } from "../../formLinkProjection";
 import { validEntryPoints } from "../../validator/rules/app";
+import { withCandidate } from "../candidate";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
 import { whereText } from "../place";
 import { rawModules } from "./modules";
+import type { SharedFormLink } from "./sharedForms";
 
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
-type MenuClass = "Module" | "AdvancedModule";
-type FormClass = "Form" | "AdvancedForm";
+type MenuClass = DraftModule["docType"];
+type FormClass = DraftForm["docType"];
 
 function byClass<C extends string, U extends Claim["use"]>(
 	classes: readonly C[],
@@ -37,10 +45,38 @@ function byClass<C extends string, U extends Claim["use"]>(
 	) as Record<C, Claim<U>>;
 }
 
-const MENUS: readonly MenuClass[] = ["Module", "AdvancedModule"];
-const FORMS: readonly FormClass[] = ["Form", "AdvancedForm"];
+const MENUS: readonly MenuClass[] = [
+	"Module",
+	"AdvancedModule",
+	"ShadowModule",
+];
+const FORMS: readonly FormClass[] = ["Form", "AdvancedForm", "ShadowForm"];
 
 const ENTRY_POINTS = {
+	sharedFormId: take(
+		`${M}/shadowmodule-form-session-endpoints-non-empty`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
+	sharedFormNotSlug: refuse(
+		`${M}/module-or-mirror-form-endpoint-id-that-is-not-a-slugify-fixed`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
+	sharedFormWhitespace: refuse(
+		`${M}/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
+	sharedMenuWhitespace: refuse(
+		`${M}/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding`,
+		"schema:ShadowModule.session_endpoint_id",
+	),
+	sharedFormDuplicate: refuse(
+		`${M}/two-endpoints-sharing-an-id-module-case-list-form-or-mirror-form`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
+	sharedFirstMenu: refuse(
+		`${F}/first-menu-selection-used-for-different-records`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
 	menu: byClass(MENUS, take, `${M}/session-endpoint-id`, "session_endpoint_id"),
 	caseList: byClass(
 		MENUS,
@@ -124,25 +160,49 @@ const ENTRY_POINTS = {
 	),
 	functionDatums: byClass(
 		FORMS,
-		refuse,
+		take,
 		`${F}/function-datum-endpoints`,
+		"function_datum_endpoints",
+	),
+	unavailableFunctionDatums: byClass(
+		FORMS,
+		refuse,
+		`${F}/function-datum-endpoints-with-an-unavailable-supplier`,
 		"function_datum_endpoints",
 	),
 	sharedFirstMenuCase: byClass(
 		FORMS,
 		refuse,
-		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		`${F}/first-menu-selection-used-for-different-records`,
 		"session_endpoint_id",
 	),
 	menuSharedFirstMenuCase: byClass(
 		MENUS,
 		refuse,
-		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		`${F}/first-menu-selection-used-for-different-records`,
 		"session_endpoint_id",
 	),
 	caseListSharedFirstMenuCase: byClass(
 		MENUS,
 		refuse,
+		`${F}/first-menu-selection-used-for-different-records`,
+		"case_list_session_endpoint_id",
+	),
+	firstMenuCase: byClass(
+		FORMS,
+		derived,
+		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		"session_endpoint_id",
+	),
+	menuFirstMenuCase: byClass(
+		MENUS,
+		derived,
+		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		"session_endpoint_id",
+	),
+	caseListFirstMenuCase: byClass(
+		MENUS,
+		derived,
 		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
 		"case_list_session_endpoint_id",
 	),
@@ -181,7 +241,10 @@ interface StoredId {
 /** One deep link read: its owner, and the slot it stands in. */
 interface ReadEntryPoint {
 	readonly owner: DraftModule | DraftForm;
-	readonly slot: "session_endpoint_id" | "case_list_session_endpoint_id";
+	readonly slot:
+		| "session_endpoint_id"
+		| "case_list_session_endpoint_id"
+		| "form_session_endpoints";
 }
 
 /** The deep links each reading read, for the gate's rule over the document. */
@@ -192,7 +255,11 @@ const READ = new WeakMap<ReadContext, Map<Uuid, ReadEntryPoint>>();
  * where `slugify` would change it or another link shares it, and read into
  * its entry point otherwise. A folded hidden menu stores none.
  */
-export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
+export function readEntryPoints(
+	ctx: ReadContext,
+	app: DraftApp,
+	sharedFormLinks: readonly SharedFormLink[],
+): void {
 	const folded = new Set(app.foldedMenus.map((one) => one.menu));
 	const stored = rawModules(ctx);
 	const read = new Map<Uuid, ReadEntryPoint>();
@@ -249,7 +316,12 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 					}
 				},
 				notSlug: () =>
-					json.refuse("session_endpoint_id", ENTRY_POINTS.menuNotSlug[cls]),
+					json.refuse(
+						"session_endpoint_id",
+						cls === "ShadowModule" && menuId.trim() !== menuId
+							? ENTRY_POINTS.sharedMenuWhitespace
+							: ENTRY_POINTS.menuNotSlug[cls],
+					),
 				shared: (place) =>
 					json.refuse(
 						"session_endpoint_id",
@@ -309,16 +381,51 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 				});
 		}
 	}
+	for (const { route, form, json, id } of sharedFormLinks) {
+		ids.push({
+			id,
+			place: route.place,
+			form: false,
+			read: () => {
+				json.take("session_endpoint_id", ENTRY_POINTS.sharedFormId, textOf)
+					.value;
+				const uuid = mint(
+					externalKey.entryPoint("shared-form", route.uniqueId, form.xmlns),
+					route.place,
+					"schema:ShadowFormEndpoint.session_endpoint_id",
+				);
+				if (!uuid) return;
+				ctx.writeDraft(() => {
+					const source = route.module.formsFromMenu;
+					if (!source) return;
+					source.entryPoints ??= [];
+					source.entryPoints.push({
+						formUuid: form.uuid,
+						entryPoint: { uuid, id },
+					});
+				});
+				read.set(uuid, { owner: route, slot: "form_session_endpoints" });
+			},
+			notSlug: () =>
+				json.refuse(
+					"session_endpoint_id",
+					id.trim() !== id
+						? ENTRY_POINTS.sharedFormWhitespace
+						: ENTRY_POINTS.sharedFormNotSlug,
+				),
+			shared: (place) =>
+				json.refuse(
+					"session_endpoint_id",
+					ENTRY_POINTS.sharedFormDuplicate,
+					undefined,
+					place,
+				),
+		});
+	}
 	for (const module of app.modules)
 		for (const form of module.forms) {
 			const { json } = form;
 			const cls = form.docType;
-			const datums = json.peek("function_datum_endpoints");
-			if (Array.isArray(datums) && datums.length > 0)
-				json.refuse(
-					"function_datum_endpoints",
-					ENTRY_POINTS.functionDatums[cls],
-				);
 			const formId = textOf(json.peek("session_endpoint_id"));
 			if (formId === "") {
 				if (json.used("session_endpoint_id"))
@@ -358,7 +465,7 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 							(v) => v,
 						).value;
 					const uuid = mint(
-						externalKey.entryPoint("form", form.xmlns),
+						externalKey.entryPoint("form", form.entryKey ?? form.xmlns),
 						form.place,
 						`schema:${cls}.session_endpoint_id`,
 					);
@@ -410,15 +517,71 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 /**
  * Pass 2, from `settleMenus`: the gate's deep link rule over the document.
  * An id the gate refuses was refused from the stored ids already; a frame
- * through a first menu that shares one case, a form's, a menu's or a case
- * list's, is that row's finding; any other
+ * that would let a later command read a different record under the same
+ * first-menu argument is placed on the affected route. Any other
  * refusal is a deep link Nova cannot build for a reason no row names.
  */
+export function settleEntryCaseCreations(
+	ctx: ReadContext,
+	app: DraftApp,
+): void {
+	const forms = app.modules
+		.flatMap((module) => module.forms.map((form) => ({ module, form })))
+		.filter(({ form }) => {
+			const value = form.json.peek("function_datum_endpoints");
+			return Array.isArray(value) && value.length > 0;
+		});
+	if (forms.length === 0 || ctx.doc === undefined) return;
+	const doc = ctx.doc as BlueprintDoc;
+	const projection = formLinkProjectionContext(doc, {
+		entryMetadataOnly: true,
+	});
+	const held = new Map<Uuid, Uuid[]>();
+	for (const { module, form } of forms) {
+		if (!doc.forms[form.uuid]) continue;
+		const field = "function_datum_endpoints";
+		const ids = form.json.peek(field);
+		if (!Array.isArray(ids)) continue;
+		const available = availableEntryCaseCreations(
+			doc,
+			{ kind: "form", moduleUuid: module.uuid, formUuid: form.uuid },
+			projection,
+		);
+		const byArgument = new Map(
+			available.map((row) => [row.argumentId, row.operationUuid]),
+		);
+		const operations = ids.flatMap((id) => {
+			const operation = typeof id === "string" ? byArgument.get(id) : undefined;
+			return operation === undefined ? [] : [operation];
+		});
+		if (operations.length !== ids.length) {
+			form.json.refuse(
+				field,
+				ENTRY_POINTS.unavailableFunctionDatums[form.docType],
+			);
+			continue;
+		}
+		const supplied = form.json.take(
+			field,
+			ENTRY_POINTS.functionDatums[form.docType],
+			() => operations,
+		).value;
+		held.set(form.uuid, supplied);
+	}
+	if (held.size > 0)
+		ctx.doc = withCandidate(doc, (draft) => {
+			for (const [uuid, operations] of held)
+				draft.forms[uuid].entryCaseCreations = operations;
+		});
+}
+
 export function settleEntryPoints(ctx: ReadContext): void {
 	const doc = ctx.doc;
 	const read = READ.get(ctx);
 	if (doc === undefined || read === undefined || read.size === 0) return;
-	for (const error of validEntryPoints(doc as BlueprintDoc)) {
+	const errors = validEntryPoints(doc as BlueprintDoc);
+	const invalid = new Set(errors.map((error) => error.details?.entryPointUuid));
+	for (const error of errors) {
 		const details = error.details as
 			| { entryPointUuid?: string; reason?: string }
 			| undefined;
@@ -432,14 +595,48 @@ export function settleEntryPoints(ctx: ReadContext): void {
 			ctx.accounting.finding(
 				"form" in owner
 					? ENTRY_POINTS.sharedFirstMenuCase[owner.docType]
-					: slot === "session_endpoint_id"
-						? ENTRY_POINTS.menuSharedFirstMenuCase[owner.docType]
-						: ENTRY_POINTS.caseListSharedFirstMenuCase[owner.docType],
+					: slot === "form_session_endpoints"
+						? ENTRY_POINTS.sharedFirstMenu
+						: slot === "session_endpoint_id"
+							? ENTRY_POINTS.menuSharedFirstMenuCase[owner.docType]
+							: ENTRY_POINTS.caseListSharedFirstMenuCase[owner.docType],
 				owner.place,
 			);
 		else
 			ctx.accounting.circumstance("unrecognized", owner.place, {
 				name: `schema:${owner.docType}.${slot}`,
 			});
+	}
+	if (!doc.moduleOrder.some((menu) => doc.modules[menu]?.formsInMenuAbove))
+		return;
+	const project = createEntryPointProjector(doc);
+	for (const [uuid, { owner, slot }] of read) {
+		if (invalid.has(uuid) || ctx.accounting.hasFindingAt(owner.place)) continue;
+		const moduleUuid =
+			"form" in owner ? moduleUuidOfForm(doc, owner.uuid) : owner.uuid;
+		if (!moduleUuid) continue;
+		const target =
+			"form" in owner
+				? { kind: "form" as const, moduleUuid, formUuid: owner.uuid }
+				: {
+						kind:
+							slot === "session_endpoint_id"
+								? ("module" as const)
+								: ("case-list" as const),
+						moduleUuid,
+					};
+		if (!project(target).opensWithFirstMenuCase) continue;
+		const claim =
+			"form" in owner
+				? ENTRY_POINTS.firstMenuCase[owner.docType]
+				: slot === "session_endpoint_id"
+					? ENTRY_POINTS.menuFirstMenuCase[owner.docType]
+					: ENTRY_POINTS.caseListFirstMenuCase[owner.docType];
+		ctx.accounting.claimEntryClass(
+			{ json: owner.json, key: slot },
+			claim.entry,
+			`schema:${owner.docType}.${slot}`,
+			owner.place,
+		);
 	}
 }

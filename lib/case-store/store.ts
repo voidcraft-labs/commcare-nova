@@ -32,6 +32,7 @@ import {
 	type CaseType,
 	type Column,
 	caseClaimCaseType,
+	isStandardCaseListProperty,
 	materializableCaseTypes,
 	type PersistableDoc,
 	USERCASE_CASE_TYPE,
@@ -70,10 +71,16 @@ import type {
  * (`__nova_calc__<uuid>`); the `expression` is the per-row
  * `DomainExpression` the SQL emitter compiles into a projection.
  */
-export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
+type CalculatedDisplayColumn = Extract<Column, { kind: "calculated" }>;
+export type CalculatedColumn =
+	| CalculatedDisplayColumn
+	| Pick<CalculatedDisplayColumn, "uuid" | "expression">;
 
 /** One value a case list reads off another case (`QueryArgs.related`). */
 export interface RelatedRead {
+	readonly showOwner?: "name";
+	/** A distance cell derives its label from this source and the same fix the query sorts with. */
+	readonly display?: "distance";
 	readonly uuid: string;
 	readonly expression: DomainExpression;
 }
@@ -90,12 +97,37 @@ export interface RelatedRead {
  * reads it; the store binds it). `owner_id` stays — it is the CommCare
  * case-owner (the future location-access axis), a real row field.
  */
-export type CaseRow = Omit<Selectable<CasesTable>, "project_id">;
+export type PrivateCaseColumn =
+	| "project_id"
+	| "index_history_complete"
+	| "cleared_index_identifiers";
+/** One completed search and the records the worker chose from it. Its query
+ * is composed on the server from the authorized document and worker. */
+export interface SearchClaimSelection {
+	/** An earlier datum must still be a selectable record. It authorizes no claim of its own. */
+	readonly prerequisite?: true;
+	readonly query: QueryArgs;
+	readonly caseIds: readonly string[];
+}
+
+/**
+ * One case row as a reader receives it. `location_id` is optional because a
+ * durable submission receipt's `caseDatabasePatch` written before the column
+ * existed holds rows without it; such a row holds no location, as `null` says.
+ */
+export type CaseRow = Omit<
+	Selectable<CasesTable>,
+	PrivateCaseColumn | "location_id"
+> & { readonly location_id?: string | null };
 
 /** One direct case-index edge whose source and ancestor both belong to the
  * bound app and Project. The target type is persisted on the edge because
  * CommCare keeps the original CaseIndex type even if the target is retyped. */
 export type CaseIndexRow = Selectable<CaseIndicesTable>;
+
+export interface SearchResultInstance extends DeviceCaseDatabase {
+	readonly primaryIds: readonly string[];
+}
 
 export interface DeviceCaseDatabase {
 	readonly rows: readonly CaseRow[];
@@ -122,7 +154,7 @@ export interface DeviceCaseDatabase {
  */
 export type CaseInsert = Omit<
 	Insertable<CasesTable>,
-	"app_id" | "project_id" | "owner_id" | "properties"
+	"app_id" | PrivateCaseColumn | "owner_id" | "properties"
 > & {
 	properties: JsonObject | string;
 };
@@ -141,6 +173,8 @@ export interface CaseUpdate {
 	readonly case_name?: string;
 	/** External-system identity. Routed to `external_id`, never JSONB; `""` is an explicit write. */
 	readonly external_id?: string;
+	/** The case's own location, as CommCare HQ keeps a form's `location_id` write. Routed to `location_id`, never JSONB; `""` is an explicit write. */
+	readonly location_id?: string;
 	/**
 	 * Open/closed lifecycle status. Normal app closure goes through
 	 * `close()`, which owns the canonical `closed` value. This slot remains
@@ -209,7 +243,7 @@ export type CaseUpdateArgs = {
  * holds as a token, as text, `""` when it holds none. Neither can be stated
  * as a `DomainExpression`.
  */
-export type SortKey =
+export type SortKey = { readonly showOwner?: "name" } & (
 	| {
 			readonly kind: "expression";
 			readonly expression: DomainExpression;
@@ -218,12 +252,19 @@ export type SortKey =
 			readonly blanks: "first" | "last";
 	  }
 	| {
+			readonly kind: "distance";
+			readonly valueId: string;
+			readonly expression: DomainExpression;
+			readonly comparator: "text" | "integer" | "decimal";
+			readonly direction: "asc" | "desc";
+			readonly blanks: "first" | "last";
+	  }
+	| {
 			readonly kind: "interval-text";
+			readonly readFrom?: "worker-record";
 			readonly property: string;
-			/** The walk to the case whose property it reads, and that case's
-			 *  type; absent for the row's own. */
+			/** An interval column follows these index names from each listed row. */
 			readonly relation?: {
-				readonly caseType: string;
 				readonly via: readonly [RelationStep, ...RelationStep[]];
 			};
 			readonly display: "always" | "flag";
@@ -238,16 +279,18 @@ export type SortKey =
 			 *  `if(selected(<value>, '<entry>'), <index>, ...)` gives it: an entry
 			 *  matches where it is one of the value's space-separated tokens
 			 *  (commcare-core `XPathSelectedFunc`), compared as text. */
-			readonly kind: "mapping-position";
-			/** The value read, as a device reads it (a multi select's tokens
-			 *  joined by one space). */
+			readonly kind: "case-mapping";
 			readonly expression: DomainExpression;
-			/** Each entry's value in table order, trimmed as `selected()` trims
-			 *  it (Java `String.trim`). */
-			readonly values: readonly string[];
+			readonly rows: readonly ({
+				readonly result: string;
+			} & (
+				| { readonly match: "exact" | "selected"; readonly value: string }
+				| { readonly match: "condition"; readonly when: DomainExpression }
+			))[];
 			readonly direction: "asc" | "desc";
 			readonly blanks: "first" | "last";
-	  };
+	  }
+);
 
 export {
 	CASEDB_READING,
@@ -271,6 +314,8 @@ export type { CaseFilterReading, CaseQueryReading };
  * reading, the stored truth. Only the running preview passes one.
  */
 export interface RestoreScope {
+	/** The ordered group fixture supplied by this worker’s authorized restore. */
+	readonly groups?: readonly { readonly id: string; readonly name: string }[];
 	/**
 	 * The worker's owner ids: their own id plus one per case-sharing group
 	 * (`lib/organization/ownerSets.ts`, mirroring `CouchUser.get_owner_ids`).
@@ -291,6 +336,7 @@ export interface RestoreScope {
  */
 export interface SearchPopulation {
 	readonly heldBy: RestoreScope;
+	readonly request?: import("./searchRequest").CaseSearchRequest;
 	/**
 	 * Read only the population's cases `heldBy`'s restore does not hold:
 	 * HQ's search population less the worker's restore closure, which is
@@ -310,6 +356,7 @@ export interface SearchPopulation {
  */
 export interface SelectedParentCases {
 	readonly caseType: string;
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseIds: readonly string[];
 	/**
 	 * The case index identifier the child names its parent under. Absent, a
@@ -348,6 +395,8 @@ export interface SelectedParentCases {
 export interface QueryArgs {
 	appId: string;
 	caseType: string;
+	/** Other record types this menu's datum allows the worker to select. */
+	additionalCaseTypes?: readonly string[];
 	/**
 	 * What the predicate and the compiled columns stand for. Every read names
 	 * it, because it decides how `date_opened` and `last_modified` read, whether
@@ -388,7 +437,16 @@ export interface QueryArgs {
 	knownInputs?: readonly SearchInputDecl[];
 	predicate?: DomainExpression;
 	sort?: SortKey[];
-	calculated?: ReadonlyArray<CalculatedColumn>;
+	/** A session datum's case instance order before a list's display sort. */
+	datumOrder?: true;
+	calculated?: ReadonlyArray<
+		| CalculatedColumn
+		| {
+				readonly uuid: string;
+				readonly expression: DomainExpression;
+				readonly deviceText: true;
+		  }
+	>;
 	/**
 	 * Values a case list reads off another case, each the text a device holds
 	 * for its expression (`compileDeviceTextExpression`: a multi select's
@@ -459,6 +517,15 @@ export interface CaseGroup {
  * rows those groups contain. That is the platform's behavior, faithfully
  * reproduced, not a bug to work around.
  */
+export interface SearchResultsPage {
+	readonly primaryCount: number;
+	readonly totalRows: number;
+	readonly offset: number;
+	readonly rows: readonly CaseRowWithCalculated[];
+	readonly grouped?: GroupedQueryResult;
+	readonly instance?: SearchResultInstance;
+}
+
 export interface GroupedQueryResult {
 	readonly groups: readonly CaseGroup[];
 	/**
@@ -511,11 +578,13 @@ export type CountArgs =
 	| {
 			appId: string;
 			caseType: string;
+			additionalCaseTypes?: readonly string[];
 			/** Same contract as `QueryArgs.reading`'s filter half. */
 			reading: CaseFilterReading;
 			ownerId?: never;
 			/** Same selected-parent population contract as `QueryArgs.parentCases`. */
 			parentCases?: SelectedParentCases;
+			caseIds?: readonly string[];
 			caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 			/** Same contract as `QueryArgs.lookupTableSchemas`. */
 			lookupTableSchemas?: LookupTableSchemas;
@@ -1093,6 +1162,13 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
  * authorizes, and the worker stamped as each new row's `owner_id`.
  */
 export interface CaseStore extends SchemaCaseStore {
+	/** Reauthorize a previously opened device projection without exposing values.
+	 * Every supplied case must still belong to this worker's unparked restore. */
+	holdsDeviceCases(args: {
+		readonly appId: string;
+		readonly restoreScope: RestoreScope;
+		readonly caseIds: readonly string[];
+	}): Promise<boolean>;
 	/** Read the complete bound worker restore without partitioning through the
 	 * active Blueprint catalog. The restore closure and tenant predicates live
 	 * in SQL. A worker's search claims are case rows the closure reaches as it
@@ -1110,6 +1186,26 @@ export interface CaseStore extends SchemaCaseStore {
 		readonly appId: string;
 		readonly caseIds: readonly string[];
 	}): Promise<DeviceCaseDatabase>;
+
+	/** A completed search's primary rows, in server order, with the direct
+	 * indices those rows held in the same authorized database snapshot. */
+	querySearchResults(
+		args: QueryArgs,
+		grouping?: string,
+		captureInstance?: true,
+	): Promise<SearchResultsPage>;
+	readSearchResultInstance(args: QueryArgs): Promise<SearchResultInstance>;
+
+	/** The patch a committed submission of this actor's form entry left on the
+	 * device (`SubmissionEnvelopeResult.caseDatabasePatch`), read from its
+	 * durable receipt, or `undefined` unless this device run committed the
+	 * entry. The next form a submission opens reads the device it left, which
+	 * keeps a case the entry just closed until sync. */
+	readSubmittedCaseDatabasePatch(args: {
+		readonly appId: string;
+		readonly entryKey: string;
+		readonly openingCarryScope: string;
+	}): Promise<DeviceCaseDatabase | undefined>;
 
 	/**
 	 * DomainExpression-driven SELECT with optional inline calculated-column
@@ -1185,6 +1281,8 @@ export interface CaseStore extends SchemaCaseStore {
 	insert(args: {
 		appId: string;
 		row: CaseInsert;
+		/** A record supplied from an external history proves only its current links. */
+		origin?: "existing-record";
 		/** Relationship for a supplied `parent_case_id`; ordinary child when omitted. */
 		parentRelationship?: "child" | "extension";
 		/** The index a supplied `parent_case_id` is written under: the one a
@@ -1268,6 +1366,9 @@ export interface CaseStore extends SchemaCaseStore {
 	claimCases(args: {
 		readonly appId: string;
 		readonly caseIds: readonly string[];
+		/** Supplied by every search consumer. A separately authorized entry point has its own admission. */
+		readonly fromSearches?: readonly SearchClaimSelection[];
+		readonly expectedAppMutationSeq?: number;
 	}): Promise<{
 		readonly created: readonly string[];
 		readonly alreadyClaimed: readonly string[];
@@ -1371,6 +1472,19 @@ export interface CaseStore extends SchemaCaseStore {
 		id: string;
 		value: JsonValue;
 	}): Promise<void>;
+}
+
+/** The loss of a catalog annotation only retires storage when no writer or
+ * built-in supplies the property. Whole-type retirement retains its schema. */
+export function removalRetiresCaseProperty(
+	type: CaseType | undefined,
+	property: string,
+): boolean {
+	return (
+		type !== undefined &&
+		!isStandardCaseListProperty(property) &&
+		!type.properties.some((entry) => entry.name === property)
+	);
 }
 
 /**

@@ -36,7 +36,8 @@ export function expressionReadsCaseDatabase(
 			if (node.kind === "project") reads = true;
 			// The worker's places ride the device snapshot, as a restore
 			// delivers its `locations` fixture beside the cases.
-			if (node.kind === "locations") reads = true;
+			if (node.kind === "locations" || node.kind === "worker-groups")
+				reads = true;
 		},
 		visitTerm: (term) => {
 			if (
@@ -107,5 +108,33 @@ export function appReadsPlaces(doc: BlueprintDoc): boolean {
 		expressionSlotValues(doc, owner).some(({ expression }) =>
 			expressionReadsPlaces(expression),
 		),
+	);
+}
+
+export function appReadsWorkerGroups(doc: BlueprintDoc): boolean {
+	if (doc.appSettings.caseSharing) return true;
+	return [
+		...Object.values(doc.forms).map((form) => ({
+			entity: "form" as const,
+			uuid: form.uuid,
+		})),
+		...Object.values(doc.fields).map((field) => ({
+			entity: "field" as const,
+			uuid: field.uuid,
+		})),
+		...Object.values(doc.modules).map((module) => ({
+			entity: "module" as const,
+			uuid: module.uuid,
+		})),
+	].some((owner) =>
+		expressionSlotValues(doc, owner).some(({ expression }) => {
+			let grouped = false;
+			walkExpression(expression, {
+				visitExpression(node) {
+					if (node.kind === "worker-groups") grouped = true;
+				},
+			});
+			return grouped;
+		}),
 	);
 }

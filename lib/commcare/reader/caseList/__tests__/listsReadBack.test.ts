@@ -48,6 +48,7 @@ const MEDIA_KIND: Readonly<Record<string, "image" | "audio" | "video">> = {
 /** The keys of a list or a search whose object value is an expression slot. */
 const EXPRESSION_KEYS = new Set([
 	"filter",
+	"searchCondition",
 	"expression",
 	"predicate",
 	"default",

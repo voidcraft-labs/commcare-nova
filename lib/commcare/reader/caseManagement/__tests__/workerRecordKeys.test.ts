@@ -26,8 +26,10 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
@@ -46,7 +48,6 @@ import { readHqApp } from "./heldReading";
 
 const WORKER =
 	"forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes";
-const LOCATION = "forms-and-case-writes/update-keys-location-id-hq-user-id";
 const FACET =
 	"questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat";
 /** The worker property each export writes, renamed in the source to each key. */
@@ -224,6 +225,9 @@ const REFUSED_EVERYWHERE = [
 	"Status",
 	"first_name",
 	"username",
+	// HQ's user-case sync keeps it in step with the worker, and HQ's user data
+	// refuses it as a field (`USER_DATA_SYSTEM_FIELDS`).
+	"hq_user_id",
 	`w${"x".repeat(127)}`,
 ];
 
@@ -262,14 +266,32 @@ describe("a write of the worker's record to a key no worker property takes", () 
 			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		});
 
-		it(`refuses \`location_id\` in ${path} under the row of the keys HQ stores apart`, async () => {
-			const outcome = await readWith(app(), "location_id");
+		it(`reads \`location_id\` in ${path} as a worker detail the record keeps as its location`, async () => {
+			// The location is a fixed text column whose write carries the text
+			// guard Nova prints for it, so the source is one Nova printed writing
+			// `location_id`, not a respelled key.
+			const doc = JSON.parse(
+				JSON.stringify(app()).replaceAll(WRITTEN, "location_id"),
+			) as BlueprintDoc;
+			const outcome = await readWith(doc, "location_id");
 			expect(outcome.defects).toEqual([]);
-			expect(
-				outcome.kind === "account"
-					? outcome.findings.map((one) => one.code)
-					: [],
-			).toEqual([LOCATION]);
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			if (outcome.kind !== "read") throw new Error("The write did not read.");
+			const read = outcome.draft.doc;
+			const worker = Object.values(read.forms)
+				.flatMap((form) => form.caseOperations ?? [])
+				.find(
+					(one) => one.action !== "own" && one.target.kind === "worker-record",
+				);
+			expect(worker?.writes?.map((one) => one.property)).toEqual([
+				"location_id",
+			]);
+			const verdict = mutationCommitVerdict(
+				read,
+				[],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		});
 	}
 
@@ -314,16 +336,7 @@ describe("a write of the worker's record to a key no worker property takes", () 
 		});
 });
 
-/**
- * A Save to Case update of the worker's record in a condition group or in a
- * repeat: CommCare HQ's form builder takes both (it refuses only a create, a
- * close or a link of `commcare-user`), and the gate refuses both
- * (`CASE_OPERATION_TARGET_INVALID`, reason `worker-record-facet`), since Nova
- * keeps a form's writes of the worker's record in one update that runs once
- * on every submission. Each source is Nova's print of that update, the shape
- * HQ's form builder keeps.
- */
-describe("a Save to Case update of the worker's record that runs on a condition or per row", () => {
+describe("operation-level execution of a Save to Case worker update", () => {
 	const KIDS = testUuid("worker-keys-kids");
 	const KID = testUuid("worker-keys-kid");
 	function workerApp(update: Partial<CaseOperation>): BlueprintDoc {
@@ -336,6 +349,9 @@ describe("a Save to Case update of the worker's record that runs on a condition 
 						{
 							name: "Patients",
 							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
 							forms: [
 								{
 									uuid: "worker-keys-form",
@@ -375,55 +391,67 @@ describe("a Save to Case update of the worker's record that runs on a condition 
 		);
 	}
 
-	type FacetCase = readonly [string, Partial<CaseOperation>, string];
-	const cases: readonly FacetCase[] = [
-		[
-			"in its condition group",
-			{
-				condition: eq(term(formField(NOTE)), literal("yes")),
-				// A write's own condition keeps the update in a block.
-				writes: [
-					{
-						property: WRITTEN,
-						value: term(formField(NOTE)),
-						condition: eq(term(formField(NOTE)), literal("no")),
-					},
-				],
-			},
-			"nova_condition_worker",
-		],
-		[
-			"in a repeat",
-			{
-				forEach: { repeat: KIDS },
-				writes: [{ property: WRITTEN, value: term(formField(KID)) }],
-			},
-			"nova_operations",
-		],
-	];
-	for (const [name, update, shape] of cases)
-		it(`is one finding at the block ${name}, and no document`, async () => {
-			const doc = workerApp(update);
-			const verdict = mutationCommitVerdict(
-				doc,
-				[],
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			);
-			expect(
-				(verdict.ok ? [] : verdict.findings).map(
-					(one) => (one.details as { reason?: string } | undefined)?.reason,
-				),
-			).toContain("worker-record-facet");
-			// The source holds the update in a Save to Case block.
-			expect(JSON.stringify(exportedBody(doc))).toContain(shape);
-			const outcome = await readWith(doc, WRITTEN);
-			expect(outcome.defects).toEqual([]);
-			if (outcome.kind !== "account")
-				throw new Error(
-					"An update of the worker's record the gate refuses was read.",
-				);
-			expect(outcome.findings.map((one) => one.code)).toEqual([FACET]);
+	it("keeps the root operation condition in its Save to Case block", async () => {
+		const condition = eq(term(formField(NOTE)), literal("yes"));
+		const doc = workerApp({ condition });
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		const body = exportedBody(doc);
+		expect(JSON.stringify(body)).toContain("nova_condition_worker");
+		const outcome = await readWith(doc, WRITTEN);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		const update = outcome.draft.doc.forms[FORM]?.caseOperations?.find(
+			(operation) =>
+				operation.action === "update" &&
+				operation.target.kind === "worker-record",
+		);
+		expect(update?.condition).toEqual(condition);
+	});
+
+	it("stages the normal identity review when a published worker action gains a condition", () => {
+		const doc = workerApp({ placement: { kind: "basic", slot: "usercase" } });
+		const worker = doc.forms[FORM].caseOperations?.find(
+			(operation) => operation.action === "update",
+		);
+		if (worker?.action !== "update")
+			throw new Error("Expected the held worker update.");
+		const edit = planCaseOperationUpdate(doc, FORM, {
+			...worker,
+			condition: eq(term(formField(NOTE)), literal("yes")),
 		});
+		if (!edit.ok) throw new Error(edit.reason);
+		const planned = withIdentityMoves(doc, edit.mutations);
+		expect(planned.moves).toHaveLength(1);
+		const verdict = mutationCommitVerdict(
+			doc,
+			planned.batch,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	});
+
+	it("still refuses an update in a repeat at its exact block", async () => {
+		const doc = workerApp({
+			forEach: { repeat: KIDS },
+			writes: [{ property: WRITTEN, value: term(formField(KID)) }],
+		});
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(
+			verdict.ok ? [] : verdict.findings.map((one) => one.details),
+		).toContainEqual(
+			expect.objectContaining({
+				reason: "worker-record-facet",
+				facet: "forEach",
+			}),
+		);
+		const outcome = await readWith(doc, WRITTEN);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "account")
+			throw new Error("Expected a repeat refusal");
+		expect(outcome.findings.map((one) => one.code)).toEqual([FACET]);
+	});
 });
 
 /**
@@ -524,9 +552,7 @@ describe("a Save to Case update of the worker's record beside another update of 
 			expect(outcome.findings.map((one) => one.code)).toEqual([TWICE]);
 		});
 
-	// Two loads of the worker's record hold no block: the second load is
-	// refused where it is read, and this entry's finding is not given.
-	it("leaves a second load of the worker's record to the load's own refusal", async () => {
+	it("keeps distinct worker-record selection identities and the writes on each", async () => {
 		const doc = advancedApp();
 		const body = exportedBody(doc, {
 			modules: (modules) =>
@@ -565,12 +591,73 @@ describe("a Save to Case update of the worker's record beside another update of 
 			}),
 		);
 		expect(outcome.defects).toEqual([]);
-		if (outcome.kind !== "account")
-			throw new Error("A second load of the worker's record was read.");
-		const codes = outcome.findings.map((one) => one.code);
-		expect(codes).toContain(
-			"forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain",
+		if (outcome.kind !== "read")
+			throw new Error("The app must retain both worker record choices.");
+		const selections = Object.values(outcome.draft.doc.forms)
+			.flatMap((form) => form.caseSelections ?? [])
+			.filter((row) => row.source.kind === "worker-record");
+		expect(selections).toHaveLength(2);
+		expect(new Set(selections.map((row) => row.uuid)).size).toBe(2);
+		const targets = Object.values(outcome.draft.doc.forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.flatMap((op) =>
+				op.action === "update" &&
+				op.target.kind === "expression" &&
+				op.target.expr.kind === "term" &&
+				op.target.expr.term.kind === "session-datum" &&
+				op.target.expr.term.datum.kind === "form-selection"
+					? [op.target.expr.term.datum.selection]
+					: [],
+			);
+		expect(targets).toEqual(
+			expect.arrayContaining(selections.map((row) => row.uuid)),
 		);
-		expect(codes).not.toContain(TWICE);
+	});
+});
+
+/**
+ * A date-and-time question named straight by the worker's record's key: HQ's
+ * build binds the leaf untyped, so a device keeps the day there, while Nova's
+ * worker properties carry no type and Nova saves a date and time there as its
+ * moment. The reading refuses it under the entry that keeps a day in no
+ * shape Nova keeps, rather than reading a write Nova would export as the
+ * moment.
+ */
+describe("a date and time saved straight to the worker's record", () => {
+	it("is refused in the load auto-selected by usercase", async () => {
+		const doc = advancedApp();
+		let retyped = 0;
+		const body = exportedBody(doc, {
+			xml: (xml) => {
+				const bind = /<bind [^>]*nodeset="\/data\/name"[^>]*\/>/.exec(xml)?.[0];
+				if (bind === undefined) return xml;
+				retyped += 1;
+				return xml.replace(
+					bind,
+					bind.replace(/type="[^"]*"/, 'type="xsd:dateTime"'),
+				);
+			},
+		});
+		expect(retyped).toBe(1);
+		const outcome = await readHqApp(
+			await inputFor(body, {
+				resolver: matchingResolver(
+					doc.appId,
+					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+				),
+				knownCaseTypes: knownCaseTypesOf(doc),
+			}),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(
+			outcome.kind === "account"
+				? outcome.findings.map((one) => [one.code, one.detail.name])
+				: [],
+		).toEqual([
+			[
+				"forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
+				WRITTEN,
+			],
+		]);
 	});
 });

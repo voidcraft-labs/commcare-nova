@@ -1,7 +1,7 @@
 "use client";
 
 // The Project data workspace's two reads: the Project's table manifest and
-// one open table's full snapshot.
+// one bounded window from the open table.
 //
 // Both are generation-keyed exactly like the case-data and lookup-fixture
 // hooks. The request identity carries the reconciler's runtime scope id and
@@ -20,12 +20,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { readManagedLookupTableViewAction } from "@/lib/deployment/managedDataActions";
-import type { LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	readHqTableSourcesViewAction,
+	readManagedLookupTableViewAction,
+} from "@/lib/deployment/managedDataActions";
+import type { LookupRowId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	getLookupDefinitionAction,
 	getLookupManifestAction,
-	getLookupTableAction,
+	getLookupTableWindowAction,
 } from "@/lib/lookup/actions";
 import type {
 	LookupDefinitionsSnapshot,
@@ -192,7 +195,7 @@ export function useProjectDataManifest(enabled = true): {
 }
 
 /**
- * One table's complete snapshot: definition, ordered columns, ordered rows,
+ * The table definition and one bounded page of ordered rows,
  * and the optimistic revisions every write against it carries.
  *
  * Keyed on the table's own `tableRevision` from the live manifest, so a
@@ -201,12 +204,25 @@ export function useProjectDataManifest(enabled = true): {
  * then resolves `not_found`, which is the workspace's "this table is gone"
  * state rather than a silent empty grid.
  */
-export function useProjectDataTable(tableId: LookupTableId | undefined): {
-	readonly state: ProjectDataRead<LookupTableSnapshot>;
+export interface ProjectRowsWindow {
+	query?: string;
+	after?: string;
+	rowId?: LookupRowId;
+}
+export type ProjectTableWindow = LookupTableSnapshot & {
+	searchedFor?: string;
+	outsideSearch?: string;
+};
+export function useProjectDataTable(
+	tableId: LookupTableId | undefined,
+	{ query, after, rowId }: ProjectRowsWindow,
+): {
+	readonly state: ProjectDataRead<ProjectTableWindow>;
 	readonly reload: () => Promise<void>;
 } {
 	const projectId = useProjectId();
 	const accessPhase = useAccessPhase();
+	const canEdit = useProjectCanEdit();
 	const scopeEpoch = useProjectScopeEpoch();
 	const runtimeScopeId = useRuntimeScopeId();
 	const pushed = usePushedManifest();
@@ -223,17 +239,25 @@ export function useProjectDataTable(tableId: LookupTableId | undefined): {
 				projectId ?? "",
 				accessPhase,
 				tableId ?? "",
+				canEdit ? "editor" : "viewer",
 			].join(" "),
-		[runtimeScopeId, scopeEpoch, projectId, accessPhase, tableId],
+		[runtimeScopeId, scopeEpoch, projectId, accessPhase, tableId, canEdit],
 	);
 
 	const reloadToken = useMemo(
-		() => [resourceIdentity, pushedTableRevision].join(" "),
-		[resourceIdentity, pushedTableRevision],
+		() =>
+			JSON.stringify([
+				resourceIdentity,
+				pushedTableRevision,
+				query,
+				after,
+				rowId,
+			]),
+		[resourceIdentity, pushedTableRevision, query, after, rowId],
 	);
 
 	const { state: scopedState, reload } = useReloadableResource<
-		ScopedProjectDataRead<LookupTableSnapshot>
+		ScopedProjectDataRead<ProjectTableWindow>
 	>({
 		prepare: () => {
 			if (
@@ -249,14 +273,38 @@ export function useProjectDataTable(tableId: LookupTableId | undefined): {
 			const table = tableId;
 			const owner = resourceIdentity;
 			return {
-				fetch: async (): Promise<
-					ScopedProjectDataRead<LookupTableSnapshot>
-				> => {
-					const result = await getLookupTableAction(id, table);
+				fetch: async (): Promise<ScopedProjectDataRead<ProjectTableWindow>> => {
+					let result = await getLookupTableWindowAction(id, table, {
+						query,
+						after,
+						rowId,
+					});
+					if (after && !result.success && result.code === "conflict")
+						result = await getLookupTableWindowAction(id, table, { query });
+					// A saved edit may stop matching an open search. Locate the selected
+					// row before reporting its removal to the draft controller.
+					let searchedFor = query;
+					if (
+						query &&
+						rowId &&
+						result.success &&
+						result.value.missingRowId === rowId
+					) {
+						result = await getLookupTableWindowAction(id, table, { rowId });
+						searchedFor = undefined;
+					}
 					return scopeProjectDataRead(
 						owner,
 						result.success
-							? { kind: "data", value: result.value }
+							? {
+									kind: "data",
+									value: {
+										...result.value,
+										searchedFor,
+										...(query &&
+											searchedFor === undefined && { outsideSearch: query }),
+									},
+								}
 							: { kind: "failed", failure: result },
 					);
 				},
@@ -505,6 +553,81 @@ export function useManagedLookupTableView(
 		reloadToken,
 	});
 	const shown: ManagedTableViewRead =
+		state.resourceIdentity === resourceIdentity
+			? state
+			: ready
+				? { kind: "loading" }
+				: { kind: "idle" };
+	return { state: shown, reload };
+}
+
+/** The project spaces a publish put a Nova table in, and the apps that read it. */
+export type HqTableSourcesView = NonNullable<
+	Awaited<ReturnType<typeof readHqTableSourcesViewAction>>
+>;
+
+export type HqTableSourcesRead =
+	| { readonly kind: "idle" }
+	| { readonly kind: "loading" }
+	| { readonly kind: "data"; readonly value: HqTableSourcesView }
+	| { readonly kind: "failed" };
+
+type ScopedHqTableSourcesRead = HqTableSourcesRead & {
+	readonly resourceIdentity: string;
+};
+
+/**
+ * For a table made in Nova: the project spaces a publish of the Project's
+ * apps put it in, which Use the table from CommCare HQ chooses among, and
+ * the apps that read it. Read again whenever the table's revision moves.
+ * Idle for a table that came from CommCare HQ, whose banner offers who
+ * manages it instead.
+ */
+export function useHqTableSourcesView(
+	table:
+		| Pick<LookupTableSnapshot, "id" | "projectId" | "tableRevision" | "hq">
+		| undefined,
+): {
+	readonly state: HqTableSourcesRead;
+	readonly reload: () => Promise<void>;
+} {
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const runtimeScopeId = useRuntimeScopeId();
+	const plain = table !== undefined && table.hq === undefined;
+	const resourceIdentity = [
+		runtimeScopeId,
+		String(scopeEpoch),
+		table?.projectId ?? "",
+		accessPhase,
+		table?.id ?? "",
+		plain ? "plain" : "from-hq",
+	].join(" ");
+	const reloadToken = [resourceIdentity, table?.tableRevision ?? ""].join(" ");
+	const ready = plain && accessPhase === "authorized";
+	const { state, reload } = useReloadableResource<ScopedHqTableSourcesRead>({
+		prepare: () => {
+			if (!ready || table === undefined) {
+				return { notReady: { kind: "idle", resourceIdentity } };
+			}
+			const { projectId, id } = table;
+			const owner = resourceIdentity;
+			return {
+				fetch: async (): Promise<ScopedHqTableSourcesRead> => {
+					const view = await readHqTableSourcesViewAction(projectId, id);
+					return view === null
+						? { kind: "failed", resourceIdentity: owner }
+						: { kind: "data", value: view, resourceIdentity: owner };
+				},
+			};
+		},
+		loading: { kind: "loading", resourceIdentity },
+		toError: () => ({ kind: "failed", resourceIdentity }),
+		keepStale: (prev) =>
+			prev.resourceIdentity === resourceIdentity && prev.kind === "data",
+		reloadToken,
+	});
+	const shown: HqTableSourcesRead =
 		state.resourceIdentity === resourceIdentity
 			? state
 			: ready

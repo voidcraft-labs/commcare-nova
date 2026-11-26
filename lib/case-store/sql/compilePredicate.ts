@@ -81,6 +81,10 @@ import {
 	typesCompatible,
 } from "@/lib/domain/expression/ruleSets";
 import {
+	searchIndexedComparison,
+	searchIndexedValueKind,
+} from "@/lib/domain/expression/searchIndexedComparison";
+import {
 	type ScalarHeld,
 	scalarDataType,
 	typeOf,
@@ -93,11 +97,17 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { isConditionArm } from "@/lib/domain/expression/types";
-import { walkPropertyRefs } from "@/lib/domain/expression/walk";
+import {
+	walkExpressionNodes,
+	walkPropertyRefs,
+} from "@/lib/domain/expression/walk";
+import { SYSTEM_DATETIME_CASE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import {
 	isReadableTemporalValue,
 	wireTimeOfDay,
 } from "@/lib/domain/temporalValues";
+import { CaseSearchUnavailableError } from "../searchRequest";
+import { certifiedFuzzyMatch } from "./certifiedFuzzyMatch";
 import {
 	type CompilePredicateThunk,
 	compileDeviceTextExpression,
@@ -118,7 +128,13 @@ import {
 	type TermCompileContext,
 } from "./compileTerm";
 import { compileCoreDayNumber } from "./coreDayNumber";
+import {
+	JAVA_TRIMMED_CHARACTERS,
+	PLAIN_DECIMAL_PATTERN,
+} from "./coreSortNumber";
 import type { Database } from "./database";
+import { indexedSearchDate } from "./searchIndexedDate";
+import { indexedSearchNumber } from "./searchIndexedNumber";
 
 /** Module-scoped expression builder. Same shape as the sibling compilers. */
 const eb = expressionBuilder<Database, keyof Database>();
@@ -158,12 +174,42 @@ const GEOPOINT_CENTER_PATTERN = `^${GEOPOINT_CENTER_NUMBER_PATTERN} ${GEOPOINT_C
 const SQL_ASCII_WHITESPACE = "[ \t\n\u000b\f\r]";
 const GEOPOINT_RAW_CENTER_PATTERN = `^(?:${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_CENTER_NUMBER_PATTERN}(?:${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN})?${SQL_ASCII_WHITESPACE}*|${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*,${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*)$`;
 
+/** The query text of every similar match (`match` in `fuzzy` mode) in a
+ * search condition, compiled against the anchor record. A query that reads
+ * a related record it cannot reach from there is left out. Searches use it
+ * to say why a similar match is undecided. */
+export function compileFuzzyQueries(
+	pred: DomainExpression,
+	ctx: PredicateCompileContext,
+): Expression<unknown>[] {
+	const queries: Expression<unknown>[] = [];
+	walkExpressionNodes(pred, (node) => {
+		if (node.kind !== "match" || node.mode !== "fuzzy") return;
+		try {
+			queries.push(compileValueExprOperand(node.value, ctx));
+		} catch {
+			// A query bound inside a related-record walk has no anchor reading.
+		}
+	});
+	return queries;
+}
+
 /** Compile a `DomainExpression` to a Kysely `Expression<SqlBool>`. */
 export function compilePredicate(
 	pred: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	if (pred.kind === "term") return compileBareRead(pred.term, ctx);
+	// `boolean(...)` of one answer, the one call a record condition holds
+	// (`typeChecker.ts::effectiveBooleanOfAnswer`): Core's `boolean` reads its
+	// argument through `FunctionUtils.toBoolean`, as a bare read does.
+	if (
+		pred.kind === "call" &&
+		pred.fn === "boolean" &&
+		pred.args.length === 1 &&
+		pred.args[0]?.kind === "term"
+	)
+		return compileBareRead(pred.args[0].term, ctx);
 	if (!isConditionArm(pred))
 		return compileExpression(
 			pred,
@@ -460,7 +506,20 @@ function compileNot(
 	pred: Extract<DomainExpression, { kind: "not" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	return negateTwoValued(compilePredicate(pred.clause, ctx));
+	return negateTwoValued(
+		compilePredicate(pred.clause, negatedSearchBound(ctx)),
+	);
+}
+
+function negatedSearchBound(
+	ctx: PredicateCompileContext,
+): PredicateCompileContext {
+	return ctx.searchBound
+		? {
+				...ctx,
+				searchBound: ctx.searchBound === "certain" ? "possible" : "certain",
+			}
+		: ctx;
 }
 
 /** The two-valued negation of a predicate: unknown reads as false first. */
@@ -697,9 +756,6 @@ function dayTextEquals(
 
 /** Java's `String.trim` removes every character up to U+0020 at both ends;
  *  Postgres text holds no U+0000. */
-const JAVA_TRIMMED_CHARACTERS = Array.from({ length: 32 }, (_, index) =>
-	String.fromCharCode(index + 1),
-).join("");
 
 function javaTrimmed(text: string): string {
 	let start = 0;
@@ -869,6 +925,97 @@ function compileOrderedComparison(
 	right: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (
+		ctx.reading === "search" &&
+		left.kind === "term" &&
+		left.term.kind === "prop"
+	) {
+		const typing = recordQueryContextFor(ctx);
+		const leftType = scalarDataType(typeOf(left, typing)?.data);
+		let mode = searchIndexedComparison(
+			operator === "=",
+			left,
+			leftType,
+			right,
+			scalarDataType(typeOf(right, typing)?.data),
+		);
+		if (mode === "runtime") {
+			const concrete = decidedListItem(right, ctx);
+			mode =
+				typeof concrete === "string"
+					? searchIndexedValueKind(concrete)
+					: undefined;
+		}
+		if (
+			!mode &&
+			operator !== "=" &&
+			(leftType === "text" || leftType === "time")
+		)
+			throw new CaseSearchUnavailableError({
+				kind: "query-value-invalid",
+				field: left.term.property,
+			});
+		if (mode) {
+			const raw = compileStoredText(left.term, ctx);
+			const bound = compileExpression(right, expressionContextFor(ctx));
+			if (mode === "exact-text")
+				return eb(raw, operator, sql`(${bound})::text`);
+			if (mode === "number") {
+				const indexed = indexedSearchNumber(raw);
+				const compare = eb(
+					indexed.number,
+					operator,
+					sql<number>`(${bound})::double precision`,
+				);
+				return ctx.searchBound
+					? sql<boolean>`case when ${indexed.uncertain} then ${ctx.searchBound === "possible"} else ${compare} end`
+					: compare;
+			}
+			const indexed = indexedSearchDate(raw);
+			const value =
+				mode === "date"
+					? sql<Date>`timezone('UTC',(${bound})::date::timestamp)`
+					: sql<Date>`(${bound})::timestamptz`;
+			// Elasticsearch rounds an inclusive upper or exclusive lower
+			// date-only bound up through the last millisecond of its UTC day.
+			const rounded =
+				mode === "date" && (operator === ">" || operator === "<=");
+			const compare = rounded
+				? eb(
+						indexed.instant,
+						operator === ">" ? ">=" : "<",
+						sql<Date>`${value} + interval '24 hours'`,
+					)
+				: eb(indexed.instant, operator, value);
+			return ctx.searchBound
+				? sql<boolean>`case when ${indexed.uncertain} then ${ctx.searchBound === "possible"} else ${compare} end`
+				: compare;
+		}
+	}
+	if (
+		ctx.reading === "search" &&
+		left.kind === "term" &&
+		left.term.kind === "prop" &&
+		SYSTEM_DATETIME_CASE_PROPERTIES.has(left.term.property) &&
+		scalarDataType(typeOf(right, recordQueryContextFor(ctx))?.data) === "date"
+	) {
+		const zone = ctx.bindings.projectTimeZone;
+		if (!zone)
+			throw new CaseSearchUnavailableError({
+				kind: "project-zone-unavailable",
+			});
+		const sqlCtx = expressionContextFor(ctx);
+		const instant = compileExpression(left, sqlCtx);
+		const day = compileExpression(right, sqlCtx);
+		const nextDay = operator === ">" || operator === "<=";
+		const midnight = sql<Date>`timezone(${zone}, ((${day})::date + ${nextDay ? 1 : 0}::integer)::timestamp)`;
+		return operator === "="
+			? eb.and([
+					eb(instant, ">=", midnight),
+					eb(instant, "<", sql<Date>`${midnight} + interval '24 hours'`),
+				])
+			: eb(instant, operator, midnight);
+	}
 	if (operator !== "=") {
 		for (const operand of [left, right])
 			if (constantComparand(operand, ctx)?.blank)
@@ -1120,6 +1267,10 @@ function compileMatch(
 				valueRead,
 			]) as unknown as Expression<SqlBool>;
 		case "fuzzy":
+			if (ctx.searchBound) {
+				const matched = certifiedFuzzyMatch(propRead, valueRead, ctx);
+				return sql<boolean>`coalesce(${matched}, ${ctx.searchBound === "possible"})`;
+			}
 			return compileFuzzyMatch(propRead, valueRead, ctx);
 		case "phonetic":
 			return compilePhoneticMatch(propRead, valueRead, ctx);
@@ -1709,7 +1860,6 @@ function unitFactor(
 
 /** The text Core's `number()` reads as a number once trimmed: digits with an
  *  optional sign and fraction, no exponent (`FunctionUtils.java::toNumeric`). */
-const PLAIN_DECIMAL_PATTERN = String.raw`^-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$`;
 
 /** Canonical CCHQ geopoint text: commas to spaces, whitespace collapsed. */
 function normalizeGeopointText(
@@ -1816,7 +1966,7 @@ function compileExistsOrMissing(
 	const innerWhere =
 		pred.where !== undefined
 			? compilePredicate(pred.where, {
-					...ctx,
+					...(mode === "missing" ? negatedSearchBound(ctx) : ctx),
 					anchorAlias: compiledPath.leafAlias,
 					relationPathDepth: nextDepth,
 					...(relation.destinationCaseType === undefined
@@ -1860,7 +2010,7 @@ function compileSelfViaQuantifier(
 	// `missing(self, where)` is a negation: two-valued like `not`.
 	return where === undefined
 		? (eb.lit(false) as Expression<SqlBool>)
-		: negateTwoValued(compilePredicate(where, ctx));
+		: negateTwoValued(compilePredicate(where, negatedSearchBound(ctx)));
 }
 
 /**

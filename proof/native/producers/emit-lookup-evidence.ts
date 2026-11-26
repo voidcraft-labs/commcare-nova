@@ -14,7 +14,14 @@ import { nativeLookupRelations } from "../../../lib/commcare/lookup/__tests__/na
 import { buildLookupFixtures } from "../../../lib/commcare/lookup/fixtures";
 import { hqWouldTrimLookupText } from "../../../lib/commcare/lookup/hqCellText";
 import { lookupWireNaming } from "../../../lib/commcare/lookup/naming";
+import { buildTextWorkbook } from "../../../lib/commcare/lookup/textWorkbook";
 import { buildLookupWorkbook } from "../../../lib/commcare/lookup/workbook";
+import {
+	lookupWorkbookDataHeader,
+	lookupWorkbookDataRow,
+	lookupWorkbookShape,
+	lookupWorkbookTypesRows,
+} from "../../../lib/commcare/lookup/workbookRows";
 import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const outputArgument = process.argv[2];
@@ -87,12 +94,24 @@ const padded = [
 				`${String.fromCodePoint(point)}value${String.fromCodePoint(point)}`,
 		),
 ].map((value, index) => wireRow(counterexample, String(index), { value }));
+// This deliberate counterexample measures what HQ strips. Format rows with
+// the real writer below the admission check that protects a real export.
+const paddingTable = lookupWireNaming([counterexample]).tables[0];
+const paddingShape = lookupWorkbookShape(paddingTable);
 writeFileSync(
 	resolve(output, "padding.xlsx"),
-	buildLookupWorkbook(
-		lookupWireNaming([counterexample]),
-		new Map([[counterexample.id, padded]]),
-	).bytes,
+	buildTextWorkbook([
+		{ name: "types", rows: lookupWorkbookTypesRows([paddingTable]) },
+		{
+			name: counterexample.tag,
+			rows: [
+				lookupWorkbookDataHeader(paddingTable, paddingShape),
+				...padded.map((row) =>
+					lookupWorkbookDataRow(paddingTable, paddingShape, row),
+				),
+			],
+		},
+	]),
 );
 writeFileSync(
 	resolve(output, "expected.json"),
@@ -113,6 +132,9 @@ writeFileSync(
 					"lib/commcare/xpath/wire/instances.ts",
 					"proof/native/core/LookupRuntimeTest.java",
 					"lib/commcare/lookup/workbook.ts",
+					"lib/commcare/lookup/workbookRows.ts",
+					"lib/commcare/lookup/read.ts",
+					"lib/commcare/lookup/row.ts",
 					"lib/commcare/lookup/textWorkbook.ts",
 					"lib/commcare/serializeXml.ts",
 					"lib/commcare/lookup/fixtures.ts",
@@ -135,8 +157,20 @@ writeFileSync(
 );
 console.log(output);
 
-for (const reversed of [false, true]) {
-	const { doc, naming, fixtures } = lookupAppFixture(reversed);
+for (const [name, reversed, rich] of [
+	["lookup-app", false, false],
+	["lookup-reversed", true, false],
+	["lookup-rich", false, true],
+] as const) {
+	const { doc, table, rows, naming, fixtures } = lookupAppFixture(
+		reversed,
+		rich,
+	);
+	if (rich)
+		writeFileSync(
+			resolve(output, "lookup-rich.xlsx"),
+			buildLookupWorkbook(naming, new Map([[table.id, rows]])).bytes,
+		);
 	const hq = expandDoc(doc, { lookupNaming: naming });
 	const zip = new AdmZip(
 		compileCcz(hq, doc.appName, doc, {
@@ -144,7 +178,7 @@ for (const reversed of [false, true]) {
 			lookup: { naming, fixtures },
 		}),
 	);
-	const name = reversed ? "lookup-reversed" : "lookup-app";
+
 	writeFileSync(resolve(output, `${name}.json`), JSON.stringify(hq));
 	writeFileSync(
 		resolve(output, `${name}.suite.xml`),

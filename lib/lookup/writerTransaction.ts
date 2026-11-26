@@ -18,6 +18,7 @@ import { managedLookupTableRefusal } from "@/lib/publish/managedData";
 import { LookupError } from "./errors";
 import { maxLookupRevision, parseLookupRevision } from "./schema";
 import type { LookupRevision, LookupTableRevisions } from "./types";
+import { assertWorkbookEditAvailable } from "./workbookHold";
 
 export type StoredLookupTable = Selectable<LookupTablesTable>;
 
@@ -47,6 +48,16 @@ const authorityTransactions = new WeakMap<
 	LookupWriteAuthority,
 	Transaction<AppDatabase>
 >();
+
+const destructiveAuthorities = new WeakSet<LookupWriteAuthority>();
+
+/** Receipts retain the strongest capability the successful write used,
+ * including authority discovered from the previous definition under lock. */
+export function lookupReceiptCapability(
+	authority: LookupWriteAuthority,
+): "edit" | "delete" {
+	return destructiveAuthorities.has(authority) ? "delete" : "edit";
+}
 
 /**
  * A write refused because the member's standing, read in the write's own
@@ -110,6 +121,7 @@ export async function authorizeLookupWriteInTransaction(
 		role,
 	} as LookupWriteAuthority;
 	authorityTransactions.set(authority, tx);
+	if (capability === "delete") destructiveAuthorities.add(authority);
 	return authority;
 }
 
@@ -131,6 +143,7 @@ export function requireLookupCapability(
 	if (!roleAllowsApp(authority.role, capability)) {
 		throw new LookupAuthorityError("below-capability", capability);
 	}
+	if (capability === "delete") destructiveAuthorities.add(authority);
 	return authority;
 }
 
@@ -250,6 +263,8 @@ export async function lockLookupTableForUpdate(
 			managedLookupTableRefusal(table.name, table.hq_domain),
 		);
 	}
+	if (purpose === "author" || purpose === "remove-table")
+		await assertWorkbookEditAvailable(tx, tableId);
 	if (expectedRevision === null) return table;
 	const currentRevisions = lookupTableRevisions(table);
 	if (currentRevisions.tableRevision !== expectedRevision) {

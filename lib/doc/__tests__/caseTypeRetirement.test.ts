@@ -12,6 +12,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type Mutation, mutationSchema, type Uuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	collectTranslationUnits,
 	hiddenSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -664,4 +665,87 @@ describe("case type retirement from admitted workflows", () => {
 			expect(next.caseTypes?.map((type) => type.name)).toEqual(["patient"]);
 		},
 	);
+});
+
+describe("a case type only a translation names", () => {
+	const GREET = testUuid("retire-translated-greet");
+	function withSpanishLabel(): BlueprintDoc {
+		const doc = commit(
+			buildDoc({
+				caseTypes: [
+					{ name: "visit", properties: [] },
+					{ name: "patient", properties: [] },
+				],
+				modules: [
+					{
+						uuid: VISIT,
+						name: "Visits",
+						caseType: "visit",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								uuid: VISIT_FORM,
+								name: "Record visit",
+								type: "followup",
+								fields: [
+									f({
+										uuid: GREET,
+										kind: "label",
+										id: "greet",
+										label: "Hello",
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+			[{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" }],
+		);
+		const unit = collectTranslationUnits(doc).find(
+			(one) =>
+				one.owner.kind === "field" &&
+				one.owner.fieldUuid === GREET &&
+				one.role === "field-label",
+		);
+		if (unit === undefined) throw new Error("Missing the label's unit.");
+		expect(planCaseTypeRetirementOnRetype(doc, VISIT, "patient").kind).toBe(
+			"retire",
+		);
+		return commit(doc, [
+			{
+				kind: "setTranslation",
+				language: "spa",
+				unitId: unit.id,
+				entry: {
+					value: {
+						parts: [
+							{ kind: "text", text: "Hola " },
+							{ kind: "case-ref", caseType: "visit", property: "case_name" },
+						],
+					},
+					valueMode: "independent-values",
+					sourceFingerprint: unit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			},
+		]);
+	}
+
+	it("blocks the retype and names the language whose text reads it", () => {
+		const plan = planCaseTypeRetirementOnRetype(
+			withSpanishLabel(),
+			VISIT,
+			"patient",
+		);
+		expect(plan.kind).toBe("blocked");
+		if (plan.kind !== "blocked") throw new Error("expected reference blocker");
+		expect(plan.references).toEqual([
+			'field "greet" in form "Record visit" (module "Visits") references #visit/… in its "label" text in Español',
+		]);
+	});
 });

@@ -15,11 +15,16 @@ import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import { appTestNamespace } from "@/lib/case-store/appTestNamespace";
 import {
+	actionRoleIds,
+	caseListActionRolesFixture,
+} from "@/lib/commcare/__tests__/caseListActionRolesFixture";
+import {
 	admitNoMatchesDoc,
 	FOLLOWUP_FORM,
 	HOST_MODULE,
 	NAME_INPUT,
 	noMatchesDoc,
+	noMatchesWireFixture,
 	REGISTER_FORM,
 } from "@/lib/commcare/__tests__/noMatchesWireFixture";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -28,10 +33,17 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	collectTranslationUnits,
+	columnSort,
 	makeTranslationUnitId,
+	mapLayerColumn,
+	mapLocationColumn,
 	NEW_APP_SETTINGS,
+	PLATFORMS,
+	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { eq, formField, literal, term } from "@/lib/domain/expression";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { proseText } from "@/lib/domain/prose";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
 import { sectionEntryDoc } from "../../engine/__tests__/fixtures/sectionEntry";
@@ -50,6 +62,306 @@ const stepSchema = z.object({
 	testId: z.string(),
 	step: z.number(),
 	observation: z.record(z.string(), z.unknown()),
+});
+
+it("keeps the exact ID set when an App Test form opens after its answer changes", {
+	timeout: 15_000,
+}, async () => {
+	const key = testUuid("app-test-root-exact-id");
+	const doc = buildDoc({
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "Tasks",
+				forms: [
+					{
+						name: "Create person",
+						type: "survey",
+						fields: [
+							f({
+								uuid: key,
+								kind: "text",
+								id: "key",
+								default_value: term(literal("opened-id")),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: testUuid("app-test-exact-create"),
+			id: "exact_create",
+			action: "create",
+			caseType: "person",
+			target: { kind: "new", expr: term(formField(key)) },
+			name: term(literal("Saved person")),
+		},
+	];
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Preserve the ID assigned at opening" },
+	});
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `step-${current.step}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid });
+	await step({ kind: "form", formUuid });
+	await step({ kind: "answer", answers: [{ path: "key", value: "later-id" }] });
+	expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+	const records = await sql<{ case_id: string }>`
+		SELECT case_id FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+		WHERE case_type = 'person'
+	`.execute(h.db());
+	expect(records.rows).toEqual([{ case_id: "opened-id" }]);
+	await step({ kind: "finish" });
+});
+
+it("submits a guarded worker record update through an isolated App Test journey", async () => {
+	const decision = testUuid("app-test-worker-decision");
+	const detail = testUuid("app-test-worker-detail");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Tasks",
+				forms: [
+					{
+						name: "Record a note",
+						type: "survey",
+						fields: [f({ kind: "text", uuid: decision, id: "decision" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	doc.userProperties = {
+		[detail]: { uuid: detail, slug: "visit_note", label: "Visit note" },
+	};
+	doc.userPropertyOrder = [detail];
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: testUuid("app-test-conditional-worker-write"),
+			id: "save_worker_note",
+			action: "update",
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+			condition: eq(term(formField(decision)), literal("save")),
+			writes: [{ property: "visit_note", value: term(literal("visited")) }],
+		},
+	];
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const answer of ["keep", "save"]) {
+		let current = await startAppTest(scope, {
+			requestId: `conditional-worker-${answer}`,
+			expectedBlueprintSeq: 0,
+			input: { purpose: "Record the note when the answer calls for it" },
+		});
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `step-${current.step}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		const rows = () =>
+			sql<{ case_id: string; value: string | null }>`
+			SELECT case_id, properties->>'visit_note' AS value
+			FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+			WHERE case_type = 'commcare-user' AND properties->>'hq_user_id' = ${scope.actorUserId}
+		`.execute(h.db());
+		await step({ kind: "menu", moduleUuid });
+		await step({ kind: "form", formUuid });
+		const before = (await rows()).rows;
+		expect(before).toEqual([{ case_id: expect.any(String), value: "" }]);
+		await step({
+			kind: "answer",
+			answers: [{ path: "decision", value: answer }],
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+		expect((await rows()).rows).toEqual([
+			{
+				case_id: before[0].case_id,
+				value: answer === "save" ? "visited" : before[0].value,
+			},
+		]);
+		await step({ kind: "finish" });
+	}
+});
+
+it("shows shared worker wording for a menu, form, record choice and submit button in each language", async () => {
+	const initial = buildDoc({
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+					},
+					{
+						name: "Survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+					},
+				],
+			},
+		],
+		caseTypes: [{ name: "patient", properties: [] }],
+	});
+	const menu = initial.moduleOrder[0],
+		form = initial.formOrder[menu][0];
+	const labels = [
+		[generatedWordingId(menu, "menuTitle"), "Worker visits", "Visites"],
+		[generatedWordingId(form, "formTitle"), "Record visit", "Noter la visite"],
+		[
+			generatedWordingId(menu, "selectCase"),
+			"Use this patient",
+			"Choisir ce patient",
+		],
+		[
+			generatedWordingId(form, "submitButton"),
+			"Finish visit",
+			"Terminer la visite",
+		],
+	] as const;
+	/* A source-language override changes the source a translation is made
+	 * from, so French is recorded against the English wording it translates. */
+	const translate = (
+		from: import("@/lib/domain").BlueprintDoc,
+		language: "eng" | "fra",
+		head: readonly import("@/lib/doc/types").Mutation[] = [],
+	) => {
+		const units = new Map(
+			collectTranslationUnits(from).map((unit) => [unit.id, unit]),
+		);
+		const verdict = mutationCommitVerdict(
+			from,
+			[
+				...head,
+				...labels.map(([id, english, french]) => {
+					const unit = units.get(id);
+					if (!unit) throw Error(`Missing wording for ${id}`);
+					return {
+						kind: "setTranslation" as const,
+						language,
+						unitId: id,
+						entry: {
+							value: language === "fra" ? french : english,
+							sourceFingerprint: unit.sourceFingerprint,
+							origin: "human" as const,
+							review: "reviewed" as const,
+							translatedFrom: "eng",
+						},
+					};
+				}),
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw Error(JSON.stringify(verdict.findings));
+		return verdict.nextDoc;
+	};
+	const doc = translate(
+		translate(initial, "eng", [
+			{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fra" },
+		]),
+		"fra",
+	);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Check worker-facing labels",
+			platform: "web-apps",
+			scenario: { records: [{ id: "one", caseType: "patient", name: "Maya" }] },
+		}),
+	);
+	const step = async (action: AppTestAction) => {
+		current = stepSchema.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: current.step,
+				action,
+			}),
+		);
+		expect(current.observation.error).toBeUndefined();
+		return current.observation;
+	};
+	for (const [language, index] of [
+		["eng", 1],
+		["fra", 2],
+	] as const) {
+		expect(
+			await step({ kind: "language", language: { language } }),
+		).toMatchObject({
+			screen: "home",
+			menus: expect.arrayContaining([
+				expect.objectContaining({ uuid: menu, name: labels[0][index] }),
+			]),
+		});
+		expect(await step({ kind: "menu", moduleUuid: menu })).toMatchObject({
+			name: labels[0][index],
+			forms: expect.arrayContaining([
+				expect.objectContaining({ uuid: form, name: labels[1][index] }),
+			]),
+		});
+		expect(await step({ kind: "form", formUuid: form })).toMatchObject({
+			screen: "browse",
+		});
+		// The record choice's own wording labels only Web Apps' several-case
+		// Continue (`multi_select_continue_button.html`); a single case's
+		// details keep the platform's own Continue.
+		const details = await step({ kind: "select", caseIds: ["one"] });
+		expect(details).toMatchObject({ screen: "details" });
+		expect(details).not.toMatchObject({
+			controls: { continue: labels[2][index] },
+		});
+		expect(await step({ kind: "continue" })).toMatchObject({
+			screen: "form",
+			controls: { submit: labels[3][index] },
+		});
+		await step({ kind: "home" });
+	}
+	await step({ kind: "finish" });
 });
 
 it("commits a registration and finishes in one batch with replayable evidence and no retained test records", async () => {
@@ -241,16 +553,15 @@ function sharedJourneyCalls(doc: import("@/lib/domain").BlueprintDoc) {
 	};
 }
 
-it.each([false, true])(
-	"admits registration only after an empty search, preserving its return behavior (first menu: %s)",
+it.each(["basic", "home", "new-case"] as const)(
+	"admits registration only after an empty search and continues from the submitted case (%s)",
 	// Seven persisted steps, each its own locked transaction and evaluation,
 	// and each one part of the contract (the refused Register before the
 	// search, the search, the prefilled form, the answer the return shows,
 	// the submit), so give it the budget of the file's other journeys.
 	{ timeout: 15_000 },
-	async (home) => {
-		const doc = noMatchesDoc();
-		if (home) doc.forms[REGISTER_FORM].postSubmit = "firstMenu";
+	async (destination) => {
+		const doc = noMatchesWireFixture(destination);
 		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 		await h.seedAppWithBlueprint(doc, {
 			id: scope.appId,
@@ -300,25 +611,125 @@ it.each([false, true])(
 		});
 		const saved = await step({ kind: "submit" });
 		expect(saved.savedInTest).toBe(true);
-		if (home) expect(saved.screen).toBe("home");
-		else {
-			expect(saved).toMatchObject({
+		if (destination === "home") {
+			expect(saved.screen).toBe("home");
+		} else if (destination === "new-case") {
+			const selection = [
+				expect.objectContaining({ caseName: "Corrected name" }),
+			];
+			expect(saved).toMatchObject({ screen: "menu", selected: selection });
+			expect(
+				await step({ kind: "form", formUuid: FOLLOWUP_FORM }),
+			).toMatchObject({
+				screen: "form",
+			});
+			expect(await step({ kind: "back" })).toMatchObject({
+				screen: "menu",
+				selected: selection,
+			});
+			expect(await step({ kind: "back" })).toMatchObject({
 				screen: "results",
 				results: {
-					kind: "rows",
 					rows: [expect.objectContaining({ case_name: "Corrected name" })],
 				},
+			});
+		} else {
+			// The frame ends on the search keyed to the new case, which Web Apps
+			// shows with no row and no Register (`proof/webapps/test_empty_search_registration.py`).
+			expect(saved).toMatchObject({
+				screen: "results",
+				results: { kind: "empty" },
 			});
 			expect(saved.registration).toBeUndefined();
 		}
 	},
 );
 
-it("returns a Register from a list whose forms read the search to that search keyed to the new case", async () => {
+it.each([
+	["off", false, false],
+	["on", true, false],
+	["on with a required field", true, true],
+] as const)(
+	"clears a completed search and refreshes its records only when enabled (%s)",
+	async (_label, searchOnClear, required) => {
+		const doc = noMatchesDoc();
+		const mod = doc.modules[HOST_MODULE];
+		if (!mod?.caseSearchConfig || "searchActionEnabled" in mod.caseSearchConfig)
+			throw new Error("The worker journey needs an ordinary search.");
+		if (searchOnClear) mod.caseSearchConfig.searchOnClear = true;
+		/* Web Apps skips the search after Clear while a required field is
+		 * blank, and shows no error for it (`query.js::updateSearchResults`). */
+		if (required && mod.caseListConfig)
+			mod.caseListConfig.searchInputs = mod.caseListConfig.searchInputs.map(
+				(input) =>
+					input.kind === "hidden" || input.kind === "address"
+						? input
+						: { ...input, required: {} },
+			);
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		let current = await startAppTest(scope, {
+			requestId: "start",
+			expectedBlueprintSeq: 0,
+			input: {
+				purpose: "Clear a completed search",
+				scenario: {
+					records: [
+						{ id: "first", caseType: "patient", name: "Maya" },
+						{ id: "second", caseType: "patient", name: "Nia" },
+					],
+				},
+			},
+		});
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `step-${current.step}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		await step({ kind: "menu", moduleUuid: HOST_MODULE });
+		const typed = await step({
+			kind: "search",
+			answers: [{ name: "patient_name", value: "Maya" }],
+		});
+		expect(typed).toMatchObject({
+			results: { rows: [expect.objectContaining({ case_name: "Maya" })] },
+		});
+		const cleared = await step({ kind: "clearSearch" });
+		expect(cleared).toMatchObject({ search: { answers: [] } });
+		if (searchOnClear && !required) {
+			expect(cleared).toMatchObject({
+				screen: "results",
+				results: {
+					rows: expect.arrayContaining([
+						expect.objectContaining({ case_name: "Maya" }),
+						expect.objectContaining({ case_name: "Nia" }),
+					]),
+				},
+			});
+		} else {
+			expect(cleared).toMatchObject({ screen: "search" });
+			expect(cleared.results).toBeUndefined();
+			expect(cleared).toMatchObject({ search: { answers: [], errors: {} } });
+		}
+	},
+);
+
+it("returns a Register from a list whose forms read the search to that search keyed to the new case, listing no row", async () => {
 	/* The Patients list always offers Registration's form, Back to this list.
 	 * The return frame runs Patients' search again over the registered case
-	 * alone (HQ's `case_fixture` query), so Results list that case and not
-	 * the earlier search's matches, which the new name does not match. */
+	 * alone (HQ's `case_fixture` query) and ends there, and Formplayer
+	 * rebuilds such a frame without the list's rows
+	 * (`MenuSessionFactory.rebuildSessionFromFrame`,
+	 * `EntityScreen.initListSubScreen`): Results list neither that case nor
+	 * the earlier search's matches (`proof/formplayer/test_search.py`). */
 	const offered = testUuid("journey-offered-registration");
 	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
 	const doc = buildDoc({
@@ -436,14 +847,8 @@ it("returns a Register from a list whose forms read the search to that search ke
 	expect(saved).toMatchObject({
 		savedInTest: true,
 		screen: "results",
-		results: {
-			kind: "rows",
-			rows: [expect.objectContaining({ case_name: "Zed" })],
-		},
+		results: { kind: "empty" },
 	});
-	expect(
-		(saved.results as { rows: readonly unknown[] } | undefined)?.rows,
-	).toHaveLength(1);
 });
 
 // A start, fourteen persisted worker actions (two of them submissions) and two
@@ -1185,6 +1590,233 @@ it("opens the results of a search with no visible field, its hidden Search value
 	});
 });
 
+it("runs a skip-to-results menu's default search without its fields' starting values, which a Search press sends", async () => {
+	const author = await makeDurableAuthoringHarness(h);
+	expect(
+		await author.call("createModule", { name: "People", case_type: "person" }),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("createForm", {
+			moduleUuid: "People",
+			name: "Visit",
+			type: "followup",
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addFields", {
+			formUuid: "Visit",
+			moduleUuid: "People",
+			fields: [
+				{
+					kind: "text",
+					id: "region",
+					label: "Region",
+					caseWrite: { caseType: "person", property: "region" },
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addSearchInputs", {
+			moduleUuid: "People",
+			searchInputs: [
+				{
+					kind: "simple",
+					type: "text",
+					name: "region",
+					label: "Region",
+					property: "region",
+					hidden: true,
+					default: "'north'",
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("setCaseSearchAdvanced", {
+			moduleUuid: "People",
+			excludedOwnerIds: null,
+			searchWorkflow: "skipToResults",
+			formsReadSearch: null,
+		}),
+	).toMatchObject({ ok: true });
+	const doc = await author.currentDoc();
+	const people = Object.values(doc.modules).find(
+		(module) => module.name === "People",
+	);
+	if (!people) throw new Error("Missing people menu");
+
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const begun = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Open every person, then search the assigned region",
+			scenario: {
+				records: [
+					{
+						id: "north-person",
+						caseType: "person",
+						name: "North person",
+						properties: { region: "north" },
+					},
+					{
+						id: "south-person",
+						caseType: "person",
+						name: "South person",
+						properties: { region: "south" },
+					},
+				],
+			},
+		},
+	});
+	const opened = await continueAppTest(scope, {
+		testId: begun.testId,
+		expectedStep: 0,
+		requestId: "open",
+		action: { kind: "menu", moduleUuid: people.uuid },
+	});
+	/* Formplayer's default search sends no prompt's answer
+	 * (`RemoteQuerySessionManager.getRawQueryParams(true)`), so the region's
+	 * starting value narrows nothing as the menu opens. */
+	expect(opened.observation).toMatchObject({ screen: "results" });
+	expect(
+		(
+			opened.observation as { results?: { rows?: { case_id: string }[] } }
+		).results?.rows
+			?.map((row) => row.case_id)
+			.sort(),
+	).toEqual(["north-person", "south-person"]);
+	const searched = await continueAppTest(scope, {
+		testId: begun.testId,
+		expectedStep: 1,
+		requestId: "search",
+		action: { kind: "search", answers: [] },
+	});
+	/* A Search press sends every answer, the hidden field's among them, so
+	 * the request now matches region by the project space's own matching,
+	 * which this local app has not confirmed; the default search sent no
+	 * prompt and needed none. */
+	expect(searched.observation).toMatchObject({
+		completed: false,
+		error:
+			"Confirm how the project space matches “Region” in Preview search settings.",
+	});
+});
+
+it("searches every open record of the type when only the device list has a condition", async () => {
+	const author = await makeDurableAuthoringHarness(h);
+	expect(
+		await author.call("createModule", { name: "People", case_type: "person" }),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("createForm", {
+			moduleUuid: "People",
+			name: "Visit",
+			type: "followup",
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addFields", {
+			formUuid: "Visit",
+			moduleUuid: "People",
+			fields: [
+				{
+					kind: "text",
+					id: "stage",
+					label: "Stage",
+					caseWrite: { caseType: "person", property: "stage" },
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addSearchInputs", {
+			moduleUuid: "People",
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "person_name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("setCaseListFilter", {
+			moduleUuid: "People",
+			surface: "list",
+			filter: "#case/stage = 'active'",
+		}),
+	).toMatchObject({ ok: true });
+	const doc = await author.currentDoc();
+	const people = Object.values(doc.modules).find(
+		(module) => module.name === "People",
+	);
+	if (!people?.caseListConfig) throw new Error("Missing people menu");
+	/* The list condition alone was edited: the search keeps sending no
+	 * restriction, stored as its explicit all-records arm. */
+	expect(people.caseListConfig.searchCondition).toEqual({ kind: "match-all" });
+
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const records = [
+		{
+			id: "maya-active",
+			caseType: "person",
+			name: "Maya",
+			properties: { stage: "active" },
+		},
+		{
+			id: "maya-closed",
+			caseType: "person",
+			name: "Maya",
+			properties: { stage: "done" },
+		},
+	];
+	const begun = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Search past the list condition", scenario: { records } },
+	});
+	let step = begun.step;
+	const act = async (requestId: string, action: AppTestAction) => {
+		const result = await continueAppTest(scope, {
+			testId: begun.testId,
+			expectedStep: step,
+			requestId,
+			action,
+		});
+		step = result.step;
+		return result.observation;
+	};
+	await act("open", { kind: "menu", moduleUuid: people.uuid });
+	const searched = await act("search", {
+		kind: "search",
+		answers: [{ name: "person_name", value: "Maya" }],
+	});
+	/* HQ's search is sent no `_xpath_query` restriction, so it finds both
+	 * open records named Maya, the one the device list hides among them. */
+	expect(searched).toMatchObject({ results: { kind: "rows" } });
+	const rows = (searched as { results: { rows: { case_id: string }[] } })
+		.results.rows;
+	expect(rows.map((row) => row.case_id).sort()).toEqual([
+		"maya-active",
+		"maya-closed",
+	]);
+});
+
 it("creates a place-owned record from empty entry using the worker reading advertised to authors", async () => {
 	const author = await makeDurableAuthoringHarness(h);
 	const write = async (name: string, input: unknown) =>
@@ -1435,6 +2067,130 @@ it("reports its local clock and uses the same day in list calculations and forms
 	});
 	await step({ kind: "finish" });
 });
+
+it.each(["android", "web-apps"] as const)(
+	"returns to the first menu with the submitted patient on %s",
+	async (platform) => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "visit_status", label: proseText("Visit status") },
+					],
+				},
+			],
+			modules: ["Visits", "Checks"].map((name, i) => ({
+				uuid: `first-menu-patient-${i}`,
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: `first-menu-patient-form-${i}`,
+						name: i === 0 ? "Visit" : "Check",
+						type: "followup" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: "status",
+								label: proseText("Visit status"),
+								caseWrite: { caseType: "patient", property: "visit_status" },
+							}),
+						],
+					},
+				],
+			})),
+		});
+		const [visits, checks] = doc.moduleOrder;
+		const visit = doc.formOrder[visits][0],
+			check = doc.formOrder[checks][0];
+		doc.modules[visits].formsInMenuAbove = true;
+		doc.modules[checks].formsInMenuAbove = true;
+		doc.forms[visit].postSubmit = "previous";
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		let current = await startAppTest(scope, {
+			requestId: "first-menu-start",
+			expectedBlueprintSeq: 0,
+			input: {
+				purpose: "Carry the patient from Visit to Check",
+				platform,
+				scenario: {
+					records: [
+						{
+							id: "patient-a",
+							caseType: "patient",
+							name: "Anne",
+							properties: { visit_status: "Planned" },
+						},
+						{
+							id: "patient-b",
+							caseType: "patient",
+							name: "Bao",
+							properties: { visit_status: "Scheduled" },
+						},
+					],
+				},
+			},
+		});
+		let request = 0;
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `first-menu-${++request}`,
+				expectedStep: current.step,
+				action,
+			});
+			expect(current.observation.error).toBeUndefined();
+			return current.observation;
+		};
+		if (platform === "android") await step({ kind: "continue" });
+		expect(await step({ kind: "form", formUuid: visit })).toMatchObject({
+			screen: "browse",
+		});
+		await step({ kind: "select", caseIds: ["patient-b"] });
+		await step({ kind: "continue" });
+		await step({
+			kind: "answer",
+			answers: [{ path: "status", value: "Seen" }],
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({
+			screen: "home",
+			savedInTest: true,
+		});
+		const sibling = await step({ kind: "form", formUuid: check });
+		if (platform === "android") {
+			expect(sibling).toMatchObject({
+				screen: "form",
+				questions: expect.arrayContaining([
+					expect.objectContaining({ path: "status", value: "Seen" }),
+				]),
+			});
+			await step({ kind: "home" });
+			await step({ kind: "continue" });
+			expect(await step({ kind: "form", formUuid: check })).toMatchObject({
+				screen: "browse",
+			});
+		} else {
+			expect(sibling).toMatchObject({ screen: "browse" });
+			await step({ kind: "select", caseIds: ["patient-a"] });
+			expect(await step({ kind: "continue" })).toMatchObject({
+				screen: "form",
+				questions: expect.arrayContaining([
+					expect.objectContaining({ path: "status", value: "Planned" }),
+				]),
+			});
+		}
+		await step({ kind: "finish" });
+	},
+);
 
 it.each([
 	{
@@ -2200,6 +2956,16 @@ it("visits form pages using retained entry state before allowing submission", {
 			(field) => field.id === "second",
 		);
 		if (!first || !second) throw new Error("Missing sections");
+		const question = testUuid("follow-up-question-on-second-screen");
+		doc.fields[question] = {
+			uuid: question,
+			kind: "text",
+			id: "follow_up",
+			label: proseText("Follow-up question"),
+			submissionPlacement: { parent: first.uuid },
+		};
+		doc.fieldOrder[second.uuid].push(question);
+		doc.fieldParent[question] = second.uuid;
 		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 		await h.seedAppWithBlueprint(doc, {
 			id: scope.appId,
@@ -2268,6 +3034,14 @@ it("visits form pages using retained entry state before allowing submission", {
 			completed: false,
 			error: "Open that section before answering its questions.",
 		});
+		await expect(
+			step({
+				kind: "answer",
+				answers: [{ path: "first/follow_up", value: "too early" }],
+			}),
+		).resolves.toMatchObject({
+			error: "Open that section before answering its questions.",
+		});
 		const opened = await step({ kind: "pageNext" });
 		expect(opened).toMatchObject({
 			canSubmit: true,
@@ -2282,6 +3056,22 @@ it("visits form pages using retained entry state before allowing submission", {
 				}),
 			]),
 		});
+		expect(
+			(
+				await step({
+					kind: "answer",
+					answers: [{ path: "first/follow_up", value: "returned" }],
+				})
+			).questions,
+		).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					path: "first/follow_up",
+					value: "returned",
+					onCurrentPage: true,
+				}),
+			]),
+		);
 		await step({
 			kind: "answer",
 			answers: [{ path: "second/rounds[0]/assets[0]/note", value: "retained" }],
@@ -2734,6 +3524,128 @@ it("replays a pre-batch named action against its pinned source after a deploy an
 	expect(
 		(await readAppTestSteps({ ...scope, testId: started.testId })).steps,
 	).toHaveLength(2);
+});
+
+it("shows a worker's case map as map markers and layers, separate from the ordinary Results cells", async () => {
+	const columns = [
+		plainColumn(testUuid("clinic-name"), "case_name", "Clinic"),
+		mapLocationColumn(testUuid("clinic-point"), "location", "Location"),
+		mapLayerColumn(testUuid("clinic-points"), "visits", "Visits", "points"),
+	];
+	const order = columns.map((column) => column.uuid);
+	const doc = buildDoc({
+		appId: scope.appId,
+		appName: "Clinic rounds",
+		caseTypes: [
+			{
+				name: "clinic",
+				properties: [
+					{ name: "case_name", label: proseText("Clinic"), data_type: "text" },
+					{
+						name: "location",
+						label: proseText("Location"),
+						data_type: "geopoint",
+					},
+					{ name: "visits", label: proseText("Visits"), data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				name: "Clinics",
+				caseType: "clinic",
+				caseListConfig: {
+					columns,
+					listColumnOrder: order,
+					detailColumnOrder: order,
+					searchInputs: [],
+				},
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({ id: "notes", kind: "text", label: proseText("Notes") }),
+						],
+					},
+				],
+			},
+		],
+	});
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const platform of ["web-apps", "android"] as const) {
+		const started = await startAppTest(scope, {
+			requestId: `rounds-${platform}`,
+			expectedBlueprintSeq: 0,
+			input: {
+				platform,
+				purpose: "Check the clinic map",
+				scenario: {
+					records: [
+						{
+							id: "clinic-1",
+							caseType: "clinic",
+							name: "Hilltop",
+							properties: {
+								location: "10 20 0 0",
+								visits: "11 21 12 22",
+							},
+						},
+					],
+				},
+			},
+		});
+		// Android opens on the device's home screen, and the app's menus follow.
+		const entered =
+			platform === "android"
+				? await continueAppTest(scope, {
+						testId: started.testId,
+						requestId: `enter-rounds-${platform}`,
+						expectedStep: started.step,
+						action: { kind: "continue" },
+					})
+				: started;
+		const opened = await continueAppTest(scope, {
+			testId: started.testId,
+			requestId: `open-rounds-${platform}`,
+			expectedStep: entered.step,
+			action: { kind: "menu", moduleUuid: doc.moduleOrder[0] },
+		});
+		expect(opened.observation).toMatchObject({
+			renderedResults: {
+				rows: [
+					{
+						recordId: "clinic-1",
+						cells: [{ label: "Clinic", text: "Hilltop" }],
+					},
+				],
+			},
+		});
+		if (platform === "android")
+			expect(opened.observation).toMatchObject({
+				renderedResults: {
+					availableMap: [
+						{
+							recordId: "clinic-1",
+							location: { lat: 10, lng: 20 },
+							points: [
+								{ lat: 11, lng: 21 },
+								{ lat: 12, lng: 22 },
+							],
+						},
+					],
+				},
+			});
+		else
+			expect(opened.observation.renderedResults).not.toHaveProperty(
+				"availableMap",
+			);
+	}
 });
 
 it("projects translated choice labels in Results and Details while preserving stored values", async () => {
@@ -4126,6 +5038,123 @@ it("runs both destinations in turn on Android and opens only the first on Web Ap
 	await step({ kind: "finish" });
 });
 
+it("uses the parent chosen on this visit for a conditional list action and follows the target form’s own return", {
+	timeout: 15_000,
+}, async () => {
+	const doc = caseListActionRolesFixture();
+	const id = actionRoleIds;
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "family-rows",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Open the right household from its member list",
+			scenario: {
+				records: [
+					{
+						id: "closed-to-new-members",
+						caseType: "household",
+						name: "Closed household",
+					},
+					{
+						id: "open-to-new-members",
+						caseType: "household",
+						name: "Open household",
+					},
+				],
+			},
+		},
+	});
+	let n = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `family-row-${++n}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid: id.registerList });
+	const closed = await step({
+		kind: "select",
+		caseIds: ["closed-to-new-members"],
+	});
+	expect(closed.name).toBe("New members");
+	expect(closed.registration).toBeUndefined();
+	await step({ kind: "back" });
+	const available = await step({
+		kind: "select",
+		caseIds: ["open-to-new-members"],
+	});
+	expect(available.registration).toMatchObject({ uuid: id.register });
+	await step({ kind: "form", formUuid: id.register });
+	await step({
+		kind: "answer",
+		answers: [
+			{ path: "household_name", value: "Second household" },
+			{ path: "member_name", value: "New member" },
+		],
+	});
+	const registered = await step({ kind: "submit" });
+	expect(registered).toMatchObject({
+		savedInTest: true,
+		screen: "menu",
+		name: "New members",
+		selected: [expect.objectContaining({ caseName: "New member" })],
+	});
+	/* HQ's return frame keys the households datum to the household this
+	 * form registered (`_find_best_match`), not the one chosen before the
+	 * list: the session now sits under "Second household". */
+	const held = await sql<{
+		households: { cases: { caseId: string; caseName?: string }[] } | null;
+	}>`
+		SELECT state #> ${`{sessions,default,selections,${id.households}}`}::text[] AS households
+		FROM app_test_sessions WHERE id = ${current.testId}`.execute(h.db());
+	expect(held.rows).toEqual([
+		{
+			households: expect.objectContaining({
+				cases: [
+					expect.objectContaining({
+						caseId: expect.not.stringMatching(/^(closed|open)-to-new-members$/),
+						caseName: "Second household",
+					}),
+				],
+			}),
+		},
+	]);
+	await step({ kind: "home" });
+	await step({ kind: "menu", moduleUuid: id.parentList });
+	const parentAction = await step({
+		kind: "select",
+		caseIds: ["closed-to-new-members"],
+	});
+	expect(parentAction.registration).toMatchObject({ uuid: id.edit });
+	expect(await step({ kind: "form", formUuid: id.edit })).toMatchObject({
+		screen: "form",
+		name: "Edit household",
+	});
+	await step({
+		kind: "answer",
+		answers: [{ path: "note", value: "Visited the household" }],
+	});
+	// A follow-up writes no return frame (`CaseListFormWorkflow` skips a form
+	// that registers nothing of the list's type), so its own Previous runs:
+	// HQ's static frame for the form with its final selection popped, which
+	// asks again for the household this form edits.
+	expect(await step({ kind: "submit" })).toMatchObject({
+		savedInTest: true,
+		screen: "browse",
+		name: "Household forms",
+	});
+	await step({ kind: "finish" });
+});
+
 /** `Patients` lists patients for a follow-up and always offers
  *  `Registration`'s form from its list. */
 function registerFromListDoc(afterSubmit: "case-list" | "new-case") {
@@ -4277,4 +5306,234 @@ it("routes the offered form as any form when it is opened from its own menu", as
 		screen: "home",
 	});
 	await step({ kind: "finish" });
+});
+
+for (const platform of PLATFORMS) {
+	it(`persists only actual worker message commitments through an ordinary ${platform} journey`, {
+		timeout: 15_000,
+	}, async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Checklist",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									id: "start",
+									fieldList: true,
+									children: [
+										f({ kind: "text", id: "note" }),
+										f({
+											kind: "label",
+											id: "instruction",
+											label: "Read the visit notes",
+										}),
+									],
+								}),
+								f({
+									kind: "group",
+									id: "end",
+									fieldList: true,
+									children: [
+										f({
+											kind: "label",
+											id: "confirm",
+											label: "Check the visit",
+											askForConfirmation: true,
+										}),
+										f({
+											kind: "text",
+											id: "follow_up",
+											relevant: "#form/end/confirm = 'OK'",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		const moduleUuid = doc.moduleOrder[0],
+			formUuid = doc.formOrder[moduleUuid][0];
+		let current = await startAppTest(scope, {
+				requestId: "start",
+				expectedBlueprintSeq: 0,
+				input: { purpose: "Read and confirm the visit", platform },
+			}),
+			request = 0;
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `message-${++request}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		await step({ kind: "continue" });
+		await step({ kind: "menu", moduleUuid });
+		const opened = await step({ kind: "form", formUuid });
+		const edited = await step({
+			kind: "answer",
+			answers: [{ path: "start/note", value: "At the visit" }],
+		});
+		for (const observation of [opened, edited]) {
+			expect(observation.questions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "start/instruction", value: "" }),
+				]),
+			);
+			if (platform === "web-apps")
+				expect(observation.questions).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ path: "end/confirm", value: "" }),
+						expect.objectContaining({ path: "end/follow_up", visible: false }),
+					]),
+				);
+		}
+		if (platform === "android") {
+			expect((await step({ kind: "pageNext" })).questions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "end/confirm", value: "" }),
+				]),
+			);
+			expect((await step({ kind: "pagePrevious" })).questions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "start/instruction", value: "OK" }),
+				]),
+			);
+			await step({ kind: "pageNext" });
+			expect(
+				(
+					await step({
+						kind: "answer",
+						answers: [{ path: "end/confirm", value: "OK" }],
+					})
+				).questions,
+			).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: "end/follow_up", visible: true }),
+				]),
+			);
+		}
+		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+	});
+}
+
+it("automatically opens and atomically closes the whole ordered case datum", {
+	timeout: 30_000,
+}, async () => {
+	const nameColumn = plainColumn(
+		testUuid("automatic-batch-case-name"),
+		"case_name",
+		"Name",
+		{
+			sort: columnSort("asc", 0),
+		},
+	);
+	const doc = buildDoc({
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "Batch work",
+				caseType: "person",
+				caseListConfig: {
+					columns: [nameColumn],
+					listColumnOrder: [nameColumn.uuid],
+					detailColumnOrder: [nameColumn.uuid],
+					searchInputs: [],
+					selection: { kind: "multiple", maximum: 51, autoSelect: true },
+				},
+				forms: [
+					{
+						name: "Read batch",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
+					{
+						name: "Close batch",
+						type: "close",
+						fields: [f({ kind: "hidden", id: "done", calculate: "'yes'" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const closeUuid = doc.formOrder[moduleUuid][1];
+	const records = Array.from({ length: 51 }, (_, i) => ({
+		id: `case-${String(i).padStart(2, "0")}`,
+		caseType: "person",
+		name: `Name ${51 - i}`,
+	}));
+	const caseIds = records.map((row) => row.id);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "auto-batch-start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Close everyone the device restores",
+			scenario: { records },
+		},
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `auto-batch-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	try {
+		expect(await step({ kind: "menu", moduleUuid })).toMatchObject({
+			screen: "menu",
+			selected: caseIds.map((caseId) => expect.objectContaining({ caseId })),
+		});
+		expect(await step({ kind: "form", formUuid: closeUuid })).toMatchObject({
+			screen: "form",
+			name: "Close batch",
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({
+			savedInTest: true,
+			effects: { primaryCaseIds: caseIds },
+		});
+		const rows = await sql<{
+			case_id: string;
+			case_type: string;
+			status: string;
+		}>`
+			SELECT case_id, case_type, status FROM ${sql.id(appTestNamespace(current.testId), "cases")} ORDER BY case_id
+		`.execute(h.db());
+		expect(rows.rows.filter((row) => row.case_type === "person")).toEqual(
+			caseIds.map((case_id) => ({
+				case_id,
+				case_type: "person",
+				status: "closed",
+			})),
+		);
+		expect(rows.rows.filter((row) => row.case_type !== "person")).toEqual([
+			expect.objectContaining({ case_type: "commcare-user", status: "open" }),
+		]);
+	} finally {
+		await step({ kind: "finish" });
+	}
 });

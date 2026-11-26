@@ -1,0 +1,50 @@
+{
+	"intent": [
+		{
+			"id": "region-local",
+			"export": "local",
+			"form": "4b8236af-7e42-587b-acb6-766579ae4d7f",
+			"restore": "restore.xml",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/area",
+						"value": "2"
+					}
+				],
+				"expressions": [
+					"/data/area_region"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "Basses"
+				}
+			]
+		},
+		{
+			"id": "region-a",
+			"export": "A",
+			"form": "4b8236af-7e42-587b-acb6-766579ae4d7f",
+			"restore": "restore.xml",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/area",
+						"value": "2"
+					}
+				],
+				"expressions": [
+					"/data/area_region"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "Basses"
+				}
+			]
+		}
+	]
+}

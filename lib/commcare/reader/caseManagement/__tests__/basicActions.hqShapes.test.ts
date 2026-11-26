@@ -1,3 +1,4 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FormSpec, f } from "@/lib/__tests__/docHelpers";
@@ -9,10 +10,19 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
-import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import {
+	clockKeepingJoin,
+	INSTANT_TEXT_PATTERN,
+} from "@/lib/domain/expression/datePattern";
+import { hiddenWriterVerdicts } from "@/lib/domain/expression/inference";
 import { proseText } from "@/lib/domain/prose";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
+import { planFormCaseWire } from "../../../casePlacementPlan";
+import {
+	formsUsingWorkerRecord,
+	requiredPlanPrivileges,
+} from "../../../planPrivileges";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { entriesAt } from "../../__tests__/readerInput";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
@@ -289,7 +299,20 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 								f({
 									kind: "hidden",
 									id: "seen",
-									calculate: "now()",
+									calculate: {
+										kind: "date-coerce",
+										value: {
+											kind: "format-date",
+											date: {
+												kind: "term",
+												term: {
+													kind: "literal",
+													value: "2025-04-05T23:24:47.321Z",
+												},
+											},
+											pattern: INSTANT_TEXT_PATTERN,
+										},
+									},
 									caseWrite: { caseType: "patient", property: "seen_at" },
 								}),
 							],
@@ -298,7 +321,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 				},
 			],
 		});
-		const STRAIGHT = `${F}/a-datetime-question-saved-straight-to-a-case`;
+		const STRAIGHT = `${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`;
 		const throughSibling = await readCases(doc);
 		expect(codes(throughSibling)).toEqual([]);
 		const straight = await readCases(doc, {
@@ -313,6 +336,87 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			},
 		});
 		expect(codes(straight)).toContain(STRAIGHT);
+	});
+
+	it("keeps an explicitly typed hidden stamp separate from the day Case Management writes", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "seen_on", label: proseText("Seen on"), data_type: "date" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "seen",
+									answerType: "datetime",
+									calculate: { kind: "now" },
+									caseWrite: { caseType: "patient", property: "seen_on" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const reading = await readCases(doc);
+		expect(codes(reading)).toEqual([]);
+		expect(entries(reading)).toContain(
+			`${F}/a-datetime-question-saved-straight-to-a-case`,
+		);
+		const whole = await reading.whole;
+		if (whole?.kind !== "read")
+			throw new Error("The typed hidden instant should read.");
+		const held = whole.draft.doc;
+		expect(
+			Object.values(held.fields).find(({ id }) => id === "seen"),
+		).toMatchObject({
+			kind: "hidden",
+			answerType: "datetime",
+		});
+		expect(held.caseTypes).toContainEqual(
+			expect.objectContaining({
+				name: "patient",
+				properties: expect.arrayContaining([
+					expect.objectContaining({ name: "seen_on", data_type: "date" }),
+				]),
+			}),
+		);
+		const form = Object.values(held.forms).find(({ name }) => name === "Visit");
+		if (form === undefined) throw new Error("Missing visit form.");
+		const plan = planFormCaseWire(held, form.uuid);
+		if (plan.kind !== "basic")
+			throw new Error("Expected basic Case Management.");
+		expect(plan.actions.update_case.update.seen_on?.question_path).toBe(
+			"/data/seen",
+		);
+
+		const stamp = Object.values(held.fields).find(({ id }) => id === "seen");
+		if (stamp === undefined) throw new Error("Missing hidden clock.");
+		const withOpening = produce(held, (draft) => {
+			draft.forms[form.uuid].openingAssignments = [
+				{
+					uuid: testUuid("direct-hidden-day-opening"),
+					field: stamp.uuid,
+					source: { kind: "own" },
+					property: "seen_on",
+				},
+			];
+		});
+		expect(hiddenWriterVerdicts(withOpening)[0]?.findings).toContainEqual(
+			expect.objectContaining({ reason: "type", type: "datetime" }),
+		);
 	});
 
 	it("reads `open_case.external_id` as the external id write", async () => {
@@ -346,7 +450,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		expect(codes(reading)).toEqual([]);
 	});
 
-	it("with the flag on, refuses `edit` on a registration's update and on the name key", async () => {
+	it("with the flag on, reads `edit` on a registration's update as onlyIfChanged, and on a follow-up's name and owner keys as the facets' flags", async () => {
 		const onUpdate = await readCases(app([registration]), {
 			saveOnlyEditedApplied: true,
 			edit: (json) => {
@@ -358,9 +462,10 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 				(update.notes as Record<string, unknown>).update_mode = "edit";
 			},
 		});
-		expect(codes(onUpdate)).toContain(
-			`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
-		);
+		expect(codes(onUpdate)).toEqual([]);
+		expect(
+			ownWrites(onUpdate).find((one) => one.property === "notes"),
+		).toMatchObject({ onlyIfChanged: true });
 		const onName = await readCases(app([visit]), {
 			saveOnlyEditedApplied: true,
 			edit: (json) => {
@@ -369,10 +474,24 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					unknown
 				>;
 				update.name = { question_path: "/data/other", update_mode: "edit" };
+				update.owner_id = {
+					question_path: "/data/notes",
+					update_mode: "edit",
+				};
 			},
 		});
-		expect(codes(onName)).toContain(
-			`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		expect(codes(onName)).toEqual([]);
+		expect(
+			onName.forms[0]?.form.caseOperations?.find((one) => one.action === "own"),
+		).toMatchObject({
+			nameOnlyIfChanged: true,
+			ownerOnlyIfChanged: true,
+		});
+		const records = [...onName.ctx.close().claims.records()].map(
+			(one) => one.entry,
+		);
+		expect(records).toContain(
+			`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		);
 	});
 
@@ -476,13 +595,17 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		).toHaveLength(1);
 	});
 
-	it("with the flag on, refuses `edit` on the worker's record", async () => {
+	it("with the flag on, reads `edit` on the worker's record as onlyIfChanged", async () => {
 		const worker = await readCases(app([workerVisit]), {
 			saveOnlyEditedApplied: true,
 			edit: (json) => setUsercaseMode(json, "edit"),
 		});
-		expect(codes(worker)).toContain(
-			`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		expect(codes(worker)).toEqual([]);
+		const update = worker.forms[0]?.form.caseOperations?.find(
+			(one) => one.action === "update" && one.target.kind === "worker-record",
+		);
+		expect(update?.writes?.every((one) => one.onlyIfChanged === true)).toBe(
+			true,
 		);
 	});
 
@@ -569,30 +692,31 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		);
 	});
 
-	it("refuses a key `location_id`", async () => {
+	const NON_ASCII = `${F}/update-key-holding-a-non-ascii-core-name-character`;
+	it("refuses a key holding a non-ASCII name character, recorded at the map and the keys above it", async () => {
 		const reading = await readCases(app([visit]), {
 			edit: (json) => {
 				const update = actionsOf(json).update_case.update as Record<
 					string,
 					unknown
 				>;
-				update.location_id = { question_path: "/data/other" };
+				update.größe = { question_path: "/data/other" };
 			},
 		});
-		expect(codes(reading)).toContain(`${F}/update-keys-location-id-hq-user-id`);
+		expect(codes(reading)).toContain(NON_ASCII);
 		// The refusal names the map's own key, whose value is the map, so it is
 		// recorded at the map, where the map's held claim stands too, and where the
 		// lane's manifest check reads the key's use; and at each key above it the
 		// entry names, which its class is a fact about too (`Accounting.findingAt`'s
 		// `#recordAround`). The refusal's own record also names the key it reads.
 		const refusal = [...reading.ctx.close().claims.records()].filter(
-			(one) => one.entry === `${F}/update-keys-location-id-hq-user-id`,
+			(one) => one.entry === NON_ASCII,
 		);
 		const at = (where: string, key: string) => ({
 			artifact: "app.json",
 			where: `/modules/0/forms/0/${where}`,
 			key,
-			entry: `${F}/update-keys-location-id-hq-user-id`,
+			entry: NON_ASCII,
 			standing: "not-yet",
 		});
 		expect(refusal).toEqual([
@@ -600,7 +724,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			at("actions/update_case", "schema:FormActions.update_case"),
 			{
 				...at("actions/update_case/update", "schema:UpdateCaseAction.update"),
-				at: "/modules/0/forms/0/actions/update_case/update/location_id",
+				at: "/modules/0/forms/0/actions/update_case/update/größe",
 			},
 		]);
 	});
@@ -704,6 +828,65 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			expect(visitFindings.map((one) => one.code)).toEqual([]);
 		});
 
+		it("holds a basic save through a declared user index and retains its editor privilege", async () => {
+			const base = app([visit], [household]);
+			const doc = produce(base, (draft) => {
+				draft.caseTypes = [
+					{
+						name: "patient",
+						properties: [],
+						relations: [
+							{
+								identifier: "user",
+								targetType: "household",
+								relationship: "child",
+							},
+						],
+					},
+					{ name: "household", properties: [] },
+				];
+			});
+			const addUserWrite = (json: AppJson) => {
+				const update = actionsOf(json).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update["user/size"] = { question_path: "/data/other" };
+			};
+			const reading = await readCases(doc, { edit: addUserWrite });
+			expect(codes(reading)).toEqual([]);
+			expect(
+				ownWrites(reading).find((write) => write.property === "size")?.via,
+			).toEqual([{ identifier: "user", throughCaseType: "household" }]);
+			const outcome = await reading.whole;
+			if (outcome?.kind !== "read")
+				throw new Error("Expected a complete reading.");
+			const held = outcome.draft.doc;
+			const form = Object.values(held.forms).find(
+				(candidate) => candidate.name === visit.name,
+			);
+			if (form === undefined) throw new Error("Expected the visiting form.");
+			const plan = planFormCaseWire(held, form.uuid);
+			if (plan.kind !== "basic")
+				throw new Error("Expected basic Case Management.");
+			expect(plan.actions.update_case.update["user/size"]).toMatchObject({
+				question_path: "/data/other",
+			});
+			expect(formsUsingWorkerRecord(held)).toEqual([]);
+			expect(
+				requiredPlanPrivileges(
+					held,
+					{ lookupTables: false, places: false },
+					null,
+				),
+			).toContainEqual(expect.objectContaining({ id: "user_case" }));
+
+			const untyped = await readCases(base, { edit: addUserWrite });
+			expect(codes(untyped)).toContain(
+				`${F}/update-key-whose-index-segments-include-user-each-parent-host-or`,
+			);
+		});
+
 		it("refuses a write through an index no link fixes", async () => {
 			const reading = await readCases(app([visit]), {
 				edit: (json) => {
@@ -719,12 +902,15 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			);
 		});
 
-		it("refuses the name and the owner of the case above, which HQ's build writes as that case's own", async () => {
+		it("reads the name and the owner of the case above as writes of its `case_name` and `owner_id` through the link", async () => {
 			// HQ's build writes `parent/name` as the parent's `case_name` and
 			// `parent/owner_id` as its owner (`XFormCaseBlock.add_case_updates`), and
-			// `case-reserved-words.json` holds neither; Nova renames and gives an
-			// owner only to an operation's own case.
-			for (const property of ["name", "owner_id"]) {
+			// `case-reserved-words.json` holds neither; Nova holds each as a write
+			// through `via` (`CASE_FACETS_THROUGH_INDEX`).
+			for (const [key, property] of [
+				["name", "case_name"],
+				["owner_id", "owner_id"],
+			] as const) {
 				const reading = await readCases(app([visit], [household]), {
 					edit: (json) => {
 						withChild(json);
@@ -732,23 +918,21 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 							string,
 							unknown
 						>;
-						update[`parent/${property}`] = { question_path: "/data/other" };
+						update[`parent/${key}`] = { question_path: "/data/other" };
 					},
 				});
-				const found = reading.findings.filter(
-					(one) =>
-						one.code ===
-						`${F}/update-key-name-or-owner-id-through-an-index-segment`,
+				expect(codes(reading), key).not.toContain(
+					`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 				);
-				expect(found, property).toHaveLength(1);
-				expect(found[0]?.detail?.name, property).toBe(`parent/${property}`);
-				expect(
-					ownWrites(reading).some((one) => one.via !== undefined),
-					property,
-				).toBe(false);
-				expect(codes(reading), property).not.toContain(
+				expect(codes(reading), key).not.toContain(
 					`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
 				);
+				expect(
+					ownWrites(reading)
+						.filter((one) => one.via !== undefined)
+						.map((one) => one.property),
+					key,
+				).toEqual([property]);
 			}
 		});
 	});
@@ -832,7 +1016,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			).toBe(false);
 		});
 
-		it("refuses an extension, a property key holding `/`, and `edit` with the flag on", async () => {
+		it("refuses an extension and a property key holding `/`, and reads `edit` with the flag on as onlyIfChanged", async () => {
 			const extension = await readCases(app([visit]), {
 				edit: child({ relationship: "extension" }),
 			});
@@ -867,9 +1051,26 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					},
 				}),
 			});
-			expect(codes(edit)).toContain(
-				`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
-			);
+			expect(codes(edit)).toEqual([]);
+			expect(
+				edit.forms[0]?.form.caseOperations?.find(
+					(one) => one.action === "create",
+				)?.writes,
+			).toMatchObject([{ property: "x", onlyIfChanged: true }]);
+			const owner = await readCases(app([visit]), {
+				saveOnlyEditedApplied: true,
+				edit: child({
+					case_properties: {
+						owner_id: { question_path: "/data/notes", update_mode: "edit" },
+					},
+				}),
+			});
+			expect(codes(owner)).toEqual([]);
+			expect(
+				owner.forms[0]?.form.caseOperations?.find(
+					(one) => one.action === "create",
+				),
+			).toMatchObject({ ownerOnlyIfChanged: true });
 		});
 	});
 });
@@ -1241,18 +1442,28 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 		);
 	}
 
-	it("refuses a key `location_id` once, with no difference raised at the form's actions", async () => {
-		const reading = await readMenusOf(app([visit]), (json) => {
-			const update = actionsOf(json as AppJson).update_case.update as Record<
-				string,
-				unknown
-			>;
-			update.location_id = { question_path: "/data/other" };
-		});
-		expect(atActions(reading)).toEqual([
-			`${F}/update-keys-location-id-hq-user-id`,
-		]);
-	});
+	it.each([
+		["n名字", `${F}/basic-update-key-with-an-unaddressable-uncased-letter`],
+		["estado_é", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		["aⅣ", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		["größe", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		[
+			"note½",
+			`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+		],
+	])(
+		"attributes a basic update of %s to its own name class once",
+		async (key, entry) => {
+			const reading = await readMenusOf(app([visit]), (json) => {
+				const update = actionsOf(json as AppJson).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update[key] = { question_path: "/data/other" };
+			});
+			expect(atActions(reading)).toEqual([entry]);
+		},
+	);
 
 	it("refuses a key with one trailing newline once, which HQ's grammar takes and its build cannot write", async () => {
 		// `validate_property`'s `re.match` with a closing `$` takes the newline, and HQ's build
@@ -1614,9 +1825,9 @@ describe("a key HQ's server stores apart from a case's properties, wherever a ba
 	// for the own case, a case above it, the worker's record and a child case), and HQ's
 	// server stores `location_id` as the case's location and copies `hq_user_id` to its
 	// external id wherever a block holds them (`update_strategy.py::_apply_update_action`).
-	// Nova holds neither as a write (`FORBIDDEN_CASE_WRITE_PROPERTIES`), so a reading that
-	// took one as a property would hold a document that writes something else.
-	const DIVERTED = `${F}/update-keys-location-id-hq-user-id`;
+	// Nova writes both as HQ's server stores them, so a reading holds each as a write of its
+	// key, but `hq_user_id` on the worker's record, which HQ's user-case sync keeps in step.
+	const WORKER_KEY = `${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`;
 
 	/** Every finding a whole reading raises at a form's case actions. */
 	function atActions(reading: Awaited<ReturnType<typeof readMenusOf>>) {
@@ -1823,24 +2034,30 @@ describe("a key HQ's server stores apart from a case's properties, wherever a ba
 		},
 	];
 
+	/** Every property a case operation of the reading's document writes. */
+	function writtenProperties(doc: BlueprintDoc | undefined): string[] {
+		return Object.values(doc?.forms ?? {}).flatMap((form) =>
+			(form.caseOperations ?? []).flatMap((operation) =>
+				(operation.writes ?? []).map((write) => write.property),
+			),
+		);
+	}
+
 	for (const site of SITES)
-		it(`refuses \`location_id\` and \`hq_user_id\` written to ${site.where} once, where Nova's own write there reads with none`, async () => {
-			// The pair: Nova's own export of the write reads with no finding at its actions.
-			const plain = await readMenusOf(site.doc(), (json) => {
-				site.map(json as AppJson);
-			});
-			expect(atActions(plain)).toEqual([]);
-			expect(plain.outcome.defects).toEqual([]);
+		it(`reads \`location_id\` and \`hq_user_id\` written to ${site.where} as writes of those keys`, async () => {
 			for (const key of ["location_id", "hq_user_id"]) {
 				const stored = site.to(key);
 				const reading = await readMenusOf(site.doc(), (json) =>
 					renameKey(site.map(json as AppJson), site.from, stored),
 				);
-				expect(atActions(reading), key).toEqual([DIVERTED]);
 				expect(reading.outcome.defects, key).toEqual([]);
-				const found = reading.findings.filter((one) => one.code === DIVERTED);
-				expect(found[0]?.detail?.name, key).toBe(stored);
-				expect(reading.doc, key).toBeUndefined();
+				if (site.where === "the worker's record" && key === "hq_user_id") {
+					expect(atActions(reading), key).toEqual([WORKER_KEY]);
+					expect(reading.doc, key).toBeUndefined();
+					continue;
+				}
+				expect(atActions(reading), key).toEqual([]);
+				expect(writtenProperties(reading.doc), key).toContain(key);
 			}
 		});
 

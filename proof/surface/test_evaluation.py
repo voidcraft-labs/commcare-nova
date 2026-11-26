@@ -90,7 +90,21 @@ def test_instance_sources_follow_cores_dispatch_order(items, sources):
     assert [b["token"] for b in sorted(branches, key=lambda b: b["order"])][:2] == ["ledgerdb", "casedb"]
     probes = ["jr://instance/casedb-ledgerdb", "jr://fixture/casedb", "jr://instance/session"]
     probes += ["jr://instance/remote/results", "jr://instance/selected-entities/a", "jr://instance/nothing-known"]
+    # Core dispatches on the source before resolving a fixture. A form-local alias can free an
+    # instance ID, but the reserved substrings in a table tag still reach the virtual databases.
+    lookup_sources = {
+        "casedb": "setupCaseData",
+        "custom_casedb_rows": "setupCaseData",
+        "ledgerdb": "setupLedgerData",
+        "active_ledgerdb_rows": "setupLedgerData",
+        "CaseDB": "setupFixtureData",
+        "locations": "setupFixtureData",
+        "commcaresession": "setupFixtureData",
+    }
+    probes.extend(f"jr://fixture/item-list:{tag}" for tag in lookup_sources)
     reached = run_java(sources, "probe", extra=["instance-source", *probes])
+    for tag, method in lookup_sources.items():
+        assert reached[f"jr://fixture/item-list:{tag}"] == method
     for src in probes:
         setup = _expected_setup(branches, src)
         if setup is None:

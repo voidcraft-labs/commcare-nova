@@ -13,6 +13,7 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { namedParentSearchDoc } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import { formExpressionEmission } from "@/lib/commcare/xform/formExpressions";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
@@ -519,6 +520,89 @@ describe("FormEngine", () => {
 		},
 	);
 
+	it.each([
+		[
+			"Android with formatted help and radio choices",
+			androidDevice(),
+			false,
+			false,
+		],
+		[
+			"Android with help and choices shown as typed",
+			androidDevice(),
+			true,
+			true,
+		],
+		["Web Apps", webAppsDevice(), true, false],
+	] as const)(
+		"reads the extended wording in %s",
+		async (_label, device, seesLong, asTyped) => {
+			const name = testUuid("form.name");
+			const choice = testUuid("extended-choice");
+			const extended = prose(
+				{ kind: "text", text: "For " },
+				{ kind: "field-ref", uuid: name },
+			);
+			const input = dTree([
+				{ id: "name", kind: "text" },
+				{
+					id: "question",
+					kind: "single_select",
+					hint: proseText("Short hint"),
+					extended_hint: extended,
+					help: proseText("Short help"),
+					...(asTyped && { plainHelp: true }),
+					extended_help: extended,
+					validate: "false()",
+					validate_msg: proseText("Short message"),
+					extended_validate_msg: extended,
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: choice,
+								value: "first",
+								label: proseText("Short choice"),
+								...(asTyped && { plainLabel: true }),
+								extended_text: extended,
+							},
+							{
+								uuid: testUuid("extended-neighbor"),
+								value: "second",
+								label: proseText("Other"),
+							},
+						],
+					},
+				},
+			]);
+			const engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					device,
+					stagedAsync: true,
+				},
+			);
+			const { evaluateAsync } = fixedWorldEvaluator(engine, device.platform);
+			await engine.initializeAsync(evaluateAsync);
+			await engine.setValueAsync("/data/question", "first", evaluateAsync);
+			for (const value of ["Ana", "Nia"]) {
+				await engine.setValueAsync("/data/name", value, evaluateAsync);
+				const state = engine.getState("/data/question");
+				expect(state.resolvedHint).toBe(`For ${value}`);
+				expect(state.errorMessage).toBe(`For ${value}`);
+				expect(state.resolvedHelp).toBe(seesLong ? `For ${value}` : undefined);
+				expect(state.resolvedOptionLabels?.[choice]).toBe(
+					seesLong ? `For ${value}` : undefined,
+				);
+			}
+		},
+	);
+
 	/* An answer is one request. Android runs what the answer reaches, once.
 	 * Formplayer loads the form session at the start of every request, and
 	 * Core runs every triggerable before the answer's own cascade
@@ -663,6 +747,39 @@ describe("FormEngine", () => {
 				{ searchAnswers: new Map([["patient_name", "Zzz"]]) },
 			);
 			expect(engine.getState("/data/name").value).toBe("Zzz");
+		});
+
+		it("a worker's child form reads each menu's answer to the same named prompt", () => {
+			const doc = namedParentSearchDoc();
+			const [child, parent] = doc.moduleOrder;
+			const form = buildEngineInput(doc, doc.formOrder[child][0], null);
+			if (form === undefined) throw new Error("Expected the child form");
+			for (const [family, member] of [
+				["North", "West"],
+				["South", "East"],
+			]) {
+				const engine = new FormEngine(
+					form,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{
+						searchAnswers: new Map([["first_name", member]]),
+						searches: [
+							{
+								menu: parent,
+								submission: family,
+								answers: [["first_name", family]],
+							},
+						],
+					},
+				);
+				expect(engine.getState("/data/question1").value).toBe(
+					`${family}/${member}`,
+				);
+			}
 		});
 
 		it("reads blank when the form opened with no search context", () => {
@@ -2195,7 +2312,7 @@ describe("FormEngine", () => {
 		// `FieldState.repeatCount` — that's what makes the preview's Add/Remove
 		// buttons reactive. A regression here puts us back to the silent-no-op
 		// click that motivated this slot existing.
-		it("seeds repeatCount=1 on the repeat's own state", () => {
+		it("seeds repeatCount=0 on the repeat's own state", () => {
 			const input = dTree([
 				{
 					id: "members",
@@ -2206,7 +2323,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 
-			expect(engine.getState("/data/members").repeatCount).toBe(1);
+			expect(engine.getState("/data/members").repeatCount).toBe(0);
 		});
 
 		it("addRepeat bumps repeatCount and rewrites the FieldState reference", () => {
@@ -2221,13 +2338,13 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(input);
 
 			const before = engine.store.getState()["/data/members"];
-			expect(before?.repeatCount).toBe(1);
+			expect(before?.repeatCount).toBe(0);
 
 			const newIndex = engine.addRepeat("/data/members");
-			expect(newIndex).toBe(1);
+			expect(newIndex).toBe(0);
 
 			const after = engine.store.getState()["/data/members"];
-			expect(after?.repeatCount).toBe(2);
+			expect(after?.repeatCount).toBe(1);
 			// New reference is the reactivity contract Zustand subscribers rely on.
 			expect(after).not.toBe(before);
 		});
@@ -2242,6 +2359,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/members");
 
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
@@ -2273,6 +2391,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/members");
 
 			engine.addRepeat("/data/members");
 			engine.setValue("/data/members[0]/name", "Alice");
@@ -2296,6 +2415,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			const first = engine.getRepeatInstanceKey("/data/members", 0);
@@ -2325,6 +2445,8 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/households");
+			engine.addRepeat("/data/households");
+			engine.addRepeat("/data/households[1]/members");
 			engine.addRepeat("/data/households[1]/members");
 			const survivingNestedKeys = [
 				engine.getRepeatInstanceKey("/data/households[1]/members", 0),
@@ -2369,7 +2491,7 @@ describe("FormEngine", () => {
 
 			engine.setValue("/data/show", "yes");
 			engine.addRepeat("/data/members");
-			expect(engine.getState("/data/members").repeatCount).toBe(2);
+			expect(engine.getState("/data/members").repeatCount).toBe(1);
 
 			// Toggle the parent's relevance off and back on. Each transition
 			// rewrites the repeat's `visible` flag, which forces a fresh
@@ -2377,10 +2499,10 @@ describe("FormEngine", () => {
 			engine.setValue("/data/show", "no");
 			engine.setValue("/data/show", "yes");
 
-			expect(engine.getState("/data/members").repeatCount).toBe(2);
+			expect(engine.getState("/data/members").repeatCount).toBe(1);
 		});
 
-		it("removeRepeat is a no-op when only one instance remains", () => {
+		it("removeRepeat is a no-op when the group is already empty", () => {
 			const input = dTree([
 				{
 					id: "members",
@@ -2395,7 +2517,7 @@ describe("FormEngine", () => {
 			engine.removeRepeat("/data/members", 0);
 			const after = engine.store.getState()["/data/members"];
 
-			expect(after?.repeatCount).toBe(1);
+			expect(after?.repeatCount).toBe(0);
 			// Same reference — no spurious re-render fired.
 			expect(after).toBe(before);
 		});
@@ -2708,6 +2830,61 @@ describe("FormEngine", () => {
 				"You entered: Alice",
 			);
 		});
+
+		it.each([false, true])(
+			"resolves a label's extended text, QR code and spoken text as the answer they read changes (worker: %s)",
+			async (stagedAsync) => {
+				const name = {
+					kind: "field-ref",
+					uuid: testUuid("form.name"),
+				} as const;
+				const input = dTree(
+					[
+						{ id: "name", kind: "text", label: proseText("Name") },
+						{
+							id: "card",
+							kind: "label",
+							label: proseText("Card"),
+							extended_text: prose({ kind: "text", text: "Card for " }, name),
+							qr_code: prose({ kind: "text", text: "ID-" }, name),
+							spoken_text: prose({ kind: "text", text: "Say " }, name),
+						},
+					],
+					"survey",
+				);
+				const engine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync, device: androidDevice() },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					"label-texts",
+				);
+				try {
+					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					expect(engine.getState("/data/card").resolvedLabelTexts).toEqual({
+						extended_text: "Card for ",
+						qr_code: "ID-",
+						spoken_text: "Say ",
+					});
+					if (stagedAsync)
+						await engine.setValueAsync("/data/name", "Ada", evaluateAsync);
+					else engine.setValue("/data/name", "Ada");
+					expect(engine.getState("/data/card").resolvedLabelTexts).toEqual({
+						extended_text: "Card for Ada",
+						qr_code: "ID-Ada",
+						spoken_text: "Say Ada",
+					});
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
 
 		it("resolves multi-segment hashtag refs to fields nested in groups", () => {
 			// A re-anchored ref (`#form/demographics/name` after a move into a
@@ -3079,6 +3256,7 @@ describe("FormEngine", () => {
 				"patient",
 			);
 			engine.setValue("/data/case_name", "Alice");
+			engine.addRepeat("/data/visits");
 			engine.setValue("/data/visits[0]/visit_name", "First");
 			engine.addRepeat("/data/visits");
 			engine.setValue("/data/visits[1]/visit_name", "Second");
@@ -3730,7 +3908,10 @@ describe("FormEngine", () => {
 					`initialization-relevance-${stagedAsync}`,
 				);
 				try {
-					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					if (stagedAsync) {
+						await engine.initializeAsync(evaluateAsync);
+						await engine.addRepeatAsync("/data/visits", evaluateAsync);
+					} else engine.addRepeat("/data/visits");
 					expect(engine.getRepeatCount("/data/visits[0]/assets")).toBe(0);
 					if (stagedAsync) {
 						await engine.setValueAsync("/data/enabled", "yes", evaluateAsync);
@@ -3795,7 +3976,10 @@ describe("FormEngine", () => {
 					`insert-bound-${stagedAsync}`,
 				);
 				try {
-					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					if (stagedAsync) {
+						await engine.initializeAsync(evaluateAsync);
+						await engine.addRepeatAsync("/data/visits", evaluateAsync);
+					} else engine.addRepeat("/data/visits");
 					expect(engine.getRepeatCount("/data/visits[0]/assets")).toBe(2);
 					if (stagedAsync) {
 						await engine.setValueAsync(
@@ -4208,7 +4392,8 @@ describe("FormEngine", () => {
 				engine.getState("/data/members").repeatCount,
 				engine.getRepeatCount("/data/members"),
 			];
-			expect(counts()).toEqual([1, 1]);
+			expect(counts()).toEqual([0, 0]);
+			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			expect(counts()).toEqual([3, 3]);
@@ -4218,7 +4403,7 @@ describe("FormEngine", () => {
 			expect(counts()).toEqual([2, 2]);
 			expect(engine.getState("/data/members[0]/name").value).toBe("Bob");
 			engine.reset();
-			expect(counts()).toEqual([1, 1]);
+			expect(counts()).toEqual([0, 0]);
 			expect(engine.getState("/data/members[0]/name").value).toBe("");
 		});
 	});
@@ -4285,6 +4470,7 @@ describe("FormEngine", () => {
 
 		it("a calculate inside a repeat reads its typed sibling", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
 
 			// Fallback arm computes at init…
 			expect(engine.getState("/data/orders[0]/case_name").value).toBe(
@@ -4300,6 +4486,7 @@ describe("FormEngine", () => {
 
 		it("the typed value reaches the child create's name at submit", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 
 			const mutation = engine.computeSubmissionMutation({
@@ -4312,6 +4499,7 @@ describe("FormEngine", () => {
 
 		it("each instance's calc evaluates against its own values", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[1]/medication_name", "Aspirin");
@@ -4334,6 +4522,7 @@ describe("FormEngine", () => {
 
 		it("a new instance's calc evaluates immediately on addRepeat", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 
 			expect(engine.getState("/data/orders[1]/case_name").value).toBe(
@@ -4359,6 +4548,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 
 			engine.setValue("/data/orders[1]/flag", "yes");
 			expect(engine.getState("/data/orders[0]/details").visible).toBe(false);
@@ -4382,6 +4572,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 
 			engine.setValue("/data/orders[0]/qty", "good");
@@ -4417,6 +4608,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 			engine.setValue("/data/orders[1]/medication_name", "Aspirin");
 
@@ -4445,6 +4637,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 
 			engine.setValue("/data/prefix", "RX");
 			expect(engine.getState("/data/orders[0]/tag").value).toBe("RX-0");
@@ -4460,6 +4653,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 			expect(engine.getState("/data/orders[2]/idx").value).toBe("0");
@@ -4485,6 +4679,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			expect(engine.getState("/data/orders[0]/stamp").value).toBe("entry-0");
 
 			engine.addRepeat("/data/orders");
@@ -4511,6 +4706,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[1]/flag", "yes");
 
@@ -4539,6 +4735,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/section");
 
 			expect(engine.getRepeatCount("/data/section")).toBe(1);
 			expect(engine.getState("/data/section").repeatCount).toBe(1);
@@ -4569,17 +4766,18 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/households");
 			engine.addRepeat("/data/households[0]/members");
 			engine.addRepeat("/data/households[0]/members");
-			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(3);
+			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(2);
 
 			engine.addRepeat("/data/households");
-			expect(engine.getRepeatCount("/data/households[1]/members")).toBe(1);
+			expect(engine.getRepeatCount("/data/households[1]/members")).toBe(0);
 			expect(engine.getState("/data/households[1]/members").repeatCount).toBe(
-				1,
+				0,
 			);
 			// The grown instance keeps its own shape.
-			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(3);
+			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(2);
 		});
 
 		it("position() on repeat children uses the final node multiplicity", () => {
@@ -4598,6 +4796,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(true);
 
 			engine.addRepeat("/data/orders");
@@ -4673,6 +4872,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 			const { evaluateAsync } = fixedWorldEvaluator(engine, "rename-prose");
 			await engine.setValueAsync(
 				"/data/orders[0]/name",
@@ -4727,6 +4927,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[0]/name", "Hydrangea");
 			engine.setValue("/data/orders[1]/name", "Aspirin");
 
@@ -4750,6 +4951,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[1]/name", "Aspirin");
 
 			engine.renamePaths([
@@ -4771,6 +4973,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/c");
 			engine.addRepeat("/data/c");
 			engine.setValue("/data/c[0]/x", "keep");
 			engine.setValue("/data/c[1]/x", "gone");
@@ -4828,7 +5031,10 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/households");
+			engine.addRepeat("/data/households");
 
+			engine.addRepeat("/data/households[0]/members");
+			engine.addRepeat("/data/households[1]/members");
 			engine.setValue("/data/households[0]/surname", "Smith");
 			engine.setValue("/data/households[1]/surname", "Jones");
 			engine.setValue("/data/households[0]/members[0]/first", "Mary");
@@ -5232,8 +5438,10 @@ it.each([false, true])(
 			if (stagedAsync) {
 				await engine.initializeAsync(worker.evaluateAsync);
 				await engine.addRepeatAsync("/data/a", worker.evaluateAsync);
+				await engine.addRepeatAsync("/data/a", worker.evaluateAsync);
 				await engine.setValueAsync("/data/n", "3", worker.evaluateAsync);
 			} else {
+				engine.addRepeat("/data/a");
 				engine.addRepeat("/data/a");
 				engine.setValue("/data/n", "3");
 			}
@@ -5682,13 +5890,13 @@ describe("FormEngine setvalue casts", () => {
 		);
 		expect(insertRefusal).toMatchObject({
 			cause: "repeat-insert",
-			path: "/data/visits[1]/n",
+			path: "/data/visits[0]/n",
 			value: "many",
 		});
 
 		engine.setValue("/data/seed", "4");
-		expect(engine.addRepeat("/data/visits")).toBe(1);
-		expect(engine.getState("/data/visits[1]/n").value).toBe("4");
+		expect(engine.addRepeat("/data/visits")).toBe(0);
+		expect(engine.getState("/data/visits[0]/n").value).toBe("4");
 		expect(engine.getState("/data/visits").insertRefusal).toBeUndefined();
 	});
 

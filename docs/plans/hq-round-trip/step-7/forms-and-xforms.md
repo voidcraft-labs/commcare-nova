@@ -880,6 +880,8 @@ above keep explicit negative controls. The parent plan owns the shared release r
 | `forms-and-case-writes` | `writers-single-select-multi-select` | F3 |
 | `forms-and-case-writes` | `any-other-mixed-writer-pair` | F3 |
 | `forms-and-case-writes` | `a-datetime-question-saved-straight-to-a-case` | F3 |
+| `forms-and-case-writes` | `a-date-and-time-saved-straight-in-no-shape-nova-keeps` | F3 |
+| `forms-and-case-writes` | `update-mode-edit-on-a-case-s-name-or-owner` | F3 |
 | `forms-and-case-writes` | `advanced-form-loads-other-than-its-menu-s-one-chain` | F1 |
 | `forms-and-case-writes` | `load-changing-no-case-with-a-tag-nova-does-not-derive` | F1 |
 | `forms-and-case-writes` | `case-tag-holding-a-hyphen` | F1 |
@@ -894,7 +896,6 @@ above keep explicit negative controls. The parent plan owns the shared release r
 | `forms-and-case-writes` | `an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or` | F3 |
 | `forms-and-case-writes` | `index-identifier-outside-an-xml-element-name` | F3 |
 | `forms-and-case-writes` | `caseindex-relationship-question-relationship-question-the-index-naming-a` | F3 |
-| `forms-and-case-writes` | `an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection` | F3 |
 | `forms-and-case-writes` | `arbitrary-datums-datum-id-datum-function` | F1 |
 | `forms-and-case-writes` | `shadow-parent-form-id-naming-an-advancedform-that-is-not-a` | F2 |
 | `forms-and-case-writes` | `extra-actions-load-update-cases-repeating-a-parent-tag-overrides` | F2 |

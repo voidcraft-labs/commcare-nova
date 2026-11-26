@@ -5,7 +5,12 @@ import { componentPeer } from "../../lib/componentPeer";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-language-screen-client";
-import { DATE, NAME } from "../../lib/preview-language-screen-doc";
+import {
+	DATE,
+	ENGLISH_IMAGE,
+	NAME,
+	SPANISH_IMAGE,
+} from "../../lib/preview-language-screen-doc";
 import { replaceRichText } from "../../lib/richText";
 
 // The visit's starting value is `'2024-01-15T14:30:00.000-05:00'`. Core holds
@@ -43,26 +48,118 @@ async function recordLocation(page: Page) {
 	return replace;
 }
 
+function languageMediaPeer() {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	return componentPeer("e2e/lib/preview-language-screen-client.tsx", [], {
+		"@/lib/preview/engine/caseDataBinding": boundary,
+		"@/lib/preview/engine/lookupDataBinding": boundary,
+		"@/lib/preview/entryPointLaunchAction": boundary,
+		"@/lib/auth/hooks/useAuth": boundary,
+		"@/lib/lookup/actions": boundary,
+		"@/lib/deployment/actions": boundary,
+		"@/lib/doc/platformChangePreflight": boundary,
+		"@/lib/preview/xpath/browserWorkerClient": resolve(
+			"e2e/lib/preview-language-worker-boundary.ts",
+		),
+	});
+}
+
+async function workerMediaRoutes(page: Page) {
+	for (const [id, file] of [
+		[ENGLISH_IMAGE, "0.png"],
+		[SPANISH_IMAGE, "1.png"],
+	] as const) {
+		await page.route(
+			(url) => url.pathname === `/api/media/${id}`,
+			(route) =>
+				route.fulfill({
+					path: resolve("proof/hq-apps/hq-kept-settings/media", file),
+					contentType: "image/png",
+				}),
+		);
+	}
+}
+
+test("restoring a shared question picture updates the worker’s current language", async ({
+	page,
+}) => {
+	const peer = await languageMediaPeer();
+	try {
+		await workerMediaRoutes(page);
+		await page.goto(`${peer.origin}/?localizedMedia&editMedia`);
+		await page.getByRole("button", { name: "Español", exact: true }).click();
+		const question = page.locator(
+			`[data-field-uuid="${NAME}"][data-instance-path]`,
+		);
+		const picture = (asset: string) => question.locator(`img[src*="${asset}"]`);
+		await expect(picture(SPANISH_IMAGE)).toHaveJSProperty("naturalWidth", 1);
+		await page
+			.getByRole("button", { name: "Use shared files", exact: true })
+			.click();
+		await expect(picture(ENGLISH_IMAGE)).toHaveJSProperty("naturalWidth", 1);
+		await expect(picture(SPANISH_IMAGE)).toHaveCount(0);
+		await expect(
+			page.getByText("Shared image from English", { exact: true }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "English", exact: true }).click();
+		await expect(picture(ENGLISH_IMAGE)).toHaveJSProperty("naturalWidth", 1);
+	} finally {
+		try {
+			await closePageWithUnload(page);
+		} finally {
+			await peer.close();
+		}
+	}
+});
+
+test("a language that shares the inline video offers no way to remove it", async ({
+	page,
+}) => {
+	const peer = await languageMediaPeer();
+	try {
+		await page.goto(`${peer.origin}/?inlineVideo&editMedia`);
+		const inlineVideo = page.getByRole("group", {
+			name: "Question picture and recordings inline video",
+			exact: true,
+		});
+		const replace = inlineVideo.getByRole("button", {
+			name: "Replace video",
+			exact: true,
+		});
+		const remove = inlineVideo.getByRole("button", {
+			name: "Remove video",
+			exact: true,
+		});
+		await expect(replace).toBeVisible();
+		await expect(remove).toBeVisible();
+		// Spanish shows the shared file it can't hide, so the chip keeps only
+		// Replace video, as the image, audio and video chips beside it do.
+		await page.getByRole("button", { name: "Español", exact: true }).click();
+		await expect(
+			page.getByText("Shared inline video from English", { exact: true }),
+		).toBeVisible();
+		await expect(replace).toBeVisible();
+		await expect(inlineVideo.getByRole("button")).toHaveCount(2);
+		await expect(remove).toHaveCount(0);
+		await expect(
+			inlineVideo.getByRole("button", {
+				name: "Use shared inline video",
+				exact: true,
+			}),
+		).toHaveCount(0);
+	} finally {
+		try {
+			await closePageWithUnload(page);
+		} finally {
+			await peer.close();
+		}
+	}
+});
+
 test("a rejected submission keeps required errors and review announcements in the current language", async ({
 	page,
 }, testInfo) => {
-	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
-	const peer = await componentPeer(
-		"e2e/lib/preview-language-screen-client.tsx",
-		[],
-		{
-			"@/lib/preview/engine/caseDataBinding": boundary,
-			"@/lib/preview/engine/lookupDataBinding": boundary,
-			"@/lib/preview/entryPointLaunchAction": boundary,
-			"@/lib/auth/hooks/useAuth": boundary,
-			"@/lib/lookup/actions": boundary,
-			"@/lib/deployment/actions": boundary,
-			"@/lib/doc/platformChangePreflight": boundary,
-			"@/lib/preview/xpath/browserWorkerClient": resolve(
-				"e2e/lib/preview-language-worker-boundary.ts",
-			),
-		},
-	);
+	const peer = await languageMediaPeer();
 	try {
 		const guard = await attachErrorGuard(page, peer.origin);
 		async function capture(name: string) {
@@ -79,15 +176,23 @@ test("a rejected submission keeps required errors and review announcements in th
 		}
 		try {
 			await page.setViewportSize({ width: 390, height: 720 });
-			await page.goto(peer.origin);
+			await workerMediaRoutes(page);
+			await page.goto(`${peer.origin}/?localizedMedia`);
 			await expect(
 				page.locator('[data-preview-engine-ready="true"]'),
 			).toBeVisible();
-			await page.getByRole("button", { name: "Español", exact: true }).click();
-			await page.evaluate(() => window.previewLanguageScreen.settled());
-			const before = await page.evaluate(() =>
-				window.previewLanguageScreen.observation(),
+			const image = (id: string) => page.locator(`img[src*="${id}"]`);
+			await expect(image(ENGLISH_IMAGE).first()).toHaveJSProperty(
+				"naturalWidth",
+				1,
 			);
+			await page.getByRole("button", { name: "Español", exact: true }).click();
+			await expect(image(SPANISH_IMAGE).first()).toHaveJSProperty(
+				"naturalWidth",
+				1,
+			);
+			await expect(image(ENGLISH_IMAGE)).toHaveCount(0);
+			await page.evaluate(() => window.previewLanguageScreen.settled());
 			const question = page.locator(
 				`[data-field-uuid="${NAME}"][data-instance-path]`,
 			);
@@ -98,6 +203,15 @@ test("a rejected submission keeps required errors and review announcements in th
 				question.getByText("Este campo es obligatorio", { exact: true }),
 			).toBeVisible();
 			await expect(announcement).toHaveText("Revise la pregunta resaltada.");
+			// Android saves every answer on the screen when Finish is pressed,
+			// the day its date widget shows among them, before it names the
+			// question a worker still owes (`FormEntryActivity.
+			// saveAnswersForCurrentScreen`). The rebuilt screens keep the
+			// answers that rejected submission left.
+			await page.evaluate(() => window.previewLanguageScreen.settled());
+			const before = await page.evaluate(() =>
+				window.previewLanguageScreen.observation(),
+			);
 			await capture("required-spa");
 			for (const [button, error, review, tag] of [
 				[

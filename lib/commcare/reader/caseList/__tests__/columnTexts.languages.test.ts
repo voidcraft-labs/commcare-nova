@@ -10,9 +10,11 @@
  * writes over the shown text, and a header stored only in the first language refused as a list
  * Nova cannot write.
  */
+
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc, LanguageTag } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
 	columnSort,
@@ -30,7 +32,6 @@ import { patients, uuid } from "./fixtures";
 import {
 	type AppJson,
 	closedCodes,
-	codes,
 	emittedApp,
 	type ListReading,
 	listOf,
@@ -191,6 +192,29 @@ describe("a column header HQ's page saved in one language", () => {
 });
 
 describe("an ID mapping's labels HQ's page saved in one language", () => {
+	it("publishes both languages of a blank mapping key back to its own row", async () => {
+		const read = await readBilingual(village(), (app) => {
+			for (const column of columnsOf(app)) {
+				if (column.field === "notes")
+					Object.assign(column, {
+						format: "enum",
+						enum: [{ key: "", value: { en: "Unspecified", fr: "Inconnu" } }],
+					});
+			}
+		});
+		expect(closedCodes(read)).toEqual([]);
+		const exported = await readingExport(read);
+		for (const column of columnsOf(exported).filter(
+			(one) => one.format === "enum",
+		))
+			expect(column.enum).toEqual([
+				expect.objectContaining({
+					key: "",
+					value: { en: "Unspecified", fr: "Inconnu" },
+				}),
+			]);
+	});
+
 	it("reads each label as the text both languages show", async () => {
 		const doc = bilingual(
 			patients([
@@ -272,6 +296,42 @@ describe("an image map's alt text", () => {
 			true,
 		);
 
+	it.each(["care due", ". = 'care due'"])(
+		"keeps an image that matches the whole saved value (%s)",
+		async (key) => {
+			const read = await readBilingual(
+				bilingual(
+					patients([
+						plainColumn(uuid(1), "case_name", "Name"),
+						imageMapColumn(uuid(2), "notes", "Icon", [
+							imageMapEntry("a", icon),
+						]),
+					]),
+				),
+				(app) => {
+					for (const column of columnsOf(app))
+						if (column.format === "enum-image")
+							for (const item of column.enum as Record<string, unknown>[])
+								item.key = key;
+				},
+				true,
+			);
+			expect(closedCodes(read)).toEqual([]);
+			expect(listOf(read).columns).toContainEqual(
+				expect.objectContaining({
+					kind: "image-map",
+					mapping: [
+						expect.objectContaining({
+							value: "care due",
+							match: "exact",
+							assetId: icon,
+						}),
+					],
+				}),
+			);
+		},
+	);
+
 	const altRespelled = (reading: ListReading) =>
 		respelled(reading).filter((tail) => tail === "/alt_text");
 
@@ -287,13 +347,11 @@ describe("an image map's alt text", () => {
 	// Blank is what a device shows, not JavaScript's trim: HQ's build writes a text Python reads as
 	// blank (U+001F) as one non-breaking space, a device's blank, and writes U+FEFF, which a device
 	// keeps, as it is.
-	it("holds an alt text a device shows blank, and refuses one it shows, whatever JavaScript's trim says", async () => {
+	it("keeps a nonbreaking zero-width character that a device shows and normalizes a control it treats as blank", async () => {
 		const unitSeparator = await readAlt({ en: "\u001f", fr: "\u001f" });
 		expect(closedCodes(unitSeparator)).toEqual([]);
 		expect(altRespelled(unitSeparator)).toEqual(["/alt_text", "/alt_text"]);
-		expect(codes(await readAlt({ en: "﻿" }))).toContain(
-			"menus-and-case-lists/enum-mappingitem-alt-text-non-blank",
-		);
+		expect(closedCodes(await readAlt({ en: "﻿" }))).toEqual([]);
 	});
 
 	it("refuses an alt text whose rest after a carriage return defines another app string, under that entry alone", async () => {
@@ -304,11 +362,30 @@ describe("an image map's alt text", () => {
 		]);
 	});
 
-	it("refuses an alt text a null makes HQ show as `None`", async () => {
+	it("keeps the description a worker reads when HQ holds a null", async () => {
 		const reading = await readAlt({ en: null });
-		expect(codes(reading)).toContain(
-			"menus-and-case-lists/enum-mappingitem-alt-text-non-blank",
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).columns).toContainEqual(
+			expect.objectContaining({
+				kind: "image-map",
+				mapping: [expect.objectContaining({ altText: "None" })],
+			}),
 		);
+	});
+
+	it("retains each language’s image description", async () => {
+		const read = await readAlt({ en: "Care is due", fr: "Soins à prévoir" });
+		expect(closedCodes(read)).toEqual([]);
+		const col = listOf(read).columns.find((one) => one.kind === "image-map");
+		expect(col).toMatchObject({ mapping: [{ altText: "Care is due" }] });
+		if (col?.kind !== "image-map" || !col.mapping[0])
+			throw new Error("Expected image column");
+		expect(
+			french(
+				read,
+				caseMappingTextUnit(col.uuid, col.mapping[0], "image-description"),
+			),
+		).toBe("Soins à prévoir");
 	});
 
 	it("holds any alt text on an ID mapping, which HQ's build gives none", async () => {
@@ -389,13 +466,20 @@ describe("a detail's two texts and a sort element's label", () => {
 		expect(closedCodes(reading)).toEqual([]);
 	});
 
-	it("refuses HQ's default text with a space at its start, which a device shows, as wording of its own", async () => {
+	it("holds HQ's default text with a space at its start, which a device shows, as wording of its own, trimmed as every app string is", async () => {
 		const reading = await readBilingual(village(), (app) => {
 			shortOf(app).no_items_text = { en: " List is empty.", fr: "" };
 		});
-		expect(closedCodes(reading)).toEqual([
-			"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
-		]);
+		expect(closedCodes(reading)).toEqual([]);
+		const list = Object.values(reading.ctx.doc?.modules ?? {})[0]
+			?.caseListConfig;
+		expect(list?.emptyText).toBe("List is empty.");
+		// The space a device showed is a change the first publish makes, which workers see.
+		expect(
+			reading.ctx.facts.sameStateRewrites
+				.map((one) => one.path.slice(one.path.lastIndexOf("/")))
+				.filter((tail) => tail === "/no_items_text"),
+		).toEqual(["/no_items_text"]);
 	});
 
 	it("refuses a text whose rest after a carriage return defines another app string, under that entry alone", async () => {
@@ -471,3 +555,32 @@ describe("a detail's two texts and a sort element's label", () => {
 		expect(closedCodes(reading)).toEqual([]);
 	});
 });
+
+it.each([
+	{ stored: { en: "Confidence" }, frenchText: "Confidence", rewrites: true },
+	{
+		stored: { en: "Confidence", fr: "Confiance" },
+		frenchText: "Confiance",
+		rewrites: false,
+	},
+])(
+	"holds the confidence heading with French text $frenchText",
+	async ({ stored, frenchText, rewrites }) => {
+		const reading = await readBilingual(village(), (app) => {
+			Object.assign(shortOf(app), {
+				lookup_enabled: true,
+				lookup_action: "org.example.MATCH",
+				lookup_name: "Find a match",
+				lookup_extras: [{ key: "mode", value: "'scan'" }],
+				lookup_responses: [{ key: "first" }],
+				lookup_display_results: true,
+				lookup_field_template: "@case_id",
+				lookup_field_header: stored,
+			});
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const heading = shortOf(await readingExport(reading)).lookup_field_header;
+		expect(heading).toEqual({ en: "Confidence", fr: frenchText });
+		expect(respelled(reading).includes("/lookup_field_header")).toBe(rewrites);
+	},
+);

@@ -1,0 +1,15 @@
+{
+	"addOns": [
+		"advanced_itemsets"
+	],
+	"profileProperties": [
+		"cc-show-saved",
+		"cc-show-incomplete"
+	],
+	"profileFeatures": [
+		"dependencies"
+	],
+	"profileCustomProperties": [],
+	"autoGpsCapture": true,
+	"caseSharing": true
+}

@@ -61,6 +61,7 @@ export interface Canonicalization {
 	apply(
 		doc: BlueprintDoc,
 		withheld?: (rewrite: WithheldRewrite) => void,
+		incumbentSource?: LanguageTag,
 	): BlueprintDoc;
 }
 
@@ -307,9 +308,19 @@ export const CANONICALIZATIONS: readonly Canonicalization[] = [
 		(choice): Canonicalization => ({
 			id: choice.id,
 			kind: choice.kind,
-			apply: choice.apply,
+			apply: (doc, _withheld, incumbent) => choice.apply(doc, incumbent),
 		}),
 	),
+	{
+		id: "connect-requires-app-location",
+		kind: "one-wire",
+		apply: (doc) =>
+			doc.connectRoles.length > 0 && doc.appSettings.captureLocation === true
+				? withCandidate(doc, (draft) => {
+						delete draft.appSettings.captureLocation;
+					})
+				: doc,
+	},
 	{
 		/** Two trees of one slot that print the same bytes there
 		 *  (`expressions/canonical.ts::PRINT_COLLISIONS`): the reader returns the
@@ -334,8 +345,9 @@ function stored(doc: BlueprintDoc): unknown {
 export function canonDocument(
 	doc: BlueprintDoc,
 	withheld?: (rewrite: WithheldRewrite) => void,
+	incumbentSource?: LanguageTag,
 ): BlueprintDoc {
-	const steps = canonDocumentSteps(doc, withheld);
+	const steps = canonDocumentSteps(doc, withheld, incumbentSource);
 	for (;;) {
 		const step = steps.next();
 		if (step.done) return step.value;
@@ -350,12 +362,13 @@ export function canonDocument(
 export function* canonDocumentSteps(
 	doc: BlueprintDoc,
 	withheld?: (rewrite: WithheldRewrite) => void,
+	incumbentSource?: LanguageTag,
 ): Generator<void, BlueprintDoc, void> {
 	let current = doc;
 	for (let pass = 0; pass < CANONICALIZATIONS.length; pass++) {
 		let next = current;
 		for (const row of CANONICALIZATIONS) {
-			next = row.apply(next, withheld);
+			next = row.apply(next, withheld, incumbentSource);
 			yield;
 		}
 		if (sameJson(stored(next), stored(current))) return current;

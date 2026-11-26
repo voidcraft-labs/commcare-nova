@@ -366,7 +366,11 @@ export function CaseOperationInspectorBody({
 
 				<Row
 					title="Kind of case"
-					description="The type of case this change acts on."
+					description={
+						operation.action === "create" && operation.typeChoice !== undefined
+							? `The imported condition chooses between ${humanizeId(operation.caseType)} and ${humanizeId(operation.typeChoice.otherwise)}. Choosing a different type replaces the condition.`
+							: "The type of case this change acts on."
+					}
 				>
 					<CaseTypePicker
 						value={operation.caseType}
@@ -1059,6 +1063,18 @@ function RemoveOperationRow({
 		[view, operation.uuid],
 	);
 
+	if (!plan.ok && plan.reason === "case-list-action") {
+		return (
+			<section className="space-y-2 border-t border-white/[0.06] pt-4">
+				<h3 className="text-[13px] font-medium leading-5 text-nova-text-secondary">
+					Remove this change
+				</h3>
+				<p className="text-[13px] leading-relaxed text-nova-text-muted">
+					{plan.message}
+				</p>
+			</section>
+		);
+	}
 	if (!plan.ok && plan.reason !== "operation-not-found") {
 		return (
 			<section className="space-y-2 border-t border-white/[0.06] pt-4">

@@ -27,6 +27,7 @@ import {
 } from "@/lib/domain/expression";
 import { usePredicateEditContext, useResolvedType } from "../editorContext";
 import { type PredicateEditContext, tableRowInScope } from "../editorSchemas";
+import { editorLookupReads } from "../lookupTablePresentation";
 import { appendSlot, type EditorPath } from "../path";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
@@ -41,7 +42,7 @@ export function betweenDefault(
 	ctx: PredicateEditContext,
 ): ExpressionOfKind<"between"> {
 	if (tableRowInScope(ctx)) {
-		const column = ctx.tableScope?.columns.find((candidate) =>
+		const column = editorLookupReads(ctx.tableScope).find((candidate) =>
 			isOrdered({ data_type: candidate.dataType }),
 		);
 		if (ctx.tableScope === undefined || column === undefined) {

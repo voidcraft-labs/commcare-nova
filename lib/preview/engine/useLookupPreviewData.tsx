@@ -27,10 +27,13 @@ import {
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
+import { requiresLookupProjection } from "@/lib/lookup/source";
 import type { LookupManifest } from "@/lib/lookup/types";
+import { useLocation } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
 	useAppId,
+	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { useEngineController } from "../hooks/useEngineController";
@@ -50,7 +53,7 @@ export type PreviewLookupStatus =
 	| { kind: "idle" }
 	| { kind: "loading" }
 	| { kind: "data"; data: PreviewLookupData }
-	| { kind: "error" };
+	| { kind: "error"; message?: string };
 
 /** The provider's own state: a snapshot also names the referenced tables it
  * was read for, which tells a waiting form whether a newer read is coming. */
@@ -60,6 +63,7 @@ type LookupDataState =
 			kind: "data";
 			data: PreviewLookupData;
 			tableIds: readonly string[];
+			scopeKey: string;
 	  };
 
 function sameIdList(a: readonly string[], b: readonly string[]): boolean {
@@ -103,6 +107,7 @@ function useLookupPreviewDataResource(): {
 	readonly reload: () => Promise<void>;
 } {
 	const appId = useAppId();
+	const personaUuid = usePreviewPersonaUuid();
 	const accessPhase = useAccessPhase();
 	const scopeEpoch = useProjectScopeEpoch();
 	const reconciler = useReconcilerContext();
@@ -115,6 +120,22 @@ function useLookupPreviewDataResource(): {
 		[reconciler],
 	);
 	const revisionKey = manifestRevisionKey(manifest, tableIds);
+	const location = useLocation();
+	const protectedSource =
+		manifest?.tables.some(
+			(table) =>
+				tableIds.includes(table.id) &&
+				(table.workerAccess === "assigned" ||
+					requiresLookupProjection(table.hq)),
+		) ?? false;
+	const [focus, setFocus] = useState(0);
+	useEffect(() => {
+		if (!protectedSource) return;
+		const refresh = () => setFocus((previous) => previous + 1);
+		window.addEventListener("focus", refresh);
+		return () => window.removeEventListener("focus", refresh);
+	}, [protectedSource]);
+	const reading = protectedSource ? JSON.stringify([location, focus]) : "";
 
 	const reloadToken = useMemo(
 		() =>
@@ -122,10 +143,22 @@ function useLookupPreviewDataResource(): {
 				runtimeScopeId,
 				String(scopeEpoch),
 				appId ?? "",
+				personaUuid ?? "",
+				accessPhase,
 				tableIds.join(","),
 				revisionKey,
+				reading,
 			].join(" "),
-		[runtimeScopeId, scopeEpoch, appId, tableIds, revisionKey],
+		[
+			runtimeScopeId,
+			scopeEpoch,
+			appId,
+			personaUuid,
+			accessPhase,
+			tableIds,
+			revisionKey,
+			reading,
+		],
 	);
 
 	const { state, reload } = useReloadableResource<LookupDataState>({
@@ -148,11 +181,19 @@ function useLookupPreviewDataResource(): {
 			const ids = tableIds;
 			return {
 				fetch: async (): Promise<LookupDataState> => {
-					const result = await loadLookupFixtureDataAction(id, ids);
-					if (result.kind !== "data") return { kind: "error" };
+					const result = await loadLookupFixtureDataAction(
+						id,
+						ids,
+						personaUuid,
+					);
+					if (result.kind !== "data")
+						return result.kind === "error"
+							? { kind: "error", message: result.message }
+							: { kind: "error" };
 					return {
 						kind: "data",
 						tableIds: ids,
+						scopeKey: reloadToken,
 						data: previewLookupData({
 							projectRevision: result.data.projectRevision,
 							definitions: result.data.definitions,
@@ -168,11 +209,17 @@ function useLookupPreviewDataResource(): {
 		},
 		loading: { kind: "loading" },
 		toError: () => ({ kind: "error" }),
-		keepStale: (prev) => prev.kind === "data",
+		keepStale: () => false,
 		reloadToken,
 	});
 
-	return { status: state, reload };
+	return {
+		status:
+			state.kind === "data" && state.scopeKey !== reloadToken
+				? { kind: "loading" }
+				: state,
+		reload,
+	};
 }
 
 const PreviewLookupDataContext = createContext<PreviewLookupStatus>({
@@ -194,7 +241,8 @@ function samePreviewLookupStatus(
 	return (
 		left.kind === "data" &&
 		right.kind === "data" &&
-		left.data.projectRevision === right.data.projectRevision &&
+		left.scopeKey === right.scopeKey &&
+		left.data === right.data &&
 		sameIdList(left.tableIds, right.tableIds)
 	);
 }

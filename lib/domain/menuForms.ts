@@ -9,7 +9,8 @@
 // navigation decision goes through these.
 
 import type { BlueprintDoc } from "./blueprint";
-import { type Form, isCaseFirstModule } from "./forms";
+import { isCaseFirstModule } from "./forms";
+import { menuFormUuidsOf, type PreparedMenuForm } from "./listedForms";
 import {
 	type AlwaysOfferedRegistration,
 	type CaseListRegistrationReturn,
@@ -20,26 +21,13 @@ import { effectivePostSubmit, moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
 
 type MenuFormDoc = Pick<BlueprintDoc, "forms" | "formOrder" | "modules">;
-/** One form as an authoring preparation holds it before it is in the doc. */
-export type PreparedMenuForm = Pick<Form, "type"> & {
-	readonly formUuid: Uuid;
-};
 
-/** The module's menu forms, in order: every form of the module except its
- *  case list registration form. */
-export function menuFormUuidsOf(
-	doc: MenuFormDoc,
-	moduleUuid: Uuid,
-	prepared?: PreparedMenuForm,
-): Uuid[] {
-	const registration = afterEmptySearchRegistrationFormOf(doc, moduleUuid);
-	return (doc.formOrder[moduleUuid] ?? []).filter((formUuid) => {
-		if (formUuid === registration) return false;
-		const form =
-			prepared?.formUuid === formUuid ? prepared : doc.forms[formUuid];
-		return form !== undefined;
-	});
-}
+export {
+	menuFormUuidsOf,
+	menuWithInheritedCaseSettings,
+	type PreparedMenuForm,
+	sourceMenuOfListedForm,
+} from "./listedForms";
 
 /** The registration form the module's case list offers after a search finds
  *  nothing, which is on no menu; undefined for the `always` arm and for no
@@ -73,6 +61,16 @@ export function caseListsOffering(
 	);
 }
 
+/** Every list action opening this form, in the order its entry writes return frames. */
+export function caseListActionHosts(
+	doc: Pick<BlueprintDoc, "modules" | "moduleOrder">,
+	formUuid: Uuid,
+): Uuid[] {
+	return doc.moduleOrder.filter(
+		(moduleUuid) => offeredRegistrationFormOf(doc, moduleUuid) === formUuid,
+	);
+}
+
 /** The form the module's case list offers under either arm. */
 export function offeredRegistrationFormOf(
 	doc: Pick<BlueprintDoc, "modules">,
@@ -81,7 +79,7 @@ export function offeredRegistrationFormOf(
 	return doc.modules[moduleUuid]?.caseListRegistrationForm?.formUuid;
 }
 
-/** Where a worker goes after registering from an `always` host's case list. */
+/** Where a worker goes after submitting a form from a case list. */
 export type CaseListRegistrationReturnOf =
 	| { readonly kind: "own" }
 	| { readonly kind: CaseListRegistrationReturn };
@@ -91,18 +89,23 @@ export type CaseListRegistrationReturnOf =
  * the form's own after-submit writes a frame (it holds links, or its
  * after-submit is anything but Home), since CommCare HQ then writes no return
  * frame (`workflow.py::WorkflowHelper._get_stack_frames`); else the arm's
- * `afterSubmit`. Undefined for a host with no `always` arm, or whose form is
+ * `afterSubmit`. Undefined for a host with no list action, or whose form is
  * not in the app.
  */
 export function caseListRegistrationReturnOf(
 	doc: Pick<BlueprintDoc, "forms" | "formOrder" | "modules" | "moduleOrder">,
 	hostUuid: Uuid,
 ): CaseListRegistrationReturnOf | undefined {
-	const slot = alwaysOfferedRegistrationOf(doc, hostUuid);
+	const slot = doc.modules[hostUuid]?.caseListRegistrationForm;
 	if (slot === undefined) return undefined;
 	const form = doc.forms[slot.formUuid];
 	if (form === undefined) return undefined;
+	if (slot.kind === "after-empty-search")
+		return form.postSubmit === "firstMenu"
+			? { kind: "own" }
+			: { kind: slot.afterSubmit ?? "case-list" };
 	if (
+		slot.target?.kind === "chosen-parent" ||
 		form.formLinks !== undefined ||
 		effectivePostSubmit(doc, slot.formUuid) !== "app_home"
 	)
@@ -175,5 +178,8 @@ export function moduleIsCaseFirst(
 			return form === undefined ? [] : [form.type];
 		},
 	);
-	return isCaseFirstModule(types, mod.caseType !== undefined);
+	const owner = mod.formsFromMenu
+		? doc.modules[mod.formsFromMenu.menuUuid]
+		: mod;
+	return isCaseFirstModule(types, owner?.caseType !== undefined);
 }

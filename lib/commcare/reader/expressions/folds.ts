@@ -47,10 +47,18 @@ import { organizationLevelsOf } from "@/lib/domain/organization";
 import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
 import { caseTypeHopMap } from "../../caseTypeDepths";
+import {
+	CASE_LIST_LOOKUP_COUNT_DATA_NAME,
+	CASE_LIST_SEARCH_TEXT_DATA_NAME,
+} from "../../sessionContext";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FoldApi } from "../../xpath/formParseScope";
-import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
+import {
+	type FormSyntax,
+	formSyntaxKey,
+	literalInstanceId,
+} from "../../xpath/formSyntax";
 import { formUserProperty } from "../../xpath/referenceBindings";
 import { sameJson } from "../jsonCursor";
 
@@ -67,6 +75,7 @@ export type FoldId =
 	| "owner-at-level"
 	| "absent-node-guard"
 	| "search-text"
+	| "lookup-count"
 	| "empty-rows-guard"
 	| "handed-on-rows-guard"
 	| "cond"
@@ -86,6 +95,7 @@ export type FoldId =
 	| "blank-branch"
 	| "switch"
 	| "relation-property"
+	| "reached-property"
 	| "relation-presence"
 	| "relation-count";
 
@@ -107,6 +117,11 @@ export interface FoldEnv {
 	readonly place?: OperationPlaceReads;
 	/** The slot's whole source, where the binding knows it. */
 	readonly root?: FormSyntax;
+	/** The slot reads a walk of the row's indices as Core does, to whatever case each reaches
+	 *  (`reached-property`): a case list column's calculation, whose value Postgres and the device
+	 *  both compute over the reached row. Another record slot's untyped walk stands under its
+	 *  own row (a list filter's `#host`, `detail-filter-value-outside-predicate`). */
+	readonly readsReached?: true;
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
 	/** Claims a site of its own for this fold over `span` (a fold that folds
@@ -264,10 +279,7 @@ export function flat(node: FormSyntax, parents = false): FlatPath | undefined {
 }
 
 export function instanceId(path: FlatPath | undefined): string | undefined {
-	const root = path?.root;
-	if (root === undefined || root.kind !== "call" || root.name !== "instance")
-		return undefined;
-	return stringValue(root.args[0]);
+	return literalInstanceId(path?.root)?.value;
 }
 
 function isCurrent(path: FlatPath | undefined): boolean {
@@ -1087,9 +1099,31 @@ const ownCaseRead: Fold = {
 		// In a question's choice filter a `prop` is the candidate case's: the
 		// form's own case, or a case above it, is `form-case` there.
 		if (context.ruleSet === "record" && context.slot.entity !== "field") {
-			if (walk.length !== 0 || moduleCaseType === undefined) return undefined;
+			if (moduleCaseType === undefined) return undefined;
+			const [first, ...others] = walk;
+			if (first === undefined)
+				return api.term(
+					{ kind: "prop", caseType: moduleCaseType, property },
+					node,
+				);
+			if (
+				context.slot.slot !== "form_display_condition" &&
+				context.slot.slot !== "form_badge"
+			)
+				return undefined;
+			const via = [
+				{ identifier: first },
+				...others.map((identifier) => ({ identifier })),
+			] satisfies [RelationStep, ...RelationStep[]];
+			const caseType = destinationType(env.doc, moduleCaseType, via);
+			if (caseType === undefined) return undefined;
 			return api.term(
-				{ kind: "prop", caseType: moduleCaseType, property },
+				{
+					kind: "prop",
+					caseType: moduleCaseType,
+					property,
+					via: { kind: "ancestor", via },
+				},
 				node,
 			);
 		}
@@ -1335,6 +1369,42 @@ const absentNodeGuard: Fold = {
 	},
 };
 
+/** A guarded singleton numeric count carries exactly the form's proven lookup source. */
+const lookupCount: Fold = {
+	id: "lookup-count",
+	ruleSets: ["form"],
+	propose(node, context, api) {
+		const supplier = context.caseListLookupCountSource;
+		const guard = call(node, "if", 3);
+		const equal = binary(guard?.args[0], "=");
+		const read = call(equal?.left, "count", 1)?.args[0];
+		const item = call(guard?.args[1], "number", 1)?.args[0];
+		if (
+			supplier === undefined ||
+			read === undefined ||
+			item === undefined ||
+			numberValue(equal?.right) !== 1 ||
+			stringValue(guard?.args[2]) !== "" ||
+			!sessionDatumRead(read)
+		)
+			return undefined;
+		const first = core(item);
+		const steps = flat(read)?.steps;
+		if (
+			steps?.at(-1)?.name !== CASE_LIST_LOOKUP_COUNT_DATA_NAME ||
+			steps.some((step) => step.attribute) ||
+			first.kind !== "filter" ||
+			!same(first.base, read) ||
+			numberValue(first.where) !== 1
+		)
+			return undefined;
+		return api.remember(
+			{ kind: "case-list-lookup-count", module: supplier },
+			node,
+		);
+	},
+};
+
 const searchText: Fold = {
 	id: "search-text",
 	ruleSets: ["form"],
@@ -1350,7 +1420,11 @@ const searchText: Fold = {
 			stringValue(guard.args[2]) !== ""
 		)
 			return undefined;
-		if (!sessionDatumRead(read)) return undefined;
+		if (
+			!sessionDatumRead(read) ||
+			flat(read)?.steps.at(-1)?.name !== CASE_LIST_SEARCH_TEXT_DATA_NAME
+		)
+			return undefined;
 		return api.remember({ kind: "case-list-search-text" }, node);
 	},
 };
@@ -2686,6 +2760,54 @@ function destinationType(
 	return at;
 }
 
+/**
+ * A walk of the row's indices with no case-type test,
+ * `instance('casedb')/casedb/case[@case_id = current()/index/<id>]/<property>` and its chains:
+ * Core reads the property on whatever case each index reaches, of any type, declared or not,
+ * which is the reached read (`PropertyRef.readReached`), whose print is that walk. HQ's build
+ * writes it for a stored relation path (`detail_screen.py::PropertyXpathGenerator`). Offered after
+ * `relation-property`, so a walk the typed relation reproduces stays typed, and this holds the
+ * walk the typed one does not print (an undeclared link, a link beside a declared parent), in a
+ * slot that reads it so (`FoldEnv.readsReached`).
+ */
+const reachedProperty: Fold = {
+	id: "reached-property",
+	ruleSets: ["record"],
+	propose(node, context, api, env) {
+		if (env.readsReached !== true) return undefined;
+		const read = casedbRow(node);
+		if (read === undefined) return undefined;
+		const [step, ...more] = read.rest;
+		const property = rowProperty(step);
+		if (property === undefined || more.length > 0) return undefined;
+		const steps = ancestorSteps(read.row);
+		const [first, ...rest] = steps ?? [];
+		if (
+			first === undefined ||
+			steps?.some((hop) => hop.throughCaseType !== undefined)
+		)
+			return undefined;
+		const row = activeRowScope(context);
+		if (row?.kind !== "case" || row.caseType === undefined) return undefined;
+		return api.term(
+			{
+				kind: "prop",
+				caseType: row.caseType,
+				property,
+				via: {
+					kind: "ancestor",
+					via: [first, ...rest].map(({ identifier }) => ({ identifier })) as [
+						RelationStep,
+						...RelationStep[],
+					],
+				},
+				readReached: true,
+			},
+			node,
+		);
+	},
+};
+
 const relationProperty: Fold = {
 	id: "relation-property",
 	ruleSets: ["record"],
@@ -3074,6 +3196,7 @@ export const EXPRESSION_FOLDS: readonly Fold[] = [
 	ownerAtLevel,
 	absentNodeGuard,
 	searchText,
+	lookupCount,
 	emptyRowsGuard,
 	handedOnRowsGuard,
 	condFold,
@@ -3093,6 +3216,7 @@ export const EXPRESSION_FOLDS: readonly Fold[] = [
 	typedBranchLiteral,
 	blankBranch,
 	relationProperty,
+	reachedProperty,
 	relationPresence,
 	relationCount,
 ];

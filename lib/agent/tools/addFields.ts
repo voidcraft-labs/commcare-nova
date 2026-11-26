@@ -306,7 +306,9 @@ function sectionPlacementRefusal(
 	if (
 		addsRootSection &&
 		!formIsSectioned(doc, formUuid) &&
-		(doc.fieldOrder[formUuid]?.length ?? 0) > 0
+		doc.fieldOrder[formUuid]?.some(
+			(uuid) => doc.fields[uuid]?.kind !== "connect_activity",
+		)
 	) {
 		const form = doc.forms[formUuid];
 		return `"${form?.name ?? "This form"}" isn't split into sections yet, so adding one here would leave its current questions outside it. First call setFormSections with every existing top-level question's page (a new page may be empty), then add the new questions into their page with addFields and parentUuid.`;

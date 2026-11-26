@@ -49,6 +49,7 @@
  */
 
 import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
+import { listIconActionSentence } from "@/lib/commcare/listIconAction";
 import { changedByHqManagedRemedy } from "@/lib/commcare/lookup/hqCellText";
 import { selectSourceManagedRemedy } from "@/lib/commcare/lookup/selectSourceRows";
 import { unrepresentableManagedRemedy } from "@/lib/commcare/lookup/xmlText";
@@ -58,6 +59,10 @@ import type {
 } from "@/lib/commcare/validator/errors";
 import type { UserFacingValidationCode } from "@/lib/commcare/validator/gate";
 import { chosenCaseReadSentence } from "@/lib/commcare/validator/recordFindings";
+import {
+	formBehaviorTextIssueFromDetails,
+	formBehaviorTextSentence,
+} from "@/lib/commcare/xform/behaviorTextCopy";
 import { CONNECT_SOURCE_TEXT_WORDS } from "@/lib/commcare/xform/sourceTexts";
 import {
 	type EntryPointIdProblem,
@@ -69,7 +74,9 @@ import {
 	type ScalarType,
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
+import { missingConnectRoleMessage } from "@/lib/domain/fields/connectActivity";
 import { formTypeLabels } from "@/lib/domain/forms";
+import { questionChoiceReadSentence } from "@/lib/domain/lookupRead";
 import {
 	inPlatform,
 	PLATFORMS,
@@ -84,12 +91,17 @@ import {
 	questionIdProblemSentence,
 	sourceWritePropertySentence,
 } from "@/lib/domain/questionId";
-import { standardCasePropertyDisplayLabel } from "@/lib/domain/standardCaseProperties";
+import {
+	isWritableStandardCaseProperty,
+	standardCasePropertyDisplayLabel,
+	WRITABLE_STANDARD_CASE_PROPERTY_WORDS,
+} from "@/lib/domain/standardCaseProperties";
 import {
 	valueKindPhrase,
 	valueKindPluralPhrase,
 	valueKindsPhrase,
 } from "@/lib/domain/valueKindPhrases";
+import { lookupPathNameSentence } from "@/lib/lookup/pathNames";
 
 // ── Interpolation helpers ──────────────────────────────────────────
 //
@@ -126,6 +138,44 @@ const fieldName = (e: ValidationError): string =>
 /** A `details` value, or the fallback. */
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
+
+/** What a value of a type a distance comparison can't read holds, as a
+ *  person names it. */
+const distanceValueNoun = (type: string): string => {
+	switch (type) {
+		case "int":
+			return "whole numbers";
+		case "decimal":
+			return "decimal numbers";
+		case "date":
+			return "dates";
+		case "time":
+			return "times";
+		case "datetime":
+			return "dates and times";
+		case "single_select":
+		case "multi_select":
+			return "choices";
+		case "boolean":
+			return "true or false values";
+		default:
+			return "values";
+	}
+};
+
+/** How a person reads a writable standard case value, "name" otherwise. */
+const standardValueWords = (property: string): string =>
+	isWritableStandardCaseProperty(property)
+		? WRITABLE_STANDARD_CASE_PROPERTY_WORDS[property]
+		: "name";
+
+/** The two submitted places a Connect submission finding names, as a
+ *  trailing clause, or nothing where the finding names none. */
+const connectPlaces = (e: ValidationError): string => {
+	const first = e.details?.first;
+	const second = e.details?.second;
+	return first && second ? ` (at ${q(first)} and ${q(second)})` : "";
+};
 
 /** The last sentence of a choice list's row finding: the remedy in Project
  * data, or, for a table CommCare HQ manages (`managedInDomain`), the managed
@@ -170,6 +220,47 @@ function valueListPlacementCopy(
 	}
 }
 
+/** A media file one language shows on a question or choice that the app
+ * can't keep: by the `mediaProblem` the validator names. */
+function formMediaLanguageCopy(e: ValidationError): string {
+	const where = `${q(fieldName(e))} in ${q(formName(e))}`;
+	const role = MEDIA_ROLE_NAMES[det(e, "mediaRole", "")] ?? "file";
+	switch (e.details?.mediaProblem) {
+		case "default-outside-app":
+			return `A file on ${where} follows a language the app no longer has. You can choose a shared file for it.`;
+		case "language-outside-app":
+			return `A file on ${where} is set for a language the app doesn't have. You can choose the file in one of the app's languages.`;
+		case "override-needs-package":
+			return `CommCare needs the translated file on an ordinary menu or form in the same language before it can show it on ${where}. You can keep that file available or choose a different translation.`;
+		case "needs-shared":
+			return `${where} has a translated ${role} but no shared ${role}. You can choose the shared ${role} first, or remove the translated one.`;
+		default:
+			return `A file on ${where} is set for its languages in a way the app can't keep. You can choose a shared file for it.`;
+	}
+}
+
+/** A menu's file in one language that the app can't keep. */
+function menuMediaLanguageCopy(e: ValidationError): string {
+	const where = e.location.formName ? q(formName(e)) : q(modName(e));
+	switch (e.details?.mediaProblem) {
+		case "language-outside-app":
+			return `A menu file on ${where} is set for a language the app doesn't have. You can choose the file in one of the app's languages.`;
+		case "needs-shared":
+			return e.details.mediaRole === "audioLabel"
+				? `${where} has translated spoken audio but no shared spoken label. You can choose the shared audio first, or clear the translated audio.`
+				: `${where} has a translated icon but no shared icon. You can choose the shared icon first, or clear the translated icon.`;
+		default:
+			return `A menu file on ${where} is set for its languages in a way the app can't keep. You can choose a shared file for it.`;
+	}
+}
+
+const MEDIA_ROLE_NAMES: Readonly<Record<string, string>> = {
+	image: "image",
+	audio: "audio file",
+	video: "video",
+	videoInline: "inline video",
+};
+
 /** The case operation's authored id, or "this case change". */
 const opName = (e: ValidationError): string =>
 	det(e, "operationId", "this case change");
@@ -186,6 +277,7 @@ const formTypeWords = (e: ValidationError): string => {
 const WORKER_RECORD_FACET_WORDS: Readonly<Record<string, string>> = {
 	rename: "rename it",
 	owner: "change its owner",
+	closeAfter: "close it",
 	retype: "change its type",
 	links: "link it to another case",
 	condition: "run on a condition",
@@ -238,30 +330,39 @@ function columnRelationSentence(e: ValidationError): string {
 		case "worker":
 			return `An item in ${module} reads ${item} through a link called user, which CommCare reads as the worker's own information. You can choose another link.`;
 		case "index-name":
-			return `An item in ${module} reads ${item} through a link whose name doesn't start with a letter, which CommCare HQ can't keep in a case list. You can rename the link so it starts with a letter.`;
+			return `An item in ${module} reads ${item} through a link CommCare HQ can't keep in a case list, where a link name starts with a letter and holds only letters, numbers, underscores and hyphens. You can read it through a link named that way.`;
 		case "search":
-			return `An item in ${module} shows ${item} from the case above, and this case list offers Search, where such an item shows only as a calculated value. You can add a calculated value that reads the case above instead.`;
+			return `An item in ${module} shows ${item} from a related case as a link, a time since or an option label, and this case list offers Search, where CommCare HQ would show it blank for the cases Search finds. You can show the related value's saved text instead.`;
+		case "unresolved":
+			return `An item in ${module} shows ${item} through a link from a case type this app doesn't have. You can choose the case above again.`;
 		default:
-			return `An item in ${module} shows ${item} through a link that doesn't lead to one case type. You can choose the case above again.`;
+			return `An item in ${module} can't show ${item} as its information is set up. You can choose its information again.`;
 	}
 }
 
 function onlyIfChangedSentence(e: ValidationError): string {
 	const property = det(e, "property", "this value");
-	switch (det(e, "reason", "")) {
-		case "new-case":
-			return `${property} is saved to a case this form creates, so there's no earlier value to compare with. You can save it every time instead.`;
-		case "placement":
-			return [
-				"This form's case is saved through Save to Case, which can't save only changed answers.",
-				e.details?.placementSentence,
-				`You can save ${property} every time, or change the form so Case Management can hold it.`,
-			]
-				.filter((part) => part !== undefined && part.length > 0)
-				.join(" ");
-		default:
-			return `Only this form's own case can save just the answers that changed. You can save ${property} every time instead.`;
-	}
+	const facet =
+		e.details?.property === "owner_id"
+			? "owner"
+			: e.details?.property === "case_name"
+				? "name"
+				: undefined;
+	if (e.details?.reason === "facet")
+		return `This change saves its ${facet ?? "value"} only when it changed, but it saves no ${facet ?? "value"}. You can choose one, or save it every time.`;
+	if (e.details?.reason === "never-blank")
+		return "This change's owner is never blank, so it is saved every time. You can turn off saving it only when it changed.";
+	if (e.details?.reason === "registration-name")
+		return "This form makes a new case, so its name has no earlier value to compare with. You can save the name every time.";
+	if (e.details?.placementSentence === undefined)
+		return `This change is saved through Save to Case, which can't save only changed answers. You can save ${property} every time instead.`;
+	return [
+		"This form's case is saved through Save to Case, which can't save only changed answers.",
+		e.details.placementSentence,
+		`You can save ${property} every time, or change the form so Case Management can hold it.`,
+	]
+		.filter((part) => part !== undefined && part.length > 0)
+		.join(" ");
 }
 
 const QUESTION_ID_PROBLEMS: ReadonlySet<string> = new Set<QuestionIdProblem>([
@@ -363,10 +464,10 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 				return `${form} goes to the parent module ${when}, but ${q(parentName)} is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
 			case "menu-forms-in-menu-above":
 				return `${form} goes to its module ${when}, but ${module} shows its forms in the menu above, so it has no screen of its own to land on.`;
+			case "previous-carries-other-case-type":
+				return `${form} would return to the first menu with a chosen case on Android. Another menu could open that case as a different record type. You can choose First menu to start with a fresh case choice.`;
 			case "parent-forms-in-menu-above":
 				return `${form} goes to the parent module ${when}, but ${q(parentName)} shows its forms in the menu above, so it has no screen of its own to land on.`;
-			case "menu-forms-on-first-menu":
-				return `${form} goes to the previous screen ${when}, but ${module} shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
 			default:
 				return `${form} goes somewhere ${when} that ${module} doesn't offer.`;
 		}
@@ -380,13 +481,6 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 /** The sentence of a target or an entry point whose frame would open
  *  through the first menu with the case every form listed there from a menu
  *  above opens. The offering sites show it beside the disabled choice. */
-/** Why a menu that shows its forms in the menu above takes no Search, in the
- *  builder's words: the `search` arm of `FORMS_IN_MENU_ABOVE_WITH_SEARCH`,
- *  which the Search panel's controls show while they are disabled. */
-export function menuAboveSearchSentence(moduleName: string): string {
-	return `${q(moduleName)} shows its forms in the menu above, and CommCare offers no Search on the case list of such a menu, so a worker could never open its search. You can remove the search from ${q(moduleName)}, or give it its own screen again.`;
-}
-
 /** Why the form an `always` case list registration names is no registration
  *  form the host's list can offer, by the finding's reason. */
 function alwaysNotRegistrationSentence(e: ValidationError): string {
@@ -394,6 +488,10 @@ function alwaysNotRegistrationSentence(e: ValidationError): string {
 	const form = q(registrationFormName(e));
 	const caseType = q(det(e, "caseType", ""));
 	switch (det(e, "reason", "")) {
+		case "action-target":
+			return `${form} needs one case change that creates a ${caseType} record outside a repeat. You can choose that change or another form on ${host}.`;
+		case "selected-parent":
+			return `${form} needs the parent record chosen before ${host}. You can choose the parent list that supplies it or choose another form.`;
 		case "form-type":
 			return `${host} offers ${form} on its case list, so ${form} needs to register a new ${caseType} case, and it is a ${det(e, "formType", "")} form. You can choose a registration form, or stop offering it there.`;
 		case "case-type":
@@ -403,12 +501,12 @@ function alwaysNotRegistrationSentence(e: ValidationError): string {
 		case "several-registrations":
 			return `${host} offers ${form} on its case list, but ${form} registers more than one ${caseType} case, and CommCare HQ offers a form from a case list only where it registers one. You can move the other ${caseType} case into a repeat or to another form, or stop offering ${form} there.`;
 		default:
-			return `${host} offers ${form} on its case list, but ${form} opens only after a search finds nothing in ${q(det(e, "formModuleName", ""))}, so it is on no menu to offer from. You can choose a registration form that is on a menu, or stop offering it there.`;
+			return `${host} needs a form that registers a ${caseType} case. You can choose a different form for this list.`;
 	}
 }
 
 export function firstMenuSharedCaseSentence(aboveModuleName: string): string {
-	return `Every form listed on the app's first menu from a menu like ${q(aboveModuleName)} opens one chosen case, and CommCare would keep that case on the first menu. You can give ${q(aboveModuleName)} its own screen again to use this.`;
+	return `The first menu could carry a record into a form that needs a different selection. Giving ${q(aboveModuleName)} its own screen lets people choose the record that form needs.`;
 }
 
 const ENTRY_POINT_ID_PROBLEMS: ReadonlySet<string> =
@@ -511,8 +609,6 @@ const optionValueProblemPhrase = (e: ValidationError): string => {
 			return "has an empty stored value";
 		case "whitespace":
 			return `has the stored value ${shown}, which contains a space`;
-		case "both-quotes":
-			return "holds both an apostrophe and a double quote";
 		case "instance-read":
 			return `has the stored value ${shown}, which CommCare HQ reads as a data source when it builds the form`;
 		default:
@@ -612,10 +708,30 @@ type PlatformBuilderCopy =
 	| { readonly sentence: string };
 
 const PLATFORM_BUILDER_COPY = {
+	"android-app-question": {
+		lead: (subject) =>
+			`${subject} opens another app to answer the question. This needs Android.`,
+		alternative: "let the worker enter the answer directly",
+	},
+	"answer-name-requires-android": {
+		lead: (subject) =>
+			`${subject} has an answer ID that Web Apps reserves for its own instructions.`,
+		alternative: "give the answer a different ID",
+	},
 	"datetime-question": {
 		lead: (subject) =>
 			`${subject} asks for a date and time, which Web Apps can't show.`,
 		alternative: "ask for the date and the time separately",
+	},
+	"worker-distance": {
+		lead: (subject) =>
+			`${subject} shows how far each case is from the worker. Web Apps can't read the worker's location.`,
+		alternative: "show the saved location instead",
+	},
+	"sort-by-distance": {
+		lead: (subject) =>
+			`${subject} uses the worker's location to put nearby cases first. Web Apps can't read that location.`,
+		alternative: "choose a different order",
 	},
 	"case-list-here": {
 		lead: (subject) =>
@@ -632,6 +748,12 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} opens on its case list first, which CommCare HQ no longer offers in Web Apps.`,
 		alternative: "open it on Search first",
 	},
+	"auto-select-confirm": {
+		lead: (subject) =>
+			`${subject} opens a record's details automatically when exactly one record matches. Web Apps stops before the form opens.`,
+		alternative:
+			"let workers choose the record or remove its confirmation screen",
+	},
 	"several-cases": {
 		lead: (subject) =>
 			`${subject} lets workers choose several cases, which Android can't do.`,
@@ -645,11 +767,21 @@ const PLATFORM_BUILDER_COPY = {
 	"search-field-multiple-choice": {
 		lead: (subject) =>
 			`${subject} takes several choices, which Android doesn't show.`,
-		alternative: "let workers pick one choice",
+		alternative: "show the choices as checkboxes or let workers pick one",
 	},
 	"connect-app": {
 		sentence:
 			"Connect workers open this app only in the Connect app on Android. You can set the app to run only on Android in App settings, or turn off Connect.",
+	},
+	"case-list-icon-actions": {
+		lead: (subject) =>
+			`${subject} has an icon that submits a form. Android shows the image path as text and cannot run the action.`,
+		alternative: "remove the action from the icon",
+	},
+	"case-list-lookup-count": {
+		lead: (subject) =>
+			`${subject} reads a companion lookup count, which is available only on Android.`,
+		alternative: "take the read out",
 	},
 	"case-list-search-text": {
 		lead: (subject) =>
@@ -669,15 +801,19 @@ const PLATFORM_REFUSAL_FALLBACK =
 	"This isn't available where this app runs. You can change where it runs in App settings.";
 
 /** The owner of a platform finding as the builder names it: a Search field,
- * a question, or a module. */
+ * a question, a form, or a module. */
 const platformFindingSubject = (e: ValidationError): string | undefined =>
 	e.details?.inputName !== undefined
 		? `Search field ${q(e.details.inputName)}`
-		: e.location.fieldId !== undefined
-			? q(e.location.fieldId)
-			: e.location.moduleName !== undefined
-				? q(e.location.moduleName)
-				: undefined;
+		: e.details?.columnHeader !== undefined
+			? `Column ${q(e.details.columnHeader)}`
+			: e.location.fieldId !== undefined
+				? q(e.location.fieldId)
+				: e.location.formName !== undefined
+					? q(e.location.formName)
+					: e.location.moduleName !== undefined
+						? q(e.location.moduleName)
+						: undefined;
 
 /**
  * A platform refusal (`PLATFORM_FEATURE_UNAVAILABLE`, or the checker's
@@ -796,22 +932,64 @@ const looseFieldsPhrase = (e: ValidationError): string => {
  * the labels its details carry. */
 function queryRepeatModelIterationSentence(e: ValidationError): string {
 	const repeat = q(det(e, "repeatLabel", fieldName(e)));
-	const opening = `${repeat} takes its rows once, when the form opens, as your published app does`;
-	const follow =
-		"You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id";
+	const published = e.details?.published !== "false";
+	const opening = `${repeat} takes its rows once, when the form opens${published ? ", as your published app does" : ""}`;
+	const follow = published
+		? "You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id"
+		: "You can choose As answers change";
 	switch (e.details?.reason) {
 		case "nested": {
 			const outer = q(det(e, "outerLabel", "the repeat around it"));
 			return `${opening}, and inside ${outer} that would give its rows the wrong records. ${follow}, or keep it outside ${outer}.`;
 		}
 		case "query-reads-answers":
-			return `${opening}, so its query would run before any answer it reads is given. ${follow}, or have its query read no answers.`;
+			return `${opening}, before the answer its query matches a record ID against is given, so it would find no records. ${follow}, or give that answer a starting value.`;
 		case "row-condition":
 			return `${opening}, and a row made while its condition hides an earlier one would take that row's record. ${follow}, or show every row.`;
 		default: {
 			const group = q(det(e, "groupLabel", "the group around it"));
-			return `${opening}, and ${group} around it shows on a condition that can change while the form is filled in, so its rows could stay empty. ${follow}, or show ${group} on a condition that doesn't change.`;
+			return `${opening}, while a starting value hides ${group} around it, so its rows would stay empty. ${follow}, or show ${group} when the form opens.`;
 		}
+	}
+}
+
+/** A menu listing another menu's forms, said from the names its finding
+ *  carries (`validator/rules/menuFormSources.ts`). */
+function menuFormSourceLine(e: ValidationError): string {
+	const route = e.location.moduleName ? q(e.location.moduleName) : "this menu";
+	const subject = route === "this menu" ? "This menu" : route;
+	const owner = e.details?.owner ? q(e.details.owner) : "the menu it lists";
+	const child = e.details?.child ? q(e.details.child) : "its submenu";
+	const form = e.details?.form ? q(e.details.form) : "a form";
+	switch (e.details?.reason) {
+		case "parent-lists-forms":
+			return `${subject} sits in a menu that lists another menu's forms. Move it to a menu that owns its forms.`;
+		case "source-owns-no-forms":
+			return `Choose a menu that owns its forms for ${route} to list.`;
+		case "owns-forms":
+			return `${subject} has forms of its own. Move them to another menu before it lists another menu's forms.`;
+		case "case-settings":
+			return `${subject} takes its case type and how many cases a worker picks from ${owner}. Change them in ${owner}.`;
+		case "parent":
+			return `${subject} needs the same parent as ${owner}, or the menu that lists that parent's forms.`;
+		case "submenu-missing":
+			return `${child === "its submenu" ? "A submenu" : child} appears in ${route} because ${owner} has it. Hide its forms in ${route}, or remove ${child} from ${owner}.`;
+		case "exclusions":
+			return `Choose forms to hide in ${route} from the forms ${owner} lists now.`;
+		case "form-links":
+			return `Each deep link in ${route} needs its own form from ${owner}.`;
+		case "survey-form-links":
+			return `CommCare HQ can't save ${route} while it holds deep links to single forms and ${owner} tracks no cases. You can give each form its deep link in ${owner} instead.`;
+		case "stranded-submenu":
+			return `Show a form in ${route} so workers can reach ${child} inside it.`;
+		case "case-list-item":
+			return `${subject} opens its case list when a worker picks a form, so it has no separate case list item. Remove that item.`;
+		case "hidden-link-target":
+			return `Show ${e.details?.target ? q(e.details.target) : "the linked form"} in ${route} so workers can follow the link after ${form}.`;
+		case "empty-link-target":
+			return `Show a form in ${route} so the link after ${form} has a menu to open.`;
+		default:
+			return `${subject} lists another menu's forms in a way that menu no longer matches. Check its source menu, its submenus and the forms it shows.`;
 	}
 }
 
@@ -839,8 +1017,14 @@ const USER_MESSAGE_BY_CODE: Record<
 				return platformBuilderSentence(e, formulaSubject(e));
 			case "window-width":
 				return `${formulaSubject(e)} reads the window width, which CommCare sends only while a menu or a list loads, so a form can't rely on it. You can use it in a display condition or a case list instead.`;
+			case "case-list-lookup-count-slot":
+				return "You can read the companion lookup count in a form question.";
+			case "case-list-lookup-count-source":
+				return "This form needs to open directly from one case list with a companion lookup before it can read the lookup count.";
 			case "case-list-search-text-slot":
 				return `${formulaSubject(e)} reads what the worker typed into a case list's search box, which only a form's questions and Connect settings can read. You can read it in one of the form's questions instead.`;
+			case "case-text":
+				return `${formulaSubject(e)} uses translated text from a different calculated field. Choose one of this field’s own pieces of text.`;
 			case "here":
 				return e.details?.hereSurface === "record"
 					? `${formulaSubject(e)} uses here(), which is where the worker is. Only a case list's calculated column can read that. You can show it in a calculated column instead.`
@@ -857,13 +1041,19 @@ const USER_MESSAGE_BY_CODE: Record<
 				return "A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.";
 		}
 	},
-	CONNECT_ID_DUPLICATE: (e) =>
-		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
-	CONNECT_NO_PARTICIPATING_FORMS: () =>
-		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
 	PLATFORM_FEATURE_UNAVAILABLE: (e) => platformBuilderSentence(e),
-	CONNECT_MODE_MISMATCH: (e) =>
-		`${q(formName(e))}'s Connect setup doesn't match the app's Connect mode. Configure the app's complete Connect setup together.`,
+	CONNECT_MODE_MISMATCH: (e) => {
+		const role = e.details?.role;
+		return role === "learn" || role === "deliver"
+			? missingConnectRoleMessage(fieldName(e), role)
+			: `${q(fieldName(e))} uses a Connect role this app doesn't have. You can turn on that role in App settings or remove the activity.`;
+	},
+	CONNECT_DUPLICATE_DELIVERY: (e) =>
+		`One submission of ${q(formName(e))} can deliver ${q(fieldName(e))} twice to the same person or place${connectPlaces(e)}. You can ask for a different person or place ID in each row, as Delivery with a person or place ID does, or send each visit in a separate form.`,
+	CONNECT_REPEATED_ASSESSMENT: (e) =>
+		`One submission of ${q(formName(e))} can send two assessments${connectPlaces(e)}. You can use separate forms or show one assessment at a time.`,
+	CONNECT_REPEATED_LEARNING_MODULE: (e) =>
+		`One submission of ${q(formName(e))} can complete ${q(fieldName(e))} twice${connectPlaces(e)}. You can move the activity outside the repeated rows or use separate forms.`,
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
 		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
 	BLUEPRINT_TOPOLOGY_INVALID: () =>
@@ -879,7 +1069,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	MUTATION_WIRE_CANONICALITY_INVALID: () =>
 		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
 	CASE_PROPERTY_OPTION_VALUE_INVALID: (e) =>
-		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, can't read as a data source, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
+		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it needs a nonempty value with no spaces that CommCare HQ can keep as text. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} both store ${q(det(e, "optionValue", ""))}, so a saved value can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	TRANSLATION_UNIT_UNKNOWN: () =>
@@ -965,6 +1155,26 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
 		`${q(formName(e))} assigns new cases to one particular place, and the exported rule names that place by Nova's own id, which CommCare HQ doesn't recognize, so the rule would match nobody. Assign to a place beneath the current case owner instead, or remove this owner rule.`,
+	MENU_FORM_SOURCE_INVALID: menuFormSourceLine,
+	CASE_LIST_ICON_ACTION_INVALID: (e) => {
+		const reason = e.details?.reason;
+		return listIconActionSentence(
+			reason === "not-on-results" || reason === "grouped-body"
+				? reason
+				: "no-destination",
+			e.details?.columnLabel,
+			e.details?.caseType,
+			e.details?.anotherForm === "yes",
+		);
+	},
+	FORM_BEHAVIOR_TEXT_INVALID: (e) => {
+		const issue = formBehaviorTextIssueFromDetails(e.details);
+		return issue
+			? formBehaviorTextSentence(issue)
+			: `A form setting in ${q(formName(e))} names a question text that no longer works for it. Choose another text or remove the setting.`;
+	},
+	ANDROID_APP_ANSWER_INVALID: (error) =>
+		det(error, "problem", "Review the Android app and its result questions."),
 	ENTRY_POINT_INVALID: (e) => {
 		switch (e.details?.reason) {
 			case "duplicate-id":
@@ -994,9 +1204,15 @@ const USER_MESSAGE_BY_CODE: Record<
 
 	// ── Module-level ─────────────────────────────────────────────────
 	CASE_PARENT_SELECTION_INVALID: (e) =>
-		`${q(modName(e))} needs a compatible parent list. Choose a module for its parent record type, or turn off parent selection.`,
+		`${q(modName(e))} needs a compatible parent list. Choose a menu that uses a different record type, or turn off parent selection.`,
 	CASE_PARENT_SELECTION_CONFLICT: (e) =>
 		`${q(modName(e))} would reuse a different parent selected in its containing menu. Choose that containing module as the parent selector, or move this module out of the submenu.`,
+	CASE_RELATION_INVALID: (e) => {
+		const link = det(e, "identifier", "related case");
+		return e.details?.reason === "duplicate"
+			? `The ${q(link)} link appears twice with the same case type and relationship. You can keep one copy.`
+			: `The ${q(link)} link needs a case type in this app. You can choose a related case type or remove the link.`;
+	},
 	NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} has forms that work with cases, but you haven't picked a case type for it yet. Choose the kind of case it manages, like "patient" or "household".`,
 	CASE_LIST_MENU_ITEM_NO_CASE_TYPE: (e) =>
@@ -1012,8 +1228,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		const root = q(det(e, "rootModuleName", ""));
 		return `${q(formName(e))} creates a new ${caseType} case, and ${q(modName(e))} sits under ${root}, whose first form opens a chosen ${caseType} case. CommCare HQ would give the new case that chosen case's place, so the form couldn't open. Move ${q(formName(e))} to a menu outside ${root}, or start ${root} with a form that doesn't open a chosen ${caseType} case.`;
 	},
-	NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM: (e) =>
-		`${q(modName(e))} uses a different case type from its parent, and that parent only shows Results. Add a form to the parent, use the same case type, or make this module top-level.`,
 	INVALID_CASE_TYPE_FORMAT: (e) =>
 		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} holds a character a case type can't. Letters, numbers, underscores and hyphens all work.`,
 	CASE_TYPE_TOO_LONG: (e) =>
@@ -1022,6 +1236,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} needs at least one result field so people can tell cases apart. Add a name or another identifying field; if you're replacing the last one, add its replacement first.`,
 	MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`${q(modName(e))} is shown before a case is chosen, so its display condition can't use case information. Use current-user information or a fixed value.`,
+	MENU_BADGE_EXPRESSION: (e) =>
+		recordFindingCopy(
+			e,
+			`The badge for ${q(e.scope === "form" ? formName(e) : modName(e))}`,
+		) ??
+		`The badge for ${q(e.scope === "form" ? formName(e) : modName(e))} can't show this value on the worker's menu. Open it and choose a value the menu can read.`,
 	MODULE_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The display condition for ${q(modName(e))}`) ??
 		`The display condition for ${q(modName(e))} compares values that don't go together. Open it and adjust the comparison.`,
@@ -1075,9 +1295,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 	},
 	FORMS_IN_MENU_ABOVE_WITH_SEARCH: (e) =>
-		e.details?.reason === "forms-read-search"
-			? `${q(modName(e))} shows its forms in the menu above and has its forms read the search, and CommCare HQ can't build a menu that does both. You can turn off Forms read the search, or give ${q(modName(e))} its own screen again.`
-			: menuAboveSearchSentence(modName(e)),
+		`${q(modName(e))} shows its forms in the menu above and has its forms read the search, and CommCare HQ can't build a menu that does both. You can turn off Forms read the search, or give ${q(modName(e))} its own screen again.`,
 	HIDDEN_MENU_NOT_A_DESTINATION: (e) => {
 		const arm = e.details?.arm;
 		const module =
@@ -1100,9 +1318,53 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `A calculated value in ${q(modName(e))}`) ??
 		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
+	CASE_DETAIL_TAB_MOVE_NEEDS_GROUP: () =>
+		"This move would change which tab shows a field. Open Edit tabs to choose where it belongs.",
+	CASE_DETAIL_TAB_ROWS_INVALID: (e) =>
+		(det(e, "reason", "") === "child-type-not-added"
+			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab reads ${q(String(e.details?.caseType ?? ""))} child cases, which no form adds to this menu's cases, so CommCare HQ would drop that type when the app is saved there. You can add a form that adds one, or choose another child type in Edit tabs.`
+			: undefined) ??
+		recordFindingCopy(
+			e,
+			`The records on ${q(String(e.details?.tabTitle ?? "this tab"))}`,
+		) ??
+		`The records on ${q(String(e.details?.tabTitle ?? "a Details tab"))} in ${q(modName(e))} can't be shown here. You can choose them again in Details.`,
+	CASE_DETAIL_TABS_INVALID: (e) =>
+		det(e, "reason", "") === "order-fields"
+			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab orders its rows by a field it can't use. You can open Edit tabs and choose its ordering fields again.`
+			: `The Details tabs of ${q(modName(e))} no longer match the fields shown in Details. You can open Edit tabs and save the tabs again.`,
+	CASE_LIST_DEVICE_LOOKUP_INVALID: (e) => e.message,
+	CASE_LIST_LOAD_BEHAVIOR_INVALID: (e) => {
+		const subject =
+			e.details?.columnLabel !== undefined
+				? q(e.details.columnLabel)
+				: "A column";
+		return det(e, "reason", "") === "column"
+			? `${subject} chooses how a phone loads it, which only a calculated value or a link can. You can clear its loading choice.`
+			: `${subject} chooses how a phone loads it, and the case list's faster loading is off. You can turn on faster loading for the case list, or clear the column's loading choice.`;
+	},
+	CASE_DETAIL_TAB_CONDITION_INVALID: (e) =>
+		recordFindingCopy(
+			e,
+			`The display condition for ${q(String(e.details?.tabTitle ?? "this tab"))}`,
+		) ??
+		`The display condition for ${q(String(e.details?.tabTitle ?? "this tab"))} can't be used here. You can edit it in Details.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The Cases available setting in ${q(modName(e))}`) ??
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
+	CASE_LIST_MAPPING_CONDITION: (e) =>
+		recordFindingCopy(e, `A display rule in ${q(modName(e))}`) ??
+		`Open the display rule in ${q(modName(e))} and choose a condition that applies to this case.`,
+	CASE_LIST_CALCULATED_SORT_TYPE_ERROR: (e) =>
+		recordFindingCopy(
+			e,
+			`A calculation in the default order for ${q(modName(e))}`,
+		) ??
+		`The default order for ${q(modName(e))} needs a calculation that gives one value for each case.`,
+	CASE_LIST_DISTANCE_NEEDS_LOCATION: (e) =>
+		det(e, "shape", "") === "translated-labels"
+			? `${q(det(e, "columnLabel", "An item"))} in ${q(modName(e))}'s Default order compares by distance, but it shows translated labels rather than a location. You can choose another comparison, or order by an item that holds a location.`
+			: `${q(det(e, "columnLabel", "An item"))} in ${q(modName(e))}'s Default order compares by distance, but it holds ${distanceValueNoun(det(e, "valueType", ""))} rather than a location. You can choose another comparison, or order by an item that holds a location.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
 	CASE_LIST_SORT_PROPERTY_AMBIGUOUS: (e) =>
@@ -1122,6 +1384,26 @@ const USER_MESSAGE_BY_CODE: Record<
 			: det(e, "reason", "") === "lands-on-shown"
 				? `A column hidden from Results in ${q(modName(e))} has a name in Sort by, but its sort rule lands on ${q(det(e, "landingColumnLabel", "an earlier column"))}, which shows on Results, so workers never see that name. You can remove the name, or hide that column on Results.`
 				: `${q(det(e, "columnLabel", "A column"))} in ${q(modName(e))} shows on Results, so workers already find it under its header in Sort by. You can remove its name in Sort by, or hide the column on Results.`,
+	CASE_MAP_SOURCE_INVALID: (e) => {
+		const item = q(det(e, "columnLabel", "A map item"));
+		const where = q(modName(e));
+		switch (det(e, "reason", "")) {
+			case "several-locations":
+				return `${item} is a second map location on one screen of ${where}, which can use one. You can keep one location or move the other to a separate screen.`;
+			case "layer-off-results":
+				return `${item} in ${where} is a map layer outside Results. You can keep the layer on Results and show its saved value as a separate item in Details.`;
+			case "layer-without-location":
+				return `${item} in ${where} is a map layer, and Results has no map location for it. You can add a location or remove the layer.`;
+			case "several-layers":
+				return `${item} in ${where} is a second map layer of its kind, and a map can use one of each. You can choose which layer to keep.`;
+			case "color-without-boundary":
+				return `${item} in ${where} colors a boundary the map doesn't have. You can add a boundary or remove its color.`;
+			case "colors-without-points":
+				return `${item} in ${where} colors points the map doesn't have. You can add points or remove their colors.`;
+			default:
+				return `The map in ${where} needs its locations and layers set up together. Open the map items in Results and check each one.`;
+		}
+	},
 	CASE_LIST_COLUMN_NOT_ON_LIST_INVALID: (e) =>
 		det(e, "reason", "") === "sorted"
 			? "This isn't on the list, so the list can't sort by it. You can turn on List search matches this to sort by it."
@@ -1130,10 +1412,21 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} has a value label for ${q(det(e, "value", "a saved value"))}, and a saved value there can't hold &, <, >, " or '. You can change the value or remove its label.`,
 	CASE_LIST_DATE_PATTERN_APOSTROPHE: (e) =>
 		`A date style in ${q(modName(e))} holds a straight apostrophe ('), and CommCare HQ's date column has no way to store one. You can use a curved one (’).`,
+	// Each refusal states its own reason, in Nova's words, beside the finding.
+	CASE_DETAIL_TILE_LAYOUT_INVALID: (e) =>
+		e.details?.reason ??
+		`A field on the Details tile of ${q(modName(e))} doesn't fit its layout. You can move or resize it in Details.`,
+	CASE_FORM_CONTEXT_INVALID: (e) =>
+		e.details?.reason ??
+		`The case shown above the forms of ${q(modName(e))} can't be shown that way. You can choose what to show again in its case list settings.`,
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: (e) =>
-		`An item on ${q(modName(e))}'s tile runs off the edge of the layout. Move it back inside, or make it narrower or shorter.`,
+		e.details?.rows
+			? `An item on ${q(modName(e))}'s tile runs off the edge of the layout. The tile has ${e.details.rows} rows, one for each field it shows and at least six. You can move it back inside, or make it narrower or shorter.`
+			: `An item on ${q(modName(e))}'s tile runs off the edge of the layout. You can move it back inside, or make it narrower or shorter.`,
 	CASE_LIST_TILE_CELLS_OVERLAP: (e) =>
 		`Two items on ${q(modName(e))}'s tile sit on top of each other. Move or resize one of them so they don't share the same space.`,
+	CASE_LIST_NAMED_TILE_SLOT_INVALID: (e) =>
+		`A position on ${q(modName(e))}'s tile needs its own field shown in Results. Choose one for it, or turn the named tile off.`,
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: (e) =>
 		`An item shown in ${q(modName(e))} has no place on the tile yet. Put it on the layout, or hide it from the case list.`,
 	CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE: (e) =>
@@ -1144,12 +1437,23 @@ const USER_MESSAGE_BY_CODE: Record<
 		`Nothing sits in ${q(modName(e))}'s group header, so every group would open with an empty band. Move a field the group shares into the header, or give the header fewer rows.`,
 	MULTI_SELECT_PERSISTENT_TILE: (e) =>
 		`${q(modName(e))} lets people choose several cases, so its Results tile can't stay above a form. Turn off “Keep tile visible in forms.”`,
+	MULTI_SELECT_SEARCH_ON_CLEAR: (e) =>
+		`${q(modName(e))} can choose matching cases automatically once Search on clear is off.`,
 	MULTI_SELECT_NO_BATCH_CONSUMER: (e) =>
 		`${q(modName(e))} is set to Several cases, but it has no follow-up or close form that can use the complete selection and no compatible child workflow can receive it. Add one of those forms, carry the same case selection into a child that has one, or switch Selection to One case.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
 		`An image display in ${q(modName(e))} uses ${q(det(e, "value", "the same value"))} twice, so only the first image appears. Change or remove one of the rules.`,
 	CASE_LIST_MULTI_SELECT_INPUT_NEEDS_DIRECT_MATCH: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} lets people choose several values, so it needs to be named after the case information it searches on this case type. Rename it to match, or switch it to a single-choice field.`,
+	CASE_LIST_HIDDEN_SEARCH_FIELD_REFUSED: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} is hidden in Web Apps. ${det(e, "reason", "A field Web Apps hides can't carry anything a worker there would need to see.")}`,
+	CASE_LIST_SEARCH_CHECK_MESSAGE_REFUSED: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} needs a different message. ${det(e, "reason", "Give its check a message.")}`,
+	CASE_LIST_SEARCH_TITLE_BLANK_BESIDE_FIRST: (e) =>
+		`The search screen has no title in ${det(e, "languages", "some languages")}, which would show the first language's title there instead. ${det(e, "reason", "Give the title text there, or leave it blank in the first language too.")}`,
+	CASE_LIST_SEARCH_ADDRESS_FIELD: (error) => error.message,
+	CASE_LIST_SEARCH_FOR_BLANK_NEEDS_OWN_PROPERTY: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} can't search for blank. ${det(e, "reason", "Searching for blank needs a field that searches its own property directly.")} Turn off searching for blank, or change how the field searches.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>
 		recordFindingCopy(
 			e,
@@ -1158,10 +1462,14 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The search field ${q(det(e, "inputName", "in this module"))} has a condition that compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} looks for ${q(det(e, "property", "case information"))}, but that information isn't saved on this case type. Choose information that exists.`,
+	CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} looks for the case's location ID, which CommCare's server search doesn't hold. A property of your own can hold the same value for searching.`,
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} uses a matching option that doesn't fit the information it searches. Choose another matching option or different information.`,
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: (e) =>
-		`The search field ${q(det(e, "inputName", "in this module"))} doesn't match the information it searches. For example, a date picker can't search text. Change the field type or choose different information.`,
+		det(e, "projectSpaceCanMatch", "") === "true"
+			? `The search field ${q(det(e, "inputName", "in this module"))} doesn't match the information it searches. For example, a date picker can't search text. Use project space matching so the project space matches the answer its own way, or change the field type or the information it searches.`
+			: `The search field ${q(det(e, "inputName", "in this module"))} doesn't match the information it searches. For example, a date picker can't search text. Change the field type or choose different information.`,
 	CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR: (e) =>
 		det(e, "reason", "") === "date-range-default-unsupported"
 			? `The search field ${q(det(e, "inputName", "in this module"))} has an old one-date starting value, but a date range needs both dates. Remove the starting value.`
@@ -1202,8 +1510,35 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_NOT_ON_DEVICE: (e) =>
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} uses a date calculation the device can't run. Use a whole date with seconds, minutes, hours, days, or weeks.`,
+	CASE_SEARCH_GROUP_FIELD_NAME_COLLISION: (e) =>
+		`CommCare reserves the Search field name ${q(det(e, "inputName", ""))} for a heading. You can rename the field under More settings.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
+	PROJECT_SEARCH_REQUEST: (e) => {
+		const name = q(det(e, "name", "this search field"));
+		switch (det(e, "reason", "")) {
+			case "missing-search":
+				return "Choose a search that belongs to this app.";
+			case "empty-request":
+				return "Add a search field or a named value for the project space to use.";
+			case "reserved-default":
+				return `${name} controls the search request. Choose a parameter name supplied by the project space.`;
+			case "unbound-field":
+				return `Choose how the project space uses ${name} before connecting this search.`;
+			case "shared-name":
+				return `The field ${name} shares its name with a starting parameter. Give the field its own name.`;
+			case "reserved-field":
+				return `${name} controls the search request. Give the search field a different name.`;
+			case "single-answer":
+				return `${name} takes one answer. Choose a single-answer field.`;
+			case "one-source":
+				return `The project space accepts one value for ${name}. Choose one place to supply it.`;
+			case "missing-source":
+				return "Choose the search supplied by the project space before adding its parameters.";
+			default:
+				return "Review the Search settings and choose the fields or values the project space should use.";
+		}
+	},
 	CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} in ${q(modName(e))} has the name CommCare gives its own search filters, so it would never search a case. Rename it under More settings.`,
 	CASE_LIST_SEARCH_INPUT_NAME_RESERVED: (e) =>
@@ -1374,6 +1709,32 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 
 	// ── Case-search config ───────────────────────────────────────────
+	CASE_SEARCH_FILTER_INVALID: (e) => {
+		const menu = q(modName(e));
+		const position = e.details?.index;
+		const filter =
+			position === undefined || Number.isNaN(Number(position))
+				? `A search filter on ${menu}`
+				: `Search filter ${Number(position) + 1} on ${menu}`;
+		switch (e.details?.reason) {
+			case "key-taken":
+				return `${filter} sends ${q(det(e, "key", "its information"))}, which a search field there already sends. You can choose different information for the filter, or rename the field.`;
+			case "target":
+				return `${filter} names record information CommCare can't send under that name. You can choose the information again.`;
+			case "value":
+				return (
+					recordFindingCopy(
+						e,
+						`The value of ${filter.charAt(0).toLowerCase()}${filter.slice(1)}`,
+					) ??
+					`${filter} has a value the search screen can't work out before a record is chosen. You can use a worker, search answer, table or fixed value instead.`
+				);
+			case "project-space-matching":
+				return `${q(det(e, "field", "A search field"))} on ${menu} uses the project space's matching, which works only on the field's own information with no matching rule of its own. You can remove its rule, or turn off project space matching for it.`;
+			default:
+				return `${filter} can't be sent as it stands. You can check its information and value.`;
+		}
+	},
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
 		`${q(modName(e))} has a search set up but no case type, so there's nothing for it to look through. Pick the kind of case it should find, like "patient" or "household".`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: (e) =>
@@ -1388,17 +1749,25 @@ const USER_MESSAGE_BY_CODE: Record<
 		) ??
 		`The condition that controls whether ${q(modName(e))}'s Search button appears has an error. Fix it or clear the condition to always show the button.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
-		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. Use fixed values or current-user information, or clear the condition to always show the button.`,
+		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. You can base it on fixed values or on information the case list already reads, or clear the condition to always show the button.`,
+	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST: (e) =>
+		`The condition that controls whether ${q(modName(e))}'s Search button appears reads information its case list doesn't load, so the list wouldn't open once the app is on CommCare HQ. You can base the condition on what the list itself reads, such as its filter, have each form that shows the list return to it after submit, or clear the condition to always show the button.`,
 	FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE: (e) =>
 		`${q(modName(e))} has its forms read the search, so its first screen needs to choose a case. You can move its registration or survey forms to another menu, or turn off Forms read the search.`,
 	FORMS_READ_SEARCH_NO_BUTTON_DISPLAY_CONDITION: (e) =>
 		`${q(modName(e))} has its forms read the search, so there's no Search button for its condition to control. You can clear the condition, or turn off Forms read the search.`,
 	FORMS_READ_SEARCH_UNIQUE_INSTANCE: (e) =>
-		`${q(modName(e))} shares its search results with a menu whose forms read the search, and CommCare can't tell the two apart. You can keep that menu without submenus and choose parent cases from another menu, or turn off Forms read the search there.`,
+		`${q(modName(e))} shares its search results with a menu whose forms read the search, and CommCare can't tell the two apart. You can give either search its own results name in the menu settings.`,
 	FORMS_READ_SEARCH_WITH_LIST_FIRST: (e) =>
 		`${q(modName(e))} opens on its case list first, so its forms can't read the search. You can open it on Search first or on its results, or turn off Forms read the search.`,
 	CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH: (e) =>
 		`${q(modName(e))} offers ${q(registrationFormName(e))} when a search finds nothing, but its forms don't read the search. You can turn on Forms read the search, or stop offering the form there.`,
+	CASE_LIST_ACTION_CONDITION_INVALID: (e) =>
+		recordFindingCopy(
+			e,
+			`The condition for offering ${q(registrationFormName(e))} on ${q(modName(e))}'s case list`,
+		) ??
+		`The condition for offering ${q(registrationFormName(e))} on ${q(modName(e))}'s case list can't run there. You can change or clear the button condition.`,
 	CASE_LIST_REGISTRATION_NOT_REGISTRATION: (e) =>
 		det(e, "kind", "") === "always"
 			? alwaysNotRegistrationSentence(e)
@@ -1409,6 +1778,8 @@ const USER_MESSAGE_BY_CODE: Record<
 					: `${q(registrationFormName(e))} is offered when a search finds nothing, so it needs to register a new case. You can make it a registration form, or stop offering it there.`,
 	CASE_LIST_REGISTRATION_HAS_NAVIGATION: (e) =>
 		`${q(registrationFormName(e))} is offered when a search finds nothing. It returns to Results or First menu, and can't have after-submit links, a display condition, or be taken off the menu. You can clear those settings, or stop offering it there.`,
+	CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT: (e) =>
+		`${q(registrationFormName(e))} can save without creating the case ${q(modName(e))} needs to reopen its search results. You can have the form always create that case or choose First menu after submit.`,
 	CASE_LIST_REGISTRATION_MULTIPLE_RETURN: (e) =>
 		det(e, "kind", "") === "always"
 			? `${q(registrationFormName(e))} registers one case, but ${q(modName(e))} selects several cases, and CommCare can't carry that one new case into a selection of several. You can set After registering to Back to this list, or let ${q(modName(e))} select one case.`
@@ -1426,11 +1797,11 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `${q(modName(e))} shows its forms in the menu above, and CommCare offers no Register on the case list of such a menu, so ${q(registrationFormName(e))} would never be offered. You can give ${q(modName(e))} its own screen again, or stop offering ${q(registrationFormName(e))} there.`
 			: `${q(modName(e))} is under ${q(det(e, "aboveModuleName", "its parent"))}, which shows its forms on the app's first menu, where every form listed that way opens one chosen case. CommCare HQ would put that case ahead of ${q(modName(e))} when a worker returns from ${q(registrationFormName(e))}. You can give ${q(det(e, "aboveModuleName", "its parent"))} its own screen again, or stop offering ${q(registrationFormName(e))} there.`,
 	CASE_LIST_REGISTRATION_ADVANCED_MENU: (e) =>
-		det(e, "reason", "") === "host"
-			? `${q(modName(e))} is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering ${q(registrationFormName(e))} there.`
-			: `${q(registrationFormName(e))} is in ${q(det(e, "formModuleName", "its menu"))}, which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
+		`${q(modName(e))} offers ${q(registrationFormName(e))} on its case list, but ${q(det(e, "offendingFormName", "one of its forms"))} chooses its records differently from the menu's other forms. CommCare HQ keeps ${q(modName(e))} as an advanced menu, and offers a form from such a menu's case list only where every form of the menu chooses the same records the same way. You can move ${q(det(e, "offendingFormName", "that form"))} to another menu, or stop offering ${q(registrationFormName(e))} there.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
-		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
+		det(e, "reason", "") === "reached"
+			? `In ${q(modName(e))}, ${det(e, "columnHeader", "") === "" ? "the order calculation" : q(det(e, "columnHeader", ""))} reads whichever case its link reaches, of any type, and Search can't supply that case. You can read the parent through a link this app declares, build the calculation from the current case, or delete it.`
+			: `In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>
@@ -1440,9 +1811,11 @@ const USER_MESSAGE_BY_CODE: Record<
 	FORM_SECTION_NOT_TOP_LEVEL: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a section sitting inside ${sectionParentPhrase(e)}. A section is a page of the form, so it belongs at the top level. Move it out.`,
 	FORM_SECTIONS_INCOMPLETE: (e) =>
-		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every field belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
+		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every question belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
 	FORM_SECTION_USER_REPEAT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} lets people add entries, but it sits inside section ${q(det(e, "sectionTitle", det(e, "sectionId", "")))}, and a section shows on one screen where entries can't be added. Move the repeat out of the sections, or give it a fixed count.`,
+	QUESTION_DISPLAY_COMBINATION_INVALID: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))}: ${det(e, "displayProblem", "these display settings can't be shown together. You can change one of them.")}`,
 	FIELD_LIST_USER_REPEAT: (e) => {
 		const group = q(det(e, "groupTitle", det(e, "groupId", "")));
 		return `${q(formName(e))} has repeat ${q(fieldName(e))} inside ${group}, which shows its questions on one screen, and that repeat lets the worker add entries. The CommCare app can't add entries on a shared screen. You can let ${group} show one question per screen, or give the repeat a fixed count.`;
@@ -1457,7 +1830,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_CREATE_NAME_MISSING: (e) =>
 		`${q(formName(e))} creates a case, so its case needs a name. You can choose the question that names it.`,
 	CAPTURE_CASE_WRITE_STANDARD_PROPERTY: (e) =>
-		`${q(opName(e))} in ${q(formName(e))} saves the link to a captured file as the case's ${det(e, "property", "") === "external_id" ? "external id" : "name"}, which CommCare keeps as the case's own value rather than a link. You can save the link to a property of its own instead.`,
+		`${q(opName(e))} in ${q(formName(e))} saves the link to a captured file as the case's ${standardValueWords(det(e, "property", ""))}, which CommCare keeps as the case's own value rather than a link. You can save the link to a property of its own instead.`,
 	FORM_TOO_MANY_ATTACHMENTS: (e) =>
 		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form, a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
 	OPEN_CONDITION_WRONG_TYPE: (e) =>
@@ -1504,6 +1877,21 @@ const USER_MESSAGE_BY_CODE: Record<
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} assigns a different case to a destination whose forms read the search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination whose forms read their own case.`,
+	// The rule writes each problem as a whole sentence in Nova's voice.
+	FORM_ENTRY_SETUP: (e) =>
+		det(
+			e,
+			"sentence",
+			`${q(formName(e))} can't open with the records and values it asks for yet. You can review what it opens with.`,
+		),
+	// The rule writes the whole finding, the first blocker's sentence
+	// included (`validator/rules/module.ts::listEntryNeedsAdvancedMenu`).
+	MENU_LIST_ENTRY_NEEDS_ADVANCED: (e) =>
+		det(
+			e,
+			"sentence",
+			"This menu’s list needs an advanced menu in CommCare HQ, and another setting keeps it ordinary. You can review the menu’s record selection settings.",
+		),
 	FORM_LINK_DATUM_UNUSED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a case its destination no longer asks for. Remove that value, or choose a destination that needs it.`,
 	FORM_LINK_DATUM_TARGET_COLLISION: (e) =>
@@ -1523,7 +1911,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: (e) =>
 		`A Case change in ${q(formName(e))} can change the selected cases to another type before the next form opens. Send people to the destination's form list so they can choose matching cases, or keep every selected case as ${q(det(e, "expectedCaseType", "the destination's case type"))}.`,
 	CONNECT_ID_TOO_LONG: (e) =>
-		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
+		`Connect stores up to ${det(e, "limit", "50")} characters for this activity ID. You can shorten ${q(fieldName(e))}.`,
+	CONNECT_FORWARDED_ANCESTOR_ID: (e) =>
+		`Connect can't receive the activities inside ${q(fieldName(e))}. You can give this part of the form a different ID.`,
 	CONNECT_ID_INVALID_FORMAT: (e) => {
 		const id = det(e, "connectId", "");
 		const sentence = questionIdSentence(e, id, "connect");
@@ -1532,7 +1922,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			: `The Connect ID ${q(id)} in ${q(formName(e))} needs a change. ${sentence}`;
 	},
 	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
-		`${q(formName(e))} holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
+		`Connect checks a delivery before it completes an assigned task, so ${q(formName(e))} can't send both${connectPlaces(e)}. You can complete the task in an earlier form or show one activity at a time.`,
 	FORM_TEXT_READ_AS_INSTANCE: (e) => {
 		const match = det(e, "match", "some text");
 		const site = e.details?.site;
@@ -1662,14 +2052,8 @@ const USER_MESSAGE_BY_CODE: Record<
 				: "stops_form_builder",
 		)}`;
 	},
-	FIELD_ID_NAMES_CONNECT_BLOCK: (e) => {
-		const suggestedId = e.details?.suggestedId;
-		const offer =
-			typeof suggestedId === "string" && suggestedId.length > 0
-				? ` ${q(suggestedId)} is free for the field.`
-				: "";
-		return `${q(fieldName(e))} and a CommCare Connect block of ${q(formName(e))} share one name, so the form would hold two items CommCare can't tell apart. You can rename the field, or give the block another ID.${offer}`;
-	},
+	FIELD_SUBMISSION_PLACEMENT: (e) =>
+		`The submitted answer of ${q(fieldName(e))} is placed where ${q(formName(e))} can't keep it. ${det(e, "reason", "Choose a group in this form that sits in the same repeat entry as its question.")}`,
 	DUPLICATE_FIELD_ID: (e) =>
 		`${q(formName(e))} has two fields with the same ID at the same level. Rename one of them.`,
 	CASE_OPERATION_DUPLICATE_UUID: () =>
@@ -1730,6 +2114,44 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A case operation refers to a case that isn't created yet. Move the create operation before this one.",
 	CASE_OPERATION_EXECUTION_ORDER: () =>
 		"These case operations use an order the running form can't preserve. Put authored-ID creates before updates and closes, and keep each repeating section's operations together in form order.",
+	CASE_OPERATION_OWNER_CONDITION_INVALID: (e) => {
+		switch (det(e, "reason", "")) {
+			case "missing-owner":
+				return "Choose the new owner before setting when to change it.";
+			case "worker-record":
+				return "A change to the worker's record keeps its owner. Remove the owner condition.";
+			default:
+				return "A case with a conditional owner needs a new ID on each submission.";
+		}
+	},
+	CASE_OPERATION_CLOSE_ACTION_REQUIRED: () =>
+		"A close change can save these properties and close the case.",
+	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: () =>
+		"This change needs a calculation that always gives its chosen case type.",
+	CASE_OPERATION_TYPE_CHOICE_INVALID: () =>
+		"This form can choose between case types when it creates a new case with the same saved properties and no connected case changes.",
+	CASE_OPERATION_CLOSE_CONDITION_INVALID: () =>
+		"This change needs to close the case before you can set a close condition.",
+	CASE_CHANGE_POSITION_INVALID: (e) => {
+		switch (det(e, "reason", "")) {
+			case "missing-operation":
+				return "You can choose a case change from this form.";
+			case "duplicate-position":
+				return "This case change can appear in one position.";
+			case "repeat-scope":
+				return "You can place this case change in the section it repeats over.";
+			case "direct-change":
+				return "This position can hold a direct update or close.";
+			case "selected-cases":
+				return "You can set the change that runs for each selected case in the form's case settings.";
+			case "conditional-type-change":
+				return "You can place a change of case type outside sections that can be skipped.";
+			case "managed-order":
+				return "You can keep these case changes together in the form's case settings so they run in order.";
+			default:
+				return "Review where this case change appears in the form.";
+		}
+	},
 	CASE_OPERATION_REPEAT_INVALID: () =>
 		"A case operation points to a repeating section that isn't available. Choose a repeat in this form.",
 	CASE_OPERATION_REPEAT_CORRELATION: () =>
@@ -1772,18 +2194,26 @@ const USER_MESSAGE_BY_CODE: Record<
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_VALUES_UNBOUNDED: (e) =>
 		`Nova can't confirm that the starting value for ${q(fieldName(e))} always gives an available answer. You can map each result to an available answer, or remove the starting value and ask the worker to choose.`,
+	CAPTURE_DEFAULT_NOT_BLANK: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} starts with a file. Web Apps clears a starting file as the form opens, and Android can't open the form. You can leave its starting value empty.`,
 	SELECT_DEFAULT_NOT_AN_OPTION: (e) =>
 		`The starting value for ${q(fieldName(e))} is not one of its choices. Choose an available answer or clear the starting value.`,
 	SELECT_NO_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
 	SELECT_OPTION_VALUE_INVALID: (e) =>
-		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, can't read as a data source, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
+		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it needs a nonempty value with no spaces that CommCare HQ can keep as text. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	SELECT_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
+	FORM_MEDIA_LANGUAGE: (e) => formMediaLanguageCopy(e),
+	MENU_MEDIA_LANGUAGE: (e) => menuMediaLanguageCopy(e),
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
-	HIDDEN_VALUE_BOTH_SOURCES: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has both a calculated value and a default. A hidden value takes a calculation or a starting value, and Nova doesn't yet write both on one field. Remove the default, or drop the calculation if you wanted a fixed value.`,
+	HIDDEN_ANSWER_CALCULATION: (e) =>
+		e.details?.problem === "empty-choice"
+			? `The calculation for ${q(fieldName(e))} in ${q(formName(e))} starts with an empty choice. You can start the list with its first choice.`
+			: `The calculation for ${q(fieldName(e))} in ${q(formName(e))} returns a date, which a yes or no answer can't hold. You can compare the date to get a yes or no answer, or choose a date answer type.`,
+	HIDDEN_BOOLEAN_STARTING_ANSWER: (e) =>
+		`CommCare sets the yes or no answer in ${q(fieldName(e))} through Calculation. You can move its starting value there or choose another answer type.`,
 	REQUIRED_ON_HIDDEN: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required, no one can fill it in. Turn off required, or make the field visible.`,
 	CALCULATE_ON_VISIBLE_INPUT: (e) =>
@@ -1808,8 +2238,14 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen yet. Pick the records it should repeat over.`,
+	QUERY_REPEAT_TIMING_MOVE: (e) =>
+		`The timing for ${q(fieldName(e))} in ${q(formName(e))} changes where your published app keeps each row's record ID. You can review that change to use the new timing.`,
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: (e) =>
 		queryRepeatModelIterationSentence(e),
+	SUBMITTED_ANSWER_NAMESPACE: (e) =>
+		`The receiving namespace of ${q(fieldName(e))} can't be used. ${det(e, "problem", "")}${e.details?.problem ? " " : ""}You can enter the receiving service’s namespace, or clear it to use the namespace of ${q(formName(e))}.`,
+	SUBMITTED_CASE_CHANGE_WRAPPER: (e) =>
+		`A group around a saved case change in ${q(formName(e))} has the ID case, so workers would read that group as a second case change. You can move the change to a group with another ID.`,
 	INVALID_FIELD_ID: (e) => {
 		const sentence = questionIdSentence(e, fieldName(e), "question");
 		return sentence === undefined
@@ -1822,8 +2258,13 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using an answer that comes later in the form. Move the source question earlier or remove that dependency.`,
 	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using a repeated answer from a different repetition context. Use a root answer or an earlier answer from the current or an enclosing repeat.`,
-	CASE_SELECT_SOURCE_INVALID: (e) =>
-		`${q(fieldName(e))} needs a record type and label property that are available in this app. You can choose them in the choice source settings.`,
+	CASE_SELECT_SOURCE_INVALID: (e) => {
+		if (e.details?.part === "single-select")
+			return `${q(fieldName(e))} can offer all available cases when it lets workers choose one answer. You can change it to single select or choose a different source.`;
+		if (e.details?.part === "sort")
+			return `${q(fieldName(e))} uses a property that isn't available to order its choices. You can choose another property in the choice source settings.`;
+		return `${q(fieldName(e))} needs a record type and label property that are available in this app. You can choose them in the choice source settings.`;
+	},
 	CASE_SELECT_FILTER_INVALID: (e) =>
 		recordFindingCopy(e, `The choice filter of ${q(fieldName(e))}`) ??
 		`${q(fieldName(e))} uses information that isn't available in its choice filter. You can use candidate records, the selected record, worker information, and earlier answers in the same form and repeat.`,
@@ -1865,6 +2306,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
 	INVALID_SEARCH_REF: (e) => {
 		switch (e.details?.reason) {
+			case "another-list":
+				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer its other case list cannot supply. You can ask for the value in the form or stop offering the form from that list.`;
 			case "not-forms-read-search":
 				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form in a menu whose forms read the search can read that menu's Search fields. You can turn Forms read the search back on, or read a question or a case property instead.`;
 			case "form-link":
@@ -1941,6 +2384,13 @@ const USER_MESSAGE_BY_CODE: Record<
 		e.details?.reservedWord !== undefined
 			? `The export tag for ${q(det(e, "tableName", "this data table"))} contains ${e.details.reservedWord}, which CommCare reads as its own data. You can rename the export tag in Project data, then try again.`
 			: `The export tag for ${q(det(e, "tableName", "this data table"))} is reserved by CommCare. You can rename the export tag in Project data, then try again.`,
+	LOOKUP_PATH_NAME_UNAVAILABLE: (e) =>
+		lookupPathNameSentence({
+			name: e.details?.name,
+			part: e.details?.part,
+			issue: e.details?.issue,
+			readableInWebApps: e.details?.readableInWebApps === "yes",
+		}),
 	LOOKUP_COLUMN_NOT_AVAILABLE: () =>
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
@@ -1950,9 +2400,18 @@ const USER_MESSAGE_BY_CODE: Record<
 		return `The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "this data table"))} has leading or trailing whitespace that CommCare HQ would remove. ${domain ? changedByHqManagedRemedy(domain) : "You can remove that whitespace in Project data."}`;
 	},
 	LOOKUP_CELL_TEXT_UNREPRESENTABLE: (e) => {
+		if (e.details?.problem === "runtime-value-length") return e.message;
 		const domain = e.details?.managedInDomain;
 		return `The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. ${domain ? unrepresentableManagedRemedy(domain) : "You can remove them or retype the affected values in Project data."}`;
 	},
+	LOOKUP_QUESTION_READ_UNEDITABLE: (e) =>
+		e.details?.problem === "bracket-filter"
+			? questionChoiceReadSentence("bracket-filter")
+			: e.details?.problem === "value-detail"
+				? questionChoiceReadSentence("value-detail")
+				: "This question reads its choices in a way the form editor can't keep. You can choose a column value or a row detail for its choices.",
+	LOOKUP_SELECT_SOURCE_AMBIGUOUS: (e) =>
+		`A choice in ${q(det(e, "tableName", "this data table"))} reads several values in one row. You can choose a position or a detail that matches a single value.`,
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. ${selectSourceRowRemedy(e, "Fill in those rows", "another value column")}`,
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>
@@ -1980,10 +2439,21 @@ const USER_MESSAGE_BY_CODE: Record<
 		const form = e.location.formName ? ` in ${q(e.location.formName)}` : "";
 		return `The question ${q(fieldName(e))}${form} gets its choices from ${table}, which has no rows, so a phone won't open it. ${next}`;
 	},
+	LOOKUP_WORKER_SOURCE_UNAVAILABLE: (e) =>
+		det(e, "separable", "") === "yes"
+			? `“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space, or create a separate table on its page in Project data.`
+			: `“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.`,
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
-	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
-		"This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.",
+	LOOKUP_HQ_PUSH_TOO_LARGE: (e) => {
+		const delivery = det(e, "delivery", "");
+		const table = det(e, "tableName", "This table");
+		if (delivery === "json-definition")
+			return `The definition of “${table}” is too large for Nova to verify in CommCare HQ. You can prepare the table in the destination project space.`;
+		if (delivery === "json")
+			return `Nova can prepare up to 10,000 rows and 16 MiB of data per publish for tables that need individual row writes. You can prepare “${table}” in the destination project space.`;
+		return "This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.";
+	},
 	HQ_NESTED_SELECTION_UNREPRESENTABLE: (e) => {
 		const named = (key: string, fallback: string) => {
 			const name = det(e, key, "");
@@ -2000,7 +2470,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		return `CommCare HQ can't yet find the cases for ${child} from several cases selected in ${parent}. You can set ${parent} to select one case. ${keeps}`;
 	},
 	LOOKUP_TAG_RESERVED_BY_HQ: (e) =>
-		`CommCare HQ keeps the name ${det(e, "tag", "types")} for its own list of the tables in an upload, so a table cannot be exported under it. Rename that table's export tag in Project data, then try again.`,
+		`CommCare HQ keeps the name ${det(e, "tag", "types")} for its own list of the tables in a workbook, so a table can't travel in one under it. A direct publish to CommCare HQ from Nova carries a table with no index and no row assignments under that tag. Otherwise you can rename the table's export tag in Project data, then try again.`,
 
 	// ── Media (export boundary) ──────────────────────────────────────
 	MEDIA_ASSET_NOT_FOUND: () =>
@@ -2038,7 +2508,13 @@ const GENERIC_INTERNAL =
  * and logs keep `err.message`; this is the user's voice.
  */
 export function userFacingError(err: ValidationError): string {
-	return (USER_MESSAGE_BY_CODE[err.code] ?? (() => GENERIC_INTERNAL))(err);
+	/* Only the table's own entries render: a code outside it (one retired off
+	 * a historical event log) reads the generic line, never a member every
+	 * object inherits. */
+	const build = Object.hasOwn(USER_MESSAGE_BY_CODE, err.code)
+		? USER_MESSAGE_BY_CODE[err.code]
+		: undefined;
+	return build === undefined ? GENERIC_INTERNAL : build(err);
 }
 
 /** Render a list of findings to their user lines, in order. */

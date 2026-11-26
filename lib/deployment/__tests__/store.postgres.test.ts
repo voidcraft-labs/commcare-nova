@@ -20,13 +20,16 @@ import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
+import { hqConnectionDigest } from "@/lib/db/settings";
+import type { LookupTableId } from "@/lib/domain";
+import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { activeRemoteApp } from "../resources";
 import { deploymentDisplaysAsReached } from "../stateMachine";
 import {
+	admitWorkbookWrite,
 	admitWorkerWrite,
 	applyDeploymentObservation,
-	beginDeploymentContentWrite,
 	type DeploymentScope,
 	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
@@ -38,12 +41,14 @@ import {
 	readEntryPointEvidence,
 	readReachedDeploymentTargets,
 	readResourceBaselines,
+	readSiblingLookupMappings,
 	readTargetIdentity,
 	recordCreatedRemoteApp,
 	recordEntryPointObservation,
 	recordProvisionedWorkers,
 	recordPushedResources,
 	recordRemoteResource,
+	settleRemoteWrites,
 } from "../store";
 import type {
 	AppBaselineWrite,
@@ -52,6 +57,7 @@ import type {
 	DeploymentResource,
 	ResourceBaselineWrite,
 } from "../types";
+import { admitEntryPointImport } from "./entryPointWrite";
 import { readable } from "./readableRecord";
 
 const h = setupAppStateTestDb("deployments_", {
@@ -763,6 +769,103 @@ describe("pushed Project data", () => {
 		);
 	});
 
+	it("admits and settles a large workbook atomically and reads sibling mappings past the SQL parameter boundary", async () => {
+		const scope = await seed();
+		await create(scope);
+		const tables = await sql<{
+			id: LookupTableId;
+			tag: string;
+		}>`INSERT INTO lookup_tables(project_id,name,tag,definition_revision,rows_revision,column_count,created_by,updated_by)
+   SELECT ${scope.projectId}, 'Table ' || n,'table_' || n,0,0,1,${scope.actorUserId},${scope.actorUserId} FROM generate_series(1,6600) AS n RETURNING id,tag`.execute(
+			h.db(),
+		);
+		await sql`INSERT INTO lookup_columns(project_id,table_id,wire_name,label,data_type,order_key)
+   SELECT project_id,id,'value','Value','text','a1' FROM lookup_tables WHERE project_id=${scope.projectId}`.execute(
+			h.db(),
+		);
+		const ids = tables.rows.map((r) => r.id);
+		const sessionId = crypto.randomUUID();
+		const database = h.db();
+		await sql`INSERT INTO auth_session(id,token,"userId","createdAt","updatedAt","expiresAt")
+			VALUES (${sessionId},${sessionId},${scope.actorUserId},now(),now(),now()+interval '1 day')`.execute(
+			database,
+		);
+		const connection = await database
+			.insertInto("user_settings")
+			.values({
+				user_id: scope.actorUserId,
+				commcare_server: TARGET.server,
+				commcare_username: "test-publisher",
+				commcare_api_key: "fixture-ciphertext",
+				approved_domains: JSON.stringify([
+					{ name: TARGET.domain, displayName: "Test space" },
+				]),
+				updated_at: new Date(),
+			})
+			.returning("connection_epoch")
+			.executeTakeFirstOrThrow();
+		const connectionDigest = hqConnectionDigest(
+			"test-publisher",
+			connection.connection_epoch,
+			TARGET.server,
+			TARGET.domain,
+		);
+		const grant = { kind: "session", sessionId } as const;
+		const grantBinding = await h.withTransaction((tx) =>
+			authorizeAssignmentExport(
+				tx,
+				scope,
+				grant,
+				TARGET,
+				"publish",
+				connectionDigest,
+			),
+		);
+		const stored = await admitWorkbookWrite(scope, TARGET, {
+			...NEVER_ENDED,
+			tableIds: ids,
+			authority: {
+				grant,
+				connectionDigest,
+				grantBinding,
+				tables: new Map(
+					tables.rows.map(({ id, tag }) => [
+						id,
+						{
+							tag,
+							definitionRevision: "0",
+							rowsRevision: "0",
+							isGlobal: true,
+						},
+					]),
+				),
+			},
+		});
+		if (stored.kind !== "admitted")
+			throw new Error("Expected an admitted workbook");
+		expect(new Set(stored.writeIds).size).toBe(6600);
+		await settleRemoteWrites(stored.writeIds, { kind: "settled" });
+		const count = await h
+			.db()
+			.selectFrom("hq_remote_writes")
+			.select((eb) => eb.fn.countAll<number>().as("n"))
+			.where("settled_at", "is not", null)
+			.executeTakeFirstOrThrow();
+		expect(Number(count.n)).toBe(6600);
+		const [kept] = ids;
+		await pushTable(scope, { novaResourceId: kept });
+		const candidates = [
+			...ids,
+			...Array.from({ length: 60_000 }, () => crypto.randomUUID()),
+		];
+		expect(
+			await readSiblingLookupMappings(
+				{ ...scope, appId: "sibling" },
+				TARGET,
+				candidates,
+			),
+		).toMatchObject([{ remoteId: "hq-districts" }]);
+	}, 60_000);
 	it("records both tables and the completed resources phase", async () => {
 		const scope = await seed();
 		await create(scope);
@@ -1840,8 +1943,8 @@ describe("tenancy", () => {
 describe("entry point release evidence", () => {
 	it("invalidates before dependencies change and rejects a stale observation", async () => {
 		const scope = await seed();
-		await publish(scope, "hq-1", 1);
-		const generation = await beginDeploymentContentWrite(
+		const token = pushToken(await publish(scope, "hq-1", 1));
+		const { generation } = await admitEntryPointImport(
 			scope,
 			TARGET,
 			NEVER_ENDED,
@@ -1871,14 +1974,14 @@ describe("entry point release evidence", () => {
 			releasedBuildId: "build-1",
 			releasedVersion: 1,
 		};
-		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
-			true,
-		);
-		await beginDeploymentContentWrite(scope, TARGET, NEVER_ENDED);
+		expect(
+			await recordEntryPointObservation(scope, TARGET, token, observation),
+		).toBe(true);
+		await admitEntryPointImport(scope, TARGET, NEVER_ENDED);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
-		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
-			false,
-		);
+		expect(
+			await recordEntryPointObservation(scope, TARGET, token, observation),
+		).toBe(false);
 		expect((await readEntryPointEvidence(scope, TARGET)).observation).toEqual(
 			observation,
 		);
@@ -1886,8 +1989,12 @@ describe("entry point release evidence", () => {
 	it("a superseded completion invalidates a newer manifest instead of blessing uncertain remote write order", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 1);
-		const first = await beginDeploymentContentWrite(scope, TARGET, NEVER_ENDED);
-		const second = await beginDeploymentContentWrite(
+		const { generation: first, writeId } = await admitEntryPointImport(
+			scope,
+			TARGET,
+			NEVER_ENDED,
+		);
+		const { generation: second } = await admitEntryPointImport(
 			scope,
 			TARGET,
 			NEVER_ENDED,
@@ -1920,14 +2027,15 @@ describe("entry point release evidence", () => {
 					dependencies: [],
 				},
 				NEVER_ENDED,
+				{ writeIds: [writeId], settle: [] },
 			),
 		).toBe(false);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
 	});
 	it("refuses entry point evidence when the persisted source sequence has advanced", async () => {
 		const scope = await seed();
-		await publish(scope, "hq-1", 1);
-		const generation = await beginDeploymentContentWrite(
+		const token = pushToken(await publish(scope, "hq-1", 1));
+		const { generation } = await admitEntryPointImport(
 			scope,
 			TARGET,
 			NEVER_ENDED,
@@ -1949,7 +2057,7 @@ describe("entry point release evidence", () => {
 			h.db(),
 		);
 		expect(
-			await recordEntryPointObservation(scope, TARGET, {
+			await recordEntryPointObservation(scope, TARGET, token, {
 				generation,
 				remoteAppId: "hq-1",
 				entryPointUuid: "entry",
@@ -2078,64 +2186,79 @@ describe("baselines", () => {
 		expect(await readAppBaseline(scope, TARGET)).toBeNull();
 	});
 
-	it("keeps the newer read when two publishes record out of order, and a discard with it", async () => {
-		const scope = await seed();
-		await create(scope);
-		const record = (baseline: AppBaselineWrite) =>
-			recordRemoteResource(scope, TARGET, {
-				...NEVER_ENDED,
-				kind: "app",
-				novaResourceId: scope.appId,
-				remoteId: "hq-app",
-				ownership: "nova-created",
-				pushedRevision: 1,
-				uploadedAt: AT,
-				remoteRevision: null,
-				baseline,
+	it.each(["known", "unknown"] as const)(
+		"orders late publish observations when HQ save counters are %s, retaining any discard",
+		async (ordering) => {
+			const scope = await seed();
+			await create(scope);
+			const record = (counter: number, baseline: AppBaselineWrite) =>
+				recordRemoteResource(scope, TARGET, {
+					...NEVER_ENDED,
+					kind: "app",
+					novaResourceId: scope.appId,
+					remoteId: "hq-app",
+					ownership: "nova-created",
+					pushedRevision: 1,
+					uploadedAt: AT,
+					remoteRevision: ordering === "known" ? counter : null,
+					baseline: { ...baseline, novaRevision: 1 },
+				});
+			await record(
+				2,
+				readBaseline("hq-app", "Newer", {
+					observedAt: LATER,
+					discard: { digest: "e".repeat(64) },
+				}),
+			);
+			await record(1, readBaseline("hq-app", "Older", { observedAt: AT }));
+			expect(await readAppBaseline(scope, TARGET)).toMatchObject(
+				ordering === "known"
+					? {
+							origin: "push",
+							novaRevision: 1,
+							source: expect.objectContaining({ name: "Newer" }),
+							observedAt: LATER,
+						}
+					: { origin: "unread", novaRevision: null, observedAt: LATER },
+			);
+			/* A later read of the same app keeps the discard record it does not
+			 * carry; a read of another app replaces it. */
+			await record(
+				3,
+				readBaseline("hq-app", "Latest", {
+					observedAt: "2026-08-06T00:10:00.000Z",
+				}),
+			);
+			expect(await readAppBaseline(scope, TARGET)).toMatchObject({
+				origin: "push",
+				source: expect.objectContaining({ name: "Latest" }),
+				novaRevision: 1,
 			});
-		await record(
-			readBaseline("hq-app", "Newer", {
-				observedAt: LATER,
-				discard: { digest: "e".repeat(64) },
-			}),
-		);
-		await record(readBaseline("hq-app", "Older", { observedAt: AT }));
-		expect(await readAppBaseline(scope, TARGET)).toMatchObject({
-			origin: "push",
-			source: expect.objectContaining({ name: "Newer" }),
-			observedAt: LATER,
-		});
-		/* A later read of the same app keeps the discard record it does not
-		 * carry; a read of another app replaces it. */
-		await record(
-			readBaseline("hq-app", "Latest", {
-				observedAt: "2026-08-06T00:10:00.000Z",
-			}),
-		);
-		const db = h.db();
-		const kept = await db
-			.selectFrom("app_deployment_baselines")
-			.select(["discarded_digest", "discarded_by"])
-			.executeTakeFirstOrThrow();
-		expect(kept).toEqual({
-			discarded_digest: "e".repeat(64),
-			discarded_by: "u1",
-		});
-		await recordCreatedRemoteApp(scope, TARGET, {
-			...NEVER_ENDED,
-			remoteId: "hq-other",
-			baseline: unreadBaseline("hq-other", AT),
-		});
-		const replaced = await db
-			.selectFrom("app_deployment_baselines")
-			.select(["remote_app_id", "origin", "discarded_digest"])
-			.executeTakeFirstOrThrow();
-		expect(replaced).toEqual({
-			remote_app_id: "hq-other",
-			origin: "unread",
-			discarded_digest: null,
-		});
-	});
+			const db = h.db();
+			const kept = await db
+				.selectFrom("app_deployment_baselines")
+				.select(["discarded_digest", "discarded_by"])
+				.executeTakeFirstOrThrow();
+			expect(kept).toEqual({
+				discarded_digest: "e".repeat(64),
+				discarded_by: "u1",
+			});
+			await recordCreatedRemoteApp(scope, TARGET, {
+				...NEVER_ENDED,
+				remoteId: "hq-other",
+				baseline: unreadBaseline("hq-other", AT),
+			});
+			const replaced = await db
+				.selectFrom("app_deployment_baselines")
+				.select(["remote_app_id", "origin", "discarded_digest"])
+				.executeTakeFirstOrThrow();
+			expect(replaced).toEqual({
+				remote_app_id: "hq-other",
+				origin: "unread",
+				discarded_digest: null,
+			});
+		},
+	);
 
 	it("reads a stored source whose digest does not verify as unread", async () => {
 		const scope = await seed();

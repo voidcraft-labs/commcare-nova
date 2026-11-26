@@ -1,4 +1,5 @@
 import type { CaseType } from "../blueprint";
+import { reachedPropertyRename } from "../columnRelation";
 import { resolveRelationDestination } from "./relationDestination";
 import type { Expression, PropertyRef, RelationPath } from "./types";
 import { walkExpressionTerms } from "./walk";
@@ -27,6 +28,21 @@ function mappedProperty(
 	resolve: CasePropertyNameResolver,
 	caseTypes: readonly CaseType[],
 ): string | undefined {
+	if (
+		ref.readReached &&
+		ref.caseType !== undefined &&
+		ref.via?.kind === "ancestor"
+	) {
+		const result = reachedPropertyRename(
+			{ field: ref.property, via: ref.via.via },
+			ref.caseType,
+			caseTypes,
+			resolve,
+		);
+		return result.name === ref.property || result.conflict
+			? undefined
+			: result.name;
+	}
 	const destination = relationDestinationCaseType(
 		ref.via,
 		ref.caseType,

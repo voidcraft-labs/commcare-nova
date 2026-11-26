@@ -9,6 +9,7 @@ import {
 	activeRowScope,
 	type ExpressionContext,
 	pushRowScope,
+	readsProjectSearchResults,
 } from "@/lib/domain/expression/context";
 import {
 	DISTANCE_UNITS,
@@ -46,6 +47,7 @@ import {
 	isRelationPath,
 	type PropertyRef,
 	type RelationPath,
+	type SessionContextField,
 	type Term,
 } from "@/lib/domain/expression/types";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
@@ -54,11 +56,14 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { matchModeRunsOnDevice } from "../../csql/matchModes";
 import { type RewriteControl, rewriteWithheld } from "../../emissionRewrites";
 import type { LookupWireNaming } from "../../lookup/naming";
+import { lookupReadSteps } from "../../lookup/read";
 import {
 	ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS,
+	CASE_LIST_LOOKUP_COUNT_DATA_NAME,
 	CASE_LIST_SEARCH_TEXT_DATA_NAME,
 } from "../../sessionContext";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
+import { GROUPS_INSTANCE, workerGroupFieldSteps } from "../../workerGroupsWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
 import {
@@ -127,7 +132,16 @@ export interface WireTermBindings {
 	readonly workerProperty?: (property: string) => WireExpr | undefined;
 	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
 	readonly searchInputInstanceId?: SearchInputInstanceId;
+	readonly searchAnswerInstances?: ReadonlyMap<Uuid, SearchInputInstanceId>;
+	readonly searchResultInstances?: ReadonlyMap<Uuid, `results:${string}`>;
+	readonly searchResultInstance?: `results:${string}`;
 	readonly datumId?: (datum: DatumRef) => string | undefined;
+	/** The value a read of the session datum `id` takes in place of
+	 *  `instance('commcaresession')/session/data/<id>`: a stack `<create>`
+	 *  evaluates every datum in the linking form's session, so a function
+	 *  datum carries an earlier datum of its own frame by that datum's value
+	 *  (HQ's `workflow.py::_replace_session_references_in_stack`). */
+	readonly sessionDatumValue?: (id: string) => WireExpr;
 	readonly itextId?: (unit: ItextUnit) => string | undefined;
 	readonly locationPropertySlugs?: ReadonlyMap<Uuid, string>;
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
@@ -169,10 +183,27 @@ const comparison: Record<
 	"eq" | "neq" | "lt" | "lte" | "gt" | "gte",
 	WireComparison
 > = { eq: "=", neq: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=" };
+export function sessionContextPath(field: SessionContextField): WirePath {
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("context"),
+		w.step(field),
+	]);
+}
+
 /** Lower admitted domain expressions once. Serializers own every lexical choice. */
 export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const { normalized, context } = prepareWire(expr, ctx);
 	return emitExpression(normalized, context);
+}
+/** `toWire` for a consumer that reads the expression as a node-set: a
+ * detail's `nodeset`, which Core evaluates as the rows it lists. A read of an
+ * instance built from its rows alone stays bare there, as it does inside
+ * `count`, since Core counts an empty instance's rows as none and the value
+ * guard's `''` branch is no node-set. */
+export function toWireNodes(expr: Expression, ctx: WireBuildContext): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return emitExpression(normalized, context, "nodes");
 }
 /**
  * A date and time written to a case, as the text CommCare HQ stores
@@ -352,7 +383,10 @@ function related(
 			...ctx,
 			types: pushRowScope(ctx.types, {
 				kind: "case",
-				root: ctx.root,
+				root:
+					ctx.root === "casedb" || ctx.root === "results"
+						? ctx.root
+						: "results:inline",
 				...(relation.destinationCaseType === undefined
 					? {}
 					: { caseType: relation.destinationCaseType }),
@@ -369,12 +403,14 @@ function related(
 	};
 }
 
-function datumPath(datum: DatumRef, ctx: Context): WirePath {
+function datumPath(datum: DatumRef, ctx: Context): WireExpr {
 	const id = ctx.bindings.datumId?.(datum);
 	if (id === undefined)
 		throw new Error(
 			`The '${datum.kind}' session datum has no emitted id in this expression context.`,
 		);
+	if (ctx.bindings.sessionDatumValue !== undefined)
+		return ctx.bindings.sessionDatumValue(id);
 	return w.instance(sessionInstance(), [
 		w.step("session"),
 		w.step("data"),
@@ -422,6 +458,8 @@ function rowLeafSteps(input: Term, ctx: Context): readonly WireStep[] {
 					"A projected property cannot traverse another relation.",
 				);
 			return [casePropertyStep(input.property)];
+		case "search-result-field":
+			return [w.step(input.name)];
 		case "case-row-type":
 			return [w.attr("case_type")];
 		case "case-index":
@@ -432,12 +470,13 @@ function rowLeafSteps(input: Term, ctx: Context): readonly WireStep[] {
 				throw new Error(
 					"A projected table column needs the Project lookup naming catalog.",
 				);
-			return [
-				w.step(
-					lookup.naming.tableFor(input.tableId).wireNameFor(input.columnId),
-				),
-			];
+			return lookupReadSteps(
+				lookup.naming.tableFor(input.tableId),
+				input.columnId,
+			);
 		}
+		case "worker-group-field":
+			return workerGroupFieldSteps(input.field);
 		case "location-field":
 			return locationSteps(input, ctx);
 		default:
@@ -505,6 +544,8 @@ function term(input: Term, ctx: Context): WireExpr {
 
 		case "case-type":
 			return w.str(input.caseType);
+		case "search-result-field":
+			return w.context([w.step(input.name)]);
 		case "case-row-type":
 			return w.context([w.attr("case_type")]);
 		case "case-index":
@@ -519,12 +560,32 @@ function term(input: Term, ctx: Context): WireExpr {
 				);
 			return w.str(level.code);
 		}
+		case "worker-group-field":
+			return w.context(workerGroupFieldSteps(input.field));
 		case "location-field":
 			return w.context(locationSteps(input, ctx));
 		case "prop": {
 			const self = input.via === undefined || input.via.kind === "self";
 			if (self && bindings.emitSelfProperty !== undefined)
 				return bindings.emitSelfProperty(input);
+			if (input.readReached && input.via?.kind === "ancestor") {
+				// The walk starts at the case the slot reads: a case list's row
+				// (`current()`), or, in a form, the case its menu chose
+				// (`rootCaseIdWireExpr`), since a form bind's `current()` is
+				// its own node and holds no index.
+				if (bindings.lookup?.rowScope?.caseAnchor.kind === "unaddressable")
+					throw new Error(
+						`Case property '${input.property}' is read inside a lookup-row filter whose case cannot be addressed from current(). Validation should reject this shape before emission.`,
+					);
+				return w.append(
+					buildAncestorJoinNodeset(
+						input.via.via.map(({ identifier }) => ({ identifier })),
+						root,
+						origin(ctx),
+					),
+					[casePropertyStep(input.property)],
+				);
+			}
 			const anchored = bindings.caseProperty?.(
 				input,
 				root,
@@ -562,10 +623,18 @@ function term(input: Term, ctx: Context): WireExpr {
 			if (via === undefined || via.kind === "self") return w.context([leaf]);
 			switch (via.kind) {
 				case "ancestor":
-					return w.append(buildAncestorJoinNodeset(via.via, root), [leaf]);
+					return w.append(
+						buildAncestorJoinNodeset(via.via, root, origin(ctx)),
+						[leaf],
+					);
 				case "subcase":
 					return w.append(
-						buildSubcaseJoinNodeset(via.identifier, root, via.ofCaseType),
+						buildSubcaseJoinNodeset(
+							via.identifier,
+							root,
+							via.ofCaseType,
+							origin(ctx),
+						),
 						[leaf],
 					);
 				case "any-relation":
@@ -579,12 +648,23 @@ function term(input: Term, ctx: Context): WireExpr {
 			}
 		}
 		case "input": {
+			if (
+				ctx.types.profile.searchInputs.some(
+					(field) => field.uuid === input.searchInputUuid && field.matchingOnly,
+				)
+			)
+				throw new Error(
+					"A parent Search field cannot supply a formula answer.",
+				);
 			const name = bindings.searchInputNames?.get(input.searchInputUuid);
 			if (name === undefined)
 				throw new Error(
 					`Search input identity '${input.searchInputUuid}' has no current runtime-name binding.`,
 				);
-			const id = bindings.searchInputInstanceId ?? "search-input:results";
+			const id =
+				bindings.searchAnswerInstances?.get(input.searchInputUuid) ??
+				bindings.searchInputInstanceId ??
+				"search-input:results";
 			return w.expansion(
 				"search",
 				w.instance(searchInputInstance(id), [
@@ -620,11 +700,7 @@ function term(input: Term, ctx: Context): WireExpr {
 			]);
 		}
 		case "session-context": {
-			const read = w.instance(sessionInstance(), [
-				w.step("session"),
-				w.step("context"),
-				w.step(input.field),
-			]);
+			const read = sessionContextPath(input.field);
 			return (
 				ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS as readonly string[]
 			).includes(input.field) &&
@@ -688,11 +764,9 @@ function term(input: Term, ctx: Context): WireExpr {
 				throw new Error(
 					`Lookup column reads table '${input.tableId}' inside the row scope of '${row.tableId}'.`,
 				);
-			return w.context([
-				w.step(
-					lookup.naming.tableFor(input.tableId).wireNameFor(input.columnId),
-				),
-			]);
+			return w.context(
+				lookupReadSteps(lookup.naming.tableFor(input.tableId), input.columnId),
+			);
 		}
 	}
 }
@@ -718,10 +792,25 @@ function queryContext(expression: Expression, ctx: Context): Context {
 		throw new Error(
 			`The '${expression.kind}' expression has no typed row scope.`,
 		);
+	// Typing distinguishes the device database from query results. The wire also
+	// needs the particular completed query on every join within those rows.
+	const source = expression.kind === "project" ? expression.of : expression;
+	let root: InstanceRoot | undefined =
+		row.kind === "case" ? row.root : undefined;
+	if (source.kind === "cases" && source.source === "search-results") {
+		root =
+			source.supplier === undefined
+				? (ctx.bindings.searchResultInstance ?? "results:inline")
+				: ctx.bindings.searchResultInstances?.get(source.supplier);
+		if (root === undefined)
+			throw new Error(
+				"The form entry is missing the search that supplies these cases.",
+			);
+	}
 	return {
 		...ctx,
 		types: pushRowScope(ctx.types, row),
-		...(row.kind === "case" ? { root: row.root } : {}),
+		...(root === undefined ? {} : { root }),
 		anchor: { kind: "unaddressable" },
 		bindings: {
 			...clearLookupRowScope(ctx.bindings),
@@ -985,6 +1074,20 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				: emitCall(expr.fn, expr.args, ctx, use);
 		case "here":
 			return w.call("here");
+		case "case-list-lookup-count": {
+			const nodes = (predicates: readonly WireExpr[] = []) =>
+				w.instance(sessionInstance(), [
+					w.step("session"),
+					w.step("data"),
+					w.step(CASE_LIST_LOOKUP_COUNT_DATA_NAME, predicates),
+				]);
+			// Neither an absent count nor an unexpected second supplier is a number.
+			return w.call("if", [
+				w.eq(w.call("count", [nodes()]), w.num(1)),
+				w.call("number", [nodes([w.num(1)])]),
+				w.str(""),
+			]);
+		}
 		case "case-list-search-text": {
 			// `if(count(P) > 0, P[1], '')`: Android can leave the same text on
 			// two frame steps, where a bare read of `P` throws.
@@ -998,6 +1101,8 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				? nodes()
 				: guardAbsentNode(nodes([w.num(1)]), nodes());
 		}
+		case "case-text":
+			return { k: "case-text-variable", textUuid: expr.textUuid };
 		case "itext": {
 			const id = ctx.bindings.itextId?.(expr.unit);
 			if (id === undefined)
@@ -1019,9 +1124,9 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 		}
 		case "cases": {
 			const child = queryContext(expr, ctx);
-			const root = expr.source === "casedb" ? "casedb" : "results:inline";
-			return caseNodes(root, [
-				...(expr.source === "search-results"
+			return caseNodes(child.root, [
+				...(expr.source === "search-results" &&
+				!readsProjectSearchResults(ctx.types, expr.supplier)
 					? [
 							w.not(
 								w.eq(
@@ -1052,6 +1157,16 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 					),
 				],
 			);
+		}
+		case "worker-groups": {
+			const child = queryContext(expr, ctx);
+			return w.instance(GROUPS_INSTANCE, [
+				w.step("groups"),
+				w.step(
+					"group",
+					expr.where.map((x) => emitExpression(x, child)),
+				),
+			]);
 		}
 		case "locations": {
 			const child = queryContext(expr, ctx);
@@ -1094,10 +1209,13 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			);
 		case "term": {
 			const input = expr.term;
+			// A reached read walks its links to whatever case each reaches, of any type: no
+			// declared destination to canonicalize it toward.
 			if (
 				input.kind !== "prop" ||
 				input.via === undefined ||
-				input.via.kind === "self"
+				input.via.kind === "self" ||
+				input.readReached
 			)
 				return term(input, ctx);
 			const scope = relationScope(ctx);
@@ -1108,6 +1226,11 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			return term({ ...input, via: relation.via }, ctx);
 		}
 		case "today":
+			if (expr.clock === "project-space")
+				throw new Error(
+					"The project space’s day is read on the search server.",
+				);
+			return w.call("today");
 		case "now":
 			return w.call(expr.kind);
 		case "acting-user":
@@ -1270,7 +1393,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				[
 					w.step(table.listElementName),
 					w.step(table.rowElementName, [...filters, w.num(1)]),
-					w.step(table.wireNameFor(expr.resultColumnId)),
+					...lookupReadSteps(table, expr.resultColumnId),
 				],
 			);
 		}

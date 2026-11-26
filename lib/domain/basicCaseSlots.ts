@@ -28,7 +28,6 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import { caseWriteValueField } from "./caseWriteViews";
-import { formConnectIds } from "./connectIds";
 import type { Expression } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
 import { type Field, isCaptureField, isContainer } from "./fields";
@@ -38,6 +37,7 @@ import {
 	type CaseOperation,
 	caseOperationRunsPerSelectedCase,
 	type Form,
+	operationSavesOnlyChanged,
 	orderedCaseOperations,
 } from "./forms";
 import {
@@ -52,6 +52,7 @@ import type {
 	SaveToCasePlacement,
 } from "./placements";
 import { isDeeplySettled, isSettled } from "./settled";
+import { submissionLayout } from "./submissionLayout";
 import type { Uuid } from "./uuid";
 
 // ── The form's facts ────────────────────────────────────────────────────
@@ -81,7 +82,9 @@ export interface CaseSlotFacts {
 	readonly closesOwn: boolean;
 	/** The repeat each field of the form stands in, innermost first; absent
 	 *  for a field in no repeat. A repeat's own entry is its parent's. */
+	readonly submittedChildren: ReadonlyMap<Uuid, readonly Uuid[]>;
 	readonly repeatOf: ReadonlyMap<Uuid, Uuid | undefined>;
+	readonly positionedOperations: ReadonlySet<Uuid>;
 	readonly moduleCaseTypes: ReadonlySet<string>;
 }
 
@@ -135,12 +138,20 @@ export function caseSlotFacts(
 	const moduleUuid = owningModule(doc, formUuid);
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	const operations = orderedCaseOperations(form);
+	const submittedChildren = submissionLayout(
+		formUuid,
+		doc.fields,
+		doc.fieldOrder,
+	).children;
 	const repeatOf = new Map<Uuid, Uuid | undefined>();
+	const positionedOperations = new Set<Uuid>();
 	const walk = (parent: Uuid, repeat: Uuid | undefined): void => {
-		for (const uuid of doc.fieldOrder[parent] ?? []) {
+		for (const uuid of submittedChildren.get(parent) ?? []) {
 			const field = doc.fields[uuid];
 			if (field === undefined) continue;
 			repeatOf.set(uuid, repeat);
+			if (field.kind === "case_change")
+				positionedOperations.add(field.operationUuid);
 			walk(uuid, field.kind === "repeat" ? uuid : repeat);
 		}
 	};
@@ -161,7 +172,9 @@ export function caseSlotFacts(
 		closesOwn:
 			form.type === "close" ||
 			(form.type === "registration" && form.closeCondition !== undefined),
+		submittedChildren,
 		repeatOf,
+		positionedOperations,
 		moduleCaseTypes: moduleCaseTypesOf(doc.modules),
 	};
 	forms?.set(formUuid, built);
@@ -201,9 +214,9 @@ export function appendedNameTaken(
 	name: string,
 	repeat: Uuid | undefined,
 ): boolean {
-	for (const uuid of f.doc.fieldOrder[repeat ?? f.formUuid] ?? [])
+	for (const uuid of f.submittedChildren.get(repeat ?? f.formUuid) ?? [])
 		if (f.doc.fields[uuid]?.id === name) return true;
-	return repeat === undefined && formConnectIds(f.doc, f.formUuid).has(name);
+	return false;
 }
 
 // ── Values and conditions ───────────────────────────────────────────────
@@ -319,10 +332,19 @@ interface ConditionShape {
  * The three shapes Case Management states (`xform.py::XForm.action_relevance`):
  * a question alone (`boolean_true`), a question equal to one value (`=`),
  * and a multi-select holding one value (`selected`). Anything else, a
- * `match-none` included, is no such shape.
+ * `match-none` included, is no such shape. A question alone is read either
+ * bare or through `boolean(...)`: HQ's build prints the question's path as
+ * the block's relevance, which Core reads through `FunctionUtils.toBoolean`
+ * (`XPathConditional.eval`), the operation `boolean` is.
  */
 function conditionShape(condition: Expression): ConditionShape | undefined {
-	const alone = bareRead(condition);
+	const alone =
+		bareRead(condition) ??
+		(condition.kind === "call" &&
+		condition.fn === "boolean" &&
+		condition.args.length === 1
+			? bareRead(condition.args[0])
+			: undefined);
 	if (alone !== undefined) return { question: alone, operator: "boolean_true" };
 	if (condition.kind === "eq") {
 		const left = bareRead(condition.left);
@@ -529,13 +551,20 @@ export function sharingCloses(
 ): ReadonlyMap<Uuid, CaseOperation> {
 	const sharers = new Map<Uuid, CaseOperation>();
 	f.operations.forEach((create, index) => {
-		if (create.action !== "create") return;
+		if (
+			create.action !== "create" ||
+			create.closeAfter === true ||
+			f.positionedOperations.has(create.uuid)
+		)
+			return;
 		const next = f.operations
 			.slice(index + 1)
 			.find((op) => namesCase(op, create.uuid));
 		if (
 			next === undefined ||
 			next.action !== "close" ||
+			f.positionedOperations.has(next.uuid) ||
+			next.closeCondition !== undefined ||
 			!changesCase(next, create.uuid) ||
 			next.forEach?.repeat !== create.forEach?.repeat ||
 			next.placement?.kind === "save-to-case" ||
@@ -609,7 +638,10 @@ export function usercaseSlotReasons(
 	const reasons: PlacementIneligibility[] = tagged(
 		valueReasons(f, slotValues(operation), { kind: "none" }),
 	);
-	if ((operation.writes ?? []).some((write) => write.condition !== undefined))
+	if (
+		operation.condition !== undefined ||
+		(operation.writes ?? []).some((write) => write.condition !== undefined)
+	)
 		reasons.push({ reason: "write-condition" });
 	return reasons;
 }
@@ -634,7 +666,11 @@ export function subcaseReasons(
 	const repeat = operation.forEach?.repeat;
 	const reasons: PlacementIneligibility[] = [];
 	if (f.severalCases) reasons.push({ reason: "several-cases" });
-	if (operation.target.kind === "new" && operation.target.idFrom !== undefined)
+	if (
+		operation.target.kind === "new" &&
+		(operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined)
+	)
 		reasons.push({ reason: "keyed-id" });
 	const links = operation.links ?? [];
 	const [link] = links;
@@ -750,7 +786,7 @@ function ownOrCreateSaveToCaseReasons(
 ): PlacementIneligibility[] {
 	const reasons: PlacementIneligibility[] = [];
 	const writes = operation.writes ?? [];
-	if (writes.some((write) => write.onlyIfChanged === true))
+	if (operationSavesOnlyChanged(operation))
 		reasons.push({ reason: "only-if-changed" });
 	if (writes.some((write) => write.via !== undefined))
 		reasons.push({ reason: "via" });
@@ -824,13 +860,37 @@ export function moduleCaseTypeForActions(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): string {
-	const mod = doc.modules[moduleUuid];
+	const route = doc.modules[moduleUuid];
+	const owner = route?.formsFromMenu?.menuUuid ?? moduleUuid;
+	const mod = doc.modules[owner];
 	if (mod === undefined || !mod.caseType) return "";
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	const formUuids = doc.formOrder[owner] ?? [];
 	const hasCases =
 		moduleHasCaseListMenuItem(mod) ||
 		formUuids.some((formUuid) => doc.forms[formUuid]?.type !== "survey");
 	return hasCases ? mod.caseType : "";
+}
+
+/**
+ * Whether a menu listing another menu's forms can hold deep links of its own
+ * to single forms. CommCare HQ's menu settings page always sends those links
+ * with a save but shows the deep link field its save reads beside them only
+ * on a menu that tracks cases (`views/modules.py`, `show_advanced_settings`
+ * is false for `is_surveys`; `edit_module_attr` then reads the absent
+ * `session_endpoint_id` and fails), so on a menu listing the forms of a menu
+ * with no case type no save of its settings in CommCare HQ would succeed.
+ */
+export function listedFormLinksSavable(
+	doc: BlueprintDoc,
+	routeUuid: Uuid,
+): boolean {
+	const route = doc.modules[routeUuid];
+	if (!route?.formsFromMenu) return true;
+	// HQ's `is_surveys` reads the stored `case_type` of the menu listed
+	// (`ShadowModule.case_type` is its source's), and a menu uploads its own
+	// case type, a survey-only menu's included (`expander.ts`), so a typed
+	// menu whose forms are all surveys still takes these links.
+	return Boolean(doc.modules[route.formsFromMenu.menuUuid]?.caseType);
 }
 
 const slotPlans = new WeakMap<BlueprintDoc, Map<string, BasicCaseSlots>>();
@@ -895,6 +955,8 @@ export function basicCaseSlots(
 		| { readonly kind: "save-to-case"; readonly held: boolean };
 	const choose = (op: CaseOperation): CreateChoice => {
 		const held = demoted.has(op.uuid) ? undefined : op.placement;
+		if (f.positionedOperations.has(op.uuid))
+			return { kind: "save-to-case", held: held?.kind === "save-to-case" };
 		if (held?.kind === "basic") {
 			if (
 				(held.slot === "subcase" || held.slot === "subcase-row") &&

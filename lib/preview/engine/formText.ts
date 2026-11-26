@@ -12,6 +12,7 @@
 // lookup by path finds the question the printed call names.
 
 import {
+	additionalItextUnitIds,
 	formItextUnits,
 	itextIdFor,
 	itextTranslationUnitId,
@@ -74,6 +75,9 @@ function itextEntryWritten(
 					(!isContainer(field) &&
 						mediaHoldsAsset(slotMedia(field, "label_media"))))
 			);
+		case "field-first-add-label":
+		case "field-add-label":
+			return field.kind === "repeat" && anyText;
 		case "field-hint":
 			return field.kind !== "hidden" && anyText;
 		case "field-help":
@@ -132,9 +136,11 @@ export function previewFormText(
 	for (const [id, unit] of formItextUnits(form)) {
 		const field = doc.fields[unit.field];
 		if (field === undefined) continue;
-		const anyText = localization.languageOrder.some(
-			(tag) => !proseTemplateIsEmpty(textOf(unit, tag)),
-		);
+		const anyText =
+			additionalItextUnitIds(field, unit).length > 0 ||
+			localization.languageOrder.some(
+				(tag) => !proseTemplateIsEmpty(textOf(unit, tag)),
+			);
 		if (
 			!itextEntryWritten(
 				field,

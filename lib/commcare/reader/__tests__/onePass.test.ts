@@ -75,7 +75,7 @@ it("names every finding of an app in one account", async () => {
 	const edit = (xml: string): string => {
 		const appearance = xml.replace(
 			'<select1 ref="/data/choice"',
-			'<select1 appearance="combobox" ref="/data/choice"',
+			'<select1 appearance="minimal foo" ref="/data/choice"',
 		);
 		// It parses, and the checker refuses a date ordered against a date and time.
 		const refused = appearance.replaceAll(
@@ -108,9 +108,10 @@ it("names every finding of an app in one account", async () => {
 	expect(
 		at(whereText({ kind: "menu", menu: 1, name: "" })).length,
 	).toBeGreaterThan(0);
-	expect(question("choice").map((finding) => finding.code)).toContain(
-		"questions/select1-combobox",
-	);
+	/* A token no runtime reads beside a dropdown, which Nova can't hold. */
+	expect(
+		question("choice").some((finding) => finding.code.startsWith("questions/")),
+	).toBe(true);
 	expect(
 		question("shown").map((finding) =>
 			finding.code.slice(finding.code.indexOf("/") + 1),

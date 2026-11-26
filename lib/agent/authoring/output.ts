@@ -4,13 +4,19 @@ import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import {
 	entryDatumIdResolver,
 	formLinkProjectionContext,
-	formLinkTargetDatumIds,
 } from "@/lib/commcare/formLinkProjection";
-import { projectFormExpression } from "@/lib/doc/expressionText";
+import {
+	fixedSearchRangeDates,
+	projectFormExpression,
+} from "@/lib/doc/expressionText";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
+import { namedFormLinkTargetDatums } from "@/lib/doc/formLinkReview";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
-import { findContainingForm } from "@/lib/doc/mutations/helpers";
+import {
+	computeFieldPath,
+	findContainingForm,
+} from "@/lib/doc/mutations/helpers";
 import {
 	appLanguageIdentitySchema,
 	automationSchema,
@@ -20,9 +26,11 @@ import {
 	casePropertySchema,
 	caseSearchConfigSchema,
 	fieldSchema,
+	formContentUuid,
 	formIconRefSchema,
 	formLinkEntries,
 	formSchema,
+	isFieldProseSlot,
 	languageTag,
 	localizedValueSchema,
 	moduleIconRefSchema,
@@ -34,6 +42,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { automationMessageTemplateSchema } from "@/lib/domain/automations";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { printFormExpression } from "@/lib/domain/expression/print";
@@ -48,7 +57,12 @@ import {
 	termSchema,
 	valueSchema,
 } from "@/lib/domain/expression/types";
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
+import { openingAssignmentName } from "@/lib/domain/formOpeningAssignments";
+import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
+import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { referenceNames } from "@/lib/domain/referenceNames";
+import { FIELD_REFERENCE_SLOTS } from "@/lib/domain/referenceSlots";
 import { log } from "@/lib/logger";
 import {
 	type AuthoringScopeOptions,
@@ -127,32 +141,47 @@ export function authoringEncoders(
 		const content = record.parse(source);
 		const uuid = uuidSchema.safeParse(content.uuid);
 		if (uuid.success && options.doc.fields[uuid.data] !== undefined) {
-			const slot =
-				path.length === 1
-					? path[0]
-					: path[0] === "data_source" && path[1] === "ids_query"
-						? "ids_query"
-						: undefined;
+			const field = options.doc.fields[uuid.data];
 			if (
-				slot === "relevant" ||
-				slot === "validate" ||
-				slot === "calculate" ||
-				slot === "default_value" ||
-				slot === "required" ||
-				slot === "repeat_count" ||
-				slot === "ids_query"
-			)
-				return { entity: "field", uuid: uuid.data, slot };
+				path[0] === "androidApp" &&
+				path[1] === "send" &&
+				typeof path[2] === "number" &&
+				path[3] === "value" &&
+				field?.kind === "text" &&
+				field.androidApp?.kind === "open-app"
+			) {
+				const input = field.androidApp.send[path[2]];
+				if (input)
+					return {
+						entity: "field",
+						uuid: uuid.data,
+						slot: "android_app_input",
+						member: androidAppInputMember(field.androidApp.send, path[2]),
+					};
+			}
+			const entry = FIELD_REFERENCE_SLOTS.find(
+				(entry) => entry.kind === "expression" && entry.path === path.join("."),
+			);
+			if (entry?.kind === "expression" && entry.slot !== "android_app_input")
+				return { entity: "field", uuid: uuid.data, slot: entry.slot };
 		}
 		if (options.formUuid !== undefined) {
 			const uuid = options.formUuid;
-			if (path[0] === "connect") {
-				if (path[1] === "assessment" && path[2] === "user_score")
-					return { entity: "form", uuid, slot: "assessment_user_score" };
-				if (path[1] === "deliver_unit" && path[2] === "entity_id")
-					return { entity: "form", uuid, slot: "deliver_entity_id" };
-				if (path[1] === "deliver_unit" && path[2] === "entity_name")
-					return { entity: "form", uuid, slot: "deliver_entity_name" };
+			if (
+				(path[0] === "caseSelections" || path[0] === "computedDatums") &&
+				typeof path[1] === "number"
+			) {
+				const member = records.parse(content[path[0]])[path[1]];
+				if (member)
+					return {
+						entity: "form",
+						uuid,
+						slot:
+							path[0] === "caseSelections"
+								? "form_selection_source"
+								: "form_entry_value",
+						member: { supplyUuid: uuidSchema.parse(member.uuid) },
+					};
 			}
 			const otherwise = options.doc.forms[uuid]?.otherwise;
 			if (
@@ -222,13 +251,7 @@ export function authoringEncoders(
 		if (!uuid.success || options.doc.fields[uuid.data] === undefined)
 			return undefined;
 		const [slot] = path;
-		if (
-			path.length === 1 &&
-			(slot === "label" ||
-				slot === "hint" ||
-				slot === "help" ||
-				slot === "validate_msg")
-		)
+		if (path.length === 1 && typeof slot === "string" && isFieldProseSlot(slot))
 			return { entity: "field", uuid: uuid.data, slot };
 		if (
 			path.length === 4 &&
@@ -292,16 +315,17 @@ export function authoringEncoders(
 			const target = resolveFormLinkTarget(options.doc, ref.uuid, link.target);
 			if (target === undefined)
 				throw new Error("The form link's form is in no menu.");
-			const id = entryDatumIdResolver(
-				formLinkTargetDatumIds(
-					options.doc,
-					formLinkProjectionContext(options.doc, { entryMetadataOnly: true }),
-					target,
-				),
-			)(formLinkDatumNameSchema.parse(value));
+			const rows = namedFormLinkTargetDatums(
+				options.doc,
+				formLinkProjectionContext(options.doc, { entryMetadataOnly: true }),
+				target,
+			);
+			const id = entryDatumIdResolver(rows)(
+				formLinkDatumNameSchema.parse(value),
+			);
 			if (id === undefined)
 				throw new Error("The form link's target no longer reads this datum.");
-			return id;
+			return rows.find((row) => row.id === id)?.name ?? id;
 		},
 		condition: (value, path) =>
 			printer(path).predicate(conditionSchema.parse(value)),
@@ -384,12 +408,55 @@ interface ReadProjection {
 /** A projected form's after-submit as getForm reads it: its links as
  * `destinations`, in the order they run, and an otherwise link addressed by
  * `linkUuid` as a destination is. */
-function afterSubmitRead(form: Record<string, unknown>) {
-	const { formLinks, otherwise, ...rest } = form;
+function afterSubmitRead(form: Record<string, unknown>, doc: BlueprintDoc) {
+	const {
+		formLinks,
+		otherwise,
+		caseSelections,
+		openingAssignments,
+		shadowOf: _shared,
+		...rest
+	} = form;
 	const read = otherwise === undefined ? undefined : record.parse(otherwise);
 	const { uuid, ...link } = read ?? {};
 	return {
 		...rest,
+		...(openingAssignments !== undefined && {
+			openingAssignments: records.parse(openingAssignments).map((row) => {
+				const uuid = uuidSchema.parse(form.uuid);
+				const assignment = doc.forms[uuid]?.openingAssignments?.find(
+					(one) => one.uuid === row.uuid,
+				);
+				return {
+					...row,
+					field:
+						computeFieldPath(doc, uuidSchema.parse(row.field)) ?? row.field,
+					...(assignment && {
+						name: openingAssignmentName(doc, uuid, assignment),
+					}),
+				};
+			}),
+		}),
+		...(caseSelections !== undefined && {
+			caseSelections: records
+				.parse(caseSelections)
+				.map(({ tag: _tag, ...selection }) => {
+					const source = record.parse(selection.source);
+					if (source.kind !== "choose" || !source.under) return selection;
+					const under = record.parse(source.under);
+					if (!under.relationship || typeof under.relationship !== "object")
+						return selection;
+					const { question } = record.parse(under.relationship);
+					const path = computeFieldPath(doc, uuidSchema.parse(question));
+					return {
+						...selection,
+						source: {
+							...source,
+							under: { ...under, relationship: { question: path ?? question } },
+						},
+					};
+				}),
+		}),
 		...(formLinks !== undefined && { destinations: formLinks }),
 		...(read !== undefined && {
 			otherwise:
@@ -413,6 +480,7 @@ const readProjectors: {
 	getAuthoringGuide: passthrough,
 	getLanguages: passthrough,
 	getLookupTables: passthrough,
+	getWorkerGroups: passthrough,
 	getLookupTableRows: passthrough,
 	evaluateForm: passthrough,
 	readAppTest: passthrough,
@@ -421,6 +489,7 @@ const readProjectors: {
 	readSource: passthrough,
 	getUsers: passthrough,
 	getOrganization: passthrough,
+	getPreviewSearchSettings: passthrough,
 	getAutomations: (data, { project, scope }) =>
 		data.map((item) => ({
 			...item,
@@ -443,12 +512,7 @@ const readProjectors: {
 				if (!source)
 					throw new Error("The searched field is no longer in this app.");
 				const slot = item.field;
-				if (
-					slot === "label" ||
-					slot === "hint" ||
-					slot === "help" ||
-					slot === "validate_msg"
-				) {
+				if (typeof slot === "string" && isFieldProseSlot(slot)) {
 					const value = record.parse(source)[slot];
 					return {
 						...item,
@@ -478,20 +542,41 @@ const readProjectors: {
 			openCondition,
 			closeCondition,
 			ownClosePlacement: _heldClose,
+			dataRootName,
+			captureLocation,
 			plainText,
+			shadowOf,
 			...form
 		} = data.form;
 		// A held placement is an identity no author chooses: no edit accepts
 		// it, so the read leaves it out, and getCaseOperations states where
 		// each change is kept.
+		const selections = formCaseSelections(doc, form.uuid);
 		const operations = form.caseOperations?.map(
 			({ placement: _held, ...operation }) => operation,
 		);
 		return {
 			...data,
 			recordContext: formRecordContext(doc, form.uuid),
+			openingChoicesFrom: shadowOf
+				? "shared-entry"
+				: form.caseSelections === undefined
+					? "menu"
+					: "form",
+			...(shadowOf && {
+				sharedForm: {
+					formUuid: shadowOf.form,
+					name: doc.forms[shadowOf.form]?.name,
+					replacements: shadowOf.selections
+						.filter((row) => row.kind === "replace")
+						.map((row) => row.selection),
+					extraChoices: shadowOf.selections
+						.filter((row) => row.kind === "add")
+						.map((row) => row.uuid),
+				},
+			}),
 			...(data.recordName !== undefined && {
-				recordName: recordName(form.uuid, data.recordName),
+				recordName: recordName(shadowOf?.form ?? form.uuid, data.recordName),
 			}),
 			form: {
 				...afterSubmitRead(
@@ -500,12 +585,17 @@ const readProjectors: {
 							formSchema,
 							{
 								...form,
+								caseSelections: [...selections],
 								...(operations !== undefined && { caseOperations: operations }),
 							},
 							scope(form.uuid),
 						),
 					),
+					doc,
 				),
+				...(form.submitLabel !== undefined && {
+					submitLabel: form.submitLabel.text ?? null,
+				}),
 				...(openCondition !== undefined && {
 					openCondition: formCondition(
 						form.uuid,
@@ -515,7 +605,14 @@ const readProjectors: {
 				}),
 				// Read under the name an edit takes, so a read sent back
 				// through `updateForm` keeps it.
+				capture_location: captureLocation === true,
+				// A shared entry asks as the form it opens does.
+				captures_device_location_on_android: capturesDeviceLocation(
+					doc,
+					doc.forms[formContentUuid(doc, form.uuid)],
+				),
 				...(plainText === true && { plain_text: true }),
+				...(dataRootName !== undefined && { answerRoot: dataRootName }),
 				...(closeCondition !== undefined && {
 					closeCondition: formCondition(
 						form.uuid,
@@ -529,19 +626,41 @@ const readProjectors: {
 	},
 	getModule(data, { project, scope }) {
 		const options = scope(undefined, data.uuid);
+		const list = data.case_list_config;
+		const projectedList =
+			list && record.parse(project(caseListConfigSchema, list, options));
+		if (
+			list &&
+			projectedList &&
+			list.searchInputs.some(
+				(field) =>
+					field.kind !== "hidden" &&
+					field.type === "date-range" &&
+					"default" in field &&
+					fixedSearchRangeDates(field.default),
+			)
+		) {
+			const searchInputs = records.parse(projectedList.searchInputs);
+			projectedList.searchInputs = searchInputs.map((field, index) => {
+				const input = list.searchInputs[index];
+				const dates =
+					input.kind !== "hidden" &&
+					input.type === "date-range" &&
+					"default" in input &&
+					fixedSearchRangeDates(input.default);
+				return dates ? { ...field, default: dates } : field;
+			});
+		}
 		return {
 			...data,
 			icon: project(moduleIconRefSchema.nullable(), data.icon, options),
+			badge: project(menuBadgeSchema.nullable(), data.badge, options),
 			display_condition: project(
 				conditionSchema.nullable(),
 				data.display_condition,
 				options,
 			),
-			case_list_config: project(
-				caseListConfigSchema.nullable(),
-				data.case_list_config,
-				options,
-			),
+			case_list_config: projectedList,
 			case_search_config: project(
 				caseSearchConfigSchema.nullable(),
 				data.case_search_config,
@@ -562,6 +681,17 @@ const readProjectors: {
 				data.caseListRegistrationForm?.kind === "always"
 					? {
 							...data.caseListRegistrationForm,
+							...(data.caseListRegistrationForm.showWhen?.kind ===
+								"condition" && {
+								showWhen: {
+									kind: "condition",
+									condition: project(
+										conditionSchema,
+										data.caseListRegistrationForm.showWhen.condition,
+										options,
+									),
+								},
+							}),
 							icon: project(
 								formIconRefSchema.nullable(),
 								data.caseListRegistrationForm.icon,
@@ -582,7 +712,7 @@ const readProjectors: {
 				project(
 					z.array(caseOperationSchema),
 					data.operations,
-					scope(data.formUuid),
+					scope(data.sharedForm?.formUuid ?? data.formUuid),
 				),
 			)
 			.map((operation, index) => {
@@ -640,6 +770,12 @@ const readProjectors: {
 						review: explicit.review,
 						translatedFrom: explicit.translatedFrom,
 						value: localized(explicit.value),
+						/* The author chose for this language to show answers or
+						 * calculations of its own; a set keeps that only when
+						 * it says so (`changeShownValues`). */
+						...(explicit.valueMode === "independent-values" && {
+							showsOwnValues: true,
+						}),
 					},
 					protectedParts:
 						unit.valueKind === "prose"
@@ -690,6 +826,25 @@ export function projectAuthoringRead(args: {
 				scope(findContainingForm(doc, content.uuid)),
 			),
 		);
+		const interaction =
+			"androidApp" in content ? content.androidApp : undefined;
+		if (interaction && result.androidApp) {
+			const pathFor = (question: Uuid) => {
+				const path = computeFieldPath(doc, question);
+				if (path === undefined)
+					throw new Error("The Android app refers to a missing question.");
+				return path;
+			};
+			const projected = record.parse(result.androidApp);
+			if (interaction.kind === "use-question")
+				projected.question = pathFor(interaction.question);
+			else
+				projected.receive = interaction.receive.map((result) => ({
+					...result,
+					question: pathFor(result.question),
+				}));
+			result.androidApp = projected;
+		}
 		if (result.validate !== undefined) {
 			result.validate = {
 				expr: result.validate,
@@ -705,10 +860,12 @@ export function projectAuthoringRead(args: {
 				}),
 				...(result.repeat_mode === "query_bound" && {
 					ids_query: record.parse(result.data_source).ids_query,
+					...(result.rowTiming === undefined ? {} : { when: result.rowTiming }),
 				}),
 			};
 			delete result.repeat_mode;
 			delete result.repeat_count;
+			delete result.rowTiming;
 			delete result.data_source;
 			// A held placement is an identity no author chooses: the read
 			// states it as `rows`, with `rowsKept` where it is held, from

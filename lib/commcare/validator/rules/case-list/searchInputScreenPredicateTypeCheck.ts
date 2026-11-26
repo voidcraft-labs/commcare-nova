@@ -61,8 +61,11 @@ export function searchInputScreenPredicateTypeCheck(
 				lookupTables ?? new Map(),
 			);
 		if (input.kind === "hidden") {
-			const ctx = context("search_input_hidden_value");
-			if (ctx !== undefined)
+			const ctx =
+				input.value === undefined
+					? undefined
+					: context("search_input_hidden_value");
+			if (ctx !== undefined && input.value !== undefined)
 				errors.push(
 					...screenFindings({
 						expression: input.value,

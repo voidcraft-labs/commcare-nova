@@ -16,13 +16,13 @@
  * granular kinds. Never a reducer side effect, so the batch replays to the
  * document it reached.
  *
- * A translation of a field's text holds the same protected parts as its
- * source (`translationUnits.ts::translationValueIntegrityIssue`), so one that
- * was current before the rewrite is rewritten the same way and kept current;
- * one already out of date is left for review as it is.
+ * A translation can introduce a read its source does not have. Rewrite the
+ * current translations of every affected field at its own site, retaining
+ * each translation's review state and its source's new fingerprint.
  */
 
 import { produce } from "immer";
+import type { Uuid } from "@/lib/domain";
 import {
 	collectTranslationUnits,
 	type Field,
@@ -41,6 +41,7 @@ import {
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { isExpression, type Term } from "@/lib/domain/expression/types";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import { authoredTranslationValueMode } from "@/lib/domain/translationUnits";
 import { caseOperationChangesForUpdate } from "./caseOperationMutations";
 import { deepEqual } from "./deepEqual";
 import { diffModuleConfigMutations } from "./diffDocsToMutations";
@@ -50,6 +51,10 @@ import type { BlueprintDoc, Mutation } from "./types";
 /** What a rewrite changes: an expression leaf, a prose reference part, or
  *  both. Each returns `undefined` to keep what it was given. */
 export interface SlotReadRewrite {
+	readonly mapWorkerColumn?: (
+		field: string,
+		uuid?: Uuid,
+	) => { field: string; uuid?: Uuid } | undefined;
 	readonly mapTerm?: (term: Term) => Term | undefined;
 	readonly mapProsePart?: (
 		part: Exclude<ProseAtomPart, { kind: "value" }>,
@@ -180,13 +185,13 @@ function formMutations(form: Form, rewrite: SlotReadRewrite): Mutation[] {
 	}
 	const mutations: Mutation[] = [];
 	const patch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
+	if (changedKeys.has("badge")) patch.badge = mapped.badge;
 	if (changedKeys.has("displayCondition"))
 		patch.displayCondition = mapped.displayCondition;
 	if (changedKeys.has("openCondition"))
 		patch.openCondition = mapped.openCondition;
 	if (changedKeys.has("closeCondition"))
 		patch.closeCondition = mapped.closeCondition;
-	if (changedKeys.has("connect")) patch.connect = mapped.connect;
 	if (Object.keys(patch).length > 0)
 		mutations.push({ kind: "updateForm", uuid: form.uuid, patch });
 	if (changedKeys.has("formLinks")) {
@@ -233,6 +238,23 @@ function formMutations(form: Form, rewrite: SlotReadRewrite): Mutation[] {
 function moduleMutations(module: Module, rewrite: SlotReadRewrite): Mutation[] {
 	const mapped = structuredClone(module);
 	let changed = false;
+	if (rewrite.mapWorkerColumn)
+		for (const column of mapped.caseListConfig?.columns ?? []) {
+			if (column.kind === "calculated" || !column.readFrom) continue;
+			const next = rewrite.mapWorkerColumn(
+				column.field,
+				column.workerPropertyUuid,
+			);
+			if (
+				!next ||
+				(column.field === next.field && column.workerPropertyUuid === next.uuid)
+			)
+				continue;
+			column.field = next.field;
+			if (next.uuid) column.workerPropertyUuid = next.uuid;
+			else delete column.workerPropertyUuid;
+			changed = true;
+		}
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		if (slot.kind !== "expression" && slot.kind !== "options-source") continue;
 		const path =
@@ -246,6 +268,12 @@ function moduleMutations(module: Module, rewrite: SlotReadRewrite): Mutation[] {
 	}
 	if (!changed) return [];
 	const mutations: Mutation[] = [];
+	if (!deepEqual(module.badge, mapped.badge))
+		mutations.push({
+			kind: "updateModule",
+			uuid: module.uuid,
+			patch: { badge: mapped.badge },
+		});
 	if (!deepEqual(module.displayCondition, mapped.displayCondition))
 		mutations.push({
 			kind: "updateModule",
@@ -270,7 +298,8 @@ export function slotReadRewriteMutations(
 ): Mutation[] {
 	const mutations: Mutation[] = [];
 	const proseMutations: Mutation[] = [];
-	for (const carrier of new Set(carriers)) {
+	const affected = new Set(carriers);
+	for (const carrier of affected) {
 		const field = doc.fields[carrier];
 		if (field !== undefined) {
 			const planned = fieldMutations(field, rewrite);
@@ -287,33 +316,54 @@ export function slotReadRewriteMutations(
 		if (module !== undefined)
 			mutations.push(...moduleMutations(module, rewrite));
 	}
-	if (proseMutations.length > 0)
+	if (doc.localization !== undefined)
 		mutations.push(
-			...currentTranslationRewrites(doc, proseMutations, translationRewrite),
+			...currentTranslationRewrites(
+				doc,
+				affected,
+				proseMutations,
+				translationRewrite,
+			),
 		);
 	return mutations;
 }
 
 /**
- * Each current translation of a text `proseMutations` rewrite, rewritten the
- * same way and carrying its source's new fingerprint.
+ * Each current translation of an affected field's text, rewritten the same
+ * way and carrying its source's new fingerprint. A translation with its own
+ * values can hold a read its source does not, so it is visited even when the
+ * source's text is unchanged.
  */
 function currentTranslationRewrites(
 	doc: BlueprintDoc,
+	affected: ReadonlySet<string>,
 	proseMutations: readonly Mutation[],
 	rewrite: SlotReadRewrite,
 ): Mutation[] {
 	const translations = doc.localization?.translations;
 	if (translations === undefined) return [];
+	if (
+		proseMutations.length === 0 &&
+		!Object.values(translations).some((entries) =>
+			Object.values(entries).some(
+				(entry) => entry.valueMode === "independent-values",
+			),
+		)
+	)
+		return [];
 	const before = new Map(
 		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
 	);
-	const rewritten = produce(doc, (draft) => {
-		applyMutations(draft, [...proseMutations]);
-	});
-	const after = new Map(
-		collectTranslationUnits(rewritten).map((unit) => [unit.id, unit]),
-	);
+	const after =
+		proseMutations.length === 0
+			? before
+			: new Map(
+					collectTranslationUnits(
+						produce(doc, (draft) => {
+							applyMutations(draft, [...proseMutations]);
+						}),
+					).map((unit) => [unit.id, unit]),
+				);
 	const out: Mutation[] = [];
 	for (const [language, entries] of Object.entries(translations)) {
 		for (const [unitId, entry] of Object.entries(entries)) {
@@ -323,23 +373,36 @@ function currentTranslationRewrites(
 				prior === undefined ||
 				next === undefined ||
 				typeof entry.value === "string" ||
-				translationSourceFingerprintsEqual(
-					prior.sourceFingerprint,
-					next.sourceFingerprint,
-				) ||
 				!translationSourceFingerprintsEqual(
 					entry.sourceFingerprint,
 					prior.sourceFingerprint,
 				)
 			)
 				continue;
+			const value = rewriteProseValue(entry.value, rewrite) as ProseTemplate;
+			const sourceChanged = !translationSourceFingerprintsEqual(
+				prior.sourceFingerprint,
+				next.sourceFingerprint,
+			);
+			// Only a question's or choice's translation can show values of its
+			// own; any other is rewritten exactly when its source is.
+			const ownValues =
+				(prior.owner.kind === "field" ||
+					prior.owner.kind === "select-option") &&
+				affected.has(prior.owner.fieldUuid);
+			if (!sourceChanged && (!ownValues || entry.value === value)) continue;
+			// A worker fallback expires on the next change to its unit's source.
+			const { valueMode: _previousMode, workerFallback, ...rest } = entry;
 			out.push({
 				kind: "setTranslation",
 				language: language as LanguageTag,
 				unitId: unitId as TranslationUnitId,
 				entry: {
-					...entry,
-					value: rewriteProseValue(entry.value, rewrite) as ProseTemplate,
+					...rest,
+					...(!sourceChanged &&
+						workerFallback !== undefined && { workerFallback }),
+					...authoredTranslationValueMode(next, value),
+					value,
 					sourceFingerprint: next.sourceFingerprint,
 				},
 			});

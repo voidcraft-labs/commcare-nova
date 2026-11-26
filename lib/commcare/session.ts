@@ -1,3 +1,15 @@
+import {
+	type BlueprintDoc,
+	type CaseListConfig,
+	caseListColumnRuns,
+	columnOnList,
+	effectiveCaseSearchConfig,
+	effectiveCaseTypes,
+} from "@/lib/domain";
+import { caseListColumnFieldKind } from "@/lib/domain/caseListOrder";
+import { detailTabSearchChildType } from "@/lib/domain/detailTabs";
+import { walkPropertyRefs } from "@/lib/domain/expression/walk";
+import { columnProperty } from "./suite/case-list/orderPlanOptions";
 /**
  * CommCare suite-entry derivation.
  *
@@ -42,6 +54,7 @@ import type {
 } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import type { EntryAssertion } from "./advancedEntryValues";
 import type { ModuleExpressionContexts } from "./expressionContext";
 import type { MatchedChild, ProjectedAfterSubmit } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
@@ -50,6 +63,7 @@ import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,
 } from "./suite/case-list/nodesetFilter";
+import { projectSearchResults } from "./suite/case-search/projectSearch";
 import type { FormActions, OpenSubCaseAction } from "./types";
 import {
 	USERCASE_DATUM_ID,
@@ -57,6 +71,7 @@ import {
 	USERCASE_MISSING_ASSERT_TEST,
 	USERCASE_MISSING_LOCALE_ID,
 } from "./usercaseWire";
+import { GROUP_OWNER_ASSERTION } from "./workerGroupsWire";
 import { w } from "./xpath/wire/builders";
 import {
 	caseDbInstance,
@@ -114,6 +129,7 @@ export interface SessionDatum {
 	 * the case list carries a tile layout that asks to persist.
 	 */
 	detailPersistent?: string;
+	detailInline?: string;
 	autoselect?: boolean;
 	/**
 	 * Present for CommCare's collection-valued `<instance-datum>` selector.
@@ -150,6 +166,12 @@ export interface SessionDatum {
 	 * gives it (`_create_casexml_advanced`'s `adjusted_datums`). Not rendered.
 	 */
 	advancedLoadTag?: string;
+	entryValueUuid?: import("@/lib/domain").Uuid;
+	/** Original identity of a computed supply copied from a parent entry. The
+	 * child replays the function without exposing it as a local form choice. */
+	inheritedEntryFunction?: import("@/lib/domain").Uuid;
+	autoConfiguration?: import("./types").AutoSelectCase;
+	assertions?: readonly EntryAssertion[];
 	/**
 	 * The assertion the entry carries for this datum, after `<session>`: an
 	 * advanced form's load of the worker's record is stopped at the door
@@ -158,7 +180,7 @@ export interface SessionDatum {
 	 * child menu's copy of a root datum carries none, since HQ asserts only
 	 * the form's own loads.
 	 */
-	assertion?: { readonly test: WireExpr; readonly localeId: string };
+	assertion?: EntryAssertion;
 	/**
 	 * For a function datum whose function reads other session values:
 	 * re-renders `function` with every `session/data/<id>` reference
@@ -193,7 +215,7 @@ export interface SessionDatum {
  * `EntriesHelper.add_remote_query_datums`).
  */
 export interface SessionQueryMetadata {
-	readonly storageInstance: "results:inline";
+	readonly storageInstance: `results:${string}`;
 	/** The module's case type, the query's first `<data key="case_type">`. */
 	readonly caseType: string;
 	/** Whether the worker answers anything. With no visible prompt the
@@ -331,7 +353,7 @@ export interface EntryDefinition {
 	 * carries no usercase is stopped at the door rather than submitting a write
 	 * that lands nowhere.
 	 */
-	assertions?: Array<{ test: WireExpr; localeId: string }>;
+	assertions?: EntryAssertion[];
 	stack?: { operations: StackOperation[] };
 }
 
@@ -352,6 +374,21 @@ export interface EntryDefinition {
  * matches CCHQ's canonical builder at
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
  */
+export function menuCaseTypePredicate(
+	primary: string,
+	additional: readonly string[],
+): WireExpr {
+	const types = [
+		primary,
+		...[...new Set(additional)].filter((type) => type !== primary).sort(),
+	];
+	return w.or(
+		...types.map((type) =>
+			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(type))),
+		),
+	);
+}
+
 export function caseLoadingNodeset(
 	caseType: string,
 	caseListFilter: Expression | undefined,
@@ -359,6 +396,7 @@ export function caseLoadingNodeset(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	datumId?: (ref: DatumRef) => string | undefined,
+	additionalCaseTypes: readonly string[] = [],
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
@@ -371,13 +409,21 @@ export function caseLoadingNodeset(
 		expressions({ slot: "excluded_owner_ids" }),
 		lookupNaming,
 	);
+	// HQ's build appends the list's one stored filter, which holds the list rule
+	// and the owner exclusion joined by `and` (`hqJson/caseList.ts`), as one
+	// predicate (`EntriesHelper.get_filter_xpath`).
+	const joined =
+		filter === undefined
+			? owners
+			: owners === undefined
+				? filter
+				: w.and(filter, owners);
 	return w.instance(caseDbInstance(), [
 		w.step("casedb"),
 		w.step("case", [
-			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(caseType))),
+			menuCaseTypePredicate(caseType, additionalCaseTypes),
 			w.eq(w.context([w.attr("status")]), w.str("open")),
-			...(filter === undefined ? [] : [filter]),
-			...(owners === undefined ? [] : [owners]),
+			...(joined === undefined ? [] : [joined]),
 		]),
 	]);
 }
@@ -388,6 +434,8 @@ export function inlineSearchNodeset(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	datumId?: (ref: DatumRef) => string | undefined,
+	instance: `results:${string}` = "results:inline",
+	additionalCaseTypes: readonly string[] = [],
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
@@ -395,10 +443,10 @@ export function inlineSearchNodeset(
 		lookupNaming,
 		datumId,
 	);
-	return w.instance(resultsInstance("results:inline"), [
+	return w.instance(resultsInstance(instance), [
 		w.step("results"),
 		w.step("case", [
-			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(caseType))),
+			menuCaseTypePredicate(caseType, additionalCaseTypes),
 			w.eq(w.context([w.attr("status")]), w.str("open")),
 			...(filter === undefined ? [] : [filter]),
 			EXCLUDE_RELATED_CASES_FILTER,
@@ -416,7 +464,88 @@ export const INLINE_SEARCH_RESULTS_SRC = "jr://instance/remote/results:inline";
  * `INCREASED_MAX_SEARCH_RESULTS` toggle raises it to 1,500 in a project space
  * that has it. Preview reads at most this many cases of a completed search.
  */
-export const SEARCH_RESULTS_CAP = 500;
+export { DEFAULT_SEARCH_RESULT_LIMIT as SEARCH_RESULTS_CAP } from "@/lib/domain/searchLimits";
+/** Every search-enabled menu for these types contributes its detail’s
+ * non-expression field paths (case_search/utils.py::get_app_context).
+ * A calculated reference to a parent does not ask HQ to deliver it. */
+export function searchDetailSupportingRecords(
+	doc: BlueprintDoc,
+	requestedTypes: readonly string[],
+) {
+	const childTypes = new Set<string>();
+	const paths = new Map<string, string[]>();
+	const types = effectiveCaseTypes(doc);
+	for (const menu of Object.values(doc.modules)) {
+		const config = menu.caseListConfig;
+		if (
+			!menu.caseType ||
+			!requestedTypes.includes(menu.caseType) ||
+			!config ||
+			!effectiveCaseSearchConfig(menu)
+		)
+			continue;
+
+		for (const tab of config.detailTabs ?? []) {
+			const type = detailTabSearchChildType(tab);
+			if (type) childTypes.add(type);
+		}
+		for (const column of config.columns) {
+			if (
+				column.kind === "calculated" ||
+				!column.via ||
+				!caseListColumnRuns(column, config)
+			)
+				continue;
+			const property = columnProperty(column, menu, types);
+			const long =
+				column.visibleInDetail !== false &&
+				caseListColumnFieldKind(column, false, property) === "property";
+			const short =
+				columnOnList(column) &&
+				(config.tile === undefined || column.visibleInList !== false) &&
+				caseListColumnFieldKind(
+					column,
+					column.visibleInList === false,
+					property,
+				) === "property";
+			if (long || short) {
+				const path = column.via.map((s) => s.identifier);
+				paths.set(JSON.stringify(path), path);
+			}
+		}
+	}
+	return {
+		relatedPaths: [...paths.values()],
+		relatedChildTypes: [...childTypes],
+	};
+}
+
+export function searchDetailRelatedPaths(
+	doc: BlueprintDoc,
+	requestedTypes: readonly string[],
+): string[][] {
+	return searchDetailSupportingRecords(doc, requestedTypes).relatedPaths;
+}
+
+/** HQ writes the actual hit's score over this property in every primary
+ * search result. The restore's property with that name is independent. */
+export function searchResultsReadScore(
+	config: CaseListConfig | undefined,
+): boolean {
+	const score = "commcare_search_score";
+	return (
+		config?.columns.some((column) => {
+			if (!caseListColumnRuns(column, config)) return false;
+			if (column.kind !== "calculated")
+				return column.via === undefined && column.field === score;
+			let found = false;
+			walkPropertyRefs(column.expression, (ref) => {
+				if (ref.via === undefined && ref.property === score) found = true;
+			});
+			return found;
+		}) ?? false
+	);
+}
 export const EXCLUDE_RELATED_CASES_FILTER = w.not(
 	w.eq(w.context([w.step("commcare_is_related_case")]), w.call("true")),
 );
@@ -432,14 +561,17 @@ function sessionRef(datumId: string): WireExpr {
  * every step in a parent-select chain, while the flat helper below keeps the
  * historical single-`case_id` default. */
 export function deriveCaseSelectionDatum(args: {
+	readonly projectSearchResults?: boolean;
 	readonly id: string;
 	readonly caseType: string;
 	readonly moduleIndex: number;
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseListFilter?: Expression;
 	readonly excludedOwnerIds?: Expression;
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly parentSelection?: SessionDatum;
 	/**
 	 * The one index name the case is chosen under `parentSelection` by: an
@@ -451,9 +583,10 @@ export function deriveCaseSelectionDatum(args: {
 	readonly parentIndex?: string;
 	readonly detailConfirm?: boolean;
 	readonly maxSelectValue?: number;
+	readonly autoSelect?: boolean;
 	/** Where the selectable cases come from: the device's casedb, or the
 	 *  results of the own search of a menu whose forms read the search. */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: "casedb" | `results:${string}`;
 	/** The owner frame algorithm needs identity and presence, not XPath. */
 	readonly entryMetadataOnly?: boolean;
 	/**
@@ -469,6 +602,7 @@ export function deriveCaseSelectionDatum(args: {
 		...(args.maxSelectValue !== undefined && {
 			maxSelectValue: args.maxSelectValue,
 		}),
+		...(args.autoSelect === true && { autoselect: true }),
 	};
 	/* Whether the datum names a details screen is entry metadata too: it is
 	 * whether a runtime confirms a case chosen for it
@@ -476,29 +610,38 @@ export function deriveCaseSelectionDatum(args: {
 	if (args.entryMetadataOnly)
 		return {
 			...selection,
-			...(args.detailConfirm === true && {
-				detailConfirm: `m${args.moduleIndex}_case_long`,
-			}),
+			...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
+			...(args.detailConfirm === true &&
+				!args.inlineDetailId && {
+					detailConfirm: `m${args.moduleIndex}_case_long`,
+				}),
 			projectionOnlySelection: true,
 		};
-	const inline = args.caseSource === "results:inline";
+	const inline =
+		args.caseSource !== undefined && args.caseSource !== "casedb"
+			? args.caseSource
+			: undefined;
 	const build = (datumId: typeof args.datumId): WireExpr =>
-		inline
-			? inlineSearchNodeset(
-					args.caseType,
-					args.caseListFilter,
-					args.expressions,
-					args.lookupNaming,
-					datumId,
-				)
-			: caseLoadingNodeset(
-					args.caseType,
-					args.caseListFilter,
-					args.excludedOwnerIds,
-					args.expressions,
-					args.lookupNaming,
-					datumId,
-				);
+		inline && args.projectSearchResults
+			? projectSearchResults(inline)
+			: inline
+				? inlineSearchNodeset(
+						args.caseType,
+						args.caseListFilter,
+						args.expressions,
+						args.lookupNaming,
+						datumId,
+						inline,
+						args.additionalCaseTypes,
+					)
+				: caseLoadingNodeset(
+						args.caseType,
+						args.caseListFilter,
+						args.excludedOwnerIds,
+						args.expressions,
+						args.lookupNaming,
+						datumId,
+					);
 	/* The nodeset depends on nothing but the ids its chosen cases resolve to,
 	 * so a render whose every resolved id is unchanged (each
 	 * `refreshDatumReferences` pass that renames nothing it reads) reuses the
@@ -576,9 +719,11 @@ export function deriveCaseSelectionDatum(args: {
 		renderNodeset,
 		value: w.context([w.self(), w.attr("case_id")]),
 		detailSelect: `m${args.moduleIndex}_case_short`,
-		...(args.detailConfirm === true && {
-			detailConfirm: `m${args.moduleIndex}_case_long`,
-		}),
+		...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
+		...(args.detailConfirm === true &&
+			!args.inlineDetailId && {
+				detailConfirm: `m${args.moduleIndex}_case_long`,
+			}),
 		...(args.persistentDetailId !== undefined && {
 			detailPersistent: args.persistentDetailId,
 		}),
@@ -666,6 +811,7 @@ export interface SessionDatumsInput {
 	 * selects from. Meaningful only on case-loading form types: a
 	 * registration or survey form emits no case-loading datum to narrow.
 	 */
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseListFilter?: Expression;
 	/**
 	 * Whether the form writes the worker's record. Read from the placement
@@ -690,6 +836,7 @@ export interface SessionDatumsInput {
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly tileGrouping?: CaseTileGrouping;
 	/** Pre-projected selectable datums. Nested child menus use this to carry
 	 * their parent-select chain and root-menu datum alignment. */
@@ -707,6 +854,8 @@ export interface SessionDatumsInput {
 
 /** One load of an advanced form, as its datum needs it. */
 export interface AdvancedLoadDatumInput {
+	/** Its function is resolved after the frame has aligned its datum IDs. */
+	readonly automatic?: "worker-record" | "other";
 	readonly tag: string;
 	readonly caseType: string;
 	/** Where the case is chosen from; absent for the worker's own record,
@@ -714,12 +863,15 @@ export interface AdvancedLoadDatumInput {
 	readonly list?: {
 		/** The list module's position, which names its details. */
 		readonly moduleIndex: number;
+		readonly additionalCaseTypes?: readonly string[];
 		readonly caseListFilter?: Expression;
 		readonly excludedOwnerIds?: Expression;
 		readonly expressions: ModuleExpressionContexts;
 		readonly lookupNaming?: LookupWireNaming;
 		readonly persistentDetailId?: string;
+		readonly inlineDetailId?: string;
 		/** Whether the entry shows the case's details before going on. */
+		readonly autoSelectSingle?: boolean;
 		readonly detailConfirm: boolean;
 		readonly entryMetadataOnly?: boolean;
 		readonly datumId?: (ref: DatumRef) => string | undefined;
@@ -748,6 +900,16 @@ export function deriveAdvancedLoadDatums(
 	const datums: SessionDatum[] = [];
 	for (const load of loads) {
 		const id = advancedLoadDatumId(load.tag);
+		if (load.automatic !== undefined) {
+			datums.push({
+				id,
+				function: w.str(""),
+				alignmentSuffix: "None",
+				advancedLoadTag: load.tag,
+				...(load.automatic === "worker-record" && { workerRecord: true }),
+			});
+			continue;
+		}
 		if (load.list === undefined) {
 			datums.push({
 				id,
@@ -774,6 +936,7 @@ export function deriveAdvancedLoadDatums(
 			expressions: load.list.expressions,
 			lookupNaming: load.list.lookupNaming,
 			persistentDetailId: load.list.persistentDetailId,
+			inlineDetailId: load.list.inlineDetailId,
 			detailConfirm: load.list.detailConfirm,
 			entryMetadataOnly: load.list.entryMetadataOnly,
 			datumId: load.list.datumId,
@@ -784,6 +947,7 @@ export function deriveAdvancedLoadDatums(
 				}),
 		});
 		datum.parentSelection = parent;
+		if (load.list.autoSelectSingle) datum.autoselect = true;
 		datum.advancedLoadTag = load.tag;
 		datums.push(datum);
 	}
@@ -816,6 +980,7 @@ export function deriveAdvancedCaseListDatum(args: {
 	readonly expressions: ModuleExpressionContexts;
 	readonly hasDetailScreen: boolean;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly entryMetadataOnly?: boolean;
 }): SessionDatum {
 	return deriveCaseSelectionDatum({
@@ -824,6 +989,7 @@ export function deriveAdvancedCaseListDatum(args: {
 		moduleIndex: args.moduleIndex,
 		expressions: args.expressions,
 		persistentDetailId: args.persistentDetailId,
+		inlineDetailId: args.inlineDetailId,
 		detailConfirm: args.hasDetailScreen,
 		entryMetadataOnly: args.entryMetadataOnly,
 	});
@@ -840,6 +1006,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		moduleIndex,
 		caseType,
 		caseListFilter,
+		additionalCaseTypes,
 		newCases,
 		excludedOwnerIds,
 		expressions,
@@ -861,6 +1028,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 					caseType,
 					moduleIndex,
 					caseListFilter,
+					additionalCaseTypes,
 					excludedOwnerIds,
 					expressions,
 					lookupNaming,
@@ -1077,7 +1245,10 @@ export function deriveFormLinkStack(
  */
 export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formXmlns: string;
+	readonly groupAssertion?: "basic" | "advanced";
 	readonly formIndex: number;
+	/** The form title is shared by every menu that lists the same form. */
+	readonly sourceMenuIndex?: number;
 	readonly postSubmit: PostSubmitDestination;
 	/**
 	 * The form's projected after-submit (`formLinkProjection.ts::
@@ -1136,7 +1307,7 @@ export function deriveEntryDefinition(
 		projectedSessionDatums,
 	} = args;
 	const commandId = `m${moduleIndex}-f${formIndex}`;
-	const localeId = `forms.m${moduleIndex}f${formIndex}`;
+	const localeId = `forms.m${args.sourceMenuIndex ?? moduleIndex}f${formIndex}`;
 
 	// Every datum field is already on `args`, so this forwards the whole
 	// object rather than re-listing ten arguments in order. That re-listing
@@ -1177,18 +1348,21 @@ export function deriveEntryDefinition(
 			children: frame.children.map(toStackChild),
 		})),
 	];
-	const entryAssertions = [
+	const usercaseAssertion: EntryAssertion = {
+		test: USERCASE_MISSING_ASSERT_TEST,
+		localeId: USERCASE_MISSING_LOCALE_ID,
+	};
+	const entryAssertions: EntryAssertion[] = [
+		...(args.groupAssertion === "basic" ? [GROUP_OWNER_ASSERTION] : []),
 		...(datums.some((datum) => datum.id === USERCASE_DATUM_ID)
-			? [
-					{
-						test: USERCASE_MISSING_ASSERT_TEST,
-						localeId: USERCASE_MISSING_LOCALE_ID,
-					},
-				]
+			? [usercaseAssertion]
 			: []),
-		...datums.flatMap((datum) =>
-			datum.assertion === undefined ? [] : [datum.assertion],
+		...datums.flatMap(
+			(datum) =>
+				datum.assertions ??
+				(datum.assertion === undefined ? [] : [datum.assertion]),
 		),
+		...(args.groupAssertion === "advanced" ? [GROUP_OWNER_ASSERTION] : []),
 	];
 	const assertions = entryAssertions.length > 0 ? entryAssertions : undefined;
 	const instances = entryInstances(
@@ -1346,12 +1520,14 @@ function buildDatumElement(
 		{
 			attributes: {
 				id: d.id,
+				...(d.autoselect === true && { autoselect: "true" }),
 				...(d.detailSelect === undefined
 					? {}
 					: { "detail-select": d.detailSelect }),
 				...(d.detailConfirm === undefined
 					? {}
 					: { "detail-confirm": d.detailConfirm }),
+				...(d.detailInline && { "detail-inline": d.detailInline }),
 				...(d.detailPersistent === undefined
 					? {}
 					: { "detail-persistent": d.detailPersistent }),
@@ -1541,7 +1717,15 @@ export function buildEntryElement(
 				{},
 				entry.assertions.map((assertion) =>
 					xel("assert", { xpath: { test: assertion.test } }, context, [
-						el("text", {}, [el("locale", { id: assertion.localeId })]),
+						el("text", {}, [
+							el(
+								"locale",
+								{ id: assertion.localeId },
+								assertion.arguments?.map((value) =>
+									el("argument", {}, [text(value)]),
+								),
+							),
+						]),
 					]),
 				),
 			),
@@ -1592,6 +1776,8 @@ export function toHqWorkflow(postSubmit: PostSubmitDestination): string {
 export function basicActionsWriteWorker(actions: FormActions): boolean {
 	const update = actions.usercase_update;
 	return (
-		update.condition.type === "always" && Object.keys(update.update).length > 0
+		(update.condition.type === "always" &&
+			Object.keys(update.update).length > 0) ||
+		Object.keys(actions.usercase_preload.preload).length > 0
 	);
 }

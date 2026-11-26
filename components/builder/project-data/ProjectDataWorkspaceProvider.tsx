@@ -27,17 +27,21 @@ import type {
 import {
 	createLookupRowAction,
 	deleteLookupRowAction,
-	getLookupTableAction,
+	getLookupTableWindowAction,
 	updateLookupRowAction,
 } from "@/lib/lookup/actions";
 import type {
 	LookupFailure,
+	LookupRowContent,
 	LookupRowValues,
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { usePreviewing, useProjectId } from "@/lib/session/hooks";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
+import type { LargeRowEdit } from "./largeRowModel";
+import { sendLookupGesture } from "./lookupGesture";
 import type { ProjectDataWorkspaceControllerBridgeProps } from "./ProjectDataWorkspaceLazyProvider";
 import {
 	type ConflictVerdict,
@@ -59,9 +63,12 @@ import {
 	retainedRowRecoveries,
 	rowWriteConflictVerdict,
 } from "./projectDataModel";
+import { contentOf, reconcileRichRow } from "./richRowModel";
 import {
 	type ProjectDataManifest,
 	type ProjectDataRead,
+	type ProjectRowsWindow,
+	type ProjectTableWindow,
 	useProjectDataManifest,
 	useProjectDataTable,
 } from "./useProjectData";
@@ -76,11 +83,13 @@ export type ProjectDataSelection =
 	| null;
 
 export interface ProjectDataRowEditSession {
+	readonly large?: LargeRowEdit;
 	readonly projectId: string;
 	readonly tableId: LookupTableId;
 	readonly tableName: string;
 	readonly rowId: LookupRowId;
 	readonly draft: RowDraft;
+	readonly content?: LookupRowContent;
 	readonly baseline: RowEditBaseline;
 }
 
@@ -94,6 +103,7 @@ export interface ProjectDataRowEditSession {
  * surface rendered from the last authorized snapshot after the table vanishes.
  */
 export interface ProjectDataRowConflict {
+	readonly large?: LargeRowEdit;
 	readonly projectId: string;
 	readonly tableId: LookupTableId;
 	readonly tableName: string;
@@ -101,6 +111,14 @@ export interface ProjectDataRowConflict {
 	readonly rowId: LookupRowId;
 	readonly draft: LookupRowValues;
 	readonly editableDraft: RowDraft;
+	readonly rich?: {
+		readonly original: LookupRowContent;
+		readonly draft: LookupRowContent;
+		readonly originalAttributes: LookupTableSnapshot["attributes"];
+		readonly originalColumns: readonly LookupTableSnapshot["columns"][number][];
+		readonly removed: boolean;
+		readonly current?: LookupRowContent;
+	};
 	readonly removed: readonly RemovedConflictCell[];
 	readonly verdict: Extract<
 		ConflictVerdict,
@@ -111,7 +129,9 @@ export interface ProjectDataRowConflict {
 	readonly tableUnavailable: boolean;
 	readonly resolution: {
 		readonly tableRevision: LookupTableSnapshot["tableRevision"];
+		readonly fragmented?: true;
 		readonly rowCount: number;
+		readonly attributes?: LookupTableSnapshot["attributes"];
 		readonly columns: LookupTableSnapshot["columns"];
 	} | null;
 }
@@ -126,7 +146,9 @@ export interface ProjectDataWorkspace {
 	readonly tableId: LookupTableId | undefined;
 	readonly manifest: ProjectDataRead<ProjectDataManifest>;
 	readonly reloadManifest: () => Promise<void>;
-	readonly table: ProjectDataRead<LookupTableSnapshot>;
+	readonly table: ProjectDataRead<ProjectTableWindow>;
+	readonly query: string;
+	readonly openRows: (window: ProjectRowsWindow) => void;
 	readonly reload: () => Promise<void>;
 	readonly selection: ProjectDataSelection;
 	readonly select: (selection: ProjectDataSelection) => void;
@@ -156,6 +178,7 @@ export interface ProjectDataWorkspace {
 		rowId: LookupRowId,
 		values: LookupRowValues,
 		baseline: RowEditBaseline,
+		content?: LookupRowContent,
 	) => Promise<ProjectDataWriteOutcome>;
 	readonly addRow: (
 		values: LookupRowValues,
@@ -264,6 +287,7 @@ function unavailableConflictFor(
 	const source = existing ?? edit;
 	if (source === undefined) return undefined;
 	return {
+		large: existing?.large ?? edit?.large,
 		projectId: source.projectId,
 		tableId: source.tableId,
 		tableName: source.tableName,
@@ -271,6 +295,15 @@ function unavailableConflictFor(
 		rowId: source.rowId,
 		draft: existing?.draft ?? edit?.baseline.row.values ?? {},
 		editableDraft: merged.draft,
+		rich:
+			existing?.rich ??
+			(edit && {
+				original: edit.content ?? contentOf(edit.baseline.row),
+				draft: edit.content ?? contentOf(edit.baseline.row),
+				originalColumns: edit.baseline.columns,
+				originalAttributes: edit.baseline.attributes,
+				removed: false,
+			}),
 		removed: [],
 		verdict: { kind: "gone" },
 		current: undefined,
@@ -309,7 +342,18 @@ function ActiveHost({
 	const projectId = useProjectId();
 	const previewing = usePreviewing();
 	const navigate = useNavigate();
-	const { state, reload } = useProjectDataTable(tableId);
+	const [requestedWindow, setRequestedWindow] = useState<{
+		projectId: string;
+		tableId: LookupTableId;
+		window: ProjectRowsWindow;
+	}>();
+	const window =
+		requestedWindow &&
+		requestedWindow.projectId === projectId &&
+		requestedWindow.tableId === tableId
+			? requestedWindow.window
+			: {};
+	const { state, reload } = useProjectDataTable(tableId, window);
 	const [scopedSelection, setScopedSelection] = useState<{
 		readonly projectId: string;
 		readonly tableId: LookupTableId;
@@ -369,6 +413,15 @@ function ActiveHost({
 			: null;
 	const snapshot = state.kind === "data" ? state.value : undefined;
 
+	const openRows = useCallback(
+		(window: ProjectRowsWindow) => {
+			if (projectId === undefined || tableId === undefined) return;
+			setScopedSelection(null);
+			setRequestedWindow({ projectId, tableId, window });
+		},
+		[projectId, tableId],
+	);
+	const query = window.query ?? "";
 	const select = useCallback(
 		(next: ProjectDataSelection) => {
 			if (next === null) {
@@ -376,9 +429,15 @@ function ActiveHost({
 				return;
 			}
 			if (projectId === undefined || tableId === undefined) return;
+			if (next.kind === "row")
+				setRequestedWindow({
+					projectId,
+					tableId,
+					window: { query, rowId: next.rowId },
+				});
 			setScopedSelection({ projectId, tableId, value: next });
 		},
-		[projectId, tableId],
+		[projectId, tableId, query],
 	);
 
 	const closeInspector = useCallback(() => {
@@ -471,6 +530,8 @@ function ActiveHost({
 			readonly attempted: "save" | "delete";
 			readonly rowId: LookupRowId;
 			readonly draft: LookupRowValues;
+			readonly content?: LookupRowContent;
+			readonly draftAttributes?: LookupTableSnapshot["attributes"];
 			readonly verdict: ProjectDataRowConflict["verdict"];
 			readonly fresh: LookupTableSnapshot;
 			readonly draftColumns?: readonly LookupTableSnapshot["columns"][number][];
@@ -479,6 +540,12 @@ function ActiveHost({
 				(column) => ({ ...column }),
 			);
 			const current = args.fresh.rows.find((row) => row.id === args.rowId);
+			const rich = reconcileRichRow(
+				args.content ?? {},
+				args.fresh.columns,
+				args.fresh.attributes ?? [],
+				current,
+			);
 			const displayColumns = draftColumns.map((column) => ({ ...column }));
 			for (const column of args.fresh.columns) {
 				if (!displayColumns.some((candidate) => candidate.id === column.id)) {
@@ -498,16 +565,29 @@ function ActiveHost({
 				rowId: args.rowId,
 				draft: args.draft,
 				editableDraft: reconciled.draft,
+				rich: {
+					original: args.content ?? {},
+					draft: rich.content,
+					removed: rich.removed,
+					originalColumns: draftColumns,
+					originalAttributes: args.draftAttributes,
+					current: current && contentOf(current),
+				},
 				removed: reconciled.removed,
 				verdict: args.verdict,
 				current: current?.values,
 				displayColumns,
 				tableUnavailable: false,
-				resolution: {
-					tableRevision: args.fresh.tableRevision,
-					rowCount: args.fresh.rowCount,
-					columns: args.fresh.columns.map((column) => ({ ...column })),
-				},
+				resolution:
+					args.fresh.rowCount === null
+						? null
+						: {
+								tableRevision: args.fresh.tableRevision,
+								...(current?.fragmented && { fragmented: true as const }),
+								rowCount: args.fresh.rowCount,
+								attributes: args.fresh.attributes,
+								columns: args.fresh.columns.map((column) => ({ ...column })),
+							},
 			};
 		},
 		[],
@@ -719,7 +799,7 @@ function ActiveHost({
 			(session) =>
 				session.projectId === projectId &&
 				session.tableId === tableId &&
-				!state.value.rows.some((row) => row.id === session.rowId),
+				state.value.missingRowId === session.rowId,
 		);
 		if (missing.length === 0) return;
 		setRowConflicts((current) => {
@@ -733,7 +813,21 @@ function ActiveHost({
 					session.baseline.columns,
 					state.value.columns,
 				);
+				const original = session.content ?? contentOf(session.baseline.row);
+				const rich = reconcileRichRow(
+					original,
+					state.value.columns,
+					state.value.attributes ?? [],
+				);
 				next.set(key, {
+					large: session.large,
+					rich: {
+						original,
+						draft: rich.content,
+						removed: rich.removed,
+						originalColumns: session.baseline.columns,
+						originalAttributes: session.baseline.attributes,
+					},
 					projectId,
 					tableId,
 					tableName: state.value.name,
@@ -748,11 +842,15 @@ function ActiveHost({
 						...column,
 					})),
 					tableUnavailable: false,
-					resolution: {
-						tableRevision: state.value.tableRevision,
-						rowCount: state.value.rowCount,
-						columns: state.value.columns.map((column) => ({ ...column })),
-					},
+					resolution:
+						state.value.rowCount === null
+							? null
+							: {
+									tableRevision: state.value.tableRevision,
+									rowCount: state.value.rowCount,
+									attributes: state.value.attributes,
+									columns: state.value.columns.map((column) => ({ ...column })),
+								},
 				});
 				changed = true;
 			}
@@ -787,6 +885,11 @@ function ActiveHost({
 	const openRetainedRow = useCallback(
 		(retained: RetainedRowRecovery) => {
 			if (projectId === undefined || retained.projectId !== projectId) return;
+			setRequestedWindow({
+				projectId,
+				tableId: retained.tableId,
+				window: { rowId: retained.rowId },
+			});
 			setScopedSelection({
 				projectId,
 				tableId: retained.tableId,
@@ -822,25 +925,37 @@ function ActiveHost({
 			rowId: LookupRowId,
 			draft: LookupRowValues,
 			baseline: RowEditBaseline,
+			content?: LookupRowContent,
 		): Promise<ProjectDataWriteOutcome> => {
 			if (projectId === undefined || tableId === undefined) {
 				return unavailableOutcome();
 			}
-			const fresh = await getLookupTableAction(projectId, tableId);
+			const fresh = await getLookupTableWindowAction(projectId, tableId, {
+				rowId,
+			});
 			if (!fresh.success) return { kind: "failed", failure: fresh };
 			const current = fresh.value.rows.find((row) => row.id === rowId);
 			const verdict = rowWriteConflictVerdict({
 				baseline: baseline.row.values,
+				baselineContent: baseline.row,
 				current,
-				columnsChanged: !columnsEqual(baseline.columns, fresh.value.columns),
+				columnsChanged:
+					!columnsEqual(baseline.columns, fresh.value.columns) ||
+					canonicalJsonText(baseline.attributes ?? []) !==
+						canonicalJsonText(fresh.value.attributes ?? []),
 			});
 			if (verdict.kind === "retry") {
-				const retried = await updateLookupRowAction(projectId, {
-					tableId,
-					expectedTableRevision: fresh.value.tableRevision,
-					rowId,
-					values: draft,
-				});
+				const retried = await sendLookupGesture(
+					updateLookupRowAction,
+					projectId,
+					{
+						tableId,
+						expectedTableRevision: fresh.value.tableRevision,
+						rowId,
+						values: draft,
+						content,
+					},
+				);
 				if (retried.success) {
 					clearSavedRowState(projectId, tableId, rowId);
 					await reload();
@@ -849,7 +964,9 @@ function ActiveHost({
 				if (retried.code !== "conflict") {
 					return failedWrite(retried);
 				}
-				const after = await getLookupTableAction(projectId, tableId);
+				const after = await getLookupTableWindowAction(projectId, tableId, {
+					rowId,
+				});
 				if (!after.success) return { kind: "failed", failure: after };
 				const afterRow = after.value.rows.find((row) => row.id === rowId);
 				return {
@@ -864,6 +981,8 @@ function ActiveHost({
 								: { kind: "ask", reason: "row-changed" },
 						fresh: after.value,
 						draftColumns: baseline.columns,
+						content,
+						draftAttributes: baseline.attributes,
 					}),
 				};
 			}
@@ -876,6 +995,8 @@ function ActiveHost({
 					verdict,
 					fresh: fresh.value,
 					draftColumns: baseline.columns,
+					content,
+					draftAttributes: baseline.attributes,
 				}),
 			};
 		},
@@ -894,15 +1015,17 @@ function ActiveHost({
 			rowId: LookupRowId,
 			values: LookupRowValues,
 			baseline: RowEditBaseline,
+			content?: LookupRowContent,
 		): Promise<ProjectDataWriteOutcome> => {
 			if (projectId === undefined || tableId === undefined) {
 				return unavailableOutcome();
 			}
-			const result = await updateLookupRowAction(projectId, {
+			const result = await sendLookupGesture(updateLookupRowAction, projectId, {
 				tableId,
 				expectedTableRevision: baseline.tableRevision,
 				rowId,
 				values,
+				content,
 			});
 			if (result.success) {
 				clearSavedRowState(projectId, tableId, rowId);
@@ -912,7 +1035,7 @@ function ActiveHost({
 			if (result.code !== "conflict") {
 				return failedWrite(result);
 			}
-			return resolveRowConflict(rowId, values, baseline);
+			return resolveRowConflict(rowId, values, baseline, content);
 		},
 		[
 			projectId,
@@ -926,12 +1049,21 @@ function ActiveHost({
 
 	const addRow = useCallback(
 		async (values: LookupRowValues): Promise<ProjectDataWriteOutcome> => {
-			if (projectId === undefined || tableId === undefined || !snapshot) {
+			if (
+				projectId === undefined ||
+				tableId === undefined ||
+				snapshot?.rowCount == null
+			) {
 				return unavailableOutcome();
 			}
-			const result = await createLookupRowAction(projectId, {
+			const result = await sendLookupGesture(createLookupRowAction, projectId, {
 				tableId,
 				expectedTableRevision: snapshot.tableRevision,
+				content: reconcileRichRow(
+					{},
+					snapshot.columns,
+					snapshot.attributes ?? [],
+				).content,
 				toIndex: snapshot.rowCount,
 				values,
 			});
@@ -942,18 +1074,28 @@ function ActiveHost({
 				if (result.code !== "conflict") {
 					return failedWrite(result);
 				}
-				const fresh = await getLookupTableAction(projectId, tableId);
+				const fresh = await getLookupTableWindowAction(projectId, tableId);
 				if (!fresh.success) return { kind: "failed", failure: fresh };
-				const retried = await createLookupRowAction(projectId, {
-					tableId,
-					expectedTableRevision: fresh.value.tableRevision,
-					toIndex: fresh.value.rowCount,
-					values,
-				});
+				if (fresh.value.rowCount === null) return unavailableOutcome();
+				const retried = await sendLookupGesture(
+					createLookupRowAction,
+					projectId,
+					{
+						tableId,
+						expectedTableRevision: fresh.value.tableRevision,
+						toIndex: fresh.value.rowCount,
+						content: reconcileRichRow(
+							{},
+							fresh.value.columns,
+							fresh.value.attributes ?? [],
+						).content,
+						values,
+					},
+				);
 				if (!retried.success) return failedWrite(retried);
 				rowId = retried.value.rowId;
 			}
-			await reload();
+			setRequestedWindow({ projectId, tableId, window: { rowId } });
 			setScopedSelection({
 				projectId,
 				tableId,
@@ -961,7 +1103,7 @@ function ActiveHost({
 			});
 			return { kind: "saved", rowId };
 		},
-		[projectId, tableId, snapshot, reload, failedWrite],
+		[projectId, tableId, snapshot, failedWrite],
 	);
 
 	const deleteRow = useCallback(
@@ -972,7 +1114,7 @@ function ActiveHost({
 			if (projectId === undefined || tableId === undefined) {
 				return unavailableOutcome();
 			}
-			const result = await deleteLookupRowAction(projectId, {
+			const result = await sendLookupGesture(deleteLookupRowAction, projectId, {
 				tableId,
 				expectedTableRevision: baseline.tableRevision,
 				rowId,
@@ -986,13 +1128,19 @@ function ActiveHost({
 			if (result.code !== "conflict") {
 				return failedWrite(result);
 			}
-			const fresh = await getLookupTableAction(projectId, tableId);
+			const fresh = await getLookupTableWindowAction(projectId, tableId, {
+				rowId,
+			});
 			if (!fresh.success) return { kind: "failed", failure: fresh };
 			const current = fresh.value.rows.find((row) => row.id === rowId);
 			const verdict = rowWriteConflictVerdict({
 				baseline: baseline.row.values,
+				baselineContent: baseline.row,
 				current,
-				columnsChanged: !columnsEqual(baseline.columns, fresh.value.columns),
+				columnsChanged:
+					!columnsEqual(baseline.columns, fresh.value.columns) ||
+					canonicalJsonText(baseline.attributes ?? []) !==
+						canonicalJsonText(fresh.value.attributes ?? []),
 			});
 			if (verdict.kind === "gone") {
 				clearSavedRowState(projectId, tableId, rowId);
@@ -1001,11 +1149,15 @@ function ActiveHost({
 				return { kind: "saved", rowId };
 			}
 			if (verdict.kind === "retry") {
-				const retried = await deleteLookupRowAction(projectId, {
-					tableId,
-					expectedTableRevision: fresh.value.tableRevision,
-					rowId,
-				});
+				const retried = await sendLookupGesture(
+					deleteLookupRowAction,
+					projectId,
+					{
+						tableId,
+						expectedTableRevision: fresh.value.tableRevision,
+						rowId,
+					},
+				);
 				if (retried.success) {
 					clearSavedRowState(projectId, tableId, rowId);
 					setScopedSelection(null);
@@ -1015,7 +1167,9 @@ function ActiveHost({
 				if (retried.code !== "conflict") {
 					return failedWrite(retried);
 				}
-				const after = await getLookupTableAction(projectId, tableId);
+				const after = await getLookupTableWindowAction(projectId, tableId, {
+					rowId,
+				});
 				if (!after.success) return { kind: "failed", failure: after };
 				const afterRow = after.value.rows.find((row) => row.id === rowId);
 				if (afterRow === undefined) {
@@ -1033,6 +1187,8 @@ function ActiveHost({
 						verdict: { kind: "ask", reason: "row-changed" },
 						fresh: after.value,
 						draftColumns: baseline.columns,
+						content: contentOf(baseline.row),
+						draftAttributes: baseline.attributes,
 					}),
 				};
 			}
@@ -1045,6 +1201,8 @@ function ActiveHost({
 					verdict,
 					fresh: fresh.value,
 					draftColumns: baseline.columns,
+					content: contentOf(baseline.row),
+					draftAttributes: baseline.attributes,
 				}),
 			};
 		},
@@ -1070,15 +1228,15 @@ function ActiveHost({
 			) {
 				return unavailableOutcome();
 			}
-			const result = await updateLookupRowAction(
-				projectId,
-				conflictOverwriteInput({
+			const result = await sendLookupGesture(updateLookupRowAction, projectId, {
+				...conflictOverwriteInput({
 					tableId: conflict.tableId,
 					rowId: conflict.rowId,
 					draft: values,
 					resolution: conflict.resolution,
 				}),
-			);
+				content: conflict.rich?.draft,
+			});
 			if (result.success) {
 				clearSavedRowState(projectId, conflict.tableId, conflict.rowId);
 				setScopedSelection({
@@ -1092,7 +1250,11 @@ function ActiveHost({
 			if (result.code !== "conflict") {
 				return failedWrite(result);
 			}
-			const fresh = await getLookupTableAction(projectId, conflict.tableId);
+			const fresh = await getLookupTableWindowAction(
+				projectId,
+				conflict.tableId,
+				{ rowId: conflict.rowId },
+			);
 			if (!fresh.success) return { kind: "failed", failure: fresh };
 			const next = conflictFromSnapshot({
 				attempted: "save",
@@ -1103,6 +1265,8 @@ function ActiveHost({
 					: { kind: "gone" },
 				fresh: fresh.value,
 				draftColumns: conflict.resolution.columns,
+				content: conflict.rich?.draft,
+				draftAttributes: conflict.resolution.attributes,
 			});
 			setRowConflict(next);
 			return { kind: "conflict", conflict: next };
@@ -1129,17 +1293,21 @@ function ActiveHost({
 			) {
 				return unavailableOutcome();
 			}
-			const result = await createLookupRowAction(
-				projectId,
-				conflictSaveAsNewInput({
+			const result = await sendLookupGesture(createLookupRowAction, projectId, {
+				...conflictSaveAsNewInput({
 					tableId: conflict.tableId,
 					draft: values,
 					resolution: conflict.resolution,
 				}),
-			);
+				content: conflict.rich?.draft,
+			});
 			if (result.success) {
 				clearSavedRowState(projectId, conflict.tableId, conflict.rowId);
-				await reload();
+				setRequestedWindow({
+					projectId,
+					tableId: conflict.tableId,
+					window: { rowId: result.value.rowId },
+				});
 				setScopedSelection({
 					projectId,
 					tableId: conflict.tableId,
@@ -1150,7 +1318,11 @@ function ActiveHost({
 			if (result.code !== "conflict") {
 				return failedWrite(result);
 			}
-			const fresh = await getLookupTableAction(projectId, conflict.tableId);
+			const fresh = await getLookupTableWindowAction(
+				projectId,
+				conflict.tableId,
+				{ rowId: conflict.rowId },
+			);
 			if (!fresh.success) return { kind: "failed", failure: fresh };
 			const next = conflictFromSnapshot({
 				attempted: "save",
@@ -1159,13 +1331,14 @@ function ActiveHost({
 				verdict: { kind: "gone" },
 				fresh: fresh.value,
 				draftColumns: conflict.resolution.columns,
+				content: conflict.rich?.draft,
+				draftAttributes: conflict.resolution.attributes,
 			});
 			setRowConflict(next);
 			return { kind: "conflict", conflict: next };
 		},
 		[
 			projectId,
-			reload,
 			clearSavedRowState,
 			conflictFromSnapshot,
 			setRowConflict,
@@ -1184,7 +1357,8 @@ function ActiveHost({
 			) {
 				return unavailableOutcome();
 			}
-			const result = await deleteLookupRowAction(
+			const result = await sendLookupGesture(
+				deleteLookupRowAction,
 				projectId,
 				conflictDeleteInput({
 					tableId: conflict.tableId,
@@ -1201,7 +1375,11 @@ function ActiveHost({
 			if (result.code !== "conflict") {
 				return failedWrite(result);
 			}
-			const fresh = await getLookupTableAction(projectId, conflict.tableId);
+			const fresh = await getLookupTableWindowAction(
+				projectId,
+				conflict.tableId,
+				{ rowId: conflict.rowId },
+			);
 			if (!fresh.success) return { kind: "failed", failure: fresh };
 			const current = fresh.value.rows.find((row) => row.id === conflict.rowId);
 			if (current === undefined) {
@@ -1238,6 +1416,8 @@ function ActiveHost({
 			manifest,
 			reloadManifest,
 			table: state,
+			query,
+			openRows,
 			reload,
 			selection,
 			select,
@@ -1266,6 +1446,8 @@ function ActiveHost({
 			manifest,
 			reloadManifest,
 			state,
+			query,
+			openRows,
 			reload,
 			selection,
 			select,

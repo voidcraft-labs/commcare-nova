@@ -1,6 +1,7 @@
 /**
- * What a bring-in's review carries about project data, and the answers a
- * person gives to a lookup table whose tag meets a Project table, with their
+ * What a bring-in's review carries about project data, the answers a person
+ * gives to a lookup table whose tag meets a Project table, and the answer to
+ * an owner rule the places CommCare HQ holds cannot satisfy, with their
  * schemas.
  *
  * Client-safe: the run-time imports are `zod` and the browser-safe canonical
@@ -10,7 +11,15 @@
 import { z } from "zod";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
+import {
+	type LookupSourceFacts,
+	lookupSourceFactsSchema,
+} from "@/lib/lookup/source";
 import type { LookupReferencingAppSummary } from "@/lib/lookup/types";
+import type {
+	OwnerRuleConflict,
+	ReviewOwnerRule,
+} from "@/lib/publish/ownerRuleCopy";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 /** The two answers to a tag that meets a Project table. */
@@ -30,19 +39,19 @@ export type LookupChoiceOffer =
 	| {
 			readonly offered: false;
 			readonly why:
+				| "needs-source-evidence"
 				| "needs-admin"
 				| "managed-elsewhere"
 				| "app-reads-a-missing-column"
-				| "fails-a-project-space-rule"
-				| "too-many-columns";
+				| "fails-a-project-space-rule";
 			/** `managed-elsewhere`: the other project space. `app-reads-a-missing-column`: the first
-			 *  such field, in CommCare HQ's order. `too-many-columns`: the columns the table would
-			 *  hold, with a thousands separator. Null for the other two. */
+			 *  such field, in CommCare HQ's order. Null for the others. */
 			readonly name: string | null;
 	  };
 
 /** JSON, equal for equal CommCare HQ content and equal Project revisions. */
 export interface ReviewTable {
+	readonly source?: LookupSourceFacts;
 	readonly tag: string;
 	/** `LookupTableStanding["kind"]`. */
 	readonly standing: "new" | "same-managed" | "same-equal" | "choice";
@@ -78,11 +87,11 @@ export const lookupChoiceOfferSchema: z.ZodType<LookupChoiceOffer> =
 		z.strictObject({
 			offered: z.literal(false),
 			why: z.enum([
+				"needs-source-evidence",
 				"needs-admin",
 				"managed-elsewhere",
 				"app-reads-a-missing-column",
 				"fails-a-project-space-rule",
-				"too-many-columns",
 			]),
 			name: z.string().nullable(),
 		}),
@@ -90,6 +99,7 @@ export const lookupChoiceOfferSchema: z.ZodType<LookupChoiceOffer> =
 
 export const reviewTableSchema: z.ZodType<ReviewTable> = z.strictObject({
 	tag: z.string().min(1),
+	source: lookupSourceFactsSchema.optional(),
 	standing: z.enum(["new", "same-managed", "same-equal", "choice"]),
 	hqDigest: z.string().regex(/^[0-9a-f]{64}$/),
 	projectTable: z
@@ -157,6 +167,117 @@ export function keptTableChoices(
 		} else {
 			dropped = true;
 		}
+	}
+	return { choices: kept, dropped };
+}
+
+// ---------------------------------------------------------------------------
+// Owner rules
+// ---------------------------------------------------------------------------
+
+/**
+ * The one explicit owner rule a review offers for a rule that gives a case
+ * to the place at a level and that the places cannot satisfy: the worker who
+ * fills in the form owns the case, as a case change with no owner rule gives
+ * it. The other remedy is CommCare HQ's: change the places there and read
+ * the app again. Nova never picks a place for the person.
+ */
+export const OWNER_RULE_CHOICES = ["worker"] as const;
+export type OwnerRuleChoice = (typeof OWNER_RULE_CHOICES)[number];
+
+export type {
+	OwnerRuleConflict,
+	ReviewOwnerRule,
+} from "@/lib/publish/ownerRuleCopy";
+
+const ownerRuleConflictSchema: z.ZodType<OwnerRuleConflict> =
+	z.discriminatedUnion("kind", [
+		z.strictObject({
+			kind: z.literal("two-places"),
+			source: z.string(),
+			places: z.tuple([z.string(), z.string()]).readonly(),
+		}),
+		z.strictObject({ kind: z.literal("no-place"), source: z.string() }),
+		z.strictObject({ kind: z.literal("level-owns-no-cases") }),
+		z.strictObject({ kind: z.literal("no-owning-level-above") }),
+		z.strictObject({
+			kind: z.literal("outside-address-book"),
+			place: z.string(),
+			persona: z.string(),
+		}),
+	]);
+
+export const reviewOwnerRuleSchema: z.ZodType<ReviewOwnerRule> = z.strictObject(
+	{
+		level: z.string(),
+		levelName: z.string(),
+		conflict: ownerRuleConflictSchema,
+		forms: z.array(z.string()).readonly(),
+	},
+);
+
+/** The answers to owner rules, by level code. */
+export const ownerRuleChoicesSchema = z.record(
+	z.string(),
+	z.enum(OWNER_RULE_CHOICES),
+);
+
+/**
+ * The person's owner-rule answers against the review's questions: every
+ * question answered, and no answer for a level the review does not ask about.
+ * Pure.
+ */
+export function resolveOwnerRuleChoices(
+	questions: readonly ReviewOwnerRule[],
+	answers: Readonly<Record<string, string>>,
+):
+	| { readonly ok: true; readonly levels: readonly string[] }
+	| {
+			readonly ok: false;
+			/** Levels the review asks about that have no answer. */
+			readonly missing: readonly string[];
+			/** Answers for a level the review does not ask about, or that it does not offer. */
+			readonly notOffered: readonly string[];
+	  } {
+	const asked = new Set(questions.map((question) => question.level));
+	const offered = new Set<string>(OWNER_RULE_CHOICES);
+	const notOffered = Object.entries(answers)
+		.filter(([level, answer]) => !asked.has(level) || !offered.has(answer))
+		.map(([level]) => level);
+	const missing = questions
+		.map((question) => question.level)
+		.filter((level) => !Object.hasOwn(answers, level));
+	if (notOffered.length > 0 || missing.length > 0)
+		return { ok: false, missing, notOffered };
+	return { ok: true, levels: questions.map((question) => question.level) };
+}
+
+/**
+ * The owner-rule answers that still hold for a review that came back: an
+ * answer is kept only where `now` asks the very question, as canonical JSON,
+ * it was given against in `before`. A person answers a conflict, never a
+ * level's code alone.
+ */
+export function keptOwnerRuleChoices(
+	before: readonly ReviewOwnerRule[],
+	now: readonly ReviewOwnerRule[],
+	choices: Readonly<Record<string, OwnerRuleChoice>>,
+): {
+	readonly choices: Readonly<Record<string, OwnerRuleChoice>>;
+	readonly dropped: boolean;
+} {
+	const kept = recordFromEntries<OwnerRuleChoice>([]);
+	let dropped = false;
+	for (const [level, choice] of Object.entries(choices)) {
+		const was = before.find((question) => question.level === level);
+		const is = now.find((question) => question.level === level);
+		if (
+			was !== undefined &&
+			is !== undefined &&
+			canonicalJsonText(was) === canonicalJsonText(is)
+		)
+			kept[level] = choice;
+		else dropped = true;
 	}
 	return { choices: kept, dropped };
 }

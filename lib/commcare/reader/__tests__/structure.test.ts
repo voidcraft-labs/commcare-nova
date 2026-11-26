@@ -2,7 +2,7 @@
  * Menus and forms at their own keys, over hand-built apps on CommCare HQ's
  * own shell.
  *
- * It would catch a mirror menu read key by key into dozens of findings; two
+ * It would catch a supported source-backed menu being rejected before its form references are read; two
  * forms of one `xmlns` both minted; a report menu's and a shadow form's
  * findings not both in one account; a menu with no id or a form whose
  * `xmlns` is blank minted; a form named `instance('casedb') practice`
@@ -193,7 +193,7 @@ describe("readStructure", () => {
 		]);
 	});
 
-	it("gives a mirror menu one finding at the menu, whatever it holds", async () => {
+	it("claims a version 2 menu and indexes it for reading its own settings and source forms", async () => {
 		const { ctx, closed } = await readMenus([
 			menu("m-source", "Source"),
 			{
@@ -204,20 +204,14 @@ describe("readStructure", () => {
 				forms: [],
 				shadow_module_version: 2,
 				source_module_id: "m-source",
-				case_details: { short: { columns: [{ field: "name" }] } },
-				put_in_root: true,
-				excluded_form_ids: ["x"],
-				planted: 1,
 			},
 		]);
-		expect(closed.findings).toMatchObject([
-			{
-				code: `${M}/shadowmodule-shadow-module-version-2`,
-				place: { kind: "menu", menu: 1, name: "Mirror" },
-			},
-		]);
+		expect(entriesAt(closed, "/modules/1")).toContain(
+			`${M}/shadowmodule-shadow-module-version-2`,
+		);
 		expect(ctx.draft.modules.map((draft) => draft.uniqueId)).toEqual([
 			"m-source",
+			"m-mirror",
 		]);
 	});
 
@@ -264,7 +258,7 @@ describe("readStructure", () => {
 		expect(ctx.draft.modules.flatMap((draft) => draft.forms)).toEqual([]);
 	});
 
-	it("puts a report menu's and a shadow form's findings in one account", async () => {
+	it("reports both an ineligible shared parent and a report menu", async () => {
 		const { closed } = await readMenus([
 			menu("m-one", "One", [
 				form("r1", "http://openrosa.org/formdesigner/one", "One"),
@@ -287,7 +281,7 @@ describe("readStructure", () => {
 		]);
 		expect(closed.findings).toMatchObject([
 			{
-				code: `${F}/shadowform`,
+				code: `${F}/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform`,
 				place: { kind: "form", menu: 0, form: 1 },
 			},
 			{

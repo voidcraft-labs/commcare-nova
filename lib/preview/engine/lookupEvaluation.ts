@@ -1,3 +1,5 @@
+import { lookupChoiceBaseFindings } from "@/lib/commcare/lookup/selectSourceRows";
+
 // lib/preview/engine/lookupEvaluation.ts
 //
 // Lookup-backed choices over one loaded fixture snapshot. A choice list
@@ -14,15 +16,18 @@
 // stored-empty cell both read as empty text (`lookupFixtureCellText`, the
 // wire emits every defined column, an empty element for both).
 
-import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
+import {
+	lookupReadText,
+	type ResolvedLookupRead,
+	resolveLookupRead,
+} from "@/lib/commcare/lookup/read";
 import { formExpressionSlotValues } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
-	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
 	Uuid,
@@ -33,11 +38,13 @@ import {
 	mapExpressionAst,
 } from "@/lib/domain/expression/mapAst";
 import type { Expression } from "@/lib/domain/expression/types";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
+import type { LookupRead } from "@/lib/domain/lookupRead";
 import type {
-	LookupColumn,
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
+import { javaTrim } from "../xpath/javaString";
 import { isXPathNodeSet, type XPathRuntimeValue } from "../xpath/runtimeValues";
 import { PreviewDataRefusal } from "./dataRefusal";
 import type { LookupChoice } from "./types";
@@ -98,10 +105,10 @@ function requireTable(
 
 function requireColumn(
 	table: LookupTableDefinition,
-	columnId: LookupColumnId,
+	columnId: LookupRead,
 	where: string,
-): LookupColumn {
-	const column = table.columns.find((c) => c.id === columnId);
+): ResolvedLookupRead {
+	const column = resolveLookupRead(table, columnId);
 	if (column !== undefined) return column;
 	throw new Error(
 		typeCheckerBypassMessage({
@@ -127,7 +134,7 @@ function requireColumn(
 
 interface LookupIdentityCollector {
 	covered: boolean;
-	check: (tableId: LookupTableId, columnId?: LookupColumnId) => void;
+	check: (tableId: LookupTableId, columnId?: LookupRead) => void;
 }
 
 function identityCollector(
@@ -137,14 +144,11 @@ function identityCollector(
 		covered: true,
 		check: (tableId, columnId) => {
 			const table = data?.tablesById.get(tableId);
-			if (table === undefined) {
+			if (table === undefined || !data?.rowsByTable.has(tableId)) {
 				collector.covered = false;
 				return;
 			}
-			if (
-				columnId !== undefined &&
-				!table.columns.some((column) => column.id === columnId)
-			) {
+			if (columnId !== undefined && !resolveLookupRead(table, columnId)) {
 				collector.covered = false;
 			}
 		},
@@ -206,10 +210,34 @@ export function formLogicLookupsCovered(
 	formUuid: Uuid,
 	data: PreviewLookupData | undefined,
 ): boolean {
-	return formExpressionSlotValues(doc, formUuid).every(
-		({ ref, expression }) =>
-			ref.slot === "lookup_options_source" ||
-			expressionLookupsCovered(expression, data),
+	const collector = identityCollector(data);
+	for (const { source } of entrySelectionSettings(doc.forms[formUuid]) ?? []) {
+		if (source.kind === "table") collector.check(source.table, source.column);
+	}
+	return (
+		collector.covered &&
+		[
+			...formExpressionSlotValues(doc, formUuid),
+			...(doc.forms[formUuid]?.shadowOf
+				? formExpressionSlotValues(
+						doc,
+						doc.forms[formUuid].shadowOf.form,
+					).filter(
+						({ ref, path }) =>
+							ref.entity === "field" ||
+							[
+								"openCondition",
+								"closeCondition",
+								"caseOperations",
+								"connect",
+							].includes(String(path[0])),
+					)
+				: []),
+		].every(
+			({ ref, expression }) =>
+				ref.slot === "lookup_options_source" ||
+				expressionLookupsCovered(expression, data),
+		)
 	);
 }
 
@@ -220,7 +248,7 @@ export function formLogicLookupsCovered(
 export function lookupOptionsSourceCovered(
 	source: LookupOptionsSource,
 	data: PreviewLookupData | undefined,
-	sortColumnId?: LookupColumnId,
+	sortColumnId?: LookupRead,
 ): boolean {
 	const collector = identityCollector(data);
 	collector.check(source.tableId, source.valueColumnId);
@@ -230,6 +258,22 @@ export function lookupOptionsSourceCovered(
 		mapExpressionAst(source.filter, coverageHooks(collector));
 	}
 	return collector.covered;
+}
+
+/** A choice's text as a device reads it. Core builds an itemset's choices
+ * from the restored fixture, whose element text `TreeElementParser.parse`
+ * trims and whose attributes it keeps as written: a cell or a repeated value
+ * reads trimmed, a row detail or a value detail as stored. */
+function deviceChoiceText(
+	row: Parameters<typeof lookupReadText>[0],
+	read: LookupRead,
+	column: Parameters<typeof lookupReadText>[2],
+): string {
+	const text = lookupReadText(row, read, column);
+	return typeof read !== "string" &&
+		("attributeId" in read || read.propertyId !== undefined)
+		? text
+		: javaTrim(text);
 }
 
 /**
@@ -243,17 +287,21 @@ export function lookupOptionsSourceCovered(
  * rows, which is the order the fixture instance holds them in.
  *
  * Without `sortColumnId` the choices keep the nodeset's order, the table's
- * row order, as a form select's do. With it they are ordered by that
+ * row order, as a form select's without a sort do. With it they are ordered by that
  * column's cell text compared code unit by code unit, ties in row order: the
  * order Core gives an `<itemset>` with a `<sort>`
  * (`ItemsetBinding.sortChoices` compares Java strings with a stable sort),
  * never a locale's collation.
  */
+const choiceBaseBySnapshot = new WeakMap<
+	PreviewLookupData,
+	Map<string, string | null>
+>();
 export function lookupChoicesFromNodeset(
 	source: LookupOptionsSource,
 	data: PreviewLookupData,
 	nodeset: XPathRuntimeValue,
-	sortColumnId?: LookupColumnId,
+	sortColumnId?: LookupRead,
 ): readonly LookupChoice[] {
 	if (!isXPathNodeSet(nodeset))
 		throw new Error(
@@ -287,6 +335,31 @@ export function lookupChoicesFromNodeset(
 		sortColumnId === undefined
 			? undefined
 			: requireColumn(table, sortColumnId, "lookupChoicesFromNodeset");
+	const key = JSON.stringify([
+		source.tableId,
+		source.valueColumnId,
+		source.labelColumnId,
+		sortColumnId,
+	]);
+	let checks = choiceBaseBySnapshot.get(data);
+	if (!checks) {
+		checks = new Map();
+		choiceBaseBySnapshot.set(data, checks);
+	}
+	if (!checks.has(key)) {
+		const [issue] = lookupChoiceBaseFindings({
+			source: { ...source, sortColumnId },
+			location: { scope: "app" },
+			owner: "This choice list",
+			table,
+			rows,
+			valueColumn,
+			labelColumn,
+		});
+		checks.set(key, issue?.message ?? null);
+	}
+	const issue = checks.get(key);
+	if (issue) throw new Error(issue);
 	const choices: {
 		readonly choice: LookupChoice;
 		readonly sortText: string;
@@ -300,21 +373,16 @@ export function lookupChoicesFromNodeset(
 		choices.push({
 			choice: {
 				key: row.id as string,
-				value: lookupFixtureCellText(
-					valueColumn.dataType,
-					row.values[valueColumn.id],
-				),
-				label: lookupFixtureCellText(
-					labelColumn.dataType,
-					row.values[labelColumn.id],
-				),
+				value: deviceChoiceText(row, source.valueColumnId, valueColumn),
+				label: deviceChoiceText(row, source.labelColumnId, labelColumn),
 			},
 			sortText:
 				sortColumn === undefined
 					? ""
-					: lookupFixtureCellText(
-							sortColumn.dataType,
-							row.values[sortColumn.id],
+					: deviceChoiceText(
+							row,
+							sortColumnId ?? source.labelColumnId,
+							sortColumn,
 						),
 		});
 	}

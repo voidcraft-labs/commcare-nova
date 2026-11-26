@@ -469,7 +469,7 @@ describe("proof corpus edit batches", () => {
 describe("turning Connect on", () => {
 	const proposals = (input: EditCorpusDocument) => {
 		const doc = hydrateAdmittedDocument(input);
-		return EDIT_KIND_GENERATORS.setConnectType({
+		return EDIT_KIND_GENERATORS.setConnectRoles({
 			doc,
 			known: uuidTokensOf(input.doc),
 			rng: new Rng(`connect\u0000${input.id}`),
@@ -482,7 +482,7 @@ describe("turning Connect on", () => {
 		return candidate.mutations;
 	};
 
-	it("turns Connect on as the builder commits it, narrowing the app to Android in the same batch, and is refused where the content cannot run on Android", () => {
+	it("adds a Connect role as the builder commits it, narrowing the app to Android in the same batch, and is refused where the content cannot run on Android", () => {
 		const both = stored("arithmetic", arithmeticFixture().doc);
 		const [first] = proposals(both);
 		const mutations = mutationsOf(first);
@@ -491,7 +491,7 @@ describe("turning Connect on", () => {
 			settings: { runsOnlyOn: "android" },
 		});
 		expect(
-			mutations.some((mutation) => mutation.kind === "setConnectType"),
+			mutations.some((mutation) => mutation.kind === "setConnectRoles"),
 		).toBe(true);
 		const admitted = admitEditBatch(both, mutations);
 		expect(admitted.ok).toBe(true);
@@ -649,7 +649,7 @@ describe("a batch that leaves the document as it was", () => {
 });
 
 describe("the publish-side checks the commit gate does not cover", () => {
-	it("refuses a batch that takes the app past the media export budget, and keeps one that reaches it", () => {
+	it("keeps a batch that takes the app past what one in-memory export holds: Nova's publish streams its media", () => {
 		const input = stored("arithmetic", arithmeticFixture().doc);
 		const doc = hydrateAdmittedDocument(input);
 		const moduleUuid = doc.moduleOrder[0];
@@ -675,12 +675,9 @@ describe("the publish-side checks the commit gate does not cover", () => {
 					},
 				},
 			}));
-		expect(admitEditBatch(input, pictures(MAX_MEDIA_EXPORT_ASSETS)).ok).toBe(
-			true,
-		);
 		expect(
-			admitEditBatch(input, pictures(MAX_MEDIA_EXPORT_ASSETS + 1)),
-		).toEqual({ ok: false, codes: ["publish:MEDIA_EXPORT_TOO_LARGE"] });
+			admitEditBatch(input, pictures(MAX_MEDIA_EXPORT_ASSETS + 1)).ok,
+		).toBe(true);
 	});
 
 	it("refuses a document whose HQ projection Nova's publish refuses, and admits its publishable sibling", () => {

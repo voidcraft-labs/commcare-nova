@@ -103,6 +103,41 @@ describe("prepareToolOptionsSource", () => {
 		expect(result.options[2].uuid).not.toBe(yes);
 		expect(result.options[2].uuid).not.toBe(no);
 	});
+	it("keeps and clears extended wording by the matched choice's stable identity", () => {
+		const uuid = testUuid("extended-choice");
+		const extended = proseText("The worker chose this one");
+		const previous = {
+			kind: "inline" as const,
+			options: [
+				{
+					uuid,
+					value: "yes",
+					label: proseText("Yes"),
+					extended_text: extended,
+				},
+			],
+		};
+		const replacement = {
+			optionUuid: uuid,
+			value: "first",
+			label: proseText("First"),
+		};
+		const retained = prepareToolOptionsSource(
+			{ kind: "inline", options: [replacement] },
+			previous,
+		);
+		expect(retained).toMatchObject({
+			options: [{ uuid, value: "first", extended_text: extended }],
+		});
+		const cleared = prepareToolOptionsSource(
+			{ kind: "inline", options: [{ ...replacement, extended_text: null }] },
+			previous,
+		);
+		expect(cleared).toMatchObject({ options: [{ uuid, value: "first" }] });
+		if (cleared.kind !== "inline") throw new Error("Expected choices.");
+		expect(cleared.options[0]).not.toHaveProperty("extended_text");
+	});
+
 	it("maps the machine option projection once, preserving declared identity and source order", () => {
 		const preserved = testUuid("prepared-option-preserved");
 		const result = prepareToolOptionsSource({
@@ -419,6 +454,8 @@ describe("applyDefaults", () => {
 function validFlatPayload(kind: string): PreparedFlatField {
 	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
 	if (kind === "hidden") p.calculate = today();
+	else if (kind === "connect_activity")
+		p.activity = { kind: "assigned-task", name: "Call", description: "" };
 	else if (kind === "repeat") {
 		p.label = proseText("Items");
 		p.repeat = { mode: "user_controlled" };

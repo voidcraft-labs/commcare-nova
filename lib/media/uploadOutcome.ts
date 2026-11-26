@@ -33,6 +33,8 @@ const CARRIER_LIST = new Intl.ListFormat("en", { type: "conjunction" });
 
 /** One file CommCare HQ couldn't match, as reported by its status API. */
 export interface UnmatchedMediaFile {
+	/** Nova checked the destination after HQ's job, and could not confirm this file. */
+	readonly unverified?: true;
 	/** Wire path of the ZIP entry HQ couldn't match (`commcare/<hash><ext>`). */
 	readonly path: string;
 	/** HQ's own reason string — technical, kept for server logs, never shown. */
@@ -40,13 +42,9 @@ export interface UnmatchedMediaFile {
 }
 
 /** A genuine attach failure, resolved to where it lives in the app. */
-export interface MediaAttachFailure {
+export interface MediaAttachFailure extends UnmatchedMediaFile {
 	/** Person-readable phrase for the carrier ("the app logo", "the image on …"). */
 	readonly where: string;
-	/** Wire path HQ reported (server logs only). */
-	readonly path: string;
-	/** HQ's raw reason (server logs only). */
-	readonly reason: string;
 }
 
 export interface MediaAttachOutcome {
@@ -95,7 +93,7 @@ export function interpretMediaAttach(args: {
 			refs.length > 0
 				? CARRIER_LIST.format(refs.map(describeCarrier))
 				: "an unrecognized media file";
-		return { where, path: file.path, reason: file.reason };
+		return { ...file, where };
 	});
 
 	// HQ processing errors are genuine, but carry no path to resolve.
@@ -111,9 +109,10 @@ export function interpretMediaAttach(args: {
  * failure. Empty when everything attached.
  */
 export function mediaAttachWarnings(outcome: MediaAttachOutcome): string[] {
-	return outcome.failures.map(
-		(f) =>
-			`Couldn't attach ${f.where}. CommCare HQ didn't recognize it during upload, so it won't display. Remove and re-add the file, then upload again.`,
+	return outcome.failures.map((f) =>
+		f.unverified
+			? `Nova couldn't verify ${f.where} in the published app. Check the file in your project space, then publish again.`
+			: `Couldn't attach ${f.where}. CommCare HQ didn't recognize it during upload, so it won't display. Remove and re-add the file, then upload again.`,
 	);
 }
 

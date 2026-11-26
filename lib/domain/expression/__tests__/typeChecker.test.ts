@@ -4265,6 +4265,11 @@ describe("instance reads", () => {
 			},
 			{ entity: "module", uuid: reads.households, slot: "case_list_filter" },
 			{
+				entity: "module",
+				uuid: reads.households,
+				slot: "case_list_action_condition",
+			},
+			{
 				entity: "form",
 				uuid: reads.visit,
 				slot: "form_display_condition",
