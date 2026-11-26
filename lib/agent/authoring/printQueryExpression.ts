@@ -265,6 +265,12 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "acting-user":
 			case "unowned":
 				return call(value.kind);
+			case "call":
+				if (value.fn === "position" && value.args.length === 0)
+					return call(value.fn);
+				throw new Error(
+					`The saved ${value.fn}() call has no record value spelling.`,
+				);
 			case "case-text":
 				return call("case-text", quote(value.textUuid));
 			case "id-of":
