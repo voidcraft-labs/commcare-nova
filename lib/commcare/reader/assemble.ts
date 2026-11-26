@@ -88,6 +88,7 @@ import {
 import { outputLocaleRole } from "../localeFile";
 import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
+import { searchGroupLocaleId } from "../suite/case-search/searchGroups";
 import { fieldBindType, hiddenAnswerTypeOf } from "../xform/bindType";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
@@ -1558,6 +1559,29 @@ function keyTarget(
 	};
 }
 
+/** The source row must have the same key as the output Nova projects. HQ can
+ * load old group names that its Case List editor respells from the row order. */
+function sourceSearchGroupKey(
+	module: DraftModule | undefined,
+	key: string,
+): "canonical" | "respelt" | undefined {
+	if (!module) return;
+	const prefix = searchGroupLocaleId(`m${module.index}`, "");
+	if (!key.startsWith(prefix)) return;
+	const config = module.json.peek("search_config");
+	if (!isJsonObject(config) || !Array.isArray(config.properties)) return;
+	const group = key.slice(prefix.length);
+	const index = config.properties.findIndex(
+		(row: unknown) =>
+			isJsonObject(row) &&
+			row.is_group === true &&
+			row.group_key === group &&
+			row.name === group,
+	);
+	if (index >= 0)
+		return group === `group_header_${index}` ? "canonical" : "respelt";
+}
+
 /** Whether what a key names read: its menu and its form have drafts. A key naming a position
  *  HQ's app holds no menu or form at names nothing that failed to read, and keeps its own
  *  spelling, which no string of the table has. */
@@ -1753,22 +1777,39 @@ function decideGeneratedKeys(
 			ctx.accounting.cover({ json: held.json, key: held.key }, first);
 		return false;
 	}
+	const units = snapshotTranslationUnits(doc);
 	const classified: HeldGeneratedKey[] = [];
-	for (const { held } of left) {
-		if (typeof held.value !== "string") continue;
-		const target = keyTarget(ctx, doc, held.key);
-		if (!readWhole(ctx, held.key, target)) continue;
+	const verdicts = new Map<string, GeneratedKeyVerdict>();
+	for (const { held, target } of left) {
+		if (typeof held.value !== "string" || !readWhole(ctx, held.key, target))
+			continue;
+		const id =
+			target.position === undefined
+				? held.key
+				: repositionGeneratedKey(held.key, target.position);
+		const own = table.wordingUnits?.[id];
+		const readsGroup =
+			own !== undefined &&
+			units.get(own)?.generated?.role === "searchGroupHeading";
+		const sourceGroup = sourceSearchGroupKey(target.module, held.key);
+		// Refuse a live legacy override pending exact respelling evidence. A key
+		// not used by the source can't be made live by the normalized projection.
+		if (sourceGroup === "respelt" || (readsGroup && !sourceGroup)) {
+			verdicts.set(
+				`${held.language}\u0000${held.key}`,
+				sourceGroup && held.value !== ""
+					? { kind: "not-yet" }
+					: { kind: "inert" },
+			);
+			continue;
+		}
 		classified.push({
 			language: held.language,
 			key: held.key,
-			id:
-				target.position === undefined
-					? held.key
-					: repositionGeneratedKey(held.key, target.position),
+			id,
 			value: held.value,
 		});
 	}
-	const verdicts = new Map<string, GeneratedKeyVerdict>();
 	const langs = reading.languages.codes;
 	classifyGeneratedTranslationKeys(classified, table, (one) =>
 		mediaKeyReading(ctx.input.source.raw.modules, langs, one),
@@ -1778,7 +1819,6 @@ function decideGeneratedKeys(
 			verdicts.set(`${one.language}\u0000${one.key}`, verdict);
 	});
 	const languages = reading.languages;
-	const units = snapshotTranslationUnits(doc);
 	/* Each output's wordings, by language code, as held. */
 	const worded = new Map<TranslationUnitId, Map<string, string>>();
 	let hasWording = false;

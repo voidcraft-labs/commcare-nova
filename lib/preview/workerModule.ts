@@ -65,6 +65,8 @@ export function projectWorkerModule(
 			"lookupResultHeading",
 			lookup.resultHeading,
 		);
+	for (const group of mod.caseListConfig?.searchInputGroups ?? [])
+		group.label = word(group.uuid, "searchGroupHeading", group.label);
 	if (mod.caseListConfig)
 		for (const input of mod.caseListConfig.searchInputs) {
 			input.label = word(input.uuid, "promptLabel", input.label);

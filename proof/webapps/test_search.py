@@ -737,3 +737,47 @@ def test_web_apps_keeps_grouped_search_headings_and_answers_after_hq_save(
         assert side["collapsed"] is True
         assert side["inputs"] == [{"first_name": "North", "case_name": "River"}]
         assert side["pageErrors"] == []
+
+
+
+def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.hq import operations
+    from proof.matrix.ops import upload_commcare_translation
+
+    document = webapps_documents["search-grouped-prompts"]
+    key = "search_property.m0.group_header_0"
+    text = "Find a client"
+    with webapps_hq.project(document) as project:
+        state = project.unit
+        with state.operation("search-group-heading-upload", document.id.encode()):
+            messages = upload_commcare_translation(state, project.app_id, key, text)
+        with project.released(
+            formplayer_runner, saves=((pages.CASE_LIST, project.module_id(0)),), driver=editor_driver,
+        ) as release:
+            app = operations.held_app(state, project.app_id)
+            assert app.get_module(0).search_config.properties[0].label["en"] == "Personal details"
+            assert app.translations["en"][key] == text
+            opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+            run = Session(release, editor_driver).run([
+                *opening,
+                {"eval": """() => [...document.querySelectorAll('.search-query-group-header-label')]
+                    .map(label => label.textContent.trim())"""},
+                *steps.type_prompt(0, "North"),
+                *steps.type_prompt(1, "River"),
+                *steps.run_search(),
+                steps.SCREEN,
+            ])
+        sent = [
+            entry["inputs"]
+            for request in _menu_requests(run)
+            if request["searched"]
+            for entry in request["queryData"].values()
+            if isinstance(entry, dict) and entry.get("execute")
+        ]
+        result = {"headings": run.value(len(opening)), "inputs": sent, "messages": messages, "errors": run.page_errors}
+        evidence("uploaded-search-group-heading", result)
+        assert result["headings"] == [text, "Case details"]
+        assert sent == [{"first_name": "North", "case_name": "River"}]
+        assert run.page_errors == []

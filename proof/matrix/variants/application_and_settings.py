@@ -149,9 +149,8 @@ def translation_overrides_a_search_group_heading(authoring, app_id):
         app = operations.held_app(authoring.state, app_id)
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Local details"
         assert etree.fromstring(app.create_suite()).xpath(f"//group/display/text/locale[@id='{key}']")
-    translations = dict(app.translations)
-    translations["en"] = {**translations.get("en", {}), key: "Find a client"}
-    ops.set_json(authoring, app_id, "/translations", translations)
+    with authoring.step("variant:upload-search-group-heading"):
+        ops.upload_commcare_translation(authoring.state, app_id, key, "Find a client")
     with authoring.step("variant:overridden-search-group-heading"):
         app = operations.held_app(authoring.state, app_id)
         assert app.get_module(0).search_config.properties[0].label["en"] == "Local details"

@@ -122,6 +122,8 @@ export function outputLocaleRole(unit: TranslationUnit): TranslationUnitRole {
 			return "case-list-menu-item-label";
 		case "registerButton":
 			return "case-list-registration-label";
+		case "searchGroupHeading":
+			return "search-input-group-label";
 		case "promptLabel":
 			return "search-input-label";
 		case "lookupResultHeading":
