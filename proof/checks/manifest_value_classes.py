@@ -5328,6 +5328,86 @@ receiver_on_another_appearance.__doc__ = """``case-search/receiver-expression-on
 field nor a lookup or Mobile UCR selection (``editor_appearance``); a blank one is no value, and on any other prompt
 the expression is ``case-search/receiver-expression``'s."""
 
+ADDRESS_RECEIVE_SELECTOR = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*)")
+ADDRESS_MESSAGE_PARTS = frozenset({
+    "full", "geopoint", "street", "city", "district", "county", "zipcode", "postcode", "region",
+    "state_long", "state_short", "us_state", "us_state_short", "country", "country_short",
+})
+
+
+def _address_receiver_widget(prompt):
+    if prompt.get("is_group") or prompt.get("hidden"):
+        return None
+    appearance = editor_appearance(prompt)
+    if appearance == "" and not prompt.get("input_"):
+        return "text"
+    itemset = prompt.get("itemset")
+    nodeset = itemset.get("nodeset") if isinstance(itemset, dict) else None
+    if appearance == "lookup_table_fixture" and isinstance(nodeset, str) and nodeset:
+        return "choice"
+    return None
+
+
+def _active_address_receive(config, prompt):
+    endpoint = config.get("case_search_endpoint_id")
+    if type(endpoint) is int and 0 < endpoint <= 2147483647:
+        return None
+    if prompt is None or prompt.get("is_group") or prompt.get("hidden"):
+        return None
+    if editor_appearance(prompt) in RECEIVER_REFUSED_APPEARANCES:
+        return None
+    value = prompt.get("receiver_expression")
+    selector = ADDRESS_RECEIVE_SELECTOR.fullmatch(value) if isinstance(value, str) else None
+    if selector is None:
+        return None
+    if any(
+        row.get("name") == selector[1]
+        and _address_field(row)
+        and not row.get("is_group")
+        and not row.get("hidden")
+        and not row.get("input_")
+        and not row.get("allow_blank_value")
+        and not row.get("receiver_expression")
+        and not row.get("default_value")
+        and not _required(row)
+        and not _validations(row)
+        and not (isinstance(row.get("itemset"), dict) and row["itemset"].get("nodeset"))
+        for row in config.get("properties") or [] if isinstance(row, dict)
+    ):
+        return selector
+    return None
+
+
+def single_choice_receives_from_address(use, manifest):
+    """Web Apps assigns a single choice's displayed position instead of its lookup key."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    return (at.key == "receiver_expression" and prompt is not None
+            and prompt.get("input_") == "select1" and _active_address_receive(config, prompt) is not None)
+
+
+def address_receiver_shared_with_choice(use, manifest):
+    """Web Apps query.js reselects every receiver with the same attribute, then handles the entire match
+    as one input or one list. Two text fields receive safely; multiple matches including a choice do not."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if at.key != "receiver_expression" or prompt is None or _address_receiver_widget(prompt) is None:
+        return False
+    selector = _active_address_receive(config, prompt)
+    if selector is None or not set(selector[2].split("||")) <= ADDRESS_MESSAGE_PARTS:
+        return False
+    widgets = [
+        widget for row in config.get("properties") or []
+        if isinstance(row, dict) and row.get("receiver_expression") == selector[0]
+        and (widget := _address_receiver_widget(row)) is not None
+    ]
+    return len(widgets) > 1 and "choice" in widgets
+
+
 # The input types a runtime names (commcare-core ``QueryPrompt.INPUT_TYPE_*``): the six Formplayer supports
 # (``QueryScreen.getSupportedPrompts``), of which Android supports three (``QueryRequestActivity``).
 RUNTIME_PROMPT_INPUTS = frozenset({"select1", "select", "date", "daterange", "checkbox", "address"})
@@ -12944,6 +13024,8 @@ VALUE_CLASSES = {
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,
     "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": receiver_on_another_appearance,
+    "case-search/address-receiver-single-choice-lookup-position": single_choice_receives_from_address,
+    "case-search/address-receiver-shared-with-a-choice-field": address_receiver_shared_with_choice,
     "case-search/search-button-label-any-other-value": other_search_button_label,
     "case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with": list_first_with_web_apps,
     "case-search/a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys": reserved_request_key,

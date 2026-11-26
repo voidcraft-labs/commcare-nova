@@ -19,6 +19,7 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
+	isSearchAnswerInput,
 	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
 	type SearchInputDef,
 	type SearchInputMode,
@@ -132,6 +133,11 @@ export function withSearchInputExpressionValues(
 	inputValues: SearchInputValues,
 ): SearchInputValues {
 	const expressionValues = new Map(inputValues);
+	for (const input of searchInputs) {
+		if (input.kind !== "address") continue;
+		expressionValues.delete(input.name);
+		expressionValues.delete(searchForBlankKey(input.name));
+	}
 	for (const input of searchInputs) {
 		if (input.kind === "hidden" || input.type !== "date-range") continue;
 		expressionValues.delete(input.name);
@@ -281,7 +287,9 @@ export function composeRuntimeFilter(
 		searchInputs,
 		inputValues,
 	);
-	const knownInputUuids = new Set(searchInputs.map((input) => input.uuid));
+	const knownInputUuids = new Set(
+		searchInputs.filter(isSearchAnswerInput).map((input) => input.uuid),
+	);
 	const clauses: Expression[] = [];
 	for (const input of searchInputs) {
 		const clause = clauseForInput(
@@ -313,6 +321,7 @@ function clauseForInput(
 		// A hidden input seeds the search-input instance for `input(...)`
 		// reads; it never matches a case property of its own.
 		case "hidden":
+		case "address":
 		case "parameter":
 			return undefined;
 		case "simple":
@@ -336,7 +345,7 @@ function clauseForInput(
 					where: "composeRuntimeFilter",
 					family: "SearchInputDef",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: ["simple", "advanced", "hidden", "parameter"],
+					knownKinds: ["simple", "advanced", "hidden", "address", "parameter"],
 				}),
 			);
 		}
@@ -568,7 +577,7 @@ function searchInputRuntimeBindings(
 	searchInputs: readonly SearchInputDef[],
 ): ReadonlyMap<Uuid, RuntimeInputBinding> {
 	return new Map(
-		searchInputs.map((input) => [
+		searchInputs.filter(isSearchAnswerInput).map((input) => [
 			input.uuid,
 			{
 				uuid: input.uuid,

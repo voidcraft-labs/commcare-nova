@@ -290,6 +290,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"case-map-fallback-locations",
 	"case-map-layers",
 	"search-screen-text",
+	"search-address-picker",
 	"search-field-checks",
 	"search-starting-dates",
 	"barcode-search-field",
@@ -1152,6 +1153,29 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "different",
 			note: "the case list shows the address as plain text rather than a link, and only the case's details show it as a link",
+		},
+	},
+	"search-address-picker": {
+		label: "Address search field",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "chooses an address and fills linked Search fields",
+		},
+		android: {
+			reading: "ignored",
+			note: "the address field is absent and linked fields keep their ordinary inputs",
+		},
+		targetCondition: {
+			platform: "web-apps",
+			reason:
+				"Web Apps searches for addresses only where the project space has advanced case search and the Geocoder plan feature.",
+			capability: "address-search",
+			planFeature: "geocoder",
+			unavailable: {
+				reading: "unavailable",
+				note: "the address field is unavailable",
+			},
 		},
 	},
 	"search-screen-text": {

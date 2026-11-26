@@ -199,6 +199,7 @@
 		"hq-case-management/child-close-on-a-text-answer",
 		"hq-case-management/child-member-ordered-by-hidden-field",
 		"hq-case-management/child-menu-selecting-from-the-search-reads-it",
+		"hq-case-management/choose-another-menu-record-type",
 		"hq-case-management/close-on-a-text-answer",
 		"hq-case-management/detail-tab-over-child-cases",
 		"hq-case-management/edit-mode-on-a-registration",
@@ -622,6 +623,8 @@
 		"hq-saved-pages/tile-cell-bordered-and-shaded"
 	],
 	"hq-search": [
+		"hq-search/address-choice-shares-its-receiver-with-text",
+		"hq-search/address-fills-a-single-choice-by-position",
 		"hq-search/another-case-type-searched",
 		"hq-search/blank-answer-searched-for",
 		"hq-search/blank-searched-for-beside-the-owner",

@@ -161,6 +161,43 @@ if (scenario === "search-clone")
 			),
 		),
 	];
+if (scenario === "search-address-removal") {
+	const otherAddressId = uuidSchema.parse(
+		"00000000-0000-7000-8000-000000006006",
+	);
+	config.searchInputs = [
+		{
+			kind: "address",
+			type: "address",
+			uuid: searchId,
+			name: "address",
+			label: "Find an address",
+			excludeFromRequest: true,
+		},
+		{
+			kind: "address",
+			type: "address",
+			uuid: otherAddressId,
+			name: "backup_address",
+			label: "Alternative address",
+			excludeFromRequest: true,
+		},
+		{
+			...simpleSearchInputDef(siblingId, "region", "Region", "text", "region"),
+			addressReceiver: { kind: "address", source: searchId, parts: ["city"] },
+		},
+		{
+			...simpleSearchInputDef(
+				uuidSchema.parse("00000000-0000-7000-8000-000000006007"),
+				"name",
+				"Client name",
+				"text",
+				"case_name",
+			),
+			addressReceiver: { kind: "address", source: searchId, parts: ["city"] },
+		},
+	];
+}
 if (scenario === "search-dependencies") {
 	const dependency = whenInput(
 		input(searchId),

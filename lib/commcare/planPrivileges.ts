@@ -154,13 +154,28 @@ export function addressSearchFormReasons(
 			use.owner.kind === "field" ? [use.owner.formUuid] : [],
 		),
 	);
-	return formsInOrder(doc).flatMap(({ formUuid }) =>
-		forms.has(formUuid)
-			? [
-					`${formName(doc, formUuid)} has a question that searches for an address in Web Apps.`,
-				]
-			: [],
+	const menus = new Set(
+		uses.flatMap((use) =>
+			use.owner.kind === "search-input" ? [use.owner.moduleUuid] : [],
+		),
 	);
+	return [
+		...formsInOrder(doc).flatMap(({ formUuid }) =>
+			forms.has(formUuid)
+				? [
+						`${formName(doc, formUuid)} has a question that searches for an address in Web Apps.`,
+					]
+				: [],
+		),
+		...doc.moduleOrder.flatMap((id) => {
+			const module = doc.modules[id];
+			return module === undefined || !menus.has(id)
+				? []
+				: [
+						`Search in ${module.name.trim() || module.id} lets workers choose an address in Web Apps.`,
+					];
+		}),
+	];
 }
 
 /** Every form of the document, in its form order. */

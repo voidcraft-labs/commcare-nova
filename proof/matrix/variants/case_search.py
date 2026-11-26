@@ -658,3 +658,28 @@ def district_choice_details(authoring, app_id):
         (base + "/label", "name[@lang='fr'][1]"),
         (base + "/sort", "name[@lang='en'][1]"),
     )
+
+
+
+def address_picker_and_two_receivers(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+
+
+def address_picker_and_single_choice(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select1")
+
+
+def _address_picker_for_lookup(authoring, app_id, choice_type):
+    """The exact Search picker fills a text field and an existing lookup choice."""
+    prompts = _modules(authoring, app_id)[0]["search_config"]["properties"]
+    village = next(row for row in prompts if row["name"] == "village")
+    district = next(row for row in prompts if row["name"] == "district")
+    village["receiver_expression"] = "home-us_state||city"
+    district["receiver_expression"] = "home-region"
+    district["input_"] = choice_type
+    prompts.insert(0, {
+        **_field("home", "Find an address"),
+        "exclude": True,
+        "appearance": "address",
+    })
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties", prompts)

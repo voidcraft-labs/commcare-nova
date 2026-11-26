@@ -41,6 +41,7 @@ import {
 import { formRouteBeforeCase } from "../menuScreens";
 import {
 	effectiveCaseSearchConfig,
+	isSearchAnswerInput,
 	moduleFormsReadSearch,
 	projectSearchOf,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
@@ -392,11 +393,13 @@ export function untypedExpressionFacts(
 		moduleSearchInputs: new Map(
 			Object.values(doc.modules).map((module) => [
 				module.uuid,
-				(module.caseListConfig?.searchInputs ?? []).map((input) => ({
-					uuid: input.uuid,
-					name: input.name,
-					data_type: searchInputRuntimeValueType(input),
-				})),
+				(module.caseListConfig?.searchInputs ?? [])
+					.filter(isSearchAnswerInput)
+					.map((input) => ({
+						uuid: input.uuid,
+						name: input.name,
+						data_type: searchInputRuntimeValueType(input),
+					})),
 			]),
 		),
 		userPropertySlugs: userPropertySlugsByUuid(doc),
@@ -627,15 +630,17 @@ function buildFormFacts(
 		...new Set([structure.moduleUuid, ...supplied]),
 	].flatMap((uuid) => {
 		const owner = doc.modules[uuid];
-		return (owner?.caseListConfig?.searchInputs ?? []).map((input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			data_type: searchInputRuntimeValueType(input),
-			...(uuid !== structure.moduleUuid && {
-				supplier: uuid,
-				supplierId: menuNames?.get(uuid),
-			}),
-		}));
+		return (owner?.caseListConfig?.searchInputs ?? [])
+			.filter(isSearchAnswerInput)
+			.map((input) => ({
+				uuid: input.uuid,
+				name: input.name,
+				data_type: searchInputRuntimeValueType(input),
+				...(uuid !== structure.moduleUuid && {
+					supplier: uuid,
+					supplierId: menuNames?.get(uuid),
+				}),
+			}));
 	});
 	return {
 		...structure,
@@ -799,13 +804,13 @@ export function slotContext(
 			? undefined
 			: menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (module === undefined || moduleUuid === undefined) return undefined;
-	const searchInputs = (module.caseListConfig?.searchInputs ?? []).map(
-		(input) => ({
+	const searchInputs = (module.caseListConfig?.searchInputs ?? [])
+		.filter(isSearchAnswerInput)
+		.map((input) => ({
 			uuid: input.uuid,
 			name: input.name,
 			data_type: searchInputRuntimeValueType(input),
-		}),
-	);
+		}));
 	let profile: SlotProfile;
 	let caseTexts: ExpressionContext["caseTexts"];
 	let rows: RowScope[] = [];
@@ -1437,10 +1442,14 @@ export function slotContext(
 					"search_input_required_when",
 					"search_input_validation_rule",
 				].includes(slot.slot) &&
-				input.kind === "hidden"
+				(input.kind === "hidden" || input.kind === "address")
 			)
 				return undefined;
-			if (slot.slot === "search_input_default" && "type" in input)
+			if (
+				slot.slot === "search_input_default" &&
+				"type" in input &&
+				input.kind !== "address"
+			)
 				profile = {
 					...profile,
 					expectation: {

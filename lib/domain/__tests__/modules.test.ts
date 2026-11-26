@@ -46,6 +46,7 @@ import {
 	ordinaryCaseSearchConfigSchema,
 	phoneColumn,
 	plainColumn,
+	type SearchAddressReceiver,
 	type SimpleSearchInputDef,
 	searchInputDefSchema,
 	searchScreenTitleText,
@@ -952,6 +953,12 @@ describe("multi-select search answer delimiter", () => {
 });
 
 describe("SearchInputDef builders — helper construction", () => {
+	const addressReceiver = {
+		kind: "address",
+		source: u(5),
+		parts: ["us_state", "city"],
+	} satisfies SearchAddressReceiver;
+
 	it("simpleSearchInputDef → schema round-trip", () => {
 		const built = simpleSearchInputDef(
 			u(1),
@@ -959,8 +966,9 @@ describe("SearchInputDef builders — helper construction", () => {
 			"Patient name",
 			"text",
 			"full_name",
-			{ mode: { kind: "fuzzy" } },
+			{ mode: { kind: "fuzzy" }, addressReceiver },
 		);
+		expect(built.addressReceiver).toEqual(addressReceiver);
 		const parsed = searchInputDefSchema.safeParse(built);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(built);
@@ -973,7 +981,9 @@ describe("SearchInputDef builders — helper construction", () => {
 			"Complex",
 			"text",
 			{ kind: "match-all" },
+			{ addressReceiver },
 		);
+		expect(built.addressReceiver).toEqual(addressReceiver);
 		const parsed = searchInputDefSchema.safeParse(built);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(built);

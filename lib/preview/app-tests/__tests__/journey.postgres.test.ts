@@ -580,7 +580,9 @@ it.each([
 		if (required && mod.caseListConfig)
 			mod.caseListConfig.searchInputs = mod.caseListConfig.searchInputs.map(
 				(input) =>
-					input.kind === "hidden" ? input : { ...input, required: {} },
+					input.kind === "hidden" || input.kind === "address"
+						? input
+						: { ...input, required: {} },
 			);
 		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 		await h.seedAppWithBlueprint(doc, {

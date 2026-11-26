@@ -1726,6 +1726,26 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.columns[1].kind",
 		),
 	},
+	"search-address-picker": {
+		with: () =>
+			caseApp({
+				searchInputs: [
+					{
+						kind: "address",
+						type: "address",
+						uuid: FIXTURE_INPUT,
+						name: "address",
+						label: "Find an address",
+					},
+				],
+			}),
+		without: () => caseApp({ searchInputs: [input("text")] }),
+		use: slotUse(
+			"search-address-picker",
+			INPUT_OWNER,
+			"caseListConfig.searchInputs[0].kind",
+		),
+	},
 	"search-screen-text": {
 		with: () =>
 			caseApp({

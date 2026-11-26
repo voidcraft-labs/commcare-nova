@@ -12,6 +12,7 @@ import {
 	caseSelectionCardinality,
 	effectiveCaseTypes,
 	type FieldKind,
+	isSearchAnswerInput,
 	type Module,
 	menuWithInheritedCaseSettings,
 	moduleUuidOfForm,
@@ -307,11 +308,13 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			(formUuid
 				? formExpressionFacts(doc, formUuid)?.searchInputs
 				: undefined) ??
-			(module?.caseListConfig?.searchInputs ?? []).map((input) => ({
-				uuid: input.uuid,
-				name: input.name,
-				data_type: searchInputRuntimeValueType(input),
-			}));
+			(module?.caseListConfig?.searchInputs ?? [])
+				.filter(isSearchAnswerInput)
+				.map((input) => ({
+					uuid: input.uuid,
+					name: input.name,
+					data_type: searchInputRuntimeValueType(input),
+				}));
 		this.tables = options.tables ?? [];
 		const lookupTables = new Map(
 			this.tables.map((table) => [table.id, lookupReadTypes(table)]),

@@ -51,6 +51,7 @@ import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCom
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
 import { nativeSearchFilters } from "./case-list/nativeSearchFilters";
 import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
+import { searchAddressReceiverCompatibility } from "./case-list/searchAddressReceiverCompatibility";
 import { searchCheckMessage } from "./case-list/searchCheckMessage";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
@@ -402,6 +403,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	searchInputRefUsesWhenInputPresent,
 	nativeSearchFilters,
 	searchInputViaModeCompatibility,
+	searchAddressReceiverCompatibility,
 	hiddenSearchField,
 	searchCheckMessage,
 	searchTitleLanguages,
