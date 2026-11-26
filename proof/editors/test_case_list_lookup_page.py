@@ -147,3 +147,79 @@ def test_the_current_editor_requires_a_lookup_button_name(hq, editor_driver):
         assert not run["pageErrors"], run["pageErrors"]
         assert not any(exchange.method == "POST" and exchange.path == save_path for exchange in answers.exchanges)
         assert operations.held_app(state, app_id).modules[0].case_details.short.lookup_name is None
+
+
+def test_a_fallback_confidence_heading_builds_as_its_explicit_translation(hq, editor_driver, core_runner):
+    """The added translation key changes the stored source without changing the built heading."""
+    from django.urls import resolve
+    from lxml import etree
+
+    from proof.checks.source import compare_sources
+    from proof.editors import compare
+    from proof.hq import requests
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.bases import _pages
+
+    heading = "Confidence"
+    configuration = Configuration(privileges={"CLOUDCARE"}, flags={"CASE_LIST_LOOKUP"})
+    with hq_check(configuration) as (state, record):
+        app_id, module_id = _lookup_case_list(
+            state, editor_driver, result_heading=heading,
+            extras=[{"key": "visit_mode", "value": "'followup'"}],
+        )
+        _pages.set_languages(Authoring(state, {}, "lookup-confidence", operation=state.operation), app_id, ("en", "fr"))
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module_id, cookies={"lang": "en"})
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        source = operations.held_app(state, app_id).to_json()
+        assert source["modules"][0]["case_details"]["short"]["lookup_field_header"] == {"en": heading}
+        before = compare.build(state, app_id, record)
+
+        fields = dict(parse_qsl(saved.save.body.decode("utf-8"), keep_blank_values=True))
+        lookup = json.loads(fields["case_list_lookup"])
+        lookup["lookup_field_header"] = heading
+        data = [(name, fields[name]) for name in (
+            "type", "short", "multi_select", "auto_select", "max_select_value",
+        ) if name in fields]
+        request = requests.form_post(
+            state, saved.save_path, [*data, ("case_list_lookup", json.dumps(lookup))], lang="fr",
+        )
+        view = resolve(saved.save_path)
+        response = view.func(request, *view.args, **view.kwargs)
+        assert response.status_code == 200, response.content
+        published = operations.held_app(state, app_id).to_json()
+        assert published["modules"][0]["case_details"]["short"]["lookup_field_header"] == {"en": heading, "fr": heading}
+        after = compare.build(state, app_id, record, version=before.app.version)
+
+    differences = [
+        item.as_json() for item in compare_sources("lookup-confidence", source, published)
+        if "/lookup_field_header" in item.at
+    ]
+    suite = etree.fromstring(before.files["suite.xml"])
+    (locale,) = suite.findall(".//lookup/field/header/text/locale")
+    key = locale.get("id")
+    assert key
+    built = {
+        label: {
+            lang: compare._parsed(f"{lang}/app_strings.txt", build.files[f"{lang}/app_strings.txt"])[key]
+            for lang in ("default", "en", "fr")
+        }
+        for label, build in (("fallback", before), ("explicit", after))
+    }
+    build_differences = compare.differences(before.files, after.files)
+    restore = compare.case_restore([("lookup-juniper", "visit", "Juniper", {})])
+    traces = [compare.core_trace(core_runner, build, restore) for build in (before, after)]
+    write_evidence("lookup-confidence-heading-respelled", {
+        "sourceDifferences": differences,
+        "localeKey": key,
+        "headings": built,
+        "buildDifferences": build_differences,
+        "coreDifference": compare.first_difference(*traces),
+        "listedCases": [sorted(compare.listed_cases(trace)) for trace in traces],
+    })
+    assert [(item["at"], item["kind"], item["before"], item["after"]) for item in differences] == [
+        ("/modules/0/case_details/short/lookup_field_header/fr", "added", None, heading),
+    ]
+    assert all(text == heading for headings in built.values() for text in headings.values())
+    assert build_differences == []
+    assert compare.first_difference(*traces) is None
+    assert all(compare.listed_cases(trace) == {"lookup-juniper"} for trace in traces)
