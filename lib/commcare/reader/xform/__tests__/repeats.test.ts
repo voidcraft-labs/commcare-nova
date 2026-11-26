@@ -20,6 +20,7 @@ import {
 	sourceFromBody,
 } from "../../__tests__/readerInput";
 import { readHqApp } from "../../index";
+import { containerConditionFromRows } from "../logic";
 import { modelIterationVerdict } from "../repeats";
 import {
 	codesAt,
@@ -574,6 +575,23 @@ describe("a condition on a count placement's wrapper", () => {
 				Q("count-repeat-whose-count-and-row-ids-come-from-one-query-a")
 			],
 		).toBeUndefined();
+	});
+});
+
+describe("containerConditionFromRows", () => {
+	it("steps each path the container is the context of up one, and leaves a predicate's own paths and absolute ones", () => {
+		expect(containerConditionFromRows("../consent = 'yes'")).toBe(
+			"../../consent = 'yes'",
+		);
+		expect(containerConditionFromRows("consent = 'yes' and /data/a = 1")).toBe(
+			"../consent = 'yes' and /data/a = 1",
+		);
+		expect(
+			containerConditionFromRows(
+				"count(../rows[age > current()/../min]) > 0 and #form/a = 1",
+			),
+		).toBe("count(../../rows[age > current()/../../min]) > 0 and #form/a = 1");
+		expect(containerConditionFromRows("true()")).toBe("true()");
 	});
 });
 

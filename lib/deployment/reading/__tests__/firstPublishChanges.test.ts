@@ -3358,6 +3358,22 @@ describe("each entry", () => {
 		);
 		// Nova's own export, with the condition on the rows, records nothing.
 		expect(moved(await readAs(openingRowsDoc()))).toEqual([]);
+		// A path written on the container is taken from the container, though
+		// the repeat's condition is read and written from its rows: it names
+		// the question the absolute one does, kept in its relative spelling.
+		const unspelled = (value: unknown): unknown =>
+			JSON.parse(JSON.stringify(value), (key, held) =>
+				key === "spelling" ? undefined : held,
+			);
+		const exported = (await readExport(openingRowsDoc(), TARGET)).draft.doc
+			.fields;
+		for (const relative of ["../asked = 'yes'", "current()/../asked = 'yes'"]) {
+			const read = await readAs(openingRowsDoc(), {
+				xml: withContainer(relative, false),
+			});
+			expect(moved(read)).toHaveLength(1);
+			expect(unspelled(read.draft.doc.fields)).toEqual(unspelled(exported));
+		}
 	});
 
 	it("reads a Save to Case value in the spelling Nova wrote before as the same write, holding the document the current spelling gives", async () => {
