@@ -316,8 +316,7 @@ export function projectBuilderLanguageMutations(
 					]?.caseListConfig?.searchInputGroups?.find(
 						(candidate) => candidate.uuid === group.uuid,
 					);
-					if (sourceGroup === undefined || group.label === sourceGroup.label)
-						continue;
+					if (sourceGroup === undefined) continue;
 					const id = makeTranslationUnitId(
 						"search-input-group",
 						group.uuid,

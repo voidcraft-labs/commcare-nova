@@ -31,7 +31,6 @@ import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
-import { useLocalizedValues } from "@/components/builder/localization/BuilderLocalizationProvider";
 import {
 	ReorderableRow,
 	useReorderableList,
@@ -50,7 +49,6 @@ import {
 	type SearchInputGroup,
 	type SearchWorkflow,
 	searchInputDefault,
-	searchInputGroupLabelUnitId,
 	searchInputGroupsWithMembers,
 	searchScreenTitleText,
 	type Uuid,
@@ -147,7 +145,6 @@ export function SearchCanvas({
 	moduleUuid,
 }: SearchCanvasProps) {
 	const canEdit = useCanEdit();
-	const localizedValues = useLocalizedValues();
 	const projectProse = useProseProjection();
 	const containerKey = useId();
 	const unavailableReasonId = useId();
@@ -521,11 +518,7 @@ export function SearchCanvas({
 											<Fragment key={group.uuid}>
 												<li>
 													<SearchGroupHeading
-														label={
-															(localizedValues.get(
-																searchInputGroupLabelUnitId(group.uuid),
-															) as string | undefined) ?? group.label
-														}
+														label={group.label}
 														canEdit={
 															canEdit && onUpdateSearchGroups !== undefined
 														}

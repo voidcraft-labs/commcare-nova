@@ -83,6 +83,7 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { PLATFORMS } from "@/lib/domain/platforms";
+import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
 import {
 	PreviewDataRefusal,
 	type PreviewDataRefusalReason,
@@ -734,7 +735,9 @@ export function SearchInputForm({
 										className="rounded-lg border border-border p-3"
 									>
 										<summary className="cursor-pointer font-semibold">
-											{group.label}
+											<PreviewMarkdown rendering={PREVIEW_LABEL_RENDERING}>
+												{group.label}
+											</PreviewMarkdown>
 										</summary>
 										<div className="mt-3 flex flex-col gap-4">
 											{group.inputs.map(({ uuid }) => {
