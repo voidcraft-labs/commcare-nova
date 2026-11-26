@@ -3101,6 +3101,17 @@ function inferTerm(
 					`Property reference originating scope '${term.caseType}' must equal the current scope '${row.caseType}'.`,
 				);
 			const origin = term.caseType ?? row?.caseType;
+			// CommCare HQ's server search reaches a related record only through
+			// the record type this app declares for the link (the CSQL relation
+			// lift names it), so a condition it runs holds no reached read. A
+			// Search menu's columns and order are refused by Search's own rule
+			// (`searchRelatedCalculationCompatibility`).
+			if (term.readReached && searchesOnServer(ctx))
+				return fail(
+					"relation-destination",
+					"A search can't read whichever record a link reaches, of any type. You can read the parent through a link this app declares, or use this record's own information.",
+					"reached-in-search",
+				);
 			if (
 				term.readReached &&
 				origin !== undefined &&
