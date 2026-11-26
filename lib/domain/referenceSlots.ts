@@ -30,7 +30,7 @@
 //   - Derived case wiring (form actions, Save to Case blocks): never
 //     stored on the doc — `lib/commcare` derives it from the form's case
 //     operations on demand.
-//   - Blueprint-root slots (`appId` / `appName` / `connectType` /
+//   - Blueprint-root slots (`appId` / `appName` / `connectRoles` /
 //     `logo` / the order arrays / the `caseTypes` catalog): the
 //     registry's owning entities are field / form / module. The
 //     `caseTypes` catalog is outside this field/form/module registry;
@@ -126,9 +126,7 @@ export interface FieldReferenceSlot {
  * structural: `formTypes` lists the types the slot is VALID on per the
  * validator's rules (a `closeCondition` off a registration or a close
  * form is `CLOSE_CONDITION_WRONG_TYPE`), while the path
- * resolves on every form. Connect slots are additionally gated by the app-level
- * `connectType` (learn apps carry `assessment`, deliver apps carry
- * `deliver_unit`) — an app-level axis, so it isn't encoded per-slot.
+ * resolves on every form.
  */
 export interface FormReferenceSlot {
 	readonly entity: "form";

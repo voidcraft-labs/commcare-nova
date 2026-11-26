@@ -15,10 +15,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { convert } from "@/lib/db/releasedConnectShape.mjs";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
-import { convert } from "../migrations/step7-connect-activities.mjs";
 
 interface ReleasedFixture {
 	readonly name: string;

@@ -1104,6 +1104,7 @@ function connectValidation(
 					"field",
 					missingConnectRoleMessage(field.id, role),
 					at,
+					{ role },
 				),
 			);
 		const problem = questionIdProblem(field.id, RESERVED_CONNECT_BLOCK_IDS);
@@ -1137,6 +1138,7 @@ function connectValidation(
 					"field",
 					`Connect stores up to ${limit} characters for this activity ID. You can shorten "${field.id}".`,
 					at,
+					{ limit: String(limit) },
 				),
 			);
 	}

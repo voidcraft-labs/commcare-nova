@@ -34,6 +34,8 @@ function validAddPayload(kind: string): Record<string, unknown> {
 	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
 	if (kind === "hidden") {
 		p.calculate = today();
+	} else if (kind === "connect_activity") {
+		p.activity = { kind: "assigned-task", name: "Call", description: "" };
 	} else if (kind === "repeat") {
 		p.label = proseText("Repeat");
 		p.repeat = { mode: "user_controlled" };

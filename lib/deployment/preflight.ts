@@ -1653,7 +1653,7 @@ export async function runDeploymentPreflight(
 				input.doc.appSettings.requiredAndroidApps,
 			),
 			locationChange:
-				input.doc.connectType === null &&
+				input.doc.connectRoles.length === 0 &&
 				!(
 					appBaseline &&
 					appBaseline.origin !== "unread" &&

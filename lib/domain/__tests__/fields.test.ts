@@ -45,6 +45,11 @@ const fixtures = [
 		optionsSource,
 	})),
 	{ ...identity, kind: "hidden" },
+	{
+		...identity,
+		kind: "connect_activity",
+		activity: { kind: "assigned-task", name: "Call", description: "" },
+	},
 	{ ...identity, kind: "group" },
 	{ ...identity, kind: "section" },
 	{ ...identity, kind: "repeat", repeat_mode: "user_controlled" },

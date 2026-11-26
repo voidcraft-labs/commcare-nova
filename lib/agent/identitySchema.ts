@@ -155,18 +155,22 @@ export function classifyIdentity(
 	if (property === "after" && tool === "move_module") return "module";
 	if (
 		property === "formUuid" ||
-		(property === "form" &&
-			discriminators.some((kind) =>
-				[
-					"form-root",
-					"connect-learn",
-					"connect-assessment",
-					"connect-delivery",
-					"connect-task",
-				].includes(kind),
-			))
+		(property === "form" && discriminators.includes("form-root"))
 	)
 		return "form";
+	/* A Connect activity's part names the activity, a field of the form. */
+	if (
+		property === "activity" &&
+		discriminators.some((kind) =>
+			[
+				"connect-learn",
+				"connect-assessment",
+				"connect-delivery",
+				"connect-task",
+			].includes(kind),
+		)
+	)
+		return "field";
 	if (property === "entryPointUuid") return "entry-point";
 	if (property === "automationUuid" || property === "afterAutomationUuid") {
 		return "automation";

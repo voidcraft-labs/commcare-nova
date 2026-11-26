@@ -713,6 +713,8 @@ describe("Builder mutation commands", () => {
 		const input = buildEngineInput(store.getState(), FORM1, null);
 		assert(input);
 		const engine = new FormEngine(input);
+		// A worker-added repeat opens with no rows; the worker adds each one.
+		engine.addRepeat("/data/visits");
 		engine.setValue("/data/visits[0]/person", "Mira");
 		engine.addRepeat("/data/visits");
 		expect(engine.validateAll()).toBe(false);

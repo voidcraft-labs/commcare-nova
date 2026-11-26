@@ -73,6 +73,7 @@ import {
 	type ScalarType,
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
+import { missingConnectRoleMessage } from "@/lib/domain/fields/connectActivity";
 import { formTypeLabels } from "@/lib/domain/forms";
 import {
 	inPlatform,
@@ -130,6 +131,14 @@ const fieldName = (e: ValidationError): string =>
 /** A `details` value, or the fallback. */
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
+
+/** The two submitted places a Connect submission finding names, as a
+ *  trailing clause, or nothing where the finding names none. */
+const connectPlaces = (e: ValidationError): string => {
+	const first = e.details?.first;
+	const second = e.details?.second;
+	return first && second ? ` (at ${q(first)} and ${q(second)})` : "";
+};
 
 /** The last sentence of a choice list's row finding: the remedy in Project
  * data, or, for a table CommCare HQ manages (`managedInDomain`), the managed
@@ -867,10 +876,18 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 	},
 	PLATFORM_FEATURE_UNAVAILABLE: (e) => platformBuilderSentence(e),
-	CONNECT_MODE_MISMATCH: (e) => e.message,
-	CONNECT_DUPLICATE_DELIVERY: (e) => e.message,
-	CONNECT_REPEATED_ASSESSMENT: (e) => e.message,
-	CONNECT_REPEATED_LEARNING_MODULE: (e) => e.message,
+	CONNECT_MODE_MISMATCH: (e) => {
+		const role = e.details?.role;
+		return role === "learn" || role === "deliver"
+			? missingConnectRoleMessage(fieldName(e), role)
+			: `${q(fieldName(e))} uses a Connect role this app doesn't have. You can turn on that role in App settings or remove the activity.`;
+	},
+	CONNECT_DUPLICATE_DELIVERY: (e) =>
+		`One submission of ${q(formName(e))} can deliver ${q(fieldName(e))} twice to the same recipient${connectPlaces(e)}. You can give each visit its own recipient or send each visit in a separate form.`,
+	CONNECT_REPEATED_ASSESSMENT: (e) =>
+		`One submission of ${q(formName(e))} can send two assessments${connectPlaces(e)}. You can use separate forms or show one assessment at a time.`,
+	CONNECT_REPEATED_LEARNING_MODULE: (e) =>
+		`One submission of ${q(formName(e))} can complete ${q(fieldName(e))} twice${connectPlaces(e)}. You can move the activity outside the repeated rows or use separate forms.`,
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
 		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
 	BLUEPRINT_TOPOLOGY_INVALID: () =>
@@ -1535,7 +1552,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} can't carry its complete case selection straight into that form. Send people to the destination's form list so they can choose again, or give both forms the same case selection and limit.`,
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: (e) =>
 		`A Case change in ${q(formName(e))} can change the selected cases to another type before the next form opens. Send people to the destination's form list so they can choose matching cases, or keep every selected case as ${q(det(e, "expectedCaseType", "the destination's case type"))}.`,
-	CONNECT_ID_TOO_LONG: (e) => e.message,
+	CONNECT_ID_TOO_LONG: (e) =>
+		`Connect stores up to ${det(e, "limit", "50")} characters for this activity ID. You can shorten ${q(fieldName(e))}.`,
 	CONNECT_ID_INVALID_FORMAT: (e) => {
 		const id = det(e, "connectId", "");
 		const sentence = questionIdSentence(e, id, "connect");
@@ -1543,7 +1561,8 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `The Connect ID ${q(id)} in ${q(formName(e))} won't work. Letters, numbers, underscores and hyphens all work, with a letter first.`
 			: `The Connect ID ${q(id)} in ${q(formName(e))} needs a change. ${sentence}`;
 	},
-	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) => e.message,
+	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
+		`Connect checks a delivery before it completes an assigned task, so ${q(formName(e))} can't send both${connectPlaces(e)}. You can complete the task in an earlier form or show one activity at a time.`,
 	FORM_TEXT_READ_AS_INSTANCE: (e) => {
 		const match = det(e, "match", "some text");
 		const site = e.details?.site;

@@ -7,12 +7,12 @@
 import { type Kysely, sql } from "kysely";
 import { readReleasedFoldSnapshot } from "@/lib/case-store/migrations/20261208000000_connect_activity_roles";
 import type { AppDatabase } from "@/lib/db/pg";
+import { convert } from "@/lib/db/releasedConnectShape.mjs";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
-import { convert } from "../migrations/step7-connect-activities.mjs";
 
 /** One app's outcome. `converted` apps open after the conversion; every other
  *  outcome names what stops it, by code or schema path only. */

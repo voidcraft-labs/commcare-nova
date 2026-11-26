@@ -303,7 +303,7 @@ describe("the platform section withholds a choice from a Connect app exactly whe
 		return buildDoc({
 			appName: "Connect parity",
 			appSettings: settings("android"),
-			connectType: "learn",
+			connectRoles: ["learn"],
 			modules: [
 				{
 					uuid: MODULE,
@@ -313,15 +313,19 @@ describe("the platform section withholds a choice from a Connect app exactly whe
 							uuid: VISIT,
 							name: "Lesson",
 							type: "survey",
-							fields: [f({ kind: "text", id: "note", label: "Note" })],
-							connect: {
-								learn_module: {
+							fields: [
+								f({ kind: "text", id: "note", label: "Note" }),
+								f({
+									kind: "connect_activity",
 									id: "lesson",
-									name: "Lesson",
-									description: "The first lesson",
-									time_estimate: 5,
-								},
-							},
+									activity: {
+										kind: "learning-module",
+										name: "Lesson",
+										description: "The first lesson",
+										estimatedHours: 5,
+									},
+								}),
+							],
 						},
 					],
 				},

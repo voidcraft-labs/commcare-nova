@@ -171,7 +171,7 @@ const TRANSLATIONS = "schema:Application.translations";
 const AUTO_GPS = "schema:Application.auto_gps_capture";
 
 const CLAIMS = defineClaims("assemble", {
-	/** `auto_gps_capture` on a Connect app: Nova writes `true` from `connectType`. */
+	/** `auto_gps_capture` on a Connect app: Nova writes `true` from the configured Connect roles. */
 	autoGpsConnect: derived(`${A}/45-hq-auto-gps-capture`, AUTO_GPS),
 	/** On an ordinary app the author chooses the app-wide setting. */
 	autoGpsOther: take(
@@ -421,14 +421,17 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 						: [],
 				),
 			);
-			// A configured role also enables GPS. Where an activity already
-			// requires it, an unused second role has no separate wire setting.
-			if (exercised.size === 0 || exercised.size === doc.connectRoles.length)
-				return doc;
+			// The export shows a role only through an activity that uses it,
+			// and every role through automatic location. A role no activity
+			// uses has no wire of its own, so the reading holds the roles its
+			// activities use, and an app with no activity left holds the
+			// automatic location as its own setting (`assembleDocument`).
+			if (exercised.size === doc.connectRoles.length) return doc;
 			return withCandidate(doc, (draft) => {
 				draft.connectRoles = doc.connectRoles.filter((role) =>
 					exercised.has(role),
 				);
+				if (exercised.size === 0) draft.appSettings.captureLocation = true;
 			});
 		},
 	},

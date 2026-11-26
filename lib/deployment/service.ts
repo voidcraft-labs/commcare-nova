@@ -4297,12 +4297,13 @@ async function compareWithHq(
 		const app = await withDeploymentReadSnapshot(scope, "edit", ({ db }) =>
 			db
 				.selectFrom("apps")
-				.select("connect_type")
+				.select("connect_roles")
 				.where("id", "=", scope.appId)
 				.where("project_id", "=", scope.projectId)
 				.executeTakeFirstOrThrow(),
 		);
-		if (app.connect_type === null) return { kind: "changed-in-hq" };
+		if (app.connect_roles !== null && app.connect_roles.length === 0)
+			return { kind: "changed-in-hq" };
 	}
 	return {
 		kind: "unchanged",

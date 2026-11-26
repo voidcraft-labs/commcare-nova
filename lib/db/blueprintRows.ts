@@ -232,6 +232,10 @@ export function assembleBlueprint(
 	appId: string,
 	scalars: BlueprintScalars,
 	rows: readonly EntityRow[],
+	/** A decoder from an earlier stored shape to the current one, applied to
+	 *  the assembled document before the strict parse. */
+	decode: (snapshot: Record<string, unknown>) => unknown = (snapshot) =>
+		snapshot,
 ): PersistableDoc {
 	let modules: Record<string, unknown> = {};
 	let forms: Record<string, unknown> = {};
@@ -355,51 +359,53 @@ export function assembleBlueprint(
 		}
 	}
 
-	return blueprintDocSchema.parse({
-		appId,
-		appName: scalars.app_name,
-		connectRoles: scalars.connect_roles,
-		caseTypes: scalars.case_types,
-		...(scalars.localization !== undefined && {
-			localization: scalars.localization,
-		}),
-		/* A row with no settings leaves the required root out, so the strict
-		 * parse refuses it rather than reading it as a default. */
-		...(scalars.app_settings !== null && {
-			appSettings: scalars.app_settings,
-		}),
-		modules,
-		forms,
-		fields,
-		moduleOrder: moduleRows.map((r) => r.uuid),
-		formOrder,
-		fieldOrder,
-		...(scalars.logo !== null && { logo: scalars.logo }),
-		/* Omitted when empty, so an app that declares no user properties,
-		 * types, or personas assembles to exactly the doc it did before those
-		 * collections existed — the same shape `logo` keeps for an app with no
-		 * logo. Every reader takes absent as empty, so the two shapes would
-		 * otherwise be a distinction without a difference that still diffed. */
-		...Object.fromEntries(
-			Object.entries(flat).filter(
-				([, collection]) => Object.keys(collection).length > 0,
-			),
-		),
-		/* The membership array rebuilds from the stored `ordinal`, the same way
-		 * `moduleOrder` does above — the record's key iteration order is not a
-		 * sequence and must never be mistaken for one. Omitted alongside its
-		 * record when the collection is empty. */
-		...Object.fromEntries(
-			FLAT_COLLECTIONS.flatMap(([, slot, orderSlot]) => {
-				const flatRows = flatRowsBySlot.get(slot) ?? [];
-				if (flatRows.length === 0) return [];
-				const sequence = [...flatRows]
-					.sort((a, b) => a.ordinal - b.ordinal)
-					.map((row) => row.uuid);
-				return [[orderSlot, sequence] as const];
+	return blueprintDocSchema.parse(
+		decode({
+			appId,
+			appName: scalars.app_name,
+			connectRoles: scalars.connect_roles,
+			caseTypes: scalars.case_types,
+			...(scalars.localization !== undefined && {
+				localization: scalars.localization,
 			}),
-		),
-	});
+			/* A row with no settings leaves the required root out, so the strict
+			 * parse refuses it rather than reading it as a default. */
+			...(scalars.app_settings !== null && {
+				appSettings: scalars.app_settings,
+			}),
+			modules,
+			forms,
+			fields,
+			moduleOrder: moduleRows.map((r) => r.uuid),
+			formOrder,
+			fieldOrder,
+			...(scalars.logo !== null && { logo: scalars.logo }),
+			/* Omitted when empty, so an app that declares no user properties,
+			 * types, or personas assembles to exactly the doc it did before those
+			 * collections existed — the same shape `logo` keeps for an app with no
+			 * logo. Every reader takes absent as empty, so the two shapes would
+			 * otherwise be a distinction without a difference that still diffed. */
+			...Object.fromEntries(
+				Object.entries(flat).filter(
+					([, collection]) => Object.keys(collection).length > 0,
+				),
+			),
+			/* The membership array rebuilds from the stored `ordinal`, the same way
+			 * `moduleOrder` does above — the record's key iteration order is not a
+			 * sequence and must never be mistaken for one. Omitted alongside its
+			 * record when the collection is empty. */
+			...Object.fromEntries(
+				FLAT_COLLECTIONS.flatMap(([, slot, orderSlot]) => {
+					const flatRows = flatRowsBySlot.get(slot) ?? [];
+					if (flatRows.length === 0) return [];
+					const sequence = [...flatRows]
+						.sort((a, b) => a.ordinal - b.ordinal)
+						.map((row) => row.uuid);
+					return [[orderSlot, sequence] as const];
+				}),
+			),
+		}),
+	);
 }
 
 /** The minimal write-set between two docs' entity rows. */

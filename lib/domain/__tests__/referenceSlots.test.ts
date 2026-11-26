@@ -44,6 +44,7 @@ import {
 import { audioFieldSchema } from "../fields/audio";
 import { barcodeFieldSchema } from "../fields/barcode";
 import { selectOptionSchema } from "../fields/base";
+import { connectActivityFieldSchema } from "../fields/connectActivity";
 import { dateFieldSchema } from "../fields/date";
 import { datetimeFieldSchema } from "../fields/datetime";
 import { decimalFieldSchema } from "../fields/decimal";
@@ -135,6 +136,7 @@ const NON_REPEAT_KIND_SCHEMAS: Record<
 	secret: secretFieldSchema,
 	group: groupFieldSchema,
 	section: sectionFieldSchema,
+	connect_activity: connectActivityFieldSchema,
 };
 
 const REPEAT_VARIANT_SCHEMAS: Record<RepeatMode, z.ZodType> = {

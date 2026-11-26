@@ -25,6 +25,7 @@ import {
 	resolveCaseListConfig,
 	resolveDocExpressions,
 } from "@/lib/__tests__/docHelpers";
+import { convert as convertReleasedActivities } from "@/lib/db/releasedConnectShape.mjs";
 import { planExplicitPreloads } from "@/lib/doc/explicitPreloads";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
@@ -68,7 +69,6 @@ import {
 	localizeTranslationUnit,
 	snapshotTranslationUnits,
 } from "@/lib/domain/translationUnits";
-import { convert as convertReleasedActivities } from "@/scripts/migrations/step7-connect-activities.mjs";
 
 // ── Stable id minting ──────────────────────────────────────────────
 

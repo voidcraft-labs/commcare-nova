@@ -827,7 +827,7 @@ const SETTLED = {
 		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
 	/** A held file's path under `jr://file/`, the path the project space keeps it at. */
 	mediaPath: "expressions-and-data/media-path-jr-file",
-	/** A Connect app, which the document holds as its `connectType`. */
+	/** A Connect app, which the document holds as its configured roles. */
 	connect: "application-and-settings/connect-app-opened-in-the-connect-app",
 	/** The app strings HQ's build writes for every app in every language outside its
 	 *  `translations` (`app_strings.py::_create_custom_app_strings`, `cchq.case`), for the

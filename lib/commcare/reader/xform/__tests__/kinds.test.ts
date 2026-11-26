@@ -1242,6 +1242,22 @@ const EMITTED: { readonly [K in FieldKind]: readonly KindFixture[] } = {
 			],
 		},
 	],
+	connect_activity: [
+		{
+			fields: [
+				f({
+					kind: "connect_activity",
+					id: "call",
+					activity: {
+						kind: "assigned-task",
+						name: "Call",
+						description: "Ring the household",
+					},
+				}),
+			],
+			read: [{ id: "call", kind: "connect_activity" }],
+		},
+	],
 	section: [
 		{
 			fields: [
@@ -1271,6 +1287,8 @@ async function emittedAndRead(
 	fields: readonly FieldSpec[],
 ): Promise<{ readonly shapes: ReadShape[]; readonly standIns: string[] }> {
 	const doc = buildDoc({
+		// The assigned task among the kinds needs its role.
+		connectRoles: ["deliver"],
 		modules: [
 			{
 				name: "Menu",

@@ -292,19 +292,6 @@ describe("userFacingError — voice", () => {
 		).toBe(
 			'A CommCare Connect setting of "Register Client" reads the whole form, not a question. You can point it at a question, a group or a repeat instead.',
 		);
-		expect(
-			userFacingError(
-				validationError(
-					"FIELD_ID_NAMES_CONNECT_BLOCK",
-					"field",
-					"Internal",
-					location,
-					{ fieldId: "_notes", suggestedId: "notes_2" },
-				),
-			),
-		).toBe(
-			'"_notes" and a CommCare Connect block of "Register Client" share one name, so the form would hold two items CommCare can\'t tell apart. You can rename the field, or give the block another ID. "notes_2" is free for the field.',
-		);
 	});
 
 	it("names the value two choices share and the one free for the second", () => {

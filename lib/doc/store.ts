@@ -326,9 +326,9 @@ export interface HistoryStepOutcome {
  * Initial empty document state.
  *
  * Used as the starting value for freshly created stores and as a reset
- * target. All entity maps and order arrays start empty; nullable fields
- * (`connectType`, `caseTypes`) start as `null` to match the blueprint
- * schema (surveys and empty apps may omit them entirely).
+ * target. All entity maps and order arrays start empty; `connectRoles`
+ * starts empty and `caseTypes` as `null` to match the blueprint schema
+ * (surveys and empty apps may omit the catalog entirely).
  *
  * Identity-keyed records start with null prototypes, matching the post-hydrate
  * and post-mutation invariant before the first write has happened.
