@@ -121,7 +121,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         with:
-          name: proof-slice-${{ github.run_attempt }}
+          name: proof-slice-${{ github.run_attempt }}-${{ hashFiles('.proof/slice/serve.json') }}
           path: .proof/slice
           if-no-files-found: error
           retention-days: 30
