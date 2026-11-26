@@ -2452,6 +2452,7 @@ export function rangeMode(): Extract<SearchInputMode, { kind: "range" }> {
 
 /** Slots every visible prompt may carry beside its widget-specific ones. */
 interface SearchInputVisibleSlots {
+	readonly addressReceiver?: SearchAddressReceiver;
 	readonly hint?: string;
 	readonly required?: SearchInputRequired;
 	readonly validation?: SearchInputValidation;
@@ -2501,6 +2502,7 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 	slots: SearchInputCommonSlots,
 ): T & SearchInputCommonSlots {
 	const out: T & {
+		addressReceiver?: SearchAddressReceiver;
 		default?: Expression;
 		hint?: string;
 		required?: SearchInputRequired;
@@ -2508,6 +2510,8 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 		allowBlank?: true;
 		hidden?: true;
 	} = { ...base };
+	if (slots.addressReceiver !== undefined)
+		out.addressReceiver = slots.addressReceiver;
 	if (slots.default !== undefined) out.default = slots.default;
 	if (slots.hint !== undefined) out.hint = slots.hint;
 	if (slots.required !== undefined) out.required = slots.required;
@@ -2575,23 +2579,11 @@ export function simpleSearchInputDef(
 		| SimpleDateRangeSearchInputSlots
 		| SimpleSelectSearchInputSlots = {},
 ): SimpleSearchInputDef {
-	const out = {
-		uuid,
-		kind: "simple",
-		name,
-		label,
-		type,
-		property,
-	};
-	const candidate: Record<string, unknown> = { ...out };
+	const candidate: Record<string, unknown> = withSearchInputCommonSlots(
+		{ uuid, kind: "simple", name, label, type, property },
+		slots,
+	);
 	if (slots.matching) candidate.matching = slots.matching;
-	if ("default" in slots && slots.default !== undefined)
-		candidate.default = slots.default;
-	if (slots.hint !== undefined) candidate.hint = slots.hint;
-	if (slots.required !== undefined) candidate.required = slots.required;
-	if (slots.validation !== undefined) candidate.validation = slots.validation;
-	if (slots.allowBlank === true) candidate.allowBlank = true;
-	if (slots.hidden === true) candidate.hidden = true;
 	if ("options" in slots) candidate.options = slots.options;
 	if (slots.via !== undefined && slots.via.kind !== "self")
 		candidate.via = slots.via;

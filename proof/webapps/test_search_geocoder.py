@@ -4,6 +4,8 @@ from dataclasses import replace
 
 import pytest
 
+from proof.editors import pages
+from proof.hq import operations
 from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
@@ -33,6 +35,51 @@ def _geocoder_fields(app, mode):
         "label": {"en": "Find an address"}, "appearance": "address",
         "exclude": True,
     })
+
+
+def _enable_address_search(config):
+    return replace(
+        config, privileges=config.privileges | {"CLOUDCARE", "GEOCODER"},
+        flags=config.flags | {"CASE_SEARCH_ADVANCED"},
+    )
+
+
+def test_case_list_editor_keeps_search_address_receivers_after_reopening(
+    hq, core_runner, editor_driver, webapps_documents, evidence
+):
+    from corehq.apps.app_manager.models.case_search import CaseSearchProperty
+
+    document = webapps_documents["hq-search"]
+
+    def fields_in(module):
+        return [
+            (field.name, field.appearance, field.input_, field.receiver_expression)
+            for field in module.search_config.properties
+            if field.name in {"home", "district", "village"}
+        ]
+
+    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
+        app = operations.held_app(project.unit, project.app_id)
+        source = app.to_json()
+        _geocoder_fields(source, "combined")
+        menu = app.modules[0]
+        menu_id = menu.unique_id
+        menu.search_config.properties = [
+            CaseSearchProperty.wrap(field) for field in source["modules"][0]["search_config"]["properties"]
+        ]
+        app.save()
+        before = fields_in(menu)
+        assert before[0][:2] == ("home", "address")
+        assert ("village", None, None, "home-us_state||city") in before
+        assert ("district", None, "select", "home-region") in before
+        saves = []
+        for _ in range(2):
+            saved = pages.fresh_section_save(editor_driver, project.unit, pages.CASE_LIST, project.app_id, menu_id)
+            assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+            current = operations.held_app(project.unit, project.app_id).get_module_by_unique_id(menu_id)
+            saves.append(fields_in(current))
+    evidence("search-address-case-list-resave", {"before": before, "saves": saves})
+    assert saves == [before, before]
 
 
 RECEIVERS = {
@@ -97,15 +144,9 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
         RECEIVERS,
     ]
 
-    def enable(config):
-        return replace(
-            config, privileges=config.privileges | {"CLOUDCARE", "GEOCODER"},
-            flags=config.flags | {"CASE_SEARCH_ADVANCED"},
-        )
-
     database = casedata.document_case_database(document)
     clear_and_choose = [CLEAR_ADDRESS, steps.SETTLE, RECEIVERS, *select] if viewport is None else []
-    with webapps_hq.authored_project(document, "A", configure=enable) as project:
+    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
         with project.released(
             formplayer_runner, change=lambda app: _geocoder_fields(app, mode), database=database
         ) as release:

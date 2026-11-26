@@ -498,6 +498,7 @@ test("A chosen address fills Search through its linked field and never sends the
 		await expect(address).toBeEditable();
 		await address.fill("Visit Road");
 		await page.getByRole("option", { name: "18 Visit Road" }).click();
+		await expect(address).toHaveValue("18 Visit Road, Example Town");
 		await expect(name).toHaveValue("Example Town");
 		await page.getByRole("button", { name: "Search", exact: true }).click();
 		await expect(page.getByLabel("Submitted search")).toHaveText(
