@@ -16629,13 +16629,22 @@
 		"id": "hq-case-lists/translation-overrides-a-detail-tab-title",
 		"base": "hq-case-lists",
 		"entry": "application-and-settings/translations-generated-wording",
-		"place": {
-			"kind": "app"
-		},
 		"change": {
 			"op": "named",
 			"name": "translation_overrides_a_detail_tab_title"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/0/title",
+				"value": "Patient record"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/worker-words-for-one-generated-title",
