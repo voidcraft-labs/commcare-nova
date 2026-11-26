@@ -31618,6 +31618,7 @@
 	{
 		"id": "hq-questions/android-app-answer",
 		"base": "hq-questions",
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
 		"entry": "questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id",
 		"change": {
 			"op": "named",
@@ -31651,6 +31652,7 @@
 	{
 		"id": "hq-questions/android-app-question",
 		"base": "hq-questions",
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
 		"entry": "questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
 		"change": {
 			"op": "named",
