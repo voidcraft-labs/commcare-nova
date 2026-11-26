@@ -588,22 +588,28 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 		expect(seen(blank.respelled)).toEqual([]);
 	});
 
-	// `status`'s answer goes into the project space's search between quotes, which Nova's search
-	// guards itself, so Nova joins that guard to the field's check (`searchPrompts.ts::buildValidation`):
-	// with no message of its own, the stored check, Nova's guard and all, is its own finding.
-	it("is its own finding on a field Nova's search guards", async () => {
-		const found = await account((body) => {
+	it("holds the authored rule and native message when its check already includes the guard", async () => {
+		let nativeCheck: unknown;
+		const { doc } = await documentOf((body) => {
 			const [validation] = third(body).validations as JsonObject[];
-			if (validation === undefined) throw new Error("status validates.");
-			validation.text = { es: "", en: "" };
+			if (validation === undefined) throw new Error("Status has a check.");
+			validation.text = {};
+			nativeCheck = validation.test;
 		});
-		expect(found).toEqual([
-			[
-				`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
-				"search",
-				"status",
-			],
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "status");
+		expect(field).toMatchObject({
+			name: "status",
+			validation: { rule: expect.any(Object) },
+		});
+		expect(
+			field && "validation" in field && field.validation,
+		).not.toHaveProperty("message");
+		expect(third(exportedBody(doc)).validations).toEqual([
+			expect.objectContaining({ test: nativeCheck, text: {} }),
 		]);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
 	// HQ's own check of `status` holds no guard of Nova's: Nova's first publish would join one to

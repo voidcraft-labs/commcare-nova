@@ -111,6 +111,12 @@ function guardCarriers(
 			),
 		);
 		for (const input of config.searchInputs) {
+			if (
+				input.kind !== "hidden" &&
+				input.validation !== undefined &&
+				input.validation.message === undefined
+			)
+				continue;
 			const guard = guards.get(input.name);
 			if (guard === undefined) continue;
 			out.set(guard.messageKey, [...(out.get(guard.messageKey) ?? []), input]);

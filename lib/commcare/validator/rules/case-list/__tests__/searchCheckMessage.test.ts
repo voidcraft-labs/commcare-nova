@@ -2,14 +2,8 @@
  * Contract: the gate admits a requirement with no message and a check with
  * no message of its own exactly where the wire prints them as CommCare HQ
  * builds them: a requirement has no message or may have its own, never both,
- * and a check with no message stands only on a field whose answers the
- * search does not guard itself, since the guard shares the field's one check
- * and its sentence follows the field's message.
- *
- * The failure it catches: a messageless check admitted beside the search's
- * own guard, which prints the guard's sentence as the check's whole text and
- * reads back as the guard alone; the gate's notion of a guarded field
- * drifting from the wire's (`buildRuntimeCsqlPromptValidations`).
+ * and a check can leave the message to the native reader even when the search
+ * guards its answers.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -99,18 +93,14 @@ describe("Search field check messages", () => {
 		expect(findings(doc).filter((error) => error.code === CODE)).toEqual([]);
 	});
 
-	it("refuses a check with no message on a field the search guards, and admits one with a message", () => {
+	it("admits either an authored message or CommCare's message on a guarded field", () => {
 		const doc = withSearchInputs(base(), [
 			status({ validation: { rule: eq(input(STATUS), literal("open")) } }),
 		]);
 		expect(
 			searchGuardedFieldNames(doc, doc.moduleOrder[0] as never).has("status"),
 		).toBe(true);
-		expect(
-			findings(doc)
-				.filter((error) => error.code === CODE)
-				.map((error) => error.details?.inputName),
-		).toEqual(["status"]);
+		expect(findings(doc).filter((error) => error.code === CODE)).toEqual([]);
 		expect(
 			refusals([
 				status({
