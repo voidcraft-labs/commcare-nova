@@ -361,24 +361,37 @@ def _generated_search_group_heading(use, held):
         rows = config.get("properties") if isinstance(config, dict) else None
         if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
             continue
-        for index, group in enumerate(rows[:-1]):
-            group_key = f"group_header_{index}"
-            if (group.get("is_group") is not True or group.get("name") != group_key
-                    or group.get("group_key") != group_key or rows[index + 1].get("is_group")
-                    or rows[index + 1].get("group_key") != group_key):
-                continue
-            labels = group.get("label")
-            if not isinstance(labels, dict):
-                continue
-            key = f"search_property.m{module_index}.{group_key}"
-            for code in langs:
-                if not isinstance(code, str) or not isinstance(translations.get(code), dict):
+        headings, members, names = {}, set(), set()
+        current = None
+        for index, row in enumerate(rows):
+            name = row.get("name")
+            if not isinstance(name, str) or not name or name in names:
+                break
+            names.add(name)
+            if row.get("is_group") is True:
+                current = f"group_header_{index}"
+                labels = row.get("label")
+                if (name != current or row.get("group_key") != current or not isinstance(labels, dict)
+                        or not any(isinstance(text, str) and text.strip() for text in labels.values())):
+                    break
+                headings[current] = labels
+            elif current is None or row.get("group_key") != current:
+                break
+            else:
+                members.add(current)
+        else:
+            for group_key, labels in headings.items():
+                if group_key not in members:
                     continue
-                base, wording = labels.get(code), translations[code].get(key)
-                if not isinstance(base, str) or not base.strip() or not isinstance(wording, str) or wording == base:
-                    continue
-                if wording and wording.isascii() and wording.isprintable() and wording.strip() == wording and "\\" not in wording:
-                    yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
+                key = f"search_property.m{module_index}.{group_key}"
+                for code in langs:
+                    if not isinstance(code, str) or not isinstance(translations.get(code), dict):
+                        continue
+                    base, wording = labels.get(code), translations[code].get(key)
+                    if not isinstance(base, str) or not base.strip() or not isinstance(wording, str) or wording == base:
+                        continue
+                    if wording and wording.isascii() and wording.isprintable() and wording.strip() == wording and "\\" not in wording:
+                        yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
 
 
 def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:

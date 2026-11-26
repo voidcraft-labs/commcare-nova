@@ -232,6 +232,31 @@ it("keeps Search group worker wording on the route’s group when menus and grou
 		}),
 	);
 
+	// A valid first group cannot rescue an unassigned prompt later in the
+	// same Search or let its generated key stand for a partially read panel.
+	const ungrouped = structuredClone(raw);
+	delete (ungrouped.modules as typeof modules)[0].search_config.properties[3]
+		.group_key;
+	const malformed = readHqApp(
+		await inputFor(ungrouped, {
+			appStrings: (doc) => localAppStringTable(doc, []),
+		}),
+		{ claims: "full" },
+	);
+	if (malformed.kind !== "account")
+		throw Error("The malformed layout should stop the read");
+	expect(malformed.findings).toContainEqual(
+		expect.objectContaining({
+			code: "case-search/groups-present-and-an-input-without-group-key",
+		}),
+	);
+	expect([...malformed.claims.records()]).not.toContainEqual(
+		expect.objectContaining({
+			entry: "application-and-settings/translations-generated-wording",
+			at: `/translations/en/${key}`,
+		}),
+	);
+
 	const adopted = await read(raw);
 	for (const doc of [adopted, await read(exportedBody(adopted))]) {
 		const [route, source] = doc.moduleOrder;
@@ -263,8 +288,23 @@ it("keeps Search group worker wording on the route’s group when menus and grou
 	const [route, source] = adopted.moduleOrder;
 	const reordered = structuredClone(adopted);
 	reordered.moduleOrder = [source, route];
-	reordered.modules[route].caseListConfig?.searchInputGroups?.reverse();
-	const wire = expandDoc(reordered);
+	const list = reordered.modules[route].caseListConfig;
+	if (!list?.searchInputGroups) throw Error("The route lost its headings");
+	list.searchInputGroups.reverse();
+	list.searchInputs.reverse();
+	const changed = mutationCommitVerdict(
+		adopted,
+		diffDocsToMutations(adopted, reordered),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!changed.ok) throw Error(JSON.stringify(changed.findings));
+	expect(changed.nextDoc.moduleOrder).toEqual([source, route]);
+	expect(
+		changed.nextDoc.modules[route].caseListConfig?.searchInputs[0].group,
+	).toBe(
+		changed.nextDoc.modules[route].caseListConfig?.searchInputGroups?.[0].uuid,
+	);
+	const wire = expandDoc(changed.nextDoc);
 	expect(wire.translations?.en[key]).toBeUndefined();
 	expect(
 		wire.translations?.en["search_property.m1.group_header_0"],
