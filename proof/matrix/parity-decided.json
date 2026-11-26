@@ -181,9 +181,7 @@
 		"hq-case-management/worker-record-preload-alone",
 		"hq-case-management/write-through-an-unknown-index"
 	],
-	"hq-connect-deliver": [
-		"hq-connect-deliver/auto-gps-capture-on"
-	],
+	"hq-connect-deliver": ["hq-connect-deliver/auto-gps-capture-on"],
 	"hq-connect-learn": [],
 	"hq-empty-search": [
 		"hq-empty-search/conditional-registration-returning-to-search"
@@ -232,9 +230,7 @@
 		"hq-lookups/itemset-copy",
 		"hq-lookups/itemset-property-as-label"
 	],
-	"hq-media": [
-		"hq-media/form-media-for-every-language"
-	],
+	"hq-media": ["hq-media/form-media-for-every-language"],
 	"hq-menus": [
 		"hq-menus/after-submit-to-the-parent-menu",
 		"hq-menus/badge",
@@ -309,9 +305,7 @@
 		"hq-new-app/smart-lang-display",
 		"hq-new-app/vellum-case-management-off"
 	],
-	"hq-nova-then-builder": [
-		"hq-nova-then-builder/close-on-a-survey"
-	],
+	"hq-nova-then-builder": ["hq-nova-then-builder/close-on-a-survey"],
 	"hq-owner-rules": [],
 	"hq-places": [],
 	"hq-plain": [
