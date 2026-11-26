@@ -458,7 +458,7 @@ export function matchingUuidOf(
 			// already owned text in this column. A fresh app never trusts an
 			// identity supplied by another app’s exported key.
 			const match =
-				/^v*case_text_([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$/.exec(
+				/^(?:v*|v[0-9a-f]{8}_)case_text_([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$/.exec(
 					piece.key,
 				);
 			const printed = match

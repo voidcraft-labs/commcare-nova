@@ -398,7 +398,7 @@ export function serializeWire(
 				result = suiteVariable("calculated_property");
 				break;
 			case "case-text-variable": {
-				const key = caseTextWireKey(node.textUuid, node.padding);
+				const key = caseTextWireKey(node.textUuid, node.variant);
 				if (mode.target === "hq-json") result = `$${key}`;
 				else result = suiteVariable(keyAsVariable(key));
 				break;

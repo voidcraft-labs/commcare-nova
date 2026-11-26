@@ -1,5 +1,5 @@
 import {
-	caseTextKeyPadding,
+	caseTextKeyVariants,
 	caseTextWireKey,
 } from "../suite/case-list/calculationText";
 import { detailBindings } from "../suite/case-list/detailBindings";
@@ -323,12 +323,12 @@ function projectColumnBody(
 			headerRecord,
 		);
 		if (column.texts !== undefined) {
-			const padding = caseTextKeyPadding(field.expression, column.texts);
+			const variants = caseTextKeyVariants(field.expression, column.texts);
 			return {
 				...base,
 				format: "translatable-enum",
 				enum: column.texts.map((piece) => ({
-					key: caseTextWireKey(piece.uuid, padding.get(piece.uuid)),
+					key: caseTextWireKey(piece.uuid, variants.get(piece.uuid)),
 					value: localization.textMap(
 						makeTranslationUnitId(
 							"column",
