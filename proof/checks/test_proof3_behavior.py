@@ -86,6 +86,7 @@ import base64
 import copy
 import io
 import json
+import re
 import shutil
 import zipfile
 from dataclasses import dataclass, replace
@@ -1213,7 +1214,8 @@ def test_hqs_builds_read_lookup_tables_from_hqs_restore(hq, core_runner):
     )
     values = [value["value"] for value in result["values"]]
     assert values == [str(len(rows)), *(row["values"][column["id"]] for row in rows)]
-    with pytest.raises(CoreRunnerError, match=f"Unable to find lookup table: jr://fixture/item-list:{tag}"):
+    missing_table = f'FixtureInitializationException: Unable to find lookup table "jr://fixture/item-list:{tag}"'
+    with pytest.raises(CoreRunnerError, match=re.escape(missing_table)):
         core_runner.evaluate(
             formBase64=base64.b64encode(form).decode(),
             restoreBase64=base64.b64encode(plain).decode(),
