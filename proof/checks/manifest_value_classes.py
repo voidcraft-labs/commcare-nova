@@ -10996,6 +10996,19 @@ def itemset_literal_row_index(use):
     return predicate is not None and predicate[0] == "number"
 
 
+def case_itemset_survey_readiness(use):
+    """The retained all-type case itemset with a row-local property filter."""
+    form, itemset = _form_element(use)
+    if form is None or _local(itemset) != "itemset":
+        return False
+    if dict(form.declared_instances).get("casedb") != "jr://instance/casedb":
+        return False
+    children = [(_local(child), child.get("ref")) for child in _children(itemset)]
+    return (children == [("label", "case_name"), ("value", "@case_id")]
+            and expression_tree(itemset.get("nodeset") or "") ==
+            expression_tree("instance('casedb')/casedb/case[survey_ready = 'yes']"))
+
+
 def _itemset_read(use):
     """The actual form or Search itemset slot, parsed as a row-relative XPath by the proof parser."""
     from proof.checks.xpath_tree import tree

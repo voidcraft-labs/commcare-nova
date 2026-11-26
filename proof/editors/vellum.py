@@ -401,9 +401,9 @@ def vellum_spec(options: DesignerOptions, *, load_delay, seeded=True, edit=None)
     return spec
 
 
-# The ways a run's edit is made (``driver/steps/vellum/edit.js``): through the form builder's own object for the
-# question, where the page cannot be worked as a person works it.
-EDIT_WAYS = ("builder-model", "add-questions")
+# The ways a run's edit is made (``driver/steps/vellum/edit.js``): through the advanced data source UI,
+# or through Vellum's question model where the driver cannot work the question as a person does.
+EDIT_WAYS = ("builder-model", "add-questions", "itemset-query")
 
 
 class VellumEditRefused(AssertionError):
