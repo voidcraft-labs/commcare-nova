@@ -981,20 +981,23 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         assert before[old_key] == old_heading and before.get(current_key) == dormant_heading
         original = worker_headings(project, "legacy-search-heading")
 
-        # Adding an empty property runs the native array change. The Case List
-        # page drops that row on Save, so the groups and their members stay put.
+        # Add and remove a blank property with the page's controls to run
+        # the same native array changes as sorting. Group membership stays put.
         page = pages.CASE_LIST
         path, save_path = pages._urls(state, page, app_id, project.module_id(0))
         editor_build()
         answers = HQAnswers(state)
+        action, selector = page.arm
         run = editor_driver.run([
             {"goto": path},
             {"until": "pages/ready", "arg": {"bar": page.bar}},
             {"click": 'button[data-bind="click: addProperty"]'},
+            {"click": 'tbody[data-bind*="sortableList: search_properties"] tr:last-child [data-bind="click: $parent.removeProperty"]'},
+            {"until": "pages/armed", "arg": {"action": action, "selector": selector, "bar": page.bar}},
             {"click": f"{page.bar} > .btn:not(.disabled)"},
-            {"awaitRequest": {"method": "POST", "pathname": save_path}},
-            {"until": "pages/saved", "arg": page.bar},
-        ], answer=answers)
+            {"awaitRequest": {"method": "POST", "pathname": save_path}, "orDialog": True},
+            {"until": "pages/saved", "arg": page.bar, "unlessUnsent": True},
+        ], answer=answers, deadline=35)
         answers.check()
         assert not run["pageErrors"], run["pageErrors"]
         [save] = [exchange for exchange in answers.exchanges if exchange.method == "POST" and exchange.path == save_path]
