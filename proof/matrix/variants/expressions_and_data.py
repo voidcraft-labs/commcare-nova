@@ -135,7 +135,7 @@ def supply_point_id_outside_an_advanced_form(authoring, app_id):
 
 def supply_point_id_read(authoring, app_id):
     """``notes`` of Member visits' advanced form shown where ``session/data/supply_point_id`` is not blank: the form's
-    own computed datum of that id (``supply_point_id_computed``) supplies it."""
+    own computed datum of that id supplies it."""
     _expression(
         authoring,
         app_id,
@@ -147,10 +147,6 @@ def supply_point_id_read(authoring, app_id):
         "supply-point-id-read",
     )
 
-
-def supply_point_id_computed(authoring, app_id):
-    """Member visits' advanced form given a computed datum ``supply_point_id`` (``arbitrary_datums``, which HQ's
-    advanced form editor offers under any id), the worker's place."""
     ops.set_json(
         authoring,
         app_id,

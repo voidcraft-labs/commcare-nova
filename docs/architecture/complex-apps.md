@@ -21,6 +21,23 @@ doc both speak, the subtree doc and the code are the authority for how.
 
 ### Canonical authored identity
 
+A form can have multiple opening records from one list, with a stable identity
+for each choice. `formCaseSelections` materializes the derived menu choices
+on first edit. A choice can come from a list, a worker record or worker
+property, a table column, a named connection, or an earlier calculated
+expression. Opening calculations and form expressions resolve these identities
+at their actual position in the entry. The same selection UUID can survive a
+display rename, move, publish and read-back. The listing menu remains the
+owner of the screen a worker sees. Each destination can bind manual choices by their
+target UUIDs. An ambiguous menu identity cannot bind two different choices.
+The physical frame is checked after parent alignment and new-case and search
+datum insertion. Core consumes each session name once, in order.
+A case-mode automatic index names the earlier action by its original tag.
+HQ rewrites only dependents in the earlier action’s `case_indices` when a
+parent renames a choice. Nova refuses a connection left without its source.
+The native Back operation skips a single automatically selected case when
+the choice has no confirmation. Its list still honors its excluded owners.
+
 A Nova UUID has exactly one spelling: lowercase, hyphenated, RFC version 1–8,
 with the RFC variant (`lib/domain/uuid.ts::CANONICAL_UUID_PATTERN` — a string
 regex rather than a Zod refinement, because `z.toJSONSchema()` carries a
@@ -860,12 +877,32 @@ owned by the worker with a `host` extension index to each chosen case, as HQ's
 claim does, and a person releases them from the identity menu. Reserved write properties are
 `lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES` — HQ's authoring-side
 case-reserved-words list plus `name` and `owner_id` — extended with
-`location_id`, `hq_user_id`, and `external_id`.
+`external_id`.
 
-`location_id` and `hq_user_id` are reserved because CommCare HQ stores each
-somewhere other than the property: a written `location_id` becomes the case's
-own location and a written `hq_user_id` is copied to its external id
-(`update_strategy.py::_apply_update_action`). `category` and `state` are
+`location_id` and `hq_user_id` are written as CommCare HQ's server stores
+them (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`),
+whichever action or Save to Case block writes them. A written `location_id`
+is the case's own location: an opaque text, not one of the Project's places
+and no grant of access, which the case store keeps in the nullable
+`cases.location_id` column and every device reads as the case's
+`location_id` property (HQ's restore writes the column back as that element
+where it holds text, `V2CaseXMLGenerator.add_custom_properties`). It is a
+writable standard scalar like `external_id`
+(`standardCaseProperties.ts::WRITABLE_STANDARD_CASE_PROPERTIES`), held to text
+and 255 characters, and no standard property every case carries: a case type
+holds it where the app saves or declares it. HQ's case search indexes no
+location (`corehq/pillows/case_search.py::_get_case_properties`), so a
+search's read of it is refused (`typeChecker.ts`, `location-not-in-search`).
+A written `hq_user_id` is an ordinary property whose value the case store
+also copies into the case's external id, applied after the block's own
+`external_id` as HQ applies its known keys first; the submitting device keeps
+its own external id until its next sync (`CaseXmlParser.updateCase` keeps the
+key as a property alone), which the submission's device patch holds
+(`postgres/submissionEnvelope.ts::DeviceExternalIds`). The worker's record
+keeps `hq_user_id` in step with the worker, so no form writes it there
+(`USERCASE_BUILT_IN_KEYS`); a worker detail named `location_id` is the
+record's location column, as HQ's user-case sync leaves it
+(`lib/db/syncUsercaseRow.ts`). `category` and `state` are
 ordinary properties on both runtimes: Core keeps each in the case's property
 map (`Case.java::setCategory`, `setState`) and shows it as a child like any
 other (`CaseChildElement.setCaseProperties`), beside an attribute of the same
@@ -1323,9 +1360,11 @@ it says so. On the wire this populates `usercase_update` and emits the
 `actions_use_usercase`, and the datum rides forms only, so a case list menu
 item's entry carries neither. An advanced form loads the record with an
 `autoload_commcare_user<n>` action, `auto_select.mode: "usercase"`, which
-writes the same datum and assertion. `usercase_preload` stays empty as a stated fence:
-`#user/<prop>` already compiles to the identical `casedb` join, and a preload
-action would be a second representation of one read.
+writes the same datum and assertion. A new starting value from a worker
+record belongs to that advanced load. HQ's basic User Properties page only
+saves worker properties. A historical basic worker preload can keep an
+ordinary worker-property default when the active update supplies the same
+record and moving the read preserves every initialization observation.
 
 **The usercase is behind a paid privilege, and the failure is sharper than it
 looks.** `app_manager/util.py::domain_has_usercase_access` gates it, and on a
@@ -2998,9 +3037,16 @@ The CommCare facts this rests on, read at the pins `proof/pins.json` names
   open action owned by the worker, Nova writes `owner_id` from a generated
   Hidden Value, `nova_owner_<operation id>`
   (`lib/commcare/xform/generatedNodes.ts::advancedOwnerNodeValue`).
-- HQ's build appends a load's preload after every setvalue already in the form,
-  so Nova writes no preload on a load: a preload is the question's default, as
-  in a basic form.
+- HQ's build appends a load's preload after the form's authored ready writes.
+  Nova keeps the question's own starting value and calculation, the UUID of
+  the assignment and its destination, and each named connection to the source
+  property. Different loads can fill one question. The assignment order
+  within each load matters when calculations or relevance read intermediate
+  values. A new form uses the advanced editor's load for these assignments.
+  An imported basic form retains its saved load. A previously adopted field
+  default keeps its equivalent representation while the original source still
+  establishes it. The document, the HQ read-back comparator, the local archive
+  and Preview preserve each of these distinctions.
 - HQ's build checks an advanced module and its forms in
   `helpers/validators.py` (`AdvancedModuleValidator`,
   `AdvancedFormValidator.check_actions`); Nova holds each rule as a kind
@@ -3654,6 +3700,12 @@ One form may appear under several menus. A route refers to the source menu and f
 ### Case creation IDs supplied by deep links
 
 A source form can choose case creations whose IDs an external link supplies. Each choice names a case operation UUID. HQ stores these choices even when the source form has no deep link of its own. `entryPointProjection.ts` resolves the UUID on the actual ordered frame after parent alignment. The writers put the resulting argument ID in HQ's form and the suite. A computed ID replaces its own value on the navigation frame. Only eligible selection arguments create claim frames. The deployment manifest retains this argument order with the verified suite signature. Preview validates the operations and checks ID availability in the app and Project before installing selections or writing claims. The case transaction allocates a supplied ID only for the creation the committed form exposes, refuses an occupied ID, and replays the receipt for the same submission.
+### Several paths to the same form
+
+A person can add another entry to an advanced menu and select the form whose questions it opens. Editing those questions or their record changes affects every entry. Each entry chooses how to find records at launch, what it is called, when it is visible and where a worker goes next. The Builder opens the parent when a person wants to edit its questions and shows the opening choices on the entry that owns them.
+
+The wire distinguishes a command from a resource. HQ's `ShadowForm._merge_actions` walks just the extra load rows. A repeated parent tag keeps its writes and replaces the selection, and a new tag supplies an additional read-only record. Open actions come from the parent. HQ's form picker restricts the parent to an ordinary advanced form. A shared entry whose parent questions or case changes require an absent load cannot submit safely. Nova identifies the dependent entry and lets the person restore that opening choice.
+
 ### Automatic location on submitted forms
 
 Ordinary apps can request an Android device location for all forms, or on

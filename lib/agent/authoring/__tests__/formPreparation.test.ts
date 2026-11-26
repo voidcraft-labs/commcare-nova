@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 
 it("omits blank optional creation logic, clears edited logic, and refuses a blank required expression atomically", async () => {
 	const h = makeAuthoringHarness(
@@ -453,6 +454,48 @@ it("prepares new after-submit link slots and binds carried selection names to th
 	expect(
 		h.currentDoc().forms[sourceForm.uuid]?.formLinks?.[0]?.condition,
 	).toBeUndefined();
+});
+
+it("edits and reads two carried records by their own names when they use the same list", async () => {
+	const h = makeAuthoringHarness(
+		{},
+		independentChoicesBlueprint("carried-records"),
+	);
+	const source = Object.values(h.currentDoc().forms).find(
+		(form) => form.name === "Open the assigned pair",
+	);
+	const destination = Object.values(h.currentDoc().forms).find(
+		(form) => form.name === "Visit two people",
+	);
+	const link = source?.formLinks?.[0];
+	if (!source || !destination || !link)
+		throw new Error("Missing the two-person visit");
+	const datums = [
+		{ name: "First person", xpath: "'carried-records-person-3'" },
+		{ name: "Second person", xpath: "'carried-records-person-4'" },
+	];
+	expect(
+		await h.call("updateFormLink", {
+			formUuid: source.uuid,
+			linkUuid: link.uuid,
+			link: { target: link.target, datums },
+		}),
+	).toMatchObject({ ok: true });
+	expect(await h.call("getForm", { formUuid: source.uuid })).toMatchObject({
+		form: { destinations: [{ datums }] },
+	});
+	expect(
+		h
+			.currentDoc()
+			.forms[source.uuid].formLinks?.[0].datums?.map((row) => row.name),
+	).toEqual(
+		destination.caseSelections
+			?.filter((row) => row.source.kind === "choose")
+			.map((row) => ({
+				kind: "form-selection",
+				selection: row.uuid,
+			})),
+	);
 });
 
 it("prepares the otherwise link's carried values and mints its UUID", async () => {

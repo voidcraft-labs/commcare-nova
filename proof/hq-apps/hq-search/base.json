@@ -4,6 +4,7 @@
 		"flags": [
 			"CASE_SEARCH_ADVANCED",
 			"CASE_SEARCH_RELATED_LOOKUPS",
+			"FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
 			"SYNC_SEARCH_CASE_CLAIM"
 		],
 		"namedPrivileges": [

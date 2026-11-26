@@ -1,3 +1,4 @@
+import { entryOperationCaseType } from "./advancedEntryDatums";
 // lib/domain/caseWriteViews.ts
 //
 // A field's "Saves to": the writes of the form's case operations that save
@@ -29,6 +30,7 @@ import {
 	caseWriteKeyOf,
 	type FormType,
 	operationCaseType,
+	sameCaseWriteKey,
 } from "./forms";
 import { entityTargetKey, indexedReferencingSlots } from "./referenceIndex";
 import type { Uuid } from "./uuid";
@@ -88,6 +90,35 @@ export function fieldCaseWriteViewKey(
 						: { property: view.property, via: view.via },
 			}
 		: { operationUuid: view.operationUuid, slot: view.slot };
+}
+
+/** Where one value of an operation saves: the operation, its slot, and for
+ *  a `writes[]` entry the cases its `via` walks. */
+export interface CaseWriteValueAt {
+	readonly operationUuid: Uuid;
+	readonly slot: FieldCaseWriteSlot;
+	readonly via?: CaseWriteVia;
+}
+
+/** Whether `view` is the view of the value `at` saves to `property`: one
+ *  operation can save one property name on its own case and on a case above
+ *  it, each its own view with its own destination type. */
+export function isViewAt(
+	view: FieldCaseWriteView,
+	at: CaseWriteValueAt,
+	property: string,
+): boolean {
+	return (
+		view.operationUuid === at.operationUuid &&
+		view.slot === at.slot &&
+		sameCaseWriteKey(
+			{
+				property: view.property,
+				...(view.via !== undefined && { via: view.via }),
+			},
+			{ property, ...(at.via !== undefined && { via: at.via }) },
+		)
+	);
 }
 
 /** The slots an operation's view-bearing values sit in, by registry id. */
@@ -173,9 +204,21 @@ export function caseWriteValueField(
 	return undefined;
 }
 
+/** The questions and physical property types a worker saves through this
+ * entry. The editor keeps one set of definitions on the parent. */
+export function entryCaseWriteViews(doc: BlueprintDoc, entryUuid: Uuid) {
+	const parent = doc.forms[entryUuid]?.shadowOf?.form;
+	return parent
+		? deriveFormViews(doc, parent, (op) =>
+				entryOperationCaseType(doc, entryUuid, op),
+			)
+		: formCaseWriteViews(doc, entryUuid);
+}
+
 function deriveFormViews(
 	doc: ViewDoc,
 	formUuid: Uuid,
+	typeOfOperation?: (operation: CaseOperation) => string | undefined,
 ): ReadonlyMap<Uuid, readonly FieldCaseWriteView[]> {
 	const views = new Map<Uuid, FieldCaseWriteView[]>();
 	const form = Object.hasOwn(doc.forms, formUuid)
@@ -192,7 +235,10 @@ function deriveFormViews(
 	};
 	for (const operation of form.caseOperations ?? []) {
 		const operationType =
-			operation.retype ?? operationCaseType(doc, formUuid, operation);
+			operation.retype ??
+			(typeOfOperation
+				? typeOfOperation(operation)
+				: operationCaseType(doc, formUuid, operation));
 		if (operationType === undefined) continue;
 		const destination = operationDestination(operation, form.type, ownUuid);
 		const slotView = (
@@ -208,7 +254,10 @@ function deriveFormViews(
 					slot,
 					caseType: operationType,
 					property: slot === "name" ? "case_name" : "owner_id",
-					onlyIfChanged: false,
+					onlyIfChanged:
+						(slot === "name"
+							? operation.nameOnlyIfChanged
+							: operation.ownerOnlyIfChanged) === true,
 					link: read.link,
 					destination,
 				},

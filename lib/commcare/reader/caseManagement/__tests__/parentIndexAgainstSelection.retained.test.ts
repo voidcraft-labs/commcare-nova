@@ -10,8 +10,8 @@
  * member.
  *
  * Contract: the reading comes in and claims the shape under its own HELD
- * entry; the create holds the link as stored and the menu keeps its parent
- * selection, which follows no catalog (`caseParentSelectionVerdict`); the
+ * entry; the open operation links to the chosen member and the form selects
+ * that member under the chosen household; the
  * read document passes the commit gate; and Nova's emission of it writes the
  * open action's index and the load chain's as HQ stores them, so a publish
  * changes neither. A base without the index claims no such entry.
@@ -27,6 +27,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { readForLane } from "@/proof/reader/laneReading";
 import { claimedEntries } from "../../__tests__/retainedBaseControl";
 
@@ -102,15 +103,36 @@ describe("an advanced open action's parent index against a menu's parent selecti
 		expect(claimedEntries(reading.claims)).toContain(ENTRY);
 		const doc = reading.doc;
 		const visits = moduleNamed(doc, "Member visits");
-		expect(visits.parentCaseModuleUuid).toBe(
-			moduleNamed(doc, "Households").uuid,
-		);
 		const [formUuid] = doc.formOrder[visits.uuid] ?? [];
-		const creates = (
-			doc.forms[formUuid as string]?.caseOperations ?? []
-		).filter((op) => op.action === "create");
-		expect(creates.map((op) => op.action === "create" && op.links)).toEqual([
-			[
+		const readForm = doc.forms[formUuid];
+		expect(readForm.type).toBe("followup");
+		const selections = formCaseSelections(doc, formUuid);
+		expect(selections).toHaveLength(2);
+		const [household, member] = selections;
+		if (!household || !member)
+			throw new Error("Expected the two form selections");
+		expect(household).toMatchObject({
+			caseType: "household",
+			tag: "load_household0",
+			source: { kind: "choose", module: moduleNamed(doc, "Households").uuid },
+		});
+		expect(member).toMatchObject({
+			caseType: "member",
+			tag: "load_member1",
+			source: {
+				kind: "choose",
+				module: visits.uuid,
+				under: { selection: household.uuid, identifier: "parent" },
+			},
+		});
+		expect(
+			readForm.caseOperations?.find(
+				(operation) => operation.action === "create",
+			),
+		).toMatchObject({
+			action: "create",
+			placement: { kind: "advanced", tag: "open_member_0" },
+			links: [
 				{
 					identifier: "parent",
 					targetType: "member",
@@ -118,11 +140,13 @@ describe("an advanced open action's parent index against a menu's parent selecti
 					target: { kind: "session" },
 				},
 			],
-		]);
+		});
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 
-		const emitted = expandDoc(doc).modules[1]?.forms[0]
-			?.actions as unknown as Json;
+		const form = expandDoc(doc).modules[1]?.forms[0];
+		if (form?.doc_type !== "AdvancedForm")
+			throw new Error("Expected an advanced form");
+		const emitted = form.actions as unknown as Json;
 		const indexOf = (index: Json) => ({
 			tag: index.tag,
 			reference_id: index.reference_id,

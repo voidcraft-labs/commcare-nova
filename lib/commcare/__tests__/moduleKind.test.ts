@@ -159,22 +159,6 @@ describe("emittedModuleKind", () => {
 			twin: (doc) => patchModule(doc, HOUSEHOLDS, { caseSearchConfig: {} }),
 		},
 		{
-			name: "a narrowed case list menu item",
-			menu: "households",
-			block: (doc) => {
-				const config = doc.modules[HOUSEHOLDS].caseListConfig;
-				if (config !== undefined)
-					patchModule(doc, HOUSEHOLDS, {
-						caseListMenuItem: {},
-						caseListConfig: {
-							...config,
-							filter: isBlank(prop("household", "case_name")),
-						},
-					});
-			},
-			twin: (doc) => patchModule(doc, HOUSEHOLDS, { caseListMenuItem: {} }),
-		},
-		{
 			name: "a chain whose types link under two names",
 			menu: "members",
 			block: (doc) => {
@@ -223,6 +207,25 @@ describe("emittedModuleKind", () => {
 			}).doc;
 			expect(emittedModuleKind(twin, module)).toBe("advanced");
 		});
+
+	it("keeps a held kind advanced under a narrowed case list menu item, whose item HQ builds over every open case", () => {
+		const narrowed = advancedFixture({
+			formType: "followup",
+			menu: "households",
+			configure: (doc) => {
+				const config = doc.modules[HOUSEHOLDS].caseListConfig;
+				if (config !== undefined)
+					patchModule(doc, HOUSEHOLDS, {
+						caseListMenuItem: {},
+						caseListConfig: {
+							...config,
+							filter: isBlank(prop("household", "case_name")),
+						},
+					});
+			},
+		}).doc;
+		expect(emittedModuleKind(narrowed, HOUSEHOLDS)).toBe("advanced");
+	});
 
 	it("keeps a menu basic where a blocker meets the create a link carries", () => {
 		const doc = carriedDoc("extension", {

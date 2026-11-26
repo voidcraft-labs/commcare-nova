@@ -14,8 +14,8 @@
  * Nova's serializer writes every `'` as `&apos;` (`serializeXml.ts`), and a
  * save in HQ's form builder writes the apostrophes plainly, so this reads
  * every attribute value, text node and comment as the parser decodes it,
- * which holds whatever text a save can leave. No admitted document's source
- * holds the text even decoded: an itext text's `instance(` is written with
+ * which holds whatever text a save can leave. A form can read an opening value
+ * named supply_point_id. Ordinary text avoids this spelling: an itext text's `instance(` is written with
  * its bracket as an output (`builder.ts::literalLabelNodes`), a literal is
  * split there (`xpath/wire/serialize.ts::literalPieces`), a form's name
  * and Connect texts holding it are refused at the gate

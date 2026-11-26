@@ -47,6 +47,9 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"searchInput",
 	"searchFilter",
 	"caseOperation",
+	"formSelection",
+	"entryValue",
+	"openingAssignment",
 	"formLink",
 	"entryPoint",
 	"userProperty",
@@ -86,15 +89,28 @@ export type CaseOperationPlaceKey =
 			repeatPath: readonly string[],
 			path: readonly string[],
 	  ];
+/** Ordinary forms retain their historical namespace key. Shared entries have
+ * no namespace of their own and use the aligned application resource id. */
+export type FormIdentityKey =
+	| string
+	| readonly ["shared-form", uniqueId: string];
+export function sharedFormKey(uniqueId: string): FormIdentityKey {
+	return ["shared-form", uniqueId];
+}
+
 export type FormLinkTargetKey =
-	| readonly ["form", targetXmlns: string]
-	| readonly ["form-in-menu", routeUniqueId: string, targetXmlns: string]
+	| readonly ["form", targetForm: FormIdentityKey]
+	| readonly [
+			"form-in-menu",
+			routeUniqueId: string,
+			targetForm: FormIdentityKey,
+	  ]
 	| readonly ["module", targetModuleUniqueId: string]
 	| readonly ["this-form"];
 export type EntryPointOwnerKey =
 	| readonly ["module", moduleUniqueId: string, slot: "menu" | "case-list"]
-	| readonly ["form", xmlns: string]
-	| readonly ["shared-form", menuUniqueId: string, xmlns: string];
+	| readonly ["form", form: FormIdentityKey]
+	| readonly ["shared-form", menuUniqueId: string, form: FormIdentityKey];
 
 /**
  * One constructor per kind. Each takes its parts in the key table's order,
@@ -112,10 +128,19 @@ export type EntryPointOwnerKey =
  *   counting `formLinks` in order and then the `otherwise` link.
  */
 export const externalKey = {
+	formSelection(formUuid: Uuid, tag: string): ExternalKey {
+		return { kind: "formSelection", parts: [formUuid, tag] };
+	},
+	openingAssignment(formUuid: Uuid, source: string, field: Uuid): ExternalKey {
+		return { kind: "openingAssignment", parts: [formUuid, source, field] };
+	},
+	entryValue(formUuid: Uuid, key: string): ExternalKey {
+		return { kind: "entryValue", parts: [formUuid, key] };
+	},
 	module(uniqueId: string): ExternalKey {
 		return { kind: "module", parts: [uniqueId] };
 	},
-	form(xmlns: string): ExternalKey {
+	form(xmlns: FormIdentityKey): ExternalKey {
 		return { kind: "form", parts: [xmlns] };
 	},
 	field(xmlns: string, path: readonly string[]): ExternalKey {
@@ -199,7 +224,11 @@ export const externalKey = {
 			parts: [xmlns, copyPart(place), action, ordinal(n)],
 		};
 	},
-	formLink(xmlns: string, target: FormLinkTargetKey, n: number): ExternalKey {
+	formLink(
+		xmlns: FormIdentityKey,
+		target: FormLinkTargetKey,
+		n: number,
+	): ExternalKey {
 		return {
 			kind: "formLink",
 			parts: [xmlns, copyPart(target), ordinal(n)],
@@ -325,6 +354,15 @@ export interface IdentityClaims {
 		place: string,
 		siblings?: ReadonlySet<string>,
 	): IdentityClaim;
+	/**
+	 * A key whose entity's UUID the document derives rather than the resolver
+	 * gives: a form's implicit opening record, which Nova names from the form
+	 * and its list (`implicitFormSelectionId`). The map holds it as
+	 * `externalIdentityMap` spells it, so a later reading that finds the same
+	 * record made explicit in HQ gives it back that UUID. Claimed twice, it
+	 * answers as `claim` does.
+	 */
+	record(key: ExternalKey, uuid: Uuid, place: string): IdentityClaim;
 	/** Every key claimed so far, ordered by `externalKeyText`. */
 	entries(): readonly IdentityMapEntry[];
 }
@@ -365,6 +403,15 @@ export function claimsUnder(resolver: IdentityResolver): IdentityClaims {
 			const parts = key.parts.map(copyPart);
 			const uuid = resolver.uuidOf({ kind: key.kind, parts }, ids, siblings);
 			ids.add(uuid);
+			claimed.set(text, { entry: { kind: key.kind, parts, uuid }, place });
+			return { ok: true, uuid };
+		},
+		record(key, uuid, place) {
+			const text = externalKeyText(key);
+			const first = claimed.get(text);
+			if (first !== undefined)
+				return { ok: false, key, firstPlace: first.place };
+			const parts = key.parts.map(copyPart);
 			claimed.set(text, { entry: { kind: key.kind, parts, uuid }, place });
 			return { ok: true, uuid };
 		},

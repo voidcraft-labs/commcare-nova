@@ -96,6 +96,7 @@ import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideOwned } from "./documents/hqSideOwned";
 import { hqSideState } from "./documents/hqSideState";
 import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
+import { independentFormChoices } from "./documents/independentFormChoices";
 import { inlineSearchReads } from "./documents/inlineSearchReads";
 import { instanceReads } from "./documents/instanceReads";
 import { keptValues } from "./documents/keptValues";
@@ -169,6 +170,7 @@ import {
 import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
+import { sharedVisitEntries } from "./documents/sharedVisitEntries";
 import { sortBlanks } from "./documents/sortBlanks";
 import { independentCaseOrder, sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
@@ -292,6 +294,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	commtrackAdvanced,
 	formLinkChain,
 	formLinkCarriedCase,
+	independentFormChoices,
+	sharedVisitEntries,
 	formLinkOtherwise,
 	hyphenatedQuestionIds,
 	caseTypeNames,

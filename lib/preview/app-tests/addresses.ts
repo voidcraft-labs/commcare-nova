@@ -8,6 +8,7 @@ import {
 	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import { resolveAppLanguage } from "@/lib/domain/localization";
 import {
 	projectLocalizedForm,
@@ -168,7 +169,7 @@ export function bindAppTestAction(
 			const candidates = Object.values(doc.fields).flatMap((field) => {
 				if (
 					field.kind !== "section" ||
-					findContainingForm(doc, field.uuid) !== formUuid
+					findContainingForm(doc, field.uuid) !== formContentUuid(doc, formUuid)
 				)
 					return [];
 				const path = computeFieldPath(doc, field.uuid);
