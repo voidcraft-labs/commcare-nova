@@ -844,6 +844,9 @@ export type AppBaseline =
 			/** An older first-publish card may predate the source left by a passive Refresh. */
 			readonly firstPublishReview?: "required" | "current";
 			readonly unverifiedNextChanges?: StoredFirstPublish["ids"];
+			/** The stored list's changes a person's answer to a review made
+			 *  (`ANSWERED_FIRST_PUBLISH_CHANGES`), which a later list keeps only from here. */
+			readonly answeredPublishChanges?: StoredFirstPublish["ids"];
 			readonly approvedFileRemovals?: readonly string[];
 			readonly foldBinding?: DeploymentFoldBinding;
 	  }
@@ -852,6 +855,9 @@ export type AppBaseline =
 			/** An older first-publish card may predate the source left by a passive Refresh. */
 			readonly firstPublishReview?: "required" | "current";
 			readonly unverifiedNextChanges?: StoredFirstPublish["ids"];
+			/** The stored list's changes a person's answer to a review made
+			 *  (`ANSWERED_FIRST_PUBLISH_CHANGES`), which a later list keeps only from here. */
+			readonly answeredPublishChanges?: StoredFirstPublish["ids"];
 			readonly approvedFileRemovals?: readonly string[];
 			readonly remoteAppId: string;
 			readonly observedAt: string;

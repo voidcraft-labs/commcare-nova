@@ -131,6 +131,16 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"owner-rule-given-to-worker": true,
 };
 
+/**
+ * The changes no reading gives alone: each stands on a list only where the
+ * person answered a review's question that makes it, and a later list keeps
+ * it only while the list it replaces holds it
+ * (`reading/firstPublishChanges.ts::withAnsweredChanges`).
+ */
+export const ANSWERED_FIRST_PUBLISH_CHANGES: readonly FirstPublishChangeId[] = [
+	"owner-rule-given-to-worker",
+];
+
 /** Ids another entry's sentence says to a person. */
 export const FIRST_PUBLISH_SAID_BY = {
 	"search-filter-rows-recut": "forms-and-settings-rewritten",

@@ -47,6 +47,7 @@ import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
 import { lockLookupTablesForPublishInTransaction } from "@/lib/lookup/managed";
 import {
+	ANSWERED_FIRST_PUBLISH_CHANGES,
 	FIRST_PUBLISH_CHANGE_IDS,
 	type FirstPublishChangeId,
 	type FirstPublishView,
@@ -4720,6 +4721,11 @@ function verifiedAppBaseline(
 			: {}),
 		...(list?.of === "next-publish" &&
 			needsStoredPublishReview(list) && { unverifiedNextChanges: list.ids }),
+		...(list?.ids.some((id) => ANSWERED_FIRST_PUBLISH_CHANGES.includes(id)) && {
+			answeredPublishChanges: list.ids.filter((id) =>
+				ANSWERED_FIRST_PUBLISH_CHANGES.includes(id),
+			),
+		}),
 		...(((list && needsStoredPublishReview(list)) ||
 			row.first_publish_changes?.of === "first-publish" ||
 			(row.first_publish_changes !== null && list === null)) && {

@@ -3196,13 +3196,17 @@ describe("each entry", () => {
 		expect(uncovered).toEqual([]);
 	});
 
-	it("adds what the person's answers made of the reading to its list, and nothing where they made nothing", async () => {
+	it("adds what the person's answers made of the reading to its list, and nothing where they made nothing or no answer stands behind it", async () => {
 		const read = factsOf(await ownerRuleReading());
 		const { doc: answered } = await PAIRS["owner-rule-given-to-worker"].on();
 		const view = firstPublishChangesFor(read);
+		const asked = ["owner-rule-given-to-worker"] as const;
 		expect(view.ids).not.toContain("owner-rule-given-to-worker");
-		expect(withAnsweredChanges(view, read, read.doc)).toBe(view);
-		expect(withAnsweredChanges(view, read, answered)).toEqual({
+		expect(withAnsweredChanges(view, read, read.doc, asked)).toBe(view);
+		// The same document with no answer behind it: an author's own edit of
+		// the owner in Nova makes the same difference and asked nothing.
+		expect(withAnsweredChanges(view, read, answered, [])).toBe(view);
+		expect(withAnsweredChanges(view, read, answered, asked)).toEqual({
 			...view,
 			ids: [...view.ids, "owner-rule-given-to-worker"],
 			touchesWorkers: true,

@@ -42,6 +42,7 @@ import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
 import { MediaPublishPermissionError } from "@/lib/media/publishReadyMedia";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
+import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import {
 	HQ_CHANGES_FILES_NOT_PERMITTED,
 	HQ_CHANGES_OWNER_RULE_MISSING,
@@ -116,6 +117,7 @@ import {
 	withDeploymentReadSnapshot,
 } from "../store";
 import { exportIdentityOf } from "../targetIdentity";
+import type { AppBaseline } from "../types";
 import { hqChangesBatchId } from "./batchId";
 import { hqChangesGateRefusal } from "./gate";
 import {
@@ -426,7 +428,7 @@ async function recordReadsTheSame(
 		 * the list, which then stays. */
 		...(checked !== null && {
 			nextPublish: {
-				...nextPublishLists(checked, basis.head.doc),
+				...nextPublishLists(checked, basis.head.doc, basis.baseline, []),
 				removedFiles: {
 					compared: basis.baseline.approvedFileRemovals ?? [],
 					accepted: checked.removedFiles,
@@ -620,11 +622,16 @@ async function bringChangesIn(
 	/* The explicit owner rule the person chose for each level the places cannot satisfy, and the
 	 * document the commit makes with it. */
 	const ownerAnswer = workerOwnerMutations(plan.target, ownerRules.levels);
-	const committed =
+	const answer =
 		ownerAnswer.length === 0
-			? plan.target
-			: prepareMutationCandidate(plan.target, admitMutationBatch(ownerAnswer))
-					.nextDoc;
+			? undefined
+			: {
+					committed: prepareMutationCandidate(
+						plan.target,
+						admitMutationBatch(ownerAnswer),
+					).nextDoc,
+					changes: ["owner-rule-given-to-worker" as const],
+				};
 
 	/* The ownership the next publish's body gives, and the record. */
 	onEvent({ type: "stage", stage: "bringing-in" });
@@ -635,7 +642,7 @@ async function bringChangesIn(
 		checked,
 		newMediaFiles(checked, plan.target, fetched.head.doc),
 		pieces,
-		committed,
+		answer,
 	);
 	if (taking.kind === "refusal") return taking.outcome;
 
@@ -827,13 +834,17 @@ async function takenFor(
 	checked: CheckedHqChanges,
 	mediaPaths: readonly AdoptedMediaFile[],
 	pieces: Pieces,
-	/** The document the commit makes, where it is not the plan's: the person's owner-rule answer
-	 *  applied over the target. */
-	committed?: BlueprintDoc,
+	/** The person's answers to the review's questions, where they gave any: the document the
+	 *  commit makes with them over the target, and the changes they make. */
+	answer?: {
+		readonly committed: BlueprintDoc;
+		readonly changes: readonly FirstPublishChangeId[];
+	},
 ): Promise<Taking> {
 	const plan = checked.plan;
 	const doc =
-		committed ?? (plan.kind === "changes" ? plan.target : basis.head.doc);
+		answer?.committed ??
+		(plan.kind === "changes" ? plan.target : basis.head.doc);
 
 	/* Where CommCare HQ keeps everything once the record lands: what the next
 	 * publish prints under, and so what its body's ownership is computed over. */
@@ -917,7 +928,12 @@ async function takenFor(
 			},
 			targetIdentity: checked.targetIdentity,
 			firstPublish: {
-				...nextPublishLists(checked, doc),
+				...nextPublishLists(
+					checked,
+					doc,
+					basis.baseline,
+					answer?.changes ?? [],
+				),
 				removedFiles: {
 					compared: basis.baseline.approvedFileRemovals ?? [],
 					accepted: checked.removedFiles,
@@ -930,17 +946,24 @@ async function takenFor(
 
 /**
  * The lists a take stores of what the next publish changes: the reading's own under the app's
- * declaration, and the plan's, each with the owner change where `committed` gives a case change
- * to the worker who fills in the form that CommCare HQ's app gives to a place, which no reading
- * gives alone (`firstPublishChanges.ts::withAnsweredChanges`).
+ * declaration, and the plan's. A change a person's answer to a review makes, which no reading
+ * gives alone (`firstPublishChanges.ts::withAnsweredChanges`), stands where `committed` still
+ * makes it of CommCare HQ's app and an answer stands behind it: `answeredNow`, the answers this
+ * request gives, or the stored list the take replaces. Only this request's answers are new to the
+ * next publish (`publishChanges`).
  */
 function nextPublishLists(
 	checked: CheckedHqChanges,
 	committed: BlueprintDoc,
+	stored: AppBaseline,
+	answeredNow: readonly FirstPublishChangeId[],
 ): Pick<HqChangesFirstPublish, "accepted" | "publishChanges"> {
 	const facts = checked.declaration.firstPublishFacts;
 	const accepted = firstPublishListToStore(
-		withAnsweredChanges(checked.declaration.firstPublish, facts, committed),
+		withAnsweredChanges(checked.declaration.firstPublish, facts, committed, [
+			...answeredNow,
+			...(stored.answeredPublishChanges ?? []),
+		]),
 		checked.draft.facts,
 	);
 	return {
@@ -949,6 +972,7 @@ function nextPublishLists(
 			{ ...accepted, ids: checked.plan.publishChanges },
 			facts,
 			committed,
+			answeredNow,
 		).ids,
 	};
 }

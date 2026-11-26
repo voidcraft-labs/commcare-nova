@@ -24,6 +24,7 @@ import {
 } from "@/lib/db/hqAppClaims";
 import type { AppDatabase } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { ANSWERED_FIRST_PUBLISH_CHANGES } from "@/lib/publish/firstPublishChangeIds";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	adoptedAppBaselineWrite,
@@ -92,9 +93,15 @@ export function adoptedDeploymentWrite(input: {
 			fetched.source.multimediaMap ?? [],
 		),
 		observedAt: fetched.readAt,
-		/* The reading's list, and the owner change the person's answer made, which no reading gives. */
+		/* The reading's list, and the owner change the person's answer made, which no reading gives.
+		 * The birth's document differs from the reading's only by the person's answers. */
 		firstPublish: firstPublishListToStore(
-			withAnsweredChanges(chosen.firstPublish, chosen.firstPublishFacts, doc),
+			withAnsweredChanges(
+				chosen.firstPublish,
+				chosen.firstPublishFacts,
+				doc,
+				ANSWERED_FIRST_PUBLISH_CHANGES,
+			),
 			draft.facts,
 		),
 	});

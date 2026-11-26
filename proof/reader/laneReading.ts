@@ -104,6 +104,7 @@ import {
 	partitionAssetRefs,
 	resolveBuiltinManifestEntries,
 } from "@/lib/media/builtinIconAssets";
+import { ANSWERED_FIRST_PUBLISH_CHANGES } from "@/lib/publish/firstPublishChangeIds";
 import {
 	type CircumstanceDetail,
 	circumstanceFinding,
@@ -608,6 +609,7 @@ async function firstReading(
 		chosen.firstPublish,
 		chosen.firstPublishFacts,
 		doc,
+		ANSWERED_FIRST_PUBLISH_CHANGES,
 	);
 	const answered = firstPublish.ids.filter(
 		(id) => !chosen.firstPublish.ids.includes(id),

@@ -768,8 +768,12 @@ place; the other remedy is changing the places in CommCare HQ and reading again.
 No reading lists the change the answer makes, so the list the birth and the
 take store adds it (`owner-rule-given-to-worker`,
 `firstPublishChanges.ts::withAnsweredChanges` over the reading's document and
-the one committed), and a later take keeps it while CommCare HQ's app still
-gives those cases to a place. A change made in CommCare HQ that newly reads
+the one committed), only where an answer stands behind it: this request's, or
+the stored list's (`AppBaseline.answeredPublishChanges`). A later take or
+reads-the-same record, and a later review's list, keep it while CommCare HQ's
+app still gives those cases to a place; only the request that answers adds it
+to what is new to the next publish. An author's own edit of such an owner in
+Nova, with no question asked, adds nothing. A change made in CommCare HQ that newly reads
 places, over an app whose document holds no level, reads the base without
 levels (`hqChanges/readings.ts`), so the levels come in with the change.
 

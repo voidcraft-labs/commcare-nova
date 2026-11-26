@@ -51,6 +51,7 @@ import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Platform } from "@/lib/domain/platforms";
 import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import {
+	ANSWERED_FIRST_PUBLISH_CHANGES,
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
@@ -1905,7 +1906,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	 * (`projectData/ownerRules.ts::workerOwnerMutations`). No reading gives it
 	 * alone: it applies where the document committed (`doc`) gives such a case
 	 * change to that worker and the reading (`read`) gives it to a place
-	 * (`withAnsweredChanges`). It stands at each such change's owner in the
+	 * (`withAnsweredChanges`, only where an answer stands behind it). It stands at each such change's owner in the
 	 * form's case block, and the stored owner update.
 	 */
 	"owner-rule-given-to-worker": {
@@ -2046,32 +2047,35 @@ export function firstPublishListToStore(
 	};
 }
 
-/** The entries no reading gives alone: each applies only where the person's answers to the
- *  review changed the reading's document. */
-const ANSWERED_CHANGES: readonly FirstPublishChangeId[] = [
-	"owner-rule-given-to-worker",
-];
-
 /**
- * `view`, the list of a reading worked out from `facts`, with each change the
- * person's answers to the review made of it where `committed`, the document
- * the birth or the bring-in commits, is not the reading's own (`facts.doc`).
- * In registry order.
+ * `view`, the list of a reading worked out from `facts`, with each change in
+ * `answered` that `committed`, the document the birth or the bring-in
+ * commits, makes of the reading's own (`facts.doc`). In registry order.
+ *
+ * `answered` names the changes the person's answers stand behind: those the
+ * answers of this request make, and those the list a take replaces already
+ * holds. A change no answer stands behind is never inferred from the two
+ * documents alone, since an author's own edit in Nova can make the same
+ * difference (an owner rule set to the worker in the builder) with no
+ * question asked.
  */
 export function withAnsweredChanges(
 	view: FirstPublishView,
 	facts: FirstPublishFacts,
 	committed: BlueprintDoc,
+	answered: readonly FirstPublishChangeId[],
 ): FirstPublishView {
 	if (committed === facts.doc) return view;
-	const answered: FirstPublishFacts = {
+	const asked: FirstPublishFacts = {
 		...facts,
 		read: facts.doc,
 		doc: committed,
 	};
-	const added = ANSWERED_CHANGES.filter(
+	const added = ANSWERED_FIRST_PUBLISH_CHANGES.filter(
 		(id) =>
-			!view.ids.includes(id) && FIRST_PUBLISH_CHANGES[id].applies(answered),
+			answered.includes(id) &&
+			!view.ids.includes(id) &&
+			FIRST_PUBLISH_CHANGES[id].applies(asked),
 	);
 	if (added.length === 0) return view;
 	const ids = new Set<FirstPublishChangeId>([...view.ids, ...added]);
