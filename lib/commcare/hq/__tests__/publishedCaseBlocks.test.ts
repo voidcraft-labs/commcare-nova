@@ -852,7 +852,7 @@ describe("retained HQ reads", () => {
 			},
 		]);
 		// An advanced form HQ made with no actions writes no block, and the
-		// shadow form, which has no xmlns of its own, is listed as left out.
+		// shadow entry runs its parent's XForm and adds no case blocks.
 		expect(
 			formOf(
 				hqBuilt.forms,
@@ -860,9 +860,7 @@ describe("retained HQ reads", () => {
 			).blocks,
 		).toEqual([]);
 		expect(hqBuilt.forms.size).toBe(4);
-		expect(hqBuilt.unread).toEqual([
-			{ menu: 1, form: 2, xmlns: null, reason: "shadow-form" },
-		]);
+		expect(hqBuilt.unread).toEqual([]);
 
 		// A form given another xmlns is read under it, and not under its old one.
 		const renamed = structuredClone(source) as typeof source;

@@ -399,17 +399,30 @@ export function hqFormQuestions(
 export function hqApplicationModules(
 	source: HqAppSource,
 ): HqApplicationModule[] {
+	const byId = new Map(
+		source.modules.flatMap((menu) =>
+			menu.forms.map((form) => [form.readUniqueId, form] as const),
+		),
+	);
 	return source.modules.map((menu) => ({
 		kind: "summarized",
 		uniqueId: menu.uniqueId,
 		caseType: menu.caseType,
 		forms: menu.forms.map((form) => {
-			if (form.attachment === null)
+			const content =
+				form.docType === "ShadowForm" && form.shadowParentReadId
+					? byId.get(form.shadowParentReadId)
+					: form;
+			if (!content || content.attachment === null)
 				throw refused(form.xmlns, "no XForm in the source");
 			return {
 				uniqueId: form.readUniqueId,
-				xmlns: form.xmlns,
-				questions: hqFormQuestions(form.attachment, source.langs, form.xmlns),
+				xmlns: content.xmlns,
+				questions: hqFormQuestions(
+					content.attachment,
+					source.langs,
+					content.xmlns,
+				),
 			};
 		}),
 	}));

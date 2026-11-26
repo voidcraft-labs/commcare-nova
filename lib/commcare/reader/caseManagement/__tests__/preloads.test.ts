@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Expression, Uuid } from "@/lib/domain";
+import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
+import { sourceFromBody } from "../../__tests__/readerInput";
+import { matchingResolver } from "../../identity";
+import { externalIdentityMap } from "../../identityMap";
 import {
 	codesOf,
 	readMenusOf as readMenusOfUnheld,
 } from "../../menus/__tests__/menuReading";
 import type { ReadOutcome } from "../../types";
+import { knownFormOpenings } from "../openingAssignments";
 import {
 	hqBuildRefusesProperty,
 	laterLoadReaders,
@@ -58,6 +63,23 @@ async function readMenusOf(
 /** Every entry a reading claimed something under. */
 function entriesOf(reading: CaseReading): string[] {
 	return [...reading.ctx.close().claims.records()].map((one) => one.entry);
+}
+
+function openingRows(doc: BlueprintDoc | undefined, fieldId: string) {
+	if (!doc) throw new Error("The source did not produce a document");
+	return Object.values(doc.forms).flatMap((form) =>
+		(form.openingAssignments ?? []).filter(
+			(row) => doc.fields[row.field]?.id === fieldId,
+		),
+	);
+}
+
+function importedDoc(reading: CaseReading) {
+	if (reading.whole?.kind !== "read")
+		throw new Error(
+			`The source did not read: ${JSON.stringify(reading.whole?.kind === "account" && reading.whole.findings)}`,
+		);
+	return reading.whole.draft.doc;
 }
 
 const read = (uuid: Uuid): Expression => ({
@@ -145,7 +167,11 @@ describe("laterLoadReaders", () => {
 });
 
 /** A follow-up form whose stored `case_preload` maps `path` to `property`. */
-async function preloaded(fields: FieldSpec[], preload: Record<string, string>) {
+async function preloaded(
+	fields: FieldSpec[],
+	preload: Record<string, string>,
+	condition = "always",
+) {
 	return readCases(followup(fields), {
 		edit: (app) => {
 			const actions = app.modules[0]?.forms[0]?.actions as Record<
@@ -155,7 +181,7 @@ async function preloaded(fields: FieldSpec[], preload: Record<string, string>) {
 			actions.case_preload = {
 				doc_type: "PreloadAction",
 				preload,
-				condition: { type: "always", doc_type: "FormActionCondition" },
+				condition: { type: condition, doc_type: "FormActionCondition" },
 			};
 		},
 	});
@@ -170,8 +196,6 @@ async function preloaded(fields: FieldSpec[], preload: Record<string, string>) {
  * silent misread of the case HQ loads.
  */
 describe("a case preload through `parent`, against the index the app links by", () => {
-	const OTHER_CASE =
-		"forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix";
 	const NAME = testUuid("parent-preload-name");
 	/** Households whose follow-up registers a patient linked to it as
 	 *  `identifier`, and patients whose follow-up preloads the household's remark. */
@@ -251,31 +275,74 @@ describe("a case preload through `parent`, against the index the app links by", 
 				condition: { type: "always", doc_type: "FormActionCondition" },
 			};
 		});
-	const qDefault = (doc: BlueprintDoc | undefined) =>
-		(
-			Object.values(doc?.fields ?? {}).find((field) => field.id === "q") as
-				| { readonly default_value?: unknown }
-				| undefined
-		)?.default_value;
-
-	it("reads it as the household's read where the app links a patient by `parent`", async () => {
-		const reading = await withPreload(households("parent"));
-		expect(codesOf(reading)).toEqual([]);
-		expect(qDefault(reading.doc)).toEqual({
-			kind: "term",
-			term: { kind: "form-case", caseType: "household", property: "remark" },
-		});
-	});
-
-	it("refuses it where the app links a patient by another index, which the household's read walks", async () => {
-		const reading = await withPreload(households("home"));
-		expect(codesOf(reading)).toContain(OTHER_CASE);
-		expect(reading.outcome.defects).toEqual([]);
-	});
+	it.each(["parent", "home"])(
+		"follows the stored parent index when the catalogued connection is %s",
+		async (identifier) => {
+			const reading = await withPreload(households(identifier));
+			expect(codesOf(reading)).toEqual([]);
+			expect(openingRows(reading.doc, "q")).toMatchObject([
+				{
+					source: { kind: "own" },
+					property: "remark",
+					via: [{ identifier: "parent" }],
+				},
+			]);
+		},
+	);
 });
 
-describe("a case preload, read as the question's default", () => {
-	it("reads a preload as the default that reads the case's property, in place of an authored one", async () => {
+describe("case values assigned when a form opens", () => {
+	/**
+	 * HQ's build reads a preload by its map alone
+	 * (`form_actions.py::PreloadAction.is_active`), and a preload made with
+	 * HQ's model holds `never`. Nova writes the assignments back under
+	 * `always`, so the first publish's change of the condition is named.
+	 */
+	it.each([
+		["never", ["/modules/0/forms/0/actions/case_preload/condition"]],
+		["if", ["/modules/0/forms/0/actions/case_preload/condition"]],
+		["always", []],
+	])(
+		"names a stored `%s` condition the first publish writes as `always`",
+		async (condition, respelled) => {
+			const reading = await preloaded(
+				[f({ kind: "text", id: "q", uuid: Q })],
+				{ "/data/q": "dob" },
+				condition,
+			);
+			expect(reading.whole?.kind).toBe("read");
+			expect(
+				reading.ctx.facts.sameStateRewrites
+					.filter((row) => row.path.endsWith("/case_preload/condition"))
+					.map((row) => [row.path, row.register]),
+			).toEqual(respelled.map((path) => [path, "case-settings-respelled"]));
+		},
+	);
+
+	/**
+	 * HQ's property grammar admits any Unicode letter and a hyphen in an index
+	 * step; Nova's document does not. Such an entry stays out of the document
+	 * and is refused on its question, never left to fail the whole reading at
+	 * assembly.
+	 */
+	it.each([
+		["a property with a non-ASCII letter", "prénom"],
+		["an index step holding a hyphen", "my-index/village"],
+	])(
+		"refuses %s on its question rather than failing the reading",
+		async (_, property) => {
+			const reading = await preloaded([f({ kind: "text", id: "q", uuid: Q })], {
+				"/data/q": property,
+			});
+			const whole = reading.whole;
+			if (whole?.kind !== "account")
+				throw new Error(`The entry should be refused, got ${whole?.kind}`);
+			expect(whole.defects).toEqual([]);
+			expect(whole.findings.length).toBeGreaterThan(0);
+		},
+	);
+
+	it("retains both the authored default and the later record assignment on a new import", async () => {
 		const reading = await preloaded(
 			[
 				f({
@@ -290,35 +357,108 @@ describe("a case preload, read as the question's default", () => {
 			],
 			{ "/data/q": "dob" },
 		);
-		const form = reading.forms[0];
-		const field =
-			form?.xform === null || form === undefined
-				? undefined
-				: readFields(form.xform).find((one) => one.id === "q");
-		const preload: Expression = {
-			kind: "term",
-			term: { kind: "form-case", caseType: "patient", property: "dob" },
-		};
-		expect(field?.field.default_value).toEqual(preload);
-		// The authored default stays registered, for the expression stage to
-		// judge and claim its value as it does any default's.
-		expect(field?.expressions.some((one) => one.slot === "default_value")).toBe(
-			true,
-		);
-		expect(
-			reading.findings.filter((one) => one.code.includes("case-preload")),
-		).toEqual([]);
-		expect(
-			reading.ctx.facts.sameStateRewrites.map((one) => one.register),
-		).toContain("case-settings-respelled");
-		// Read whole, the question's default is the preload's.
 		const whole = reading.whole;
-		expect(whole?.kind).toBe("read");
-		const doc = whole?.kind === "read" ? whole.draft.doc : undefined;
-		const q = Object.values(doc?.fields ?? {}).find((one) => one.id === "q");
+		if (whole?.kind !== "read")
+			throw new Error("The basic form should open after its raw assignment");
+		const doc = whole.draft.doc;
+		const form = Object.values(doc.forms)[0];
+		const question = Object.values(doc.fields).find(
+			(field) => field.id === "q",
+		);
+		expect(question).toMatchObject({
+			default_value: { term: { kind: "literal", value: "authored" } },
+		});
+		expect(form.openingAssignments).toEqual([
+			{
+				uuid: expect.any(String),
+				field: question?.uuid,
+				source: { kind: "own" },
+				property: "dob",
+			},
+		]);
 		expect(
-			(q as { default_value?: Expression } | undefined)?.default_value,
-		).toEqual(preload);
+			reading.ctx.facts.sameStateRewrites.map((row) => row.register),
+		).not.toContain("case-settings-respelled");
+	});
+
+	it("keeps a previously adopted default until HQ changes that assignment", async () => {
+		const sibling = testUuid("other-opening-field");
+		const saved = followup([
+			f({
+				kind: "text",
+				id: "q",
+				uuid: Q,
+				default_value: {
+					kind: "term",
+					term: { kind: "form-case", caseType: "patient", property: "dob" },
+				},
+			}),
+			f({ kind: "text", id: "neighbor", uuid: sibling }),
+		]);
+		const assign =
+			(property: string) =>
+			(app: { modules: Array<{ forms: Array<Record<string, unknown>> }> }) => {
+				const actions = app.modules[0].forms[0].actions as Record<
+					string,
+					unknown
+				>;
+				actions.case_preload = {
+					doc_type: "PreloadAction",
+					preload: { "/data/q": property },
+					condition: { type: "always", doc_type: "FormActionCondition" },
+				};
+			};
+		const baseline = await readMenusOf(saved, assign("dob"));
+		const known = knownFormOpenings(saved, await sourceFromBody(baseline.app));
+		const readAfter = (property: string, another = false) =>
+			readCases(saved, {
+				edit: (app) => {
+					assign(property)(app);
+					if (another) {
+						const actions = app.modules[0].forms[0].actions as {
+							case_preload: { preload: Record<string, string> };
+						};
+						actions.case_preload.preload["/data/neighbor"] = "next_visit";
+					}
+				},
+				input: (input) => ({
+					...input,
+					resolver: matchingResolver(
+						saved.appId,
+						externalIdentityMap(saved, DERIVED_WIRE_IDENTITY),
+					),
+					knownOpenings: known,
+				}),
+			});
+		const unchanged = await readAfter("dob");
+		const changed = await readAfter("next_visit");
+		const extended = await readAfter("dob", true);
+		for (const reading of [unchanged, changed, extended])
+			expect(reading.whole?.kind).toBe("read");
+		if (
+			unchanged.whole?.kind !== "read" ||
+			changed.whole?.kind !== "read" ||
+			extended.whole?.kind !== "read"
+		)
+			throw new Error("Expected both adoption readings");
+		const form = Object.values(saved.forms)[0].uuid;
+		expect(
+			unchanged.whole.draft.doc.forms[form].openingAssignments,
+		).toBeUndefined();
+		expect(unchanged.whole.draft.doc.fields[Q]).toMatchObject({
+			default_value: { term: { kind: "form-case", property: "dob" } },
+		});
+		expect(
+			changed.whole.draft.doc.forms[form].openingAssignments,
+		).toMatchObject([
+			{ field: Q, source: { kind: "own" }, property: "next_visit" },
+		]);
+		expect(
+			extended.whole.draft.doc.forms[form].openingAssignments,
+		).toMatchObject([
+			{ field: Q, source: { kind: "own" }, property: "dob" },
+			{ field: sibling, source: { kind: "own" }, property: "next_visit" },
+		]);
 	});
 
 	it("keeps a form out under its default's own finding where the default a preload replaces is one the form cannot load with", async () => {
@@ -394,17 +534,12 @@ describe("a case preload, read as the question's default", () => {
 		const reading = await preloaded([f({ kind: "text", id: "q", uuid: Q })], {
 			"/data/q": "name",
 		});
-		const form = reading.forms[0];
-		const field =
-			form?.xform == null
-				? undefined
-				: readFields(form.xform).find((one) => one.id === "q");
-		expect(field?.field.default_value).toMatchObject({
-			term: { property: "case_name" },
-		});
+		expect(openingRows(importedDoc(reading), "q")).toMatchObject([
+			{ source: { kind: "own" }, property: "case_name" },
+		]);
 	});
 
-	it("reads a preload into a question inside a repeat as nothing: it fills no row", async () => {
+	it("retains a repeat destination at its ready stage, before new rows are inserted", async () => {
 		const reading = await preloaded(
 			[
 				f({
@@ -424,16 +559,12 @@ describe("a case preload, read as the question's default", () => {
 		expect(
 			reading.findings.filter((one) => one.code.includes("case-preload")),
 		).toEqual([]);
-		const claimed = entriesOf(reading);
-		expect(claimed).toContain(
-			"forms-and-case-writes/case-preload-into-a-question-inside-a-repeat",
-		);
-		expect(claimed).not.toContain(
-			"forms-and-case-writes/case-preload-question-property-into-a-question-outside-any",
-		);
+		expect(openingRows(importedDoc(reading), "q")).toMatchObject([
+			{ source: { kind: "own" }, property: "dob" },
+		]);
 	});
 
-	it("claims a map that reads into a question outside a repeat and one inside under the held row", async () => {
+	it("reads the two destinations in their original order", async () => {
 		const reading = await preloaded(
 			[
 				f({ kind: "text", id: "q", uuid: Q }),
@@ -445,16 +576,14 @@ describe("a case preload, read as the question's default", () => {
 			],
 			{ "/data/q": "dob", "/data/rows/row_q": "dob" },
 		);
-		const claimed = entriesOf(reading);
-		expect(claimed).toContain(
-			"forms-and-case-writes/case-preload-question-property-into-a-question-outside-any",
-		);
-		expect(claimed).not.toContain(
-			"forms-and-case-writes/case-preload-into-a-question-inside-a-repeat",
-		);
+		const doc = importedDoc(reading);
+		const form = Object.values(doc.forms)[0];
+		expect(
+			form.openingAssignments?.map((row) => doc.fields[row.field].id),
+		).toEqual(["q", "row_q"]);
 	});
 
-	it("reads a preload in a multi-select child menu as a question with no default, dropping its own", async () => {
+	it("keeps the initial answer and the later assignment in a multi-select child menu", async () => {
 		const reading = await readCases(
 			buildDoc({
 				caseTypes: [
@@ -511,6 +640,10 @@ describe("a case preload, read as the question's default", () => {
 						short: Record<string, unknown>;
 					};
 					details.short.multi_select = true;
+					// HQ offers no Previous Screen where a menu selects several
+					// cases (`postSubmit.ts::postSubmitDestinationsOffered`).
+					const visit = app.modules[1]?.forms[0] as Record<string, unknown>;
+					visit.post_form_workflow = "default";
 					const actions = app.modules[1]?.forms[0]?.actions as Record<
 						string,
 						unknown
@@ -523,23 +656,15 @@ describe("a case preload, read as the question's default", () => {
 				},
 			},
 		);
-		const form = reading.forms.find((one) => one.form.name === "Visit");
-		const field =
-			form?.xform == null
-				? undefined
-				: readFields(form.xform).find((one) => one.id === "q");
-		expect(field?.field.default_value).toBeUndefined();
-		// The authored default stays registered, for the expression stage to
-		// judge and claim its value.
-		expect(field?.expressions.some((one) => one.slot === "default_value")).toBe(
-			true,
-		);
-		expect(entriesOf(reading)).toContain(
-			"forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-child",
-		);
+		const doc = importedDoc(reading);
+		const [row] = openingRows(doc, "q");
+		expect(row).toMatchObject({ source: { kind: "own" }, property: "dob" });
+		expect(doc.fields[row.field]).toMatchObject({
+			default_value: { term: { kind: "literal", value: "authored" } },
+		});
 	});
 
-	it("refuses a preload into a Hidden Value with a calculation, which holds one value source", async () => {
+	it("retains the existing calculation and a starting assignment into its hidden question", async () => {
 		const reading = await preloaded(
 			[
 				f({
@@ -551,12 +676,15 @@ describe("a case preload, read as the question's default", () => {
 			],
 			{ "/data/q": "dob" },
 		);
-		expect(reading.findings.map((one) => one.code)).toContain(
-			"forms-and-case-writes/case-preload-into-a-question-that-holds-no-default",
-		);
+		const doc = importedDoc(reading);
+		const [row] = openingRows(doc, "q");
+		expect(row).toMatchObject({ source: { kind: "own" }, property: "dob" });
+		expect(doc.fields[row.field]).toMatchObject({
+			calculate: { term: { kind: "literal", value: "c" } },
+		});
 	});
 
-	it("refuses a preload into a node Nova generates beside a question, which HQ reads as a calculated Hidden Value, at that node", async () => {
+	it("keeps a date conversion that a starting value also writes as a calculated question in its own right", async () => {
 		// A date-and-time question saved to its case writes through the sibling Nova generates for
 		// it, whose bind calculates the stored text: CommCare HQ's form builder reads it as a Hidden
 		// Value with a calculation, which overwrites a load into it.
@@ -571,19 +699,14 @@ describe("a case preload, read as the question's default", () => {
 			],
 			{ "/data/nova_datetime_seen_at": "seen_at" },
 		);
-		expect(
-			reading.findings
-				.filter((one) => one.code.startsWith("forms-and-case-writes/"))
-				.map((one) => [
-					one.code,
-					one.place.kind === "question" ? one.place.path : one.place.kind,
-				]),
-		).toEqual([
-			[
-				"forms-and-case-writes/case-preload-into-a-question-that-holds-no-default",
-				"nova_datetime_seen_at",
-			],
-		]);
+		const doc = importedDoc(reading);
+		const [assignment] = openingRows(doc, "nova_datetime_seen_at");
+		expect(assignment).toMatchObject({
+			source: { kind: "own" },
+			property: "seen_at",
+		});
+		expect(doc.fields[assignment.field].kind).toBe("hidden");
+		expect(doc.fields[assignment.field]).toHaveProperty("calculate");
 	});
 
 	it("refuses a worker-record preload into a Hidden Value with a calculation as a question that holds no default", async () => {
@@ -616,7 +739,7 @@ describe("a case preload, read as the question's default", () => {
 		);
 		const codes = reading.findings.map((one) => one.code);
 		expect(codes).toContain(
-			"forms-and-case-writes/case-preload-into-a-question-that-holds-no-default",
+			"forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value",
 		);
 		expect(codes).not.toContain(
 			"forms-and-case-writes/any-other-usercase-preload",
@@ -640,23 +763,20 @@ describe("a case preload, read as the question's default", () => {
 			});
 		}
 
-		it("raises its entry at not-yet, never as something to change in CommCare HQ, through a calculation", async () => {
+		it("keeps the earlier read through the calculation before copying the record value", async () => {
 			const calc = testUuid("calc");
 			const reading = await wholeReading([
 				f({ kind: "text", id: "q", uuid: Q }),
 				f({ kind: "hidden", id: "calc", uuid: calc, calculate: read(Q) }),
 				f({ kind: "text", id: "r", default_value: read(calc) }),
 			]);
-			const found = reading.findings.filter(
-				(one) => one.code === HELD_AT_THE_END,
-			);
-			expect(found).toHaveLength(1);
-			expect(
-				found[0] && "standing" in found[0] ? found[0].standing : undefined,
-			).toBe("not-yet");
+			expect(reading.findings).toEqual([]);
+			expect(openingRows(reading.doc, "q")).toMatchObject([
+				{ property: "dob" },
+			]);
 		});
 
-		it("raises its entry through a group whose relevance reads the question", async () => {
+		it("retains the starting assignment when a group’s relevance reads its question", async () => {
 			const inner = testUuid("inner");
 			const reading = await wholeReading([
 				f({ kind: "text", id: "q", uuid: Q }),
@@ -672,9 +792,10 @@ describe("a case preload, read as the question's default", () => {
 				}),
 				f({ kind: "text", id: "r", default_value: read(inner) }),
 			]);
-			expect(reading.findings.map((one) => one.code)).toContain(
-				HELD_AT_THE_END,
-			);
+			expect(reading.findings).toEqual([]);
+			expect(openingRows(reading.doc, "q")).toMatchObject([
+				{ property: "dob" },
+			]);
 		});
 
 		it("reads, with no finding, where no later default reads it", async () => {
@@ -820,29 +941,18 @@ describe("a case preload, read as the question's default", () => {
 			"/data/q": "owner_id",
 		});
 		expect(owner.findings.map((one) => one.code)).not.toContain(REFUSED);
-		const form = owner.forms[0];
-		const field =
-			form?.xform == null
-				? undefined
-				: readFields(form.xform).find((one) => one.id === "q");
-		expect(field?.field.default_value).toMatchObject({
-			term: { kind: "form-case", property: "owner_id" },
-		});
+		expect(openingRows(importedDoc(owner), "q")).toMatchObject([
+			{ property: "owner_id" },
+		]);
 	});
 
-	it("refuses a preload from a host or user path", async () => {
+	it("preserves a named connection without substituting a different catalog relationship", async () => {
 		const reading = await preloaded([f({ kind: "text", id: "q", uuid: Q })], {
 			"/data/q": "host/dob",
 		});
-		const found = reading.findings.find(
-			(one) =>
-				one.code ===
-				"forms-and-case-writes/case-preload-from-any-other-index-path-host-user-a-mixed-path",
-		);
-		expect(found).toBeDefined();
-		expect(found && "standing" in found ? found.standing : undefined).toBe(
-			"not-yet",
-		);
+		expect(openingRows(importedDoc(reading), "q")).toMatchObject([
+			{ property: "dob", via: [{ identifier: "host" }] },
+		]);
 	});
 });
 
@@ -961,10 +1071,11 @@ describe("a preloaded property HQ's grammar takes for its one trailing newline",
 			const reading = await wholeReading(stored);
 			expect(reading.findings, stored).toEqual([]);
 			expect(reading.outcome.defects, stored).toEqual([]);
-			expect(defaultOf(reading), stored).toEqual({
-				kind: "term",
-				term: { kind: "form-case", caseType: "patient", property },
-			});
+			if (reading.outcome.kind !== "read")
+				throw new Error("No imported document");
+			expect(openingRows(reading.outcome.draft.doc, "q"), stored).toMatchObject(
+				[{ source: { kind: "own" }, property }],
+			);
 			const without = await wholeReading(plain);
 			expect(without.findings, plain).toEqual([]);
 			expect(reading.doc, stored).toEqual(without.doc);

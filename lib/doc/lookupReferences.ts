@@ -35,6 +35,7 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { firstSortedModuleListingForm } from "@/lib/domain/formMembership";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type {
@@ -616,6 +617,7 @@ function extractRegisteredExpressions(
 				else if ("tabUuid" in member) carrierUuid = member.tabUuid;
 				else if ("optionUuid" in member) carrierUuid = member.optionUuid;
 				else if ("filterUuid" in member) carrierUuid = member.filterUuid;
+				else if ("supplyUuid" in member) carrierUuid = member.supplyUuid;
 				else carrierUuid = member.searchInputUuid;
 			}
 			if (
@@ -640,6 +642,36 @@ function extractRegisteredExpressions(
 		}
 	}
 	return references;
+}
+
+/** A record taken from a lookup table reads its real Project column on entry. */
+function extractFormEntryTableSources(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return Object.values(doc.forms).flatMap((form) =>
+		(entrySelectionSettings(form) ?? []).flatMap((choice) => {
+			const source = choice.source;
+			return source.kind === "table"
+				? [
+						{
+							carrierUuid: form.uuid,
+							subpath: [
+								form.shadowOf ? "sharedChoice" : "choice",
+								choice.uuid,
+								"source",
+								"column",
+							],
+							tableId: source.table,
+							columnId: source.column,
+							location: {
+								...formLocation(doc, form),
+								field: `caseSelections[${choice.uuid}].source`,
+							},
+						},
+					]
+				: [];
+		}),
+	);
 }
 
 function productionExtractor(
@@ -682,6 +714,9 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 						: entry.slot === "search_input_options"
 							? extractSearchInputOptions(doc)
 							: []),
+					...(entry.slot === "form_selection_source"
+						? extractFormEntryTableSources(doc)
+						: []),
 					...extractRegisteredExpressions(
 						doc,
 						entry.entity,

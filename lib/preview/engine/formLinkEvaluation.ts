@@ -363,6 +363,7 @@ export type CarriedCase =
 export interface TargetCaseSelection {
 	readonly firstMenuConsumers?: readonly Uuid[];
 	readonly destinationConsumers?: readonly Uuid[];
+	readonly selectionUuid?: Uuid;
 	readonly datumId: string;
 	readonly moduleUuid: Uuid;
 	readonly caseType: string;
@@ -626,8 +627,13 @@ function targetSelectionPlan(
 	}
 	const target = resolvedEntryTarget(doc, formUuid, entry, routeMenuUuid);
 	const targetChildren = targetFrameChildren(doc, ctx, target);
-	const targetDatumId = entryDatumIdResolver(
-		formLinkTargetDatumIds(doc, ctx, target),
+	const bindings = formLinkTargetDatumIds(doc, ctx, target);
+	const targetDatumId = entryDatumIdResolver(bindings);
+	const choices = new Map(
+		bindings.map((row) => [
+			row.id,
+			row.refs.find((ref) => ref.kind === "form-selection")?.selection,
+		]),
 	);
 	const targetSelections = targetChildren.flatMap((child) =>
 		child.type === "datum" &&
@@ -649,6 +655,7 @@ function targetSelectionPlan(
 	return {
 		targetDatumId,
 		targetSelections,
+		choices,
 		automaticMatches,
 		home: homeSelectionConsumers(doc, ctx, targetChildren),
 	};
@@ -694,7 +701,7 @@ export function projectTargetCaseSelections(
 	formUuid: Uuid,
 	entry: FormLinkEntry,
 ): readonly TargetCaseSelection[] {
-	const { targetDatumId, targetSelections, automaticMatches, home } =
+	const { targetDatumId, targetSelections, automaticMatches, home, choices } =
 		targetSelectionPlan(input.doc, formUuid, entry, input.routeMenuUuid);
 	const { link } = entry;
 	return targetSelections.flatMap((datum) => {
@@ -718,6 +725,7 @@ export function projectTargetCaseSelections(
 			{
 				datumId: datum.id,
 				...firstMenuRecipients(home.get(datum)),
+				...(choices.get(datum.id) && { selectionUuid: choices.get(datum.id) }),
 				moduleUuid,
 				caseType: datum.caseType,
 				caseId: held.value,
@@ -734,7 +742,7 @@ export async function projectTargetCaseSelectionsAsync(
 	evaluateAsync: FormLinkAsyncEvaluator,
 	world?: FormLinkWorkerWorld,
 ): Promise<readonly TargetCaseSelection[]> {
-	const { targetDatumId, targetSelections, automaticMatches, home } =
+	const { targetDatumId, targetSelections, automaticMatches, home, choices } =
 		targetSelectionPlan(input.doc, formUuid, entry, input.routeMenuUuid);
 	const { link } = entry;
 	const projected: TargetCaseSelection[] = [];
@@ -766,6 +774,7 @@ export async function projectTargetCaseSelectionsAsync(
 		projected.push({
 			datumId: datum.id,
 			...firstMenuRecipients(home.get(datum)),
+			...(choices.get(datum.id) && { selectionUuid: choices.get(datum.id) }),
 			moduleUuid,
 			caseType: datum.caseType,
 			caseId: held.value,

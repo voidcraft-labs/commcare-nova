@@ -146,6 +146,36 @@ it("materializes a newly declared worker property before the same commit writes 
 	expect(cleared.properties).toEqual({ ...changed.properties, cadre: "" });
 });
 
+it("keeps a worker detail named location_id in the record's location column, as CommCare HQ's sync leaves it", async () => {
+	// HQ's user-case sync writes the worker's data as case block keys, and its
+	// server keeps `location_id` as the case's location, never a property
+	// (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`).
+	const { appId } = await authoredWorker();
+	const place = testUuid("usercase-location-detail");
+	await commit(appId, [
+		{
+			kind: "addUserProperty",
+			property: { uuid: place, slug: "location_id", label: "Location" },
+		},
+		{
+			kind: "updatePersona",
+			uuid: PERSONA,
+			patch: {},
+			valuePatch: { userPropertyUuid: place, value: "district-7" },
+		},
+	]);
+	const placed = await h
+		.pool()
+		.query(
+			"SELECT location_id, properties FROM cases WHERE app_id = $1 AND case_type = 'commcare-user'",
+			[appId],
+		);
+	expect(placed.rows).toHaveLength(1);
+	expect(placed.rows[0].location_id).toBe("district-7");
+	expect(Object.hasOwn(placed.rows[0].properties, "location_id")).toBe(false);
+	expect(placed.rows[0].properties.cadre).toBe("nurse");
+});
+
 it("leaves runtime-written values and the physical row version unchanged on ensure-only resolution, then reports a full sync's stored result", async () => {
 	const { appId, doc } = await authoredWorker();
 	const store = await withProjectContext(PROJECT, ACTOR, PERSONA);

@@ -467,13 +467,13 @@ def upload_logo(authoring, app_id, slot):
     return path
 
 
-def new_form(authoring, app_id, menu, *, case_action="none"):
+def new_form(authoring, app_id, menu, *, case_action="none", form_type="form"):
     """A form added to the menu at ``menu`` as the menu's add-form button posts it (``views/forms.py::new_form``,
     ``form_type`` ``form``): ``case_action`` ``open`` adds a "Register" form opening the menu's case, ``update`` a
     "Followup" form requiring one, and ``none`` a "Survey" form with no case action."""
     from proof.hq import operations
 
-    pairs = [("form_type", "form"), ("case_action", case_action)]
+    pairs = [("form_type", form_type), ("case_action", case_action)]
     with authoring.step(f"build:new-form:{menu}", json.dumps(pairs).encode()):
         module = operations.held_app(authoring.state, app_id).get_module(menu)
         body, content_type = ops.form_body(pairs)

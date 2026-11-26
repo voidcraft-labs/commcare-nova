@@ -176,6 +176,17 @@ export interface CasesTable {
 	 */
 	external_id: string | null;
 
+	/**
+	 * The case's own location, as a form's `location_id` write leaves it on
+	 * CommCare HQ's server, which keeps that key apart from the case's
+	 * properties (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`)
+	 * and writes it back into a restore as the case's `location_id` element
+	 * when it holds text. An opaque text, never one of the Project's places
+	 * and no grant of access. `null` where no form wrote one; `""` is a real
+	 * blank write, which a device reads as blank as it reads an absent one.
+	 */
+	location_id: string | null;
+
 	/** Denormalized first parent for the common single-parent case. Full ancestor walks go through `case_indices`. */
 	parent_case_id: string | null;
 

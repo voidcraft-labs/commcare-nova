@@ -198,6 +198,8 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 		"This date format can't change from row to row here. You can choose a fixed format",
 	"closed-on-not-on-device": () =>
 		"Date closed is known only to CommCare's server search. Case status shows whether a case is closed",
+	"location-not-in-search": () =>
+		"A case's location ID isn't in CommCare's server search. A property of your own can hold the same value for searching",
 	"case-type-ordering": () =>
 		"Case types can be compared only as equal or not equal",
 	"epoch-fraction-on-device": () =>

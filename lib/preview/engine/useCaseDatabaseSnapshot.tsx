@@ -12,6 +12,7 @@ import {
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { useCaseDatabaseRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
@@ -92,7 +93,9 @@ export function caseDatabaseRequirements(
 	].some((owner) =>
 		expressionSlotValues(doc, owner).some(
 			({ ref, expression }) =>
-				slotContext(doc, ref, new Map())?.ruleSet === "form" &&
+				(ref.slot === "form_entry_value" ||
+					ref.slot === "form_selection_source" ||
+					slotContext(doc, ref, new Map())?.ruleSet === "form") &&
 				expressionReadsCaseDatabase(expression, doc),
 		),
 	);
@@ -165,8 +168,12 @@ export function caseDatabaseRequirements(
 			(field.kind === "single_select" || field.kind === "multi_select") &&
 			field.optionsSource.kind === "cases",
 	);
+	const entryRecords = Object.values(doc.forms).some(
+		(form) => entrySelectionSettings(form)?.length,
+	);
 	const required =
 		doc.appSettings.caseSharing === true ||
+		entryRecords ||
 		caseChoices ||
 		explicitReference ||
 		proseReference ||

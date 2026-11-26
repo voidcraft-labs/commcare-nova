@@ -69,6 +69,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { emittedSelectionTag } from "@/lib/domain/advancedEntryDatums";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { formOfField } from "@/lib/domain/fieldForm";
 import {
@@ -89,6 +90,11 @@ export type IdentityMoveSubject =
 			readonly formUuid: Uuid;
 			readonly operationUuid: Uuid;
 	  }
+	| {
+			readonly kind: "form-selection";
+			readonly formUuid: Uuid;
+			readonly selectionUuid: Uuid;
+	  }
 	| { readonly kind: "own-close"; readonly formUuid: Uuid }
 	| {
 			readonly kind: "query-repeat";
@@ -103,6 +109,11 @@ export type IdentityMoveSubject =
  *  moves. */
 export type IdentityMoveReason =
 	| {
+			readonly source: "form-selection";
+			readonly previousTag: string;
+			readonly nextTag?: string;
+	  }
+	| {
 			readonly source: "case-placement";
 			readonly reason: PlacementIneligibility;
 	  }
@@ -113,6 +124,7 @@ export type IdentityMoveReason =
 			/** The menu selects a parent case, so once its kind moves its
 			 *  forms read the cases chosen through it under new names. */
 			readonly chosenCasesRenamed: boolean;
+			readonly expandsCaseList?: true;
 	  };
 
 export interface IdentityMove {
@@ -154,6 +166,11 @@ export interface IdentityMoveReport {
 }
 
 export const identityMoveSubjectSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("form-selection"),
+		formUuid: uuidSchema,
+		selectionUuid: uuidSchema,
+	}),
 	z.strictObject({
 		kind: z.literal("case-operation"),
 		formUuid: uuidSchema,
@@ -214,10 +231,31 @@ export function withIdentityMoves(
 	const operations = planOperationPlacementMoves(afterKinds);
 	const afterOperations = withHolds(afterKinds, operations.holds);
 	const repeats = planQueryRepeatPlacementMoves(afterOperations);
+	const selections: PlacementHoldEntry[] = [];
+	for (const form of Object.values(afterOperations.forms)) {
+		for (const [uuid, previousTag] of Object.entries(
+			form.heldSelectionTags ?? {},
+		)) {
+			const selectionUuid = uuid as Uuid;
+			const tag = emittedSelectionTag(
+				afterOperations,
+				form.uuid,
+				selectionUuid,
+			);
+			if (previousTag !== tag)
+				selections.push({
+					target: "form-selection",
+					formUuid: form.uuid,
+					selectionUuid,
+					placement: tag ? { kind: "selection-tag", tag } : null,
+				});
+		}
+	}
 	const holds: PlacementHoldEntry[] = [
 		...kinds.holds,
 		...operations.holds,
 		...repeats.holds,
+		...selections,
 	];
 	if (holds.length === 0)
 		return {
@@ -416,6 +454,31 @@ function moveOfChange(
 ): IdentityMove | undefined {
 	const { target } = change;
 	switch (target.target) {
+		case "form-selection": {
+			const from = change.from;
+			if (!from || typeof from !== "object" || from.kind !== "selection-tag")
+				return;
+			const nextTag = emittedSelectionTag(
+				after,
+				target.formUuid,
+				target.selectionUuid,
+			);
+			if (from.tag === nextTag) return;
+			return {
+				subject: {
+					kind: "form-selection",
+					formUuid: target.formUuid,
+					selectionUuid: target.selectionUuid,
+				},
+				from: "opening-record",
+				to: nextTag ? "opening-record" : "retired-opening-record",
+				reason: {
+					source: "form-selection",
+					previousTag: from.tag,
+					...(nextTag && { nextTag }),
+				},
+			};
+		}
 		case "case-operation":
 		case "own-close": {
 			const from = change.from as CasePlacement;
@@ -487,5 +550,10 @@ function moveOfChange(
 			if (blocker === undefined) return;
 			return moduleKindMove(after, target.moduleUuid, "basic", blocker.kind);
 		}
+		case "basic-opening":
+			// The starting values stay the form's own; only the case settings
+			// slot that carried them goes, and the form's next publish writes
+			// them where its shape now puts them.
+			return undefined;
 	}
 }

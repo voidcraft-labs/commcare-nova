@@ -275,7 +275,8 @@ describe("advancedModuleShell", () => {
 describe("advancedFormShell", () => {
 	it("writes an advanced form's keys in order, each a property of HQ's AdvancedForm, with no requires and no schedule", () => {
 		const form = serialized().forms[0];
-		if (form === undefined) throw new Error("The menu holds its form.");
+		if (form?.doc_type !== "AdvancedForm")
+			throw new Error("Expected the ordinary advanced form.");
 		expect(Object.keys(form)).toEqual(ADVANCED_FORM_KEYS);
 		expect(form).not.toHaveProperty("requires");
 		expect(form).not.toHaveProperty("schedule");
@@ -356,7 +357,8 @@ describe("advancedFormShell", () => {
 describe("advanced actions", () => {
 	const actions = () => {
 		const form = serialized().forms[0];
-		if (form === undefined) throw new Error("The menu holds its form.");
+		if (form?.doc_type !== "AdvancedForm")
+			throw new Error("Expected the ordinary advanced form.");
 		return JSON.parse(JSON.stringify(form.actions)) as ReturnType<
 			typeof advancedActions
 		>;

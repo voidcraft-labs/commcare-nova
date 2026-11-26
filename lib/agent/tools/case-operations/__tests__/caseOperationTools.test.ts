@@ -1225,7 +1225,7 @@ describe("saves to a case above, changed answers and the worker's record", () =>
 		expect(h.currentDoc()).toEqual(doc);
 	});
 
-	it("refuses via and onlyIfChanged on every other arm's writes at the schema", async () => {
+	it("refuses via on every other arm's writes at the schema, and takes onlyIfChanged there", async () => {
 		const { doc, moduleUuid, followupUuid } = aboveFixture();
 		const h = makeToolWorkspaceHarness(doc);
 		const plain = {
@@ -1256,10 +1256,14 @@ describe("saves to a case above, changed answers and the worker's record", () =>
 		for (const arm of arms) {
 			const accepted = { ...arm, writes: [plain] };
 			expect(caseOperationInputSchema.safeParse(accepted).success).toBe(true);
-			for (const facet of [
-				{ via: [...toHousehold] },
-				{ onlyIfChanged: true },
-			]) {
+			// HQ's build saves any update map's key only when changed.
+			expect(
+				caseOperationInputSchema.safeParse({
+					...arm,
+					writes: [{ ...plain, onlyIfChanged: true }],
+				}).success,
+			).toBe(true);
+			for (const facet of [{ via: [...toHousehold] }]) {
 				const refused = { ...arm, writes: [{ ...plain, ...facet }] };
 				expect(caseOperationInputSchema.safeParse(refused).success).toBe(false);
 				await expect(

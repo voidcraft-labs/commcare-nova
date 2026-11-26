@@ -2,13 +2,14 @@ import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	fieldPreload,
-	formCaseWriteViews,
 	isContainer,
 	type Uuid,
 } from "@/lib/domain";
+import { entryCaseWriteViews } from "@/lib/domain/caseWriteViews";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import {
+	caseWriteReads,
 	type FieldCaseWriteRead,
-	fieldCaseWrites,
 } from "./authoring/fieldBehavior";
 
 /**
@@ -33,7 +34,7 @@ export function formAnswerWrites(
 	const module = doc.modules[moduleUuid];
 	const form = doc.forms[formUuid];
 	if (!module || !form) return [];
-	const saved = formCaseWriteViews(doc, formUuid);
+	const saved = entryCaseWriteViews(doc, formUuid);
 	const answers: {
 		fieldUuid: Uuid;
 		path: string;
@@ -45,16 +46,12 @@ export function formAnswerWrites(
 			const field = doc.fields[uuid];
 			if (field === undefined) continue;
 			const path = [...prefix, field.id];
-			if ((saved.get(uuid)?.length ?? 0) > 0)
+			const writes = saved.get(uuid);
+			if (writes?.length)
 				answers.push({
 					fieldUuid: uuid,
 					path: path.join("/"),
-					writes: fieldCaseWrites(doc, field).filter(
-						(write) =>
-							form.caseOperations?.some(
-								(operation) => operation.uuid === write.operationUuid,
-							) === true,
-					),
+					writes: caseWriteReads(writes),
 					...(fieldPreload(field) !== undefined && {
 						opensWithCaseValue: true as const,
 					}),
@@ -62,6 +59,6 @@ export function formAnswerWrites(
 			if (isContainer(field)) walk(uuid, path);
 		}
 	};
-	walk(formUuid, []);
+	walk(formContentUuid(doc, formUuid), []);
 	return answers;
 }
