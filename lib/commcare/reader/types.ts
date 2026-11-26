@@ -127,6 +127,8 @@ export interface ReaderInput {
 		Uuid,
 		ReadonlyMap<string, string>
 	>;
+	/** Editor names of parent Search fields identified by the native request key. */
+	readonly knownDirectParentSearchNames?: ReadonlyMap<Uuid, string>;
 	/** Names people gave their logical searches. HQ carries only the destination id. */
 	readonly knownProjectSearchNames?: BlueprintDoc["appSettings"]["projectSearches"];
 	/** What Nova already holds about this app's languages that no export carries: the language

@@ -24,7 +24,13 @@ import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { isVisibleSearchInput } from "@/lib/domain/modules";
 import { searchAddressReceiverCompatibility } from "../../../validator/rules/case-list/searchAddressReceiverCompatibility";
 import { runValidation } from "../../../validator/runner";
+import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { matchingResolver } from "../../identity";
+import {
+	externalIdentityMap,
+	knownDirectParentSearchNamesOf,
+} from "../../identityMap";
 import { readHqApp } from "../../index";
 import type { ReaderInput } from "../../types";
 
@@ -692,6 +698,22 @@ describe("a plain native parent Search field", () => {
 				expect.objectContaining({ id: "related-case-search" }),
 			]),
 		);
+		const reread = readHqApp(
+			await inputFor(exportedBody(renamed), {
+				resolver: matchingResolver(
+					renamed.appId,
+					externalIdentityMap(renamed, DERIVED_WIRE_IDENTITY),
+				),
+				knownDirectParentSearchNames: knownDirectParentSearchNamesOf(renamed),
+			}),
+		);
+		expect(reread.kind).toBe("read");
+		if (reread.kind !== "read") return;
+		const parent =
+			renamed.modules[mod.uuid].caseListConfig?.searchInputs.at(-2);
+		expect(
+			reread.draft.doc.modules[mod.uuid].caseListConfig?.searchInputs.at(-2),
+		).toMatchObject({ uuid: parent?.uuid, name: "related_village" });
 	});
 
 	it("refuses a dependent formula while retaining the parent match", async () => {

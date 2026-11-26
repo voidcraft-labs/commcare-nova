@@ -40,7 +40,10 @@ import {
 } from "@/lib/commcare/reader";
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
-import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
+import {
+	externalIdentityMap,
+	knownDirectParentSearchNamesOf,
+} from "@/lib/commcare/reader/identityMap";
 import {
 	baselineSearchBindings,
 	projectSearchLineage,
@@ -374,6 +377,7 @@ export function* makeHqChangeReadingsSteps(
 			reference.doc,
 		),
 		knownFormEntryChoices: knownFormEntryChoicesOf(reference.doc),
+		knownDirectParentSearchNames: knownDirectParentSearchNamesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
 		knownProjectSearchNames: reference.doc.appSettings.projectSearches,
 		...(input.saveOnlyEditedApplied !== undefined && {

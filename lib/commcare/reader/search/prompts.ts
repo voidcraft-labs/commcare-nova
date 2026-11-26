@@ -751,6 +751,20 @@ export function readSearchPrompts(
 				: [];
 		}),
 	);
+	const savedNames = new Map<string, string>();
+	for (const prompt of prompts) {
+		const property = directParentPromptProperty(prompt);
+		if (property === undefined) continue;
+		const key = `parent/${property}`;
+		const uuid = ctx.input.resolver.uuidOf(
+			externalKey.searchInput(module.uniqueId, key),
+		);
+		const previous = ctx.input.knownDirectParentSearchNames?.get(uuid);
+		if (previous !== undefined && !occupiedNames.has(previous)) {
+			savedNames.set(key, previous);
+			occupiedNames.add(previous);
+		}
+	}
 	const out: PromptReading[] = [];
 	for (const prompt of prompts) {
 		if (prompt.peek("is_group") === true) continue;
@@ -770,6 +784,7 @@ export function readSearchPrompts(
 			sourceNames,
 			receiverDuplicates.has(prompt),
 			occupiedNames,
+			savedNames,
 		);
 		if (reading !== undefined) out.push(reading);
 	}
@@ -882,6 +897,7 @@ function readPrompt(
 	addressSources: ReadonlySet<string>,
 	receiverDuplicate: boolean,
 	occupiedNames: Set<string>,
+	savedNames: ReadonlyMap<string, string>,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
@@ -1752,7 +1768,8 @@ function readPrompt(
 		name:
 			parentProperty === undefined
 				? name
-				: reserveParentPromptAlias(parentProperty, occupiedNames),
+				: (savedNames.get(name) ??
+					reserveParentPromptAlias(parentProperty, occupiedNames)),
 		...(group !== undefined && { group }),
 		label: sourceText(ctx, label),
 		...(hint !== "" && { hint }),
