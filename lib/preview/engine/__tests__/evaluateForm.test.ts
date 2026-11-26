@@ -1080,7 +1080,7 @@ it("visits the worker's field-list page before accepting a question submitted un
 										kind: "text",
 										id: "answer",
 										label: "Outcome",
-										submissionPlacement: { parent: first, position: 1 },
+										submissionPlacement: { parent: first },
 									}),
 								],
 							}),
@@ -1242,7 +1242,6 @@ it.each([webAppsDevice(), androidDevice()])(
 
 it("changes repeat rows only while their control is reachable and retains hidden rows on resume", async () => {
 	const form = testUuid("repeat-edit-form");
-	const group = testUuid("repeat-edit-group");
 	const doc = buildDoc({
 		modules: [
 			{
@@ -1256,7 +1255,6 @@ it("changes repeat rows only while their control is reachable and retains hidden
 							f({ kind: "text", id: "open" }),
 							f({
 								kind: "group",
-								uuid: group,
 								id: "visible_group",
 								relevant: "#form/open = 'yes'",
 								children: [
@@ -1264,7 +1262,6 @@ it("changes repeat rows only while their control is reachable and retains hidden
 										kind: "repeat",
 										id: "roster",
 										repeat_mode: "user_controlled",
-										submissionPlacement: { parent: form, position: 1 },
 										children: [f({ kind: "text", id: "note" })],
 									}),
 								],
@@ -1285,6 +1282,8 @@ it("changes repeat rows only while their control is reachable and retains hidden
 		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
 		captureEntry: true,
 	};
+	const repeatPath = "visible_group/roster";
+	const notePath = `${repeatPath}[0]/note`;
 	const observe = (
 		entry?: Awaited<ReturnType<typeof evaluateForm>>["entry"],
 		count?: number,
@@ -1295,35 +1294,36 @@ it("changes repeat rows only while their control is reachable and retains hidden
 			{
 				formUuid: form,
 				answers,
-				repeats: count === undefined ? undefined : [{ path: "roster", count }],
+				repeats:
+					count === undefined ? undefined : [{ path: repeatPath, count }],
 			},
 			{ ...context, entry },
 		);
 	const closed = await observe();
 	await expect(observe(closed.entry, 1)).rejects.toThrow(
-		"Open the page with repeat roster",
+		`Open the page with repeat ${repeatPath}`,
 	);
 	const opened = await observe(closed.entry, undefined, [
 		{ path: "open", value: "yes" },
 	]);
 	const edited = await observe(opened.entry, 1, [
-		{ path: "roster[0]/note", value: "Keep me" },
+		{ path: notePath, value: "Keep me" },
 	]);
 	const hidden = await observe(edited.entry, undefined, [
 		{ path: "open", value: "no" },
 	]);
 	await expect(observe(hidden.entry, 0)).rejects.toThrow(
-		"Open the page with repeat roster",
+		`Open the page with repeat ${repeatPath}`,
 	);
 	const returned = await observe(hidden.entry, undefined, [
 		{ path: "open", value: "yes" },
 	]);
-	expect(
-		returned.fields.find((field) => field.path === "roster[0]/note")?.value,
-	).toBe("Keep me");
+	expect(returned.fields.find((field) => field.path === notePath)?.value).toBe(
+		"Keep me",
+	);
 	const removed = await observe(returned.entry, 0);
 	expect(
-		removed.fields.find((field) => field.path === "roster")?.repeatCount,
+		removed.fields.find((field) => field.path === repeatPath)?.repeatCount,
 	).toBe(0);
 });
 
