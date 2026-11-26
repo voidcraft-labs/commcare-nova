@@ -1311,8 +1311,6 @@ describe("ordered selected-case batches", () => {
 			store,
 			request({
 				...close,
-				action: "update",
-				closeAfter: true,
 				closeCondition: predicate(false),
 				writes: literalWrites({ notes: "never saved" }).map((write) => ({
 					...write,
@@ -1338,10 +1336,12 @@ describe("ordered selected-case batches", () => {
 				closeAfter: true,
 				closeCondition: predicate(true),
 				writes: literalWrites({ notes: "saved before closing" }),
+				rename: term(literal("Renamed before closing")),
 			}),
 		);
 		expect(writtenAndClosed.caseDatabasePatch?.rows[0]).toMatchObject({
 			status: "closed",
+			case_name: "Renamed before closing",
 			properties: { notes: "saved before closing" },
 		});
 	});

@@ -784,9 +784,10 @@ it.each(["close", "update", "create"] as const)(
 						action,
 						target: { kind: "expression", expr: term(literal("patient-01")) },
 						closeCondition: onYes,
+						writes: [{ property: "outcome", value: answer }],
 						...(action === "update" && {
 							closeAfter: true,
-							writes: [{ property: "outcome", value: answer }],
+							rename: term(literal("Renamed")),
 						}),
 					});
 		const doc = produce(app("survey", [change]), (draft) => {
@@ -804,6 +805,8 @@ it.each(["close", "update", "create"] as const)(
 			closeCondition: onYes,
 		});
 		expect(read.condition).toBeUndefined();
+		if (action !== "create")
+			expect(read.writes).toEqual([{ property: "outcome", value: answer }]);
 		expect(read.closeAfter).toBe(action === "close" ? undefined : true);
 	},
 );

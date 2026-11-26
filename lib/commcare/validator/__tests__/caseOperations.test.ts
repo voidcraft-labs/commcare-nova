@@ -153,6 +153,43 @@ it("admits disjoint authored and HQ-managed writes and refuses the order-sensiti
 	]);
 });
 
+it("admits one action for a closing block that only saves case properties", () => {
+	const { doc, formUuid } = fixture();
+	const form = doc.forms[formUuid];
+	const own = form.caseOperations ?? [];
+	const common = {
+		uuid: SECOND,
+		id: "close_after_note",
+		caseType: "patient",
+		target: {
+			kind: "expression",
+			expr: term(literal("other-person")),
+		} as const,
+		writes: [
+			{ property: "nickname", value: term(literal("Saved before close")) },
+		],
+	};
+	form.caseOperations = [...own, { ...common, action: "close" }];
+	expect(validateCandidate(doc)).toEqual([]);
+	form.caseOperations = [
+		...own,
+		{ ...common, action: "update", closeAfter: true },
+	];
+	expect(validateCandidate(doc)).toEqual([
+		expect.objectContaining({ code: "CASE_OPERATION_CLOSE_ACTION_REQUIRED" }),
+	]);
+	form.caseOperations = [
+		...own,
+		{
+			...common,
+			action: "update",
+			closeAfter: true,
+			rename: term(literal("Updated name")),
+		},
+	];
+	expect(validateCandidate(doc)).toEqual([]);
+});
+
 interface Fixture {
 	readonly doc: BlueprintDoc;
 	readonly moduleUuid: Uuid;

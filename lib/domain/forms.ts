@@ -643,6 +643,22 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	}),
 ]);
 
+/** A block which closes is a close operation unless it also carries
+ * a facet that only an update can represent. Plain property writes fit both. */
+export function hasUpdateOnlyCaseFacets(operation: {
+	readonly rename?: unknown;
+	readonly retype?: unknown;
+	readonly owner?: unknown;
+	readonly links?: readonly unknown[];
+}): boolean {
+	return (
+		operation.rename !== undefined ||
+		operation.retype !== undefined ||
+		operation.owner !== undefined ||
+		(operation.links?.length ?? 0) > 0
+	);
+}
+
 /**
  * The name and owner facets an operation saves only when changed, as HQ's
  * build applies `update_mode: "edit"` to the `name` and `owner_id` keys of

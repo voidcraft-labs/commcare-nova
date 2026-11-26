@@ -659,7 +659,7 @@ function saveMapMoved(
 }
 
 describe("a several-case close form's own close with the condition on its close", () => {
-	it("is the finding a-close-only-savetocase-block-with-a-close-condition at the block, and no document", async () => {
+	it("holds a close whose surrounding selected-case transaction is still submitted when the close is absent", async () => {
 		const doc =
 			OWN_ARMS["a several-case close form's, with a close condition"]?.();
 		if (doc === undefined) throw new Error("The fixture is missing.");
@@ -681,7 +681,7 @@ describe("a several-case close form's own close with the condition on its close"
 			})),
 		).toEqual([
 			{
-				code: "questions/a-close-only-savetocase-block-with-a-close-condition",
+				code: "questions/savetocase-block-outside-nova-s-own-block-shape",
 				path: `nova_selected_cases/item/nova_operations/${CLOSE_BLOCK}`,
 			},
 		]);

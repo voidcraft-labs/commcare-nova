@@ -12,6 +12,7 @@
  * is inside is registered for the expression stage once, so no text is ever
  * wrapped twice.
  */
+
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
@@ -42,6 +43,7 @@ import {
 	unowned,
 } from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
+import { hasUpdateOnlyCaseFacets } from "@/lib/domain/forms";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
 	caseOperationLinkNameProblem,
@@ -2035,12 +2037,7 @@ function readBlock(
 		proposal: {
 			kind: creates
 				? "create"
-				: closes &&
-						writes.length === 0 &&
-						rename === undefined &&
-						retype === undefined &&
-						owner === undefined &&
-						links.length === 0
+				: closes && !hasUpdateOnlyCaseFacets({ rename, retype, owner, links })
 					? "close"
 					: "update",
 			caseType,
@@ -2779,7 +2776,9 @@ export function readSaveToCaseBlocks(
 	// in a condition group, its condition the group's, under the root
 	// operations container, or, in a form whose menu selects several cases,
 	// in each selected case's row (`OWN_CLOSE_SHAPES`). A close-only block
-	// whose `case/close` carries the condition was refused above. A block whose
+	// whose `case/close` carries the condition cannot use this own arm: an
+	// omitted close still submits its case block and modifies its timestamp.
+	// A block whose
 	// `update` holds a row is a close operation's, never the own close's: the
 	// emitter writes the own close's block with no `update`, and a close
 	// operation's with its idempotent `case_type` row (`xform/caseOps.ts`),

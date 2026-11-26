@@ -49,6 +49,7 @@ import {
 	type Form,
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
+	hasUpdateOnlyCaseFacets,
 	isCaseOperationIdentifier,
 	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
@@ -723,6 +724,19 @@ function validateOperation(
 		operationSlot(ctx, operation, "case_operation_condition"),
 		errors,
 	);
+	if (
+		operation.action === "update" &&
+		operation.closeAfter === true &&
+		!hasUpdateOnlyCaseFacets(operation)
+	)
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_CLOSE_ACTION_REQUIRED",
+				"Choose the close action for a case that closes after saving its properties.",
+			),
+		);
 	if (operation.closeCondition !== undefined) {
 		if (operation.action !== "close" && operation.closeAfter !== true)
 			errors.push(
@@ -1548,7 +1562,7 @@ function ownCaseIndependenceFindings(
 	for (const operation of operations) {
 		if (operation.action === "own") continue;
 		if (!targetsOwnCase(ctx, operation.target, own.uuid)) continue;
-		if (operation.action === "close") {
+		if (operation.action === "close" || operation.closeAfter === true) {
 			errors.push(
 				opError(
 					ctx,
@@ -1587,6 +1601,7 @@ function ownCaseIndependenceFindings(
 const WORKER_RECORD_FACETS = [
 	["rename", "rename it"],
 	["owner", "change its owner"],
+	["closeAfter", "close it"],
 	["retype", "change its type"],
 	["links", "link it to another case"],
 	["condition", "run on a condition"],

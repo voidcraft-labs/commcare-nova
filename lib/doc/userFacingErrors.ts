@@ -2071,6 +2071,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_OPERATION_EXECUTION_ORDER: () =>
 		"These case operations use an order the running form can't preserve. Put authored-ID creates before updates and closes, and keep each repeating section's operations together in form order.",
 	CASE_OPERATION_OWNER_CONDITION_INVALID: (e) => e.message,
+	CASE_OPERATION_CLOSE_ACTION_REQUIRED: (e) => e.message,
 	CASE_OPERATION_CLOSE_CONDITION_INVALID: (e) => e.message,
 	CASE_CHANGE_POSITION_INVALID: (e) => e.message,
 	CASE_OPERATION_REPEAT_INVALID: () =>
