@@ -3196,6 +3196,7 @@ function diffCaseListMeta(
 		filter?: CaseListConfig["filter"] | null;
 		additionalCaseTypes?: CaseListConfig["additionalCaseTypes"] | null;
 		listCondition?: CaseListConfig["filter"] | null;
+		searchInputGroups?: CaseListConfig["searchInputGroups"] | null;
 		searchCondition?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
 		tile?: CaseListConfig["tile"] | null;
@@ -3206,6 +3207,10 @@ function diffCaseListMeta(
 		selectButtonText?: string | null;
 		optimizations?: true | null;
 	} = {};
+	if (!deepEqual(prev.searchInputGroups, next.searchInputGroups))
+		patch.searchInputGroups = next.searchInputGroups
+			? cloneEntity(next.searchInputGroups)
+			: null;
 	if (prev.optimizations !== next.optimizations)
 		patch.optimizations = next.optimizations ?? null;
 	for (const key of ["emptyText", "selectButtonText"] as const)

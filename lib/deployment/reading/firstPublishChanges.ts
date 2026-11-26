@@ -487,6 +487,8 @@ export const RESPELLED_FORM_PARTS = [
 
 /** A Search field's keys a reading takes as spelled another way (`search/prompts.ts`). */
 const SEARCH_FIELD_RESPELLED_KEYS: readonly string[] = [
+	"name",
+	"group_key",
 	"label",
 	"hint",
 	"receiver_expression",

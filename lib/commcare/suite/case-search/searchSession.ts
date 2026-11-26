@@ -537,9 +537,10 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const subtitleDisplay = caseSearchConfig.searchScreenSubtitle ?? "";
 	const descriptionLocaleId = `case_search.${moduleId}.description`;
 
-	// `<query>` children in canonical order: title → description →
+	// `<query>` children in canonical order: groups → title → description →
 	// data → prompts. The serializer preserves child insertion order.
 	const queryChildren: Element[] = [
+		...promptEmission.groups,
 		el("title", {}, [el("text", {}, [el("locale", { id: titleLocaleId })])]),
 		el("description", {}, [
 			el("text", {}, [el("locale", { id: descriptionLocaleId })]),

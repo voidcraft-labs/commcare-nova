@@ -751,6 +751,10 @@ function moduleUses(
 	}
 	const byOwner = (target: PlatformFeatureOwner) =>
 		usesByMember.get(memberUuid(target)) ?? [];
+	if (list?.searchInputGroups && wanted("search-field-groups"))
+		own.push(
+			slotUse("search-field-groups", owner, "caseListConfig.searchInputGroups"),
+		);
 	own.push(...byOwner(owner));
 	const out = inFeatureOrder(own);
 

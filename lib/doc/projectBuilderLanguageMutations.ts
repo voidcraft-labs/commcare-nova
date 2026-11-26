@@ -310,6 +310,23 @@ export function projectBuilderLanguageMutations(
 				// language's translation; the source keeps its text.
 				const next = structuredClone(mutation);
 				const patch = next.patch;
+				for (const group of patch.searchInputGroups ?? []) {
+					const sourceGroup = doc.modules[
+						mutation.uuid
+					]?.caseListConfig?.searchInputGroups?.find(
+						(candidate) => candidate.uuid === group.uuid,
+					);
+					if (sourceGroup === undefined || group.label === sourceGroup.label)
+						continue;
+					const id = makeTranslationUnitId(
+						"search-input-group",
+						group.uuid,
+						"label",
+					);
+					redirect(id, group.label);
+					group.label = sourceGroup.label;
+				}
+
 				for (const [key, slot] of [
 					["emptyText", "empty"],
 					["selectButtonText", "select"],

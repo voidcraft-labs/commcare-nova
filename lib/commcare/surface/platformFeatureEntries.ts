@@ -294,6 +294,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"search-starting-dates": ["case-search/default-value-on-a-date-range-input"],
 	"barcode-search-field": ["case-search/appearance-barcode-scan"],
+	"search-field-groups": ["case-search/is-group-group-key"],
 	"search-for-blank": ["case-search/allow-blank-value"],
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",

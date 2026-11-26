@@ -76,6 +76,8 @@ import {
 	type CaseType,
 	joinMultiSelectSearchAnswer,
 	type SearchInputDef,
+	type SearchInputGroup,
+	searchInputGroupsWithMembers,
 	splitMultiSelectSearchAnswer,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
@@ -166,6 +168,7 @@ interface SearchInputFormProps {
 	 *  rendered field order; sibling uniqueness is enforced upstream
 	 *  at the schema layer. */
 	readonly searchInputs: ReadonlyArray<SearchInputDef>;
+	readonly searchInputGroups?: readonly SearchInputGroup[];
 	/** The always-on filter joins the input predicates in exported CSQL. It is
 	 * needed only to derive which prompt values require quote validation. */
 	readonly filter?: Expression;
@@ -205,6 +208,7 @@ interface SearchInputFormProps {
 		PreviewPlatformRules,
 		| "searchFieldChecks"
 		| "searchScreenText"
+		| "searchFieldGroups"
 		| "barcodeSearchField"
 		| "searchChoiceOrder"
 		| "searchForBlank"
@@ -236,6 +240,7 @@ export function SearchInputForm({
 	landmarkLabel = "Search",
 	scopeKey = "",
 	searchInputs,
+	searchInputGroups,
 	filter,
 	caseType,
 	session,
@@ -645,7 +650,12 @@ export function SearchInputForm({
 	// component. Returning null here makes the contract self-
 	// enforcing: a caller that forgets the guard doesn't surface a
 	// labelled-but-empty `<search>` landmark to assistive tech.
-	if (visibleInputs.length === 0) return null;
+	const groups = platformRules.searchFieldGroups
+		? searchInputGroupsWithMembers({ searchInputs, searchInputGroups }).filter(
+				(group) => group.inputs.length > 0,
+			)
+		: [];
+	if (visibleInputs.length === 0 && groups.length === 0) return null;
 
 	const refusalReason = displayed.unavailable
 		? { kind: "unreadable-starting-range" as const, ...displayed.unavailable }
@@ -659,6 +669,44 @@ export function SearchInputForm({
 			throw new PreviewDataRefusal(refusalReason);
 		return renderRefusal(refusalReason);
 	}
+
+	const renderInput = (input: VisibleSearchInputDef) => (
+		<SearchInputRow
+			key={input.uuid}
+			input={input}
+			draft={draft}
+			startingLabel={displayed.labels?.get(input.name)}
+			setKey={setKey}
+			utcMidnightDays={platformRules.searchRangeChosenDay === "utc-midnight"}
+			showHint={platformRules.searchScreenText}
+			choiceOrder={platformRules.searchChoiceOrder}
+			offerBlank={platformRules.searchForBlank}
+			scanBarcode={platformRules.barcodeSearchField === "scan-or-text"}
+			required={requiredNow(input)}
+			choices={
+				choicesRead.kind === "read"
+					? choicesRead.value.get(input.uuid)
+					: undefined
+			}
+			error={
+				validationAttempted
+					? (() => {
+							const source = submissionErrors.get(input.name);
+							/* A requirement with no message marks the
+							 * field invalid with no words under it: HQ's
+							 * build writes its text as a no-break space,
+							 * which Core keeps, so Web Apps reads a
+							 * message (`query.js::getError`), draws the
+							 * field invalid (`item.html`) and sends no
+							 * search (`inputsHaveErrors`). */
+							return source === undefined || source === ""
+								? source
+								: localizeValidationMessage(source);
+						})()
+					: undefined
+			}
+		/>
+	);
 
 	return (
 		<search aria-label={landmarkLabel}>
@@ -674,47 +722,24 @@ export function SearchInputForm({
 					className="rounded-lg border border-border bg-card/30 p-4"
 				>
 					<div className="flex flex-col gap-4">
-						{visibleInputs.map((input) => (
-							<SearchInputRow
-								key={input.uuid}
-								input={input}
-								draft={draft}
-								startingLabel={displayed.labels?.get(input.name)}
-								setKey={setKey}
-								utcMidnightDays={
-									platformRules.searchRangeChosenDay === "utc-midnight"
-								}
-								showHint={platformRules.searchScreenText}
-								choiceOrder={platformRules.searchChoiceOrder}
-								offerBlank={platformRules.searchForBlank}
-								scanBarcode={
-									platformRules.barcodeSearchField === "scan-or-text"
-								}
-								required={requiredNow(input)}
-								choices={
-									choicesRead.kind === "read"
-										? choicesRead.value.get(input.uuid)
-										: undefined
-								}
-								error={
-									validationAttempted
-										? (() => {
-												const source = submissionErrors.get(input.name);
-												/* A requirement with no message marks the
-												 * field invalid with no words under it: HQ's
-												 * build writes its text as a no-break space,
-												 * which Core keeps, so Web Apps reads a
-												 * message (`query.js::getError`), draws the
-												 * field invalid (`item.html`) and sends no
-												 * search (`inputsHaveErrors`). */
-												return source === undefined || source === ""
-													? source
-													: localizeValidationMessage(source);
-											})()
-										: undefined
-								}
-							/>
-						))}
+						{groups.length === 0
+							? visibleInputs.map(renderInput)
+							: groups.map((group) => (
+									<details
+										key={group.uuid}
+										open
+										className="rounded-lg border border-border p-3"
+									>
+										<summary className="cursor-pointer font-semibold">
+											{group.label}
+										</summary>
+										<div className="mt-3 flex flex-col gap-4">
+											{visibleInputs
+												.filter((input) => input.group === group.uuid)
+												.map(renderInput)}
+										</div>
+									</details>
+								))}
 					</div>
 				</div>
 				{validationFailureMessage !== undefined && (

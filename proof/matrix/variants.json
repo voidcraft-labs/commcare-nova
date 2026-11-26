@@ -38571,42 +38571,8 @@
 			"name": "Clients"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/search_config/properties/-",
-			"value": {
-				"name": "region",
-				"label": {
-					"en": "Region"
-				},
-				"hint": {},
-				"hidden": false,
-				"allow_blank_value": false,
-				"exclude": false,
-				"required": {
-					"test": null,
-					"text": {},
-					"doc_type": "Assertion"
-				},
-				"validations": [],
-				"itemset": {
-					"doc_type": "Itemset"
-				},
-				"is_group": false,
-				"doc_type": "CaseSearchProperty"
-			}
-		},
-		"second": {
-			"entry": "case-search/is-group-group-key",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 0,
-				"name": "Clients"
-			},
-			"change": {
-				"op": "named",
-				"name": "fields_grouped"
-			}
+			"op": "named",
+			"name": "fields_with_ungrouped_prompt"
 		}
 	},
 	{
@@ -38751,12 +38717,6 @@
 		"id": "hq-search/grouped-fields",
 		"base": "hq-search",
 		"entry": "case-search/is-group-group-key",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties",
@@ -38925,7 +38885,19 @@
 					"group_key": "g"
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputGroups/0/label",
+				"value": "Group"
+			}
+		]
 	},
 	{
 		"id": "hq-search/hidden-choice-field",

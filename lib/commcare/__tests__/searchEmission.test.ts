@@ -134,6 +134,15 @@ it("returns request-only records without offering them for selection or claiming
 it("emits two localized headings and leaves headings out of the search request", () => {
 	const { suite, hq, zip } = exported(searchEmissionFixture("grouped-prompts"));
 	const query = one(one(entry(suite, "m0-f0"), "session"), "query");
+	expect(query.children.map(({ name }) => name)).toEqual([
+		"group",
+		"group",
+		"title",
+		"description",
+		"data",
+		"prompt",
+		"prompt",
+	]);
 	expect(
 		hq.modules[0].search_config.properties.map(
 			({ name, is_group, group_key }) => ({ name, is_group, group_key }),

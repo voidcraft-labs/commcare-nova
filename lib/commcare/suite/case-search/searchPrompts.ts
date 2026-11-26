@@ -86,6 +86,7 @@ import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
  */
 export interface SearchPromptsEmission {
 	readonly elements: readonly Element[];
+	readonly groups: readonly Element[];
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, WireStringSource>;
 	/**
@@ -445,15 +446,16 @@ export function buildSearchPrompts(
 		);
 	}
 
-	for (const group of groupWire) {
+	const headingElements = groupWire.map((group) => {
 		const { element, localeId } = searchGroupElement(moduleId, group.key);
-		elements.push(element);
 		strings[localeId] = group.label;
 		translationUnits[localeId] = group.labelUnit;
-	}
+		return element;
+	});
 
 	return {
 		elements,
+		groups: headingElements,
 		strings,
 		translationUnits,
 		instances: instances.declarations(),
