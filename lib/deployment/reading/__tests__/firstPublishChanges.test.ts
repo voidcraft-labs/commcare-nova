@@ -3142,11 +3142,12 @@ const READER_RECORDED: readonly CurrentFirstPublishChangeId[] =
 			].includes(id),
 	);
 
-it("places a moved repeat condition on its container's bind alone", async () => {
+it("places a moved repeat condition on its container's bind and its rows' bind", async () => {
 	const id = "model-iteration-conditions-moved-to-rows";
 	const [change] = firstPublishChangePlaces(await PAIRS[id].on(), [id]);
 	expect(change?.places).toEqual([
 		"/form/0.0/xform/data/visits/:bind/@relevant",
+		"/form/0.0/xform/data/visits/item/:bind/@relevant",
 	]);
 });
 
@@ -3342,7 +3343,7 @@ describe("each entry", () => {
 		const alone = await readAs(openingRowsDoc(), {
 			xml: withContainer("/data/asked = 'yes'", false),
 		});
-		expect(moved(alone)).toHaveLength(1);
+		expect(moved(alone)).toHaveLength(2);
 		expect(moved(alone).every(coveredByItsEntry)).toBe(true);
 		expect(alone.draft.doc.fields).toEqual(
 			(await readExport(openingRowsDoc(), TARGET)).draft.doc.fields,
@@ -3351,7 +3352,7 @@ describe("each entry", () => {
 		const both = await readAs(openingRowsDoc(), {
 			xml: withContainer("/data/asked != ''", true),
 		});
-		expect(moved(both)).toHaveLength(1);
+		expect(moved(both)).toHaveLength(2);
 		const joined = openingRowsDoc("#form/asked != '' and #form/asked = 'yes'");
 		expect(both.draft.doc.fields).toEqual(
 			(await readExport(joined, TARGET)).draft.doc.fields,
@@ -3371,7 +3372,7 @@ describe("each entry", () => {
 			const read = await readAs(openingRowsDoc(), {
 				xml: withContainer(relative, false),
 			});
-			expect(moved(read)).toHaveLength(1);
+			expect(moved(read)).toHaveLength(2);
 			expect(unspelled(read.draft.doc.fields)).toEqual(unspelled(exported));
 		}
 	});

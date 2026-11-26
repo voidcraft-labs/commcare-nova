@@ -1200,22 +1200,25 @@ function moveContainerConditions(
 			"xform:model/bind@relevant",
 			repeat.place,
 		);
-		const steps = [
-			"_attachments",
-			`${readId ?? form.xmlns}.xml`,
-			"data",
-			...repeat.node.path,
-			":bind",
-			"@relevant",
-		];
-		ctx.facts.sameStateRewrites.push({
-			entry: claim.entry,
-			path: `/${steps.map(pointerToken).join("/")}`,
-			register: "model-iteration-conditions-moved-to-rows",
-		});
 		const row = [...xform.roles].find(
 			([, role]) => role.kind === "query-row" && role.repeat === repeat,
 		)?.[0];
+		// The move takes the condition off the container's bind and writes it on the rows'.
+		for (const node of row === undefined ? [repeat.node] : [repeat.node, row]) {
+			const steps = [
+				"_attachments",
+				`${readId ?? form.xmlns}.xml`,
+				"data",
+				...node.path,
+				":bind",
+				"@relevant",
+			];
+			ctx.facts.sameStateRewrites.push({
+				entry: claim.entry,
+				path: `/${steps.map(pointerToken).join("/")}`,
+				register: "model-iteration-conditions-moved-to-rows",
+			});
+		}
 		const rowBind = row === undefined ? undefined : xform.binds.get(row);
 		if (rowBind?.logic.relevant === undefined) continue;
 		const own = ctx.pending.firstAt(container.element, "relevant");
