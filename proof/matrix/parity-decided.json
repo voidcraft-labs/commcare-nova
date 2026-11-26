@@ -470,6 +470,7 @@
 		"hq-questions/save-to-case-attachment",
 		"hq-questions/save-to-case-block-relevance",
 		"hq-questions/save-to-case-child-link",
+		"hq-questions/save-to-case-hyphenated-link-name",
 		"hq-questions/save-to-case-hyphenated-property",
 		"hq-questions/save-to-case-leaf-constraint",
 		"hq-questions/save-to-case-leaf-type",
