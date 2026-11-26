@@ -277,8 +277,12 @@ export function FieldTypePickerPopup({
 			preset !== "phone-number"
 		) {
 			const role = connectActivityRole(preset);
+			const roleName = role === "learn" ? "Learn" : "Deliver";
+			// A Web Apps-only app can't turn a role on: Connect runs on Android.
 			if (!roles.includes(role))
-				return `Turn on ${role === "learn" ? "Learn" : "Deliver"} in App settings to add this activity.`;
+				return platforms.includes("android")
+					? `You can turn on ${roleName} in App settings to add this activity.`
+					: `You can add this activity once the app runs only on Android and ${roleName} is on in App settings.`;
 		}
 		const feature = featureForFieldKind(kind);
 		const refusal =

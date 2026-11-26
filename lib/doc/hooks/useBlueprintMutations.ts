@@ -2293,7 +2293,7 @@ export function createBlueprintMutations(
 					return {
 						ok: false,
 						messages: [
-							"Choose Android only under Where workers use this app. Nova will check that your forms and media work on Android.",
+							"You can choose Android only under Where workers use this app. Nova will check that your forms and media work on Android.",
 						],
 					};
 				const roles = CONNECT_ROLES.filter((candidate) =>
