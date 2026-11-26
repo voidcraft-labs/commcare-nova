@@ -46,3 +46,25 @@ it("adopts agreed location, distinguishes unknown targets from conflict, and kee
 		convert(doc, settings([]), { ...coordinates, projectId: "other" }),
 	).toThrow("no unique standing");
 });
+
+it("converts an earlier baseline that omitted app settings", () => {
+	const baseline = { appId: "app", connectType: null };
+	const coordinate = { appId: baseline.appId, projectId: "project" };
+	const settings = (previous: boolean | null) => {
+		const targets = [{ previous }];
+		return {
+			locationCapture: {
+				decisions: [{ ...coordinate, ...locationDecision(targets), targets }],
+			},
+		};
+	};
+
+	expect(convert(baseline, settings(null), coordinate)).toBe(baseline);
+	expect(convert(baseline, settings(true), coordinate)).toEqual({
+		...baseline,
+		appSettings: { captureLocation: true },
+	});
+	expect(
+		convert(baseline, {}, { ...coordinate, purpose: "private-genesis" }),
+	).toBe(baseline);
+});

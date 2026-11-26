@@ -52,6 +52,8 @@ export interface DeploymentFoldInventory {
 	readonly digest: string;
 	readonly usable: number;
 	readonly unavailable: number;
+	readonly headDigest: string;
+	readonly statesDigest: string;
 }
 
 function converted(input: FoldSource, snapshot: unknown): BlueprintDoc {
@@ -140,24 +142,29 @@ async function visitDeploymentReferences(
 	input: FoldSource,
 	schema: "prior" | "certificates",
 	save?: (record: Certificate) => Promise<void>,
+	readOnlyHeadText?: string,
 ) {
 	const { appId, projectId, headSeq, migration } = input;
 	const root = await tx
 		.selectFrom("apps")
 		.select("mutation_seq")
 		.select(
-			sql<string>`public.nova_current_app_change_fold_snapshot(apps.id)::text`.as(
-				"snapshot",
-			),
+			(readOnlyHeadText === undefined
+				? sql<string>`public.nova_current_app_change_fold_snapshot(apps.id)::text`
+				: sql<string>`${readOnlyHeadText}::text`
+			).as("snapshot"),
 		)
 		.where("id", "=", appId)
 		.where("project_id", "=", projectId)
 		.executeTakeFirstOrThrow();
-	const storedHeadDigest = canonicalJsonDigest(
-		parsePersistedJsonText(root.snapshot, "pre-conversion app"),
-	);
+	const released = parsePersistedJsonText(root.snapshot, "pre-conversion app");
+	const storedHeadDigest = canonicalJsonDigest(released);
 	const oldHead = migration.readHead(root.snapshot);
 	if (
+		!released ||
+		typeof released !== "object" ||
+		!("appId" in released) ||
+		released.appId !== appId ||
 		safePersistedSequence(root.mutation_seq) !== headSeq ||
 		storedHeadDigest !== canonicalJsonDigest(oldHead)
 	)
@@ -316,19 +323,33 @@ async function visitDeploymentReferences(
 	}
 	return {
 		nextHead,
-		statesDigest: states.digest("hex"),
-		inventory: { usable, unavailable, digest: receipts.digest("hex") },
+		inventory: {
+			usable,
+			unavailable,
+			digest: receipts.digest("hex"),
+			headDigest: canonicalJsonDigest(toPersistableDoc(nextHead)),
+			statesDigest: states.digest("hex"),
+		},
 	};
 }
 
-/** The read-only scan and writer use the same inputs. Keep its digest with
- * the private migration manifest so a changed or missing target blocks writing. */
+/** The read-only scan and writer use the same inputs. The caller can supply
+ * the released projection read in this transaction when the scan role cannot
+ * execute the snapshot function. The writer reopens the actual SQL projection
+ * under its locks and compares the complete inventory before writing. */
 export async function scanDeploymentFold(
 	tx: Transaction<AppDatabase>,
 	input: FoldSource,
+	readOnlyHeadText?: string,
 ): Promise<DeploymentFoldInventory> {
 	return (
-		await visitDeploymentReferences(tx, input, await deploymentFoldSchema(tx))
+		await visitDeploymentReferences(
+			tx,
+			input,
+			await deploymentFoldSchema(tx),
+			undefined,
+			readOnlyHeadText,
+		)
 	).inventory;
 }
 
@@ -373,7 +394,7 @@ export async function writeDeploymentAwareFold(
 			"An admitted app import is still open. Retry the fold after it settles.",
 		);
 	const foldSeq = nextPersistedSequence(headSeq);
-	const { nextHead, inventory, statesDigest } = await visitDeploymentReferences(
+	const { nextHead, inventory } = await visitDeploymentReferences(
 		tx,
 		input,
 		"certificates",
@@ -407,13 +428,28 @@ export async function writeDeploymentAwareFold(
 				);
 		},
 	);
-	if (inventory.digest !== expected.digest)
+	if (canonicalJsonDigest(inventory) !== canonicalJsonDigest(expected))
 		throw new Error("The deployment comparisons changed after the fold scan.");
 	await writeHeadAndHorizon(toPersistableDoc(nextHead), foldSeq);
+	await verifyDeploymentFold(tx, { appId, projectId, foldSeq }, inventory);
+	return inventory;
+}
+
+/** Reopen the immutable horizon and each certified target. This also verifies
+ * a completed cutover when the operator lost its successful commit response. */
+export async function verifyDeploymentFold(
+	tx: Transaction<AppDatabase>,
+	{
+		appId,
+		projectId,
+		foldSeq,
+	}: { appId: string; projectId: string; foldSeq: number },
+	expected: Pick<DeploymentFoldInventory, "headDigest" | "statesDigest">,
+): Promise<void> {
 	const head = await loadCanonicalBlueprintAtSequence(tx, {
 		appId,
 		seq: foldSeq,
-		expectedDigest: canonicalJsonDigest(toPersistableDoc(nextHead)),
+		expectedDigest: expected.headDigest,
 	});
 	if (
 		head.projectId !== projectId ||
@@ -459,7 +495,6 @@ export async function writeDeploymentAwareFold(
 			} satisfies Certificate),
 		);
 	}
-	if (restoredStates.digest("hex") !== statesDigest)
+	if (restoredStates.digest("hex") !== expected.statesDigest)
 		throw new Error("The deployment comparisons differ after the fold.");
-	return inventory;
 }
