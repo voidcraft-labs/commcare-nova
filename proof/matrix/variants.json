@@ -52,8 +52,37 @@
 		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/1/search_config/inline_search",
-			"value": true
+			"pointer": "/modules/1/search_config",
+			"value": {
+				"search_button_label": { "en": "Search All Cases" },
+				"properties": [
+					{
+						"name": "case_name",
+						"label": { "en": "Name" },
+						"hint": {},
+						"hidden": false,
+						"allow_blank_value": false,
+						"exclude": false,
+						"required": { "test": null, "text": {}, "doc_type": "Assertion" },
+						"validations": [],
+						"itemset": { "doc_type": "Itemset" },
+						"is_group": false,
+						"doc_type": "CaseSearchProperty"
+					}
+				],
+				"auto_launch": true,
+				"default_search": false,
+				"default_properties": [],
+				"custom_sort_properties": [],
+				"additional_case_types": [],
+				"additional_registry_cases": [],
+				"title_label": {},
+				"description": {},
+				"include_all_related_cases": false,
+				"search_on_clear": false,
+				"inline_search": true,
+				"doc_type": "CaseSearch"
+			}
 		}
 	},
 	{
