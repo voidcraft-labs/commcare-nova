@@ -8,7 +8,6 @@ from proof.formplayer import apps, hq as formplayer
 from proof.formplayer.walk import questions, screen_kind
 from proof.hq.check import hq_check
 from proof.matrix.authoring import Authoring
-from proof.matrix.variants.questions import save_to_case_own_case_beside
 from proof.observe import casedata, publish
 
 BASE = "hq-case-management"
@@ -85,6 +84,8 @@ def _worker(unit, app_id, document, runner, stage, cases):
 def test_an_authored_update_precedes_case_management_for_the_same_case(
     hq, core_runner, formplayer_runner, formplayer_documents, evidence,
 ):
+    from proof.matrix.registry import named_change
+
     document = formplayer_documents[BASE]
     configuration = document.exports["minimum"].configuration.hq()
     with hq_check(configuration) as (unit, _):
@@ -96,7 +97,7 @@ def test_an_authored_update_precedes_case_management_for_the_same_case(
             ("no", [], "Original"),
         ])
         authoring = Authoring(unit, {}, base=BASE, operation=unit.operation)
-        save_to_case_own_case_beside(authoring, app_id)
+        named_change("save_to_case_own_case_beside")(authoring, app_id)
         paired = _worker(unit, app_id, document, formplayer_runner, "paired", [
             ("yes", [AUTHORED, MANAGED], MANAGED),
             ("no", [AUTHORED], AUTHORED),
