@@ -264,7 +264,7 @@ def _journey(native, runner=None):
                 "app.json", "app_file", (family / "app.json").read_bytes(), "application/json",
                 app_name="Clinic rounds",
             ))
-            assert published.status == 200 and "app_id" in published.response, published
+            assert published.status == 201 and published.response.get("success"), published
             app_id = published.response["app_id"]
             uploaded = operations.apply_media_upload(unit, app_id, _file_upload(
                 "media.zip", "bulk_upload_file", (family / "media.zip").read_bytes(), "application/zip",
