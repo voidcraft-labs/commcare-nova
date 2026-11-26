@@ -2327,6 +2327,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	heldKind: "config",
 	// A list that goes on by itself when it holds one row: a flag.
 	autoSelectSingle: "config",
+	searchResultsName: "declaration",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
