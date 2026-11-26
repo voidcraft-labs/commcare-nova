@@ -131,12 +131,11 @@ describe("case choices in the captured device world", () => {
 			members.optionsSource.sortProperty = "attendance";
 			assertAdmittedPreviewDoc(doc);
 			const snapshot = caseChoiceSnapshot();
+			const firstInOrder = new Set<string>([memberId(0), memberId(1)]);
 			const rankedRows = snapshot.rows.map((row) => ({
 				...row,
 				properties: {
-					attendance: [memberId(0), memberId(1)].includes(row.case_id)
-						? "10"
-						: "2",
+					attendance: firstInOrder.has(row.case_id) ? "10" : "2",
 				},
 			}));
 			const engine = new FormEngine(
