@@ -2576,6 +2576,32 @@ def connect_repeated_module(authoring, app_id):
 # second.
 
 
+def _grouped_delivery_source(text, group):
+    """Place the existing delivery under one data group without changing its recipient or activity ID."""
+    path = f"/data/{group}"
+    return _replaced(
+        text,
+        [
+            ("<visit_unit ", f"<{group}><visit_unit ", 1),
+            ("</visit_unit>", f"</visit_unit></{group}>", 1),
+            ("#form/visit_unit", f"#form/{group}/visit_unit", 1),
+            ("/data/visit_unit", f"{path}/visit_unit", 4),
+            ("<itext>", f'<bind vellum:nodeset="#form/{group}" nodeset="{path}" />\n<itext>', 1),
+            ("</h:body>", f'<group ref="{path}"><label>Visit details</label></group>\n</h:body>', 1),
+        ],
+    )
+
+
+def deliver_under_receiver_key(authoring, app_id):
+    """The delivery is under `task`, which HQ forwards and Connect mistakes for its own task block."""
+    _edit(authoring, app_id, "deliver-under-receiver-key", lambda text: _grouped_delivery_source(text, "task"))
+
+
+def deliver_under_capitalized_receiver_key(authoring, app_id):
+    """The same delivery under `Task`, beside Connect's exact case-sensitive receiver key."""
+    _edit(authoring, app_id, "deliver-under-capitalized-receiver-key", lambda text: _grouped_delivery_source(text, "Task"))
+
+
 def deliver_work_area_expression(authoring, app_id):
     """The deliver unit's work area id calculated from ``household_id``."""
     _change(

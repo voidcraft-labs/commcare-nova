@@ -19660,6 +19660,46 @@
 		]
 	},
 	{
+		"id": "hq-connect-deliver/deliver-under-receiver-key",
+		"base": "hq-connect-deliver",
+		"entry": "questions/connect-forwarded-ancestor-name",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Household visits",
+			"formName": "Deliver visit",
+			"path": "task"
+		},
+		"change": {
+			"op": "named",
+			"name": "deliver_under_receiver_key"
+		}
+	},
+	{
+		"id": "hq-connect-deliver/deliver-under-capitalized-receiver-key",
+		"base": "hq-connect-deliver",
+		"entry": "questions/connect-deliver-unit",
+		"change": {
+			"op": "named",
+			"name": "deliver_under_capitalized_receiver_key"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["Task", "visit_unit"]
+				],
+				"pointer": "/activity/kind",
+				"value": "delivery"
+			}
+		]
+	},
+	{
 		"id": "hq-connect-deliver/deliver-unit-and-task",
 		"base": "hq-connect-deliver",
 		"entry": "questions/connect-deliver-unit-and-task-in-one-form",
