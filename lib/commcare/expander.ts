@@ -1028,7 +1028,6 @@ function appLevelValues(
  * reaches the shell only where this list names it.
  */
 export const APP_SHELL_KEYS = [
-	"build_profiles",
 	"doc_type",
 	"application_version",
 	"name",
@@ -1038,6 +1037,7 @@ export const APP_SHELL_KEYS = [
 	"case_sharing",
 	"modules",
 	"_attachments",
+	"build_profiles",
 ] as const satisfies readonly (keyof HqApplication)[];
 
 export type AppShellKey = (typeof APP_SHELL_KEYS)[number];

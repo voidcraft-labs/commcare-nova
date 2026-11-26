@@ -5967,7 +5967,7 @@ describe("expandAppShell", () => {
 			"modules",
 			"_attachments",
 		];
-		expect(APP_SHELL_KEYS).toEqual(keys(true));
+		expect(APP_SHELL_KEYS).toEqual([...keys(true), "build_profiles"]);
 		for (const [doc, connectApp] of [
 			[registrationDoc, false],
 			[connect, true],
@@ -6001,6 +6001,34 @@ describe("expandAppShell", () => {
 				expect(Object.hasOwn(shell, absent)).toBe(false);
 			}
 		}
+	});
+
+	it("keeps the same empty shell shape with an optional named installation", () => {
+		const uuid = testUuid("first-installation");
+		const doc = {
+			...registrationDoc,
+			appSettings: {
+				...registrationDoc.appSettings,
+				installationProfiles: {
+					[uuid]: {
+						uuid,
+						name: "Training",
+						languages: ["eng"],
+						requiresPracticeWorker: false,
+					},
+				},
+			},
+		};
+		const shell = expandAppShell(doc);
+		expect(Object.keys(shell)).toEqual([
+			...Object.keys(expandAppShell(registrationDoc)),
+			"build_profiles",
+		]);
+		expect(shell.build_profiles).toEqual({
+			[uuid.replaceAll("-", "")]: { name: "Training", langs: ["en"] },
+		});
+		expect(shell.modules).toEqual([]);
+		expect(shell._attachments).toEqual({});
 	});
 
 	it("writes the app-level values the update a first publish sends writes", () => {
