@@ -111,6 +111,11 @@ export interface ReaderInput {
 	 *  each property, which every property the reading holds takes unless a question that writes
 	 *  it gives values that type cannot hold. Absent for an app Nova has never held. */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** The Nova id of a positioned operation, whose HQ wrapper is named by the field. */
+	readonly knownPositionedCaseOperationIds?: ReadonlyMap<
+		Uuid,
+		ReadonlyMap<Uuid, string>
+	>;
 	/** The opening assignments Nova already holds and the baseline's raw loads
 	 *  they came from, so a load an earlier read folded into a field default
 	 *  keeps that representation while its source and stages are unchanged

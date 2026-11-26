@@ -31,6 +31,7 @@ import {
 	knownCaseTypesOf,
 	knownFormOpenings,
 	knownLanguageCodesOf,
+	knownPositionedCaseOperationIdsOf,
 	type ReadDraft,
 	type ReaderInput,
 	type ReaderMediaIndex,
@@ -369,6 +370,9 @@ export function* makeHqChangeReadingsSteps(
 		appStrings: readingAppStrings(lookup),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
+		knownPositionedCaseOperationIds: knownPositionedCaseOperationIdsOf(
+			reference.doc,
+		),
 		knownFormEntryChoices: knownFormEntryChoicesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
 		knownProjectSearchNames: reference.doc.appSettings.projectSearches,

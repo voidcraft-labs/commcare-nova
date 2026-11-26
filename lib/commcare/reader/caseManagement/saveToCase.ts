@@ -2839,23 +2839,24 @@ export function readSaveToCaseBlocks(
 	// Mint, register and record each proposal.
 	// Free among the form's ids: its root questions' and the operations its
 	// actions already gave.
-	const takenIds = new Set<string>(questionIds);
-	for (const one of basicCaseReading(form)?.operations ?? [])
-		takenIds.add(one.id);
-	for (const one of advancedCaseReading(form)?.operations ?? [])
-		takenIds.add(one.id);
+	const knownIds = ctx.input.knownPositionedCaseOperationIds?.get(form.uuid);
+	const operationIds = new Set(
+		[
+			...(basicCaseReading(form)?.operations ?? []),
+			...(advancedCaseReading(form)?.operations ?? []),
+		].map((operation) => operation.id),
+	);
+	const takenIds = new Set([
+		...questionIds,
+		...operationIds,
+		...(knownIds?.values() ?? []),
+	]);
 	const counts = new Map<string, number>();
 	for (const { read } of proposed) {
 		const shared = read === sharedCandidate?.read;
 		const own =
 			read === ownCandidate?.read || shared || read === registrationCandidate;
 		const action: ProposedBlock["action"] = own ? "own" : read.kind;
-		const name = carriedName(xform, read, guards, shared);
-		const id =
-			name !== undefined && !takenIds.has(name)
-				? name
-				: ownCaseOperationId(read.caseType, takenIds);
-		takenIds.add(id);
 		const repeatPath =
 			read.block.repeat === null ? [] : fieldIdsOf(read.block.repeat);
 		const scopeLength =
@@ -2879,6 +2880,19 @@ export function readSaveToCaseBlocks(
 			MUG,
 		);
 		if (uuid === undefined) continue;
+		const knownId =
+			read.block.authoredScopeLength === undefined
+				? undefined
+				: knownIds?.get(uuid);
+		const wireName = carriedName(xform, read, guards, shared);
+		const id =
+			knownId !== undefined && !operationIds.has(knownId)
+				? knownId
+				: wireName !== undefined && !takenIds.has(wireName)
+					? wireName
+					: ownCaseOperationId(read.caseType, takenIds);
+		operationIds.add(id);
+		takenIds.add(id);
 		// The own arm's rows of an answer as it is lead with its presence.
 		const writes = own
 			? read.writes.map(({ answerAsIs, condition, ...row }) =>

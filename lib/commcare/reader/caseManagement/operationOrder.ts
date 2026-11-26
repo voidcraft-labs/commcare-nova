@@ -50,6 +50,27 @@ export const ORDER_CLAIMS = defineClaims("caseManagement.operationOrder", {
 	),
 });
 
+/** HQ's wrapper is named by the field. Recover the operation's Nova id for
+ * the already matched operation of the same form. */
+export function knownPositionedCaseOperationIdsOf(
+	doc: BlueprintDoc,
+): ReadonlyMap<Uuid, ReadonlyMap<Uuid, string>> {
+	const positioned = new Set(
+		Object.values(doc.fields).flatMap((field) =>
+			field.kind === "case_change" ? [field.operationUuid] : [],
+		),
+	);
+	const ids = new Map<Uuid, ReadonlyMap<Uuid, string>>();
+	for (const form of Object.values(doc.forms)) {
+		const operations = new Map<Uuid, string>();
+		for (const operation of form.caseOperations ?? [])
+			if (positioned.has(operation.uuid))
+				operations.set(operation.uuid, operation.id);
+		if (operations.size) ids.set(form.uuid, operations);
+	}
+	return ids;
+}
+
 /** Whether `one` is a create keyed by an answer, which the gate's wire-order
  *  rule holds before every change that is no create. */
 function keyedCreate(one: CaseOperation): boolean {

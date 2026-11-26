@@ -379,7 +379,9 @@ for an app Nova already holds, `knownCaseTypes`, the case type each index of a
 type reaches, consulted only where the app itself fixes none (no child link,
 no parent selection, no open action's index), and the type its catalog
 declares for each property, which no print carries and every read of the
-property lowers by, and `knownLanguageCodes`, the
+property lowers by. For a positioned case change, the field's name is the
+submitted wrapper. The matched operation's Nova id comes from
+`knownPositionedCaseOperationIds`. The reader also takes `knownLanguageCodes`, the
 language each wire code it stored names, which a re-read takes before
 `languageIdentityForHqCode`. The app's first language (HQ's `langs[0]`) is its default. The
 reading's source language, whose text the document's own slots hold, is the
