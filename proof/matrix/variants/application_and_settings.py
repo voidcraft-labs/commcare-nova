@@ -135,57 +135,6 @@ def translation_overrides_a_lookup_heading(authoring, app_id):
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Match score"
 
 
-def upload_commcare_translation(state, app_id, key, value, *, language="en"):
-    """Edit HQ's own Bulk CommCare Translations workbook and upload it through HQ's save view."""
-    import io
-
-    from django.core.files.uploadedfile import SimpleUploadedFile
-    from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
-    from django.urls import resolve, reverse
-    from openpyxl import load_workbook
-
-    from proof.hq import operations, requests
-
-    def downloadable():
-        path = reverse("download_bulk_ui_translations", args=[state.domain, app_id])
-        view = resolve(path)
-        with requests.held_get(state, path) as request:
-            response = view.func(request, *view.args, **view.kwargs)
-            assert response.status_code == 200, response.status_code
-            content = b"".join(response.streaming_content) if response.streaming else response.content
-        return load_workbook(io.BytesIO(content))
-
-    download = downloadable()
-    sheet = download["translations"]
-    languages = [cell.value for cell in sheet[1][1:]]
-    current = operations.held_app(state, app_id).translations
-    expected = {code: dict(values) for code, values in current.items() if values}
-    expected.setdefault(language, {})[key] = value
-    # Keep the workbook and version metadata HQ downloaded. Upload only the
-    # edited and explicitly saved rows so stock defaults do not become edits.
-    sheet.delete_rows(2, sheet.max_row - 1)
-    for prop in sorted({prop for values in expected.values() for prop in values}):
-        sheet.append([prop, *(expected.get(code, {}).get(prop) for code in languages)])
-    output = io.BytesIO()
-    download.save(output)
-    path = reverse("upload_bulk_ui_translations", args=[state.domain, app_id])
-    body = encode_multipart(
-        BOUNDARY, {"bulk_upload_file": SimpleUploadedFile("translations.xlsx", output.getvalue())},
-    )
-    view = resolve(path)
-    request = requests.raw_post(state, path, body, MULTIPART_CONTENT)
-    response = view.func(request, *view.args, **view.kwargs)
-    assert response.status_code == 302, response.status_code
-    messages = requests.messages(request)
-    actual = operations.held_app(state, app_id).translations
-    assert {code: dict(values) for code, values in actual.items() if values} == expected, messages
-    after = downloadable()["translations"]
-    column = languages.index(language) + 1
-    [recorded] = [row[column].value for row in after.iter_rows() if row[0].value == key]
-    assert recorded == value, messages
-    return messages
-
-
 def translation_overrides_a_search_group_heading(authoring, app_id):
     """A grouped Search heading has native generated wording of its own."""
     from lxml import etree
@@ -201,7 +150,7 @@ def translation_overrides_a_search_group_heading(authoring, app_id):
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Local details"
         assert etree.fromstring(app.create_suite()).xpath(f"//group/display/text/locale[@id='{key}']")
     with authoring.step("variant:upload-search-group-heading"):
-        upload_commcare_translation(authoring.state, app_id, key, "Find a client")
+        ops.upload_commcare_translation(authoring.state, app_id, key, "Find a client")
     with authoring.step("variant:overridden-search-group-heading"):
         app = operations.held_app(authoring.state, app_id)
         assert app.get_module(0).search_config.properties[0].label["en"] == "Local details"

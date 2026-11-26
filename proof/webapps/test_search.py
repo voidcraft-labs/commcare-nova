@@ -744,7 +744,7 @@ def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     from proof.hq import operations
-    from proof.matrix.variants.application_and_settings import upload_commcare_translation
+    from proof.matrix.ops import upload_commcare_translation
 
     document = webapps_documents["search-grouped-prompts"]
     key = "search_property.m0.group_header_0"
