@@ -132,6 +132,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace, field
 from pathlib import Path
 
+from proof.checks.case_property_names import searchable_order_key
 from proof.checks.differences import KINDS, Difference, artifact_reader, served_artifact
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
@@ -156,6 +157,7 @@ LEGACY_SEARCH_GROUP_WORDING = "legacy-search-group-wording-rekeyed"
 SEARCH_GROUP_WORDING_PATH = "/translations/*/search_group_heading"
 LEGACY_SEARCH_GROUP_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 POSITIONAL_SEARCH_GROUP_KEY = re.compile(r"group_header_([0-9]+)")
+SEARCH_ORDER_SUFFIX = "search-order-unused-suffix-removed"
 # The kinds of place (``lib/deployment/reading/firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS``).
 APP_WIDE = "app-wide"
 PLACE_KINDS = frozenset({APP_WIDE, "app", "menu", "form", "form-node", "form-part", "case"})
@@ -223,6 +225,8 @@ class Change:
             return difference.at in OWNED_PROFILE_SETTINGS and difference.kind == "added" and difference.after == "no"
         if self.change == "search-order-direction-signs-respelled":
             return search_order_signs_respelled(difference)
+        if self.change == SEARCH_ORDER_SUFFIX:
+            return search_order_unused_suffix_removed(difference)
         if self.change == "search-value-guards" and difference.kind == "changed":
             if suite_validation_test_change(difference):
                 return redundant_search_quote_guard(difference.before, difference.after) is not None
@@ -248,21 +252,54 @@ class Change:
         return True
 
 
-def search_order_signs_respelled(difference):
-    """The same ordered terms, with only redundant direction signs removed."""
+def _string_literal(value):
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if len(value) >= 2 and value[0] in ("'", '"') and value[0] == value[-1] and value[0] not in value[1:-1]:
+        return value[1:-1]
+    return None
+
+
+def _search_order_texts(difference):
     before, after = difference.before, difference.after
     if difference.kind != "changed" or not isinstance(before, str) or not isinstance(after, str):
-        return False
+        return None
     if difference.check in ("source", "proof2"):
-        def literal(value):
-            value = value.strip()
-            if len(value) >= 2 and value[0] in ("'", '"') and value[0] == value[-1] and value[0] not in value[1:-1]:
-                return value[1:-1]
-        before, after = literal(before), literal(after)
+        before, after = _string_literal(before), _string_literal(after)
         if before is None or after is None:
-            return False
+            return None
+    return before, after
+
+
+def search_order_signs_respelled(difference):
+    """The same ordered terms, with only redundant direction signs removed."""
+    values = _search_order_texts(difference)
+    if not values:
+        return False
+    before, after = values
     canonical, repetitions = re.subn(r"(^|,)([+-])[+-]+", r"\1\2", before)
     return repetitions != 0 and canonical == after
+
+
+def search_order_unused_suffix_removed(difference):
+    """Only alter a suffix after a supported explicit comparison, in place."""
+    values = _search_order_texts(difference)
+    if not values:
+        return False
+    before, after = values
+    terms = []
+    for term in before.split(","):
+        fields = term.split(":")
+        key = fields[0].lstrip("+-")
+        if len(fields[0]) - len(key) > 1 or not searchable_order_key(key):
+            return False
+        if len(fields) > 1 and fields[1] not in ("exact", "numeric", "date"):
+            return False
+        if len(fields) > 3 or (len(fields) == 3 and not fields[2]):
+            return False
+        terms.append(":".join(fields[:2]))
+    return before != after and after == ",".join(terms)
 
 
 def suite_validation_test_change(difference):
@@ -458,6 +495,8 @@ class Sites:
       submitted instance, or question binding on the side that produced it;
     - ``media``: each media resource of a built media suite by the media path it installs (``jr://file/...``);
     - ``search_groups``: one pair of legacy/current locale keys and its witnessed languages by actual source menu/row.
+    - ``search_order_rows``: each menu's ordered sort occurrence in A by the original literal and the position
+      in its real stored default-properties array.
     """
 
     runs: Mapping = field(default_factory=dict)
@@ -468,6 +507,7 @@ class Sites:
     media: Mapping = field(default_factory=dict)
     served: Mapping = field(default_factory=dict)
     search_groups: Mapping = field(default_factory=dict)
+    search_order_rows: Mapping = field(default_factory=dict)
 
     def as_json(self):
         """The sites as the ``changes`` check's evidence writes them, each map a list of ``[key, value]``
@@ -490,8 +530,34 @@ class Sites:
         return cls(**{name: {read(key): read(held) for key, held in value.get(name) or ()} for name in SITE_MAPS})
 
 
-SITE_MAPS = ("runs", "steps", "choices", "cases", "builds", "media", "served", "search_groups")
+SITE_MAPS = ("runs", "steps", "choices", "cases", "builds", "media", "served", "search_groups", "search_order_rows")
 NO_SITES = Sites()
+
+
+def has_search_order_suffix(document):
+    """Whether the proof needs source positions for this document's sort changes."""
+    return (SEARCH_ORDER_SUFFIX in getattr(document, "next_publish", ())
+            or (getattr(document, "hq_authored", False)
+                and SEARCH_ORDER_SUFFIX in dict(document.first_publish_places)))
+
+
+def search_order_sites(app):
+    """Attribute suite and request positions to the actual default rows of the baseline app."""
+    found = {}
+    for menu, module in enumerate(app.get("modules") or ()):
+        settings = module.get("search_config") or {}
+        occurrence = 0
+        for index, row in enumerate(settings.get("default_properties") or ()):
+            if row.get("property") != "commcare_sort":
+                continue
+            value = _string_literal(row.get("defaultValue"))
+            # A computed row may send a different number of values; only
+            # the literal rows before it have a known request position.
+            if value is None:
+                break
+            found[(str(menu), occurrence)] = (str(index), value)
+            occurrence += 1
+    return Sites(search_order_rows=found)
 
 
 def merged_sites(*all_sites: Sites) -> Sites:
@@ -1083,6 +1149,37 @@ def locations(difference, sites: Sites = NO_SITES) -> tuple[tuple[str, ...], ...
     return (location,)
 
 
+def _search_order_location(difference, sites):
+    """Resolve a changed sort value to one exact menu and raw default row in A."""
+    place = locate(difference, sites)
+    if difference.check == "source":
+        if (len(place) == 6 and place[0] == "menu" and place[1].isdigit()
+                and place[2:4] == ("search_config", "default_properties")
+                and place[4].isdigit() and place[5] == "defaultValue"):
+            return place
+        return NOWHERE
+    if place[:1] != ("menu",) or place[2:3] != ("search_config",):
+        return NOWHERE
+    if difference.check == "proof2":
+        steps = _xml_steps(difference.at)
+        match = re.fullmatch(r"data\[@key=commcare_sort\]\[([1-9][0-9]*)\]", steps[-2])
+        if match is None or steps[-1] != "@ref":
+            return NOWHERE
+        occurrence = int(match[1]) - 1
+    elif difference.check == "proof3":
+        steps = unescaped(difference.at)
+        if steps[-3:-1] != ["params", "commcare_sort"] or not steps[-1].isdigit():
+            return NOWHERE
+        occurrence = int(steps[-1])
+    else:
+        return NOWHERE
+    row = _site(sites.search_order_rows, (place[1], occurrence))
+    before, _ = _search_order_texts(difference)
+    if not row or row[1] != before:
+        return NOWHERE
+    return ("menu", place[1], "search_config", "default_properties", row[0], "defaultValue")
+
+
 def _form_descriptor(difference) -> bool:
     """Whether ``difference`` is proof 2's at a suite's XForm resource's ``descriptor``."""
     if difference.check != "proof2" or difference.artifact.rpartition("/")[2] != "suite.xml":
@@ -1262,7 +1359,8 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
     """The changes that apply on ``document``, each with the places it stands at: on a document made in HQ, those
     its reading says the first publish makes (``corpus.Document.first_publish_places``), each held to its entry's
     kinds; on a corpus document whose saves in CommCare HQ are brought in, the changes of the next publish Nova's
-    review of them lists (``corpus.Document.next_publish``). Unshown form media, legacy related case text and legacy Search wording use
+    review of them lists (``corpus.Document.next_publish``). Unshown form media, legacy related case text,
+    legacy Search wording and removed Search order suffixes use
     places from the current reading. The other next-publish changes stand everywhere. None applies on any other document or control."""
     if getattr(document, "hq_authored", False):
         listed = dict(document.first_publish_places)
@@ -1298,6 +1396,7 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
         UNSHOWN_MEDIA: "unshown_media_places",
         LEGACY_RELATED_CASE_TEXT: "legacy_related_case_text_places",
         LEGACY_SEARCH_GROUP_WORDING: "legacy_search_group_wording_places",
+        SEARCH_ORDER_SUFFIX: "search_order_suffix_places",
     }
     return {
         change_id: tuple(getattr(document, exact_places[change_id])) if change_id in exact_places else EVERYWHERE
@@ -1393,6 +1492,9 @@ def holders(
                 if difference.check == "source" else search_group_wording.holds(difference, where, siblings, sites)
             )
             score = 1 + len(unescaped(difference.at)) if matches else None
+        elif change.change == SEARCH_ORDER_SUFFIX:
+            owner = _search_order_location(difference, sites)
+            score = len(owner) if owner and any(tuple(unescaped(place)) == owner for place in where) else None
         elif change.change == LEGACY_RELATED_CASE_TEXT:
             owner = _legacy_related_case_text_location(difference)
             score = (
@@ -1754,7 +1856,7 @@ def _held_file(output: Path, document: str, name: str):
 def _placed_in(output: Path, document: str) -> dict[str, tuple[str, ...]]:
     """The entries that apply on the document as the run's output holds it, each with its places (``placed``): the
     changes its ``first-publish.json`` lists, where it is made in HQ, and the next-publish ids its
-    ``hq-side.json`` lists when it brings in saves. This legacy layout has no places for unshown media."""
+    ``hq-side.json`` lists when it brings in saves. This legacy layout has no exact next-publish places."""
     applying: dict[str, tuple[str, ...]] = {}
     first = _held_file(output, document, "first-publish.json")
     if isinstance(first, dict):
@@ -1763,9 +1865,9 @@ def _placed_in(output: Path, document: str) -> dict[str, tuple[str, ...]]:
     saves = _held_file(output, document, "hq-side.json")
     if isinstance(saves, dict) and saves.get("republish") == "brings-in":
         for change_id in saves.get("publishChanges") or ():
-            # Older replay evidence without exact places cannot authorize removing any source's media.
+            # Older replay evidence does not carry these exact places.
             applying[change_id] = (
-                () if change_id in (UNSHOWN_MEDIA, LEGACY_SEARCH_GROUP_WORDING) else EVERYWHERE
+                () if change_id in (UNSHOWN_MEDIA, LEGACY_SEARCH_GROUP_WORDING, SEARCH_ORDER_SUFFIX) else EVERYWHERE
             )
     return applying
 

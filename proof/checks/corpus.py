@@ -462,7 +462,7 @@ BROUGHT_IN_KEYS = frozenset(
 )
 BROUGHT_IN_READING = "reading"
 BROUGHT_IN_EXACT_PLACES = (
-    "unshownMediaPlaces", "legacyRelatedCaseTextPlaces", "legacySearchGroupWordingPlaces",
+    "unshownMediaPlaces", "legacyRelatedCaseTextPlaces", "legacySearchGroupWordingPlaces", "searchOrderSuffixPlaces",
 )
 
 
@@ -488,6 +488,7 @@ class BroughtIn:
     unshown_media_places: tuple[str, ...] = ()
     legacy_related_case_text_places: tuple[str, ...] = ()
     legacy_search_group_wording_places: tuple[str, ...] = ()
+    search_order_suffix_places: tuple[str, ...] = ()
 
     @classmethod
     def from_json(cls, value, where):
@@ -536,6 +537,7 @@ class BroughtIn:
             unshown_media_places=exact.get("unshownMediaPlaces", ()),
             legacy_related_case_text_places=exact.get("legacyRelatedCaseTextPlaces", ()),
             legacy_search_group_wording_places=exact.get("legacySearchGroupWordingPlaces", ()),
+            search_order_suffix_places=exact.get("searchOrderSuffixPlaces", ()),
         )
 
     @property
@@ -1188,6 +1190,11 @@ class Document:
     def legacy_search_group_wording_places(self):
         """The current reading's exact locale keys and owning Search rows."""
         return self._next_publish_exact_places("legacy_search_group_wording_places")
+
+    @property
+    def search_order_suffix_places(self):
+        """The current review's exact rows for changes to a literal Search sort."""
+        return self._next_publish_exact_places("search_order_suffix_places")
 
     def _next_publish_exact_places(self, key):
         records = (export.brought_in for export in self.exports.values())

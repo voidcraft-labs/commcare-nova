@@ -228,7 +228,7 @@
 		],
 		"valueClass": "literal-server-sort",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: an order among the search filters (`caseListConfig.searchFilters[]` of kind `order`), sent in the filters' order and before the dedicated order (`suite_xml/post_process/remote_requests.py::_remote_request_query_datums`; `case_search/models.py::_parse_commcare_sort_properties` reads every `commcare_sort` value in turn), with a comparison or direction the text leaves to HQ's defaults kept implicit. When the text starts an order term with multiple direction signs, HQ uses the first sign and Nova publishes that sign alone. It needs no CASE_SEARCH_ADVANCED, unlike `custom_sort_properties`",
+		"dispositionCell": "**HELD**: an order among the search filters (`caseListConfig.searchFilters[]` of kind `order`), sent in the filters' order and before the dedicated order (`suite_xml/post_process/remote_requests.py::_remote_request_query_datums`; `case_search/models.py::_parse_commcare_sort_properties` reads every `commcare_sort` value in turn), with a comparison or direction the text leaves to HQ's defaults kept implicit. When the text starts an order term with multiple direction signs, HQ uses the first sign and Nova publishes that sign alone. When a term has a single nonempty suffix after an explicit supported comparison, Nova removes that suffix as HQ's receiver ignores it. It needs no CASE_SEARCH_ADVANCED, unlike `custom_sort_properties`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
