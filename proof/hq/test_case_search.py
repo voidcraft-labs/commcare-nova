@@ -499,6 +499,7 @@ def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
     import hashlib
 
     from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.app_manager.models import DefaultCaseSearchProperty
     from corehq.apps.hqcase.utils import submit_case_blocks
 
     from proof.hq import redis as hq_redis
@@ -532,10 +533,23 @@ def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
             "ten", "two-late", "two-early", "none",
         ]
         # HQ strips both leading signs before looking up the property, while
-        # keeping the first sign's direction. This legacy request runs, even
-        # though Nova only reads a literal order with one direction sign.
-        legacy = ("commcare_sort", "++priority:exact,-visit:date")
-        assert ordered(legacy, exclude) == ["ten", "two-late", "two-early", "none"]
+        # keeping the first sign's direction, even when the following sign
+        # requests the opposite order.
+        def build_order(text):
+            value = f"'{text}'"
+            held = DefaultCaseSearchProperty(property="commcare_sort", defaultValue=value)
+            offered, queries = _built_queries(state.domain, [held])
+            assert offered and len(queries) == 1
+            refs = [datum.get("ref") for datum in queries[0].iter("data") if datum.get("key") == "commcare_sort"]
+            assert refs == [value]
+            return ("commcare_sort", refs[0][1:-1])
+
+        for spelling, canonical in [
+            ("++priority:exact,-visit:date", "+priority:exact,-visit:date"),
+            ("+-priority:exact,-visit:date", "+priority:exact,-visit:date"),
+            ("-+priority:exact,-visit:date", "-priority:exact,-visit:date"),
+        ]:
+            assert ordered(build_order(spelling), exclude) == ordered(build_order(canonical), exclude)
         assert set(ordered(first, second)) == {case[0] for case in cases}
 
 

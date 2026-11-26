@@ -29,6 +29,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"case-settings-respelled",
 	"question-display-respelled",
 	"search-filter-rows-recut",
+	"search-order-direction-signs-respelled",
 	"sort-rule-kept-as-hidden-column",
 	"legacy-related-case-text-rekeyed",
 	"list-settings-respelled",
@@ -130,6 +131,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"case-settings-respelled": false,
 	"question-display-respelled": false,
 	"search-filter-rows-recut": false,
+	"search-order-direction-signs-respelled": false,
 	"sort-rule-kept-as-hidden-column": false,
 	"legacy-related-case-text-rekeyed": false,
 	"list-settings-respelled": false,
@@ -178,6 +180,7 @@ export const ANSWERED_FIRST_PUBLISH_CHANGES: readonly CurrentFirstPublishChangeI
 /** Ids another entry's sentence says to a person. */
 export const FIRST_PUBLISH_SAID_BY = {
 	"search-filter-rows-recut": "forms-and-settings-rewritten",
+	"search-order-direction-signs-respelled": "forms-and-settings-rewritten",
 	"list-settings-respelled": "forms-and-settings-rewritten",
 	"question-display-respelled": "forms-and-settings-rewritten",
 	"names-respelled": "forms-and-settings-rewritten",

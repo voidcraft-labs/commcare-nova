@@ -38,6 +38,7 @@ import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import {
 	readDedicatedOrder,
 	readRequestOrderText,
+	requestOrderText,
 	requestOrderTextRefusal,
 } from "../../suite/case-search/requestOrder";
 import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
@@ -478,6 +479,13 @@ function readDefaultFilters(
 					}
 					row.take("property", C.defaultOrder, String).value;
 					row.take("defaultValue", C.defaultOrderValue, String).value;
+					if (text !== requestOrderText(order))
+						sameState(
+							ctx,
+							C.defaultOrderValue.entry,
+							`${row.pointer}/defaultValue`,
+							"search-order-direction-signs-respelled",
+						);
 					filters.push({ uuid, kind: "order", order });
 					return;
 				}

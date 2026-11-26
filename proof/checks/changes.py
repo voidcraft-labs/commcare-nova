@@ -217,6 +217,8 @@ class Change:
             and any(covers(path, difference.path) for path in OWNED_PROFILE_SETTINGS)
         ):
             return difference.at in OWNED_PROFILE_SETTINGS and difference.kind == "added" and difference.after == "no"
+        if self.change == "search-order-direction-signs-respelled":
+            return search_order_signs_respelled(difference)
         # Formplayer's Java String.trim removes boundary U+0000 through U+0020 (caseScalarTextValueCalculation).
         if (
             self.change == "case-names-checked"
@@ -226,6 +228,23 @@ class Change:
         ):
             return trimmed_case_name(difference.before, difference.after)
         return True
+
+
+def search_order_signs_respelled(difference):
+    """The same ordered terms, with only redundant direction signs removed."""
+    before, after = difference.before, difference.after
+    if difference.kind != "changed" or not isinstance(before, str) or not isinstance(after, str):
+        return False
+    if difference.check in ("source", "proof2"):
+        def literal(value):
+            value = value.strip()
+            if len(value) >= 2 and value[0] in ("'", '"') and value[0] == value[-1] and value[0] not in value[1:-1]:
+                return value[1:-1]
+        before, after = literal(before), literal(after)
+        if before is None or after is None:
+            return False
+    canonical, repetitions = re.subn(r"(^|,)([+-])[+-]+", r"\1\2", before)
+    return repetitions != 0 and canonical == after
 
 
 def trimmed_case_name(before, after):

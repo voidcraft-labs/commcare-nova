@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { requestOrderText } from "@/lib/commcare/suite/case-search/requestOrder";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { effectiveCaseTypes } from "@/lib/domain";
@@ -219,6 +220,82 @@ it("keeps a default filter's order text as it arrived, defaults left implicit", 
 		},
 	]);
 });
+
+it("reads repeated direction signs by their first sign and records the exact source rewrite", async () => {
+	const original = "'++notes:numeric,-+-phone:exact,name'";
+	const reading = await readLists(patients([], { search: {} }), {
+		edit: (app) => {
+			app.modules[0].search_config.default_properties = [
+				{ property: "commcare_sort", defaultValue: original },
+			];
+		},
+	});
+	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+	const filter = listOf(reading).searchFilters?.[0];
+	expect(filter).toMatchObject({ kind: "order" });
+	if (filter === undefined || !("order" in filter))
+		throw new Error("Missing Search order");
+	expect(requestOrderText(filter.order)).toBe(
+		"+notes:numeric,-phone:exact,name",
+	);
+	expect(filter.order.map((term) => term.direction)).toEqual([
+		"ascending",
+		"descending",
+		"ascending",
+	]);
+	expect(reading.ctx.facts.sameStateRewrites).toContainEqual(
+		expect.objectContaining({
+			path: "/modules/0/search_config/default_properties/0/defaultValue",
+			register: "search-order-direction-signs-respelled",
+		}),
+	);
+	const canonical = await readLists(
+		patients([], {
+			search: {},
+			list: { searchFilters: [filter] },
+		}),
+	);
+	expect(closedCodes(canonical)).toEqual([]);
+	expect(canonical.app.modules[0].search_config.default_properties).toEqual([
+		{
+			property: "commcare_sort",
+			defaultValue: "'+notes:numeric,-phone:exact,name'",
+		},
+	]);
+	expect(
+		canonical.ctx.facts.sameStateRewrites.map((row) => row.register),
+	).not.toContain("search-order-direction-signs-respelled");
+});
+
+it.each([
+	[
+		"'++priority:unknown'",
+		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+	],
+	[
+		"'--status:exact'",
+		"case-search/a-server-order-naming-a-property-nova-reserves",
+	],
+	[
+		"'+-location_id:exact'",
+		"case-search/a-server-order-naming-a-property-only-devices-hold",
+	],
+])(
+	"keeps the refusal for %s even with repeated signs",
+	async (defaultValue, finding) => {
+		const reading = await readLists(patients([], { search: {} }), {
+			edit: (app) => {
+				app.modules[0].search_config.default_properties = [
+					{ property: "commcare_sort", defaultValue },
+				];
+			},
+		});
+		expect(closedCodes(reading)).toEqual([finding]);
+		expect(
+			reading.ctx.facts.sameStateRewrites.map((row) => row.register),
+		).not.toContain("search-order-direction-signs-respelled");
+	},
+);
 
 // HQ reads `@case_type` as the record's own type (`requestOrder.ts`'s
 // attribute keys), so an order on it names no property the catalog gains.
