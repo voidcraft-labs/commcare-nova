@@ -101,8 +101,10 @@ export function ownWordingEntryFor(
 	fallback: LocalizedValue,
 	target: LocalizedValue,
 	sourceLanguage: LanguageTag,
+	options?: { readonly keepBlank: boolean },
 ): TranslationEntry | undefined {
-	if (isBlank(target) && !isBlank(fallback)) return undefined;
+	if (!options?.keepBlank && isBlank(target) && !isBlank(fallback))
+		return undefined;
 	return {
 		value: target,
 		sourceFingerprint: translationSourceFingerprint(kind, fallback),
