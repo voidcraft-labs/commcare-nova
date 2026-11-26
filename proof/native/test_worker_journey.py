@@ -171,7 +171,8 @@ def _read_from_hq(unit, app_id, credential, label, english, french, previous=Non
     assert all(item["named"] for item in answer["held"]), answer
     held = {item["pointer"]: item["found"] for item in answer["held"]}
     assert {path: held[path] for path in expected} == expected, answer
-    return held[""], held[options_slot], answer.get("review")
+    persisted = {key: value for key, value in held[""].items() if key not in {"fieldParent", "refIndex"}}
+    return persisted, held[options_slot], answer.get("review")
 
 
 def _edit_and_read_form_translation(unit, app_id, paths, credential, evidence):
