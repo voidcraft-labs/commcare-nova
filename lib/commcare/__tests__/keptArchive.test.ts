@@ -301,7 +301,7 @@ describe("a CCZ made for a project space that keeps values", () => {
 			};
 			for (const current of [connected, disabled, single]) {
 				const update = expandDoc(current);
-				expect(update.auto_gps_capture).toBe(current.connectType !== null);
+				expect(update.auto_gps_capture).toBe(current.connectRoles.length > 0);
 				const archive = compiled(current, facts, true);
 				const forms = [...archive.keys()].filter(
 					(path) => path.startsWith("modules-") && path.endsWith(".xml"),
@@ -318,7 +318,7 @@ describe("a CCZ made for a project space that keeps values", () => {
 					const independentlyChosen =
 						current === single && path === "modules-0/forms-0.xml";
 					expect(pollsLocation).toBe(
-						current.connectType !== null || independentlyChosen,
+						current.connectRoles.length > 0 || independentlyChosen,
 					);
 					if (path === "modules-0/forms-0.xml")
 						expect(update.modules[0].forms[0].auto_gps_capture).toBe(

@@ -43,6 +43,12 @@ existing slot passes that slot's stored tree as `current`. An absolute path name
 `/data`, names none, and the parser refuses it (`form-root`), since HQ's form
 builder shows it as an unknown question.
 
+A stored choice value may contain both XPath delimiters. Its projection joins
+quoted pieces with `concat`. Comparisons with a static select, membership tests
+and select starting answers bind a constant concatenation to choice identities
+only when the exact text names those choices. Other calculations keep their
+operands.
+
 A field, choice, worker property, text unit, lookup table or column is saved by
 identity. Case reads retain their case type and property; selected-record reads
 and query-row reads stay distinct. `referenceBindings.ts` also binds prose

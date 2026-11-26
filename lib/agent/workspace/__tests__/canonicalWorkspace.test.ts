@@ -17,7 +17,7 @@ import {
 	FOLLOWUP,
 	holdVisits,
 	moveFixture,
-	PATIENTS_NAMED,
+	PATIENTS_BY_ENTERED_ID,
 	U,
 } from "@/lib/doc/__tests__/placementMoveFixture";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
@@ -371,7 +371,7 @@ describe("CanonicalMutationWorkspace — identity moves", () => {
 		kind: "updateField",
 		uuid: VISITS,
 		targetKind: "repeat",
-		patch: { data_source: { ids_query: PATIENTS_NAMED } },
+		patch: { data_source: { ids_query: PATIENTS_BY_ENTERED_ID } },
 	} as Mutation;
 	const published = () => holdVisits(moveFixture(), "model-iteration");
 	const mutate = (mutations: readonly Mutation[]) => ({

@@ -21,6 +21,19 @@ afterAll(() => {
 	else process.env.TZ = originalTimeZone;
 });
 
+it("preserves 64-bit opening answers and refuses a nonblank yes or no assignment", () => {
+	expect(castAnswerText("long", "+09223372036854775807", "UTC")).toEqual({
+		ok: true,
+		text: "9223372036854775807",
+	});
+	expect(castAnswerText("long", "9223372036854775808", "UTC")).toEqual({
+		ok: false,
+	});
+	expect(castAnswerText("boolean", "1", "UTC")).toEqual({ ok: false });
+	expect(castAnswerText("boolean", "0", "UTC")).toEqual({ ok: false });
+	expect(setvalueText("", "boolean")).toBeUndefined();
+});
+
 describe("castAnswerText", () => {
 	it.each(ANSWER_CASTS)("casts $type $text as Core does", (row) => {
 		const cast = castAnswerText(row.type, row.text, ANSWER_CAST_ZONE);

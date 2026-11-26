@@ -78,6 +78,42 @@ describe("form sections", () => {
 		).toEqual([]);
 	});
 
+	it("accepts the released eight-page learning form with a trailing activity", () => {
+		const pages = Array.from({ length: 8 }, (_, i) =>
+			section(`page_${i + 1}`, [text(`answer_${i + 1}`)]),
+		);
+		const doc = buildDoc({
+			connectRoles: ["learn"],
+			modules: [
+				{
+					name: "Lessons",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							fields: [
+								...pages,
+								f({
+									kind: "connect_activity",
+									id: "first_visit",
+									activity: {
+										kind: "learning-module",
+										name: "First visit",
+										description: "Meet the team",
+										estimatedHours: 1,
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((issue) => issue.code),
+		).toEqual([]);
+	});
+
 	it("accepts an empty section", () => {
 		expect(
 			sectionFindings([section("intro", [text("name")]), section("empty", [])]),

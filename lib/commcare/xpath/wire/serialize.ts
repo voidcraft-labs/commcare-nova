@@ -1,4 +1,5 @@
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { xpathLiteralParts } from "@/lib/domain/expression/stringLiteral";
 import { isPortableName } from "@/lib/domain/portableName";
 import { hasInterpolatedNamePeriod } from "@/lib/lookup/pathNames";
 import { hqHtmlUnescape, instanceScanCuts } from "../../hqInstanceScan";
@@ -99,17 +100,9 @@ export function literalArguments(
 		if (needsLastBackslash)
 			args.push({ token: "substr('\\\\', 0, 1)", text: "\\" });
 	};
-	for (const piece of literalPieces(value, mode)) {
-		if (!piece.includes("'") || !piece.includes('"')) {
-			quote(piece);
-			continue;
-		}
-		const parts = piece.split("'");
-		for (let index = 0; index < parts.length; index++) {
-			if (keepEmptyQuotePieces || parts[index].length > 0) quote(parts[index]);
-			if (index < parts.length - 1) quote("'");
-		}
-	}
+	for (const piece of literalPieces(value, mode))
+		for (const part of xpathLiteralParts(piece, keepEmptyQuotePieces))
+			quote(part);
 	return args;
 }
 
@@ -282,7 +275,7 @@ export function serializeWire(
 				root =
 					mode.target === "vellum" && node.root.spelling === "hashtag"
 						? "#form"
-						: "/data";
+						: `/${node.root.name ?? mode.formRootName ?? "data"}`;
 				break;
 			case "context":
 				root = "";

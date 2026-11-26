@@ -403,7 +403,7 @@ def vellum_spec(options: DesignerOptions, *, load_delay, seeded=True, edit=None)
 
 # The ways a run's edit is made (``driver/steps/vellum/edit.js``): through the form builder's own object for the
 # question, where the page cannot be worked as a person works it.
-EDIT_WAYS = ("builder-model",)
+EDIT_WAYS = ("builder-model", "add-questions")
 
 
 class VellumEditRefused(AssertionError):
@@ -416,10 +416,13 @@ def _check_edit(edit, outcome, form_unique_id):
         return
     if edit.get("way") not in EDIT_WAYS:
         raise ValueError(f"A Vellum run's edit names the way {edit.get('way')!r}; the driver makes it {EDIT_WAYS}.")
-    expected = edit["value"] if "property" in edit else edit["label"]
+    if edit["way"] == "add-questions":
+        expected = edit["questions"]
+    else:
+        expected = edit["value"] if "property" in edit else edit["label"]
     if not isinstance(outcome, dict) or not outcome.get("edited") or outcome.get("value") != expected:
         raise VellumEditRefused(
-            f"The edit of the question {edit['path']} of form {form_unique_id} in Vellum did not take ({outcome!r}),"
+            f"The {edit['way']} edit of form {form_unique_id} in Vellum did not take ({outcome!r}),"
             " so the driver did not save it as the run names it. Look at what Vellum's object for the question holds."
         )
 
@@ -456,8 +459,9 @@ def open_and_save(
     ``path`` set to ``label`` in the form's default language, or ``{path,
     property, value, way}``, that property of the question (its Default Value,
     ``defaultValue``) set to ``value``; ``way`` is one of ``EDIT_WAYS``
-    (``driver/steps/vellum/edit.js``). The run's spec names it, so
-    a transcript of a run with no edit never stands for one with it; an edit
+    (``driver/steps/vellum/edit.js``). An add-questions edit names the type, id, optional label and properties
+    of each new root question. The driver creates them through Vellum's own Add Question action. The run's
+    spec names the edit, so a transcript of a run with no edit never stands for one with it. An edit
     that did not take fails the run before the save (``VellumEditRefused``).
 
     When the in-band audit chooses the form (``PROOF_EDITOR_AUDIT``), it is

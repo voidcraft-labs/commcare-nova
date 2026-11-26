@@ -46,7 +46,7 @@ export interface ToolCallSummary {
 	 * mode switch alike, so the transcript's verb stays honest without knowing
 	 * the prior state.
 	 */
-	connect?: "learn" | "deliver" | "off";
+	connect?: "learn" | "deliver" | "both" | "off";
 	/**
 	 * For an `update_app` call that changed a menu layout: each layout it
 	 * changed, at its new value.

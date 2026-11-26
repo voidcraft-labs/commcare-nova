@@ -38,12 +38,14 @@ export const evaluateFormInputSchema = formAddressSchema
 			.array(
 				z.strictObject({
 					path: pathSchema,
-					count: z.number().int().min(1).max(30),
+					count: z.number().int().min(0).max(30),
 				}),
 			)
 			.max(50)
 			.optional()
-			.describe("Row counts for user-controlled repeats, if needed."),
+			.describe(
+				"How many entries to add to each worker-controlled repeating group. A new group starts empty. Use zero to clear an existing group.",
+			),
 		caseIds: z
 			.array(z.string().min(1))
 			.max(100)

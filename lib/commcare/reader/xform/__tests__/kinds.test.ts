@@ -17,11 +17,14 @@ import {
 	f,
 } from "@/lib/__tests__/docHelpers";
 import {
+	type BlueprintDoc,
 	type LookupColumnId,
 	type LookupTableId,
 	proseText,
 } from "@/lib/domain";
 import { type FieldKind, fieldKinds } from "@/lib/domain/fields";
+import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
+import type { LookupRead } from "@/lib/domain/lookupRead";
 import { lookupWireNaming } from "../../../lookup/naming";
 import { buildXForm } from "../../../xform/builder";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
@@ -264,8 +267,39 @@ const CASES: readonly RowCase[] = [
 		}),
 	},
 	{
-		entry: Q("hidden-value-bound-a-type-nova-would-not-write"),
+		entry: Q(
+			"hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		),
+		facts: facts({ control: "none", bindType: "int", hasDefault: true }),
+	},
+	{
+		entry: Q("hidden-value-with-neither"),
 		facts: facts({ control: "none", bindType: "int" }),
+	},
+	{
+		entry: Q("hidden-value-with-both-calculate-and-a-default-no-runtime-reads"),
+		facts: facts({
+			control: "none",
+			bindType: "int",
+			hasCalculate: true,
+			hasDefault: true,
+		}),
+	},
+	{
+		entry: Q(
+			"hidden-value-with-both-calculate-and-a-default-by-any-expression",
+		),
+		facts: facts({
+			control: "none",
+			bindType: "int",
+			hasCalculate: true,
+			hasDefault: true,
+			inRepeat: true,
+		}),
+	},
+	{
+		entry: Q("hidden-value-with-neither"),
+		facts: facts({ control: "none", bindType: "unknown" }),
 	},
 ];
 
@@ -351,7 +385,7 @@ describe("a row read from a source written for it", () => {
 });
 
 describe("a question's id", () => {
-	it("refuses a question named registration in any case under the reserved-name entry", async () => {
+	it("reads a question named registration in any case as an answer only Android keeps, and refuses one named case", async () => {
 		for (const name of ["registration", "Registration"]) {
 			const reading = await readForm(
 				xformSource({
@@ -361,9 +395,23 @@ describe("a question's id", () => {
 				}),
 			);
 			const codes = codesAt(reading, name);
-			expect(codes).toContain(Q("question-id-case-registration-script"));
+			expect(codes).not.toContain(Q("submitted-node-consumed-as-case"));
 			expect(codes).not.toContain(
 				Q("question-id-failing-the-grammar-or-meta-in-any-case"),
+			);
+			const [field] = readFields(reading.xform ?? ({} as never));
+			expect(field?.standIn).toBe(false);
+		}
+		for (const name of ["case", "Case"]) {
+			const reading = await readForm(
+				xformSource({
+					data: `<${name}/>`,
+					model: `<bind nodeset="/data/${name}" type="xsd:string"/>`,
+					body: `<input ref="/data/${name}"/>`,
+				}),
+			);
+			expect(codesAt(reading, name)).toContain(
+				Q("submitted-node-consumed-as-case"),
 			);
 			const [field] = readFields(reading.xform ?? ({} as never));
 			expect(field?.standIn).toBe(true);
@@ -406,14 +454,28 @@ describe("jr:imageDimensionScaledMax", () => {
 	}
 
 	it("reads the value as Core's Integer.parseInt does, and -1 on an image as none", async () => {
-		const held = Q(
-			"jr-imagedimensionscaledmax-250-500-1000px-or-another-positive",
-		);
 		const invalid = Q(
 			"jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater",
 		);
-		expect(await codesFor("500px")).toEqual([held]);
-		expect(await codesFor("+500")).toEqual([held]);
+		expect(await codesFor("500px")).toEqual([]);
+		expect(await codesFor("+500")).toEqual([]);
+		for (const [size, pixels] of [
+			["500px", 500],
+			["+731", 731],
+			["2147483647", 2147483647],
+			["-1px", undefined],
+		] as const) {
+			const reading = await readForm(
+				xformSource({
+					data: "<photo/>",
+					model: '<bind nodeset="/data/photo" type="binary"/>',
+					body: `<upload ref="/data/photo" mediatype="image/*" jr:imageDimensionScaledMax="${size}"/>`,
+				}),
+			);
+			expect(reading.xform).toBeTruthy();
+			if (reading.xform)
+				expect(readFields(reading.xform)[0]?.field.maxDimension).toBe(pixels);
+		}
 		expect(await codesFor("-1")).toEqual([]);
 		expect(await codesFor("0")).toEqual([invalid]);
 		expect(await codesFor("-2px")).toEqual([invalid]);
@@ -500,7 +562,7 @@ describe("a question refused by its bind type", () => {
 });
 
 describe("a select's choices", () => {
-	it("refuses a choice's value without quoting it", async () => {
+	it("refuses a choice's value without quoting it, and keeps one holding both quote marks", async () => {
 		const reading = await readForm(
 			xformSource({
 				data: "<c/>",
@@ -514,14 +576,10 @@ describe("a select's choices", () => {
 				Q("choice-value-holding-both-an-apostrophe-and-a-double-quote"),
 			].includes(finding.code),
 		);
-		expect(refused.map((finding) => finding.code).sort()).toEqual([
-			Q("choice-value-holding-both-an-apostrophe-and-a-double-quote"),
+		expect(refused.map((finding) => finding.code)).toEqual([
 			Q("choice-value-with-whitespace-empty-or-duplicated"),
 		]);
-		expect(refused.map((finding) => finding.detail.name)).toEqual([
-			undefined,
-			undefined,
-		]);
+		expect(refused.map((finding) => finding.detail.name)).toEqual([undefined]);
 	});
 
 	it.each([
@@ -573,40 +631,50 @@ describe("a select's choices", () => {
 			label: "Name",
 			dataType: "text" as const,
 		};
+		const rank = lookupMemberIdSchema.parse(
+			"01890000-0000-7000-8000-000000000303",
+		);
+		const attributes = [{ id: rank, wireName: "rank", label: "Rank" }];
 		const naming = lookupWireNaming([
-			{ id: table, tag: "hq_districts", columns: [column] },
+			{ id: table, tag: "hq_districts", columns: [column], attributes },
 		]);
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Survey",
-					forms: [
-						{
-							name: "Ask",
-							type: "survey",
-							fields: [
-								f({
-									kind: "single_select",
-									id: "district",
-									label: "District",
-									optionsSource: {
-										kind: "lookup",
-										tableId: table,
-										valueColumnId: name,
-										labelColumnId: name,
-									},
-								} as FieldSpec),
-							],
-						},
-					],
-				},
-			],
-		});
+		const lookupDoc = (sortColumnId?: LookupRead) =>
+			buildDoc({
+				modules: [
+					{
+						name: "Survey",
+						forms: [
+							{
+								name: "Ask",
+								type: "survey",
+								fields: [
+									f({
+										kind: "single_select",
+										id: "district",
+										label: "District",
+										optionsSource: {
+											kind: "lookup",
+											tableId: table,
+											valueColumnId: name,
+											labelColumnId: name,
+											...(sortColumnId === undefined ? {} : { sortColumnId }),
+										},
+									} as FieldSpec),
+								],
+							},
+						],
+					},
+				],
+			});
+		const doc = lookupDoc();
 		async function read(
 			xml?: (xml: string) => string,
-			tableTag = "hq_districts",
+			sourceOrTag: BlueprintDoc | string = doc,
 		) {
-			const body = exportedBody(doc, {
+			const source = typeof sourceOrTag === "string" ? doc : sourceOrTag;
+			const tableTag =
+				typeof sourceOrTag === "string" ? sourceOrTag : "hq_districts";
+			const body = exportedBody(source, {
 				expand: { lookupNaming: naming },
 				...(xml === undefined ? {} : { xml }),
 			});
@@ -619,6 +687,7 @@ describe("a select's choices", () => {
 										tableId: table,
 										column: (wire) =>
 											wire === "district_name" ? name : undefined,
+										attribute: (wire) => (wire === "rank" ? rank : undefined),
 									}
 								: undefined,
 						definitions: new Map([
@@ -629,6 +698,7 @@ describe("a select's choices", () => {
 									name: "Districts",
 									tag: tableTag,
 									columns: [column],
+									attributes,
 								},
 							],
 						]),
@@ -791,24 +861,103 @@ describe("a select's choices", () => {
 			},
 		);
 
-		// The select whose choices are refused keeps its kind in the document the
-		// later stages print, holding no choice, so the whole reading gives the
-		// choices' one finding and Nova's writer writes the rest back.
-		it("refuses a sorted itemset once, the select read whole with no defect", async () => {
-			const from = '<value ref="district_name"/>';
+		/** The district question's choice source in a reading that holds it. */
+		function districtSource(outcome: Awaited<ReturnType<typeof read>>) {
+			if (outcome.kind !== "read")
+				throw new Error(
+					`The reading refused: ${JSON.stringify(outcome.findings)}`,
+				);
+			const field = Object.values(outcome.draft.doc.fields).find(
+				(candidate) => candidate.id === "district",
+			);
+			return field !== undefined && "optionsSource" in field
+				? field.optionsSource
+				: undefined;
+		}
+
+		// Core orders the choices by the sort ref's text (`ItemsetBinding.sortChoices`), and
+		// HQ's form builder writes the element after the value (Vellum `itemset.js`).
+		it("writes a sort column as the itemset's sort and reads it back", async () => {
+			const sorted = lookupDoc(name);
+			let written = "";
 			const outcome = await read((xml) => {
-				expect(xml).toContain(from);
-				return xml.replace(from, `${from}<sort ref="district_name"/>`);
-			});
-			expect(outcome.kind).toBe("account");
-			expect(
-				(outcome.kind === "account" ? outcome.findings : []).map((finding) => [
-					finding.code,
-					finding.place.kind,
-				]),
-			).toEqual([["questions/itemset-sort-ref", "question"]]);
+				written = xml;
+				return xml;
+			}, sorted);
+			expect(written).toContain(
+				'<value ref="district_name"/><sort ref="district_name"/>',
+			);
 			expect(outcome.defects).toEqual([]);
+			expect(districtSource(outcome)).toEqual({
+				kind: "lookup",
+				tableId: table,
+				valueColumnId: name,
+				labelColumnId: name,
+				sortColumnId: name,
+			});
+			const claimed = [...outcome.claims.records()]
+				.filter((record) => record.entry === "questions/itemset-sort-ref")
+				.map((record) => record.where);
+			expect(claimed).toEqual([
+				"/h:html/h:body[1]/select1[1]/itemset[1]/sort[1]",
+				"/h:html/h:body[1]/select1[1]/itemset[1]/sort[1]/@ref",
+			]);
 		});
+
+		it("reads a row attribute sort through the same relative reference as Core", async () => {
+			const sorted = lookupDoc({ attributeId: rank });
+			let written = "";
+			const outcome = await read((xml) => {
+				written = xml;
+				return xml;
+			}, sorted);
+			expect(written).toContain('<sort ref="@rank"/>');
+			expect(outcome.defects).toEqual([]);
+			expect(districtSource(outcome)).toMatchObject({
+				sortColumnId: { attributeId: rank },
+			});
+		});
+
+		it("reads a sort HQ's form builder wrote, and an unsorted itemset as table order", async () => {
+			const from = '<value ref="district_name"/>';
+			const outcome = await read((xml) =>
+				xml.replace(from, `${from}\n<sort ref="district_name" />`),
+			);
+			expect(districtSource(outcome)).toMatchObject({ sortColumnId: name });
+			expect(districtSource(await read())).not.toHaveProperty("sortColumnId");
+		});
+
+		it.each([
+			[
+				"a column the table lacks",
+				'<sort ref="district_code"/>',
+				"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
+			],
+			[
+				"a path that is no column",
+				'<sort ref="../district_name"/>',
+				"questions/lookup-choice-reference-the-form-editor-cannot-keep",
+			],
+			[
+				"two sorts",
+				'<sort ref="district_name"/><sort ref="district_name"/>',
+				"questions/itemset-over-casedb-or-another-instance-advanced-data-source",
+			],
+		])(
+			"refuses a sort naming %s once, the select read whole with no defect",
+			async (_case, sort, code) => {
+				const from = '<value ref="district_name"/>';
+				const outcome = await read((xml) =>
+					xml.replace(from, `${from}${sort}`),
+				);
+				expect(
+					(outcome.kind === "account" ? outcome.findings : []).map(
+						(finding) => [finding.code, finding.place.kind],
+					),
+				).toEqual([[code, "question"]]);
+				expect(outcome.defects).toEqual([]);
+			},
+		);
 	});
 });
 
@@ -1196,6 +1345,22 @@ const EMITTED: { readonly [K in FieldKind]: readonly KindFixture[] } = {
 			],
 		},
 	],
+	connect_activity: [
+		{
+			fields: [
+				f({
+					kind: "connect_activity",
+					id: "call",
+					activity: {
+						kind: "assigned-task",
+						name: "Call",
+						description: "Ring the household",
+					},
+				}),
+			],
+			read: [{ id: "call", kind: "connect_activity" }],
+		},
+	],
 	section: [
 		{
 			fields: [
@@ -1225,6 +1390,8 @@ async function emittedAndRead(
 	fields: readonly FieldSpec[],
 ): Promise<{ readonly shapes: ReadShape[]; readonly standIns: string[] }> {
 	const doc = buildDoc({
+		// The assigned task among the kinds needs its role.
+		connectRoles: ["deliver"],
 		modules: [
 			{
 				name: "Menu",

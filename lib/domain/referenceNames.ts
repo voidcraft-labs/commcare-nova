@@ -23,7 +23,10 @@ export interface ReferenceNames {
  * blueprint imports the field schemas).
  */
 export interface ReferenceNamesDoc {
-	fields: Record<string, { id: string } | undefined>;
+	fields: Record<
+		string,
+		{ id: string; submissionPlacement?: { parent: string } } | undefined
+	>;
 	forms: Record<string, unknown>;
 	fieldOrder: Record<string, readonly string[] | undefined>;
 	userProperties?: Record<string, { slug: string } | undefined>;
@@ -45,6 +48,8 @@ export interface ReferenceNamesDoc {
 export function referenceNames(doc: ReferenceNamesDoc): ReferenceNames {
 	let derivedParents: Record<string, string> | undefined;
 	const parentOf = (uuid: string): string | undefined => {
+		const placed = ownRecordValue(doc.fields, uuid)?.submissionPlacement;
+		if (placed !== undefined) return placed.parent;
 		const maintained = ownRecordValue(doc.fieldParent, uuid);
 		if (typeof maintained === "string") return maintained;
 		if (doc.fieldParent !== undefined && maintained !== undefined) {

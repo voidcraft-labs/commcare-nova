@@ -1387,9 +1387,12 @@ const ROWS_FIELDS = {
 } as const;
 type RowsFieldName = keyof typeof ROWS_FIELDS;
 const ROWS_SOURCE = buildDoc({
+	caseTypes: [{ name: "household", properties: [] }],
 	modules: [
 		{
 			name: "Survey",
+			caseType: "household",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 			forms: [
 				{
 					name: "Household",

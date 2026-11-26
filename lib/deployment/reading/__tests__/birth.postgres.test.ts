@@ -567,6 +567,15 @@ describe("adoptHqAppInTransaction", () => {
 			ACTOR,
 		);
 		expect(snapshot.recordedHolds).toEqual(held);
+		// The first editor of a brought-in app already owns real submission
+		// columns, before this Project has published it once.
+		const adoptedQuestions = Object.values(answer.receipt.blueprint.fields).map(
+			(field) => field.uuid,
+		);
+		expect(adoptedQuestions.length).toBeGreaterThan(0);
+		expect(new Set(snapshot.publishedQuestions)).toEqual(
+			new Set(adoptedQuestions),
+		);
 	});
 
 	it("charges nothing and holds nothing", async () => {
