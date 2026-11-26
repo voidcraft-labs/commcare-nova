@@ -5,7 +5,10 @@
 //
 //   1. `searchScreenTitle`: title above the search inputs. **Show a title**
 //      off writes `NO_SEARCH_SCREEN_TITLE` and hides the field; on clears
-//      the slot, which shows the default title in the field again.
+//      the slot, which shows the default title in the field again. In
+//      another language the switch is that language's own: off holds the
+//      title blank there, and on gives it the default title's words, since
+//      clearing would show the source's title, which may be none.
 //   2. `searchScreenSubtitle`: markdown subtitle below the title.
 //   3. `searchButtonDisplayCondition`: optional predicate gating the
 //      button's visibility at runtime. This rail only summarizes it
@@ -36,6 +39,7 @@ import { type ReactNode, useEffect, useId, useState } from "react";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
+import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
@@ -57,7 +61,7 @@ import {
 	searchWorkflow,
 	type Uuid,
 } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression";
+import { type Expression, matchAll } from "@/lib/domain/expression";
 import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import { SearchWorkflowSetting } from "./SearchWorkflowSetting";
@@ -87,14 +91,14 @@ export interface SearchPanelInspectorBodyProps {
 	readonly onEditDisplayCondition: (focusNewCondition?: boolean) => void;
 	/** The Search-action condition is invalid and needs repair. */
 	readonly searchSettingsHasError?: boolean;
-	/** Why this menu takes no Search at all (it shows its forms in the menu
-	 *  above): stated first, with every control below it disabled. */
-	readonly searchUnavailableReason?: string;
+	/** Where the worker can reach this search on a menu that shows its forms above. */
+	readonly formsAboveSearchNote?: string;
 }
 
 /** What the Search screen's platform note can state. Search first's and
  *  Results first's notes sit under When this menu opens. */
 const SEARCH_PANEL_NOTE_FEATURES: readonly PlatformFeatureId[] = [
+	"search-on-clear",
 	"search",
 	"search-screen-text",
 ];
@@ -110,7 +114,7 @@ export function SearchPanelInspectorBody({
 	hasSearchAction,
 	onEditDisplayCondition,
 	searchSettingsHasError = false,
-	searchUnavailableReason,
+	formsAboveSearchNote,
 }: SearchPanelInspectorBodyProps) {
 	const unavailableReasonId = useId();
 	const expressionContext = useExpressionSlotContext(
@@ -122,17 +126,26 @@ export function SearchPanelInspectorBody({
 					slot: "search_button_display_condition",
 				},
 	);
+	const showsSource = useShowsSourceLanguage();
 	const showsTitle = searchScreenTitleText(value) !== null;
+	/* Showing a title is the app's setting, in every language: off holds no
+	 * title on the source, which every language then shows, and on clears
+	 * it, so every language shows its title again, whichever language the
+	 * Builder shows (`projectBuilderLanguageMutations.ts`). */
 	const setShowTitle = (next: boolean) =>
 		onChange(
 			setOptionalSlot(
 				value,
 				"searchScreenTitle",
-				next ? undefined : NO_SEARCH_SCREEN_TITLE,
+				!next ? NO_SEARCH_SCREEN_TITLE : undefined,
 			),
 		);
 	const setTitle = (next: string | undefined) => {
-		const authored = next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
+		// The default title's words are the absent title in the source; in
+		// another language they are that language's own text, since clearing
+		// would show the source's title there.
+		const authored =
+			showsSource && next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
 		// Clearing an untouched default should only restore that default in the
 		// control; it must not materialize an empty search-settings object.
 		if (authored === undefined && value?.searchScreenTitle === undefined)
@@ -154,21 +167,18 @@ export function SearchPanelInspectorBody({
 
 	return (
 		<>
-			{searchUnavailableReason !== undefined && (
+			{formsAboveSearchNote !== undefined && (
 				<p
 					id={unavailableReasonId}
-					data-search-unavailable
+					data-search-forms-above
 					className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
 				>
-					{searchUnavailableReason}
+					{formsAboveSearchNote}
 				</p>
 			)}
 			<fieldset
-				disabled={searchUnavailableReason !== undefined}
 				aria-describedby={
-					searchUnavailableReason === undefined
-						? undefined
-						: unavailableReasonId
+					formsAboveSearchNote === undefined ? undefined : unavailableReasonId
 				}
 				className="m-0 min-w-0 space-y-4 border-0 p-0"
 			>
@@ -256,7 +266,12 @@ export function SearchPanelInspectorBody({
 							currentCaseType={currentCaseType}
 							knownInputs={knownInputs}
 							// The Search action's relevance resolves before any case is
-							// selected, so the seed compares a session value.
+							// selected, in the scope of each entry that shows the list,
+							// which loads the session only where its selection or its
+							// forms' returns read it (`CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST`).
+							// So Add seeds "always", which every list can evaluate, and
+							// the author builds the rule from there.
+							seed={matchAll}
 						/>
 					)}
 				</AdvancedSearchSettings>

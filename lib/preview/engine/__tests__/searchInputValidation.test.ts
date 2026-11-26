@@ -4,6 +4,7 @@ import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
+	COMMCARE_SEARCH_INVALID_MESSAGE,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -769,6 +770,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 				),
 			],
 		});
+
 		const value = new Map([["query", `O'Brien said "hello"`]]);
 
 		expect(
@@ -790,6 +792,33 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 				validationEnvironment(quoted),
 			).get("query"),
 		).toBe("Leave the query blank.");
+	});
+
+	it("uses the native validation sentence when a message-free check shares the quote guard", () => {
+		const uuid = testUuid("guarded-native-validation");
+		const config = resolveCaseListConfig({
+			columns: [],
+			searchInputs: [
+				advancedSearchInputDef(
+					uuid,
+					"query",
+					"Query",
+					"text",
+					whenInput(input(uuid), eq(prop("patient", "case_name"), input(uuid))),
+					{ validation: { rule: eq(input(uuid), input(uuid)) } },
+				),
+			],
+		});
+		expect(
+			searchInputSubmissionErrors(
+				WEB_APPS_RULES,
+				config,
+				"patient",
+				new Map([["query", `single ' and "double"`]]),
+				undefined,
+				validationEnvironment(config),
+			).get("query"),
+		).toBe(COMMCARE_SEARCH_INVALID_MESSAGE);
 	});
 });
 

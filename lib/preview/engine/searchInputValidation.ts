@@ -14,6 +14,7 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type CaseListConfig,
 	materializableCaseTypes,
+	searchInputValidationMessage,
 	searchRuntimeGlobalValidationMessage,
 } from "@/lib/domain";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
@@ -127,7 +128,13 @@ export function searchInputRuntimeQuoteErrors(
 						input.uuid,
 						options.language,
 					);
-				errors.set(name, wording ?? validation.message);
+				const nativeMessage =
+					input &&
+					input.kind !== "hidden" &&
+					input.validation?.message === undefined
+						? searchInputValidationMessage(input)
+						: undefined;
+				errors.set(name, wording ?? nativeMessage ?? validation.message);
 			}
 		}
 	}

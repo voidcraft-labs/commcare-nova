@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { Page } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-cases-client";
@@ -454,6 +455,87 @@ test("Preview's quick filter finds a case by a column hidden from Results and by
 				if (!page.isClosed())
 					await page.evaluate(() => window.previewHiddenSearch?.dispose());
 			}
+		}
+	} finally {
+		await peer.close();
+	}
+});
+
+/* A list whose search has a single field, Region, which Web Apps does not
+ * draw and which starts at north; the page hands over each distinct read the
+ * list made of a search (a load that fires again for the same search is the
+ * same read). */
+async function hiddenFieldSearchPeer(page: Page) {
+	const boundary = resolve("e2e/lib/preview-search-reads-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-hidden-field-search-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+		},
+	);
+	const reads = () =>
+		page.evaluate(() => [
+			...new Set(
+				window.previewHiddenFieldSearch
+					.reads()
+					.map((read) => JSON.stringify(read)),
+			),
+		]);
+	return { peer, reads };
+}
+
+test("Web Apps' Search screen with no field drawn still sends a hidden field's starting value", async ({
+	page,
+}) => {
+	const { peer, reads } = await hiddenFieldSearchPeer(page);
+	try {
+		/* Web Apps hides the row but sends its answer (`query.js` adds
+		 * `d-none`; `getAnswers` collects every child). */
+		await page.goto(peer.origin);
+		try {
+			await expect(page.getByLabel("Region", { exact: true })).toHaveCount(0);
+			await page
+				.getByRole("button", { name: "Search All Cases", exact: true })
+				.click();
+			await expect.poll(reads).toEqual([
+				JSON.stringify({
+					inputValues: { region: "north" },
+					defaultSearch: false,
+				}),
+			]);
+		} finally {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewHiddenFieldSearch?.dispose());
+		}
+	} finally {
+		await peer.close();
+	}
+});
+
+test("a skip-to-results menu's default search sends no prompt's starting value", async ({
+	page,
+}) => {
+	const { peer, reads } = await hiddenFieldSearchPeer(page);
+	try {
+		/* Formplayer's default search sends no prompt's answer
+		 * (`RemoteQuerySessionManager.getRawQueryParams(true)`): the read
+		 * carries the starting values for what reads the search-input
+		 * instance, and says no prompt is sent. */
+		await page.goto(`${peer.origin}/?skip`);
+		try {
+			await expect.poll(reads).toEqual([
+				JSON.stringify({
+					inputValues: { region: "north" },
+					defaultSearch: true,
+				}),
+			]);
+		} finally {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewHiddenFieldSearch?.dispose());
 		}
 	} finally {
 		await peer.close();

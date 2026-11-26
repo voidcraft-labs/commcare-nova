@@ -85,6 +85,7 @@ export function everyKindDocument(): BlueprintDoc {
 			startColumnUuid: (config.detailColumnOrder as unknown[])[0],
 		},
 	];
+	config.searchFilters = [{ uuid: U("search-filter") }];
 	module.entryPoint = { uuid: U("menu-entry") };
 	const form = forms[formUuid] as Record<string, unknown>;
 	form.caseOperations = [{ uuid: U("operation"), id: "patient" }];

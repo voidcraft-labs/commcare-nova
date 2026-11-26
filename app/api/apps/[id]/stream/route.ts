@@ -51,6 +51,14 @@
  *                                question), or `null`. Sent on connect and
  *                                on that same notify when the facts changed.
  *                                Seq-less.
+ *   event: preview-search-settings the Project's Preview search and map
+ *                                settings for every destination this app
+ *                                may preview against, as a start / part /
+ *                                end snapshot (`lib/preview/
+ *                                searchSettingsFrames.ts`) so a large profile
+ *                                never fills one frame. Sent on connect and on
+ *                                that same notify when a destination or a
+ *                                revision changed. Seq-less.
  *   event: reload                replay is impossible (below the retention
  *                                efficiency bound or a gap), or a server-only
  *                                change requires a fresh snapshot handoff; the
@@ -115,6 +123,7 @@ import { readPreviewDeploymentAnswer } from "@/lib/deployment/previewSpace";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { previewSearchFrames } from "@/lib/preview/searchSettingsFrames";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	nextPersistedSequence,
@@ -646,6 +655,7 @@ function openStream(args: {
 					 * failed read is no answer, and `null` is one. */
 					let announcedProjectSpace: string | null | undefined;
 					let announcedTargetFacts: string | undefined;
+					let announcedSearchCatalog: string | undefined;
 					deploymentPump = createCoalescedStreamPump({
 						async run() {
 							if (closed) return;
@@ -657,12 +667,26 @@ function openStream(args: {
 								role: fresh.role,
 								actorUserId: userId,
 							};
-							const { projectSpace, targetFacts: facts } =
-								await readPreviewDeploymentAnswer(scope);
+							const {
+								projectSpace,
+								targetFacts: facts,
+								searchCatalog,
+							} = await readPreviewDeploymentAnswer(scope, true);
 							if (closed) return;
 							if (projectSpace !== announcedProjectSpace) {
 								announcedProjectSpace = projectSpace;
 								send("preview-project-space", { projectSpace });
+							}
+							if (searchCatalog !== undefined) {
+								const stamp = JSON.stringify([
+									searchCatalog.projectId,
+									searchCatalog.profiles.map((p) => [p.target, p.revision]),
+								]);
+								if (announcedSearchCatalog !== stamp) {
+									announcedSearchCatalog = stamp;
+									for (const frame of previewSearchFrames(searchCatalog))
+										send("preview-search-settings", frame);
+								}
 							}
 							const frame: PreviewTargetFactsFrame = { facts };
 							const factsText = canonicalJsonText(frame);

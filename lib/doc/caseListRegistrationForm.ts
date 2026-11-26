@@ -31,6 +31,7 @@ import {
 	moduleHasCaseListMenuItem,
 	proseText,
 	type SearchInputDef,
+	searchOpensOnList,
 	type Uuid,
 } from "@/lib/domain";
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
@@ -65,7 +66,7 @@ export function formsReadSearchOnMutations(
 	const listFirst =
 		mod.caseSearchConfig !== undefined &&
 		"workflow" in mod.caseSearchConfig &&
-		mod.caseSearchConfig.workflow === "listFirst";
+		searchOpensOnList(mod.caseSearchConfig.workflow);
 	return [
 		{
 			kind: "updateModule",
@@ -490,6 +491,7 @@ function searchAnswerField(
 				optionsSource: input.options,
 				default_value,
 			};
+		case "checkboxes":
 		case "multi-select":
 			return {
 				kind: "multi_select",

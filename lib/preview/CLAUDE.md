@@ -31,6 +31,8 @@ accepting replacement answers. Dynamic itemsets retain their own semantics.
 A leading empty multiple-choice token fails earlier, when Core's setvalue
 uncasts it; `answerCast` reports the existing entry refusal for that case.
 
+Search checkboxes read the offered lookup rows and submit their checked values in displayed order. On Android, restoring an answer checks every row with that value, including repeated rows. Web Apps indexes options by value, so duplicates share a control with the last label. It enumerates integer keys first. The Web Apps multiple-choice list and the checkbox field preserve their distinct controls.
+
 ## Platforms
 
 Preview plays one platform the app runs on at a time, Web Apps or Android.
@@ -239,6 +241,8 @@ one-time defaults and query-repeat membership must not run against absent contex
 `useFormEngine` defers initial activation but owns its cleanup even when readiness
 arrives later. An already active entry follows the rebuild/answer-retention
 rules below during later context refreshes.
+
+A date-range starting calculation is held as Core's query manager opens. Preview reads all the committed range defaults' lookup tables in one authorized Project snapshot. The server also evaluates the complete synchronous XPath expression in the worker's calendar, so a calculation using today can open on different dates for workers on opposite sides of midnight. An exceptional answer carries an HMAC of the committed field, app, Project, actor, worker, module, device and answer. Web Apps can submit either the original automatic answer or the projection its visible field encodes. Paging and a completed Search verify that held answer without consulting a later clock or lookup revision. Replacing either endpoint discards the receipt. The form and ordinary authoring surfaces expose dates and the worker's visible text. The internal continuation alone retains the receipt.
 
 Search draft and submission commands live in `engine/searchRunState.ts`;
 `hooks/useSearchInputRunState.ts` binds them to React. A standing search keeps
@@ -1795,7 +1799,7 @@ compares its returned `mutationSeq` to the reconciler's current base sequence
 so any intervening app commit requires Review again. The later save rechecks
 every fact under the authoritative write locks.
 
-Case-search scalar prompt defaults run through `engine/searchExpressionEvaluation.ts`: it emits the authored expression to the same XPath shape as the device and evaluates it with the preview XPath evaluator plus the authenticated user's session values. Date range is deliberately excluded: CommCare binds one paired start/end answer, and the final date-range arm has no scalar default slot, so Preview never invents a From-only default. `hooks/useSearchInputRunState.ts` applies supported defaults once per module, refreshes only untouched prompts when a default/session value changes, and resets submitted state on a module switch; the flipbook therefore preserves worker edits without leaking the prior module's query. `caseSearchConfig.excludedOwnerIds` evaluates once at the authenticated Server Action boundary (so `session-context(userid)` is real), before any case row exists; the shared gate rejects property and relationship reads, while literals/session/Search values and pure calculations remain available. The result splits exactly like CCHQ on whitespace and joins `caseListConfig.filter` + submitted prompts as one Postgres predicate — never a client-side post-filter.
+Case-search scalar prompt defaults run through `engine/searchExpressionEvaluation.ts`: it emits the authored expression to the same XPath shape as the device and evaluates it with the preview XPath evaluator plus the authenticated user's session values. A date-range default yields one device answer. The pinned Core formats a human-readable pair with its lenient Java date parser and prints the day of the converted instant in the JVM zone. A fixed encoded pair survives unchanged. Preview uses the same zone and calendar for displayed bounds, keeps a failed conversion as the original text, and projects the Web Apps date input only for the visible Search. An out-of-picker answer on a submitted read must match the persisted field and the worker's starting result. Either edited bound claims the whole answer for subsequent default refreshes. `hooks/useSearchInputRunState.ts` applies supported defaults once per module, refreshes only untouched prompts when a default/session value changes, and resets submitted state on a module switch; the flipbook therefore preserves worker edits without leaking the prior module's query. `caseSearchConfig.excludedOwnerIds` evaluates once at the authenticated Server Action boundary (so `session-context(userid)` is real), before any case row exists; the shared gate rejects property and relationship reads, while literals/session/Search values and pure calculations remain available. The result splits exactly like CCHQ on whitespace and joins `caseListConfig.filter` + submitted prompts as one Postgres predicate — never a client-side post-filter.
 
 Preview derives navigation from the effective Search action, not from the mere presence of the compatibility settings bag. An explicit zero-input Search action on the worker's list renders one functional manual Search action; what launches on its own is the author's workflow, below. An owner-only exclusion still constrains every Results query, but it mounts no Search screen and triggers no automatic transition by itself. For a prompted Search, `searchButtonDisplayCondition` gates the whole combined Search pane from the case-list action's pre-prompt session/global context; it never reacts to the pane's draft, and the pane's single authored-label submit remains available whenever the action is relevant.
 
@@ -2121,12 +2125,19 @@ through `app:select:menus` directly and only updates the field models
 (`QueryListView.updateModels`), never through `menus/controller.js::selectMenu`,
 whose `showMenu` is what calls `getMenuView`. So the Search screen writes
 its empty answers only as it is drawn (a menu that asks first, Search again,
-history returning to its address), and Clear writes nothing: it empties each
-field (`QueryListView.clearAction` over `QueryView.clear`, which fires no
-field change) and the page keeps the answers the worker last gave
+history returning to its address), and Clear on its own writes nothing: it
+empties each field (`QueryListView.clearAction` over `QueryView.clear`, which
+fires no field change) and the page keeps the answers the worker last gave
 (`searchStanding.ts::previewSearchAfterClear`, which also keeps a Search
-screen asked for again on show, never the menu's default search; Nova writes
-no `search_on_clear`). Clear is Web Apps' alone (`rules.searchClear`,
+screen asked for again on show, never the menu's default search). A menu with
+`caseSearchConfig.searchOnClear` (written as `search_on_clear`) searches again
+after Clear where `searchStanding.ts::searchAfterClear` says the platform does:
+Web Apps at a window at least `PreviewPlatformRules.searchOnClearMinWidth`
+(992px) wide, as `query.js` turns it off on a small screen. That search is
+quiet: `clearAction` calls `updateSearchResults`, which skips the submit while
+any required field is blank and never shows errors, so Preview's Search pane
+submits the emptied fields without painting errors and stays on Search when
+they don't pass. Clear is Web Apps' alone (`rules.searchClear`,
 `searchStanding.ts::previewSearchClearOffered`): Android's search screen
 holds its prompts, its search button and its error line
 (`QueryRequestUiController`), so Preview playing Android offers no Clear, and
@@ -2219,7 +2230,7 @@ screen for every later step and the submission (`app-tests/run.ts::appTestFormCo
 a new entry reads again. The form check runs the search screen first and
 refuses with its own sentence when the module's Search action is hidden for
 the worker (its display condition is false), since no `searchAnswers` can
-open that form (`evaluationContext.ts::formSearchResults`).
+open that form (`evaluationContext.ts::formSearchContext`).
 
 The case list registration form (`Module.caseListRegistrationForm`, the
 wire's `case_list_form`) is admitted or refused by
@@ -2687,3 +2698,28 @@ A restored-record count waits for the signed-in worker's snapshot even when
 no form or display condition reads cases. Text badges use the owner's
 translation unit. Android's menu adapter formats a long badge after the
 expression has evaluated. Web Apps renders the value as text.
+
+**Server search settings.** `searchSettings.ts` distinguishes an unconfirmed
+limit, calendar or matcher list from a confirmed 500-result limit, UTC, or exact
+matching. The chosen local profile starts with those three defaults. A newly
+reached project space starts with all three unknown. With several project spaces,
+Preview can use a fact that agrees across the destinations. The revision includes
+the Nova Project, qualified destination selection and contributing revisions. A
+worker read resolves the facts inside its authorized database snapshot. A
+changed revision invalidates the result a worker completed under the old one.
+
+
+A search's fuzzy properties and ordered ignored text are separate. Each ignored
+literal names a record type and property and retains its position among all
+rules for a property. On the requested types, Preview compares whether any type
+uses fuzzy matching plus the actual sequence of applicable literals. Differences
+in how the team spelled exact matching, including an explicit exact rule, do
+not hold an otherwise decidable search.
+
+Preview compares project calendars by the named Zone and Link identities from HQ’s pinned pytz data. The user-supplied spelling remains part of the saved confirmation and exact retry. Short ambiguous abbreviations cannot confirm a calendar. A saved calendar is read by that pinned table alone (`searchSettings.ts::searchTimeZoneSchema`), never by this runtime's `Intl`, so a browser whose time zone data lacks a newer zone still reads every other setting and `resolvePreviewSearchFacts` leaves only the time zone unconfirmed; a calendar being saved must also play where it is saved (`playableSearchTimeZoneSchema`, the time zone of `previewSearchChangesSchema`).
+
+The same authorized Project/destination catalog carries `caseListMap`, the team’s confirmation of Web Apps record map availability. The pinned HQ toggle is domain-scoped (`corehq/toggles/__init__.py::CASE_LIST_MAP`). Its worker list also needs an address and a populated result (`cloudcare/js/formplayer/menus/views.js`). A missing or null confirmation is unobserved, including on Local Preview. It leaves ordinary search and Android’s address-driven map independent.
+
+A form's completed search holds its answers and Results together. A separately opened form reads the original answers from its own query manager. Both pass raw answer keys to a single search-instance projection at form entry. A signed range opening belongs to the admitted worker, app language and resolved time zone. A resize keeps the opening and its already evaluated dates.
+
+A completed search's server order (`completedSearchRequest.ts`: the filters' orders, then `requestOrder`) reaches the store as HQ's index keys, and `case-store/postgres/searchPopulation.ts` compares each as HQ's index does before the cap: exact text by binary keyword order, numbers as doubles, dates by the index's date reading, missing values first ascending and last descending. A value whose reading is uncertain stops the search only where it could change which records arrive or an order the app observes. A list's own sort reorders only what arrived. A search's own owner exclusion is evaluated with the Search answers and leaves those owners out of the server population before the cap; it replaces the shared assigned-case rule for the search only (`caseDataBinding.ts`, `serverSearchRead.ts`), and a browse keeps the worker's restore and the shared rule.
