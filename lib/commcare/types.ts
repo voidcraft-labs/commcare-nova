@@ -313,6 +313,7 @@ export interface DetailBase<XPath = string> {
 	 * Omission keeps CommCare's single-select defaults.
 	 */
 	multi_select?: boolean;
+	auto_select?: true;
 	max_select_value?: number;
 	sort_elements: SortElement<XPath>[];
 	/**
@@ -338,13 +339,13 @@ export interface DetailBase<XPath = string> {
 	lookup_enabled: boolean;
 	lookup_autolaunch: boolean;
 	lookup_display_results: boolean;
-	lookup_name: null;
-	lookup_image: null;
-	lookup_action: null;
-	lookup_field_template: null;
-	lookup_field_header: Record<string, never>;
-	lookup_extras: unknown[];
-	lookup_responses: unknown[];
+	lookup_name: string | null;
+	lookup_image: string | null;
+	lookup_action: string | null;
+	lookup_field_template: XPath | null;
+	lookup_field_header: LocalizedString;
+	lookup_extras: { key: string; value: XPath }[];
+	lookup_responses: { key: string }[];
 	persist_case_context: true | null;
 	persistent_case_context_xml: XPath;
 	/**
@@ -549,7 +550,9 @@ export interface DefaultCaseSearchProperty<XPath = string> {
  * It is never an author-facing option.
  */
 export interface CaseSearchConfig<XPath = string> {
+	instance_name?: string;
 	doc_type: "CaseSearch";
+	case_search_endpoint_id?: number;
 	search_button_label: LocalizedString | Record<string, never>;
 	properties: CaseSearchProperty<XPath>[];
 	auto_launch: boolean;
@@ -557,6 +560,8 @@ export interface CaseSearchConfig<XPath = string> {
 	search_on_clear?: true;
 	inline_search: boolean;
 	include_all_related_cases: boolean;
+	additional_case_types?: string[];
+	custom_related_case_property?: string;
 	search_button_display_condition?: XPath;
 	default_properties: DefaultCaseSearchProperty<XPath>[];
 	blacklisted_owner_ids_expression?: XPath;
@@ -843,6 +848,10 @@ export interface HqApplicationProfile {
  * result equals what HQ holds.
  */
 export interface HqApplication<XPath = string, LinkXPath = XPath> {
+	build_profiles?: Record<
+		string,
+		import("./installationProfiles").WireBuildProfile
+	>;
 	doc_type: "Application";
 	case_sharing?: boolean;
 	application_version: string;

@@ -423,6 +423,7 @@ function mutationFootprint(
 				if (
 					Object.hasOwn(mutation.patch, "caseType") ||
 					Object.hasOwn(mutation.patch, "parentCaseModuleUuid") ||
+					Object.hasOwn(mutation.patch, "searchResultsName") ||
 					Object.hasOwn(mutation.patch, "caseListRegistrationForm") ||
 					(mutation.caseSearchConfigPatch !== undefined &&
 						Object.hasOwn(mutation.caseSearchConfigPatch, "formsReadSearch"))
@@ -560,7 +561,12 @@ function mutationFootprint(
 			 * whole-document gate; the two home-screen switches are read by no
 			 * rule. */
 			case "setAppSettings":
-				if (mutation.settings.runsOnlyOn !== undefined) return undefined;
+				if (
+					mutation.settings.runsOnlyOn !== undefined ||
+					mutation.settings.projectSearch ||
+					mutation.settings.installationProfile !== undefined
+				)
+					return undefined;
 				break;
 
 			default:

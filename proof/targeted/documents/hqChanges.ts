@@ -699,7 +699,7 @@ export function hqChangesMenu(): CorpusDocument {
 		moduleAttribute: { module: 0, name: "Patient list" },
 		moduleDetail: {
 			module: 0,
-			column: column as unknown as Readonly<Record<string, unknown>>,
+			columns: [column as unknown as Readonly<Record<string, unknown>>],
 		},
 		republish: "brings-in",
 		publishChanges: [],

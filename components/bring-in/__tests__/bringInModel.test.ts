@@ -418,6 +418,16 @@ describe("the reducer", () => {
 		expect(moved.signedOut).toBe(true);
 	});
 
+	it("offers sign-in when an installation grant expires while bringing in the app", () => {
+		const expired = run(creating(), {
+			type: "create-done",
+			answer: { kind: "refused", refusal: "session_ended" },
+			at: 0,
+		});
+		expect(screenOf(expired)).toEqual({ kind: "signed-out" });
+		expect(nextAct(expired)).toEqual(NO_ACT);
+	});
+
 	it("stage drops the count where the stage counts no files or is a new stage", () => {
 		const counting = run(
 			creating(),

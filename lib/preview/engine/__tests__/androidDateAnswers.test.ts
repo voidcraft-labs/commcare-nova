@@ -1,6 +1,10 @@
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { createBlueprintDocStore } from "@/lib/doc/store";
 import { isoOfCalendarDay, localToday } from "../../workerCalendar";
+import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
+import { XPathRuntime } from "../../xpath/workerClient";
+import { EngineController } from "../engineController";
 import { evaluateFormSnapshot } from "../evaluateFormSnapshot";
 import { FormEngine } from "../formEngine";
 import type {
@@ -85,6 +89,50 @@ it("only saves date widgets that were visible when the Android worker left", () 
 		androidPickerDay: today,
 	});
 });
+
+it.each([false, true])(
+	"keeps the displayed date when saving an incomplete form (worker=%s)",
+	async (worker) => {
+		const store = createBlueprintDocStore();
+		store.getState().load(fixture().doc);
+		const controller = new EngineController(
+			worker
+				? new XPathRuntime({
+						workerFactory: createInProcessXPathWorkerFactory(),
+					})
+				: undefined,
+		);
+		try {
+			controller.setDocStore(store);
+			controller.setPreviewDevice(androidDevice());
+			expect(await controller.activateFormAsync(formUuid)).toBe(true);
+			const entryKey = controller.entryKey;
+			if (!entryKey) throw Error("The Android form did not open");
+			expect(await controller.enterScreenAsync("/data/visit")).toBe(true);
+			const arrival = "/data/visit/arrival";
+			const day = isoOfCalendarDay(localToday());
+			const before = await controller.snapshotAndroidSave(
+				entryKey,
+				"completed",
+			);
+			expect(before?.checkpoint.state[arrival]).toMatchObject({
+				value: "",
+				androidPickerDay: day,
+			});
+
+			const saved = await controller.snapshotAndroidSave(
+				entryKey,
+				"incomplete",
+			);
+			expect(saved?.checkpoint.state[arrival]?.value).toBe(day);
+			expect(saved?.checkpoint.state["/data/skipped"]?.value).toBe("");
+			expect(saved?.checkpoint.state["/data/last"]?.value).toBe("");
+		} finally {
+			controller.dispose();
+			await controller.awaitSettled();
+		}
+	},
+);
 
 it("keeps an inspected App Test date empty, skips intervening widgets and saves the last displayed date on submit", async () => {
 	const { doc } = fixture();

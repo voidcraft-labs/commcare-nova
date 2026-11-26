@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 100, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 1}, \"objects\": [{\"fields\": [{\"field_name\": \"code\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}], \"id\": \"2abdafe008c8467b8719a55395c26322\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"visit_sites\"}]}"
+}

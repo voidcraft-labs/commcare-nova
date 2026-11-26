@@ -16,7 +16,10 @@ import {
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
 import { formStructure } from "@/lib/domain/expression/formStructure";
-import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
+import {
+	entrySelectionSettings,
+	formContentUuid,
+} from "@/lib/domain/formEntryCases";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { uuidSchema } from "@/lib/domain/uuid";
 import { getLookupDefinitions } from "@/lib/lookup/service";
@@ -35,6 +38,7 @@ import {
 	entryWalksChoices,
 } from "./entrySessionData";
 import { appReadsPlaces } from "./expressionCaseReads";
+import { FormEvaluationInputError } from "./formEvaluationTypes";
 import {
 	type FormOpeningAudience,
 	type FormOpeningProjection,
@@ -53,6 +57,11 @@ import {
 import { resolveAuthorizedPreviewContext } from "./previewAuthorization";
 import type { PreviewDevice } from "./previewDevice";
 import { signFormOpening, verifyFormOpening } from "./signedFormOpening";
+import {
+	evaluateFormOpeningActions,
+	InvalidWebActivityWindowError,
+	recordWebActivityOpening,
+} from "./webFormActivityOpening";
 import { workerLocationFixture, workerPlaceIds } from "./workerLocationFixture";
 
 const manualChoiceSchema = z.strictObject({
@@ -204,6 +213,11 @@ export async function readFormOpeningAction(
 				)
 			)
 				return reopen;
+			const webActivityRestoreStartedAt =
+				context.device.platform === "web-apps" &&
+				doc.forms[formContentUuid(doc, args.form)]?.activityKeyText
+					? Date.now()
+					: undefined;
 			const restore = await readCaseDatabaseSnapshot(context.store, {
 				appId: args.app,
 				restoreScope: context.restoreScope,
@@ -233,6 +247,9 @@ export async function readFormOpeningAction(
 					}
 				: restored;
 			prior = {
+				...(webActivityRestoreStartedAt !== undefined && {
+					webActivityRestoreStartedAt,
+				}),
 				cases: openingCaseData(cases),
 				lookup: lookup.data,
 				choices: [],
@@ -430,12 +447,29 @@ export async function readFormOpeningAction(
 			bound.length === 0
 		)
 			return reopen;
+		const primaryCaseIds = ownCaseId ? [ownCaseId] : bound;
+		const actions =
+			!reached.nextSelection && !args.restore
+				? await evaluateFormOpeningActions({
+						secret,
+						doc,
+						audience,
+						identity: context.identity,
+						reached,
+						caseIds: primaryCaseIds,
+						cases: snapshot,
+						lookup: lookupData,
+					})
+				: undefined;
+		const activity = actions?.activity;
 		const projection: FormOpeningProjection = {
 			...prior,
 			choices,
 			carried: [...carried.values()],
 			...(Object.keys(parentChoices).length && { parentChoices }),
-			primaryCaseIds: ownCaseId ? [ownCaseId] : bound,
+			primaryCaseIds,
+			...(activity && { webActivity: activity }),
+			...(actions?.caseCreateIds && { caseCreateIds: actions.caseCreateIds }),
 			...(submittedCaseIds.size > 0 && {
 				submittedCaseIds: [...submittedCaseIds],
 			}),
@@ -456,13 +490,27 @@ export async function readFormOpeningAction(
 			projection,
 			args.previous,
 		);
+		const activityNotice = activity
+			? await recordWebActivityOpening(
+					audience,
+					activity,
+					snapshot,
+					prior.webActivityRestoreStartedAt ?? Date.now(),
+				)
+			: undefined;
 		return {
 			kind: "opening",
 			evidence,
 			projection,
 			next,
+			activityNotice,
 		} as const;
 	} catch (error) {
+		if (
+			error instanceof InvalidWebActivityWindowError ||
+			error instanceof FormEvaluationInputError
+		)
+			return { kind: "error", message: error.message } as const;
 		if (error instanceof AppAccessError)
 			return { kind: "error", message: "App not found." } as const;
 		const refusal = previewDataRefusalOf(error);

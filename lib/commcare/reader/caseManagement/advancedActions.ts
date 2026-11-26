@@ -4278,5 +4278,12 @@ export function settleSharedEntry(
 	if (!entry?.shadowOf) return;
 	const context = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const missing = sharedFormDependencies(doc, entry, menu, context);
-	if (missing.length) ctx.accounting.finding(SHARED.missingSupply, form.place);
+	if (missing.length)
+		ctx.accounting.findingAt(
+			SHARED.missingSupply,
+			form.place,
+			`${form.json.pointer}/extra_actions`,
+			undefined,
+			{ atDefault: !form.json.used("extra_actions") },
+		);
 }

@@ -19,6 +19,13 @@ const OWN = { name: "Amara's space", personal: true } as const;
 
 /** Every form each function's sentence takes. A new function fails to compile until it has a row. */
 const CALLS: { readonly [K in FunctionName]: () => readonly unknown[] } = {
+	projectSearchMenuLine: () => [
+		copy.projectSearchMenuLine({
+			name: "Household visits",
+			parameters: ["village"],
+			results: [{ name: "Name", type: "text" }],
+		}),
+	],
 	openAppAction: () => [copy.openAppAction("Household visits")],
 	pickerProjectLine: () => [
 		copy.pickerProjectLine(SHARED),

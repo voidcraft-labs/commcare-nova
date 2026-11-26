@@ -7,6 +7,7 @@ import {
 	effectiveCaseTypes,
 } from "@/lib/domain";
 import { caseListColumnFieldKind } from "@/lib/domain/caseListOrder";
+import { detailTabSearchChildType } from "@/lib/domain/detailTabs";
 import { walkPropertyRefs } from "@/lib/domain/expression/walk";
 import { columnProperty } from "./suite/case-list/orderPlanOptions";
 /**
@@ -62,6 +63,7 @@ import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,
 } from "./suite/case-list/nodesetFilter";
+import { projectSearchResults } from "./suite/case-search/projectSearch";
 import type { FormActions, OpenSubCaseAction } from "./types";
 import {
 	USERCASE_DATUM_ID,
@@ -213,7 +215,7 @@ export interface SessionDatum {
  * `EntriesHelper.add_remote_query_datums`).
  */
 export interface SessionQueryMetadata {
-	readonly storageInstance: "results:inline";
+	readonly storageInstance: `results:${string}`;
 	/** The module's case type, the query's first `<data key="case_type">`. */
 	readonly caseType: string;
 	/** Whether the worker answers anything. With no visible prompt the
@@ -372,6 +374,21 @@ export interface EntryDefinition {
  * matches CCHQ's canonical builder at
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
  */
+export function menuCaseTypePredicate(
+	primary: string,
+	additional: readonly string[],
+): WireExpr {
+	const types = [
+		primary,
+		...[...new Set(additional)].filter((type) => type !== primary).sort(),
+	];
+	return w.or(
+		...types.map((type) =>
+			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(type))),
+		),
+	);
+}
+
 export function caseLoadingNodeset(
 	caseType: string,
 	caseListFilter: Expression | undefined,
@@ -379,6 +396,7 @@ export function caseLoadingNodeset(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	datumId?: (ref: DatumRef) => string | undefined,
+	additionalCaseTypes: readonly string[] = [],
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
@@ -403,7 +421,7 @@ export function caseLoadingNodeset(
 	return w.instance(caseDbInstance(), [
 		w.step("casedb"),
 		w.step("case", [
-			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(caseType))),
+			menuCaseTypePredicate(caseType, additionalCaseTypes),
 			w.eq(w.context([w.attr("status")]), w.str("open")),
 			...(joined === undefined ? [] : [joined]),
 		]),
@@ -416,6 +434,8 @@ export function inlineSearchNodeset(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	datumId?: (ref: DatumRef) => string | undefined,
+	instance: `results:${string}` = "results:inline",
+	additionalCaseTypes: readonly string[] = [],
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
@@ -423,10 +443,10 @@ export function inlineSearchNodeset(
 		lookupNaming,
 		datumId,
 	);
-	return w.instance(resultsInstance("results:inline"), [
+	return w.instance(resultsInstance(instance), [
 		w.step("results"),
 		w.step("case", [
-			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(caseType))),
+			menuCaseTypePredicate(caseType, additionalCaseTypes),
 			w.eq(w.context([w.attr("status")]), w.str("open")),
 			...(filter === undefined ? [] : [filter]),
 			EXCLUDE_RELATED_CASES_FILTER,
@@ -448,10 +468,11 @@ export { DEFAULT_SEARCH_RESULT_LIMIT as SEARCH_RESULTS_CAP } from "@/lib/domain/
 /** Every search-enabled menu for these types contributes its detail’s
  * non-expression field paths (case_search/utils.py::get_app_context).
  * A calculated reference to a parent does not ask HQ to deliver it. */
-export function searchDetailRelatedPaths(
+export function searchDetailSupportingRecords(
 	doc: BlueprintDoc,
 	requestedTypes: readonly string[],
-): string[][] {
+) {
+	const childTypes = new Set<string>();
 	const paths = new Map<string, string[]>();
 	const types = effectiveCaseTypes(doc);
 	for (const menu of Object.values(doc.modules)) {
@@ -463,6 +484,11 @@ export function searchDetailRelatedPaths(
 			!effectiveCaseSearchConfig(menu)
 		)
 			continue;
+
+		for (const tab of config.detailTabs ?? []) {
+			const type = detailTabSearchChildType(tab);
+			if (type) childTypes.add(type);
+		}
 		for (const column of config.columns) {
 			if (
 				column.kind === "calculated" ||
@@ -488,7 +514,17 @@ export function searchDetailRelatedPaths(
 			}
 		}
 	}
-	return [...paths.values()];
+	return {
+		relatedPaths: [...paths.values()],
+		relatedChildTypes: [...childTypes],
+	};
+}
+
+export function searchDetailRelatedPaths(
+	doc: BlueprintDoc,
+	requestedTypes: readonly string[],
+): string[][] {
+	return searchDetailSupportingRecords(doc, requestedTypes).relatedPaths;
 }
 
 /** HQ writes the actual hit's score over this property in every primary
@@ -525,9 +561,11 @@ function sessionRef(datumId: string): WireExpr {
  * every step in a parent-select chain, while the flat helper below keeps the
  * historical single-`case_id` default. */
 export function deriveCaseSelectionDatum(args: {
+	readonly projectSearchResults?: boolean;
 	readonly id: string;
 	readonly caseType: string;
 	readonly moduleIndex: number;
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseListFilter?: Expression;
 	readonly excludedOwnerIds?: Expression;
 	readonly expressions: ModuleExpressionContexts;
@@ -545,9 +583,10 @@ export function deriveCaseSelectionDatum(args: {
 	readonly parentIndex?: string;
 	readonly detailConfirm?: boolean;
 	readonly maxSelectValue?: number;
+	readonly autoSelect?: boolean;
 	/** Where the selectable cases come from: the device's casedb, or the
 	 *  results of the own search of a menu whose forms read the search. */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: "casedb" | `results:${string}`;
 	/** The owner frame algorithm needs identity and presence, not XPath. */
 	readonly entryMetadataOnly?: boolean;
 	/**
@@ -563,6 +602,7 @@ export function deriveCaseSelectionDatum(args: {
 		...(args.maxSelectValue !== undefined && {
 			maxSelectValue: args.maxSelectValue,
 		}),
+		...(args.autoSelect === true && { autoselect: true }),
 	};
 	/* Whether the datum names a details screen is entry metadata too: it is
 	 * whether a runtime confirms a case chosen for it
@@ -577,24 +617,31 @@ export function deriveCaseSelectionDatum(args: {
 				}),
 			projectionOnlySelection: true,
 		};
-	const inline = args.caseSource === "results:inline";
+	const inline =
+		args.caseSource !== undefined && args.caseSource !== "casedb"
+			? args.caseSource
+			: undefined;
 	const build = (datumId: typeof args.datumId): WireExpr =>
-		inline
-			? inlineSearchNodeset(
-					args.caseType,
-					args.caseListFilter,
-					args.expressions,
-					args.lookupNaming,
-					datumId,
-				)
-			: caseLoadingNodeset(
-					args.caseType,
-					args.caseListFilter,
-					args.excludedOwnerIds,
-					args.expressions,
-					args.lookupNaming,
-					datumId,
-				);
+		inline && args.projectSearchResults
+			? projectSearchResults(inline)
+			: inline
+				? inlineSearchNodeset(
+						args.caseType,
+						args.caseListFilter,
+						args.expressions,
+						args.lookupNaming,
+						datumId,
+						inline,
+						args.additionalCaseTypes,
+					)
+				: caseLoadingNodeset(
+						args.caseType,
+						args.caseListFilter,
+						args.excludedOwnerIds,
+						args.expressions,
+						args.lookupNaming,
+						datumId,
+					);
 	/* The nodeset depends on nothing but the ids its chosen cases resolve to,
 	 * so a render whose every resolved id is unchanged (each
 	 * `refreshDatumReferences` pass that renames nothing it reads) reuses the
@@ -764,6 +811,7 @@ export interface SessionDatumsInput {
 	 * selects from. Meaningful only on case-loading form types: a
 	 * registration or survey form emits no case-loading datum to narrow.
 	 */
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseListFilter?: Expression;
 	/**
 	 * Whether the form writes the worker's record. Read from the placement
@@ -815,6 +863,7 @@ export interface AdvancedLoadDatumInput {
 	readonly list?: {
 		/** The list module's position, which names its details. */
 		readonly moduleIndex: number;
+		readonly additionalCaseTypes?: readonly string[];
 		readonly caseListFilter?: Expression;
 		readonly excludedOwnerIds?: Expression;
 		readonly expressions: ModuleExpressionContexts;
@@ -957,6 +1006,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		moduleIndex,
 		caseType,
 		caseListFilter,
+		additionalCaseTypes,
 		newCases,
 		excludedOwnerIds,
 		expressions,
@@ -978,6 +1028,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 					caseType,
 					moduleIndex,
 					caseListFilter,
+					additionalCaseTypes,
 					excludedOwnerIds,
 					expressions,
 					lookupNaming,

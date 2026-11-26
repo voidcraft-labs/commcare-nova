@@ -5,10 +5,14 @@ import {
 } from "@/lib/domain/advancedEntryDatums";
 import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import { projectSearchOf } from "@/lib/domain/modules";
 import { automaticCase, entryValueWire } from "./advancedEntryValues";
+import { searchAnswersOf } from "./emissionPlan";
 import type { RewriteControl } from "./emissionRewrites";
 import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
 import { caseContextDetailIds } from "./suite/case-list/formContext";
+import { inlineSearchInstance } from "./suite/case-search/types";
+import type { WireIdentity } from "./wireIdentity";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
  * read.
@@ -255,6 +259,7 @@ export interface FormLinkProjectionContext {
 	readonly onRootSelectionTakesNewCase?: (
 		issue: RootSelectionTakesNewCase,
 	) => void;
+	readonly projectSearchId?: WireIdentity["projectSearchId"];
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleOrder: readonly Uuid[];
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
@@ -343,6 +348,7 @@ export function formLinkProjectionContext(
 		readonly onRootSelectionTakesNewCase?: (
 			issue: RootSelectionTakesNewCase,
 		) => void;
+		readonly projectSearchId?: WireIdentity["projectSearchId"];
 		readonly runtimeTarget?: RuntimeTarget;
 		readonly attachmentTarget?: AttachmentUrlTarget | null;
 		readonly lookupNaming?: LookupWireNaming;
@@ -388,6 +394,7 @@ export function formLinkProjectionContext(
 		...(opts.onRootSelectionTakesNewCase !== undefined && {
 			onRootSelectionTakesNewCase: opts.onRootSelectionTakesNewCase,
 		}),
+		projectSearchId: opts.projectSearchId,
 		runtimeTarget: opts.runtimeTarget,
 		moduleOrder,
 		formOrder,
@@ -431,7 +438,9 @@ export function inlineSearchFor(
 	const parentUuid = parentSelectModuleUuid(doc, moduleUuid);
 	const ancestorCaseType =
 		parentUuid === undefined ? undefined : doc.modules[parentUuid]?.caseType;
+	const search = projectSearchOf(mod);
 	const built = buildInlineSearch({
+		projectSearchId: search && ctx.projectSearchId?.(search.searchUuid),
 		runtimeTarget: ctx.runtimeTarget,
 		module: mod,
 		moduleIndex: moduleIndexOf(ctx, moduleUuid),
@@ -675,6 +684,7 @@ function selectableDatums(
 			caseType: selectedModule.caseType,
 			moduleIndex,
 			caseListFilter: detail.caseListConfig?.filter,
+			additionalCaseTypes: detail.caseListConfig?.additionalCaseTypes,
 			excludedOwnerIds: detail.caseSearchConfig?.excludedOwnerIds,
 			expressions: moduleExpressionContexts(doc, detail.uuid, ctx.lookupNaming),
 			lookupNaming: ctx.lookupNaming,
@@ -688,9 +698,11 @@ function selectableDatums(
 			...(parentSelection !== undefined && { parentSelection }),
 			...(multiple?.kind === "multiple" && {
 				maxSelectValue: multiple.maximum,
+				autoSelect: multiple.autoSelect,
 			}),
 			...(moduleUsesInlineSearch(detail) && {
-				caseSource: "results:inline" as const,
+				caseSource: inlineSearchInstance(detail.searchResultsName),
+				projectSearchResults: projectSearchOf(selectedModule) !== undefined,
 			}),
 		});
 		datum.parentSelection = parentSelection;
@@ -1395,8 +1407,7 @@ export function entryDatumIds(
 			// inline query's step holds the search's instances, not a value
 			// `session/data/<id>` reads (`CommCareSession.java::setQueryDatum`).
 			scalar: datum.maxSelectValue === undefined && datum.query === undefined,
-			...(datum.query?.storageInstance === "results:inline" &&
-			queryModule !== undefined
+			...(datum.query !== undefined && queryModule !== undefined
 				? { searchResults: { module: queryModule } }
 				: {}),
 		};
@@ -2984,6 +2995,7 @@ export function projectFormLinkSessionExpression(
 	}
 	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
 	const ownCaseId = ownCaseSessionRef(doc, moduleUuid, form.type, sourceDatums);
+	const search = searchAnswersOf(expressionDoc, structure.moduleUuid, formUuid);
 	const hops = caseTypeHopMap(
 		expressionDoc,
 		expressionDoc.modules[structure.moduleUuid]?.caseType,
@@ -2996,6 +3008,8 @@ export function projectFormLinkSessionExpression(
 		...(rewrites === undefined ? {} : { rewrites }),
 		bindings: {
 			workerProperty: ctx.workerProperty,
+			searchResultInstance: search.resultsInstanceId,
+			searchResultInstances: search.instances,
 			datumId: entryDatumIdResolver(
 				entryDatumIds(doc, ctx, moduleUuid, formUuid),
 			),

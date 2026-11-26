@@ -276,6 +276,7 @@ export function expressionChildren(
 		case "literal":
 		case "choice":
 		case "case-type":
+		case "search-result-field":
 		case "case-row-type":
 		case "case-index":
 		case "session-datum":

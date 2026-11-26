@@ -17,6 +17,7 @@ import { MenuScreenSection } from "./MenuScreenSection";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
 import { ModuleCaseTypeSection } from "./ModuleCaseTypeSection";
 import { ModuleNameSection } from "./ModuleNameSection";
+import { SearchResultsNameSection } from "./SearchResultsNameSection";
 
 /** Shell prop shape: the module being edited plus a dismiss callback
  *  wired from the popover trigger. */
@@ -76,6 +77,7 @@ export function ModuleSettingsPanel({
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
 				<MenuBadgeSection moduleUuid={moduleUuid} />
 				<ControlWording owner={moduleUuid} />
+				<SearchResultsNameSection moduleUuid={moduleUuid} />
 				<CaseListMenuItemSection moduleUuid={moduleUuid} />
 				<AutomaticRecordSection moduleUuid={moduleUuid} />
 				<DisplayConditionSection

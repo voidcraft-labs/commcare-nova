@@ -49,6 +49,8 @@ from urllib.parse import parse_qsl
 
 from lxml import etree
 
+import pytest
+
 from proof.editors import pages, vellum
 from proof.editors.conftest import corpus_document, record_timing
 from proof.hq import operations
@@ -245,6 +247,87 @@ def test_without_save_to_case_vellums_save_drops_each_blocks_case_binds(hq, core
     assert found[False][1] == [], found
 
 
+
+def test_vellum_cannot_keep_an_empty_case_update(hq, core_runner, editor_driver):
+    """The Save to Case parser sees the update, but the designer writes that container only with properties."""
+    document = corpus_document("case-operation-query")
+    case_ns = "{http://commcarehq.org/case/transaction/v2}"
+    role = "{http://commcarehq.org/xforms/vellum}role"
+    with _published(document, "VELLUM_SAVE_TO_CASE", True) as opened:
+        app = operations.held_app(opened.state, opened.app_id)
+        form = next(form for form in app.get_forms() if 'vellum:role="SaveToCase"' in (form.source or ""))
+        tree = etree.fromstring(form.source.encode("utf-8"))
+        wrapper, case = next(
+            (wrapper, case)
+            for wrapper in tree.iter()
+            if wrapper.get(role) == "SaveToCase"
+            for case in wrapper.findall(f"{case_ns}case")
+            if case.find(f"{case_ns}update") is not None and case.find(f"{case_ns}create") is None
+        )
+        wrapper_name = etree.QName(wrapper).localname
+        update = case.find(f"{case_ns}update")
+        for child in list(update):
+            update.remove(child)
+        if case.find(f"{case_ns}close") is None:
+            etree.SubElement(case, f"{case_ns}close")
+
+        block_suffix = f"/{wrapper_name}/case/update/"
+        for bind in list(tree.iter(f"{{{XFORMS}}}bind")):
+            if block_suffix in (bind.get("nodeset") or ""):
+                bind.getparent().remove(bind)
+        form.source = etree.tostring(tree, encoding="unicode")
+        app.save()
+        run = vellum.fresh_open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id)
+
+    assert run.loaded and run.saved, (run.load_error, run.save_refusal, run.question_errors())
+    stored = etree.fromstring(run.stored_source.encode("utf-8"))
+    saved_case = next(
+        block
+        for element in stored.iter()
+        if etree.QName(element).localname == wrapper_name and element.get(role) == "SaveToCase"
+        for block in element.findall(f"{case_ns}case")
+    )
+    assert saved_case.find(f"{case_ns}close") is not None
+    assert saved_case.find(f"{case_ns}update") is None
+
+
+def test_hq_build_adds_the_managed_case_after_an_authored_root_block(hq, core_runner):
+    from corehq.apps.app_manager.models.form_actions import ConditionalCaseUpdate
+
+    document = corpus_document("case-capture-query")
+    case = "{http://commcarehq.org/case/transaction/v2}case"
+    with _published(document, "CHILD_CASES", True) as opened:
+        form = _form(opened.state, opened.app_id, lambda one: bool(one.actions.subcases))
+        original = etree.fromstring(form.source.encode())
+        model = original.find(f".//{{{XFORMS}}}model")
+        primary = next(element for element in model.findall(f"{{{XFORMS}}}instance") if element.get("id") is None)
+        data = primary[0]
+        assert data.find(case) is None
+        root = etree.QName(data)
+        etree.SubElement(data, f"{{{root.namespace}}}managed_name").text = "Managed"
+        form.requires = "case"
+        form.actions.update_case.condition.type = "always"
+        form.actions.update_case.update["name"] = ConditionalCaseUpdate(
+            question_path=f"/{root.localname}/managed_name",
+        )
+        wrapper = etree.SubElement(data, f"{{{etree.QName(data).namespace}}}positioned_case_block")
+        transaction = etree.SubElement(
+            wrapper, case, case_id="existing-patient", date_modified="2026-09-30T10:00:00Z", user_id="u-1",
+        )
+        update = etree.SubElement(transaction, "{http://commcarehq.org/case/transaction/v2}update")
+        etree.SubElement(update, "{http://commcarehq.org/case/transaction/v2}name").text = "Authored"
+        form.source = etree.tostring(original, encoding="unicode")
+
+        rendered = etree.fromstring(form.render_xform())
+        model = rendered.find(f".//{{{XFORMS}}}model")
+        primary = next(element for element in model.findall(f"{{{XFORMS}}}instance") if element.get("id") is None)
+        built = primary[0]
+        order = [etree.QName(element).localname for element in built]
+        assert built.find(f"{{{etree.QName(built).namespace}}}positioned_case_block/{case}") is not None
+        assert built.find(f"{case}/{{http://commcarehq.org/case/transaction/v2}}update/"
+                          "{http://commcarehq.org/case/transaction/v2}case_name") is not None
+        assert order.index("positioned_case_block") < order.index("case")
+
 def _itemsets(source):
     return len(list(etree.fromstring(source.encode("utf-8")).iter(f"{{{XFORMS}}}itemset")))
 
@@ -309,3 +392,76 @@ def test_menu_and_form_settings_keep_the_visible_badge_when_the_worker_app_is_sa
             saved_menu, saved_form = owners()
             assert dict(saved_menu.custom_icon.text) == {"en": "New"}
             assert saved_form.custom_icon.xpath == "1234"
+
+
+def test_vellum_changes_an_android_app_argument_and_keeps_shared_result_destinations(hq, editor_driver):
+    document = corpus_document("targeted-android-app-answers")
+    with _published(document, "CUSTOM_INTENTS", True) as opened:
+        form = next(form for form in operations.held_app(opened.state, opened.app_id).get_forms()
+                    if 'class="org.example.MEASURE"' in form.source)
+        run = vellum.open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id, edit={
+            "way": "builder-model", "path": "/data/visits/meter",
+            "property": "androidIntentExtra", "value": {"unit": "'gallons'"},
+        })
+        assert run.loaded and run.saved, (run.load_error, run.save_refusal)
+        (intent,) = etree.fromstring(run.stored_source.encode()).xpath("//*[local-name()='intent' and @id='meter']")
+        assert intent.xpath("./*[local-name()='extra' and @key='unit']/@ref") == ["'gallons'"]
+        assert intent.xpath("./*[local-name()='response' and @key='measurement']/@ref") == [
+            "/data/visits/description", "/data/visits/reading"]
+        assert intent.getparent().getparent().xpath("//*[local-name()='input' and @appearance='intent:meter']/@ref") == [
+            "/data/visits/meter", "/data/visits/verify"]
+        assert not run.question_errors(), run.question_errors()
+
+
+def test_vellum_keeps_typed_case_choice_sort_and_refs(hq, editor_driver):
+    document = corpus_document("targeted-sorted-case-choices")
+    with _published(document, "LOOKUP_TABLES", True) as opened:
+        (form,) = operations.held_app(opened.state, opened.app_id).get_forms()
+        run = vellum.fresh_open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id)
+        assert run.loaded and run.saved, (run.load_error, run.save_refusal)
+        assert not run.question_errors(), run.question_errors()
+
+        def choices(source):
+            root = etree.fromstring(source.encode())
+            (itemset,) = root.xpath("//*[local-name()='select1' and @ref='/data/sorted']/*[local-name()='itemset']")
+            return {
+                "value": itemset.xpath("./*[local-name()='value']/@ref"),
+                "label": itemset.xpath("./*[local-name()='label']/@ref"),
+                "sort": itemset.xpath("./*[local-name()='sort']/@ref"),
+            }
+
+        expected = {"value": ["@case_id"], "label": ["case_name"], "sort": ["rank"]}
+        assert choices(form.source) == choices(run.stored_source) == expected
+
+        def limited(source):
+            root = etree.fromstring(source.encode())
+            (nodeset,) = root.xpath(
+                "//*[local-name()='select1' and @ref='/data/limited']/*[local-name()='itemset']/@nodeset"
+            )
+            return nodeset
+
+        assert "position() < 3" in limited(form.source)
+        assert limited(run.stored_source) == limited(form.source)
+
+
+
+@pytest.mark.parametrize("open_only", [False, True], ids=["all", "open"])
+def test_vellum_keeps_the_case_itemset_lifecycle_scope(hq, editor_driver, open_only):
+    from proof.observe import visible_case_choice as visible
+
+    document = corpus_document(visible.DOCUMENT)
+    with _published(document, "LOOKUP_TABLES", True) as opened:
+        app = operations.held_app(opened.state, opened.app_id)
+        (form,) = app.get_forms()
+        form.source = visible.source_with_lifecycle(form.source, open_only)
+        app.save()
+        run = vellum.fresh_open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id)
+        assert run.loaded and run.saved, (run.load_error, run.save_refusal)
+        assert not run.question_errors(), run.question_errors()
+        rebuilt = etree.fromstring(run.stored_source.encode())
+        (itemset,) = rebuilt.xpath(
+            "//*[local-name()='select1' and @ref='/data/clinic']/*[local-name()='itemset']"
+        )
+        assert itemset.get("nodeset") == visible.nodeset(open_only)
+        assert itemset.xpath("./*[local-name()='label']/@ref") == ["case_name"]
+        assert itemset.xpath("./*[local-name()='value']/@ref") == ["@case_id"]

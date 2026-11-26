@@ -2640,6 +2640,7 @@
 		"item": "Face Capture (`image/*` + `face`)",
 		"surfaceKeys": [
 			"mug:FaceCapture",
+			"mug:Image",
 			"jr-control:upload",
 			"appearance:android/face",
 			"vellum-feature:face_capture",
@@ -2649,10 +2650,9 @@
 			"xform:upload@appearance"
 		],
 		"valueClass": "face-capture",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `faceCapture` capture kind",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `image.captureSource = face-camera`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (a plain image upload) / RUNS",
@@ -2743,13 +2743,14 @@
 			"vellum-feature:templated_intents",
 			"vellum-feature:custom_intents",
 			"xform:input",
-			"xform:input@ref"
+			"xform:input@ref",
+			"xform:model/bind@type",
+			"mug:Text"
 		],
 		"valueClass": "android-app-callout",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout` field kind (app id, extras, responses)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The Android app action, values sent, and result questions",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (unsupported entry; the literal \"Not Supported by Web Entry\" can be submitted) / RUNS",
@@ -2766,6 +2767,40 @@
 			"markers": []
 		},
 		"gates": ["privilege/templated_intents+custom_intents"]
+	},
+	{
+		"id": "questions/android-app-callout-that-cannot-be-recreated",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Android app callout with no reproducible action or question mapping",
+		"surfaceKeys": [
+			"mug:AndroidIntent",
+			"jr-extension:IntentExtensionParser",
+			"appearance:android/intent:"
+		],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: A device action, source question, argument name or result destination is missing or cannot be recreated by the Android app question editor.",
+		"subject": "question-types",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum binds each Android action to a question with the same ID and writes named argument and response pairs."
+			},
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android skips a returned value when its reference does not resolve to one receiving question in the invoking row. The author can choose a reachable question in the form editor."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"valueClass": "android-app-without-reproducible-action"
 	},
 	{
 		"id": "questions/odkx-intent-appearance-quick",
@@ -3001,7 +3036,7 @@
 		"item": "itemset `<sort ref>`",
 		"surfaceKeys": ["vellum-feature:sorted_itemsets"],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource.sortColumnId` on a lookup source; absent keeps the table's row order",
+		"dispositionCell": "**HELD**: `sortColumnId` for table choices or `sortProperty` for case choices. Omit to keep the source row order",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3099,7 +3134,7 @@
 		],
 		"valueClass": "advanced-data-source",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources; the case choices Nova writes (`optionsSource: cases`) are the row of their own shape",
+		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources; the case choices Nova writes are the row of their own shape",
 		"subject": "question-choices",
 		"owner": "xform",
 		"platforms": {
@@ -3122,7 +3157,7 @@
 		"id": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
 		"area": "questions",
 		"section": "Question types",
-		"item": "itemset over `casedb` whose value is `@case_id`, whose label is one property or attribute, and whose nodeset is the case query Nova writes for a question's case choices (`caseOptions.ts::caseOptionsNodeset`)",
+		"item": "itemset over `casedb` whose value is `@case_id`, over a specified case type or a single select over all of the worker's restored cases or only its open cases, with the case name as label",
 		"surfaceKeys": [
 			"mug:SelectDynamic",
 			"mug:MSelectDynamic",
@@ -3139,7 +3174,7 @@
 		],
 		"valueClass": "case-choices",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource: cases`",
+		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases` with optional `status: open`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3223,7 +3258,7 @@
 		"id": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase create (`case_type` literal, `case_name`, `owner_id`, `uuid()` case id) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
+		"item": "SaveToCase create (`case_type` literal or concatenated string literals, `case_name`, `owner_id`, `uuid()` case id) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": [
 			"mug:SaveToCase",
 			"vellum-plugin:saveToCase",
@@ -3247,7 +3282,7 @@
 		],
 		"valueClass": "savetocase-create",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`",
+		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`. A literal-only concatenation stays a calculation and keeps its empty HQ type metadata. Its fixed value is the operation’s catalog type. A typed conditional choosing between two distinct declared types also keeps its empty HQ type metadata, when it creates a new case, writes the same compatible properties, and supplies no later case change.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3303,11 +3338,11 @@
 		"id": "questions/savetocase-case-type-given-as-an-xpath",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase `case_type` given as an XPath",
+		"item": "SaveToCase `case_type` given as an XPath outside the supported typed create range",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "xpath-case-type",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseOperations[].caseType` expression",
+		"dispositionCell": "**HELD-NEW**: a create with a computed type outside the supported declared range, or a calculated change of type. Every possible type must have a known case schema. Calculations cannot create platform-owned case types.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {
@@ -3322,6 +3357,28 @@
 		},
 		"emission": {
 			"cell": "bind `calculate`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-case-id-expression-on-a-create",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Typed case ID expression on a SaveToCase create",
+		"surfaceKeys": ["xform:setvalue@value", "xform:model/bind@calculate"],
+		"valueClass": "typed-create-case-id",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `target.expr` provides the exact case ID without a derived prefix.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`xforms-ready` setvalue at the root or an `@case_id` calculate in a repeat",
 			"markers": []
 		},
 		"gates": []
@@ -3369,6 +3426,33 @@
 		"valueClass": "keyed-create-in-no-order-nova-holds",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a keyed create beside a change Nova cannot prove is of another case: CommCare HQ's server applies one form's changes to one case by kind, its create first (`form_processor/backends/sql/update_strategy.py::_transaction_sort_key_function`, `CaseTransaction.FORM_TYPE_ACTIONS_ORDER`), while a device applies the form's case blocks in document order (`CaseXmlParser`), and a case id read from an answer may name a case an earlier submission made, so Nova holds such a create only before every change that is no create and, in a repeat, apart from every later change under one row of a case it may be (`lib/doc/caseOperationOrder.ts::caseOperationWireOrderViolationDetails`, `CASE_OPERATION_EXECUTION_ORDER`); every order Nova can write keeps the root's changes before a repeat's (Core runs the root's `nova_operations` first), so HQ's form actions (`usercase_update`, a load's update, a child's close) or a block at the root beside a keyed create in a repeat leave no order Nova holds",
+		"subject": "form-case-management",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a positioned Save to Case block whose effect depends on its order beside a case action that HQ builds",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "positioned-case-change-coupled-to-hq-action",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: HQ adds its root case actions after the authored form and inserts a sole repeat child action at the start of its row (`app_manager/xform.py::_create_casexml`). Independent writes stay supported. If the actions could change the same property or link in a different order, change the type or lifecycle of the same case, or depend on the other action creating it, Nova holds the positioned change.",
 		"subject": "form-case-management",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3476,7 +3560,7 @@
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "own-case-change-beside-the-own-change",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: two changes of the form's own case that write one property or that both close it: CommCare HQ's build appends Case Management's block after every authored node (`app_manager/xform.py::XForm._create_casexml`, `case_parent.append`), a device applies the blocks in the form's order (Core's `CaseXmlParser`), and HQ's server groups a case's blocks and sorts them stably by their first action (`casexml/apps/case/xform.py::get_case_updates`, `order_updates`), so both run and the later block's row stands where it is present; Nova keeps one write of each property of the own case and lets no other change close it, so the own change means the same wherever its block runs (`validator/rules/caseOperations.ts::ownCaseIndependenceFindings`: `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case`, `CASE_OPERATION_CLOSES_OWN_CASE`), and no one change prints both blocks",
+		"dispositionCell": "**HELD-NEW**: two changes of the form's own case that write one property or that both close it: CommCare HQ's build appends Case Management's block after every authored node (`app_manager/xform.py::XForm._create_casexml`, `case_parent.append`), a device applies the blocks in the form's order (Core's `CaseXmlParser`), and HQ's server groups a case's blocks and sorts them stably by their first action (`casexml/apps/case/xform.py::get_case_updates`, `order_updates`), so both run and the later block's row stands where it is present; Nova keeps one write of each property of the own case and lets no other change close it, so the own change means the same wherever its block runs (`validator/rules/caseOperations.ts::ownCaseIndependenceFindings`: `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case`, `CASE_OPERATION_CLOSES_OWN_CASE`), and no one change prints both blocks. On the retained basic follow-up, HQ binds the managed row with `count(question) > 0` independently of `update_case.condition`. With the later answer blank, Formplayer sends an empty row that overwrites the earlier value. Removing the later block leaves the authored value.",
 		"subject": "form-case-management",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3549,14 +3633,36 @@
 		"gates": []
 	},
 	{
+		"id": "questions/a-savetocase-retype-that-keeps-a-date-as-text",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a SaveToCase retype with a date property held as text by the destination type and every other stored value kept unchanged",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "retype-keeps-date-as-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the case update preserves the original ISO date string as text. Core and CommCare HQ leave the property in place when updating case_type. Nova stores the date as the same JSON string a text property accepts and validates the retained values against the destination type before committing.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "case_type update",
+			"markers": ["printed"]
+		},
+		"slotChanges": [],
+		"gates": []
+	},
+	{
 		"id": "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a SaveToCase `case_type` row that gives a case a type whose property of a name the case's earlier type holds is of another type (a date the earlier type's writers save beside text the later type's writers save under one name)",
+		"item": "a SaveToCase `case_type` row that gives a case a type whose property of a name the case's earlier type holds is of another type where an existing value would need conversion (for example, text that the later type would read as a date)",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "type-change-to-a-type-holding-a-property-as-another-type",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a change of a case's type that keeps a value the later type holds as another type: a device and CommCare HQ's server change only the case's type and keep every property as it is (Core's `CaseXmlParser.updateCase`, `setTypeId`; HQ's `update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`, `_update_known_properties`, which leaves `case_json` as it was), while Nova keeps a case's properties typed by its case type and changes a case's type only where every property the earlier type holds is held by the later one as the same type (`lib/domain/caseRetype.ts::planCaseRetype`, `CASE_OPERATION_RETYPE_UNSAFE`). A property the later type holds nowhere, or holds only through a read that no writer of its own and no declaration types, is carried onto it as the earlier type types it (`caseManagement/catalog.ts::carryRetypedProperties`)",
+		"dispositionCell": "**HELD-NEW**: a change of a case's type that keeps a value the later type holds as another type: a device and CommCare HQ's server change only the case's type and keep every property as it is (Core's `CaseXmlParser.updateCase`, `setTypeId`; HQ's `update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`, `_update_known_properties`, which leaves `case_json` as it was), while Nova keeps a case's properties typed by its case type and changes a case's type only where every property the earlier type holds is kept unchanged by the later one. Same-type properties and dates carried as text keep their stored values (`lib/domain/caseRetype.ts::planCaseRetype`, `CASE_OPERATION_RETYPE_UNSAFE`). A property the later type holds nowhere, or holds only through a read that no writer of its own and no declaration types, is carried onto it as the earlier type types it (`caseManagement/catalog.ts::carryRetypedProperties`)",
 		"subject": "save-to-case",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3902,15 +4008,15 @@
 		"item": "a close-only SaveToCase block with a Close Condition",
 		"surfaceKeys": [
 			"mug:SaveToCase",
+			"xform:model/bind@relevant",
 			"vellum-plugin:saveToCase",
 			"jr-type:dateTime",
 			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "savetocase-close-only",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: two operations sharing the block: an update with no writes, which touches the case (a transaction and a new `modified_on`) on every submission that reaches the block, and a close under the Close Condition, since Vellum puts it on `…/case/close` alone (`saveToCase.js`; HQ processes a case block with no action, `form_processor/backends/sql/update_strategy.py`); Nova's close condition gates the whole block today",
-		"subject": "save-to-case",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a close condition on the close leaf. A false condition leaves a childless transaction, which contributes HQ history without changing the case before sync.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3932,12 +4038,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a SaveToCase block that creates or updates and also closes (under its own Close Condition) or closes and links",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@relevant"],
 		"valueClass": "write-and-close",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: two operations sharing the block, the create or update and a close of the same case under the block's Close Condition (Vellum makes only create and update exclusive, `saveToCase.js`, and puts the Close Condition on `…/case/close` alone; Nova's close arm today gates the whole operation and takes no links)",
-		"subject": "save-to-case",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: one change with a create or update and a close of the same case. Its close condition applies to the close leaf.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3984,11 +4089,37 @@
 		"id": "questions/savetocase-owner-id-condition",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase Owner ID Condition",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"item": "SaveToCase Owner ID Condition on a create with a fresh case ID",
+		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@relevant"],
 		"valueClass": "owner-id-condition",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `ownerCondition` on the create's owner leaf. When the condition is false, the submitting worker owns the new case.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`relevant` on the `owner_id` bind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-owner-condition-on-an-aliased-create",
+		"area": "questions",
+		"section": "Question types",
+		"item": "SaveToCase Owner ID Condition on a create that can reuse an existing case ID",
+		"surfaceKeys": ["xform:model/bind@relevant"],
+		"valueClass": "aliased-create-owner-id-condition",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a condition on the owner write (Vellum writes it as `relevant` on the `create/owner_id` leaf, and a non-relevant owner is left out of the block)",
+		"dispositionCell": "**HELD-NEW**: If the owner leaf is absent, HQ preserves an existing owner and CommCare Core assigns the submitting worker.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {
@@ -4002,7 +4133,56 @@
 			}
 		},
 		"emission": {
-			"cell": "`relevant` on the `owner_id` bind",
+			"cell": "`relevant` on the `create/owner_id` bind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-update-owner-condition",
+		"area": "questions",
+		"section": "Question types",
+		"item": "SaveToCase owner update condition on a create, worker-record or unsupported shared-update block",
+		"surfaceKeys": ["xform:model/bind@relevant"],
+		"valueClass": "update-owner-id-condition",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: These shapes require a separate owner effect or a matching scoped selection carrier.",
+		"subject": "save-to-case",
+		"owner": "xform",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`relevant` on the `update/owner_id` bind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-targeted-update-owner-condition",
+		"area": "questions",
+		"section": "Question types",
+		"item": "SaveToCase condition on the owner leaf of a targeted case update",
+		"surfaceKeys": ["xform:model/bind@relevant"],
+		"valueClass": "targeted-update-owner-id-condition",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The owner changes only when the condition holds. Other case effects still run.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`relevant` on the `update/owner_id` bind",
 			"markers": []
 		},
 		"gates": []
@@ -4041,11 +4221,11 @@
 		"id": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a SaveToCase `index/<name>` whose name is outside `[A-Za-z_][A-Za-z0-9_]*`, or is a name CommCare HQ's form builder reads as the block's own action (`create`, `close`)",
+		"item": "A SaveToCase link identifier outside the supported link names after the known HQ save failures are accounted for",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "link-name-outside-identifier-grammar",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an index name Nova's link identifier cannot spell (`caseOperationIdentifiers.ts::CASE_OPERATION_IDENTIFIER_REGEX`, `questionId.ts::caseOperationLinkNameProblem`, as the gate refuses it under `CASE_OPERATION_LINK_INVALID`); the name is a key of case data, so no rename keeps it",
+		"dispositionCell": "**HELD-NEW**: separately classify remaining link identifiers without changing keys already in case data.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {
@@ -4055,6 +4235,58 @@
 		"emission": {
 			"cell": "omit",
 			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-link-name-changes-actions-on-save",
+		"area": "questions",
+		"section": "Question types",
+		"item": "A SaveToCase index named for an action absent from the block",
+		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
+		"valueClass": "index-name-adds-action",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum reads a descendant named create or close as an action, so it adds that action on save.",
+		"subject": "save-to-case",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum reads a descendant named create or close as an action, so it adds that action on save."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-link-bind-lost-on-save",
+		"area": "questions",
+		"section": "Question types",
+		"item": "A SaveToCase link containing a period loses its calculation on save",
+		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
+		"valueClass": "index-period-loses-bind",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum cannot bind the link path containing a period, so its calculation is lost on save.",
+		"subject": "save-to-case",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum cannot bind the link path containing a period, so its calculation is lost on save."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -6082,7 +6314,11 @@
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
 		"item": "a default other than the blank string on an image, audio, video, signature or file question: a file name, or an expression that can give one",
-		"surfaceKeys": ["xform:model/instance//*", "xform:setvalue@value"],
+		"surfaceKeys": [
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"xform:setvalue@value"
+		],
 		"valueClass": "other-than-blank-on-capture",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Web Apps clears the starting file as the form opens and submits nothing for it, and Android looks for the file in the form's own folder and can't open the form. Leaving the starting value blank in the form builder fixes it.",
@@ -7914,10 +8150,9 @@
 		"item": "`intent:<id>` on any `<input>` other than an intent-typed one, where `<id>` is the tag of a callout question in the same form",
 		"surfaceKeys": ["appearance:android/intent:"],
 		"valueClass": "intent-on-other-input",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
-		"subject": "question-appearance",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The question supplying the Android app",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (the ordinary entry) / RUNS (Android builds the intent widget for any input, `WidgetFactory`)",
@@ -9667,18 +9902,39 @@
 			"itext-form:hq/video-inline"
 		],
 		"valueClass": "other-text",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an inline video on a text other than a question's label, which no runtime shows (Android asks a question's label alone for it, `QuestionWidget.java`; Formplayer sends no such form, `PromptToJson`) while HQ ships its file (`xform.py::video_references`)",
-		"subject": "question-media",
-		"owner": "question-display",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: Android reads inline video only from question labels (`QuestionWidget.java`). Formplayer sends no inline video (`PromptToJson`). CommCare HQ packages the file (`xform.py::video_references`), so Nova lists the unused reference in the first-publish review.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "—",
-			"markers": []
+			"cell": "omit",
+			"markers": ["omit"]
 		},
+		"gates": []
+	},
+	{
+		"id": "questions/video-inline-as-the-only-content-of-a-help-text",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "A help text carrying inline video alone",
+		"surfaceKeys": [
+			"itext-form:android/video-inline",
+			"itext-form:hq/video-inline"
+		],
+		"valueClass": "empty-help-with-inline-video",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: Core's `hasHelp` detects the help element itself. Omitting an otherwise empty entry would remove its Android help button.",
+		"subject": "question-text",
+		"owner": "question-display",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": { "reading": "ignored" },
+			"android": { "reading": "runs" }
+		},
+		"emission": { "cell": "help presence", "markers": [] },
 		"gates": []
 	},
 	{
@@ -9825,10 +10081,9 @@
 		"item": "`long` form on a hint, a help text, a validation message or a choice",
 		"surfaceKeys": ["itext-form:core/long"],
 		"valueClass": "other-text",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an extended text on a hint, a help text, a validation message or a choice (both runtimes show it in place of the text: Core reads `long` first and the default after it, `FormEntryPrompt.getSelectItemText` for a choice and `FormEntryCaption.getQuestionText` for a hint, a help text and a validation message its alert names, which Formplayer sends and Android draws)",
-		"subject": "question-text",
-		"owner": "question-display",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: localized extended prose on the hint, help, validation message or inline choice",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9852,10 +10107,9 @@
 		"item": "`long` form on a group's or repeat's label",
 		"surfaceKeys": ["itext-form:core/long"],
 		"valueClass": "container-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an extended text on a group, repeat or section label (both runtimes show it as the group's header where the label has no markdown form: Android `QuestionsView.java` reads `getLongText()`, Formplayer sends it as `caption`)",
-		"subject": "question-text",
-		"owner": "question-display",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an extended text on a group, repeat or section label (both runtimes show it as the group's header where the label has no markdown form: Android `QuestionsView.java` reads `getLongText()`, Formplayer sends it as `caption`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9870,6 +10124,19 @@
 			"cell": "`form=\"long\"`",
 			"markers": []
 		},
+		"gates": []
+	},
+	{
+		"id": "questions/long-form-on-a-repeat-action-caption",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "`long` form on a repeat action caption",
+		"surfaceKeys": ["itext-form:core/long"],
+		"valueClass": "repeat-action-caption",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: Core's `FormEntryCaption.getCaptionText` looks up the default value only for custom repeat action captions. The repeat label's extended text still supplies the default action's title.",
+		"platforms": { "kind": "not-applicable", "cell": "n/a" },
+		"emission": { "cell": "omit", "markers": ["omit"] },
 		"gates": []
 	},
 	{
@@ -10960,10 +11227,9 @@
 		"item": "a question text (label, hint, help, validation message, repeat add caption or choice label) whose itext id is `Pragma-Volatility-Key`, or `Pragma-Volatility-Entity-Title` or `Pragma-Volatility-Window` in a form with a `Pragma-Volatility-Key` text, where HQ's build keeps the entry: no other itext entry has identical values in every language and form under an id that sorts before it, which HQ's build merges it into, keeping the first id and pointing every reference there (`XForm.normalize_itext`, run on every build by `FormBase.add_stuff_to_xform`; executed) (Vellum lets an author set a text's itext id, `javaRosa/itextWidget.js::iTextIDWidget`)",
 		"surfaceKeys": ["xform:model/itext/translation/text@id"],
 		"valueClass": "pragma-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the form's Web Apps activity notice (its key, title and window), which needs Preview to keep each worker's opens and submissions of the form for the evaluated key and show the notice another worker reads",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form’s Web Apps activity notice keeps the key, optional title and optional interval as the identities of their form texts",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (`FormSession.getPragma`) / IGNORED",
@@ -11034,10 +11300,9 @@
 		"item": "a question text whose itext id is `Pragma-Form-Descriptor`, where HQ's build keeps the entry (as above)",
 		"surfaceKeys": ["xform:model/itext/translation/text@id"],
 		"valueClass": "pragma-form-descriptor",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the form's saved-form descriptor",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the identity of the text Android evaluates when saving a form, with any other slots that share it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (`SaveToDiskTask` → Core `FormMetaIndicatorUtil`)",

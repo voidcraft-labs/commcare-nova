@@ -35,6 +35,7 @@ import {
 } from "./tools/managedData";
 import { registerMoveApp } from "./tools/moveApp";
 import { registerPlaceIdWorkbook } from "./tools/placeIdWorkbook";
+import { registerProjectSearchDestinations } from "./tools/projectSearchDestinations";
 import { registerProvisionWorkers } from "./tools/provisionWorkers";
 import { registerReadHqApp } from "./tools/readHqApp";
 import { registerReadHqChanges } from "./tools/readHqChanges";
@@ -60,6 +61,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerCompileApp(server, ctx);
 	registerPlaceIdWorkbook(server, ctx);
 	registerExportResource(server, ctx);
+	registerProjectSearchDestinations(server, ctx);
 	registerGetHqConnection(server, ctx);
 	registerListHqApps(server, ctx);
 	registerReadHqApp(server, ctx);

@@ -31,6 +31,11 @@ import {
 	barcodeFieldSchema,
 } from "./barcode";
 import {
+	type CaseChangeField,
+	caseChangeFieldMetadata,
+	caseChangeFieldSchema,
+} from "./caseChange";
+import {
 	type ConnectActivityField,
 	connectActivityFieldMetadata,
 	connectActivityFieldSchema,
@@ -138,6 +143,7 @@ export const fieldKinds = [
 	"signature",
 	"label",
 	"hidden",
+	"case_change",
 	"connect_activity",
 	"secret",
 	"group",
@@ -239,6 +245,7 @@ const fieldUnionSchema = z.union([
 		signatureFieldSchema,
 		labelFieldSchema,
 		hiddenFieldSchema,
+		caseChangeFieldSchema,
 		connectActivityFieldSchema,
 		secretFieldSchema,
 		groupFieldSchema,
@@ -274,6 +281,7 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	signature: signatureFieldMetadata,
 	label: labelFieldMetadata,
 	hidden: hiddenFieldMetadata,
+	case_change: caseChangeFieldMetadata,
 	connect_activity: connectActivityFieldMetadata,
 	secret: secretFieldMetadata,
 	group: groupFieldMetadata,
@@ -324,6 +332,7 @@ const fieldKindKeySets: Record<FieldKind, ReadonlySet<string>> = {
 	signature: new Set(Object.keys(signatureFieldSchema.shape)),
 	label: new Set(Object.keys(labelFieldSchema.shape)),
 	hidden: new Set(Object.keys(hiddenFieldSchema.shape)),
+	case_change: new Set(Object.keys(caseChangeFieldSchema.shape)),
 	connect_activity: new Set(Object.keys(connectActivityFieldSchema.shape)),
 	secret: new Set(Object.keys(secretFieldSchema.shape)),
 	group: new Set(Object.keys(groupFieldSchema.shape)),
@@ -651,6 +660,16 @@ export function reconcileFieldForKind(
 		(toKind === "audio") !== (candidate.captureSource === "record-or-choose")
 	)
 		delete candidate.captureSource;
+	// Only a text question owns an Android action. Other supported inputs
+	// may still invoke a different question's action. The commit gate checks
+	// that no other input is left without its source by this conversion.
+	if (
+		toKind !== "text" &&
+		source.kind === "text" &&
+		source.androidApp?.kind === "open-app"
+	) {
+		delete candidate.androidApp;
+	}
 	const filtered = pickFieldKeysForKind(candidate, toKind);
 	const result = fieldSchema.safeParse(filtered);
 	if (!result.success) return undefined;
@@ -799,6 +818,7 @@ export const fieldPatchSchemaByKind = {
 	signature: partialOf(signatureFieldSchema),
 	label: partialOf(labelFieldSchema),
 	hidden: partialOf(hiddenFieldSchema),
+	case_change: partialOf(caseChangeFieldSchema),
 	connect_activity: partialOf(connectActivityFieldSchema).extend({
 		activity: connectActivityFieldSchema.shape.activity.optional(),
 	}),
@@ -848,10 +868,15 @@ export {
 	selectOptionSchema,
 } from "./base";
 export {
+	type AvailableCasesOptionsSource,
+	availableCasesOptionsSourceSchema,
 	type CaseOptionsSource,
 	caseOptionsSourceSchema,
+	type DeviceCaseOptionsSource,
 	type InlineOptionsSource,
 	inlineOptionsSourceSchema,
+	isDeviceCaseOptionsSource,
+	optionsSourceFilter,
 	type SelectOptionsSource,
 	selectOptionsSourceSchema,
 } from "./selectOptionsSource";
@@ -859,6 +884,7 @@ export {
 export type {
 	AudioField,
 	BarcodeField,
+	CaseChangeField,
 	ConnectActivityField,
 	CountBoundRepeatField,
 	DateField,

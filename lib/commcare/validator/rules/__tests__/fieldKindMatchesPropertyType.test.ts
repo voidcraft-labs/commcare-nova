@@ -180,7 +180,11 @@ describe("case writer type admission", () => {
 				...base,
 				fields: {
 					...base.fields,
-					[writer.uuid]: { ...writer, kind: "int" as const },
+					[writer.uuid]: {
+						...writer,
+						androidApp: undefined,
+						kind: "int" as const,
+					},
 				},
 			});
 			expect(findings(candidate).map((error) => error.code)).toEqual([

@@ -99,6 +99,10 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
+import {
+	planSearchInputGroups,
+	type SearchGroupLayout,
+} from "@/lib/doc/searchInputGroupMutations";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -134,6 +138,7 @@ import {
 import { formContextPatch } from "@/lib/domain/caseFormContext";
 import type { Expression } from "@/lib/domain/expression";
 import { resolveAppLanguage } from "@/lib/domain/localization";
+import { requestedRecordTypes } from "@/lib/domain/modules";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
@@ -1398,7 +1403,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				searchInputUpdateMutation(
 					requireRetainedModuleUuid(moduleUuid),
 					current,
-					withPreservedIdentity(current, next),
+					{ ...withPreservedIdentity(current, next), group: current.group },
 				),
 			]),
 		);
@@ -1585,11 +1590,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		searchConfig,
 		tab,
 	]);
-	const addInput = (property: CaseProperty) => {
-		// The canvas owns the meaningful choice. This layer carries it into a
-		// working input with a unique internal name, a matching widget, and the
-		// established per-type match default.
-		const seed = seedSearchInputForProperty(config, property, projectProse);
+	const insertSearchField = (seed: SearchInputDef) => {
 		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
 		const outcome = commitMany(
 			withWorkflowAfterInputChange(docApi.getState(), [
@@ -1597,39 +1598,67 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				{
 					kind: "addSearchInput",
 					moduleUuid: retainedModuleUuid,
-					searchInput: seed,
-				},
-			]),
-		);
-		// Never select an identity the gate refused to create. The gate can still
-		// reject a concurrent structural edit even though the seed was valid when
-		// this interaction began.
-		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
-	};
-	const addHiddenInput = () => {
-		// A hidden value names no case information, so there is nothing to
-		// choose first: the seed is the search time, and the inspector opens on
-		// its expression.
-		const seed = seedHiddenSearchInput(config);
-		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
-		const outcome = commitMany(
-			withWorkflowAfterInputChange(docApi.getState(), [
-				enableCaseSearchMutation(retainedModuleUuid, searchConfig),
-				{
-					kind: "addSearchInput",
-					moduleUuid: retainedModuleUuid,
-					searchInput: seed,
+					searchInput: {
+						...seed,
+						...(config.searchInputGroups?.at(-1)?.uuid && {
+							group: config.searchInputGroups.at(-1)?.uuid,
+						}),
+					},
 				},
 			]),
 		);
 		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
+		return outcome.ok;
 	};
-	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
-		moveSearchInputToIndex(
-			requireRetainedModuleUuid(moduleUuid),
-			uuid,
-			toIndex,
+	const addInput = (property: CaseProperty) =>
+		insertSearchField(
+			seedSearchInputForProperty(config, property, projectProse),
 		);
+	const addParameterInput = (name: string, label: string) =>
+		insertSearchField({
+			kind: "parameter",
+			uuid: newUuid(),
+			name,
+			label,
+			type: "text",
+			sendAnswer: true,
+		});
+	const addHiddenInput = () => insertSearchField(seedHiddenSearchInput(config));
+	const updateSearchGroups = (groups: readonly SearchGroupLayout[]) => {
+		const uuid = requireRetainedModuleUuid(moduleUuid);
+		const current = docApi.getState().modules[uuid]?.caseListConfig;
+		if (current === undefined) return;
+		const change = planSearchInputGroups(uuid, current, groups);
+		if ("mutations" in change) inline.commitMany(change.mutations);
+	};
+	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) => {
+		if (!config.searchInputGroups)
+			return moveSearchInputToIndex(
+				requireRetainedModuleUuid(moduleUuid),
+				uuid,
+				toIndex,
+			);
+		const position = config.searchInputs.findIndex(
+			(input) => input.uuid === uuid,
+		);
+		const target = config.searchInputs[toIndex];
+		if (position < 0 || !target || position === toIndex) return;
+		const reordered = config.searchInputs.filter(
+			(input) => input.uuid !== uuid,
+		);
+		reordered.splice(toIndex, 0, {
+			...config.searchInputs[position],
+			group: target.group,
+		});
+		updateSearchGroups(
+			config.searchInputGroups.map((group) => ({
+				...group,
+				inputs: reordered
+					.filter((input) => input.group === group.uuid)
+					.map((input) => input.uuid),
+			})),
+		);
+	};
 	const updateSearchFilter = useCallback(
 		(
 			edit: NonNullable<
@@ -2348,8 +2377,10 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		resultsDependencyReview,
 		configureSearchAction,
 		addInput,
+		addParameterInput,
 		addHiddenInput,
 		moveInput,
+		updateSearchGroups,
 		addColumn,
 		addCalculatedColumn,
 		moveColumn,
@@ -2581,8 +2612,10 @@ export function CaseListWorkspaceCanvas() {
 		resultsDependencyReview,
 		configureSearchAction,
 		addInput,
+		addParameterInput,
 		addHiddenInput,
 		moveInput,
+		updateSearchGroups,
 		addColumn,
 		addCalculatedColumn,
 		moveColumn,
@@ -2648,6 +2681,8 @@ export function CaseListWorkspaceCanvas() {
 						{searchConditionSurface ?? (
 							<SearchCanvas
 								searchInputs={config.searchInputs}
+								searchInputGroups={config.searchInputGroups}
+								onUpdateSearchGroups={updateSearchGroups}
 								searchConfig={searchConfig}
 								caseTypes={caseTypes}
 								currentCaseType={caseType}
@@ -2655,6 +2690,7 @@ export function CaseListWorkspaceCanvas() {
 								onSelect={setSel}
 								onConfigureSearchAction={configureSearchAction}
 								onAddInput={addInput}
+								onAddParameterInput={addParameterInput}
 								onAddHiddenInput={addHiddenInput}
 								addInputDisabledReason={addDisabledReason}
 								{...(formsAboveSearchNote !== undefined && {
@@ -2737,6 +2773,15 @@ export function CaseListWorkspaceCanvas() {
 							onApplyTilePreset={applyTilePreset}
 							onTilePersistOnFormsChange={setTilePersistOnForms}
 							onCaseSelectionChange={setCaseSelection}
+							onDeviceLookupChange={(next) =>
+								commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: { deviceLookup: next },
+									},
+								])
+							}
 							onWordingChange={(slot, next) =>
 								commitLayout([
 									{
@@ -3047,6 +3092,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 					: "Search action",
 				body: (
 					<SearchPanelInspectorBody
+						requestedTypes={requestedRecordTypes(args.caseType, config)}
 						moduleUuid={args.moduleUuid}
 						value={effectiveSearch}
 						onChange={args.onSearchConfigChange}

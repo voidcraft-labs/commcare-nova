@@ -74,6 +74,25 @@ describe("module hierarchy shared tools", () => {
 		expect(harness.currentDoc().modules[ROUTE]?.menuLayout).toBeUndefined();
 	});
 
+	it("names, reads and clears the results of an inactive search through the shared tools", async () => {
+		const doc = expectAdmittedDoc(rootDoc());
+		const moduleUuid = doc.moduleOrder[0];
+		const harness = makeToolWorkspaceHarness(doc);
+		for (const name of ["Région2", null]) {
+			const changed = await harness.runTool(updateModuleTool, {
+				moduleUuid,
+				searchResultsName: name,
+			});
+			if ("error" in changed.result) throw new Error(changed.result.error);
+			const found = await harness.runTool(getModuleTool, { moduleUuid });
+			if ("error" in found.data) throw new Error(found.data.error);
+			expect(found.data.searchResultsName).toBe(name);
+			expect(
+				harness.currentDoc().modules[moduleUuid].caseSearchConfig,
+			).toBeUndefined();
+		}
+	});
+
 	it("creates a child record viewer and reads back parent and child identities", async () => {
 		const doc = expectAdmittedDoc(rootDoc());
 		const parentModuleUuid = doc.moduleOrder[0];

@@ -17,6 +17,7 @@ const COUNT_FORMAT = new Intl.NumberFormat("en-US");
 
 /** The sentence for each refusal, which a route answers as `error` beside the code. */
 export const READING_REFUSAL_COPY: Readonly<Record<ReadingRefusal, string>> = {
+	session_ended: "Your sign-in has ended. Sign in again to continue.",
 	no_project_access:
 		"You don't have edit access to this Project, so Nova can't add an app to it. You can choose another Project, or ask one of its admins for edit access.",
 	invalid_input:

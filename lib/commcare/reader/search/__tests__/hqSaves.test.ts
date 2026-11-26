@@ -8,7 +8,7 @@
  *   `receiver_expression` and `default_value`, which the Case List page writes on every save),
  *   and a `required` whose test is blank, are the key absent, and so are the registry's
  *   workflow and extra cases where no registry is named;
- * - `additional_case_types` naming another type is refused on a menu that offers no search as on
+ * - `additional_case_types` naming a type without a menu is refused on a menu that offers no search as on
  *   one that does, since HQ's build widens the menu's own list by it, and naming only the menu's
  *   own type is the key absent;
  * - a prompt without `exclude` whose name Nova's property grammar refuses, or that HQ reads as
@@ -197,17 +197,19 @@ describe("the blanks HQ's Case List page writes", () => {
 });
 
 describe("additional case types", () => {
-	it("are refused on a menu that offers no search, whose list they widen", async () => {
+	it("name a type without a menu on an ordinary list", async () => {
 		const reading = await readLists(patients(COLUMNS), {
 			edit: (app) => {
 				searchConfig(app).additional_case_types = ["household"];
 			},
 			firstPassOnly: true,
 		});
-		expect(codes(reading)).toContain("case-search/additional-case-types");
+		expect(codes(reading)).toContain(
+			"case-search/additional-record-type-without-menu",
+		);
 	});
 
-	it("are refused on a menu that searches", async () => {
+	it("name a type without a menu on a search-enabled list", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, { searchInputs: [NOTES] }),
 			{
@@ -217,17 +219,21 @@ describe("additional case types", () => {
 				firstPassOnly: true,
 			},
 		);
-		expect(codes(reading)).toContain("case-search/additional-case-types");
+		expect(codes(reading)).toContain(
+			"case-search/additional-record-type-without-menu",
+		);
 	});
 
-	it("are refused where they name the menu's own type beside another", async () => {
+	it("still refuse an unavailable type beside the menu’s own", async () => {
 		const reading = await readLists(patients(COLUMNS), {
 			edit: (app) => {
 				searchConfig(app).additional_case_types = ["patient", "household"];
 			},
 			firstPassOnly: true,
 		});
-		expect(codes(reading)).toContain("case-search/additional-case-types");
+		expect(codes(reading)).toContain(
+			"case-search/additional-record-type-without-menu",
+		);
 	});
 
 	it.each([

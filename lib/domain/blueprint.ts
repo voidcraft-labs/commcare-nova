@@ -25,7 +25,14 @@ import {
 	missingConnectRoleMessage,
 } from "./fields/connectActivity";
 import { formSchema } from "./forms";
-import { appLocalizationSchema } from "./localization";
+import {
+	installationProfileChangeSchema,
+	installationProfileSchema,
+} from "./installationProfiles";
+import {
+	appLocalizationSchema,
+	effectiveAppLocalization,
+} from "./localization";
 import { projectedModulePreorder } from "./moduleHierarchy";
 import { isOwnerOnlyCaseSearchConfig, moduleSchema } from "./modules";
 import { mediaAssetIdSchema } from "./multimedia";
@@ -106,9 +113,34 @@ export const APP_GENESIS_FALLBACK_NAME = "Untitled";
  * `platforms.ts::declaredPlatforms` is the one reader of its meaning.
  * `setAppSettings` patches the object.
  */
+const projectSearchName = z.string().trim().min(1);
+const projectSearchEdit = z.discriminatedUnion("operation", [
+	z.strictObject({
+		operation: z.literal("add"),
+		uuid: uuidSchema,
+		name: projectSearchName,
+	}),
+	z.strictObject({
+		operation: z.literal("rename"),
+		uuid: uuidSchema,
+		name: projectSearchName,
+	}),
+	z.strictObject({ operation: z.literal("remove"), uuid: uuidSchema }),
+]);
+
 export const appSettingsSchema = z.strictObject({
 	captureLocation: z.literal(true).optional(),
 	caseSharing: z.boolean().optional(),
+	/** Searches that a connected project space runs. Only the display name
+	 * lives here; the destination owns the query and its connection. */
+	projectSearches: ownRecordSchema(
+		uuidSchema,
+		z.strictObject({ name: projectSearchName }),
+	).optional(),
+	installationProfiles: ownRecordSchema(
+		uuidSchema,
+		installationProfileSchema,
+	).optional(),
 	showSavedForms: z.boolean(),
 	showIncompleteForms: z.boolean(),
 	firstMenuLayout: z.literal("grid").optional(),
@@ -128,6 +160,8 @@ export const appSettingsPatchSchema = z
 	.strictObject({
 		captureLocation: z.boolean().optional(),
 		caseSharing: z.boolean().nullable().optional(),
+		projectSearch: projectSearchEdit.optional(),
+		installationProfile: installationProfileChangeSchema.optional(),
 		showSavedForms: z.boolean().optional(),
 		showIncompleteForms: z.boolean().optional(),
 		firstMenuLayout: z.literal("grid").nullable().optional(),
@@ -293,6 +327,35 @@ export function blueprintTopologyIssues(
 		}
 	};
 
+	for (const key of Object.keys(doc.appSettings.projectSearches ?? {}))
+		registerIdentity(key, "projectSearch", [
+			"appSettings",
+			"projectSearches",
+			key,
+		]);
+	const languages = new Set(
+		effectiveAppLocalization(doc.localization).languageOrder,
+	);
+	for (const [key, profile] of Object.entries(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		const path = ["appSettings", "installationProfiles", key];
+		registerIdentity(profile.uuid, "installation profile", path);
+		if (profile.uuid !== key)
+			topologyIssue(
+				issues,
+				path,
+				"The installation profile must keep its identity.",
+			);
+		for (const language of profile.languages) {
+			if (!languages.has(language))
+				topologyIssue(
+					issues,
+					[...path, "languages"],
+					`“${profile.name || "Unnamed profile"}” uses ${language}. You can choose a different language in the installation profile before removing it from the app.`,
+				);
+		}
+	}
 	registerRecord("modules", doc.modules);
 	registerRecord("forms", doc.forms);
 	registerRecord("fields", doc.fields);
@@ -304,6 +367,37 @@ export function blueprintTopologyIssues(
 	registerRecord("automations", doc.automations ?? {});
 
 	for (const [moduleUuid, module] of Object.entries(doc.modules)) {
+		const config = module.caseSearchConfig;
+		if (config && "projectSearch" in config && config.projectSearch) {
+			const path = ["modules", moduleUuid, "caseSearchConfig", "projectSearch"];
+			if (
+				!Object.hasOwn(
+					doc.appSettings.projectSearches ?? {},
+					config.projectSearch.searchUuid,
+				)
+			)
+				topologyIssue(
+					issues,
+					[...path, "searchUuid"],
+					"Choose a project search that this app uses.",
+				);
+			for (const [index, parameter] of config.projectSearch.defaults.entries())
+				registerIdentity(parameter.uuid, "search parameter", [
+					...path,
+					"defaults",
+					index,
+					"uuid",
+				]);
+			if (
+				!config.projectSearch.defaults.length &&
+				!module.caseListConfig?.searchInputs.length
+			)
+				topologyIssue(
+					issues,
+					path,
+					"Add a search field or a starting parameter so workers can run this search.",
+				);
+		}
 		if (
 			isOwnerOnlyCaseSearchConfig(module.caseSearchConfig) &&
 			((module.caseListConfig?.searchInputs.length ?? 0) > 0 ||

@@ -29,6 +29,7 @@ import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
 import { caseFormContext } from "./case-list/caseFormContext";
+import { caseListDeviceLookup } from "./case-list/caseListDeviceLookup";
 import { caseListLoadBehavior } from "./case-list/caseListLoadBehavior";
 import { caseMapLayers } from "./case-list/caseMapLayers";
 import { caseTileGrouping } from "./case-list/caseTileGrouping";
@@ -98,7 +99,7 @@ function localizedMenuMedia(
 			? mod.caseListRegistrationForm
 			: undefined,
 	]) {
-		const problem = navigationMediaProblem(carrier, app);
+		const problem = navigationMediaProblem(carrier, app, doc);
 		if (problem)
 			return [
 				validationError(
@@ -377,6 +378,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	detailTabTypeCheck,
 	detailTabPartition,
 	caseListLoadBehavior,
+	caseListDeviceLookup,
 	caseFormContext,
 	imageMapValueUnique,
 	idMappingKeyCharacters,
