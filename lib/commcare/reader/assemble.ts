@@ -1568,6 +1568,7 @@ function sourceSearchGroupKey(
 	| {
 			readonly canonical: boolean;
 			readonly destination?: string;
+			readonly owner?: string;
 			readonly unit?: TranslationUnitId;
 	  }
 	| undefined {
@@ -1596,6 +1597,13 @@ function sourceSearchGroupKey(
 	if (
 		!/^[A-Za-z][A-Za-z0-9_-]*$/.test(group) ||
 		/^group_header_[0-9]+$/.test(group)
+	)
+		return legacy;
+	const member = rows[index + 1];
+	if (
+		!isJsonObject(member) ||
+		member.is_group === true ||
+		member.group_key !== group
 	)
 		return legacy;
 	const row = rows[index];
@@ -1627,6 +1635,7 @@ function sourceSearchGroupKey(
 		: {
 				...legacy,
 				destination: searchGroupLocaleId(menu, canonicalKey),
+				owner: `${module.json.pointer}/search_config/properties/${index}/group_key`,
 				unit: generatedWordingId(typed.uuid, "searchGroupHeading"),
 			};
 }
@@ -1829,7 +1838,7 @@ function decideGeneratedKeys(
 	const units = snapshotTranslationUnits(doc);
 	const classified: HeldGeneratedKey[] = [];
 	const verdicts = new Map<string, GeneratedKeyVerdict>();
-	const moved = new Map<HeldTranslationKey, string>();
+	const moved = new Map<HeldTranslationKey, { key: string; owner: string }>();
 	const stored = new Set(reading.generatedKeys.map((one) => one.key));
 	for (const { held, target } of left) {
 		if (typeof held.value !== "string" || !readWhole(ctx, held.key, target))
@@ -1853,6 +1862,7 @@ function decideGeneratedKeys(
 			// while the saved query cannot see it. Leave that collision for review.
 			if (
 				destination !== undefined &&
+				sourceGroup.owner !== undefined &&
 				sourceGroup.unit !== undefined &&
 				target.position?.menu === target.module?.index &&
 				!stored.has(destination) &&
@@ -1866,7 +1876,7 @@ function decideGeneratedKeys(
 					id: destination,
 					value: held.value,
 				});
-				moved.set(held, destination);
+				moved.set(held, { key: destination, owner: sourceGroup.owner });
 			} else {
 				verdicts.set(
 					`${held.language}\u0000${held.key}`,
@@ -1952,10 +1962,14 @@ function decideGeneratedKeys(
 				ctx.translations.own(verdict.unit, tag);
 				const movedTo = moved.get(held);
 				if (movedTo !== undefined)
-					for (const key of [held.key, movedTo])
+					for (const path of [
+						movedTo.owner,
+						`${held.json.pointer}/${pointerToken(held.key)}`,
+						`${held.json.pointer}/${pointerToken(movedTo.key)}`,
+					])
 						ctx.facts.sameStateRewrites.push({
 							entry: CLAIMS.generatedWording.entry,
-							path: `${held.json.pointer}/${pointerToken(key)}`,
+							path,
 							register: "legacy-search-group-wording-rekeyed",
 						});
 				const byCode = worded.get(verdict.unit) ?? new Map<string, string>();

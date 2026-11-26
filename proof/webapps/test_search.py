@@ -941,6 +941,7 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
 
     from django.urls import resolve
 
+    from proof.checks import changes, source
     from proof.hq import operations, requests
     from proof.matrix import ops
     from proof.matrix.authoring import Authoring
@@ -1001,6 +1002,7 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
                 ops.upload_commcare_translation(state, app_id, current_key, dormant_heading)
         before_app = operations.held_app(state, app_id)
         before = dict(before_app.translations["en"])
+        source_before = before_app.to_json()
         assert before[old_key] == old_heading and before.get(current_key) == dormant_heading
         original = worker_search(project, "legacy-search-heading")
 
@@ -1032,6 +1034,7 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         assert dict(saved.translations["en"]) == before
         saved_heading = worker_search(project, "canonical-search-heading")
         migrated_heading = None
+        rekey_differences = []
         if dormant_heading is None:
             # The paired source rewrite Nova emits for a unique heading.
             translations = dict(saved.translations)
@@ -1043,10 +1046,21 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
             assert dict(rekeyed.translations["en"]) == canonical_words
             assert old_key not in rekeyed.translations["en"]
             migrated_heading = worker_search(project, "rekeyed-search-heading")
+            register = changes.load()
+            capture = {changes.LEGACY_SEARCH_GROUP_WORDING: (
+                "/menu/0/search_config/properties/0/group_key",
+                f"/app/translations/en/{old_key}",
+                f"/app/translations/en/{current_key}",
+            )}
+            source_changes = source.compare_sources(document.id, source_before, rekeyed.to_json())
+            rekey_differences = [
+                row.at for row in source_changes if changes.holders(row, register, capture, siblings=source_changes)
+            ]
+            assert rekey_differences == [f"/translations/en/{old_key}", f"/translations/en/{current_key}"]
 
     evidence("canonical-search-heading", {
         "before": original, "afterStockSave": saved_heading, "afterRekey": migrated_heading, "oldKey": old_key,
-        "canonicalKey": current_key, "translations": before, "savedRows": actual,
+        "canonicalKey": current_key, "translations": before, "savedRows": actual, "firstPublishPair": rekey_differences,
     })
     expected_query = {
         "inputs": [{"first_name": "North", "case_name": "River"}],
@@ -1062,8 +1076,9 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         assert migrated_heading is None
 
 
+@pytest.mark.parametrize("hidden_member", [False, True], ids=["shown-member", "hidden-only-group"])
 def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
-    hq, formplayer_runner, editor_driver, webapps_documents, evidence,
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, hidden_member,
 ):
     from lxml import etree
 
@@ -1080,7 +1095,7 @@ def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
         app = operations.held_app(state, app_id)
         properties = [prop.to_json() for prop in app.get_module(0).search_config.properties]
         properties[0].update({"name": group_name, "group_key": group_name})
-        properties[1]["group_key"] = group_name
+        properties[1].update({"group_key": group_name, "hidden": hidden_member})
         properties.append({
             "doc_type": "CaseSearchProperty",
             "name": group_name, "label": {"en": prop_label},
@@ -1109,7 +1124,9 @@ def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
             ])
     read = run.value(len(opening))
     labels, prompts = read["headings"], read["prompts"]
-    evidence("shared-search-group-locale", {"headings": labels, "prompts": prompts, "locale": key})
+    evidence("shared-search-group-locale", {
+        "headings": labels, "prompts": prompts, "locale": key, "hiddenMember": hidden_member,
+    })
     assert not run.page_errors and not run.dialogs
     assert labels == [prop_label, "Case details"]
-    assert prompts == ["Name", "Record name", prop_label]
+    assert prompts == ([] if hidden_member else ["Name"]) + ["Record name", prop_label]

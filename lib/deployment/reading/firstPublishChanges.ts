@@ -1582,11 +1582,14 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		scope: "reading",
 		applies: sameStateRecorded("legacy-search-group-wording-rekeyed"),
 		at: {
-			kinds: ["app"],
+			kinds: ["app", "menu"],
 			places: (facts) =>
 				recordedPlaces(facts, "legacy-search-group-wording-rekeyed"),
 		},
-		paths: ["/translations/*/*"],
+		paths: [
+			"/translations/*/*",
+			"/modules/*/search_config/properties/*/group_key",
+		],
 	},
 	/** A search's filter kept as one with the case list's, recorded by `search/rows.ts`. */
 	"search-filter-joined-to-list": {

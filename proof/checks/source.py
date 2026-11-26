@@ -73,9 +73,16 @@ from __future__ import annotations
 import hashlib
 import json
 import xml.etree.ElementTree as ElementTree
+from dataclasses import replace
 
 from proof.checks import observations, xform_parts
-from proof.checks.changes import HELD, legacy_related_case_formula
+from proof.checks.changes import (
+    HELD,
+    LEGACY_SEARCH_GROUP_KEY,
+    POSITIONAL_SEARCH_GROUP_KEY,
+    SEARCH_GROUP_WORDING_PATH,
+    legacy_related_case_formula,
+)
 from proof.checks.differences import Difference, pointer_token
 
 CHECK = "source"
@@ -349,12 +356,71 @@ def held_media(document, a_map, b_map, held_paths, suites=(None, None)) -> list[
     return found
 
 
+
+def _preserved_search_group_wording(a, b):
+    """Identify locale differences only when both source snapshots keep the same heading and member run."""
+
+    def groups(module):
+        search = module.get("search_config")
+        rows = search.get("properties") if isinstance(search, dict) else None
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            return {}
+        headings = [i for i, row in enumerate(rows) if row.get("is_group") is True]
+        heading_keys = [rows[i].get("group_key") for i in headings]
+        fields = {row.get("name") for row in rows
+                  if row.get("is_group") is not True and isinstance(row.get("name"), str)}
+        found = {}
+        for index, end in zip(headings, (*headings[1:], len(rows))):
+            header = rows[index]
+            key = header.get("group_key")
+            members = rows[index + 1:end]
+            if (isinstance(key, str) and header.get("name") == key and key not in fields
+                    and heading_keys.count(key) == 1
+                    and members and all(row.get("group_key") == key and isinstance(row.get("name"), str)
+                                        for row in members)):
+                found[index] = (key, header.get("label"), tuple(row["name"] for row in members))
+        return found
+
+    originals, published = a.get("translations"), b.get("translations")
+    if not isinstance(originals, dict) or not isinstance(published, dict):
+        return set()
+    found = set()
+    languages = _languages(a, b)
+    for menu, (before, after) in enumerate(zip(a.get("modules") or [], b.get("modules") or [])):
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            continue
+        canonical = groups(after)
+        for index, (old, labels, members) in groups(before).items():
+            new = f"group_header_{index}"
+            if (not LEGACY_SEARCH_GROUP_KEY.fullmatch(old) or POSITIONAL_SEARCH_GROUP_KEY.fullmatch(old)
+                    or canonical.get(index) != (new, labels, members)
+                    or not isinstance(labels, dict)
+                    or not all(isinstance(labels.get(code), str) and labels[code].strip()
+                               for code in languages)):
+                continue
+            old, new = (f"search_property.m{menu}.{key}" for key in (old, new))
+            if any(isinstance(table, dict) and new in table for table in originals.values()):
+                continue
+            for code, source in originals.items():
+                target = published.get(code)
+                if code not in languages or not isinstance(source, dict) or not isinstance(target, dict) or old in target:
+                    continue
+                wording = source.get(old)
+                if isinstance(wording, str) and wording.strip() and target.get(new) == wording:
+                    prefix = f"/translations/{pointer_token(code)}"
+                    found.update((f"{prefix}/{old}", f"{prefix}/{new}"))
+    return found
+
 def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None)) -> list[Difference]:
     """Every difference between two source answers of one app, A's and B's (the module's docstring)."""
     a, b = by_position(a), by_position(b)
     walk = _Walk(document, _languages(a, b), frozenset(held_paths))
     walk.compare(a, b)
-    return walk.found + held_media(
+    rekeyed = _preserved_search_group_wording(a, b)
+    return [
+        replace(row, path=SEARCH_GROUP_WORDING_PATH) if row.at in rekeyed else row
+        for row in walk.found
+    ] + held_media(
         document, a.get("multimedia_map") or {}, b.get("multimedia_map") or {}, held_paths, suites
     )
 

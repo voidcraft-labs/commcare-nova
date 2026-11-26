@@ -348,7 +348,11 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 		before.draft.facts.sameStateRewrites
 			.filter((item) => item.register === changes)
 			.map((item) => item.path),
-	).toEqual([`/translations/en/${oldKey}`, `/translations/en/${currentKey}`]);
+	).toEqual([
+		"/modules/0/search_config/properties/0/group_key",
+		`/translations/en/${oldKey}`,
+		`/translations/en/${currentKey}`,
+	]);
 	(body.translations as Record<string, Record<string, string>>).en[currentKey] =
 		"Other saved words";
 	const conflict = await read();
@@ -358,6 +362,64 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 		expect.objectContaining({
 			code: "application-and-settings/translations-generated-key-anything-else",
 			detail: { name: oldKey },
+		}),
+	);
+	body.langs = ["en", "es"];
+	body.build_langs = ["en", "es"];
+	body.translations = { en: { [oldKey]: "Find a client" } };
+	const incomplete = await read();
+	if (incomplete.kind !== "account")
+		throw Error("An absent ordinary locale needs its own fallback review");
+	expect(incomplete.findings).toContainEqual(
+		expect.objectContaining({
+			code: "application-and-settings/translations-generated-key-anything-else",
+			detail: { name: oldKey },
+		}),
+	);
+
+	menus[0].search_config.properties[0].label.es = "Datos personales";
+	const bilingual = await read();
+	if (bilingual.kind !== "read")
+		throw Error(JSON.stringify(bilingual.findings));
+	const table = localAppStringTable(bilingual.draft.doc, []);
+	expect(table.languages.en[currentKey]).toBe("Find a client");
+	expect(table.languages.es[currentKey]).toBe("Datos personales");
+	menus[0].search_config.properties.splice(1, 1);
+	const orphan = await read();
+	if (orphan.kind !== "account")
+		throw Error(
+			"An unoccupied heading cannot establish active generated wording",
+		);
+	expect(orphan.findings).toContainEqual(
+		expect.objectContaining({
+			code: "application-and-settings/translations-generated-key-anything-else",
+			detail: { name: oldKey },
+		}),
+	);
+});
+
+it("refuses a Search heading with a hidden-only group when a different prompt shares its displayed key", async () => {
+	const body = exportedBody(searchEmissionFixture("grouped-prompts"));
+	const menus = body.modules as ReturnType<typeof expandDoc>["modules"];
+	const rows = menus[0].search_config.properties;
+	Object.assign(rows[0], { name: "g", group_key: "g" });
+	Object.assign(rows[1], { hidden: true, group_key: "g" });
+	rows.push({
+		...rows[3],
+		name: "g",
+		label: { en: "Account code" },
+		exclude: true,
+	});
+	const result = readHqApp(
+		await inputFor(body, { appStrings: (doc) => localAppStringTable(doc, []) }),
+		{ claims: "full" },
+	);
+	if (result.kind !== "account")
+		throw Error("The displayed heading and prompt cannot share one locale key");
+	expect(result.findings).toContainEqual(
+		expect.objectContaining({
+			code: "case-search/search-group-shares-its-display-key-with-a-field",
+			detail: { name: "g" },
 		}),
 	);
 });

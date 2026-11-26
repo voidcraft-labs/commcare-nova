@@ -1637,3 +1637,71 @@ def test_the_built_lookup_image_move_is_bound_to_the_stored_icon(change):
     unrelated = _document(RESIDUE, (change, ["/menu/0/case_details/short/columns/0/header"]))
     assert _held_by(unrelated, difference(0)) == frozenset()
     assert _held_by(document, replace(difference(0), kind="removed", after=None)) == frozenset()
+
+
+def test_legacy_search_group_wording_requires_the_exact_source_pair_and_owning_row():
+    change = changes.LEGACY_SEARCH_GROUP_WORDING
+    register = changes.load()
+    old, new = "search_property.m0.g", "search_property.m0.group_header_0"
+    wording = "Find a client"
+
+    def app(group, key, wording=wording, *, field_group=None, extra=None):
+        rows = [
+            {"is_group": True, "name": group, "group_key": group, "label": {"en": "Personal details"}},
+            {"name": "first_name", "group_key": field_group or group, "hidden": True},
+        ]
+        return {
+            "langs": ["en"],
+            "modules": [{"search_config": {"properties": rows}}],
+            "translations": {"en": {key: wording, **(extra or {})}},
+        }
+
+    a, b = app("g", old), app("group_header_0", new)
+    places = (
+        f"/app/translations/en/{old}",
+        f"/app/translations/en/{new}",
+        "/menu/0/search_config/properties/0/group_key",
+    )
+    applying = {change: places}
+
+    def compare(before, after):
+        return source.compare_sources("search", before, after)
+
+    def held(compared, applied=applying):
+        return [d.at for d in compared if changes.holders(d, register, applied, siblings=compared)]
+
+    paired = compare(a, b)
+    assert held(paired) == [f"/translations/en/{old}", f"/translations/en/{new}"]
+    assert not held(paired, {change: changes.EVERYWHERE})
+    assert not held(paired, {change: places[:2]})
+    required = {
+        f"/translations/en/{old}",
+        f"/translations/en/{new}",
+        "/modules/0/search_config/properties/0/name",
+        "/modules/0/search_config/properties/0/group_key",
+    }
+    for path in required:
+        assert not held([row for row in paired if row.at != path]), path
+
+    orphan_before = app("g", old)
+    orphan_after = app("group_header_0", new)
+    for orphan in (orphan_before, orphan_after):
+        orphan["modules"][0]["search_config"]["properties"].pop()
+    for before, after in (
+        (a, app("group_header_0", new, "Different words")),
+        (a, app("group_header_0", new, extra={old: wording})),
+        (app("g", old, extra={new: "Dormant words"}), b),
+        (a, app("group_header_0", new.replace(".m0.", ".m1."))),
+        (a, app("group_header_0", new.replace("group_header_0", "unrelated"))),
+        (a, app("group_header_0", new, field_group="different_group")),
+        (a, app("g", new)),
+        (orphan_before, orphan_after),
+    ):
+        found = compare(before, after)
+        assert not held(found)
+        assert not any(changes.naming(row, register, {}) == change for row in found)
+
+    document = SimpleNamespace(
+        kind="corpus", next_publish=(change,), legacy_search_group_wording_places=places,
+    )
+    assert changes.placed(document, register) == applying

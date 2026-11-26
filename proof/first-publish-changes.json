@@ -1264,18 +1264,18 @@
 	},
 	{
 		"change": "legacy-search-group-wording-rekeyed",
-		"placeKinds": ["app"],
+		"placeKinds": ["app", "menu"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/translations/*/*",
+				"path": "/translations/*/search_group_heading",
 				"kind": "removed"
 			},
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/translations/*/*",
+				"path": "/translations/*/search_group_heading",
 				"kind": "added"
 			}
 		]
