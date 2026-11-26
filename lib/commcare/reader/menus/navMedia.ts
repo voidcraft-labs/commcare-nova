@@ -28,6 +28,7 @@ import {
 import type { ReadContext } from "../context";
 import { compareCodePoints } from "../hqText";
 import { isJsonObject, type JsonCursor, pointerToken } from "../jsonCursor";
+import type { PendingMedia } from "../types";
 
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
@@ -313,6 +314,7 @@ const acceptedOverrides = new WeakMap<
 		carrierClass: string;
 		repeatsStrictAsset?: true;
 		assetId?: IconRef;
+		pending?: PendingMedia;
 	}
 >();
 
@@ -356,7 +358,7 @@ function ordinarySourcePaths(ctx: ReadContext) {
 			if (Array.isArray(module.forms))
 				for (const form of module.forms) addCarrier(form);
 		}
-	for (const ref of ctx.facts.mediaReferences) {
+	for (const ref of [...ctx.facts.mediaReferences, ...ctx.facts.pendingMedia]) {
 		if (ref.slot === "image_map_mapping")
 			for (const code of ref.shownLanguages ?? [])
 				paths.get(code)?.add(ref.path);
@@ -377,6 +379,16 @@ export function accountNavigationMediaOverride(
 ): boolean {
 	const override = acceptedOverrides.get(held);
 	if (override === undefined) return false;
+	// HQ decides what to pack from ordinary carriers, even when the asset
+	// index cannot resolve the path. Check that source fact before handoff.
+	if (!ordinarySourcePaths(ctx).get(held.language)?.has(override.path)) {
+		held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
+		return true;
+	}
+	if (override.pending !== undefined) {
+		ctx.accounting.handOffAt(held, "media-reference", override.path);
+		ctx.facts.pendingMedia.push(override.pending);
+	}
 	if (override.assetId !== undefined) {
 		const { place, carrierClass, role, language, assetId } = override;
 		const menu =
@@ -407,7 +419,6 @@ export function accountNavigationMediaOverride(
 					: navigationMediaOverride(carrier, role, language);
 		if (
 			carrierAsset !== assetId ||
-			!ordinarySourcePaths(ctx).get(held.language)?.has(override.path) ||
 			!ordinaryNavigationAsset(
 				doc,
 				effectiveAppLocalization(doc.localization),
@@ -495,16 +506,6 @@ function readOverrides(
 					assetId: resolution.assetId,
 				});
 			}
-		} else {
-			ctx.accounting.handOffAt(
-				{ json: held.json, key },
-				"media-reference",
-				path,
-			);
-			ctx.facts.pendingMedia.push({
-				...occurrence,
-				resolution: resolution.kind,
-			});
 		}
 		acceptedOverrides.set(held, {
 			language: tag,
@@ -513,9 +514,9 @@ function readOverrides(
 			place,
 			carrierClass,
 			...(repeatsStrictAsset && { repeatsStrictAsset: true }),
-			...(resolution.kind === "asset" && {
-				assetId: resolution.assetId as IconRef,
-			}),
+			...(resolution.kind === "asset"
+				? { assetId: resolution.assetId as IconRef }
+				: { pending: { ...occurrence, resolution: resolution.kind } }),
 		});
 	}
 	return overrides;

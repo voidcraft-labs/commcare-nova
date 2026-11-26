@@ -36,6 +36,23 @@ def test_generated_icon_override_keeps_the_unmodified_map_and_named_fallback(hq,
             assert OVERRIDE not in native.all_media_paths()
 
 
+def test_visible_icon_locale_can_name_an_unmapped_literal_without_packaging_it(hq, documents):
+    with published(documents["case-list-inline"], None, configuration="maximum") as app:
+        for literal in (OVERRIDE, "not-an-installation-file"):
+            def configure(body):
+                body["modules"][0]["media_image"] = {"en": ORIGINAL}
+                body["translations"].setdefault("en", {})[KEY] = literal
+
+            with app.unit.fork():
+                app._write(edited(configure))
+                native = app._app()
+                assert native.modules[0].uses_image()
+                assert parse_app_strings(native.create_app_strings("en"))[KEY] == literal
+                assert literal not in native.multimedia_map
+                assert literal not in native.all_media_paths(lang="en")
+                assert ORIGINAL in native.all_media_paths(lang="en")
+
+
 def test_the_override_file_reaches_hq_media_only_through_its_ordinary_carrier(hq, documents):
     def configure(body):
         body["modules"][0]["media_image"] = {"en": ORIGINAL}
