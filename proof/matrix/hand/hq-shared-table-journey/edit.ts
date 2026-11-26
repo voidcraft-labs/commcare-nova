@@ -1,6 +1,9 @@
 import type { Mutation } from "@/lib/doc/types";
 import { type BlueprintDoc, effectiveAppLocalization } from "@/lib/domain";
 
+/** The native journey installs the manual archive from this saved edit. */
+export const editedImportFile = true;
+
 /** Start the visit in French without changing either language's identity. */
 export function edit(doc: BlueprintDoc): readonly Mutation[] {
 	const { languageOrder, wireCodes } = effectiveAppLocalization(
