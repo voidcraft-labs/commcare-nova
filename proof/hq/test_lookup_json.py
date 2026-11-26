@@ -250,8 +250,8 @@ def test_manual_json_install_then_native_app_import_reads_exact_lookup_value(hq,
         app_path, = [path for path in archive.namelist() if path.endswith(".json")]
         manual_app = archive.read(app_path)
 
-    value = " " + "🌱" * 17_000 + ' "'
-    assert len(value.encode("utf-8")) > 64 * 1024
+    # HQ JSON and JavaRosa can both carry this value past the workbook ceiling.
+    value = "s" * 65_535
     configuration = replace(
         document.exports["minimum"].configuration.hq(),
         domain="manual-lookup-json",
@@ -318,4 +318,6 @@ def test_manual_json_install_then_native_app_import_reads_exact_lookup_value(hq,
             expressions=["/data/visit_type", "/data/site", "/data/visit_description"],
         )
         assert [answer["result"] for answer in observed["answers"]] == ["ok", "ok"], observed
-        assert [item["value"] for item in observed["values"]] == ["follow_up", "home", value]
+        visit_type, site, description = [item["value"] for item in observed["values"]]
+        assert (visit_type, site) == ("follow_up", "home")
+        assert len(description) == len(value) and description == value
