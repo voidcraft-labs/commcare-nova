@@ -134,19 +134,13 @@ export async function submitAppTest(
 					cases: formContext.cases,
 					locations: formContext.cases.locations,
 					currentOwnerIds: context.restoreScope.ownerIds,
-					lookupRows: [...formContext.lookup.rowsByTable].flatMap(
-						([table, rows]) =>
-							rows.map((row, order) => ({
-								id: row.id,
-								table_id: table,
-								order_key: order,
-								values: row.values,
-							})),
-					),
 				},
 			},
 		}),
-		lookupTableSchemas: workerLookupSchemas(scope.projectId, context.lookup),
+		lookupTableSchemas: workerLookupSchemas(
+			scope.projectId,
+			formContext.lookup,
+		),
 		mutation,
 		projection,
 		/* The places of the test's own snapshot, which the form read. An

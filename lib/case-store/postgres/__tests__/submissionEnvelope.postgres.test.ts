@@ -1300,7 +1300,6 @@ describe("ordered selected-case batches", () => {
 		const opening: OpeningReadSet = {
 			cases: { rows: [], indices: [], propertyTypes: {} },
 			currentOwnerIds: [ACTOR],
-			lookupRows: [],
 		};
 		await expect(
 			submit(
@@ -1570,7 +1569,6 @@ describe("ordered selected-case batches", () => {
 				openingReads: {
 					cases: { rows: [], indices: [], propertyTypes: {} },
 					currentOwnerIds: [ACTOR],
-					lookupRows: [],
 				},
 				scopes: [
 					...program.scopes,
@@ -5690,7 +5688,7 @@ describe("a date and time saved to a case", () => {
 					[{ ...caseWrite, viaCaseTypes: new Map([[1, "patient"]]) }],
 					{ formFields: [["seen-at-field", "2026-01-03T07:30:00.000Z"]] },
 				),
-				openingReads: { currentOwnerIds: [ACTOR], lookupRows: [], cases },
+				openingReads: { currentOwnerIds: [ACTOR], cases },
 				formFieldTypes: new Map([[SEEN_FIELD, "datetime"]]),
 				viewerTimeZone: "America/Los_Angeles",
 			},
