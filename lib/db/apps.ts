@@ -39,6 +39,7 @@ import {
 	selectedSourceDocumentsSchema,
 } from "@/lib/chat/selectedSources";
 import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
+import { connectRolesSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import {
@@ -211,7 +212,7 @@ export interface AppSummary {
 	/** The Project the app belongs to — its tenancy + sharing boundary. */
 	project_id: string;
 	app_name: string;
-	connect_type: AppDoc["connect_type"];
+	connect_roles: AppDoc["connect_roles"];
 	module_count: number;
 	form_count: number;
 	status: AppDoc["status"];
@@ -2660,7 +2661,7 @@ async function projectAppSummary(
 		id: row.id,
 		project_id: row.project_id,
 		app_name: row.app_name,
-		connect_type: row.connect_type,
+		connect_roles: connectRolesSchema.parse(row.connect_roles),
 		module_count: row.module_count,
 		form_count: row.form_count,
 		status: isStale ? "error" : parsePersistedAppLifecycleStatus(row.status),
@@ -2889,7 +2890,7 @@ export async function listDeletedApps(
 			id: row.id,
 			project_id: row.project_id,
 			app_name: row.app_name,
-			connect_type: row.connect_type,
+			connect_roles: connectRolesSchema.parse(row.connect_roles),
 			module_count: row.module_count,
 			form_count: row.form_count,
 			// Soft-delete is the existence axis; lifecycle status remains true.

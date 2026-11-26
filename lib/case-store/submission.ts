@@ -1,3 +1,7 @@
+import type {
+	ActivityFact,
+	ConnectSubmissionProgram,
+} from "@/lib/domain/connectSubmissionFacts";
 // lib/case-store/submission.ts
 //
 // The atomic submission envelope's public contract — the argument and
@@ -29,6 +33,7 @@ import type {
 	OrganizationLevel,
 	Uuid,
 } from "@/lib/domain";
+import { activityFactsSchema } from "@/lib/domain/connectSubmissionFacts";
 import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
 import {
@@ -267,6 +272,7 @@ export interface CaseOperationProgram {
 export interface ApplySubmissionArgs {
 	/** Empty when the requested location was unavailable; absent when the form requested none. */
 	readonly submissionLocation?: DeviceLocation | null;
+	readonly connect?: ConnectSubmissionProgram;
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
@@ -349,6 +355,7 @@ export interface CreatedChildCaseReceipt {
 export interface SubmissionEnvelopeResult {
 	/** Empty when the requested location was unavailable; absent when the form requested none. */
 	readonly submissionLocation?: DeviceLocation | null;
+	readonly activities?: readonly ActivityFact[];
 	/** The case the registration's own arm created with the id its entry
 	 * minted, the ordered followup/close selection, or an empty collection for
 	 * `kind: "none"` and for a registration whose open condition did not
@@ -374,6 +381,9 @@ export interface SubmissionEnvelopeResult {
 	 * state rather than whatever a later writer changed the rows to. Historical
 	 * receipts predate this slot, so the parser keeps it optional. */
 	readonly caseDatabasePatch?: DeviceCaseDatabase;
+	/** Immutable receipt metadata. The Preview action exposes only whether
+	 *  this release belongs in the currently requested device journal. */
+	readonly openingCarryScope?: string;
 }
 
 function hasInvalidCreatedChildren(value: unknown): boolean {
@@ -425,6 +435,8 @@ export function parseSubmissionEnvelopeResult(
 	if (
 		typeof parsed !== "object" ||
 		parsed === null ||
+		("activities" in parsed &&
+			!activityFactsSchema.safeParse(parsed.activities).success) ||
 		hasCreatedChildren === hasHistoricalChildCaseIds ||
 		(hasCreatedChildren && hasInvalidCreatedChildren(createdChildren)) ||
 		(hasHistoricalChildCaseIds &&
@@ -486,8 +498,6 @@ export function parseSubmissionEnvelopeResult(
 		readonly primaryCaseId?: string;
 		readonly createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
 		readonly childCaseIds?: ReadonlyArray<string>;
-		/** The stored receipt's provenance is outside the replay result. */
-		readonly openingCarryScope?: string;
 	};
 	/* Historical receipts predate the ordered selected-case result. Keep that
 	 * immutable accepted work replayable while exposing only the canonical
@@ -495,7 +505,6 @@ export function parseSubmissionEnvelopeResult(
 	const {
 		primaryCaseId: historicalPrimaryCaseId,
 		childCaseIds: legacyChildCaseIds,
-		openingCarryScope: _openingCarryScope,
 		...withoutHistoricalSlots
 	} = result;
 	const canonical: SubmissionEnvelopeResult = {

@@ -43,6 +43,7 @@ export function captureWidgets() {
 								uuid: uuid("photo"),
 								id: "photo",
 								label: proseText("Photo"),
+								maxDimension: 15,
 							}),
 							f({
 								kind: "audio",

@@ -240,72 +240,79 @@ function labelledGroups(doc: BlueprintDoc): {
  * `buildField` began keeping a validation message drawn without a condition on
  * its field (`xformDocArbitrary.ts`), a message the emitter writes nowhere,
  * which the suite and expression generators build their fields through too.
+ * Seventeen documents took new bytes, and no new draw, when a message's and a
+ * capture's schema gained a condition, a validation and help: the same
+ * fields, written in the schema's new key order. Every document took new
+ * bytes, and no new draw, when an app's Connect type became its set of
+ * Connect roles and each form's Connect blocks became activities at their
+ * places: a draw's released blocks are converted as the stored apps are
+ * (`releasedConnectShape.mjs`).
  */
 const ORIGINAL_DRAWS: Readonly<Record<string, string>> = {
 	"fuzz-xform-20260930-0":
-		"c4062d192592b9c65e1b2ca3606a5a2b7e0ab94f956fe33fda97fcd4f5e9e84b",
+		"53ffc54d271b8f175d52cbe0050ca14f101a238a5073ce94dbf003d3ece9a432",
 	"fuzz-xform-20260930-1":
-		"08a1606671b94f046086e0c24c42c0fa78d327868c8fc864b355436e13951cd7",
+		"f56f5ba705c8426a3810a63772e34a2db1ba0c94f031efff57b1b3a03069b33c",
 	"fuzz-xform-20260930-2":
-		"354ee367395a2b29d88771fda115a2ce2b60d510806a00f3882caa508ea0de84",
+		"42ef0c6e28a8f20d1ec153118b877bca65cb4967c89d4a047c41f2a834ccb145",
 	"fuzz-xform-20260930-3":
-		"7c62060f87ab0010df4362ff4001cf0215707750a6905035c6b7edd8ba004ce8",
+		"962feffba36d045d69f53cc0636a6508648480b4dadd34b901c4442631f463a2",
 	"fuzz-xform-20260930-4":
-		"a3adc2c564df3cbcbe286565d33b9554d7ef88d74026ca38f2502815868f9e79",
+		"a31213b4d79453faed7ff2785a0a4cf928ba091294e517dee7ee58816a9c708d",
 	"fuzz-xform-20260930-5":
-		"f8d94a4e26d8ba7b09de641f7c693864145962627c98cb8cfa85ed2688753767",
+		"fd8297c0142ea2fea4970f74e5ea3c00c3cf1ee2efdf44c7f9757b1632ad9c65",
 	"fuzz-xform-20260930-6":
-		"cab6977a662baa611ceca0230c40a59fb4c985851d1380a819e27525080ffac8",
+		"1f22068de61c76e015159d202417e8cb4dbf6d8413300b469edcc612cbe0476b",
 	"fuzz-xform-20260930-7":
-		"9c49a1062412661ded8ba61649a48141858bfa39cc3b7bdeac1b55d3723673a6",
+		"2b91a215f80b9229af6079003d2d1dbd919074d6630b3c817347bc17a898447b",
 	"fuzz-xform-20260930-8":
-		"2a81d3af5a71c2f5ea8278ca4fc310231769b45713cae594e84f06d7e82eae92",
+		"8776a11278f36e27cb58eeceb87c40cbd293fc2625da31533bec7141b3e59bb8",
 	"fuzz-xform-20260930-9":
-		"b72e3fca7be2f3341a9c9e34cd6224254ecbeca2cbefd1230519646e6f542495",
+		"61c56cfe8ebbff02dd6de037884b520a14d7e78abc41863e5205dada101a7ae3",
 	"fuzz-xform-20260930-10":
-		"bc79d16b56ca1d6e6e809ad1633fee7b86584acb6d94d8511c6267f536d819fc",
+		"319dbeaad7b2258032a0d049d1cd971630959d07b17256c6758750b0383441a2",
 	"fuzz-xform-20260930-11":
-		"c3db59e35973ed260663c9253dbd0ff1d43d6f0ba4be66bda886ec0e8f829154",
+		"d3f421a5884c646f4455d212d3030b36a1eeb003b4669150c2402e52b241a42e",
 	"fuzz-suite-20260930-0":
-		"81e666b37892004fde4b2e12b48fd8f8cc73559c8d030fba7058eae10817d2ef",
+		"b4e3cd975a16c414abe9b9d9b8c577320ccf5a67d2545a3d315b14060c79f55e",
 	"fuzz-suite-20260930-1":
-		"ecff26e43c7cd21a058ad0314f0986d9ee3acdbab6acb4801ca40187ba607aed",
+		"0f552d4e6263d6a61182f98e029813b6fbbb923203ad8fb635997621a971fc6f",
 	"fuzz-suite-20260930-2":
-		"24affccbefa845914b59526ae411497f1f85f5c583c25805da0c6a7b73e706dc",
+		"b43fb59d33d83e1b992d1392f3035fb58cffc457eaa6a90df2da9971a8a7cde8",
 	"fuzz-suite-20260930-3":
-		"fb8af50e0c32e2e5ac9cfb35548e293e54fbd0137fc433ccac47f8d9403c0357",
+		"9eea60f6c3e13defe246b90e0ff6ddcfa49ec6157a9afc1f02b475b548997c96",
 	"fuzz-suite-20260930-4":
-		"25eead83da909b8e12188c93de4c80129bfbd1c3b7cd50a31535dad034164bb5",
+		"3ea263edd9508620c76ada7b09b0801acfaa9458586cb4fb6157f3692711c418",
 	"fuzz-suite-20260930-5":
-		"23f279730ce5a784f7c730df43d732627ba6f35b9edbb2355048225c6682a821",
+		"dc03b50f7a6b0a79c0e0a27996bd483f1e5909fb0a9eda1c98e34c9b05bfb8e6",
 	"fuzz-suite-20260930-6":
-		"f6c082356cb222879d3f81123ad6b6730f9e6999e298bca80301c3206f15d865",
+		"6688091dee13b9b889ede3987420b56c5a74e71f6754d6773eac931206449e26",
 	"fuzz-suite-20260930-7":
-		"f4da0f25cfb5bc39ca46e24011186724593e4508cf50d9079d960a7ec57c31df",
+		"fbdeec3b045187e6f6bcd6d066644508a53f259fe77f4953f6b0b5f8851cb5d9",
 	"fuzz-suite-20260930-8":
-		"000d9e0cdc42e7121b6f9ac74560dcdd3b9ad852bd9693bb69d4a0af954ec8dd",
+		"6e63d48e1bb0cb2e69ef3f228fd413dfeb478632c22e46b83a372eaa791bf3a7",
 	"fuzz-suite-20260930-9":
-		"6eddb1823876724ba0dcd5aaeb4a2aefa8b596898fa3f69271056ae38af10263",
+		"31c6f174d489debbaca2345f5c85f8936a45d977a4f79fa7c34537dda4e99eaf",
 	"fuzz-suite-20260930-10":
-		"9f0f59c5abdd8fbba3782ae4bde289319dd95bd5dd34a4b2bf4216d66a6568d2",
+		"72e13ab7103dbfbf3ffa95c75d6196e303bf05e9a900c8d638f5452d82cf64ad",
 	"fuzz-suite-20260930-11":
-		"6b43591fa7dbb94df92a709a05a9c43a4362327d4cdd65e269136a34231d4b41",
+		"104e6dabc779c86f5f9d8119185d480fab207473dc5e09172476aa7abde6ea30",
 	"fuzz-expression-20260930-0":
-		"d8c1f2b3bfc2bf87a81d7cecb0875ba56567fdb2ef7a3a504137b52d5f19d328",
+		"2456529a4901c35ad1049dacb22b4cab043c0958c1035c7a6a18635d61ab2a6d",
 	"fuzz-expression-20260930-1":
-		"6dfece4adca1ab64d0ca1710cfff270475422a2c27b7e25d8cf950db10bfd384",
+		"4b54b508620f6fb5d6302765ed51f7fee3d799fe602fc31ac534beefd83c832a",
 	"fuzz-expression-20260930-2":
-		"0aa95909607a9a6ac608a724074c57db91612d9f41845619e2224658d0362599",
+		"a0683017e0184882b1cb4d260d3dd9573feeee0c41a309da487bf6a72cd91c6e",
 	"fuzz-expression-20260930-3":
-		"6e5f1f8a37679a1e8fd89b9936cdfd6961a161de61289ee257e26ce6bdf31704",
+		"efcbf4f54434fb3f65669a736ad60545311671722c654b6f80ccf7cb3b6ccc0b",
 	"fuzz-expression-20260930-4":
-		"47126db71c55db4bc669db6f836e320aebdc11e3ffae72db9c814be2f73decf6",
+		"a94faf1c4b451832bab76d53245bf62de2a5176ce080a8bee75022e8860720fc",
 	"fuzz-expression-20260930-5":
-		"f3e4fb7fbb4c0c9e1ff388c51e118f1cab89bb7172559acafd1342cb8ba15032",
+		"2b3cb74fe12bdc043500f611d49471d876999db625047ac34f6fae58cfe6be67",
 	"fuzz-expression-20260930-6":
-		"7953713af344a9edcae6daf816894a98d2fd43f967f65ba449dbcb68c8e138e9",
+		"8396d1c83580842f8b2ac90e051c5bf951f308e4c65116a2ec3123c83d69c7a2",
 	"fuzz-expression-20260930-7":
-		"34e857b8246782875568cd3786ad528287bf928c8e4ea2aa68680168764146bf",
+		"e23a1301ed2e32a50dbd25a4013c00410839e40ceef38efa504b345c0a085c83",
 };
 
 /** The SHA-256 of the bytes the writer writes for a sampled document. */

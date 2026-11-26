@@ -269,6 +269,9 @@ class Variant:
     also: tuple[Mapping, ...] = ()
     hq_never_serves: Mapping | None = None
     key: str | None = None  # the surface key a row expecting ``unrecognized`` names
+    # The declaration the variant is read under where its change leaves the base's one unoffered (an answer only
+    # Android keeps reads under Android alone); None reads it under the base's.
+    declaration: Declaration | None = None
 
     @property
     def refusing(self) -> bool:
@@ -317,6 +320,11 @@ def _check_place(row_id, place):
         raise VariantsRefused(
             f"The variant {row_id} names the place {place!r}; a place is an HqPlace (lib/publish/hqFindings.ts),"
             f" whose kind is one of {list(PLACE_KINDS)}."
+        )
+    if place["kind"] == "question" and not {"menuName", "formName", "path"} <= set(place):
+        raise VariantsRefused(
+            f"The variant {row_id} names the question place {place!r}; a question's place names its menuName, its"
+            " formName and its path, as lib/publish/hqFindings.ts writes one."
         )
 
 
@@ -464,6 +472,14 @@ def load_variants(path: Path = VARIANTS, *, bases: tuple[Base, ...] | None = Non
         for change in (row["change"], *(one["change"] for one in composed)):
             if change["op"] == "named":
                 used.add(change["name"])
+        declared = row.get("declaration")
+        if declared is not None and (
+            not isinstance(declared, Mapping) or set(declared) != {"runsOnlyOn", "splitDatetime"}
+        ):
+            raise VariantsRefused(
+                f"The variant {row_id} declares {declared!r}; a declaration is {{runsOnlyOn, splitDatetime}}, as a"
+                " base's is written."
+            )
         if never is not None and set(never) not in ({"raised"}, {"notServedAt"}):
             raise VariantsRefused(
                 f"The variant {row_id}'s hqNeverServes is {never!r}; it is {{raised: <exception class>}} or"
@@ -482,6 +498,9 @@ def load_variants(path: Path = VARIANTS, *, bases: tuple[Base, ...] | None = Non
                 also=tuple(also or ()),
                 hq_never_serves=never,
                 key=key,
+                declaration=None
+                if declared is None
+                else Declaration(declared["runsOnlyOn"], bool(declared["splitDatetime"])),
             )
         )
     unused = sorted(set(named) - used)

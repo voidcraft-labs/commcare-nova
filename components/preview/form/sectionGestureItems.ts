@@ -86,7 +86,10 @@ export function sectionGestureItems(
 			return {
 				context,
 				offersKinds: false,
-				insertLabel: "Add a section",
+				insertLabel:
+					doc.connectRoles.length > 0
+						? "Add a section or activity"
+						: "Add a section",
 				items: [
 					{
 						key: "add-section",
@@ -97,6 +100,24 @@ export function sectionGestureItems(
 			};
 		}
 		case "sectionless-root": {
+			if (
+				children.length > 0 &&
+				children.every((id) => doc.fields[id]?.kind === "connect_activity")
+			) {
+				const after = atIndex <= 0 ? null : (children[atIndex - 1] ?? null);
+				return {
+					context,
+					offersKinds: true,
+					insertLabel: "Insert field",
+					items: [
+						{
+							key: "add-section",
+							label: "Section",
+							plan: (current) => addSection(current, parentUuid, { after }),
+						},
+					],
+				};
+			}
 			const atEdge = atIndex <= 0 || atIndex >= children.length;
 			const atFieldUuid = atEdge ? undefined : children[atIndex];
 			return {

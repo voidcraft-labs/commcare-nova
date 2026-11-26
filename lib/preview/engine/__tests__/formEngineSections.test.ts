@@ -338,7 +338,9 @@ describe("FormEngine.formScreens", () => {
 
 	it("pages an unsectioned form on Android as Core collects its prompts", () => {
 		const engine = on(androidDevice(), UNSECTIONED, ["loose", "together"]);
-		/* The form opens with one entry; add a second. */
+		/* The form opens with no entry, as Core opens a repeat written as a
+		 * template; add two. */
+		engine.addRepeat("/data/visits");
 		engine.addRepeat("/data/visits");
 		/* A group shown on one screen, with its nested field-list group and
 		 * its repeat, is one screen and offers no screen of its own to add an
@@ -426,6 +428,10 @@ describe("FormEngine.repeatPromptPoints", () => {
 
 	it("places Android's prompt after each user-added repeat's last screen outside a group shown on one screen, and none for a counted repeat", () => {
 		const engine = engineOn(androidDevice(), FIELDS);
+		/* Each repeat opens with no entry; give each one, so each prompt
+		 * follows an entry's last screen. */
+		engine.addRepeat("/data/visits");
+		engine.addRepeat("/data/household/members");
 		const screens = engine.formScreens().map(({ path }) => path);
 		const [visits, members] = engine.repeatPromptPoints();
 		expect(engine.repeatPromptPoints()).toHaveLength(2);

@@ -180,13 +180,13 @@ def itext_id(reference: str | None) -> str | None:
     return _xpath.string_value(found[2])
 
 
-def node_steps(reference: str | None) -> tuple[str, ...] | None:
+def node_steps(reference: str | None, root_name: str = DATA) -> tuple[str, ...] | None:
     """The steps of a plain absolute path from the data root (``/data/a/b`` gives ``("data", "a", "b")``), or
     None where ``reference`` is no such path."""
     if not reference or not _xpath.plain_path(reference):
         return None
     steps = tuple(step for step in reference.split("/") if step)
-    return steps if steps and steps[0] == DATA else None
+    return steps if steps and steps[0] == root_name else None
 
 
 class _Parts:
@@ -196,6 +196,7 @@ class _Parts:
         self.found: dict[str, tuple[str, object]] = {}
         # The app's languages, or None where the caller names none (every translation is then one of them).
         self.languages = languages
+        self.root_name = DATA
         # What reads each itext id: the node and the role, from the body and the binds.
         self.texts: dict[str, list[tuple[tuple[str, ...], str]]] = {}
         # Each itext text, ``(id, lang, form, value element)``, placed once what reads it is known (``_texts``).
@@ -230,7 +231,7 @@ class _Parts:
     def add(self, steps, facet, structural, value):
         """A part at ``steps`` (a node's, or None for the form's own), ``facet`` its tokens after the node and
         ``structural`` the facet as its path writes it."""
-        node = "" if steps is None else "".join(f"/{pointer_token(step)}" for step in steps)
+        node = "" if steps is None else "".join(f"/{pointer_token(step)}" for step in (DATA, *steps[1:]))
         node_path = "" if steps is None else ("/data" if len(steps) == 1 else "/data/*")
         at = node + "".join(f"/{pointer_token(step)}" for step in facet)
         path = node_path + "".join(f"/{step}" for step in structural)
@@ -280,7 +281,7 @@ def _setvalue(parts: _Parts, element):
     value = element.get("value") if "value" in element.attrib else (element.text or "")
     event = element.get("event") or ""
     parts.at_node(
-        node_steps(reference),
+        node_steps(reference, parts.root_name),
         reference,
         (":setvalue", event, "@value"),
         (":setvalue", event, "@value"),
@@ -295,7 +296,7 @@ def _control(parts: _Parts, element, enclosing):
         _setvalue(parts, element)
         return None
     reference = element.get("ref") if "ref" in element.attrib else element.get("nodeset")
-    steps = node_steps(reference)
+    steps = node_steps(reference, parts.root_name)
     if reference is None:
         steps, facet = enclosing, (":group",)
     else:
@@ -360,6 +361,14 @@ def _model(parts: _Parts, model):
         parts.add(None, (":model", f"@{name(attribute)}"), (":model", f"@{name(attribute)}"), value)
     primary = True
     others: dict[str, int] = {}
+    # Binds may come before the primary instance, and a secondary instance
+    # may also come first. Only the unnamed instance defines form addresses.
+    primary_element = next((item for item in model if isinstance(item.tag, str) and local(item.tag) == "instance" and item.get("id") is None), None)
+    data = None if primary_element is None else next((item for item in primary_element if isinstance(item.tag, str)), None)
+    if data is not None:
+        parts.root_name = local(data.tag)
+        if parts.root_name != DATA:
+            parts.add(None, (":primary-root-name",), (":primary-root-name",), parts.root_name)
     for child in model:
         if not isinstance(child.tag, str):
             continue
@@ -377,7 +386,7 @@ def _model(parts: _Parts, model):
             parts.add(None, (":instance", identity), (":instance", "*"), serialized(child))
         elif tag == "bind":
             reference = child.get("nodeset")
-            steps = node_steps(reference)
+            steps = node_steps(reference, parts.root_name)
             for attribute, value in sorted(child.attrib.items()):
                 if attribute == "nodeset":
                     continue
@@ -472,10 +481,10 @@ def unshown_media_sites(text, artifact):
         if kind not in ("image", "audio", "video") or len(readers) != 1 or len(value):
             continue
         steps, role = readers[0]
-        if not steps or steps[0] != "data":
+        if not steps or steps[0] != parsed.root_name:
             continue
         if role == "label":
-            pointer = "".join("/" + pointer_token(step) for step in steps)
+            pointer = "".join("/" + pointer_token(step) for step in (DATA, *steps[1:]))
             control = parsed.found.get(pointer + "/:control")
             if not control or control[1] not in ("group", "repeat"):
                 continue
@@ -485,7 +494,7 @@ def unshown_media_sites(text, artifact):
         if not uri.startswith("jr://file/"):
             continue
         key = artifact, language, identity, kind, uri
-        place = ("form", artifact.rpartition("/")[2][5:], "xform", *steps, ":itext", role, language, kind)
+        place = ("form", artifact.rpartition("/")[2][5:], "xform", DATA, *steps[1:], ":itext", role, language, kind)
         sites[key] = place if key not in sites else None
     return sites
 
@@ -584,8 +593,8 @@ def compare(before: str | None, after: str | None, languages=None):
             path = a[at][0]
             if path.endswith(f"/{ORDER}") and _same_order(a[at][1], b[at][1]):
                 continue
-            if _expression(path) and xpath_tree.same(
-                a[at][1], b[at][1], instances=(first.instances, second.instances), context=_context(at)
+            if first.root_name == second.root_name and _expression(path) and xpath_tree.same(
+                a[at][1], b[at][1], instances=(first.instances, second.instances), context=_context(at, first.root_name)
             ):
                 yield ("changed", f"{at}/{RESPELLED}", f"{path}/{RESPELLED}", a[at][1], b[at][1])
                 continue
@@ -645,7 +654,7 @@ def _expression(path: str) -> bool:
     return any(path.endswith(end) for (end,) in EXPRESSION_ENDS)
 
 
-def _context(at: str):
+def _context(at: str, root_name=DATA):
     """The steps of the node a part at ``at`` is about (``/data/a/:bind/@calculate`` gives ``("data", "a")``), or
     None for a part that names no node."""
     steps = []
@@ -655,4 +664,4 @@ def _context(at: str):
         if token.startswith("@") or token.endswith("()") or "[" in token:
             return None
         steps.append(token.replace("~1", "/").replace("~0", "~"))
-    return tuple(steps) if steps and steps[0] == DATA else None
+    return (root_name, *steps[1:]) if steps and steps[0] == DATA else None

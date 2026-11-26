@@ -241,6 +241,8 @@ function markers(hq: HqApplication): {
 			const source = hq._attachments[`${form.unique_id}.xml`];
 			if (typeof source !== "string") continue;
 			for (const node of walkXml(readXmlEvidence(source))) {
+				if (node.attributes["vellum:lock"] === "all")
+					privileges.add("locked_admin_questions");
 				if (node.attributes["vellum:role"] === "SaveToCase") {
 					privileges.add("save_to_case");
 				}
@@ -633,6 +635,42 @@ describe("each privilege's reasons", () => {
 			"Follow up has a form badge.",
 		]);
 		expect(reasonsOf(doc, "user_case")?.join(" ")).toContain("Follow up");
+	});
+
+	it("names a form with an HQ question lock on a question or hidden integration value", () => {
+		for (const kind of ["text", "hidden"] as const) {
+			const doc = buildDoc({
+				modules: [
+					{
+						name: "Households",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind,
+										id: "note",
+										...(kind === "text" && { label: "Notes" }),
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const field = Object.values(doc.fields)[0];
+			const locked = {
+				...doc,
+				fields: { ...doc.fields, [field.uuid]: { ...field, lockedInHq: true } },
+			};
+			holdsWire(locked);
+			expect(reasonsOf(locked, "locked_admin_questions")).toEqual([
+				"Visit holds a question locked in CommCare HQ.",
+			]);
+			holdsWire(doc);
+			expect(reasonsOf(doc, "locked_admin_questions")).toBeUndefined();
+		}
 	});
 
 	it("asks for Web-Based Apps for an app that declares Web Apps, with one reason, and not for an Android-only app", () => {
@@ -1264,8 +1302,20 @@ describe("a Connect app", () => {
 
 	it("names an assessment a learn form sends alone", () => {
 		const doc = fixture("learn-default");
-		const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
-		form.connect = { assessment: { id: "quiz" } };
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const lesson = doc.fieldOrder[formUuid].find((uuid) => {
+			const field = doc.fields[uuid];
+			return (
+				field?.kind === "connect_activity" &&
+				field.activity.kind === "learning-module"
+			);
+		});
+		if (!lesson) throw new Error("Missing learning module.");
+		doc.fieldOrder[formUuid] = doc.fieldOrder[formUuid].filter(
+			(uuid) => uuid !== lesson,
+		);
+		delete doc.fieldParent[lesson];
+		delete doc.fields[lesson];
 		expect(reasonsOf(doc, "data_forwarding")).toEqual([
 			"Activity sends an assessment to CommCare Connect.",
 		]);

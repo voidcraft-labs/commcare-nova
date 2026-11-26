@@ -1,22 +1,5 @@
-/**
- * A Hidden Value holding both a calculate and a default.
- *
- * Contract: Core runs a new form's `xforms-ready` setvalues in model order and
- * then evaluates every calculate (`FormDef.initialize` → `initAllTriggerables`),
- * so outside every repeat the calculate replaces the default before any screen
- * unless a later `xforms-ready` setvalue reads the node, directly or through
- * the calculates of what it reads. Where none does, the reading holds the
- * calculate alone, claims the question under the held entry and records the
- * form under `hidden-value-defaults-dropped`; where one does, or the Hidden
- * Value stands in a repeat, the question is refused once, under the entry Nova
- * does not yet hold.
- *
- * Plausible failures: a default a later setvalue reads dropped as unread (a
- * worker's saved value changes); a read through a calculation missed; an
- * earlier setvalue taken for a later one; the question refused twice, or held
- * with no record for the first publish.
- */
-
+/** A hidden question holds the starting answer seen by later load-time
+ * assignments and the calculation that determines its eventual answer. */
 import { Element } from "domhandler";
 import { append, findOne, prepend } from "domutils";
 import { describe, expect, it } from "vitest";
@@ -27,11 +10,6 @@ import { parseXml } from "@/lib/commcare/xmlParse";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "../../index";
-
-const HELD =
-	"questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads";
-const REFUSED =
-	"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression";
 
 const H = testUuid("both-h") as Uuid;
 
@@ -76,80 +54,58 @@ function withDefault(
 	});
 }
 
-async function read(body: Record<string, unknown>) {
-	return readHqApp(await inputFor(body));
+async function expectBoth(body: Record<string, unknown>) {
+	const outcome = await readHqApp(await inputFor(body));
+	expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+	if (outcome.kind !== "read") throw new Error("Expected a complete reading");
+	const field = Object.values(outcome.draft.doc.fields).find(
+		(one) => one.id === "h",
+	);
+	expect(field).toMatchObject({
+		kind: "hidden",
+		calculate: { kind: "term", term: { kind: "literal", value: 2 } },
+		default_value: { kind: "term", term: { kind: "literal", value: 1 } },
+	});
+	expect(
+		outcome.draft.facts.sameStateRewrites.map((record) => record.register),
+	).not.toContain("hidden-value-defaults-dropped");
 }
 
 describe("a Hidden Value holding both a calculate and a default", () => {
-	it("is its calculate alone where no later load-time value reads the default", async () => {
+	it("keeps its starting answer where no later load-time value reads the default", async () => {
 		const doc = survey([
 			hidden(),
 			f({ kind: "text", id: "n", label: "Note", default_value: "'x'" }),
 		]);
-		const outcome = await read(withDefault(doc, "before", "n"));
-		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
-		if (outcome.kind !== "read") return;
-		const field = Object.values(outcome.draft.doc.fields).find(
-			(one) => one.id === "h",
-		);
-		expect(field).toMatchObject({ kind: "hidden" });
-		expect(
-			field && "calculate" in field ? field.calculate : undefined,
-		).toBeDefined();
-		expect(field && "default_value" in field).toBe(false);
-		expect(
-			outcome.draft.facts.sameStateRewrites.filter(
-				(record) => record.register === "hidden-value-defaults-dropped",
-			),
-		).toEqual([
-			expect.objectContaining({
-				entry: HELD,
-				path: expect.stringMatching(/^\/_attachments\//),
-			}),
-		]);
+		await expectBoth(withDefault(doc, "before", "n"));
 	});
 
-	it("is its calculate alone where only an earlier load-time value reads it", async () => {
+	it("keeps its starting answer where only an earlier load-time value reads it", async () => {
 		const doc = survey([
 			f({ kind: "text", id: "n", label: "Note", default_value: "#form/h" }),
 			hidden(),
 		]);
-		const outcome = await read(withDefault(doc, "after", "n"));
-		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		await expectBoth(withDefault(doc, "after", "n"));
 	});
 
-	it("is refused once where a later load-time value reads the default", async () => {
+	it("keeps both slots where a later load-time value reads the default", async () => {
 		const doc = survey([
 			hidden(),
 			f({ kind: "text", id: "n", label: "Note", default_value: "#form/h" }),
 		]);
-		const outcome = await read(withDefault(doc, "before", "n"));
-		expect(
-			outcome.kind === "account"
-				? outcome.findings.map((one) => [one.code, one.place])
-				: [],
-		).toEqual([
-			[REFUSED, expect.objectContaining({ kind: "question", path: "h" })],
-		]);
+		await expectBoth(withDefault(doc, "before", "n"));
 	});
 
-	it("is refused once where a later load-time value reads it through a calculation", async () => {
+	it("keeps both slots where a later load-time value reads it through a calculation", async () => {
 		const doc = survey([
 			hidden(),
 			f({ kind: "hidden", id: "c", calculate: "#form/h * 2" }),
 			f({ kind: "text", id: "n", label: "Note", default_value: "#form/c" }),
 		]);
-		const outcome = await read(withDefault(doc, "before", "n"));
-		expect(
-			outcome.kind === "account"
-				? outcome.findings.map((one) => [one.code, one.place])
-				: [],
-		).toEqual([
-			[REFUSED, expect.objectContaining({ kind: "question", path: "h" })],
-		]);
+		await expectBoth(withDefault(doc, "before", "n"));
 	});
 
-	it("is refused once in a repeat, where a row's default can outlast its calculate", async () => {
+	it("keeps both slots in a repeat, where a row's default can outlast its calculate", async () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -200,13 +156,6 @@ describe("a Hidden Value holding both a calculate and a default", () => {
 				return serializeXml(root);
 			},
 		});
-		const outcome = await read(body);
-		expect(
-			outcome.kind === "account"
-				? outcome.findings.map((one) => [one.code, one.place])
-				: [],
-		).toEqual([
-			[REFUSED, expect.objectContaining({ kind: "question", path: "r/h" })],
-		]);
+		await expectBoth(body);
 	});
 });

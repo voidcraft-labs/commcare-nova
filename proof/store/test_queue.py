@@ -807,7 +807,7 @@ def test_the_timed_out_single_configuration_gets_two_named_whole_reader_editor_p
         )
         return queue.split([builder.document(name, root)], builder)
 
-    (root / "document.json").write_text(json.dumps({"doc": {"connectType": None}}))
+    (root / "document.json").write_text(json.dumps({"doc": {"connectRoles": []}}))
     first, second, whole = allocated()
     assert (first.name, second.name) == whole.after == lane_blocks.EDITOR_PIECES
     assert first.fresh and second.fresh and not whole.fresh
@@ -819,7 +819,7 @@ def test_the_timed_out_single_configuration_gets_two_named_whole_reader_editor_p
     assert [g.name for g in allocated(readers="0")] == [name]
     assert [g.name for g in allocated(determinism="0")] == [name]
     assert [g.name for g in allocated(split_above=None)] == [name]
-    (root / "document.json").write_text(json.dumps({"doc": {"connectType": "learn"}}))
+    (root / "document.json").write_text(json.dumps({"doc": {"connectRoles": ["learn"]}}))
     assert [g.name for g in allocated()] == [name]
 
 

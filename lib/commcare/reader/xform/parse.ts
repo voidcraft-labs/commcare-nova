@@ -7,6 +7,8 @@
 
 import type { Document, Element } from "domhandler";
 import { isTag, isText } from "domhandler";
+import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
+import { FORM_SOURCE_READER_NAMES } from "@/lib/domain/questionId";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import surface from "../../surface/surface.json";
 import {
@@ -186,8 +188,7 @@ function holdsNoQuestion(dataRoot: Element, body: Element): boolean {
 /**
  * Finds the frame and claims it, or refuses the source whole, covering it with that one
  * finding: as blank where a part of the frame is missing, the data root is in no namespace or
- * the source holds no question, and where the data root is named other than `data`, whose
- * name every path of the form begins with.
+ * the source holds no question, and where a worker cannot address the data root by its name.
  */
 export function parseXFormSource(
 	input: ParseInput,
@@ -229,15 +230,20 @@ export function parseXFormSource(
 		elementNamespace(dataRoot, scope(dataRoot)) === null
 	)
 		return blank();
-	if (splitName(dataRoot.name).local !== "data") {
-		const refused = refuseWhole(X.rootNotData, { name: dataRoot.name });
+	if (!formRootNameSchema.safeParse(dataRoot.name).success) {
+		const claim = FORM_SOURCE_READER_NAMES.has(dataRoot.name)
+			? X.designerRoot
+			: X.unaddressableRoot;
+		const refused = refuseWhole(claim, { name: dataRoot.name });
 		// The name is the data root's, whose key the refusal names: it stands there too.
-		cursor.within({ element: dataRoot }, X.rootNotData, [
-			"xform:model/instance/*",
-		]);
+		cursor.within({ element: dataRoot }, claim, ["xform:model/instance/*"]);
 		return refused;
 	}
 	if (holdsNoQuestion(dataRoot, body)) return blank();
+	if (dataRoot.name !== "data")
+		cursor.within({ element: dataRoot }, X.namedRoot, [
+			"xform:model/instance/*",
+		]);
 
 	// Each element of the frame is claimed under the surface key used there: the model is the
 	// element Core's top-level handler dispatches, the main instance and the itext block are

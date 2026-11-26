@@ -143,12 +143,7 @@ export async function completeSubmissionReceipt(
 ): Promise<void> {
 	const updated = await trx
 		.updateTable("form_submission_intents")
-		.set({
-			result: JSON.stringify({
-				...args.result,
-				openingCarryScope: args.receipt.openingCarryScope,
-			}),
-		})
+		.set({ result: JSON.stringify(args.result) })
 		.where("app_id", "=", args.appId)
 		.where("project_id", "=", args.projectId)
 		.where("created_by", "=", args.actorUserId)

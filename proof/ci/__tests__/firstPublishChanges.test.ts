@@ -2,7 +2,7 @@
 // register: the lane's shards hold no TypeScript, so its judge reads which
 // differences each change allows from this file. Where the checkout is whole
 // the file is held to the register itself: one object a change, every
-// change in registry order but a retired notice no reading makes; each object's `source` rows exactly the
+// change in registry order; each object's `source` rows exactly the
 // stored-app pointers the register's entry allows, but the change that
 // stands everywhere, which holds a form's source only by the part classes a
 // run's evidence writes and the register types (`RESPELLED_FORM_PARTS`),
@@ -25,9 +25,8 @@ import {
 	RESPELLED_FORM_PARTS,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import {
-	FIRST_PUBLISH_CHANGE_IDS,
-	type FirstPublishChangeId,
-	retiredSearchFilterNotices,
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+	type CurrentFirstPublishChangeId,
 } from "@/lib/publish/firstPublishChangeIds";
 
 interface Row {
@@ -73,27 +72,28 @@ function load(): Change[] {
 }
 
 describe("proof/first-publish-changes.json", () => {
-	it("holds one object a change, in registry order, but a retired notice no reading makes", () => {
-		// A stored review can still name a retired notice, so the registry keeps it, while
-		// no reading makes it and the lane allows no difference under it.
-		expect(load().map((one) => one.change)).toEqual(
-			FIRST_PUBLISH_CHANGE_IDS.filter(
-				(id) => !retiredSearchFilterNotices.has(id),
-			),
-		);
+	it("holds one object a change, in registry order", () => {
+		expect(load().map((one) => one.change)).toEqual([
+			...CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+		]);
 	});
 
 	it("holds as each change's place kinds exactly the kinds its entry stands at", () => {
 		for (const one of load())
 			expect([one.change, one.placeKinds]).toEqual([
 				one.change,
-				[...firstPublishPlaceKindsOf(one.change as FirstPublishChangeId)],
+				[
+					...firstPublishPlaceKindsOf(
+						one.change as CurrentFirstPublishChangeId,
+					),
+				],
 			]);
 	});
 
 	it("holds as each change's source rows exactly the stored-app pointers its entry allows, but a form's source where the change stands everywhere", () => {
 		for (const one of load()) {
-			const entry = FIRST_PUBLISH_CHANGES[one.change as FirstPublishChangeId];
+			const entry =
+				FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId];
 			const appWide = "appWide" in entry.at;
 			const source = one.rows.filter((row) => row.check === "source");
 			for (const row of source)
@@ -159,7 +159,7 @@ describe("proof/first-publish-changes.json", () => {
 			if (one.rows.some((row) => row.check === "proof3" && !searchSent(row)))
 				expect([
 					one.change,
-					FIRST_PUBLISH_CHANGES[one.change as FirstPublishChangeId]
+					FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId]
 						.touchesWorkers,
 				]).toEqual([one.change, true]);
 	});

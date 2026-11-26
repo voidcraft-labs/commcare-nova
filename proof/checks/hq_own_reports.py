@@ -68,6 +68,21 @@ The members:
   them, so there a setting the save writes is Nova's (finding 40, whose
   fixed entries the control ``case-operation-query`` keeps showing).
 
+- ``vellum_reserved_question_name``: Vellum's warning that a question's ID
+  "may cause problems with form parsing" on a question named ``script``,
+  and on one named ``registration`` in an app whose Web Apps setting is off.
+  Vellum warns on the three names ``case``, ``registration`` and ``script``
+  in any capitalization (``mugs/baseSpecs.js::RESERVED_NAMES``), whoever
+  wrote the form. A device and HQ keep an answer named ``script`` on either
+  platform, and one named ``registration`` on Android, where the device
+  offers its transaction parsers only stock-namespace nodes and ``case``
+  (``FormRecordProcessor``), each sent form stored and its case changes
+  processed by HQ (``proof/formplayer/test_receiving_answers.py``,
+  ``proof/android/test_receiving_answers.py``). Web Apps reads any
+  ``registration`` as a user registration and refuses the form
+  (``CommCareTransactionParserFactory``), and every device reads ``case`` as
+  a case change, so the warning on those stays the export's (defect 70).
+
 - ``android_settings_page_writes_unset_settings``: the three Android
   preference readers and the two worker settings whose value changes when
   HQ's own settings page first saves its defaults. A and B must both lack
@@ -384,6 +399,29 @@ def android_settings_page_wrote_unset(difference, added, original_device=None, s
     )
 
 
+# Vellum's reserved question names -------------------------------------------------------------------------------
+
+# Vellum's warning on a reserved question ID as proof 4 keys it (``proof.checks.proof4.vellum_report``: the
+# attribute, Vellum's message key, and the text with what its quotes hold written ``*``).
+RESERVED_NAME_WARNING = (
+    "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form"
+    " parsing. It is recommended to pick a different Question ID."
+)
+
+
+def reserved_name_kept(question, app) -> bool:
+    """Whether workers keep the answer of a question Vellum warns about (``question``, as the editor's record
+    holds it, its last path step its ID) in the app HQ holds (``app``, its app document): ``script`` everywhere,
+    and ``registration``, in any capitalization, where the app's Web Apps setting (``cloudcare_enabled``) is
+    off."""
+    if not isinstance(question, dict):
+        return False
+    name = str(question.get("path") or "").rsplit("/", 1)[-1].lower()
+    if name == "script":
+        return True
+    return name == "registration" and isinstance(app, dict) and app.get("cloudcare_enabled") is False
+
+
 # The set ---------------------------------------------------------------------------------------------------------
 
 HQ_OWN_REPORTS: tuple[HqOwnReport, ...] = (
@@ -425,6 +463,17 @@ HQ_OWN_REPORTS: tuple[HqOwnReport, ...] = (
         description=(
             "The app settings page's save writing each setting an app made in HQ holds no value for, which Nova's"
             " publish over it seeds none of."
+        ),
+    ),
+    HqOwnReport(
+        id="vellum_reserved_question_name",
+        artifacts=("editor:vellum", "editor:vellum again"),
+        paths=(RESERVED_NAME_WARNING,),
+        applies=reserved_name_kept,
+        proof="proof/editors/test_hq_own_reserved_question_name.py",
+        description=(
+            "Vellum's warning on a question named script, or registration in an app that does not run in Web Apps,"
+            " whose answer workers submit and HQ keeps."
         ),
     ),
     HqOwnReport(
