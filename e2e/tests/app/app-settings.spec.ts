@@ -537,14 +537,6 @@ test("Android Preview reopens an incomplete form under its saved label", {
 	await page.keyboard.press("Escape");
 
 	await openStarterForm(page);
-	await openInsertionSubmenu(page, "Input");
-	const added = savedWith(page, openAppId, [
-		'"kind":"addField"',
-		'"kind":"text"',
-	]);
-	await page.getByRole("menuitem", { name: "Text", exact: true }).click();
-	expect((await added).ok()).toBe(true);
-
 	await page
 		.getByRole("button", { name: "Form settings", exact: true })
 		.click();
@@ -554,21 +546,21 @@ test("Android Preview reopens an incomplete form under its saved label", {
 		.click();
 	await page.getByLabel("Text for saved form label", { exact: true }).click();
 	const label = savedWith(page, openAppId, ['"savedFormDescriptorText"']);
-	await page.getByRole("option", { name: /^New Text/ }).click();
+	await page.getByRole("option", { name: /^Question 1/ }).click();
 	expect((await label).ok()).toBe(true);
-	await page
-		.getByRole("button", { name: "Close form settings", exact: true })
-		.click();
-
+	await openBuilder(page, `/build/${openAppId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");
-	const answer = main.getByRole("textbox", { name: /New Text/ });
+	await main.getByRole("button", { name: "Start", exact: true }).click();
+	await main.getByRole("button", { name: /^Survey/ }).click();
+	await main.getByRole("button", { name: "Survey", exact: true }).click();
+	const answer = main.getByRole("textbox", { name: "Question 1", exact: true });
 	await answer.fill("Before leaving");
 	await main
 		.getByRole("button", { name: "Save for later", exact: true })
 		.click();
 	await main.getByRole("button", { name: "Incomplete", exact: true }).click();
-	await main.getByRole("button", { name: /^New Text/ }).click();
+	await main.getByRole("button", { name: /^Question 1/ }).click();
 	await expect(answer).toHaveValue("Before leaving");
 	await expect(
 		main.getByRole("button", { name: "Finish", exact: true }),
