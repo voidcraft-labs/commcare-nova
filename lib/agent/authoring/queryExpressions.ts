@@ -684,7 +684,7 @@ function compiler(bindings: QueryBindings) {
 			arity(name, args);
 			if (
 				args[0]?.kind === "call" &&
-				["device-records", "table-rows"].includes(args[0].name)
+				["device-records", "cases", "table-rows"].includes(args[0].name)
 			) {
 				if (args.length !== 1)
 					throw new AuthoringInputError(
