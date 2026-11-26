@@ -92,8 +92,8 @@ def _edit_connections(editor_driver, state, app_id, form_id, reference, bindings
 
 @pytest.mark.parametrize(
     "reference",
-    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent", "métrique"],
-    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore", "accented"],
+    ["my-parent", "my.parent", "my.", "my..parent", "my.2parent", "_parent", "métrique", "mé-trique"],
+    ids=["hyphen", "dot", "trailing-dot", "two-dots", "digit-after-dot", "leading-underscore", "accented", "accented-hyphen"],
 )
 def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner, tmp_path, reference):
     with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record), ExitStack() as mobile:
@@ -191,10 +191,11 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
             assert (saved.case_id, saved.owner_id, saved.name) == (case_id, worker.user_id, CHILD_NAME)
             saved_index, = saved.indices
             assert (saved_index.identifier, saved_index.referenced_id) == (reference, PARENT)
+            unaccented = reference.replace("é", "e")
             formplayer_hq.save_cases(state, _worker_database(
                 _worker_case(
                     NEIGHBOR, "requisition", "Unrelated requisition",
-                    indices=(("parent", "clinic", PARENT, "child"),),
+                    indices=((unaccented, "clinic", PARENT, "child"),),
                 ),
                 _worker_case(
                     OTHER_WORKER_CASE, "requisition", "Unavailable requisition",
@@ -208,7 +209,9 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
             assert restored_case is not None
             restored_link, = restored_case.find(f"{{{CASE}}}index")
             assert (etree.QName(restored_link).localname, restored_link.text) == (reference, PARENT)
-            assert restored.find(f"{{{CASE}}}case[@case_id='{NEIGHBOR}']") is not None
+            neighbor = restored.find(f"{{{CASE}}}case[@case_id='{NEIGHBOR}']")
+            assert neighbor is not None
+            assert neighbor.find(f"{{{CASE}}}index/{{{CASE}}}{unaccented}").text == PARENT
             assert restored.find(f"{{{CASE}}}case[@case_id='{OTHER_WORKER_CASE}']") is None
 
         # A separate form reads the relation after the transaction has been
