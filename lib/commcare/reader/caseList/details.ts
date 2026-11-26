@@ -176,6 +176,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-max-select-value-above-100`,
 		"schema:Detail.max_select_value",
 	),
+	maxSelectOutsideRuntime: refuse(
+		`${A}detail-max-select-value-above-2147483647`,
+		"schema:Detail.max_select_value",
+	),
 	maxSelectZero: refuse(
 		`${A}detail-max-select-value-of-0-or-below-1-on-a-multi-select-basic`,
 		"schema:Detail.max_select_value",
@@ -1656,6 +1660,11 @@ function readSelection(
 	if (typeof max !== "number") return { ok: false };
 	if (max === 0 || max < -1) {
 		short.refuse("max_select_value", D.maxSelectZero);
+		return { ok: false };
+	}
+	// Core's SessionDatumParser parses the suite attribute as a signed Java integer.
+	if (max > 2_147_483_647) {
+		short.refuse("max_select_value", D.maxSelectOutsideRuntime);
 		return { ok: false };
 	}
 	if (max > 100) {

@@ -639,6 +639,20 @@ describe("CommCare HQ's column formats", () => {
 		);
 	});
 
+	it.each([
+		[101, "detail-max-select-value-above-100"],
+		[2_147_483_647, "detail-max-select-value-above-100"],
+		[2_147_483_648, "detail-max-select-value-above-2147483647"],
+	] as const)(
+		"distinguishes the Nova limit from Core's integer limit at %s",
+		async (maximum, entry) => {
+			const read = await readDetails((short) => {
+				Object.assign(short, { multi_select: true, max_select_value: maximum });
+			});
+			expect(closedCodes(read)).toContain(`${M}${entry}`);
+		},
+	);
+
 	// HQ's build writes no `max-select-value` for a null, and Core then takes 100
 	// (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`); a text HQ's model refuses as it wraps the app.
 	it("reads a null maximum of a multi-select list as 100, and a text maximum as no entry's", async () => {

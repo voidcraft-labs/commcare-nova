@@ -3480,14 +3480,14 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.max_select_value` above 100 on a multi-select basic list",
+		"item": "`Detail.max_select_value` from 101 through 2,147,483,647 on a multi-select basic list",
 		"surfaceKeys": [
 			"parser:SessionDatumParser/instance-datum@max-select-value",
 			"schema:Detail.max_select_value"
 		],
 		"valueClass": "above-100",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `selection.maximum` above 100",
+		"dispositionCell": "**HELD-NEW**: `selection.maximum` from 101 through 2,147,483,647",
 		"subject": "case-list-setup",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -3502,6 +3502,36 @@
 		},
 		"emission": {
 			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-max-select-value-above-2147483647",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` above 2,147,483,647 on a multi-select basic list",
+		"surfaceKeys": [
+			"parser:SessionDatumParser/instance-datum@max-select-value",
+			"schema:Detail.max_select_value"
+		],
+		"valueClass": "exceeds-java-int",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare Core cannot install the suite because `SessionDatumParser` reads a signed Java integer",
+		"subject": "case-list-setup",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "CommCare Core cannot install the suite because `SessionDatumParser` reads a signed Java integer"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

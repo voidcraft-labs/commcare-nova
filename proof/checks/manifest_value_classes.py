@@ -12392,24 +12392,38 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     return not _authored_property_name(name)
 
 
-def max_select_value_above_100(use, manifest):
-    """``menus-and-case-lists/detail-max-select-value-above-100``: a ``max_select_value`` above 100 on the case list
-    of a basic menu with a case type whose list selects several cases (``lib/commcare/reader/caseList/details.ts::
-    readSelection``). A value 0, below -1 or no number is another class's."""
+def _basic_multi_select_maximum(use):
+    """The source maximum on a basic menu's short list that actually selects several cases."""
+
     at = _json(use)
     if at is None or at.key != "max_select_value" or at.scope[-1][0] != "Detail":
         return None
     detail, pair, module = at.owner, at.nearest("DetailPair"), at.nearest(*MODULES)
     if pair is None or pair.get("short") is not detail or module is None:
         return False
-    if module.get("doc_type") == "AdvancedModule" or not module.get("case_type"):
+    if module.get("doc_type") not in (None, "Module") or not module.get("case_type"):
         return False
     if detail.get("multi_select") is not True:
         return False
-    value = _max_select_number(detail.get("max_select_value"))
-    if value is None or value is False:
-        return value
-    return value > 100
+    return _max_select_number(detail.get("max_select_value"))
+
+
+def max_select_value_above_100(use, manifest):
+    value = _basic_multi_select_maximum(use)
+    return value if value is None else 100 < value <= 2_147_483_647
+
+
+def multi_select_maximum_exceeds_java_int(use, manifest):
+    """A signed Java integer overflow on an active source list or its emitted instance datum."""
+    at = _xml(use)
+    if at is not None and at.document.kind == "runtime":
+        try:
+            value = int(at.element.get("max-select-value"))
+        except (TypeError, ValueError):
+            return None
+    else:
+        value = _basic_multi_select_maximum(use)
+    return value if value is None else value > 2_147_483_647
 
 
 # The characters Core trims from the end of a line it reads of an app strings file: every one up to U+0020.
@@ -13358,6 +13372,7 @@ VALUE_CLASSES = {
         lookup_with_result_column
     ),
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
+    "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name
     ),

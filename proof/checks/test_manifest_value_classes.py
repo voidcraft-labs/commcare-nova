@@ -7441,6 +7441,14 @@ def _held_new():
             *(accepted("form", named.replace(b"visit", name.encode()), "xform:model/instance/*", f"instance[1]/{data}{name}[1]")
               for name in ("case", "registration", "Bind")),
         ),
+        "menus-and-case-lists/detail-max-select-value-above-2147483647": (
+            refused("app", columns(multi_select=True, max_select_value=2_147_483_648),
+                    "schema:Detail.max_select_value", f"{short}/max_select_value"),
+            accepted("app", columns(multi_select=True, max_select_value=2_147_483_647),
+                     "schema:Detail.max_select_value", f"{short}/max_select_value"),
+            accepted("app", columns(multi_select=False, max_select_value=2_147_483_648),
+                     "schema:Detail.max_select_value", f"{short}/max_select_value"),
+        ),
         "menus-and-case-lists/detail-max-select-value-above-100": (
             refused(
                 "app",
