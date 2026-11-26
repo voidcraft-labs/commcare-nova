@@ -56,7 +56,7 @@ def test_android_uses_long_recipients_and_only_one_inline_video(android_document
             entries[path], "jr://file/commcare/inline-proof.mp4"
         )
         answer, sent = _app(
-            served, archive_bytes(entries), "itext-recipients", commands=[FORM], views=True,
+            served, archive_bytes(entries.items()), "itext-recipients", commands=[FORM], views=True,
             questions={"/data/household/address": ["refused", "proof"]}, type_refused=True,
             repeat_additions=1,
         )
