@@ -1059,12 +1059,12 @@ stayed through every earlier publish, and both reads can agree on them. Until
 a baseline's `ownership.menuLayouts` accounts for them, preflight compares
 HQ's choices, by this target's menu ids and including a dormant grid and a
 menu the document lost, with the document's, and lists each replacement as
-the first parts of the app's change (`appRemoteChange.ts`, at most six lines,
-one per kind of change, naming at most ten menus each), with
-`replacesMenuLayouts` and a note on matching them in Nova. The lines are a
-function of the head, the target's identity and the read the digest names,
-so the ordinary app discard binds them, and the ordinary second-read and
-confirmed-source checks guard them. A create baseline accounts for none: a
+the first parts of the app's change (`appRemoteChange.ts`, at most seven
+lines, one per kind of change, naming at most ten menus each), with
+`replacesMenuLayouts` and a note on matching them in Nova. A complete HQ
+changes review shows the same outgoing replacements before any removed files.
+The overwrite receipt binds those exact lines, and the ordinary second-read
+and confirmed-source checks guard them. A create baseline accounts for none: a
 choice made on a shell before its first complete upload is listed too. A
 baseline accounts for the layouts once the read it records shows only
 choices the document holds (`observedMenuLayoutOwnership`): the read after a

@@ -675,6 +675,7 @@ export function hqDiscardDigest(
 	source: string,
 	removed: readonly RemovedHqFile[],
 	disclosure: "preview" | "complete" | "unavailable" = "preview",
+	layoutReplacements: readonly string[] = [],
 ): string {
 	return canonicalJsonDigest({
 		v: 2,
@@ -682,6 +683,7 @@ export function hqDiscardDigest(
 		authority,
 		source,
 		removed: removed.map((file) => file.digest),
+		...(layoutReplacements.length > 0 && { layoutReplacements }),
 		disclosure,
 	});
 }
