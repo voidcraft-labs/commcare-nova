@@ -1926,7 +1926,7 @@ function mayReadCatalog(expression: Expression | undefined): boolean {
  * question with no filter and no role, in any spelling, or the
  * `capture-link` of a capture. */
 function writerOfValue(
-	doc: BlueprintDoc,
+	doc: Pick<PersistableDoc, "fields">,
 	value: Expression,
 ): Field | undefined {
 	if (value.kind !== "term") return undefined;
