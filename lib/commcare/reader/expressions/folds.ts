@@ -108,6 +108,11 @@ export interface FoldEnv {
 	readonly place?: OperationPlaceReads;
 	/** The slot's whole source, where the binding knows it. */
 	readonly root?: FormSyntax;
+	/** The slot reads a walk of the row's indices as Core does, to whatever case each reaches
+	 *  (`reached-property`): a case list column's calculation, whose value Postgres and the device
+	 *  both compute over the reached row. Another record slot's untyped walk stands under its
+	 *  own row (a list filter's `#host`, `detail-filter-value-outside-predicate`). */
+	readonly readsReached?: true;
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
 	/** Claims a site of its own for this fold over `span` (a fold that folds
@@ -2694,12 +2699,14 @@ function destinationType(
  * which is the reached read (`PropertyRef.readReached`), whose print is that walk. HQ's build
  * writes it for a stored relation path (`detail_screen.py::PropertyXpathGenerator`). Offered after
  * `relation-property`, so a walk the typed relation reproduces stays typed, and this holds the
- * walk the typed one does not print (an undeclared link, a link beside a declared parent).
+ * walk the typed one does not print (an undeclared link, a link beside a declared parent), in a
+ * slot that reads it so (`FoldEnv.readsReached`).
  */
 const reachedProperty: Fold = {
 	id: "reached-property",
 	ruleSets: ["record"],
-	propose(node, context, api) {
+	propose(node, context, api, env) {
+		if (env.readsReached !== true) return undefined;
 		const read = casedbRow(node);
 		if (read === undefined) return undefined;
 		const [step, ...more] = read.rest;

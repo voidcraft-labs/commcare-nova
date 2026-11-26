@@ -427,6 +427,9 @@ function scopeWith(
 				operationIdPaths,
 				withdrawn,
 				sites,
+				...(pending.ref.slot === "case_list_column_expression" && {
+					readsReached: true as const,
+				}),
 				...(place === undefined ? {} : { place }),
 				...(root === undefined ? {} : { root }),
 			}),
@@ -467,6 +470,7 @@ function proposeFold(
 		readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 		readonly withdrawn: ReadonlySet<string>;
 		readonly sites: FoldSites;
+		readonly readsReached?: true;
 		readonly place?: OperationPlaceReads;
 		readonly root?: FormSyntax;
 	},
@@ -482,6 +486,7 @@ function proposeFold(
 			doc: options.doc,
 			operationIdPaths: options.operationIdPaths,
 			withdrawn: options.withdrawn,
+			...(options.readsReached && { readsReached: true }),
 			...(options.place === undefined ? {} : { place: options.place }),
 			...(options.root === undefined ? {} : { root: options.root }),
 			bindPlain(at, context) {
