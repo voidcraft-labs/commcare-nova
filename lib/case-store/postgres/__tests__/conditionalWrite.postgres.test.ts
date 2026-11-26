@@ -184,7 +184,7 @@ function submit(
 }
 
 describe("conditional numeric writes", () => {
-	it("binds each captured lookup table once per statement across repeated expression reads", async () => {
+	it("bounds captured lookup binds in successful and failing submission batches", async () => {
 		const appDb = fixture.db as Kysely<AppDatabase>;
 		const { tables } = await appDb.transaction().execute(async (tx) =>
 			applyLookupAuthoringBatchInTransaction(
@@ -287,7 +287,9 @@ describe("conditional numeric writes", () => {
 										note,
 										...Array.from({ length: reads - 1 }, () => note),
 									),
-									literal("A table without a matching row must read blank"),
+									term(
+										literal("A table without a matching row must read blank"),
+									),
 								),
 							},
 						],
@@ -307,7 +309,7 @@ describe("conditional numeric writes", () => {
 				const richBinds = query.parameters.filter(
 					(value) => typeof value === "string" && value.includes(capturedText),
 				).length;
-				if (richBinds > 0)
+				if (query.sql.includes("opening_case"))
 					observed.push({
 						sql: query.sql,
 						richBinds,
@@ -324,8 +326,9 @@ describe("conditional numeric writes", () => {
 			(fixture.db as Kysely<Database>).withPlugin(watchBindings),
 		);
 		await submit(store, capturedProgram);
-		expect(observed).toHaveLength(1);
-		const [{ sql: generated, richBinds, emptyBinds }] = observed;
+		const lookupQueries = observed.filter(({ richBinds }) => richBinds > 0);
+		expect(lookupQueries).toHaveLength(1);
+		const [{ sql: generated, richBinds, emptyBinds }] = lookupQueries;
 		expect({ richBinds, emptyBinds }).toEqual({ richBinds: 1, emptyBinds: 3 });
 		expect(generated.match(/AS MATERIALIZED/g)).toHaveLength(2);
 		expect(
@@ -356,6 +359,95 @@ describe("conditional numeric writes", () => {
 				"missing-captured-table",
 			),
 		).rejects.toThrow("This worker’s current lookup rows are unavailable.");
+		expect(
+			await (fixture.db as Kysely<Database>)
+				.selectFrom("cases")
+				.select("properties")
+				.where("app_id", "=", APP_ID)
+				.execute(),
+		).toEqual(saved);
+		const noteProperties = Array.from({ length: 32 }, (_, index) => ({
+			name: `note_${index}`,
+			label: proseText(`Note ${index + 1}`),
+			data_type: "text" as const,
+		}));
+		const extendedInspection = {
+			...INSPECTION,
+			properties: [...INSPECTION.properties, ...noteProperties],
+		};
+		const caseTypeSchemas = buildCaseTypeMap(
+			buildSimpleBlueprint([extendedInspection], APP_ID),
+		);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: INSPECTION.name,
+			caseTypeSchemas,
+		});
+		observed.length = 0;
+		await expect(
+			submit(
+				store,
+				{
+					...capturedProgram,
+					caseTypeSchemas,
+					scopes: program("yes", "1", "0").scopes,
+					operations: [
+						{
+							...create,
+							operation: {
+								...create.operation,
+								writes: [
+									...noteProperties.map(({ name }, index) => ({
+										property: name,
+										value:
+											index === 0
+												? ifExpr(
+														isBlank(emptyCell),
+														note,
+														term(literal("Unexpected row")),
+													)
+												: note,
+									})),
+									{
+										property: "flow",
+										value: arith(
+											"div",
+											term(literal(60)),
+											term(formField(DURATION_FIELD)),
+										),
+									},
+								],
+							},
+						},
+					],
+				},
+				"late-failing-slot",
+			),
+		).rejects.toMatchObject({
+			cause: { code: "22012" },
+			rejection: {
+				kind: "expression",
+				reason: "division-by-zero",
+				operationUuid: OP_UUID,
+				slot: "property: flow",
+				fieldUuids: [DURATION_FIELD],
+			},
+		});
+		const failedBatch = observed.findIndex(({ sql }) =>
+			sql.includes('as "e31"'),
+		);
+		expect(failedBatch).toBeGreaterThanOrEqual(0);
+		const diagnostics = observed.slice(failedBatch);
+		expect(diagnostics.length).toBeLessThanOrEqual(8);
+		expect(
+			diagnostics
+				.map(({ richBinds }) => richBinds)
+				.every((count) => count <= 1),
+		).toBe(true);
+		expect(
+			diagnostics.filter(({ emptyBinds }) => emptyBinds === 3),
+		).toHaveLength(2);
+		expect(diagnostics.at(-1)).toMatchObject({ richBinds: 0, emptyBinds: 2 });
 		expect(
 			await (fixture.db as Kysely<Database>)
 				.selectFrom("cases")

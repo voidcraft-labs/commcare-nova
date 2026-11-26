@@ -624,13 +624,10 @@ async function evaluateBatch(
 		!program.lookupTableSchemas.projection
 	)
 		throw new Error("An opened form needs its captured worker lookup rows.");
-	const results: unknown[] = new Array(requests.length);
-	const CHUNK = 400;
-	for (let start = 0; start < requests.length; start += CHUNK) {
-		const chunk = requests.slice(start, start + CHUNK);
+	const evaluate = (subset: readonly EvalRequest[]) => {
 		const lookup = program.openingReads ? collectWorkerLookupCtes() : undefined;
 		const eb = expressionBuilder<Database, "cases">();
-		const selections = chunk.map((request, offset) => {
+		const selections = subset.map((request, offset) => {
 			const alias = `e${offset}`;
 			const session = sessionFor(request.instance);
 			const ctx: PredicateCompileContext = {
@@ -699,17 +696,22 @@ async function evaluateBatch(
 				.limit(1)
 				.as(alias);
 		});
-		const lookupCtes = lookup?.appendCtes() ?? sql``;
+		return readOpeningValues(
+			trx,
+			program,
+			host.projectId,
+			trx.selectNoFrom(selections),
+			lookup?.appendCtes() ?? sql``,
+		);
+	};
+	const results: unknown[] = new Array(requests.length);
+	const CHUNK = 400;
+	for (let start = 0; start < requests.length; start += CHUNK) {
+		const chunk = requests.slice(start, start + CHUNK);
 		await sql`SAVEPOINT submission_expression`.execute(trx);
 		let row: Record<string, unknown> | undefined;
 		try {
-			row = await readOpeningValues(
-				trx,
-				program,
-				host.projectId,
-				trx.selectNoFrom(selections),
-				lookupCtes,
-			);
+			row = await evaluate(chunk);
 		} catch (error) {
 			const reasonFor = (failure: unknown) => {
 				const code =
@@ -726,44 +728,47 @@ async function evaluateBatch(
 			};
 			if (!reasonFor(error)) throw error;
 			await sql`ROLLBACK TO SAVEPOINT submission_expression`.execute(trx);
-			// Only a failing batch pays for diagnosis. Re-evaluate each projection in
-			// the same pre-effect transaction and bindings to identify the exact slot.
-			for (const [offset, selection] of selections.entries()) {
+			// Find the first failing projection in the same pre-effect transaction.
+			// Each probe binds only the subset's own tables. Halving the ordered
+			// range avoids sending up to 400 copies of the same captured data.
+			let first = 0;
+			let end = chunk.length;
+			while (end - first > 1) {
+				const middle = first + Math.floor((end - first) / 2);
 				try {
-					await readOpeningValues(
-						trx,
-						program,
-						host.projectId,
-						trx.selectNoFrom(selection),
-						lookupCtes,
-					);
+					await evaluate(chunk.slice(first, middle));
+					first = middle;
 				} catch (cause) {
-					const reason = reasonFor(cause);
-					if (!reason) throw cause;
+					if (!reasonFor(cause)) throw cause;
 					await sql`ROLLBACK TO SAVEPOINT submission_expression`.execute(trx);
-					await sql`RELEASE SAVEPOINT submission_expression`.execute(trx);
-					const request = chunk[offset];
-					const fields = new Set<string>();
-					const visit = (
-						term: import("@/lib/domain/expression/types").Term,
-					) => {
-						if (term.kind === "field") fields.add(term.uuid);
-					};
-					if (request.expression)
-						walkExpressionTerms(request.expression, visit);
-					if (request.predicate) walkExpressionTerms(request.predicate, visit);
-					throw new SubmissionRejectedError(
-						{
-							kind: "expression",
-							reason,
-							operationUuid: request.operationUuid,
-							operationId: request.operationId,
-							slot: request.slot,
-							fieldUuids: [...fields],
-						},
-						{ cause },
-					);
+					end = middle;
 				}
+			}
+			const request = chunk[first];
+			try {
+				await evaluate([request]);
+			} catch (cause) {
+				const reason = reasonFor(cause);
+				if (!reason) throw cause;
+				await sql`ROLLBACK TO SAVEPOINT submission_expression`.execute(trx);
+				await sql`RELEASE SAVEPOINT submission_expression`.execute(trx);
+				const fields = new Set<string>();
+				const visit = (term: import("@/lib/domain/expression/types").Term) => {
+					if (term.kind === "field") fields.add(term.uuid);
+				};
+				if (request.expression) walkExpressionTerms(request.expression, visit);
+				if (request.predicate) walkExpressionTerms(request.predicate, visit);
+				throw new SubmissionRejectedError(
+					{
+						kind: "expression",
+						reason,
+						operationUuid: request.operationUuid,
+						operationId: request.operationId,
+						slot: request.slot,
+						fieldUuids: [...fields],
+					},
+					{ cause },
+				);
 			}
 			// A non-reproducible failure is still an infrastructure error, not a guess.
 			throw error;
