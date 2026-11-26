@@ -238,7 +238,7 @@ describe("an advanced form's tags", () => {
 });
 
 describe("an advanced form's loads and open actions", () => {
-	it("refuses an open action's index named outside an XML element name", async () => {
+	it("retains a hyphenated open index through import and advanced Case Management emission", async () => {
 		const { doc } = registration([kid]);
 		const reading = await readCases(doc, {
 			edit: (app) => {
@@ -247,6 +247,41 @@ describe("an advanced form's loads and open actions", () => {
 					opens[1] as { case_indices: Record<string, unknown>[] }
 				).case_indices;
 				(indices[0] as Record<string, unknown>).reference_id = "my-parent";
+			},
+		});
+		if (reading.whole?.kind !== "read")
+			throw new Error(JSON.stringify(findingCodes(reading)));
+		const held = reading.whole.draft.doc;
+		const form = formNamed(held, "Under test");
+		const opened = form.caseOperations?.find((operation) =>
+			operation.links?.some(({ identifier }) => identifier === "my-parent"),
+		);
+		expect(opened?.links).toEqual([
+			expect.objectContaining({
+				identifier: "my-parent",
+				relationship: "child",
+			}),
+		]);
+		const wire = planFormCaseWire(held, form.uuid);
+		if (wire.kind !== "advanced")
+			throw new Error("Expected advanced Case Management");
+		expect(wire.actions.open_cases[1]?.case_indices).toEqual([
+			expect.objectContaining({
+				reference_id: "my-parent",
+				relationship: "child",
+			}),
+		]);
+	});
+
+	it("refuses an open action's index whose name contains a dot", async () => {
+		const { doc } = registration([kid]);
+		const reading = await readCases(doc, {
+			edit: (app) => {
+				const opens = actionsOf(app).open_cases;
+				const indices = (
+					opens[1] as { case_indices: Record<string, unknown>[] }
+				).case_indices;
+				(indices[0] as Record<string, unknown>).reference_id = "my.parent";
 			},
 		});
 		expect(findingCodes(reading)).toContain(

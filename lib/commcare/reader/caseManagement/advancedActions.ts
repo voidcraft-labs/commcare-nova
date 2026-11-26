@@ -22,6 +22,7 @@ import {
 	type FormSelectionSource,
 	type FormType,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	ownCaseOperationId,
 	type TargetedCaseOperation,
 	type Term,
@@ -37,7 +38,6 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/expression/builders";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
@@ -2416,7 +2416,7 @@ function readOrdinaryAdvancedActions(
 				const namesOpen = openIndex !== undefined && loadIndex === undefined;
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
-				if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
+				if (!isCaseOperationLinkIdentifier(identifier)) {
 					I.refuseWhole(ADVANCED_CLAIMS.openIndexName, { name: identifier });
 					r.ok = false;
 					return;

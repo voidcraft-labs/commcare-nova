@@ -12294,7 +12294,11 @@ def max_select_value_above_100(use, manifest):
 CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
 
 
-# Nova's XML name for a link's and a tile grouping's identifier (``lib/domain/expression/types.ts::
+# Case-operation links may include hyphens. Tile grouping still uses its separate XML name grammar.
+CASE_OPERATION_LINK_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*")
+
+
+# Nova's XML name for a tile grouping's identifier (``lib/domain/expression/types.ts::
 # XML_ELEMENT_NAME_PATTERN``), matched whole; it holds no ``-``.
 XML_ELEMENT_NAME = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 
@@ -12308,8 +12312,8 @@ def _index_identifier(index):
 
 def index_identifier_outside_an_xml_name(use, manifest):
     """``forms-and-case-writes/index-identifier-outside-an-xml-element-name``: an advanced open action's index whose
-    identifier (``_index_identifier``) is no XML name Nova writes (``XML_ELEMENT_NAME``;
-    ``advancedActions.ts``, ``openIndexName``). A load's index is another class's."""
+    identifier (``_index_identifier``) is outside Nova's case operation link identifier grammar
+    (``advancedActions.ts``, ``openIndexName``). A load's index is another class's."""
     at = _json(use)
     if at is None:
         return None
@@ -12321,7 +12325,7 @@ def index_identifier_outside_an_xml_name(use, manifest):
         indices = [at.owner]
     else:
         return None
-    return any(XML_ELEMENT_NAME.fullmatch(_index_identifier(index)) is None for index in indices)
+    return any(CASE_OPERATION_LINK_IDENTIFIER.fullmatch(_index_identifier(index)) is None for index in indices)
 
 
 def tile_group_identifier_outside_an_xml_name(use, manifest):

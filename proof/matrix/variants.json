@@ -2178,7 +2178,7 @@
 		]
 	},
 	{
-		"id": "hq-advanced/open-index-named-with-a-hyphen",
+		"id": "hq-advanced/open-index-named-with-a-dot",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"standing": "not-yet",
@@ -2206,7 +2206,7 @@
 					"case_indices": [
 						{
 							"tag": "load_household0",
-							"reference_id": "my-parent",
+							"reference_id": "my.parent",
 							"relationship": "child",
 							"relationship_question": "",
 							"doc_type": "CaseIndex"
@@ -2230,6 +2230,24 @@
 				}
 			]
 		}
+	},
+	{
+		"id": "hq-advanced/open-index-named-with-a-hyphen",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+		"change": { "op": "named", "name": "open_member_with_hyphenated_index" },
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/identifier",
+				"value": "my-parent"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/targetType",
+				"value": "household"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/open-indexed-to-a-renamed-load",

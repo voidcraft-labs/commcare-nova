@@ -141,6 +141,16 @@ def _open(tag, case_type, name_path, indices, repeat_context=""):
     }
 
 
+def open_member_with_hyphenated_index(authoring, app_id):
+    """The member the advanced form opens keeps its link to the selected household."""
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
+        _open(
+            "open_member_0", "member", "/data/notes",
+            [{**_index("load_household0"), "reference_id": "my-parent"}],
+        ),
+    ])
+
+
 def write_through_typed_user_index(authoring, app_id):
     """A declared user edge links an ordinary member to an ordinary household."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder

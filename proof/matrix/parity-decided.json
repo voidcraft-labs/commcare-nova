@@ -27,7 +27,7 @@
 		"hq-advanced/member-reviews-listing-every-member",
 		"hq-advanced/member-visits-in-a-grid",
 		"hq-advanced/member-visits-list-item-labelled-and-hidden",
-		"hq-advanced/open-index-named-with-a-hyphen",
+		"hq-advanced/open-index-named-with-a-dot",
 		"hq-advanced/open-indexed-to-a-renamed-load",
 		"hq-advanced/open-indexed-to-a-repeated-open",
 		"hq-advanced/open-indexed-to-itself",
@@ -381,9 +381,7 @@
 		"hq-new-app/smart-lang-display",
 		"hq-new-app/vellum-case-management-off"
 	],
-	"hq-nova-then-builder": [
-		"hq-nova-then-builder/close-on-a-survey"
-	],
+	"hq-nova-then-builder": ["hq-nova-then-builder/close-on-a-survey"],
 	"hq-owner-rules": [],
 	"hq-places": [],
 	"hq-plain": [

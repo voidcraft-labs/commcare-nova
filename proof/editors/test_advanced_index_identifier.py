@@ -47,6 +47,11 @@ def test_advanced_case_management_keeps_a_hyphenated_index(editor_driver, hq, co
 
         built = compare.build(state, app_id, record)
         assert not built.errors, built.errors
+        emitted = etree.fromstring(built.files["modules-1/forms-1.xml"])
+        link, = emitted.xpath("//*[local-name()='index']/*[local-name()='my-parent']")
+        assert link.get("case_type") == "clinic"
+        bind, = emitted.xpath("//*[local-name()='bind'][contains(@nodeset, '/index/my-parent')]")
+        assert bind.get("calculate").endswith("/case_id_load_clinic0")
         with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
             assert admission["admitted"], admission["problems"]
             table = load_answer_table()
@@ -61,7 +66,7 @@ def test_advanced_case_management_keeps_a_hyphenated_index(editor_driver, hq, co
             if (step := form_step(run)) and step.get("xmlns") == form.xmlns
         )
         assert run["end"] == "submitted", run.get("refusal")
-        submission, _ = unmarked_submission(run)
+        submission, tokens = unmarked_submission(run)
         payload = etree.fromstring(submission)
         transaction, = [block for block in payload.iter(f"{{{CASE}}}case") if block.find(f"{{{CASE}}}create") is not None]
         case_id = transaction.get("case_id")
@@ -69,7 +74,8 @@ def test_advanced_case_management_keeps_a_hyphenated_index(editor_driver, hq, co
         index, = transaction.find(f"{{{CASE}}}index")
         assert (etree.QName(index).localname, index.get("case_type"), index.text) == (REFERENCE, "clinic", PARENT)
         snapshot = etree.fromstring(form_step(run)["caseDb"].encode())
-        created = snapshot.find(f"case[@case_id='{case_id}']")
+        local_case_id = next((token for token, value in tokens.items() if value == case_id), case_id)
+        created = snapshot.find(f"case[@case_id='{local_case_id}']")
         assert (created.get("case_type"), created.findtext("case_name")) == ("requisition", CHILD_NAME)
         retained, = created.find("index")
         assert (retained.tag, retained.get("case_type"), retained.text) == (REFERENCE, "clinic", PARENT)
