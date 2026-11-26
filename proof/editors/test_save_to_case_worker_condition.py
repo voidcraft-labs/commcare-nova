@@ -115,11 +115,16 @@ REPEATED_WORKER_PATH = "/data/members/nova_operations/worker/case"
 MEMBER_NAME = "current()/../../../../../member_name"
 
 
-def _repeated_worker_form_source(xmlns, counted):
+def _repeated_worker_form_source(xmlns, counted, last_answer):
     count_node = "<count/>" if counted else ""
     count_bind = '<bind nodeset="/data/count" type="xsd:int"/>' if counted else ""
     count_input = '''<input ref="/data/count"><label ref="jr:itext('count-label')"/></input>''' if counted else ""
     count_attributes = ' jr:count="/data/count" jr:noAddRemove="true()"' if counted else ""
+    member_calculate = (
+        "if(position(..) = 0, 'member-0', '')" if last_answer == "empty"
+        else "concat('member-', position(..))"
+    )
+    member_relevance = ' relevant="position(..) = 0"' if last_answer == "irrelevant" else ""
     return f'''<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="{XFORMS}"
       xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum"
       xmlns:xsd="http://www.w3.org/2001/XMLSchema">
@@ -134,7 +139,7 @@ def _repeated_worker_form_source(xmlns, counted):
         <instance src="jr://instance/casedb" id="casedb"/>
         <instance src="jr://instance/session" id="commcaresession"/>
         {count_bind}<bind nodeset="/data/members/note" type="xsd:string"/>
-        <bind nodeset="/data/members/member_name" calculate="concat('member-', position(..))"/>
+        <bind nodeset="/data/members/member_name" calculate="{member_calculate}"{member_relevance}/>
         <bind nodeset="{REPEATED_WORKER_PATH}/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
         <bind nodeset="{REPEATED_WORKER_PATH}/@user_id" calculate="/data/meta/userID"/>
         <bind nodeset="{REPEATED_WORKER_PATH}/@case_id" calculate="{TARGET}"/>
@@ -153,14 +158,23 @@ def _repeated_worker_form_source(xmlns, counted):
     </h:html>'''
 
 
-@pytest.mark.parametrize("counted", [False, True], ids=["user-controlled", "count-bound"])
+@pytest.mark.parametrize(
+    "counted,last_answer",
+    [
+        pytest.param(False, "present", id="user-controlled"),
+        pytest.param(True, "present", id="count-bound"),
+        pytest.param(False, "irrelevant", id="irrelevant-tail"),
+        pytest.param(False, "empty", id="present-empty-tail"),
+    ],
+)
 def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
-    hq, core_runner, editor_driver, tmp_path, counted
+    hq, core_runner, editor_driver, tmp_path, counted, last_answer
 ):
     with hq_check(Configuration(privileges={"VELLUM_SAVE_TO_CASE", "USERCASE"})) as (state, record):
         app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
         form = operations.held_app(state, app_id).modules[0].forms[0]
-        _patched(state, app_id, form.unique_id, _repeated_worker_form_source(form.xmlns, counted), "repeated worker save")
+        source = _repeated_worker_form_source(form.xmlns, counted, last_answer)
+        _patched(state, app_id, form.unique_id, source, "repeated worker save")
         saved = vellum.fresh_open_and_save(editor_driver, state, app_id, form.unique_id)
         assert saved.loaded and saved.saved, (saved.load_error, saved.save_refusal, saved.form_errors)
         root = etree.fromstring(saved.stored_source.encode())
@@ -173,7 +187,8 @@ def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
         assert not built.errors, built.errors
         with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
             assert admission["admitted"], admission["problems"]
-            for number, worker_present in ((0, False), (0, True), (2, True)):
+            controls = ((0, False), (0, True), (2, True)) if last_answer == "present" else ((2, True),)
+            for number, worker_present in controls:
                 restore = etree.fromstring(TEMPLATE_RESTORE.read_bytes())
                 known = []
                 if worker_present:
@@ -196,18 +211,28 @@ def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
                 run, = (run for run in trace["runs"]
                         if (step := form_step(run)) and step.get("xmlns") == form.xmlns and run["end"] == "submitted")
                 step = form_step(run)
-                submitted = list(etree.fromstring(step["submission"].encode()).iter(f"{{{CASE}}}case"))
+                form_data = etree.fromstring(step["submission"].encode())
+                submitted = list(form_data.iter(f"{{{CASE}}}case"))
                 # Core position(node) returns the selected reference’s zero-based multiplicity.
                 expected = [f"member-{index}" for index in range(number)]
+                final = expected[-1:] or (["before"] if worker_present else [])
+                if last_answer != "present":
+                    members = form_data.findall(f"{{{form.xmlns}}}members")
+                    assert len(members) == 2
+                    assert members[1].findtext(f"{{{form.xmlns}}}member_name") == (
+                        None if last_answer == "irrelevant" else ""
+                    )
+                    expected[1] = None if last_answer == "irrelevant" else ""
+                    final = ["member-0"] if last_answer == "irrelevant" else [""]
                 assert [case.get("case_id") for case in submitted] == [WORKER_CASE] * number
                 assert [case.findtext(f"{{{CASE}}}update/{{{CASE}}}visits") for case in submitted] == expected
                 device = etree.fromstring(step["caseDb"].encode()).xpath(f"/*/case[@case_id='{WORKER_CASE}']")
-                assert [case.findtext("visits") for case in device] == (expected[-1:] or (["before"] if worker_present else []))
+                assert [case.findtext("visits") for case in device] == final
                 submission, _ = unmarked_submission(run)
                 applied = operations.process_case_blocks(state, submission, cases=known)
                 assert applied.refusal is None
                 if number:
                     assert list(applied.touched) == [WORKER_CASE]
-                    assert applied.touched[WORKER_CASE].case.case_json["visits"] == expected[-1]
+                    assert applied.touched[WORKER_CASE].case.case_json["visits"] == final[0]
                 else:
                     assert not applied.touched
