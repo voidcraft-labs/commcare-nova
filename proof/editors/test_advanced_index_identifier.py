@@ -1,5 +1,8 @@
-"""HQ's advanced Case Management editor and both case stores preserve a hyphenated index."""
+"""HQ's advanced Case Management editor and native index names."""
 
+import base64
+
+import pytest
 from lxml import etree
 
 from proof.core.artifacts import TEMPLATE_RESTORE
@@ -16,7 +19,6 @@ from proof.observe.sessions import admitted, unmarked_submission
 
 CASE = "http://commcarehq.org/case/transaction/v2"
 PARENT = "chosen-clinic"
-REFERENCE = "my-parent"
 CHILD_NAME = "One requisition"
 
 
@@ -27,12 +29,13 @@ def _restore():
     return etree.tostring(root)
 
 
-def test_advanced_case_management_keeps_a_hyphenated_index(editor_driver, hq, core_runner, tmp_path):
+@pytest.mark.parametrize("reference", ["my-parent", "my.parent"], ids=["hyphen", "dot"])
+def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner, tmp_path, reference):
     with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, record):
         app_id = publish_hq_app(state, ADVANCED_APP)
         app = operations.held_app(state, app_id)
         form = app.modules[1].forms[1]
-        form.actions.open_cases[0].case_indices[0].reference_id = REFERENCE
+        form.actions.open_cases[0].case_indices[0].reference_id = reference
         app.save()
 
         # Each call opens a fresh browser view and posts the native editor's model.
@@ -43,14 +46,14 @@ def test_advanced_case_management_keeps_a_hyphenated_index(editor_driver, hq, co
             assert saved.save is not None and not saved.refused, (saved.unsent, saved.alerts, saved.response)
             current = operations.held_app(state, app_id).get_form(form.unique_id)
             index, = current.actions.open_cases[0].case_indices
-            assert (index.tag, index.reference_id, index.relationship) == ("load_clinic0", REFERENCE, "child")
+            assert (index.tag, index.reference_id, index.relationship) == ("load_clinic0", reference, "child")
 
         built = compare.build(state, app_id, record)
         assert not built.errors, built.errors
         emitted = etree.fromstring(built.files["modules-1/forms-1.xml"])
-        link, = emitted.xpath("//*[local-name()='index']/*[local-name()='my-parent']")
+        link, = emitted.xpath("//*[local-name()='index']/*[local-name()=$name]", name=reference)
         assert link.get("case_type") == "clinic"
-        bind, = emitted.xpath("//*[local-name()='bind'][contains(@nodeset, '/index/my-parent')]")
+        bind, = emitted.xpath("//*[local-name()='bind'][contains(@nodeset, $path)]", path=f"/index/{reference}")
         assert bind.get("calculate").endswith("/case_id_load_clinic0")
         with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
             assert admission["admitted"], admission["problems"]
@@ -72,13 +75,26 @@ def test_advanced_case_management_keeps_a_hyphenated_index(editor_driver, hq, co
         case_id = transaction.get("case_id")
         assert case_id and case_id != PARENT
         index, = transaction.find(f"{{{CASE}}}index")
-        assert (etree.QName(index).localname, index.get("case_type"), index.text) == (REFERENCE, "clinic", PARENT)
+        assert (etree.QName(index).localname, index.get("case_type"), index.text) == (reference, "clinic", PARENT)
         snapshot = etree.fromstring(form_step(run)["caseDb"].encode())
         local_case_id = next((token for token, value in tokens.items() if value == case_id), case_id)
         created = snapshot.find(f"case[@case_id='{local_case_id}']")
         assert (created.get("case_type"), created.findtext("case_name")) == ("requisition", CHILD_NAME)
         retained, = created.find("index")
-        assert (retained.tag, retained.get("case_type"), retained.text) == (REFERENCE, "clinic", PARENT)
+        assert (retained.tag, retained.get("case_type"), retained.text) == (reference, "clinic", PARENT)
+
+        restore = etree.fromstring(_restore())
+        restore.append(transaction)
+        with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
+            found = core_runner.evaluate(
+                app=admission["app"],
+                xmlns=form.xmlns,
+                restoreBase64=base64.b64encode(etree.tostring(restore)).decode(),
+                expressions=[
+                    f"instance('casedb')/casedb/case[@case_id = '{case_id}']/index/{reference}",
+                ],
+            )
+        assert [value["value"] for value in found["values"]] == [PARENT], found
 
         seeded = operations.process_case_blocks(state, _submission(_case(PARENT, _create("clinic", "Chosen clinic"))))
         assert seeded.refusal is None
@@ -87,4 +103,4 @@ def test_advanced_case_management_keeps_a_hyphenated_index(editor_driver, hq, co
         child = read.touched[case_id].case
         assert (child.type, child.name) == ("requisition", CHILD_NAME)
         link, = child.indices
-        assert (link.identifier, link.referenced_id, link.referenced_type) == (REFERENCE, PARENT, "clinic")
+        assert (link.identifier, link.referenced_id, link.referenced_type) == (reference, PARENT, "clinic")
