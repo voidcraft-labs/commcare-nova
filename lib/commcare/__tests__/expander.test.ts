@@ -5210,19 +5210,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(properties[2].appearance).toBe("barcode_scan");
 	});
 
-	it("refuses a scalar default on a paired date-range property", () => {
-		expect(() =>
-			simpleSearchInputDef(
-				testUuid("00000000-0000-4000-8000-000000040015"),
-				"last_visit",
-				"Visit window",
-				"date-range",
-				"last_visit",
-				{ default: today() },
-			),
-		).toThrow();
-	});
-
 	it("keeps mixed simple and advanced prompt bindings with shared widget/default metadata", () => {
 		const doc = buildHqProjectionDoc(
 			{
@@ -5937,14 +5924,15 @@ describe("the app-level keys of the HQ import file", () => {
 		expect(withFilter.add_ons).toEqual({ display_conditions: true });
 	});
 
-	it("writes Auto Capture Location only for a Connect app", () => {
+	it("sends the chosen automatic location setting even when clearing it", () => {
 		for (const { doc } of connectWireFixtures()) {
-			const hq = expandDoc(doc);
-			if (doc.connectType === null) {
-				expect(Object.hasOwn(hq, "auto_gps_capture")).toBe(false);
-			} else {
-				expect(hq.auto_gps_capture).toBe(true);
-			}
+			expect(expandDoc(doc).auto_gps_capture).toBe(doc.connectRoles.length > 0);
+			expect(
+				expandDoc({
+					...doc,
+					appSettings: { ...doc.appSettings, captureLocation: true },
+				}).auto_gps_capture,
+			).toBe(true);
 		}
 	});
 });
@@ -5955,26 +5943,40 @@ describe("expandAppShell", () => {
 			(fixture) => fixture.name === "deliver-default",
 		)?.doc;
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
-		const keys = (connectApp: boolean) => [
+		const keys = (caseSharing: boolean) => [
 			"doc_type",
 			"application_version",
 			"name",
 			"langs",
 			"translations",
-			...(connectApp ? ["auto_gps_capture"] : []),
+			"auto_gps_capture",
+			...(caseSharing ? ["case_sharing"] : []),
 			"modules",
 			"_attachments",
 		];
+		expect(APP_SHELL_KEYS).toEqual([...keys(true), "build_profiles"]);
 		for (const [doc, connectApp] of [
 			[registrationDoc, false],
 			[connect, true],
+			...([true, false] as const).map(
+				(caseSharing) =>
+					[
+						{
+							...registrationDoc,
+							appSettings: { ...registrationDoc.appSettings, caseSharing },
+						},
+						false,
+					] as const,
+			),
 		] as const) {
 			const shell = expandAppShell(doc);
-			expect(Object.keys(shell)).toEqual(keys(connectApp));
-			expect(APP_SHELL_KEYS).toEqual(keys(true));
+			expect(Object.keys(shell)).toEqual(
+				keys(doc.appSettings.caseSharing !== undefined),
+			);
+			expect(shell.case_sharing).toBe(doc.appSettings.caseSharing);
 			expect(shell.modules).toEqual([]);
 			expect(shell._attachments).toEqual({});
-			if (connectApp) expect(shell.auto_gps_capture).toBe(true);
+			expect(shell.auto_gps_capture).toBe(connectApp);
 			for (const absent of [
 				"add_ons",
 				"build_spec",
@@ -5986,6 +5988,34 @@ describe("expandAppShell", () => {
 				expect(Object.hasOwn(shell, absent)).toBe(false);
 			}
 		}
+	});
+
+	it("keeps the same empty shell shape with an optional named installation", () => {
+		const uuid = testUuid("first-installation");
+		const doc = {
+			...registrationDoc,
+			appSettings: {
+				...registrationDoc.appSettings,
+				installationProfiles: {
+					[uuid]: {
+						uuid,
+						name: "Training",
+						languages: ["eng"],
+						requiresPracticeWorker: false,
+					},
+				},
+			},
+		};
+		const shell = expandAppShell(doc);
+		expect(Object.keys(shell)).toEqual([
+			...Object.keys(expandAppShell(registrationDoc)),
+			"build_profiles",
+		]);
+		expect(shell.build_profiles).toEqual({
+			[uuid.replaceAll("-", "")]: { name: "Training", langs: ["en"] },
+		});
+		expect(shell.modules).toEqual([]);
+		expect(shell._attachments).toEqual({});
 	});
 
 	it("writes the app-level values the update a first publish sends writes", () => {

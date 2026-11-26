@@ -23,7 +23,12 @@ import {
 	type CaseOperation,
 	type Column,
 	type Uuid,
+	uuidSchema,
 } from "@/lib/domain";
+import {
+	type CaseMappingRow,
+	caseMappingRowUuid,
+} from "@/lib/domain/caseMappingRows";
 
 /** Wire protocol: changing either re-ids every app a later reading mints. */
 export const HQ_ENTITY_KEY_VERSION = "nova-hq-entity-v1";
@@ -36,10 +41,21 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"field",
 	"selectOption",
 	"caseListColumn",
+	"caseMappingRow",
+	"caseListSort",
+	"caseDetailTab",
 	"searchInput",
+	"searchInputGroup",
+	"searchFilter",
+	"projectSearch",
+	"projectSearchParameter",
 	"caseOperation",
+	"formSelection",
+	"entryValue",
+	"openingAssignment",
 	"formLink",
 	"entryPoint",
+	"installationProfile",
 	"userProperty",
 	"organizationLevel",
 	"locationProperty",
@@ -77,13 +93,28 @@ export type CaseOperationPlaceKey =
 			repeatPath: readonly string[],
 			path: readonly string[],
 	  ];
+/** Ordinary forms retain their historical namespace key. Shared entries have
+ * no namespace of their own and use the aligned application resource id. */
+export type FormIdentityKey =
+	| string
+	| readonly ["shared-form", uniqueId: string];
+export function sharedFormKey(uniqueId: string): FormIdentityKey {
+	return ["shared-form", uniqueId];
+}
+
 export type FormLinkTargetKey =
-	| readonly ["form", targetXmlns: string]
+	| readonly ["form", targetForm: FormIdentityKey]
+	| readonly [
+			"form-in-menu",
+			routeUniqueId: string,
+			targetForm: FormIdentityKey,
+	  ]
 	| readonly ["module", targetModuleUniqueId: string]
 	| readonly ["this-form"];
 export type EntryPointOwnerKey =
 	| readonly ["module", moduleUniqueId: string, slot: "menu" | "case-list"]
-	| readonly ["form", xmlns: string];
+	| readonly ["form", form: FormIdentityKey]
+	| readonly ["shared-form", menuUniqueId: string, form: FormIdentityKey];
 
 /**
  * One constructor per kind. Each takes its parts in the key table's order,
@@ -101,10 +132,22 @@ export type EntryPointOwnerKey =
  *   counting `formLinks` in order and then the `otherwise` link.
  */
 export const externalKey = {
+	formSelection(formUuid: Uuid, tag: string): ExternalKey {
+		return { kind: "formSelection", parts: [formUuid, tag] };
+	},
+	openingAssignment(formUuid: Uuid, source: string, field: Uuid): ExternalKey {
+		return { kind: "openingAssignment", parts: [formUuid, source, field] };
+	},
+	entryValue(formUuid: Uuid, key: string): ExternalKey {
+		return { kind: "entryValue", parts: [formUuid, key] };
+	},
+	installationProfile(key: string): ExternalKey {
+		return { kind: "installationProfile", parts: [key] };
+	},
 	module(uniqueId: string): ExternalKey {
 		return { kind: "module", parts: [uniqueId] };
 	},
-	form(xmlns: string): ExternalKey {
+	form(xmlns: FormIdentityKey): ExternalKey {
 		return { kind: "form", parts: [xmlns] };
 	},
 	field(xmlns: string, path: readonly string[]): ExternalKey {
@@ -119,13 +162,87 @@ export const externalKey = {
 	},
 	caseListColumn(
 		moduleUniqueId: string,
-		columnKind: Column["kind"],
+		columnKind:
+			| Column["kind"]
+			| "choice-label"
+			| "conditional-label"
+			| "calculated-formatted-text",
 		field: string,
 		n: number,
 	): ExternalKey {
 		return {
 			kind: "caseListColumn",
 			parts: [moduleUniqueId, columnKind, field, ordinal(n)],
+		};
+	},
+	caseMappingRow(owner: Uuid, comparison: string): ExternalKey {
+		return { kind: "caseMappingRow", parts: [owner, comparison] };
+	},
+	caseCalculationText(owner: Uuid, key: string): ExternalKey {
+		return {
+			kind: "caseMappingRow",
+			parts: [owner, ["calculation-text", key]],
+		};
+	},
+	caseListSort(
+		moduleUniqueId: string,
+		expressionKey: string,
+		n: number,
+	): ExternalKey {
+		return {
+			kind: "caseListSort",
+			parts: [moduleUniqueId, expressionKey, ordinal(n)],
+		};
+	},
+	/** HQ has no tab id. The least physical column key in a populated group
+	 * survives renaming, moving the group, and reordering its member fields. */
+	caseDetailTab(
+		first: ExternalKey,
+		others: readonly ExternalKey[],
+	): ExternalKey {
+		let least = first;
+		let text = externalKeyText(first);
+		for (const column of others) {
+			const candidate = externalKeyText(column);
+			if (candidate < text) {
+				least = column;
+				text = candidate;
+			}
+		}
+		return { kind: "caseDetailTab", parts: least.parts };
+	},
+	searchFilter(moduleUniqueId: string, target: string, n: number): ExternalKey {
+		return {
+			kind: "searchFilter",
+			parts: [moduleUniqueId, target, ordinal(n)],
+		};
+	},
+	projectSearchParameter(
+		menuId: string,
+		name: string,
+		occurrence: number,
+	): ExternalKey {
+		return {
+			kind: "projectSearchParameter",
+			parts: [menuId, name, ordinal(occurrence)],
+		};
+	},
+	projectSearch(endpointId: number): ExternalKey {
+		return { kind: "projectSearch", parts: [endpointId] };
+	},
+	/** Populated groups retain identity when the Case List editor renumbers their keys. */
+	searchInputGroup(
+		moduleUniqueId: string,
+		inputNames: readonly string[],
+		emptyPosition: number,
+	): ExternalKey {
+		const member = [...inputNames].sort()[0];
+		return {
+			kind: "searchInputGroup",
+			parts: [
+				moduleUniqueId,
+				member === undefined ? ["empty", emptyPosition] : ["member", member],
+			],
 		};
 	},
 	searchInput(moduleUniqueId: string, name: string): ExternalKey {
@@ -142,7 +259,11 @@ export const externalKey = {
 			parts: [xmlns, copyPart(place), action, ordinal(n)],
 		};
 	},
-	formLink(xmlns: string, target: FormLinkTargetKey, n: number): ExternalKey {
+	formLink(
+		xmlns: FormIdentityKey,
+		target: FormLinkTargetKey,
+		n: number,
+	): ExternalKey {
 		return {
 			kind: "formLink",
 			parts: [xmlns, copyPart(target), ordinal(n)],
@@ -187,12 +308,49 @@ export function externalKeyText(key: ExternalKey): string {
 
 /** UUIDv5 of `JSON.stringify([HQ_ENTITY_KEY_VERSION, appId, key.kind, ...key.parts])`. */
 export function mintEntityUuid(appId: string, key: ExternalKey): Uuid {
+	const saved = savedValueRow(key);
+	if (saved !== undefined) return caseMappingRowUuid(saved.owner, saved.row);
 	return asUuid(
 		uuidv5(
 			JSON.stringify([HQ_ENTITY_KEY_VERSION, appId, key.kind, ...key.parts]),
 			HQ_ENTITY_NAMESPACE_UUID,
 		),
 	);
+}
+
+/** A display rule over one saved value is known by its column and that
+ *  comparison (`caseMappingRows.ts::caseMappingRowUuid`), which the document
+ *  holds no identity for, so a reading names it as the document does. */
+function savedValueRow(
+	key: ExternalKey,
+): { readonly owner: Uuid; readonly row: CaseMappingRow } | undefined {
+	if (key.kind !== "caseMappingRow") return undefined;
+	const [owner, comparison] = key.parts;
+	if (typeof owner !== "string" || typeof comparison !== "string")
+		return undefined;
+	// Every comparison is `JSON.stringify`'s (`caseMappingComparison`).
+	if (
+		!comparison.startsWith('["selected",') &&
+		!comparison.startsWith('["exact",')
+	)
+		return undefined;
+	const parsed: unknown = JSON.parse(comparison);
+	if (
+		!Array.isArray(parsed) ||
+		parsed.length !== 2 ||
+		(parsed[0] !== "selected" && parsed[0] !== "exact") ||
+		typeof parsed[1] !== "string"
+	)
+		return undefined;
+	const owned = uuidSchema.safeParse(owner);
+	if (!owned.success) return undefined;
+	return {
+		owner: owned.data,
+		row: {
+			value: parsed[1],
+			...(parsed[0] === "exact" && { match: "exact" as const }),
+		},
+	};
 }
 
 export interface IdentityMapEntry {
@@ -216,13 +374,30 @@ export type IdentityClaim =
  * (`IdentityClaims`, from `claimsUnder`).
  */
 export interface IdentityResolver {
-	uuidOf(key: ExternalKey): Uuid;
+	uuidOf(
+		key: ExternalKey,
+		claimed?: ReadonlySet<Uuid>,
+		siblings?: ReadonlySet<string>,
+	): Uuid;
 }
 
 /** The keys one reading, or one call that names entities, has claimed under a resolver. */
 export interface IdentityClaims {
 	/** `place` is where in HQ's app the entity was read, in the finding's place vocabulary. */
-	claim(key: ExternalKey, place: string): IdentityClaim;
+	claim(
+		key: ExternalKey,
+		place: string,
+		siblings?: ReadonlySet<string>,
+	): IdentityClaim;
+	/**
+	 * A key whose entity's UUID the document derives rather than the resolver
+	 * gives: a form's implicit opening record, which Nova names from the form
+	 * and its list (`implicitFormSelectionId`). The map holds it as
+	 * `externalIdentityMap` spells it, so a later reading that finds the same
+	 * record made explicit in HQ gives it back that UUID. Claimed twice, it
+	 * answers as `claim` does.
+	 */
+	record(key: ExternalKey, uuid: Uuid, place: string): IdentityClaim;
 	/** Every key claimed so far, ordered by `externalKeyText`. */
 	entries(): readonly IdentityMapEntry[];
 }
@@ -253,14 +428,25 @@ export function claimsUnder(resolver: IdentityResolver): IdentityClaims {
 		string,
 		{ readonly entry: IdentityMapEntry; readonly place: string }
 	>();
+	const ids = new Set<Uuid>();
 	return {
-		claim(key, place) {
+		claim(key, place, siblings) {
 			const text = externalKeyText(key);
 			const first = claimed.get(text);
 			if (first !== undefined)
 				return { ok: false, key, firstPlace: first.place };
 			const parts = key.parts.map(copyPart);
-			const uuid = resolver.uuidOf({ kind: key.kind, parts });
+			const uuid = resolver.uuidOf({ kind: key.kind, parts }, ids, siblings);
+			ids.add(uuid);
+			claimed.set(text, { entry: { kind: key.kind, parts, uuid }, place });
+			return { ok: true, uuid };
+		},
+		record(key, uuid, place) {
+			const text = externalKeyText(key);
+			const first = claimed.get(text);
+			if (first !== undefined)
+				return { ok: false, key, firstPlace: first.place };
+			const parts = key.parts.map(copyPart);
 			claimed.set(text, { entry: { kind: key.kind, parts, uuid }, place });
 			return { ok: true, uuid };
 		},
@@ -312,8 +498,9 @@ export function freeEntityUuid(
 export function matchingResolver(
 	appId: string,
 	known: readonly IdentityMapEntry[],
+	reserved: ReadonlySet<Uuid> = new Set(),
 ): IdentityResolver {
-	return Object.freeze({ uuidOf: matchingUuidOf(appId, known) });
+	return Object.freeze({ uuidOf: matchingUuidOf(appId, known, reserved) });
 }
 
 /** A map that names one key or one UUID at two entries, counted from 0. */
@@ -333,9 +520,10 @@ function namedTwice(what: string, first: number, second: number): Error {
 export function matchingUuidOf(
 	appId: string,
 	known: readonly IdentityMapEntry[],
-): (key: ExternalKey) => Uuid {
+	reserved: ReadonlySet<Uuid> = new Set(),
+): IdentityResolver["uuidOf"] {
 	const byKey = new Map<string, Uuid>();
-	const keyOfUuid = new Map<Uuid, string>();
+	const keyOfUuid = new Map<Uuid, ExternalKey>();
 	const placeOfKey = new Map<string, number>();
 	const placeOfUuid = new Map<Uuid, number>();
 	known.forEach((entry, place) => {
@@ -347,11 +535,57 @@ export function matchingUuidOf(
 		if (uuidPlace !== undefined)
 			throw namedTwice(`the UUID ${entry.uuid}`, uuidPlace, place);
 		byKey.set(text, entry.uuid);
-		keyOfUuid.set(entry.uuid, text);
+		keyOfUuid.set(entry.uuid, entry);
 		placeOfKey.set(text, place);
 		placeOfUuid.set(entry.uuid, place);
 	});
-	return (key) =>
-		byKey.get(externalKeyText(key)) ??
-		freeEntityUuid(appId, key, (uuid) => keyOfUuid.has(uuid));
+	return (key, claimed, siblings) => {
+		const exact = byKey.get(externalKeyText(key));
+		if (exact && !claimed?.has(exact)) return exact;
+		const piece = calculationTextKey(key);
+		if (piece) {
+			// A native key brought in as “greeting” prints as a scoped name
+			// derived from its UUID. Either spelling can be matched to an
+			// already owned text in this column. A fresh app never trusts an
+			// identity supplied by another app’s exported key.
+			const match =
+				/^(?:v*|v[0-9a-f]{8}_)case_text_([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$/.exec(
+					piece.key,
+				);
+			const printed = match
+				? uuidSchema.safeParse(match.slice(1).join("-")).data
+				: undefined;
+			for (const candidate of [printed, mintEntityUuid(appId, key)]) {
+				const existing = candidate && keyOfUuid.get(candidate);
+				const owner = existing && calculationTextKey(existing);
+				if (
+					existing &&
+					candidate &&
+					owner?.column === piece.column &&
+					!claimed?.has(candidate) &&
+					!siblings?.has(externalKeyText(existing))
+				)
+					return candidate;
+			}
+		}
+		return freeEntityUuid(
+			appId,
+			key,
+			(uuid) =>
+				keyOfUuid.has(uuid) ||
+				reserved.has(uuid) ||
+				Boolean(claimed?.has(uuid)),
+		);
+	};
+}
+
+function calculationTextKey(key: ExternalKey) {
+	const [column, parts] = key.parts;
+	return key.kind === "caseMappingRow" &&
+		typeof column === "string" &&
+		Array.isArray(parts) &&
+		parts[0] === "calculation-text" &&
+		typeof parts[1] === "string"
+		? { column, key: parts[1] as string }
+		: undefined;
 }

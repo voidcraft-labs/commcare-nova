@@ -24,7 +24,8 @@ import { HQ_READ_SENDS } from "../hq/throttle";
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
 const HOST = "https://india.commcarehq.org";
 const APP = "/a/clinic/api/application/v1/working-app/";
-const URL = HOST + APP;
+// `sendHq` takes a path on the credentials' server.
+const URL = APP;
 /** The application resource's own bound, which every read here takes but the one that tests a bound. */
 const BOUND = { maxBytes: HQ_APPLICATION_MAX_BYTES } as const;
 
@@ -685,7 +686,7 @@ describe("deadlineMs and cancel", () => {
 	) {
 		return {
 			label: "lookup table list",
-			firstUrl: HOST + LIST,
+			firstUrl: LIST,
 			maxPages: 5,
 			maxRows: 100,
 			maxBytes: 1024 * 1024,

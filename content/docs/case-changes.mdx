@@ -11,13 +11,57 @@ survey that updates one case per row someone filled in.
 **Case changes** are how a form says what else happens. Each one creates a case,
 updates a case, or closes a case, and they happen in the order you put them in.
 
+When you bring in a form from CommCare HQ, a supported case change stored
+among its questions keeps that position. Nova keeps any checks on its case
+name and connections next to the change in the submitted form.
+
 For an approval time that must survive later edits, save it in a dedicated
 property that holds a date and time. A date property holds only the calendar
-day. Calculated case changes preserve the clock time when exported to CommCare;
+day: a date and time question saved to one keeps the day it was answered on,
+where the person answering is. Calculated case changes preserve the clock time when exported to CommCare;
 the record's general last-modified time still changes on later updates. A saved
 date and time copied to another property is written again in the device's time
 zone, so it can land a day off when that zone's date differs from the date
 that was saved.
+
+An update can assign a new owner only when a condition holds. **When to assign
+the owner** is available after you choose the new owner. If the condition is
+false, the case keeps its current owner, and the change's other values still
+save.
+
+An update can change a case’s type when the new type can keep its saved
+values. A date can become text and keeps the original date string, such as
+`2026-04-17`. Other changes that need to convert existing values still
+require compatible property types.
+
+A hidden value set to the current date and time can save the local date to a
+Date property on the case a basic follow-up opens. The form keeps the date
+and time in the hidden value for its other calculations.
+
+## Choose the records a form opens with
+
+Open the form’s settings, select **Edit case changes**, and expand **Cases this form uses**. A form can ask for more than one record. To transfer a member between households, add the household list twice and name the choices **Current household** and **Receiving household**. Each choice keeps its own identity when you rename it or change its position.
+
+A worker can choose from a list or use a record ID from their worker information, a data table, an earlier record’s named connection, or a formula. An automatic choice stops if its source does not identify one available record. After correcting the source or choosing another record, the worker can try again. Use **Earlier** or **Later** to put a source before a choice that needs it. A list choice can show only the records connected to the record chosen right before it: choose that record under **Narrow by the record before it**.
+
+Expand **Values calculated when the form opens** to give a calculation a name. For example, `opening-record('Receiving household')` reads the chosen record’s ID. Other form logic can use `opening-value('opening_date')` to read the opening date. In Preview, going back to change a choice asks for every later choice again.
+
+In a menu’s settings, **Open a single match automatically** can save a tap when a form asks for a record from its list. Android can open the confirmation screen for that single match. A form running in Web Apps can use this setting when the choice proceeds directly.
+
+A destination can carry each opening record into the next form. If both choices
+come from People, names such as “Person referring” and “Person receiving”
+let you tell them apart. A worker who opens the destination sees the form with
+both records already chosen. Back returns to the last choice the worker made.
+
+A publish records the saved name of each opening record, including one the
+form only reads. Changing its label keeps that name. Nova shows which names
+will change or go away before you commit an edit to a published choice.
+
+Open **Starting values from records** in the form’s settings to copy a value into a question when the worker opens the form. Choose **Fill a question from a record**, pick the question and its source record, and add the starting value. You can choose the property to copy and, when it belongs to a connected record, the connections to follow. For example, a visit can begin with the name of the household connected to the person the worker chose. Values from one record fill their questions in the form's order, questions the worker sees first and then hidden values, as CommCare HQ saves them.
+
+The form sets its ordinary starting answers first. It then copies the record values in the order shown. If two records fill the same question, the later record supplies the answer the worker sees. A question inside a repeat receives a starting record value only when its answer node exists at that point.
+
+In Preview, a running form keeps the record and table values it opened with. If another worker changes a record while you are filling it out, an answer set to save only when edited compares with the value you saw. If you lose access to a record the form needs to update, Preview asks you to reopen the form. Refreshing the browser starts a new Preview session.
 
 ## Forms that open an existing case
 
@@ -44,6 +88,12 @@ blank, for example after you remove the save its starting value came from.
 Leaving the question blank then clears the case's value on submit. The
 question's Saves to row says so, and offers to open it with the case's current
 value, or says which kind of question could open on it.
+
+A question on a follow-up or close form can also save to a case above the one
+the form opened, such as the household of the member it visits, through
+**Cases above it** in its Saves to list. That includes the case's name and its
+owner, so a visit can rename the household or hand it to another worker. A name
+saved this way is checked as every case name is: it can't be blank.
 
 Nova also points out any starting value of a whole-number question that could
 be a decimal, and you can start it on the whole part with `int(...)`.
@@ -118,7 +168,18 @@ in the form. Nova chooses the simplest place that can hold it, and once you
 publish, a change stays where your published app has it. An edit that needs a
 new place says so before it saves, because CommCare HQ's exports then show
 those answers under new columns. **Save only if changed** and saving to a case
-above work only in Case Management or case actions.
+above work only in Case Management or case actions. **Save only if changed**
+is offered on a question saving to this form's case, a case above it, a new
+child case or the worker's record. A new case has no earlier value to compare
+with, so there it saves the answer only when the worker gives one.
+
+A case change can save its new name and its owner only when changed too: turn
+on **Save only if changed** under the new name or the owner. A new name is
+saved only when it differs from the case's name. A case keeps its owner apart
+from the values it compares, so an owner is saved whenever the worker gives
+one, and a blank answer leaves the owner as it is. On a case the form creates,
+a blank answer leaves the new case with no owner. A new case's name and an
+owner that is the worker or no one are saved every time.
 
 ## Where to find them
 
@@ -204,6 +265,18 @@ A case type that would conflict with the chosen case, a later type change, or a
 connection is disabled with the reason beside it; platform-owned case types
 never appear. You can choose an available option knowing it will save.
 
+If a create brought in from CommCare HQ joins pieces of fixed text to name a case
+type, Nova shows the resulting type and keeps the calculation when you publish.
+An imported create can also choose between two types already in the app using
+a condition, when both types accept the same saved values and the create
+has no case connections. Preview creates the case with the type selected by
+the condition. Choosing a different case type replaces an imported calculation.
+
+A basic case update brought in from CommCare HQ can keep a write through a
+case connection named **user** when the connection leads to one declared
+ordinary case type. The form saves the value on the connected case. If the
+connection is missing at submission, the form saves none of its changes.
+
 Values can come from a **form answer**, from information already on a case, from
 fixed values, from information about the person using the app, from Project data,
 or from a calculation you build. A Project data value is found by matching one of
@@ -217,14 +290,28 @@ and the choice can't be removed while the condition compares with it.
 
 A condition can also be a yes or no answer on its own. A hidden value calculated
 as a condition, such as “a note was given,” can decide whether a referral opens,
-with no comparison beside it. Any other answer needs one: a text or choice
-answer of `0` still counts as answered, so compare it with the value you mean.
+with no comparison beside it. Any other answer needs a comparison, or **is
+answered** beside the question in the condition editor (`boolean(...)` around it
+in chat) to say you mean "answered at all": a text or choice answer of `0`, or
+the text `false`, still counts as answered, while a blank answer, or a number
+question answered `0`, counts as not. An app brought in from CommCare HQ whose case change
+runs when a question "is true" comes in this way.
 
 A number and the text of a number compare as people expect. A choice whose
 saved values are `1` and `0` can be compared with the number `1`, and a whole
 number with `'1'`, in a case change and in a case list's columns and filter.
 In a Search field's condition, and in the filter of a list that offers Search,
 compare like with like: the choice with `'1'`, or the number with `1`.
+
+Two property names save somewhere CommCare keeps apart. A value saved to
+`location_id` becomes the case's own location ID: text another system gives
+the case, up to 255 characters. It isn't one of your Project's places and gives
+no one access to the case. Forms, case lists and details read it like any
+other property, while a Search field, its condition, and the filter of a list
+that offers Search can't, because CommCare's server search doesn't keep it. A value saved to `hq_user_id` is kept as that property and also
+becomes the case's external ID once the device next syncs. The worker's own
+record keeps its `hq_user_id` in step with the worker, so a form can't save it
+there.
 
 When a value's condition is false, that property stays as it was. Preview skips
 the value's calculation, so unanswered inputs used only by that skipped value
@@ -292,6 +379,20 @@ longer available is refused beside the running form. The whole submission is
 atomic: no case is created, changed, linked, or unlinked until every target can
 be resolved.
 
+### Related cases a menu's case type can reach
+
+A menu's settings list **Related cases**: each link its case type carries and
+the case type at the other end. Links your forms make show as **Used in the
+app**. **Add a related case** records a link no current form makes, such as one
+older cases still carry, and the same link name can lead to more than one case
+type, as a visit's `site` can lead to a clinic or to a home. Columns and
+calculations that read through a link then offer each case type it reaches. A
+link name starts with a letter or underscore and can hold letters, numbers,
+underscores, dots and hyphens. A case list column reads only through a link
+whose name starts with a letter and holds no dots, so a column offers only
+those. Nova and an MCP agent add or remove one such link
+with `set_case_type_parent` and its `link` setting.
+
 ## When a form's link opens the case it creates
 
 When a form's link opens the case the form creates, CommCare HQ needs that menu
@@ -316,14 +417,18 @@ abilities. When an edit moves where CommCare HQ keeps a change, Nova and an MCP
 agent report each move before the work is saved. Ask for the same change in the ordinary names you see in the builder;
 Nova keeps each reference attached to the right question or case change even if
 you later rename or move it, and the names shown in the builder stay current.
-Change ids and connection names use letters, numbers, and underscores and start
-with a letter or underscore; saved property names start with a letter and can
-also hold hyphens.
+Change IDs and connection names start with a letter or underscore and can
+include letters, numbers, and underscores. Connection names can also include
+hyphens. Saved property names start with a letter and can include hyphens.
 Three names are taken, because CommCare HQ's form builder can't open a form that
-holds them: `instance`, `bind` and `parsererror`. A connection can't be named
-`close` or `create`, and a case change can't save a property named `close`,
-because CommCare HQ's form builder reads those names as closing the case or
-starting a new one.
+holds them: `instance`, `bind` and `parsererror`. In a Save to Case change,
+a connection named `close` or `create` is available when that same change
+already closes or creates the case. CommCare HQ's form builder reads those names
+as actions. A Save to Case change can't save to a property named `close`.
+
+One case change can create or update a case and then close it. Its closing
+condition applies only to the close. A separate condition on the case change
+decides whether the whole change reaches the submission.
 
 The shared tools also describe each change's target, the record properties its
 conditions and values read, what it writes, and any matching record identities.
@@ -338,12 +443,12 @@ saved and the response says what to adjust.
 An operation can save a text value into a single-choice property, or an integer
 into a decimal property, without adding a helper question. Choice labels and
 options belong to the question; saved values can also come from an operation.
-A number or a date saved into a text property is kept as the text a phone saves
-for it: a whole number as its digits, a decimal number as Java writes it, a date
-as `2024-05-01`. Writers of one property that agree on no one kind of value are
-kept as text the same way, unless one of them is a date and time, a time or a
-location, or a question opens showing the property as a number, a date, a time
-or a location. Nova still checks every possible result of an expression against
+A number, a date or a location saved into a text property is kept as the text a
+phone saves for it: a whole number as its digits, a decimal number as Java
+writes it, a date as `2024-05-01`, a location as its four numbers. Writers of
+one property that agree on no one kind of value are kept as text the same way,
+unless one of them is a date and time or a time, or a question opens showing
+the property as a number, a date, a time or a location. Nova still checks every possible result of an expression against
 the destination type, so a fractional value cannot be assigned to an integer
 property.
 

@@ -105,6 +105,22 @@ describe("tile row sizing", () => {
 			"repeat(0, min-content)",
 		);
 	});
+
+	it("draws a tile taller than twelve rows to its last cell, as both runtimes size it", () => {
+		// A tile has a row for each field it shows (`tileRowLimit`), so thirteen
+		// fields may reach the thirteenth row; Core and Android size the grid
+		// from the cells (`Detail.getMaxWidthHeight`, `EntityViewTile.getMaxRows`).
+		const lines = Array.from({ length: 13 }, (_unused, row) =>
+			plainColumn(testUuid(`line-${row}`), "case_name", "Line", {
+				tile: tileCell(0, row, 12, 1),
+			}),
+		);
+		const projection = projectTileGrid(lines);
+		expect(projection.rows).toBe(13);
+		expect(tileGridStyle(projection).gridTemplateRows).toBe(
+			"repeat(13, min-content)",
+		);
+	});
 });
 
 describe("alignment and size resolution", () => {

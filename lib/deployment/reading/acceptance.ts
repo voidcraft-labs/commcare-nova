@@ -26,6 +26,7 @@
  * `unrecognized`. Each difference's `detail` holds the app's words for a
  * developer and a test; its signature holds none.
  */
+import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import "server-only";
 
 import { Immer } from "immer";
@@ -35,14 +36,19 @@ import { publishedCaseBlocks } from "@/lib/commcare/hq/publishedCaseBlocks";
 import {
 	knownCaseTypesOf,
 	knownLanguageCodesOf,
+	knownPositionedCaseOperationIdsOf,
 	type ReadDraft,
 	type ReaderInput,
 	type ReadOutcome,
 	readHqAppSteps,
 } from "@/lib/commcare/reader";
+import { placementsAsRead } from "@/lib/commcare/reader/assemble";
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
-import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
+import {
+	externalIdentityMap,
+	knownDirectParentSearchNamesOf,
+} from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import type {
 	ValidationError,
@@ -139,7 +145,9 @@ export interface AcceptReadingInput {
 		| "media"
 		| "appStrings"
 		| "recordDialect"
+		| "sourceProjectFactories"
 		| "saveOnlyEditedApplied"
+		| "caseListActionsApplied"
 	>;
 	/**
 	 * The declarations to judge and to offer: the draft's, less each choice
@@ -416,6 +424,22 @@ export function* acceptReadingSteps(
 		projectRevision: input.lookup.projectRevision,
 		definitions: input.lookup.definitions,
 	};
+
+	// An adoption keeps assigned source links where the project space already
+	// serves them. This gate checks the document and carrier shape. A later
+	// delivery must still verify its worker data.
+	const assignedSourceLinks = new Set<string>(
+		input.lookup.definitions
+			.filter(
+				({ id, hq }) =>
+					hq?.managedBy === "commcare-hq" &&
+					hq.source?.distribution === "assigned" &&
+					hq.server === input.target.server &&
+					hq.domain === input.target.domain &&
+					!input.lookup.rowsByTable.has(id),
+			)
+			.map(({ id }) => id),
+	);
 	const gated: Gated[] = [];
 	const gate: AcceptanceDifference[] = [];
 	let batch: readonly Mutation[];
@@ -508,7 +532,13 @@ export function* acceptReadingSteps(
 					fixtureData: input.lookup,
 					lookupTarget: input.target,
 				});
-				return [...found.rowFindings, ...found.selectionFindings];
+				const rows = found.rowFindings.filter(
+					({ code, details }) =>
+						code !== "LOOKUP_WORKER_SOURCE_UNAVAILABLE" ||
+						typeof details?.tableId !== "string" ||
+						!assignedSourceLinks.has(details.tableId),
+				);
+				return [...rows, ...found.selectionFindings];
 			});
 			const exportFindings = [...readiness, ...carrier];
 			for (const finding of exportFindings)
@@ -593,6 +623,8 @@ export function* acceptReadingSteps(
 			const runsOnlyOn = choice.runsOnlyOn ?? null;
 			const firstPublishFacts = calling("firstPublishFactsOf", () =>
 				firstPublishFactsOf({
+					lookup: input.reader.lookup,
+					columnFieldWords: draft.identities.columnFieldWords,
 					source,
 					doc,
 					facts: draft.facts,
@@ -818,7 +850,7 @@ function* fixedPointCheck(
 		emission: ReturnType<typeof readingEmission>,
 		resolver: ReaderInput["resolver"],
 	) => {
-		const read = readerSourceOfEmission(emission, source);
+		const read = readerSourceOfEmission(emission, source, input.modules);
 		return callingSteps(
 			"readHqApp",
 			readHqAppSteps(
@@ -827,16 +859,26 @@ function* fixedPointCheck(
 					target: input.reader.target,
 					source: read.source,
 					modules: read.modules,
+					listedFormsUseReadIds: true,
 					resolver,
 					lookup: input.reader.lookup,
 					organization: input.reader.organization,
+					sourceProjectFactories: input.reader.sourceProjectFactories,
 					media: input.reader.media,
 					appStrings: input.reader.appStrings,
 					recordDialect: input.reader.recordDialect,
 					...(input.reader.saveOnlyEditedApplied !== undefined && {
 						saveOnlyEditedApplied: input.reader.saveOnlyEditedApplied,
 					}),
+					...(input.reader.caseListActionsApplied !== undefined && {
+						caseListActionsApplied: input.reader.caseListActionsApplied,
+					}),
 					knownCaseTypes: knownCaseTypesOf(doc),
+					knownPositionedCaseOperationIds:
+						knownPositionedCaseOperationIdsOf(doc),
+					knownFormEntryChoices: knownFormEntryChoicesOf(doc),
+					knownDirectParentSearchNames: knownDirectParentSearchNamesOf(doc),
+					knownProjectSearchNames: doc.appSettings.projectSearches,
 					knownLanguageCodes: knownLanguageCodesOf(doc),
 				},
 				input.heldExpansions === undefined
@@ -887,7 +929,14 @@ function* fixedPointCheck(
 				}),
 			);
 			const { runsOnlyOn: _declared, ...settings } = under.appSettings;
-			const expected: BlueprintDoc = { ...under, appSettings: settings };
+			// A question the split adds beside answers submitted apart from
+			// their screens prints where the reader slots it
+			// (`assemble.ts::placementsAsRead`), so the split's read is held
+			// to that member of the pair.
+			const expected: BlueprintDoc = placementsAsRead({
+				...under,
+				appSettings: settings,
+			});
 			const printed = underDeclaration(expected, split.choice.runsOnlyOn);
 			const options = calling("readingEmissionOptions", () =>
 				readingEmissionOptions(emitted(printed)),
@@ -905,7 +954,7 @@ function* fixedPointCheck(
 				matchingResolver(
 					input.appId,
 					calling("externalIdentityMap", () =>
-						externalIdentityMap(expected, identity),
+						externalIdentityMap(expected, identity, options.lookupNaming),
 					),
 				),
 			);

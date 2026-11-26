@@ -108,15 +108,21 @@
 		}));
 	}
 
-	const commands = all(menu, ".menus-container > tr");
+	const commands = all(menu, ".menus-container > .formplayer-request");
 	if (one(menu, ".module-menu-container")) {
+		screen.menuLayout = one(menu, ".row.menus-container") ? "grid" : "list";
+		screen.menuAudio = commands
+			.filter((row) => one(row, ".js-module-audio-play"))
+			.map((row) => text(one(row, ".module-column-name")));
 		screen.commands = commands.map((row) => ({
 			text: text(one(row, ".module-column-name")),
 			icon:
 				[...(one(row, "i.module-icon")?.classList ?? [])].find(
 					(name) => name.startsWith("fa-") && name !== "fa-solid",
 				) ?? null,
-			image: background(one(row, ".module-icon-image")),
+			image: background(
+				one(row, ".module-icon-image, .gridicon:not(.gridicon-circle)"),
+			),
 			badge: text(one(row, "#module-badge")),
 		}));
 	}
@@ -127,6 +133,7 @@
 		const empty = one(list, ".module-case-list-column-empty .alert");
 		const rows = all(list, ".js-case-container > *");
 		screen.list = {
+			mapOffered: all(menu, ".hide-map-button").some(visible),
 			tiles,
 			search: one(list, "#searchText") !== null,
 			headers: all(list, "th.module-case-list-header").map((header) => ({
@@ -150,6 +157,7 @@
 							return {
 								text: text(cell),
 								image,
+								...(picture.alt.trim() && { alt: picture.alt }),
 								drawn: box.width > 0 && box.height > 0,
 							};
 						}),

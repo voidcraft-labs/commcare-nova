@@ -16,6 +16,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import type { Expression, SlotContextRef } from "@/lib/domain/expression/types";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
@@ -143,7 +144,6 @@ const WITHHOLD_ALL = new Set([
 	"row-predicate-current",
 	"default-reads-current",
 	"search-value-guards",
-	"search-today-device-day",
 	"filter-identities-dropped",
 	"validation-counts-moved",
 ] as const);
@@ -154,8 +154,9 @@ function readSlot(
 	doc: BlueprintDoc,
 	refOf: (doc: BlueprintDoc) => SlotContextRef,
 	text: string,
+	recordDialect?: ExpressionReadEnv["recordDialect"],
 ) {
-	const readingEnv = env(doc);
+	const readingEnv = { ...env(doc), ...(recordDialect && { recordDialect }) };
 	const ref = refOf(doc);
 	const reading = readExpressions(
 		doc,
@@ -477,6 +478,22 @@ describe("a case choices filter held at the second level", () => {
 			],
 		});
 	}
+
+	it("holds the position of the current choice candidate as a typed integer", () => {
+		const { reading, prints, tree } = readSlot(
+			choicesDoc(),
+			(doc) => ({
+				entity: "field",
+				uuid: fieldNamed(doc, "pick"),
+				slot: "lookup_options_source",
+			}),
+			"position() < 3 and kind = current()/../k",
+			recordDialectRoundTrip,
+		);
+		expect(reading.circumstances).toEqual([]);
+		expect(JSON.stringify(tree)).toContain('"fn":"position","args":[]');
+		expect(prints?.own).toBe("position() < 3 and kind = current()/../k");
+	});
 
 	it("holds a filter keyed by its repeat's answer by the absolute path, reporting its relocation", () => {
 		const text = "kind = /data/r/k";

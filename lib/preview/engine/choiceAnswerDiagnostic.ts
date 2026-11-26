@@ -75,5 +75,5 @@ export function choiceAnswerDiagnosticMessage(
 		rules.unavailableInlineChoice === "display"
 			? "Web Apps cannot display this answer."
 			: "Android can leave the question visibly unanswered, but its answer summary and form restoration cannot read this answer.";
-	return `${issue.path.replace(/^\/data\//, "")} holds ${JSON.stringify(issue.value)}, which is not among its choices. ${consequence} You can correct the record or edit the question's starting value or choices before trying again.`;
+	return `${issue.path.split("/").slice(2).join("/")} holds ${JSON.stringify(issue.value)}, which is not among its choices. ${consequence} You can correct the record or edit the question's starting value or choices before trying again.`;
 }

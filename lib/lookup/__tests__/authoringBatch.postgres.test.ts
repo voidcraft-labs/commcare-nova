@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { replaceLookupReferenceEdges } from "@/lib/db/lookupReferenceEdges";
 import { applyLookupAuthoringBatchInTransaction } from "../authoringBatch";
 import {
 	getAllLookupDefinitions,
@@ -39,6 +40,246 @@ function runBatch(
 }
 
 describe("lookup atomic authoring batch", () => {
+	it("rechecks the destructive permission recorded for removing a row detail on exact replay", async () => {
+		const { tables } = await runBatch({
+			createTables: [
+				{
+					key: "items",
+					name: "Items",
+					tag: "items",
+					columns: [
+						{
+							key: "label",
+							label: "Label",
+							wireName: "label",
+							dataType: "text",
+						},
+					],
+					attributes: [{ wireName: "code", label: "Code" }],
+					rows: [],
+				},
+			],
+		});
+		const table = await getLookupTable(OWNER, tables[0].tableId);
+		const input = {
+			operationId: "f8424618-38eb-4951-9624-e2c22c3a76bf",
+			updateTables: [
+				{
+					tableId: table.id,
+					expectedTableRevision: table.tableRevision,
+					attributes: [],
+				},
+			],
+		};
+		const apply = () =>
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) =>
+					applyLookupAuthoringBatchInTransaction(
+						tx,
+						await authorizeLookupWriteInTransaction(tx, OWNER, "edit"),
+						input,
+					),
+				);
+		const saved = await apply();
+		await h.seedProjectMember(OWNER.actorId, OWNER.projectId, "editor");
+		await expect(apply()).rejects.toMatchObject({ code: "not_found" });
+		await h.seedProjectMember(OWNER.actorId, OWNER.projectId, "admin");
+		expect(await apply()).toEqual(saved);
+	});
+
+	it("governs rich definition edits by the actual readers and retains renamed detail identities", async () => {
+		const result = await runBatch({
+			createTables: [
+				{
+					key: "roster",
+					name: "Roster",
+					tag: "roster",
+					columns: [],
+					attributes: [{ wireName: "code", label: "Code" }],
+					rows: [
+						{ key: "one", cells: [], content: { attributes: { code: " 1" } } },
+					],
+				},
+			],
+		});
+		const tableId = result.tables[0].tableId;
+		const table = await getLookupTable(OWNER, tableId);
+		const code = table.attributes?.[0];
+		if (!code) throw new Error("The row detail was not stored.");
+		const appId = await h.seedApp({
+			id: "reads-roster",
+			project_id: OWNER.projectId,
+		});
+		await h
+			.db()
+			.transaction()
+			.execute((tx) =>
+				replaceLookupReferenceEdges(tx, {
+					projectId: OWNER.projectId,
+					appId,
+					targets: {
+						tableIds: [],
+						columnTargets: [],
+						memberTargets: [{ tableId, memberId: code.id }],
+					},
+				}),
+			);
+		const edit = {
+			tableId,
+			expectedTableRevision: table.tableRevision,
+			attributes: [
+				{ ...code, wireName: "member_code" },
+				{ label: "Status", wireName: "status" },
+			],
+		};
+		await expect(runBatch({ updateTables: [edit] })).rejects.toMatchObject({
+			code: "conflict",
+		});
+		const done = await runBatch({
+			updateTables: [
+				{
+					...edit,
+					reviewed: {
+						projectRevision: table.projectRevision,
+						readerAppIds: [appId],
+					},
+				},
+			],
+		});
+		const after = await getLookupTable(OWNER, tableId);
+		const status = after.attributes?.[1];
+		if (!status) throw new Error("The new row detail was not stored.");
+		expect(after.attributes?.[0].id).toBe(code.id);
+		expect(after.rows[0].attributes).toEqual({
+			[code.id]: " 1",
+			[status.id]: "",
+		});
+		await expect(
+			runBatch({
+				updateTables: [
+					{
+						tableId,
+						expectedTableRevision: after.tableRevision,
+						attributes: [status],
+						reviewed: {
+							projectRevision: done.projectRevision,
+							readerAppIds: [appId],
+						},
+					},
+				],
+			}),
+		).rejects.toMatchObject({ code: "referenced" });
+		expect((await getLookupTable(OWNER, tableId)).attributes).toEqual(
+			after.attributes,
+		);
+	});
+	it("keeps rich data distinct through Project writes, paginated search and exact byte accounting", async () => {
+		const result = await runBatch({
+			createTables: [
+				{
+					key: "supplies",
+					name: "Supplies",
+					tag: "supplies",
+					attributes: [{ label: "Code", wireName: "code" }],
+					columns: [
+						{
+							key: "label",
+							wireName: "label",
+							label: "Labels",
+							dataType: "text",
+							repeated: true,
+							indexed: true,
+							properties: [{ label: "Language", wireName: "lang" }],
+						},
+					],
+					rows: [
+						{
+							key: "missing",
+							cells: [],
+							content: { attributes: { code: " 007 " } },
+						},
+						{
+							key: "none",
+							cells: [],
+							content: { attributes: { code: "" }, occurrences: { label: [] } },
+						},
+						{
+							key: "one",
+							cells: [],
+							content: {
+								attributes: { code: "1" },
+								occurrences: { label: [{ text: "", properties: {} }] },
+							},
+						},
+						{
+							key: "many",
+							cells: [],
+							content: {
+								attributes: { code: "2" },
+								occurrences: {
+									label: [
+										{ text: " 1.50 ", properties: { lang: "a" } },
+										{ text: " 1.50 ", properties: { lang: "Northern" } },
+										{ text: "007", properties: {} },
+									],
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		const tableId = result.tables[0].tableId;
+		const table = await getLookupTable(OWNER, tableId);
+		const column = table.columns[0];
+		const language = column.properties?.[0]?.id;
+		if (!language) throw new Error("The value detail was not stored.");
+		expect(column.index).toBe("indexed");
+		expect(table.rows.map((row) => row.occurrences?.[column.id])).toEqual([
+			undefined,
+			[],
+			[{ text: "", properties: {} }],
+			[
+				{ text: " 1.50 ", properties: { [language]: "a" } },
+				{ text: " 1.50 ", properties: { [language]: "Northern" } },
+				{ text: "007", properties: {} },
+			],
+		]);
+		const page = await getLookupTableRowsPage(OWNER, {
+			tableId,
+			query: "northern",
+		});
+		expect(page.rows.map((row) => row.id)).toEqual([table.rows[3].id]);
+		expect(page.rows[0].occurrences?.[column.id]).toEqual(
+			table.rows[3].occurrences?.[column.id],
+		);
+		expect(table.dataBytes).toBe(
+			table.rows.reduce((sum, row) => sum + row.valueBytes, 0),
+		);
+		await expect(
+			runBatch({
+				updateTables: [
+					{
+						tableId,
+						expectedTableRevision: table.tableRevision,
+						rowOperations: [
+							{
+								kind: "add",
+								key: "invalid",
+								cells: [],
+								content: { attributes: {}, occurrences: { label: [] } },
+							},
+						],
+					},
+				],
+			}),
+		).rejects.toThrow(/Code/);
+		expect((await getLookupTable(OWNER, tableId)).tableRevision).toBe(
+			table.tableRevision,
+		);
+	});
 	it("creates several complete tables, advances once, and returns every minted identity", async () => {
 		const receipt = await runBatch({
 			createTables: [

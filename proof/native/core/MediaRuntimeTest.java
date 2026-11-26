@@ -11,6 +11,8 @@ import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.SelectChoice;
 import org.javarosa.core.test.FormParseInit;
 import org.javarosa.xform.util.XFormUtils;
+import org.javarosa.xform.parse.XFormParser;
+import org.javarosa.core.util.NoLocalizedTextException;
 import org.junit.Test;
 import org.commcare.cases.model.Case;
 import org.commcare.core.process.CommCareInstanceInitializer;
@@ -52,6 +54,46 @@ public class MediaRuntimeTest {
             return new FormParseInit(form);
         }
     }
+    @Test public void nativeMediaKeyInheritsOnlyWhenItIsMissingFromTheChosenTranslation() throws Exception {
+        String xml = new String(resource("localized-files.xml"), StandardCharsets.UTF_8);
+        FormDef original = new XFormParser(new StringReader(xml)).parse();
+        String key = "answer-label;image";
+        String english = original.getLocalizer().getLocaleData("en").get(key);
+        String french = original.getLocalizer().getLocaleData("fra").get(key);
+        assertTrue(english.startsWith("jr://file/commcare/"));
+        assertTrue(french.startsWith("jr://file/commcare/"));
+        assertNotEquals(english, french);
+        String enValue = "<value form=\"image\">" + english + "</value>";
+        String frValue = "<value form=\"image\">" + french + "</value>";
+        // The same file can be used by another question. Change only the answer label of this translation.
+        String start = "<text id=\"answer-label\">";
+        String enMarker = "<translation lang=\"en\"";
+        String frMarker = "<translation lang=\"fra\"";
+        String noFrench = replaceValue(xml, frMarker, start, frValue, "");
+        assertEquals(english, new XFormParser(new StringReader(noFrench)).parse().getLocalizer()
+                .getLocaleData("fra").get(key));
+        String blankFrench = replaceValue(xml, frMarker, start, frValue, "<value form=\"image\"/>");
+        assertEquals("", new XFormParser(new StringReader(blankFrench)).parse().getLocalizer()
+                .getLocaleData("fra").get(key));
+        String noEnglish = replaceValue(xml, enMarker, start, enValue, "");
+        try {
+            new XFormParser(new StringReader(noEnglish)).parse().getLocalizer().getLocaleData("fra");
+            fail("A translation introduced an image key absent in the installed default");
+        } catch (NoLocalizedTextException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains(key));
+        }
+    }
+
+    private static String replaceValue(String xml, String locale, String label, String value, String replacement) {
+        int translation = xml.indexOf(locale);
+        int text = xml.indexOf(label, translation);
+        int position = xml.indexOf(value, text);
+        assertTrue(translation >= 0 && text >= translation && position >= text);
+        assertTrue(text < xml.indexOf("</translation>", translation));
+        assertTrue(position < xml.indexOf("</text>", text));
+        return xml.substring(0, position) + replacement + xml.substring(position + value.length());
+    }
+
     @Test public void sourceFormsParseWithRealCoreBeforeHqMatching() throws Exception {
         Properties certificate = new Properties();
         List<String> certified = new ArrayList<>(Arrays.asList(SCENARIOS));

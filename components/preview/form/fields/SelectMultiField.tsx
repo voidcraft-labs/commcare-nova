@@ -7,9 +7,17 @@ import {
 	type MultiSelectField,
 	type SelectOption,
 } from "@/lib/domain";
+import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
 import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
+import { workerChoiceProse } from "@/lib/preview/workerProse";
+import {
+	useEditMode,
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
+import { AndroidChoiceGrid } from "./AndroidChoiceGrid";
+import { ChoicePresentation } from "./ChoicePresentation";
 import { focusChosenChoice, retainChoiceFocus } from "./choiceLabelActivation";
 import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
@@ -45,6 +53,8 @@ export function SelectMultiField({
 	const dynamicChoices = field.optionsSource.kind !== "inline";
 	// Document-aware option-label projection: see the single-select twin.
 	const projectProse = useProseProjection();
+	const platform = usePreviewPlatform();
+	const textForm = useFieldTextForm(field.uuid);
 	// `key` is display identity: see the single-select twin.
 	const options: ReadonlyArray<{
 		key: string;
@@ -59,16 +69,19 @@ export function SelectMultiField({
 					...opt,
 					key: opt.value,
 					label:
-						state.resolvedOptionLabels?.[opt.uuid] ?? projectProse(opt.label),
+						state.resolvedOptionLabels?.[opt.uuid] ??
+						projectProse(
+							workerChoiceProse(field, opt, textForm, platform).template,
+						),
 				}))
 			: [];
 	const selected = new Set(state.value ? state.value.split(" ") : []);
+	const hint = field.extended_hint ?? field.hint;
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
 	/* Choice media draws on Android and in edit mode; Web Apps draws none
 	 * (manifest `questions/choice-image`, `choice-audio-video`). */
 	const rules = usePreviewPlatformRules();
-	const textForm = useFieldTextForm(field.uuid);
 	const drawChoiceMedia = isEditMode || rules.choiceMedia;
 	const labelRendering = isEditMode
 		? PREVIEW_LABEL_RENDERING
@@ -88,13 +101,72 @@ export function SelectMultiField({
 	if (dynamicChoices && state.choices === undefined) {
 		return <LookupChoicesLoading />;
 	}
+	const layout = choiceLayoutForPlatform(field, platform);
+
+	if (layout?.kind === "grid")
+		return (
+			<div>
+				<AndroidChoiceGrid
+					key={options.map((o) => o.media?.image ?? "").join(":")}
+					options={options}
+					columns={layout.columns}
+					multiple
+					labelledBy={labelledBy}
+					path={state.path}
+					value={state.value}
+					editMode={isEditMode}
+					onChoose={toggle}
+					onBlur={onBlur}
+				/>
+				{dynamicChoices && options.length === 0 && <LookupChoicesEmpty />}
+				{showError && state.errorMessage && (
+					<ValidationError message={state.errorMessage} />
+				)}
+			</div>
+		);
+	const row = layout?.kind === "row-without-label" || layout?.kind === "row";
+	const hideChoiceLabels = layout?.kind === "row-without-label";
+	if (layout && (layout.kind === "dropdown" || layout.kind === "headings")) {
+		return (
+			<div>
+				<ChoicePresentation
+					layout={layout}
+					options={options}
+					labelledBy={labelledBy}
+					placeholder={
+						rules.hintPlacement === "as-authored" &&
+						field.hintPlacement === "placeholder" &&
+						hint
+							? (state.resolvedHint ?? projectProse(hint))
+							: undefined
+					}
+					value={state.value}
+					onBlur={onBlur}
+					onChange={onChange}
+					multiple
+				/>
+				{showError && state.errorMessage && (
+					<ValidationError message={state.errorMessage} />
+				)}
+			</div>
+		);
+	}
 	return (
 		<fieldset
 			aria-labelledby={labelledBy}
 			className="m-0 border-none p-0"
 			onBlur={onBlur}
 		>
-			<div className="space-y-1.5">
+			<div
+				className={row ? "grid gap-2" : "space-y-1.5"}
+				style={
+					row
+						? {
+								gridTemplateColumns: `repeat(${Math.max(options.length, 1)}, minmax(0,1fr))`,
+							}
+						: undefined
+				}
+			>
 				{dynamicChoices && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {
 					/* Blank values can never be "checked": "" splits to no tokens.
@@ -150,7 +222,13 @@ export function SelectMultiField({
 									</svg>
 								)}
 							</div>
-							<span className="preview-markdown text-sm text-nova-text">
+							<span
+								className={
+									hideChoiceLabels
+										? "sr-only"
+										: "preview-markdown text-sm text-nova-text"
+								}
+							>
 								{labelShowsAsTyped(textForm, opt) && plainChoiceAsWritten ? (
 									opt.label
 								) : (

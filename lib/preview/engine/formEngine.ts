@@ -1,3 +1,7 @@
+import { moduleUuidOfForm } from "@/lib/domain";
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
+import { workerChoiceProse, workerFieldProseSlot } from "../workerProse";
+import type { CompletedFormSearch } from "./xpathInstances";
 /**
  * FormEngine — reactive form engine backed by a Zustand store.
  *
@@ -22,18 +26,32 @@
  * doc's `fields`/`fieldOrder` maps). Internally it walks the fields as a
  * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
+
 import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
+import { androidAppRequest } from "@/lib/commcare";
+import {
+	availableCasesNodeset,
+	caseOptionsNodeset,
+} from "@/lib/commcare/caseOptions";
+import { formSharingPlan } from "@/lib/commcare/casePlacementPlan";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { fieldBindType } from "@/lib/commcare/xform/bindType";
+import {
+	activityWireContent,
+	CONNECT_BLOCK_SHAPES,
+} from "@/lib/commcare/xform/connectActivity";
 import {
 	type XFormDataRootRuntimeAttributes,
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
-import { itextIdFor } from "@/lib/commcare/xform/itextIds";
+import {
+	itextIdFor,
+	itextProseSlot,
+	itextTranslationUnitId,
+} from "@/lib/commcare/xform/itextIds";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
@@ -41,12 +59,14 @@ import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	BlueprintDoc,
-	CaseOptionsSource,
 	CaseSelectionCardinality,
 	CaseType,
+	DeviceCaseOptionsSource,
 	Field,
+	FieldProseSlot,
 	Form,
 	FormType,
+	LabelTextSlot,
 	LanguageTag,
 	LookupOptionsSource,
 	ProseAtomPart,
@@ -55,6 +75,7 @@ import type {
 import {
 	type ContainerField,
 	caseScalarTextGuardIsChecked,
+	effectiveAppLocalization,
 	fieldPreload,
 	fieldProseTemplate,
 	formCaseWriteViews,
@@ -62,10 +83,12 @@ import {
 	isCaptureFieldKind,
 	isContainer,
 	isReadableTemporalValue,
+	LABEL_TEXT_SLOTS,
 	orderedCaseOperations,
 	prepareCaseScalarTextValue,
 	proseSource,
 } from "@/lib/domain";
+import type { SubmittedActivity } from "@/lib/domain/connectSubmissionFacts";
 import { isMatchAll, isMatchNone } from "@/lib/domain/expression/builders";
 import {
 	compilerBugMessage,
@@ -76,15 +99,34 @@ import type {
 	FieldExpressionSlotRef,
 	ProseSlotRef,
 } from "@/lib/domain/expression/types";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { fieldHasWorkerControl } from "@/lib/domain/fieldForm";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
+import type { FormBehaviorRole } from "@/lib/domain/forms";
+import { resolveAppLanguage } from "@/lib/domain/localization";
 import {
 	effectiveQueryRepeatPlacement,
 	type QueryRepeatPlacement,
 } from "@/lib/domain/queryRepeatPlacement";
+import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
+import { filledProse } from "@/lib/domain/translationFill";
+import {
+	itextUnitTranslationId,
+	snapshotTranslationUnits,
+} from "@/lib/domain/translationUnits";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
+import {
+	type QuestionMessage,
+	questionChannelScope,
+	receivedAnswer,
+} from "../displayMessages";
 import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
+import {
+	androidCalendarCanBeEmpty,
+	isoOfCalendarDay,
+	localToday,
+} from "../workerCalendar";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate, evaluateRuntime } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -112,6 +154,7 @@ import {
 	snapshotXPathWorkerInstance,
 } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import { type AndroidAppReturn, androidAppWrites } from "./androidAppReturn";
 import {
 	type CoreAnswerType,
 	castAnswerText,
@@ -123,7 +166,6 @@ import {
 	type SetvalueRefusalDetails,
 	setvalueText,
 } from "./answerCast";
-import { heldCalculatedNumber } from "./calculatedNumber";
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,
@@ -142,7 +184,11 @@ import {
 	type PreviewDataRefusalReason,
 	WORKER_INFORMATION_REFUSAL,
 } from "./dataRefusal";
-import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
+import {
+	controlValuePath,
+	type FieldTreeNode,
+	formFieldTrees,
+} from "./fieldTree";
 import {
 	type FormExpressionRuntime,
 	formExpressionRuntime,
@@ -157,6 +203,7 @@ import {
 import {
 	rebaseOntoContext,
 	remapInstancePath,
+	repeatRowsAtPath,
 	stripIndices,
 } from "./instancePaths";
 import {
@@ -179,7 +226,11 @@ import {
 } from "./numberKeypad";
 import { defaultPreviewDevice, type PreviewDevice } from "./previewDevice";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
-import { resolveCurrentPage } from "./sectionPaging";
+import {
+	availablePages,
+	repeatPromptsBetween,
+	resolveCurrentPage,
+} from "./sectionPaging";
 import {
 	type CascadeChange,
 	type ExpressionEvaluationPaths,
@@ -206,16 +257,32 @@ import {
  * under. */
 function fieldProseSlot(
 	field: Field,
-	slot: "label" | "hint" | "help" | "validate_msg",
+	slot: FieldProseSlot | "addFirstLabel" | "addLabel",
 ): ProseSlotRef {
 	return { entity: "field", uuid: field.uuid, slot };
 }
 
-function optionProseSlot(field: Field, optionUuid: Uuid): ProseSlotRef {
+/** The label's other texts with their refs evaluated, by slot; undefined
+ *  where none holds a ref. */
+function resolvedLabelTextsOf(
+	resolve: (slot: LabelTextSlot) => string | undefined,
+): Readonly<Partial<Record<LabelTextSlot, string>>> | undefined {
+	const entries = LABEL_TEXT_SLOTS.flatMap((slot) => {
+		const value = resolve(slot);
+		return value === undefined ? [] : [[slot, value] as const];
+	});
+	return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+function optionProseSlot(
+	field: Field,
+	optionUuid: Uuid,
+	slot: "option_label" | "option_extended_text",
+): ProseSlotRef {
 	return {
 		entity: "field",
 		uuid: field.uuid,
-		slot: "option_label",
+		slot,
 		member: { optionUuid },
 	};
 }
@@ -374,6 +441,7 @@ export type CaseDataByType = Map<string, Map<string, string>>;
  * document's actual slot context.
  */
 export interface FormEngineInput {
+	readonly openingAssignments?: readonly import("./openingCaseAssignments").OpeningCaseAssignment[];
 	/** Saved document supplies the owning module, catalogs, and expression slots. */
 	doc: BlueprintDoc;
 	/** Active form language, used by locale-sensitive JavaRosa functions. */
@@ -399,8 +467,18 @@ export interface FormEngineInput {
 	 * the emitter reads too). Absent, no question is guarded.
 	 */
 	caseScalarTextGuards?: Readonly<Record<string, CaseScalarTextGuard>>;
+	/** The root case IDs whose setvalues run after authored field defaults. */
+	readonly rootCaseCreates?: readonly {
+		readonly uuid: Uuid;
+		readonly datum?: string;
+		readonly exact?: true;
+	}[];
 	/** The form's uuid — used as the root key into `fieldOrder`. */
 	formUuid: Uuid;
+	/** Entry that opened this content. Identifies the receipt and capture scope. */
+	entryUuid?: Uuid;
+	entryRecordType?: string;
+	requiresSelectedRecord?: boolean;
 	/** Flat uuid→field map (the `doc.fields` slice). */
 	fields: Record<string, Field>;
 	/** Adjacency list from parent uuid → ordered child uuids (`doc.fieldOrder`). */
@@ -471,6 +549,8 @@ export interface FormEngineRuntimeOptions {
 		readonly preserveAllValues: boolean;
 	};
 
+	/** Capture additional ID setvalues on the authoritative opening evaluation. */
+	readonly captureOpeningCaseIds?: boolean;
 	/** Construct only the immutable form world. `initializeAsync` performs the
 	 * structural/default/cascade stages before the controller publishes it. */
 	readonly stagedAsync?: boolean;
@@ -491,6 +571,7 @@ export interface FormEngineRuntimeOptions {
 	 *  the `results:inline` instance. Absent, the form has no search
 	 *  results to read. */
 	readonly searchResults?: SearchResultsSnapshot;
+	readonly searches?: readonly CompletedFormSearch[];
 	/** The device the form runs on (`previewDevice.ts`): the platform whose
 	 *  screens, recalculation and day numbers the engine plays, and the
 	 *  session context values it supplies. Absent means a Web Apps device with
@@ -512,6 +593,7 @@ export interface FormEngineEntryCheckpoint {
 		string,
 		RepeatInitializationSnapshot,
 	])[];
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
 	readonly activeSectionUuid?: Uuid;
 	/** The screen the entry is on (`FormScreenPage.path`). */
 	readonly activeScreenPath?: string;
@@ -551,19 +633,13 @@ function pageUuid(page: FormScreenPage): string {
 /** Whether a group draws as a field-list on Android: Nova writes
  *  `appearance="field-list"` on exactly the groups holding `fieldList`
  *  (`lib/commcare/xform/builder.ts::buildContainer`), labelled or not. Any
- *  other group is transparent, its questions paged one per screen. */
+ *  other group is transparent, its questions paged one per screen. A
+ *  `compact` group is one of those: Core opens a group screen only for the
+ *  whole appearance `field-list` (`FormEntryController.isHostWithAppearance`),
+ *  and Android reads `compact` only as each widget's layout
+ *  (`FormController.indexIsInCompact`). */
 function groupDrawsAsFieldList(field: Field & { kind: "group" }): boolean {
 	return field.fieldList === true;
-}
-
-/** The engine paths one screen holds: every path for the whole form, else
- *  the screen's own and everything under it. */
-function screenIncludes(screenPath: string): (path: string) => boolean {
-	if (screenPath === "/data") return () => true;
-	return (path) =>
-		path === screenPath ||
-		path.startsWith(`${screenPath}/`) ||
-		path.startsWith(`${screenPath}[`);
 }
 
 /** Keep the owning document and replace its active form's localized view.
@@ -646,7 +722,25 @@ export class FormEngine {
 	 *  field slice rooted at its one form. Rebuilt whenever the input
 	 *  is re-supplied. */
 	private printDoc: BlueprintDoc;
+
+	private validationMessageSlot(field: Field) {
+		return workerFieldProseSlot(
+			field,
+			"validate_msg",
+			this.printDoc.forms[this.inputFormUuid] ?? {},
+			this.device.platform,
+		);
+	}
+
 	private inputFormUuid: Uuid;
+	private readonly openingAssignments: NonNullable<
+		FormEngineInput["openingAssignments"]
+	>;
+	private readonly entryUuid: Uuid;
+	private requiresSelectedRecord: boolean;
+	readonly #rootCaseCreates: FormEngineInput["rootCaseCreates"];
+	private readonly openingCreateIds = new Map<Uuid, string>();
+	private readonly openingOperationIdBindings = new Map<Uuid, WireExpr>();
 	private expressions: FormExpressionRuntime;
 	/** The document a field's case writes and its bind type are read from. */
 	private caseWriteDoc: BlueprintDoc;
@@ -657,6 +751,8 @@ export class FormEngine {
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
 	 *  every walker inside the engine agrees on the same snapshot. */
 	private tree: FieldTreeNode[];
+	private controls: FieldTreeNode[];
+	containsControl: (outer: string, inner: string) => boolean;
 	private caseData: CaseDataByType;
 	/** The resolved identity worker reads see, fixed for the engine's
 	 *  lifetime; an identity change rebuilds the engine so every computed
@@ -674,6 +770,11 @@ export class FormEngine {
 	/** Several-case forms never choose one selected row as their preload source. */
 	private caseSelectionCardinality: CaseSelectionCardinality;
 	private formType: FormType;
+	private rootName: string;
+	get rootPath(): string {
+		return `/${this.rootName}`;
+	}
+
 	private formRootAttributes: XFormDataRootRuntimeAttributes;
 	/** One Project lookup fixture snapshot captured for the engine's
 	 *  LIFETIME — lookup-backed choices stay stable within a form
@@ -698,6 +799,7 @@ export class FormEngine {
 	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
 	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
 	private fieldPathsCacheTree: FieldTreeNode[] | undefined;
+	private datePathTemplates: string[] = [];
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
 	private repeatCounts = (repeatPath: string): number =>
@@ -766,6 +868,11 @@ export class FormEngine {
 		runtimeOptions: FormEngineRuntimeOptions = {},
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
+		if (
+			formSharingPlan(input.doc, input.formUuid) &&
+			caseDatabase?.workerGroups?.length !== 1
+		)
+			throw new PreviewDataRefusal({ kind: "group-count" });
 		this.hasCaseSnapshot = caseDatabase != null;
 		this.lookupData = lookupData ?? null;
 		this.previewIdentity = previewIdentity ?? null;
@@ -779,11 +886,18 @@ export class FormEngine {
 		);
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
+		this.requiresSelectedRecord =
+			input.requiresSelectedRecord ??
+			(this.formType === "followup" || this.formType === "close");
+		this.rootName = formRootName(input.form);
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
 			input.wireName ?? input.form.name,
 		);
 		this.caseData = caseData ?? new Map();
 		this.searchAnswers = runtimeOptions.searchAnswers ?? new Map();
+		this.#rootCaseCreates = runtimeOptions.captureOpeningCaseIds
+			? input.rootCaseCreates
+			: undefined;
 		this.sessionData = runtimeOptions.sessionData ?? {};
 		const ownerWithoutPlace = ownerMovesToNoPlace(
 			input.form.caseOperations,
@@ -814,9 +928,16 @@ export class FormEngine {
 			...(runtimeOptions.selectedCases === undefined
 				? {}
 				: { selectedCases: runtimeOptions.selectedCases }),
+			...(runtimeOptions.searches === undefined
+				? {}
+				: { searches: runtimeOptions.searches }),
 			...(runtimeOptions.searchResults === undefined
 				? {}
 				: { searchResults: runtimeOptions.searchResults }),
+			menus: input.doc.modules,
+			searchResultsName:
+				input.doc.modules[moduleUuidOfForm(input.doc, input.formUuid) ?? ""]
+					?.searchResultsName,
 			organization: input.doc,
 		});
 		for (const node of this.secondaryInstances
@@ -832,9 +953,20 @@ export class FormEngine {
 		this.secondaryWorkerSnapshots = [...this.secondaryInstances.values()].map(
 			snapshotXPathWorkerInstance,
 		);
-		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		({
+			submitted: this.tree,
+			controls: this.controls,
+			contains: this.containsControl,
+		} = formFieldTrees(
+			input.formUuid,
+			input.fields,
+			input.fieldOrder,
+			this.rootPath,
+		));
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
+		this.openingAssignments = input.openingAssignments ?? [];
+		this.entryUuid = input.entryUuid ?? input.formUuid;
 		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.scalarTextGuards = input.caseScalarTextGuards ?? {};
@@ -843,11 +975,11 @@ export class FormEngine {
 		this.restoredEntry = runtimeOptions.restoredEntry;
 		this.presentationLanguage = input.language;
 
-		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(this.tree, "/data", this.bindTypeOf);
+		this.instance = new DataInstance(this.formRootAttributes, this.rootName);
+		this.instance.initFromFields(this.tree, this.rootPath, this.bindTypeOf);
 		this.dag = new TriggerDag();
 
-		this.dag.build(this.tree, this.expressions);
+		this.dag.build(this.tree, this.expressions, this.rootPath);
 		if (this.asyncRuntime) return;
 		const restored = this.restoredEntry;
 		this.restoredEntry = undefined;
@@ -870,8 +1002,79 @@ export class FormEngine {
 
 	// ── Public API ───────────────────────────────────────────────────
 
+	/** Android evaluates the localized descriptor from the whole saved form.
+	 * Presence of an empty text is distinct from a missing key on disk. */
+	async savedFormDescriptor(
+		evaluateAsync?: FormEngineAsyncEvaluator,
+	): Promise<string | undefined> {
+		const carrier =
+			this.printDoc.forms[this.inputFormUuid]?.savedFormDescriptorText?.carrier;
+		if (!carrier) return undefined;
+		const unit = snapshotTranslationUnits(this.printDoc).get(
+			itextTranslationUnitId(carrier),
+		);
+		if (!unit) return undefined;
+		const localization = effectiveAppLocalization(this.printDoc.localization);
+		const language =
+			this.presentationLanguage &&
+			localization.languageOrder.includes(this.presentationLanguage)
+				? this.presentationLanguage
+				: localization.defaultLanguage;
+		const template = filledProse(this.printDoc, unit, language);
+		const slot = itextProseSlot(carrier);
+		let descriptor = "";
+		for (const part of template?.parts ?? []) {
+			if (part.kind === "text") {
+				descriptor += part.text;
+			} else {
+				const source = this.expressions.prose(part, slot);
+				descriptor += xpathToString(
+					evaluateAsync
+						? await evaluateAsync(source, "/")
+						: evaluate(source, this.createEvalContext("/")),
+				);
+			}
+		}
+		return descriptor;
+	}
+
 	/** Structured-clone projection for one evaluation: the world's instances
 	 * on its first request, then only the values and relevance that changed. */
+	/** The server signs this once with the authorized form opening. */
+	initialCreateIds(): Readonly<Record<string, string>> | undefined {
+		return this.openingCreateIds.size > 0
+			? Object.fromEntries(this.openingCreateIds)
+			: undefined;
+	}
+
+	/** Resolve the text Core reads as a pragma at the initialized form root. */
+	async readBehaviorText(
+		role: FormBehaviorRole,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<string | null> {
+		const carrier = this.printDoc.forms[this.inputFormUuid]?.[role]?.carrier;
+		if (!carrier) return null;
+		const unitId = itextUnitTranslationId(carrier);
+		const unit = snapshotTranslationUnits(this.printDoc).get(unitId);
+		if (!unit) return null;
+		const language = resolveAppLanguage(
+			this.printDoc.localization,
+			this.presentationLanguage ?? undefined,
+		);
+		const template = filledProse(this.printDoc, unit, language);
+		const slot = itextProseSlot(carrier);
+		const parts: string[] = [];
+		for (const part of template.parts)
+			parts.push(
+				part.kind === "text"
+					? part.text
+					: xpathToString(
+							await evaluateAsync(this.expressions.prose(part, slot), "/"),
+						),
+			);
+		return parts.join("");
+	}
+
 	workerInstances(
 		path: string,
 		world?: FormEngineWorkerWorld,
@@ -990,6 +1193,9 @@ export class FormEngine {
 			state: this.store.getState(),
 			repeatKeys: [...this.repeatInstanceKeys],
 			pendingSectionRepeats: [...this.pendingSectionRepeats],
+			...(this.openingCreateIds.size > 0 && {
+				caseCreateIds: this.initialCreateIds(),
+			}),
 			activeSectionUuid: this.activeSectionUuid,
 			activeScreenPath: this.activeScreenPath,
 			allSectionsEntered: this.allSectionsEntered,
@@ -1001,6 +1207,12 @@ export class FormEngine {
 	 * heal untouched defaults afterward; this is never a client submission input. */
 	restoreEntryCheckpoint(checkpoint: FormEngineEntryCheckpoint): void {
 		this.instance.restoreCheckpoint(checkpoint.instance);
+		this.openingCreateIds.clear();
+		this.openingOperationIdBindings.clear();
+		for (const [uuid, id] of Object.entries(checkpoint.caseCreateIds ?? {})) {
+			this.openingCreateIds.set(uuid as Uuid, id);
+			this.openingOperationIdBindings.set(uuid as Uuid, w.str(id));
+		}
 		this.pendingSectionRepeats = new Map(checkpoint.pendingSectionRepeats);
 		this.activeSectionUuid = checkpoint.activeSectionUuid;
 		this.activeScreenPath = checkpoint.activeScreenPath;
@@ -1009,7 +1221,7 @@ export class FormEngine {
 			checkpoint.repeatKeys.map(([path, keys]) => [path, [...keys]]),
 		);
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree, this.expressions);
+		this.dag.build(this.tree, this.expressions, this.rootPath);
 		const state = structuredClone(checkpoint.state);
 		this.repeatInsertRefusals = new Map(
 			Object.entries(state).flatMap(([path, fieldState]) =>
@@ -1019,6 +1231,7 @@ export class FormEngine {
 			),
 		);
 		this.store.setState(state, true);
+		this.drawAndroidDates(this.activeScreenPath);
 	}
 
 	/** Local required/type errors have no validation DAG node. Constraint
@@ -1068,7 +1281,7 @@ export class FormEngine {
 			return;
 		}
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree, this.expressions);
+		this.dag.build(this.tree, this.expressions, this.rootPath);
 		await this.initializeModelAsync(this.tree, evaluateAsync);
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
@@ -1119,9 +1332,11 @@ export class FormEngine {
 				updates,
 				evaluateAsync,
 			);
+			this.recordAcceptedAnswer(updates[path] ?? current, updates);
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 		await this.settleLiveRepeatsAsync(evaluateAsync, beforeInsertion);
+		this.drawAndroidDates(this.activeScreenPath);
 	}
 
 	async touchAsync(
@@ -1144,24 +1359,72 @@ export class FormEngine {
 		this.store.setState(updates);
 	}
 
+	/** Formplayer compares the non-null values of the submitted answer and
+	 * the current initialized instance before asking Core to validate again.
+	 * An answer Core already refused is never the accepted instance value. */
+	private checksChangedAnswersOnly(): boolean {
+		return (
+			this.rules.webAppsFormPragmas &&
+			this.printDoc.forms[this.inputFormUuid]?.validateChangedAnswersText !==
+				undefined
+		);
+	}
+
+	/** Core commits a blank answer to a question that is not required, so the
+	 *  instance then holds nothing to compare a later answer with; a blank
+	 *  required answer is refused and never committed. */
+	private recordAcceptedAnswer(state: FieldState, updates: EngineStoreState) {
+		if (!this.checksChangedAnswersOnly() || !state.valid || state.keypadRefused)
+			return;
+		const accepted = state.value
+			? state.value
+			: state.required
+				? state.acceptedAnswer
+				: undefined;
+		if (state.acceptedAnswer !== accepted)
+			updates[state.path] = { ...state, acceptedAnswer: accepted };
+	}
+
+	private acceptUnchangedOnSubmit(
+		state: FieldState,
+		updates: EngineStoreState,
+	): boolean {
+		if (
+			!this.checksChangedAnswersOnly() ||
+			!state.value ||
+			state.keypadRefused ||
+			(state.edited && state.value !== state.acceptedAnswer)
+		)
+			return false;
+		if (!state.valid || state.errorMessage)
+			updates[state.path] = { ...state, valid: true, errorMessage: undefined };
+		return true;
+	}
+
 	async validateAllAsync(
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<boolean> {
-		return this.validateWhereAsync(() => true, evaluateAsync);
+		return this.validateWhereAsync(() => true, evaluateAsync, "commit", true);
+	}
+
+	/** Read the current questions' validation without committing a screen or answering its messages. */
+	async observeValidationAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<boolean> {
+		return this.validateWhereAsync(() => true, evaluateAsync, "observe");
 	}
 
 	async validateSectionAsync(
 		sectionUuid: Uuid,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<boolean> {
-		const section = this.tree.find((node) => node.field.uuid === sectionUuid);
+		const section = this.controls.find(
+			(node) => node.field.uuid === sectionUuid,
+		);
 		if (section === undefined || section.field.kind !== "section") return true;
-		const root = `/data/${section.field.id}`;
+		const root = controlValuePath(section, this.rootPath);
 		return this.validateWhereAsync(
-			(path) =>
-				path === root ||
-				path.startsWith(`${root}/`) ||
-				path.startsWith(`${root}[`),
+			(path) => this.containsControl(root, path),
 			evaluateAsync,
 		);
 	}
@@ -1216,7 +1479,12 @@ export class FormEngine {
 		index: number,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		if (this.instance.getRepeatCount(repeatPath) <= 1) return;
+		if (
+			!Number.isInteger(index) ||
+			index < 0 ||
+			index >= this.instance.getRepeatCount(repeatPath)
+		)
+			return;
 		await this.beginRequestAsync(evaluateAsync);
 		this.removeRepeat(repeatPath, index);
 		await this.evaluateWorkAsync(
@@ -1232,12 +1500,23 @@ export class FormEngine {
 	 *  Returns whether the instance takes the answer: false for one the
 	 *  platform's number keypad refused, which changes nothing the form reads
 	 *  and so opens no request. */
-	setValue(path: string, typed: string): boolean {
+	setValue(
+		path: string,
+		typed: string,
+		source: "worker-input" | "android-app" = "worker-input",
+	): boolean {
+		const current = this.store.getState()[path];
+		if (current === undefined || current === DEFAULT_ENGINE_STATE) return false;
 		/* A Text question with a number keypad plays the platform's keypad:
 		 * Android's box holds only the keys it offers, and Web Apps keeps the
 		 * earlier answer in the instance when its pattern refuses the typed one,
 		 * sends nothing, and shows its message (`answerShapeError`). */
-		const { shown: value, stores } = this.keypadAnswer(path, typed);
+		const field = this.findField(path);
+		const { shown: value, stores } =
+			source === "android-app"
+				? { shown: typed, stores: true }
+				: this.keypadAnswer(path, typed, field);
+		const isCapture = field !== undefined && isCaptureFieldKind(field.kind);
 		if (stores) {
 			if (this.asyncRuntime) this.stagedValues.set(path, value);
 			else {
@@ -1247,13 +1526,33 @@ export class FormEngine {
 		}
 
 		const updates: EngineStoreState = {};
-		const current = this.store.getState()[path];
 		if (
 			current &&
-			(current.value !== value || (current.keypadRefused === true) !== !stores)
+			(current.value !== value ||
+				(current.keypadRefused === true) !== !stores ||
+				(current.androidPickerDay !== undefined &&
+					current.androidPickerDay !== value) ||
+				(isCapture && current.captureFileName !== value))
 		) {
+			const cleared =
+				value === "" &&
+				this.rules.datePicker === "shows-a-day" &&
+				field?.kind === "date" &&
+				field.androidApp === undefined
+					? field
+					: undefined;
 			updates[path] = withKeypadRefused(
-				{ ...current, value, edited: true },
+				{
+					...current,
+					value,
+					edited: true,
+					...(cleared?.kind === "date" && {
+						androidPickerDay: androidCalendarCanBeEmpty(cleared.calendar)
+							? ""
+							: isoOfCalendarDay(localToday()),
+					}),
+					...(isCapture && { captureFileName: value }),
+				},
 				!stores,
 			);
 		}
@@ -1287,12 +1586,17 @@ export class FormEngine {
 			}
 		}
 
+		if (stores && latestState && !this.asyncRuntime)
+			this.recordAcceptedAnswer(updates[path] ?? latestState, updates);
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
 		if (!stores) return false;
 		this.settleLiveRepeats();
-		if (!this.asyncRuntime) this.reenterActiveScreen();
+		if (!this.asyncRuntime) {
+			this.reenterActiveScreen();
+			this.drawAndroidDates(this.activeScreenPath);
+		}
 		return true;
 	}
 
@@ -1303,9 +1607,9 @@ export class FormEngine {
 	private keypadAnswer(
 		path: string,
 		typed: string,
+		field = this.findField(path),
 	): { readonly shown: string; readonly stores: boolean } {
-		const field = this.findField(path);
-		if (field?.kind !== "text" || field.keypad === undefined)
+		if (!field || !usesNumberKeypad(field, this.device.platform))
 			return { shown: typed, stores: true };
 		const shown = numberKeypadTyped(this.rules.numberKeypad, typed);
 		return {
@@ -1375,7 +1679,7 @@ export class FormEngine {
 	/** Remove a repeat instance. */
 	removeRepeat(repeatPath: string, index: number): void {
 		const count = this.instance.getRepeatCount(repeatPath);
-		if (count <= 1) return;
+		if (!Number.isInteger(index) || index < 0 || index >= count) return;
 		this.beginRequest();
 
 		const currentState = this.store.getState();
@@ -1563,8 +1867,186 @@ export class FormEngine {
 			this.fieldWrites(field),
 		);
 
-	/** The data type Core gives a field's node, from the bind the XForm
-	 * emitter writes for it. */
+	private androidAppRowKey(path: string): string {
+		return repeatRowsAtPath(path)
+			.map(({ repeat, index }) => {
+				const field = this.findField(repeat);
+				if (field?.kind !== "repeat")
+					throw new Error("The Android app question's repeat row has changed.");
+				return `\u0000${field.uuid}:${this.getRepeatInstanceKey(repeat, index)}`;
+			})
+			.join("");
+	}
+
+	/** Open one installed-app interaction at its concrete worker row. The
+	 * request captures the selected action and the initiating row identities. */
+	private androidAppDefinitionAt(path: string) {
+		const field = this.findField(path);
+		const setting =
+			field && "androidApp" in field ? field.androidApp : undefined;
+		if (!this.rules.androidAppAnswers || !field || !setting) return undefined;
+		const owner =
+			setting.kind === "open-app"
+				? field
+				: this.caseWriteDoc.fields[setting.question];
+		if (owner?.kind !== "text" || owner.androidApp?.kind !== "open-app")
+			return undefined;
+		const action = owner.androidApp;
+		const current = this.getState(path).value;
+		const rowIdentity = this.androidAppRowKey(path);
+		const destinations = action.receive.map((result) => {
+			const template = this.fieldPathsByUuid().get(result.question);
+			if (!template)
+				throw new Error(
+					`The result "${result.name}" has no question in this form.`,
+				);
+			const target = rebaseOntoContext(template, path);
+			const targetField = this.findField(target);
+			if (!targetField)
+				throw new Error(
+					`The result "${result.name}" has no question in this row.`,
+				);
+			return {
+				...result,
+				path: target,
+				kind: targetField.kind,
+				id: targetField.id,
+				capture: isCaptureFieldKind(targetField.kind),
+			};
+		});
+		return {
+			field,
+			action,
+			path,
+			signature: JSON.stringify([
+				path,
+				field.uuid,
+				field.kind,
+				owner.uuid,
+				action,
+				rowIdentity,
+				destinations,
+			]),
+			destinations,
+			current,
+			ownerUuid: owner.uuid,
+		};
+	}
+
+	async openAndroidApp(path: string, evaluateAsync?: FormEngineAsyncEvaluator) {
+		const launch = this.androidAppDefinitionAt(path);
+		if (!launch || !this.effectivelyVisiblePaths().has(path)) return undefined;
+		const action = launch.action;
+		const lastInput = new Map(
+			action.send.map((input, index) => [input.name, index]),
+		);
+		const args = [];
+		for (const index of lastInput.values()) {
+			const input = action.send[index];
+			if (!input) throw new Error("An Android app input was removed.");
+			const source = this.expressions.lower(input.value, {
+				entity: "field",
+				uuid: launch.ownerUuid,
+				slot: "android_app_input",
+				member: androidAppInputMember(action.send, index),
+			});
+			const value = evaluateAsync
+				? await evaluateAsync(source, path)
+				: evaluate(source, this.createEvalContext(path));
+			args.push({
+				name: input.name,
+				text: xpathToString(value),
+				truth: toBoolean(value),
+			});
+		}
+		const destinations = launch.destinations.map((destination) => {
+			const target = this.findField(destination.path);
+			const label =
+				this.getState(destination.path).resolvedLabel ??
+				(target && proseSource(target, "label", this.printDoc));
+			return { ...destination, label: label || destination.id };
+		});
+		return {
+			...launch,
+			destinations,
+			parameters: androidAppRequest(args, launch.current),
+		};
+	}
+
+	androidAppResult(path: string, signature: string, result: AndroidAppReturn) {
+		const launch = this.androidAppDefinitionAt(path);
+		if (
+			launch?.signature !== signature ||
+			!launch ||
+			!this.effectivelyVisiblePaths().has(path)
+		)
+			return undefined;
+		const response = androidAppWrites(
+			launch.field.uuid,
+			launch.action,
+			result,
+			{
+				registration: (outcome) =>
+					runtimeMessage(
+						this.presentationLanguage,
+						{
+							success: "androidAppRegistrationSaved",
+							partial: "androidAppRegistrationPartial",
+							failed: "androidAppRegistrationFailed",
+						}[outcome] as
+							| "androidAppRegistrationSaved"
+							| "androidAppRegistrationPartial"
+							| "androidAppRegistrationFailed",
+					),
+				scanned: (count) =>
+					runtimeMessage(
+						this.presentationLanguage,
+						"androidAppFingersScanned",
+						{ count },
+					),
+			},
+		);
+		const writes = response.writes.map((write) => {
+			const template = this.fieldPathsByUuid().get(write.question);
+			if (!template) throw new Error("A result question was removed.");
+			const target = rebaseOntoContext(template, path);
+			const field = this.findField(target);
+			if (!field) throw new Error("A result question was removed.");
+			const binary =
+				isCaptureFieldKind(field.kind) && write.capture !== undefined;
+			if (binary)
+				return {
+					kind: "capture" as const,
+					field: field.uuid,
+					captureKind: field.kind,
+					path: target,
+					file: write.capture?.file,
+					slotKey: `${field.uuid}\u0000${this.androidAppRowKey(target)}`,
+				};
+			const cast =
+				write.value === ""
+					? { ok: true as const, text: "" }
+					: castAnswerText(
+							this.answerTypeOf(field),
+							write.value,
+							this.castZone,
+						);
+			if (!cast.ok)
+				throw new Error(
+					`The returned value does not fit the question "${field.id}".`,
+				);
+			return {
+				kind: "answer" as const,
+				field: field.uuid,
+				path: target,
+				value: cast.text,
+			};
+		});
+		// A native result leaves one final answer per node. Only its final file needs staging.
+		return [...new Map(writes.map((write) => [write.path, write])).values()];
+	}
+
+	/** The data type Core gives a field’s node from its emitted bind. */
 	private answerTypeOf(field: Field): CoreAnswerType {
 		return coreAnswerType(this.bindTypeOf(field), field.kind);
 	}
@@ -1752,85 +2234,57 @@ export class FormEngine {
 		) {
 			return numericAnswerText(value);
 		}
-		// Core holds a calculated number by `Recalculate.wrapData`: its
-		// `(int)` under a whole-number bind, else its long where it is within a
-		// billionth of one, else the double, and submits that holding's text,
-		// so `3e9` is `3000000000` and not XPath's `3.0E9`.
-		if (
-			field.kind === "hidden" &&
-			typeof value === "number" &&
-			!Number.isNaN(value)
-		) {
-			return heldCalculatedNumber(value, this.bindsWholeNumber(field)).text;
+		const type = this.answerTypeOf(field);
+		if (isXPathDate(value) && type === "datetime") {
+			return instantDatetimeValue(value.instant(), this.castZone);
 		}
-		// Core wraps a calculated Date using the destination bind
-		// (`Recalculate.wrapData`): a datetime bind holds `DateTimeData` of the
-		// instant, written as its canonical text in this realm's zone. XPath's
-		// generic string(Date) deliberately discards its clock instead.
-		if (
-			isXPathDate(value) &&
-			fieldValueType(
-				field,
-				this.caseWriteDoc.caseTypes ?? [],
-				this.fieldWrites(field),
-			) === "datetime"
-		) {
-			return instantDatetimeValue(
-				value.instant(),
-				Intl.DateTimeFormat().resolvedOptions().timeZone,
-			);
+		if (field.kind !== "hidden") return xpathToString(result);
+		if (type === "boolean" && isXPathDate(value)) {
+			throw new PreviewDataRefusal({
+				kind: "hidden-calculation",
+				question: field.id,
+				problem: "date-as-boolean",
+			});
 		}
-		return xpathToString(result);
+		const text = setvalueText(value, type) ?? "";
+		if (type === "choice-list" && typeof value === "string" && value !== "") {
+			const cast = castAnswerText(type, text, this.castZone);
+			if (cast.ok) return cast.text;
+			throw new PreviewDataRefusal({
+				kind: "hidden-calculation",
+				question: field.id,
+				problem: "empty-choice",
+			});
+		}
+		return text;
 	}
 
-	/** Whether a field binds as a whole number, under which Core holds a
-	 *  calculated number as its `(int)`. */
-	private bindsWholeNumber(field: Field): boolean {
-		return (
-			fieldValueType(
-				field,
-				this.caseWriteDoc.caseTypes ?? [],
-				this.fieldWrites(field),
-			) === "int"
-		);
-	}
-
-	/** The runtime value a hidden calculation's node holds beside its text, as
-	 * `Recalculate.wrapData` wraps it: a number as `heldCalculatedNumber`
-	 * holds it, a boolean as itself, a Date
-	 * into a datetime bind as its instant (`DateTimeData`), a Date into a time
-	 * bind as text, and a Date into any other bind as its local date
-	 * (`DateData` rounds). */
+	/** XPath reads the class actually held by Core's Recalculate.wrapData:
+	 * a string result stays a string even in an integer node. Ready actions
+	 * cast to their destination after wrapping, whereas a calculation stores
+	 * the wrapped answer directly. */
 	private calculatedScalar(
 		field: Field,
 		result: XPathValue,
-	): number | boolean | XPathDate | undefined {
-		if (field.kind !== "hidden") return undefined;
-		if (typeof result === "boolean") return result;
-		if (typeof result === "number") {
-			return Number.isNaN(result)
-				? undefined
-				: heldCalculatedNumber(result, this.bindsWholeNumber(field)).value;
-		}
-		if (!isXPathDate(result)) return undefined;
-		const valueType = fieldValueType(
-			field,
-			this.caseWriteDoc.caseTypes ?? [],
-			this.fieldWrites(field),
-		);
-		if (valueType === "datetime") return result;
-		if (valueType === "time") return undefined;
-		// `DateData` rounds its Date when read, and a day `roundDate` refuses
-		// leaves it null, which Core's read then dereferences.
-		const rounded = result.rounded();
+		text: string,
+	): string | number | boolean | XPathDate | undefined {
+		if (field.kind !== "hidden" || text === "") return undefined;
+		const value = unpackXPathRuntimeValue(result);
+		const type = this.answerTypeOf(field);
+		if (type === "boolean") return text === "1";
+		if (typeof value === "boolean") return value;
+		if (typeof value === "number") return Number(text);
+		if (typeof value === "string") return text;
+		if (type === "datetime") return value;
+		if (type === "choice" || type === "choice-list" || type === "time")
+			return text;
+		const rounded = value.rounded();
 		if (rounded === null)
-			throw new CoreUnroundableDateError(`the date ${result.toISOString()}`);
+			throw new CoreUnroundableDateError(`the date ${value.toISOString()}`);
 		return rounded;
 	}
 
-	/** Store the result once. Hidden calculations have no numeric question bind;
-	 * Core keeps their number, boolean or Date runtime type for later node
-	 * references. */
+	/** Store the submitted text alongside the scalar class a later formula reads. */
 	private storeCalculatedValue(
 		field: Field,
 		path: string,
@@ -1840,7 +2294,7 @@ export class FormEngine {
 			typeof result === "number" && Number.isNaN(result)
 				? ""
 				: this.computedFieldValue(field, result);
-		this.instance.set(path, value, this.calculatedScalar(field, result));
+		this.instance.set(path, value, this.calculatedScalar(field, result, value));
 		return value;
 	}
 
@@ -1893,14 +2347,15 @@ export class FormEngine {
 			return depth(a) - depth(b) || a.localeCompare(b);
 		});
 		for (const path of paths) {
-			const target = snapshot.get(path) ?? 1;
+			if (!this.materializePaths(path).includes(path)) continue;
+			const target = snapshot.get(path) ?? 0;
 			if (target > 0) this.pendingSectionRepeats.delete(path);
 			let current = this.getRepeatCount(path);
 			while (current < target) {
-				this.addRepeat(path);
+				if (this.addRepeat(path) === undefined) break;
 				current++;
 			}
-			while (current > Math.max(target, 1)) {
+			while (current > target) {
 				this.removeRepeat(path, current - 1);
 				current--;
 			}
@@ -1925,15 +2380,17 @@ export class FormEngine {
 			return depth(a) - depth(b) || a.localeCompare(b);
 		});
 		for (const path of paths) {
-			const target = snapshot.get(path) ?? 1;
+			if (!this.materializePaths(path).includes(path)) continue;
+			const target = snapshot.get(path) ?? 0;
 			if (target > 0) this.pendingSectionRepeats.delete(path);
 			let current = this.getRepeatCount(path);
 			while (current < target) {
-				await this.addRepeatAsync(path, evaluateAsync);
+				if ((await this.addRepeatAsync(path, evaluateAsync)) === undefined)
+					break;
 				current += 1;
 			}
-			while (current > Math.max(target, 1)) {
-				this.removeRepeat(path, current - 1);
+			while (current > target) {
+				await this.removeRepeatAsync(path, current - 1, evaluateAsync);
 				current -= 1;
 			}
 		}
@@ -1987,24 +2444,63 @@ export class FormEngine {
 	 * checks and validation rules. Returns true if the form is valid.
 	 */
 	validateAll(): boolean {
-		return this.validateWhere(() => true);
+		return this.validateWhere(() => true, true);
 	}
 
-	/**
-	 * The shared body of `validateAll` / `validateSection`: touch, run
-	 * required checks and validation rules on every effectively visible
-	 * field whose path passes `include`, and report whether they all hold.
-	 */
-	private validateWhere(include: (path: string) => boolean): boolean {
+	/** The native screen commit supplies OK for each passive trigger. The web
+	 * client also supplies it for interactive messages at submit. Check
+	 * relevance after every answer: a dependent prompt can now be visible. */
+	private *messagesToConfirm(
+		include: (path: string) => boolean,
+		nodes: readonly FieldTreeNode[] = this.controls,
+		prefix = this.rootPath,
+	): Iterable<string> {
+		for (const node of nodes) {
+			const field = node.field;
+			const path = controlValuePath(node, prefix);
+			const state = this.store.getState()[path];
+			if (state?.visible === false) continue;
+			if (field.kind === "label") {
+				if (
+					include(path) &&
+					this.instance.get(path) !== "OK" &&
+					this.workerRelevantPaths().has(path) &&
+					(this.rules.messageConfirmation === "automatic" ||
+						!field.askForConfirmation)
+				)
+					yield path;
+			} else if (field.kind === "repeat") {
+				for (let row = 0; row < this.instance.getRepeatCount(path); row++) {
+					if (this.repeatRowRelevant(field, path, row, state)) {
+						yield* this.messagesToConfirm(
+							include,
+							node.children ?? [],
+							`${path}[${row}]`,
+						);
+					}
+				}
+			} else if (node.children) {
+				yield* this.messagesToConfirm(include, node.children, path);
+			}
+		}
+	}
+
+	private validateWhere(
+		include: (path: string) => boolean,
+		submitting = false,
+	): boolean {
+		for (const path of this.messagesToConfirm(include))
+			this.setValue(path, "OK");
 		let valid = true;
 		const updates: EngineStoreState = {};
 		const currentState = this.store.getState();
-		const effectivelyVisible = this.effectivelyVisiblePaths(currentState);
+		const effectivelyVisible = this.workerRelevantPaths(currentState);
 
 		for (const [path, state] of Object.entries(currentState)) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
 			if (!include(path)) continue;
 			if (!effectivelyVisible.has(path)) continue;
+			if (submitting && this.acceptUnchangedOnSubmit(state, updates)) continue;
 
 			const touched = state.touched ? state : { ...state, touched: true };
 			if (touched !== state) updates[path] = touched;
@@ -2029,10 +2525,10 @@ export class FormEngine {
 		effectivelyVisible: ReadonlySet<string>,
 	): boolean {
 		for (const node of nodes) {
-			const path = `${prefix}/${node.field.id}`;
+			const path = controlValuePath(node, prefix);
 			if (!effectivelyVisible.has(path)) continue;
 			if (!isContainer(node.field)) {
-				if (node.field.kind !== "hidden") return true;
+				if (fieldHasWorkerControl(node.field.kind)) return true;
 				continue;
 			}
 			if (node.field.kind === "repeat") {
@@ -2069,7 +2565,7 @@ export class FormEngine {
 		return [...this.pendingSectionRepeats].some(
 			([repeatPath, snapshot]) =>
 				snapshot.count > 0 &&
-				repeatPath.startsWith(`${path}/`) &&
+				this.containsControl(path, repeatPath) &&
 				effectivelyVisible.has(repeatPath),
 		);
 	}
@@ -2081,13 +2577,11 @@ export class FormEngine {
 	 * a pager skips it (and re-anchors when the answer that hid it changes).
 	 */
 	sectionScreens(): ReadonlyArray<FormScreenPage> {
-		const effectivelyVisible = this.effectivelyVisiblePaths(
-			this.store.getState(),
-		);
+		const effectivelyVisible = this.workerRelevantPaths(this.store.getState());
 		const pages: FormScreenPage[] = [];
-		for (const node of this.tree) {
+		for (const node of this.controls) {
 			if (node.field.kind !== "section") continue;
-			const path = `/data/${node.field.id}`;
+			const path = controlValuePath(node, this.rootPath);
 			pages.push({
 				kind: "section",
 				uuid: node.field.uuid,
@@ -2123,24 +2617,24 @@ export class FormEngine {
 	 */
 	formScreens(): ReadonlyArray<FormScreenPage> {
 		if (this.rules.formScreens === "one-screen") {
-			const effectivelyVisible = this.effectivelyVisiblePaths(
+			const effectivelyVisible = this.workerRelevantPaths(
 				this.store.getState(),
 			);
 			return [
 				{
 					kind: "form",
 					uuid: this.inputFormUuid,
-					path: "/data",
-					needsEntry: this.sectionNeedsEntry("/data", effectivelyVisible),
+					path: this.rootPath,
+					needsEntry: this.sectionNeedsEntry(this.rootPath, effectivelyVisible),
 					hasVisibleQuestions: this.screenHasVisibleQuestion(
-						this.tree,
-						"/data",
+						this.controls,
+						this.rootPath,
 						effectivelyVisible,
 					),
 				},
 			];
 		}
-		if (this.tree.some((node) => node.field.kind === "section"))
+		if (this.controls.some((node) => node.field.kind === "section"))
 			return this.sectionScreens();
 		return this.unsectionedScreens().screens;
 	}
@@ -2154,7 +2648,7 @@ export class FormEngine {
 		if (
 			this.rules.repeatAdd !== "prompt" ||
 			this.rules.formScreens === "one-screen" ||
-			this.tree.some((node) => node.field.kind === "section")
+			this.controls.some((node) => node.field.kind === "section")
 		)
 			return [];
 		return this.unsectionedScreens().prompts;
@@ -2181,16 +2675,14 @@ export class FormEngine {
 		if (
 			cached !== undefined &&
 			cached.state === state &&
-			cached.tree === this.tree &&
+			cached.tree === this.controls &&
 			cached.instance === this.instance
 		)
 			return cached.result;
-		const result = this.screensWithoutSections(
-			this.effectivelyVisiblePaths(state),
-		);
+		const result = this.screensWithoutSections(this.workerRelevantPaths(state));
 		this.unsectionedWalk = {
 			state,
-			tree: this.tree,
+			tree: this.controls,
 			instance: this.instance,
 			result,
 		};
@@ -2208,7 +2700,7 @@ export class FormEngine {
 		const walk = (nodes: ReadonlyArray<FieldTreeNode>, prefix: string) => {
 			for (const node of nodes) {
 				const field = node.field;
-				const path = `${prefix}/${field.id}`;
+				const path = controlValuePath(node, prefix);
 				if (field.kind === "repeat") {
 					const count = this.instance.getRepeatCount(path);
 					for (let index = 0; index < count; index++)
@@ -2242,7 +2734,7 @@ export class FormEngine {
 					});
 					continue;
 				}
-				if (isContainer(field) || field.kind === "hidden") continue;
+				if (isContainer(field) || !fieldHasWorkerControl(field.kind)) continue;
 				screens.push({
 					kind: "question",
 					uuid: field.uuid,
@@ -2251,8 +2743,162 @@ export class FormEngine {
 				});
 			}
 		};
-		walk(this.tree, "/data");
+		walk(this.controls, this.rootPath);
 		return { screens, prompts };
+	}
+
+	/** A native date control is constructed with an answer, or with the
+	 * device's current civil day. Only when the worker leaves does Android
+	 * ask the widget for that day. A fresh control after a return or a
+	 * relevance change is constructed again from the instance. */
+	private drawAndroidDates(screenPath: string | undefined): void {
+		if (this.rules.datePicker !== "shows-a-day") return;
+		this.fieldPathsByUuid();
+		if (this.datePathTemplates.length === 0) return;
+
+		const visible = this.effectivelyVisiblePaths();
+		const states = this.store.getState();
+		const updates: EngineStoreState = {};
+		let today: string | undefined;
+		for (const template of this.datePathTemplates) {
+			for (const path of this.materializePaths(template)) {
+				const state = states[path];
+				if (!state) continue;
+				if (
+					screenPath &&
+					this.containsControl(screenPath, path) &&
+					visible.has(path) &&
+					!state.value
+				) {
+					if (state.androidPickerDay === undefined) {
+						today ??= isoOfCalendarDay(localToday());
+						updates[path] = { ...state, androidPickerDay: today };
+					}
+				} else if (state.androidPickerDay !== undefined) {
+					const { androidPickerDay: _shown, ...answer } = state;
+					updates[path] = answer;
+				}
+			}
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
+	/** Day suggestions are owned by the live screen. Materializing the
+	 * blueprint's date paths excludes removed fields and removed repeat rows. */
+	pendingScreenDays(): { path: string; day: string }[] {
+		const screenPath = this.activeScreenPath;
+		if (this.rules.datePicker !== "shows-a-day" || !screenPath) return [];
+		this.fieldPathsByUuid();
+		this.drawAndroidDates(screenPath);
+		return this.datePathTemplates.flatMap((template) =>
+			this.materializePaths(template).flatMap((path) => {
+				const state = this.store.getState()[path];
+				return this.containsControl(screenPath, path) &&
+					state?.androidPickerDay &&
+					!state.value
+					? [{ path, day: state.androidPickerDay }]
+					: [];
+			}),
+		);
+	}
+
+	/** Save the displayed answers from this actual visit through the same
+	 * value/cascade boundary as an explicit worker edit. Validation of a
+	 * different screen is only an inspection and never calls this. */
+	saveScreenDates(): string[] {
+		const saved: string[] = [];
+		for (const { path, day } of this.pendingScreenDays()) {
+			if (
+				this.getState(path).androidPickerDay === day &&
+				this.setValue(path, day)
+			)
+				saved.push(path);
+		}
+		return saved;
+	}
+
+	async saveScreenDatesAsync(
+		evaluate: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const paths = this.saveScreenDates();
+		if (paths.length) {
+			await this.settleValueChangesAsync(paths, evaluate);
+			await this.reenterActiveScreenAsync(evaluate);
+		}
+	}
+
+	/** A worker can change rows only on a reachable repeat. Restore of an authorized
+	 * checkpoint bypasses this gate, as it also restores unvisited pages. */
+	private workerRepeatAccess(
+		path: string,
+		uuid: string,
+		action: "add" | "remove",
+	): boolean | string {
+		const field = this.findField(path);
+		if (
+			field?.uuid !== uuid ||
+			field.kind !== "repeat" ||
+			field.repeat_mode !== "user_controlled" ||
+			!this.materializePaths(path).includes(path) ||
+			!this.workerRelevantPaths().has(path)
+		)
+			return false;
+		if (this.rules.formScreens === "one-screen") return true;
+		const screens = this.formScreens();
+		const current = resolveCurrentPage(screens, this.currentScreenPath());
+		if (current && this.containsControl(current.path, path)) return true;
+		if (action === "remove") return false;
+		// Android's Add prompt lies between the current and next visible page,
+		// or before the first page for an empty repeat at the start of the form.
+		const visible = availablePages(screens);
+		const from = current ? screens.indexOf(current) : -1;
+		const next = current ? visible[visible.indexOf(current) + 1] : undefined;
+		const to = next ? screens.indexOf(next) : screens.length;
+		const prompts = this.repeatPromptPoints();
+		if (
+			current === visible[0] &&
+			repeatPromptsBetween(prompts, -1, from).some(
+				(point) => point.repeatPath === path,
+			)
+		)
+			return true;
+		if (
+			!repeatPromptsBetween(prompts, from, to).some(
+				(point) => point.repeatPath === path,
+			)
+		)
+			return false;
+		return current?.path ?? true;
+	}
+
+	/** Opening an Android invitation after a page commits that page, as Next does. */
+	workerCanEditRepeat(
+		path: string,
+		uuid: string,
+		action: "add" | "remove",
+	): boolean {
+		const access = this.workerRepeatAccess(path, uuid, action);
+		if (typeof access !== "string") return access;
+		this.saveScreenDates();
+		return (
+			this.validateScreen(access) &&
+			this.workerRepeatAccess(path, uuid, action) !== false
+		);
+	}
+
+	async workerCanEditRepeatAsync(
+		path: string,
+		uuid: string,
+		action: "add" | "remove",
+		evaluate: FormEngineAsyncEvaluator,
+	): Promise<boolean> {
+		const access = this.workerRepeatAccess(path, uuid, action);
+		if (typeof access !== "string") return access;
+		await this.saveScreenDatesAsync(evaluate);
+		return (
+			(await this.validateScreenAsync(access, evaluate)) &&
+			this.workerRepeatAccess(path, uuid, action) !== false
+		);
 	}
 
 	/** The screen the entry is on, by path. */
@@ -2263,14 +2909,17 @@ export class FormEngine {
 	/** Validate one screen's effectively visible questions: the whole form
 	 *  for `/data`, else every path under the screen's. */
 	validateScreen(path: string): boolean {
-		return this.validateWhere(screenIncludes(path));
+		return this.validateWhere((child) => this.containsControl(path, child));
 	}
 
 	async validateScreenAsync(
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<boolean> {
-		return this.validateWhereAsync(screenIncludes(path), evaluateAsync);
+		return this.validateWhereAsync(
+			(child) => this.containsControl(path, child),
+			evaluateAsync,
+		);
 	}
 
 	/** Enter a screen: a whole-form screen enters every section in order, a
@@ -2279,9 +2928,10 @@ export class FormEngine {
 	enterScreen(path: string): void {
 		if (this.asyncRuntime)
 			throw new Error("Screen entry requires the asynchronous evaluator.");
-		if (path === "/data") {
+		if (path === this.rootPath) {
 			this.enterAllSections();
 			this.activeScreenPath = path;
+			this.drawAndroidDates(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2290,15 +2940,17 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
+		this.drawAndroidDates(path);
 	}
 
 	async enterScreenAsync(
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		if (path === "/data") {
+		if (path === this.rootPath) {
 			await this.enterAllSectionsAsync(evaluateAsync);
 			this.activeScreenPath = path;
+			this.drawAndroidDates(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2307,12 +2959,14 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
+		this.drawAndroidDates(path);
 	}
 
 	private sectionAtScreenPath(path: string): Uuid | undefined {
-		return this.tree.find(
+		return this.controls.find(
 			(node) =>
-				node.field.kind === "section" && `/data/${node.field.id}` === path,
+				node.field.kind === "section" &&
+				controlValuePath(node, this.rootPath) === path,
 		)?.field.uuid;
 	}
 
@@ -2321,7 +2975,7 @@ export class FormEngine {
 		this.allSectionsEntered = true;
 		const active = this.activeSectionUuid;
 		const screen = this.activeScreenPath;
-		for (const node of this.tree) {
+		for (const node of this.controls) {
 			if (node.field.kind !== "section") continue;
 			this.enterSection(node.field.uuid);
 		}
@@ -2335,7 +2989,7 @@ export class FormEngine {
 		this.allSectionsEntered = true;
 		const active = this.activeSectionUuid;
 		const screen = this.activeScreenPath;
-		for (const node of this.tree) {
+		for (const node of this.controls) {
 			if (node.field.kind !== "section") continue;
 			await this.enterSectionAsync(node.field.uuid, evaluateAsync);
 		}
@@ -2366,15 +3020,12 @@ export class FormEngine {
 	 * phone before it turns the page; Back never calls it.
 	 */
 	validateSection(sectionUuid: Uuid): boolean {
-		const section = this.tree.find((node) => node.field.uuid === sectionUuid);
-		if (section === undefined || section.field.kind !== "section") return true;
-		const root = `/data/${section.field.id}`;
-		return this.validateWhere(
-			(path) =>
-				path === root ||
-				path.startsWith(`${root}/`) ||
-				path.startsWith(`${root}[`),
+		const section = this.controls.find(
+			(node) => node.field.uuid === sectionUuid,
 		);
+		if (section === undefined || section.field.kind !== "section") return true;
+		const root = controlValuePath(section, this.rootPath);
+		return this.validateWhere((path) => this.containsControl(root, path));
 	}
 
 	/**
@@ -2393,10 +3044,12 @@ export class FormEngine {
 		readonly withinScreen?: string;
 	}): InvalidFieldTarget | undefined {
 		const states = this.store.getState();
+		const relevant = this.workerRelevantPaths(states);
 		const onScreen =
 			opts?.withinScreen === undefined
 				? () => true
-				: screenIncludes(opts.withinScreen);
+				: (child: string) =>
+						this.containsControl(opts.withinScreen as string, child);
 		const walk = (
 			nodes: ReadonlyArray<FieldTreeNode>,
 			prefix: string,
@@ -2404,15 +3057,13 @@ export class FormEngine {
 			ancestorUuids: readonly Uuid[],
 		): InvalidFieldTarget | undefined => {
 			for (const node of nodes) {
-				const instancePath = `${prefix}/${node.field.id}`;
-				const effective =
-					ancestorsVisible && states[instancePath]?.visible !== false;
+				const instancePath = controlValuePath(node, prefix);
+				const effective = ancestorsVisible && relevant.has(instancePath);
 				if (!effective) continue;
 				const structural = isContainer(node.field);
 				if (
 					!structural &&
-					node.field.kind !== "label" &&
-					node.field.kind !== "hidden" &&
+					fieldHasWorkerControl(node.field.kind) &&
 					states[instancePath]?.valid === false &&
 					onScreen(instancePath)
 				) {
@@ -2450,11 +3101,11 @@ export class FormEngine {
 			return undefined;
 		};
 		if (opts?.withinSection !== undefined) {
-			const section = this.tree.find(
+			const section = this.controls.find(
 				(node) => node.field.uuid === opts.withinSection,
 			);
 			if (section === undefined) return undefined;
-			const sectionPath = `/data/${section.field.id}`;
+			const sectionPath = controlValuePath(section, this.rootPath);
 			return walk(
 				section.children ?? [],
 				sectionPath,
@@ -2462,7 +3113,7 @@ export class FormEngine {
 				[section.field.uuid],
 			);
 		}
-		return walk(this.tree, "/data", true, []);
+		return walk(this.controls, this.rootPath, true, []);
 	}
 
 	/**
@@ -2480,7 +3131,7 @@ export class FormEngine {
 			ancestorUuids: readonly Uuid[],
 		): InvalidFieldTarget | undefined => {
 			for (const node of nodes) {
-				const instancePath = `${prefix}/${node.field.id}`;
+				const instancePath = controlValuePath(node, prefix);
 				const structural = isContainer(node.field);
 				if (
 					!structural &&
@@ -2514,7 +3165,7 @@ export class FormEngine {
 			}
 			return undefined;
 		};
-		return walk(this.tree, "/data", []);
+		return walk(this.controls, this.rootPath, []);
 	}
 
 	/**
@@ -2529,6 +3180,59 @@ export class FormEngine {
 	): ReadonlySet<string> {
 		return this.effectiveRelevance(states).visible;
 	}
+
+	/** Core's FormEntryModel.isIndexRelevant checks the submitted node and
+	 * the nodes bound to every enclosing control. The submitted XML itself
+	 * inherits relevance only from the primary-instance tree. */
+	workerRelevantPaths(
+		states: Readonly<EngineStoreState> = this.store.getState(),
+	): ReadonlySet<string> {
+		const published = states === this.store.getState();
+		const cached = published ? this.workerRelevance : undefined;
+		if (
+			cached?.states === states &&
+			cached.controls === this.controls &&
+			cached.instance === this.instance
+		)
+			return cached.paths;
+		const { visible, rows } = this.effectiveRelevance(states);
+		let paths: ReadonlySet<string> = visible;
+		if (this.controls !== this.tree) {
+			const relevant = new Set<string>();
+			const walk = (nodes: readonly FieldTreeNode[], prefix: string) => {
+				for (const node of nodes) {
+					const path = controlValuePath(node, prefix);
+					if (!visible.has(path)) continue;
+					relevant.add(path);
+					if (node.children === undefined) continue;
+					if (node.field.kind === "repeat") {
+						const count = this.instance.getRepeatCount(path);
+						for (let index = 0; index < count; index++) {
+							const row = `${path}[${index}]`;
+							if (rows.get(row)) walk(node.children, row);
+						}
+					} else walk(node.children, path);
+				}
+			};
+			walk(this.controls, this.rootPath);
+			paths = relevant;
+		}
+		if (published)
+			this.workerRelevance = {
+				states,
+				controls: this.controls,
+				instance: this.instance,
+				paths,
+			};
+		return paths;
+	}
+
+	private workerRelevance?: {
+		readonly states: Readonly<EngineStoreState>;
+		readonly controls: readonly FieldTreeNode[];
+		readonly instance: DataInstance;
+		readonly paths: ReadonlySet<string>;
+	};
 
 	/** The visible field paths, and each repeat row's own effective
 	 * relevance keyed by its concrete path. */
@@ -2568,7 +3272,7 @@ export class FormEngine {
 				}
 			}
 		};
-		walk(this.tree, "/data", true);
+		walk(this.tree, this.rootPath, true);
 		return { visible, rows };
 	}
 
@@ -2590,10 +3294,12 @@ export class FormEngine {
 				? this.store.getState()
 				: { ...this.store.getState(), ...stateOverrides });
 		const { visible, rows } = this.effectiveRelevance(states);
-		return new Map([
+		const relevance = new Map([
 			...Object.keys(states).map((path) => [path, visible.has(path)] as const),
 			...rows,
 		]);
+		this.instance.addActivityRelevance(relevance);
+		return relevance;
 	}
 
 	/** The one form this engine's input slice is rooted at. */
@@ -2609,6 +3315,7 @@ export class FormEngine {
 			this.lookupData ?? undefined,
 			{
 				searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID,
+				operationIds: this.openingOperationIdBindings,
 				workerProperty: this.workerProperty,
 				datumId: session.datumId,
 				formCaseProperty: this.formCaseProperty(session.formCaseProperty),
@@ -2656,7 +3363,7 @@ export class FormEngine {
 
 	private expressionSource(
 		field: Field,
-		slot: FieldExpressionSlotRef["slot"],
+		slot: Exclude<FieldExpressionSlotRef["slot"], "android_app_input">,
 	): string | undefined {
 		return this.expressions.source({ entity: "field", uuid: field.uuid, slot });
 	}
@@ -2697,6 +3404,76 @@ export class FormEngine {
 		);
 	}
 
+	/** The worker instance drops irrelevant rows and elements before forwarding the form. */
+	private submittedActivities(): SubmittedActivity[] | undefined {
+		if (!this.instance.hasActivities()) return undefined;
+		const facts: SubmittedActivity[] = [];
+		const visible = this.effectivelyVisiblePaths();
+		const visit = (
+			nodes: readonly FieldTreeNode[],
+			prefix: string,
+			rows: SubmittedActivity["rows"],
+		) => {
+			for (const node of nodes) {
+				const field = node.field;
+				const path = `${prefix}/${field.id}`;
+				if (!visible.has(path)) continue;
+				if (field.kind === "repeat") {
+					const state = this.store.getState()[path];
+					for (
+						let index = 0;
+						index < this.instance.getRepeatCount(path);
+						index++
+					) {
+						if (!this.repeatRowRelevant(field, path, index, state)) continue;
+						visit(node.children ?? [], `${path}[${index}]`, [
+							...rows,
+							{ repeat: field.uuid, index },
+						]);
+					}
+				} else if (field.kind === "group" || field.kind === "section") {
+					visit(node.children ?? [], path, rows);
+				} else if (field.kind === "connect_activity") {
+					const { block, calculations } = activityWireContent(field.activity);
+					const element = CONNECT_BLOCK_SHAPES[block].element;
+					const value = (slot: (typeof calculations)[number]["slot"]) => {
+						const child = calculations.find(
+							(calculation) => calculation.slot === slot,
+						);
+						return child
+							? (this.instance.get(`${path}/${element}/${child.leaf}`) ?? "")
+							: "";
+					};
+					const occurrence = { fieldUuid: field.uuid, rows };
+					switch (field.activity.kind) {
+						case "assessment":
+							facts.push({
+								...occurrence,
+								kind: "assessment",
+								score: value("assessment_user_score"),
+							});
+							break;
+						case "delivery":
+							facts.push({
+								...occurrence,
+								kind: "delivery",
+								entityId: value("deliver_entity_id"),
+								entityName: value("deliver_entity_name"),
+								workAreaId: value("deliver_work_area_id"),
+							});
+							break;
+						case "learning-module":
+						case "assigned-task":
+							facts.push({ ...occurrence, kind: field.activity.kind });
+							break;
+					}
+				}
+			}
+		};
+		visit(this.tree, this.rootPath, []);
+		return facts;
+	}
+
 	/**
 	 * Collect the per-scope operation answer bindings for this form's
 	 * case operations — `undefined` when the form carries none. Each
@@ -2723,6 +3500,7 @@ export class FormEngine {
 
 		const relevant = this.effectivelyVisiblePaths();
 		const repeatScopes = new Map<string, SubmissionAnswerEntry[][]>();
+		const parentIterations = new Map<string, number[]>();
 		const scopeFor = (repeatUuid: string): SubmissionAnswerEntry[][] => {
 			const existing = repeatScopes.get(repeatUuid);
 			if (existing !== undefined) return existing;
@@ -2766,6 +3544,7 @@ export class FormEngine {
 			nodes: ReadonlyArray<FieldTreeNode>,
 			pathPrefix: string,
 			inherited: ReadonlyArray<SubmissionAnswerEntry>,
+			parentIteration?: number,
 		): SubmissionAnswerEntry[] => {
 			const level: SubmissionAnswerEntry[] = [];
 			const deferredRepeats: Array<{
@@ -2788,7 +3567,6 @@ export class FormEngine {
 						deferredRepeats.push({ node, path: fieldPath });
 						continue;
 					}
-					if (f.kind === "label") continue;
 					level.push(entryFor(f, fieldPath));
 				}
 			};
@@ -2805,19 +3583,33 @@ export class FormEngine {
 					if (!this.repeatRowRelevant(node.field, path, i, repeatState))
 						continue;
 					const enclosing = [...inherited, ...level];
-					const own = collectLevel(node.children, `${path}[${i}]`, enclosing);
+					const iteration = iterations.length;
+					const own = collectLevel(
+						node.children,
+						`${path}[${i}]`,
+						enclosing,
+						iteration,
+					);
 					iterations.push([...enclosing, ...own]);
+					if (parentIteration !== undefined) {
+						const parents = parentIterations.get(node.field.uuid) ?? [];
+						parents.push(parentIteration);
+						parentIterations.set(node.field.uuid, parents);
+					}
 				}
 			}
 			return level;
 		};
 
-		const root = collectLevel(this.tree, "/data", []);
+		const root = collectLevel(this.tree, this.rootPath, []);
 		return {
 			root,
 			repeats: [...repeatScopes.entries()].map(([repeat, iterations]) => ({
 				repeat,
 				iterations,
+				...(parentIterations.has(repeat) && {
+					parentIterations: parentIterations.get(repeat),
+				}),
 			})),
 		};
 	}
@@ -2883,7 +3675,12 @@ export class FormEngine {
 				if (!isCaptureFieldKind(f.kind)) continue;
 				if (!effective) continue;
 				const raw = this.instance.get(fieldPath);
-				if (typeof raw === "string" && raw !== "") {
+				const state = states[fieldPath];
+				// A starting filename is submitted as text. Only a worker's selection
+				// reserves staged bytes. Older checkpoints record the edit without its name.
+				const chosen =
+					state?.captureFileName ?? (state?.edited ? state.value : undefined);
+				if (typeof raw === "string" && raw !== "" && chosen === raw) {
 					references.push({
 						attachmentName: raw,
 						fieldUuid: f.uuid,
@@ -2892,7 +3689,7 @@ export class FormEngine {
 				}
 			}
 		};
-		walk(this.tree, "/data", true);
+		walk(this.tree, this.rootPath, true);
 		return references;
 	}
 
@@ -2910,6 +3707,10 @@ export class FormEngine {
 		if (node === undefined || !isCaptureFieldKind(node.field.kind)) {
 			return "removed";
 		}
+		return this.answerPathDisposition(path);
+	}
+
+	answerPathDisposition(path: string): AttachmentPathDisposition {
 		const states = this.store.getState();
 		const state = states[path];
 		if (state === undefined || state === DEFAULT_ENGINE_STATE) {
@@ -2939,7 +3740,7 @@ export class FormEngine {
 		});
 		if (source === undefined) return this.formType === "close";
 		try {
-			return toBoolean(evaluate(source, this.createEvalContext("/data")));
+			return toBoolean(evaluate(source, this.createEvalContext(this.rootPath)));
 		} catch {
 			return true;
 		}
@@ -2972,14 +3773,16 @@ export class FormEngine {
 		entryKey: string;
 	}): SubmissionMutation {
 		const operationAnswers = this.computeOperationAnswers();
+		const activities = this.submittedActivities();
 		const protocol = {
-			formUuid: this.activeFormUuid() as string,
+			formUuid: this.entryUuid,
 			entryKey: args.entryKey,
 			// Always present, even when empty: an empty list is the exact
 			// projection that retires every unreferenced staged attachment for
 			// this entry.
 			attachmentRefs: this.collectAttachmentReferences(),
 			...(operationAnswers !== undefined && { operationAnswers }),
+			...(activities !== undefined && { activities }),
 		};
 		switch (this.formType) {
 			case "survey":
@@ -2988,6 +3791,8 @@ export class FormEngine {
 				return { kind: "registration", ...protocol };
 			case "followup":
 			case "close": {
+				if (!this.requiresSelectedRecord)
+					return { kind: this.formType, ...protocol, caseIds: [] };
 				if (args.caseIds === undefined || args.caseIds.length === 0) {
 					throw new Error(
 						compilerBugMessage({
@@ -3020,8 +3825,44 @@ export class FormEngine {
 		return this.store.getState()[path] ?? DEFAULT_ENGINE_STATE;
 	}
 
+	/** Determine concrete receiver answers in sender topic order using this
+	 * entry's published fields, active-language labels and filtered choices. */
+	displayMessageAnswers(
+		senderPath: string,
+		message: QuestionMessage,
+	): { path: string; value: string }[] {
+		if (!this.rules.questionChannels) return [];
+		const sender = this.findField(senderPath);
+		if (!sender || !("sendTopics" in sender) || !sender.sendTopics) return [];
+		const scope = questionChannelScope(senderPath);
+		const targets = Object.entries(this.store.getState()).flatMap(
+			([path, state]) => {
+				if (questionChannelScope(path) !== scope || !state.visible) return [];
+				const receiver = this.findField(path);
+				if (!receiver || !("receiveFrom" in receiver) || !receiver.receiveFrom)
+					return [];
+				const value = receivedAnswer(
+					receiver,
+					state,
+					message,
+					this.device.platform,
+				);
+				return value === undefined
+					? []
+					: [{ path, value, channel: receiver.receiveFrom.channel }];
+			},
+		);
+		return sender.sendTopics.flatMap((channel) =>
+			targets.filter((target) => target.channel === channel),
+		);
+	}
+
 	/** Get the engine's active field tree — used by the controller when it
 	 *  needs to look up a field by UUID after a subscription fires. */
+	getControlTree(): readonly FieldTreeNode[] {
+		return this.controls;
+	}
+
 	getFieldTree(): FieldTreeNode[] {
 		return this.tree;
 	}
@@ -3029,7 +3870,11 @@ export class FormEngine {
 	/** Report retained inline answers that a native prompt cannot resolve.
 	 * No answer, choice, constraint or emitted behavior is changed. */
 	choiceAnswerDiagnostic(): ChoiceAnswerDiagnostic | undefined {
-		return choiceAnswerDiagnostic(this.tree, (path) => this.getState(path));
+		return choiceAnswerDiagnostic(
+			this.tree,
+			(path) => this.getState(path),
+			this.rootPath,
+		);
 	}
 
 	/** Get all paths affected by a change at the given path, in topological
@@ -3068,11 +3913,21 @@ export class FormEngine {
 	 * and states are still valid.
 	 */
 	rebuildDag(input: FormEngineInput): void {
+		this.rootName = formRootName(input.form);
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
 			input.wireName ?? input.form.name,
 		);
-		this.instance.setRootAttributes(this.formRootAttributes);
-		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		this.instance.setRoot(this.rootName, this.formRootAttributes);
+		({
+			submitted: this.tree,
+			controls: this.controls,
+			contains: this.containsControl,
+		} = formFieldTrees(
+			input.formUuid,
+			input.fields,
+			input.fieldOrder,
+			this.rootPath,
+		));
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
@@ -3080,7 +3935,7 @@ export class FormEngine {
 		this.instance.refreshTemplate(this.tree, this.bindTypeOf);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree, this.expressions);
+		this.dag.build(this.tree, this.expressions, this.rootPath);
 		this.activeSectionUuid = resolveCurrentPage(
 			this.sectionScreens(),
 			this.activeSectionUuid,
@@ -3185,8 +4040,18 @@ export class FormEngine {
 			state.resolvedLabel !== undefined ||
 			state.resolvedHint !== undefined ||
 			state.resolvedHelp !== undefined ||
+			state.resolvedAddFirstLabel !== undefined ||
+			state.resolvedAddLabel !== undefined ||
 			state.resolvedOptionLabels !== undefined
 		);
+	}
+
+	/** A generated Connect bind has its own XPath context and no question state. */
+	private activityCalculation(path: string): string | undefined {
+		if (!this.instance.hasActivityCalculation(path)) return undefined;
+		return this.dag
+			.getExpressions(path)
+			.find(({ type }) => type === "calculate")?.expr;
 	}
 
 	private expressionsForEvaluation(path: string, state: FieldState) {
@@ -3553,11 +4418,21 @@ export class FormEngine {
 		caseData: CaseDataByType,
 		_moduleCaseType?: string,
 	): void {
+		this.rootName = formRootName(input.form);
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
 			input.wireName ?? input.form.name,
 		);
-		this.instance.setRootAttributes(this.formRootAttributes);
-		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		this.instance.setRoot(this.rootName, this.formRootAttributes);
+		({
+			submitted: this.tree,
+			controls: this.controls,
+			contains: this.containsControl,
+		} = formFieldTrees(
+			input.formUuid,
+			input.fields,
+			input.fieldOrder,
+			this.rootPath,
+		));
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
@@ -3565,13 +4440,16 @@ export class FormEngine {
 		this.instance.refreshTemplate(this.tree, this.bindTypeOf);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.formType = input.form.type;
+		this.requiresSelectedRecord =
+			input.requiresSelectedRecord ??
+			(this.formType === "followup" || this.formType === "close");
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.caseData = caseData;
 		// Selected-case reads are compiled from this captured context. A
 		// preload is a starting value, which runs once when the entry opens,
 		// so the new context reaches the calculations and conditions that read
 		// it and leaves the answers as they are.
-		this.dag.build(this.tree, this.expressions);
+		this.dag.build(this.tree, this.expressions, this.rootPath);
 		this.evaluatePathsInto(this.getAllPaths());
 		this.adoptScalarTextGuards(input.caseScalarTextGuards ?? {});
 	}
@@ -3587,14 +4465,41 @@ export class FormEngine {
 		caseData?: CaseDataByType,
 	): void {
 		const snapshot = this.getValueSnapshot();
+		const manualRows = new Map<
+			string,
+			{ uuid: Uuid; count: number; keys: readonly string[] }
+		>();
+		for (const [path, count] of this.getRepeatCountSnapshot()) {
+			const field = this.findField(path);
+			if (field?.kind === "repeat" && field.repeat_mode === "user_controlled") {
+				manualRows.set(path, {
+					uuid: field.uuid,
+					count,
+					keys: [...(this.repeatInstanceKeys.get(path) ?? [])],
+				});
+			}
+		}
 
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
+		this.requiresSelectedRecord =
+			input.requiresSelectedRecord ??
+			(this.formType === "followup" || this.formType === "close");
+		this.rootName = formRootName(input.form);
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
 			input.wireName ?? input.form.name,
 		);
 		this.caseData = caseData ?? new Map();
-		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		({
+			submitted: this.tree,
+			controls: this.controls,
+			contains: this.containsControl,
+		} = formFieldTrees(
+			input.formUuid,
+			input.fields,
+			input.fieldOrder,
+			this.rootPath,
+		));
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
@@ -3602,11 +4507,11 @@ export class FormEngine {
 		this.scalarTextGuards = input.caseScalarTextGuards ?? {};
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 
-		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(this.tree, "/data", this.bindTypeOf);
+		this.instance = new DataInstance(this.formRootAttributes, this.rootName);
+		this.instance.initFromFields(this.tree, this.rootPath, this.bindTypeOf);
 
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree, this.expressions);
+		this.dag.build(this.tree, this.expressions, this.rootPath);
 		this.initializeModel(this.tree);
 
 		/* Capture old store state BEFORE rebuilding. After rebuild + evaluate +
@@ -3623,6 +4528,29 @@ export class FormEngine {
 		 * via getState(). Use replace mode — we'll fix references below. */
 		this.store.setState(newStates, true);
 		this.evaluateAllInto();
+
+		// A wording or worker-property edit preserves the rows the worker added.
+		// A repeat with a new identity or a calculated membership follows its new rule.
+		const held = new Map<string, number>();
+		for (const [path, previous] of manualRows) {
+			const field = this.findField(path);
+			if (
+				field?.kind === "repeat" &&
+				field.repeat_mode === "user_controlled" &&
+				field.uuid === previous.uuid
+			) {
+				held.set(path, previous.count);
+			}
+		}
+		this.restoreRepeatCountSnapshot(held);
+		for (const path of held.keys()) {
+			const previous = manualRows.get(path);
+			if (previous)
+				this.repeatInstanceKeys.set(
+					path,
+					previous.keys.slice(0, this.getRepeatCount(path)),
+				);
+		}
 
 		/* Restore user-touched values from the pre-rebuild snapshot */
 		this.restoreValues(snapshot);
@@ -3646,8 +4574,8 @@ export class FormEngine {
 	/** Full reset — reinitialize all values, defaults, and expressions. */
 	reset(): void {
 		this.repeatInstanceKeys.clear();
-		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(this.tree, "/data", this.bindTypeOf);
+		this.instance = new DataInstance(this.formRootAttributes, this.rootName);
+		this.instance.initFromFields(this.tree, this.rootPath, this.bindTypeOf);
 
 		this.initializeModel(this.tree);
 
@@ -3686,11 +4614,13 @@ export class FormEngine {
 		values: Map<string, string>;
 		touched: Set<string>;
 		edited: Set<string>;
+		captureFiles: Map<string, string>;
 		held: Map<string, string>;
 	} {
 		const values = new Map<string, string>();
 		const touched = new Set<string>();
 		const edited = new Set<string>();
+		const captureFiles = new Map<string, string>();
 		const held = new Map<string, string>();
 		for (const [path, state] of Object.entries(this.store.getState())) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
@@ -3708,8 +4638,10 @@ export class FormEngine {
 			}
 			if (state.touched) touched.add(path);
 			if (state.edited) edited.add(path);
+			if (state.captureFileName !== undefined)
+				captureFiles.set(path, state.captureFileName);
 		}
-		return { values, touched, edited, held };
+		return { values, touched, edited, captureFiles, held };
 	}
 
 	/** Restore values from a snapshot and re-evaluate expressions. */
@@ -3718,6 +4650,7 @@ export class FormEngine {
 			values: Map<string, string>;
 			touched: Set<string>;
 			edited?: ReadonlySet<string>;
+			captureFiles?: ReadonlyMap<string, string>;
 			/** The instance's answer where the shown value is one the
 			 *  platform's number keypad refused. */
 			held?: ReadonlyMap<string, string>;
@@ -3749,6 +4682,7 @@ export class FormEngine {
 						...current,
 						value,
 						edited: snapshot.edited?.has(path),
+						captureFileName: snapshot.captureFiles?.get(path),
 					},
 					refused,
 				);
@@ -3836,7 +4770,15 @@ export class FormEngine {
 			return;
 		}
 		const current = updates[path] ?? this.store.getState()[path];
-		if (!current) return;
+		if (!current) {
+			const calculation = phase === "values" && this.activityCalculation(path);
+			if (calculation)
+				this.instance.set(
+					path,
+					xpathToString(await evaluateAsync(calculation, path)),
+				);
+			return;
+		}
 		const expressions = this.expressionsForEvaluation(path, current).filter(
 			({ type }) => inPhase(type, phase),
 		);
@@ -3849,6 +4791,9 @@ export class FormEngine {
 		let resolvedLabel = current.resolvedLabel;
 		let resolvedHint = current.resolvedHint;
 		let resolvedHelp = current.resolvedHelp;
+		let resolvedLabelTexts = current.resolvedLabelTexts;
+		let resolvedAddFirstLabel = current.resolvedAddFirstLabel;
+		let resolvedAddLabel = current.resolvedAddLabel;
 		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
 		let rowConditions = current.rowConditions;
@@ -3917,14 +4862,52 @@ export class FormEngine {
 						fieldProseTemplate(field, "label"),
 						resolve(fieldProseSlot(field, "label")),
 					);
+					const textForm = this.printDoc.forms[this.inputFormUuid] ?? {};
+					const hintSlot = workerFieldProseSlot(
+						field,
+						"hint",
+						textForm,
+						this.device.platform,
+					);
+					const helpSlot = workerFieldProseSlot(
+						field,
+						"help",
+						textForm,
+						this.device.platform,
+					);
 					const nextHint = await resolveLabelAsync(
-						fieldProseTemplate(field, "hint"),
-						resolve(fieldProseSlot(field, "hint")),
+						fieldProseTemplate(field, hintSlot),
+						resolve(fieldProseSlot(field, hintSlot)),
 					);
 					const nextHelp = await resolveLabelAsync(
-						fieldProseTemplate(field, "help"),
-						resolve(fieldProseSlot(field, "help")),
+						fieldProseTemplate(field, helpSlot),
+						resolve(fieldProseSlot(field, helpSlot)),
 					);
+					const labelTexts = new Map<LabelTextSlot, string>();
+					for (const slot of LABEL_TEXT_SLOTS) {
+						const text = await resolveLabelAsync(
+							fieldProseTemplate(field, slot),
+							resolve(fieldProseSlot(field, slot)),
+						);
+						if (text !== undefined) labelTexts.set(slot, text);
+					}
+					const nextLabelTexts = resolvedLabelTextsOf((slot) =>
+						labelTexts.get(slot),
+					);
+					const nextAddFirst =
+						field.kind === "repeat"
+							? await resolveLabelAsync(
+									field.addFirstLabel,
+									resolve(fieldProseSlot(field, "addFirstLabel")),
+								)
+							: undefined;
+					const nextAdd =
+						field.kind === "repeat"
+							? await resolveLabelAsync(
+									field.addLabel,
+									resolve(fieldProseSlot(field, "addLabel")),
+								)
+							: undefined;
 					let nextOptions: Record<string, string> | undefined;
 					if (
 						(field.kind === "single_select" || field.kind === "multi_select") &&
@@ -3932,9 +4915,15 @@ export class FormEngine {
 					) {
 						const entries: Array<readonly [string, string]> = [];
 						for (const option of field.optionsSource.options) {
+							const { template, slot } = workerChoiceProse(
+								field,
+								option,
+								textForm,
+								this.device.platform,
+							);
 							const label = await resolveLabelAsync(
-								option.label,
-								resolve(optionProseSlot(field, option.uuid)),
+								template,
+								resolve(optionProseSlot(field, option.uuid, slot)),
 							);
 							if (label !== undefined) entries.push([option.uuid, label]);
 						}
@@ -3944,11 +4933,17 @@ export class FormEngine {
 						nextLabel !== resolvedLabel ||
 						nextHint !== resolvedHint ||
 						nextHelp !== resolvedHelp ||
+						!stringRecordsEqual(nextLabelTexts, resolvedLabelTexts) ||
+						nextAddFirst !== resolvedAddFirstLabel ||
+						nextAdd !== resolvedAddLabel ||
 						!stringRecordsEqual(nextOptions, resolvedOptionLabels)
 					) {
 						resolvedLabel = nextLabel;
 						resolvedHint = nextHint;
 						resolvedHelp = nextHelp;
+						resolvedLabelTexts = nextLabelTexts;
+						resolvedAddFirstLabel = nextAddFirst;
+						resolvedAddLabel = nextAdd;
 						resolvedOptionLabels = nextOptions;
 						changed = true;
 					}
@@ -3964,15 +4959,15 @@ export class FormEngine {
 						break;
 					}
 					const next =
-						field.optionsSource.kind === "cases"
-							? await this.computeCaseChoicesAsync(
+						field.optionsSource.kind === "lookup"
+							? this.computeLookupChoices(
+									field.optionsSource,
+									this.createEvalContext(path, updates),
+								)
+							: await this.computeCaseChoicesAsync(
 									field.optionsSource,
 									path,
 									evaluateAsync,
-								)
-							: this.computeLookupChoices(
-									field.optionsSource,
-									this.createEvalContext(path, updates),
 								);
 					if (next === undefined) break;
 					if (!lookupChoicesEqual(next, choices)) {
@@ -3997,6 +4992,9 @@ export class FormEngine {
 					resolvedLabel,
 					resolvedHint,
 					resolvedHelp,
+					resolvedLabelTexts,
+					resolvedAddFirstLabel,
+					resolvedAddLabel,
 					resolvedOptionLabels,
 					choices,
 					rowConditions,
@@ -4013,6 +5011,9 @@ export class FormEngine {
 				resolvedLabel,
 				resolvedHint,
 				resolvedHelp,
+				resolvedLabelTexts,
+				resolvedAddFirstLabel,
+				resolvedAddLabel,
 				resolvedOptionLabels,
 				choices,
 				rowConditions,
@@ -4105,7 +5106,17 @@ export class FormEngine {
 			return;
 		}
 		const current = updates[path] ?? this.store.getState()[path];
-		if (!current) return;
+		if (!current) {
+			const calculation = phase === "values" && this.activityCalculation(path);
+			if (calculation)
+				this.instance.set(
+					path,
+					xpathToString(
+						evaluate(calculation, this.createEvalContext(path, updates)),
+					),
+				);
+			return;
+		}
 
 		const expressions = this.expressionsForEvaluation(path, current).filter(
 			({ type }) => inPhase(type, phase),
@@ -4120,6 +5131,9 @@ export class FormEngine {
 		let resolvedLabel = current.resolvedLabel;
 		let resolvedHint = current.resolvedHint;
 		let resolvedHelp = current.resolvedHelp;
+		let resolvedLabelTexts = current.resolvedLabelTexts;
+		let resolvedAddFirstLabel = current.resolvedAddFirstLabel;
+		let resolvedAddLabel = current.resolvedAddLabel;
 		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
 		let rowConditions = current.rowConditions;
@@ -4189,22 +5203,61 @@ export class FormEngine {
 							fieldProseTemplate(f, "label"),
 							resolve(fieldProseSlot(f, "label")),
 						);
+						const textForm = this.printDoc.forms[this.inputFormUuid] ?? {};
+						const hintSlot = workerFieldProseSlot(
+							f,
+							"hint",
+							textForm,
+							this.device.platform,
+						);
+						const helpSlot = workerFieldProseSlot(
+							f,
+							"help",
+							textForm,
+							this.device.platform,
+						);
 						const rh = resolveLabel(
-							fieldProseTemplate(f, "hint"),
-							resolve(fieldProseSlot(f, "hint")),
+							fieldProseTemplate(f, hintSlot),
+							resolve(fieldProseSlot(f, hintSlot)),
 						);
 						const rhelp = resolveLabel(
-							fieldProseTemplate(f, "help"),
-							resolve(fieldProseSlot(f, "help")),
+							fieldProseTemplate(f, helpSlot),
+							resolve(fieldProseSlot(f, helpSlot)),
 						);
+						const rtexts = resolvedLabelTextsOf((slot) =>
+							resolveLabel(
+								fieldProseTemplate(f, slot),
+								resolve(fieldProseSlot(f, slot)),
+							),
+						);
+						const rfirst =
+							f.kind === "repeat"
+								? resolveLabel(
+										f.addFirstLabel,
+										resolve(fieldProseSlot(f, "addFirstLabel")),
+									)
+								: undefined;
+						const radd =
+							f.kind === "repeat"
+								? resolveLabel(
+										f.addLabel,
+										resolve(fieldProseSlot(f, "addLabel")),
+									)
+								: undefined;
 						const roptions =
 							(f.kind === "single_select" || f.kind === "multi_select") &&
 							f.optionsSource.kind === "inline"
 								? Object.fromEntries(
 										f.optionsSource.options.flatMap((option) => {
+											const { template, slot } = workerChoiceProse(
+												f,
+												option,
+												textForm,
+												this.device.platform,
+											);
 											const value = resolveLabel(
-												option.label,
-												resolve(optionProseSlot(f, option.uuid)),
+												template,
+												resolve(optionProseSlot(f, option.uuid, slot)),
 											);
 											return value === undefined
 												? []
@@ -4220,11 +5273,17 @@ export class FormEngine {
 							rl !== resolvedLabel ||
 							rh !== resolvedHint ||
 							rhelp !== resolvedHelp ||
+							!stringRecordsEqual(rtexts, resolvedLabelTexts) ||
+							rfirst !== resolvedAddFirstLabel ||
+							radd !== resolvedAddLabel ||
 							!stringRecordsEqual(normalizedOptions, resolvedOptionLabels)
 						) {
 							resolvedLabel = rl;
 							resolvedHint = rh;
 							resolvedHelp = rhelp;
+							resolvedLabelTexts = rtexts;
+							resolvedAddFirstLabel = rfirst;
+							resolvedAddLabel = radd;
 							resolvedOptionLabels = normalizedOptions;
 							changed = true;
 						}
@@ -4239,9 +5298,9 @@ export class FormEngine {
 						f.optionsSource.kind !== "inline"
 					) {
 						const next =
-							f.optionsSource.kind === "cases"
-								? this.computeCaseChoices(f.optionsSource, ctx)
-								: this.computeLookupChoices(f.optionsSource, ctx);
+							f.optionsSource.kind === "lookup"
+								? this.computeLookupChoices(f.optionsSource, ctx)
+								: this.computeCaseChoices(f.optionsSource, ctx);
 						/* `undefined` is the typed loading state: no snapshot captured
 						 * yet (the cold-load race before the builder session's fetch
 						 * settles). The renderer shows loading, and the controller's
@@ -4276,6 +5335,9 @@ export class FormEngine {
 					resolvedLabel,
 					resolvedHint,
 					resolvedHelp,
+					resolvedLabelTexts,
+					resolvedAddFirstLabel,
+					resolvedAddLabel,
 					resolvedOptionLabels,
 					choices,
 					rowConditions,
@@ -4292,6 +5354,9 @@ export class FormEngine {
 				resolvedLabel,
 				resolvedHint,
 				resolvedHelp,
+				resolvedLabelTexts,
+				resolvedAddFirstLabel,
+				resolvedAddLabel,
 				resolvedOptionLabels,
 				choices,
 				rowConditions,
@@ -4320,15 +5385,26 @@ export class FormEngine {
 	private async validateWhereAsync(
 		include: (path: string) => boolean,
 		evaluateAsync: FormEngineAsyncEvaluator,
+		mode: "commit" | "observe" = "commit",
+		submitting = false,
 	): Promise<boolean> {
+		if (mode === "commit") {
+			for (const path of this.messagesToConfirm(include)) {
+				await this.setValueAsync(path, "OK", evaluateAsync);
+			}
+		}
 		let valid = true;
 		const updates: EngineStoreState = {};
 		const currentState = this.store.getState();
-		const effectivelyVisible = this.effectivelyVisiblePaths(currentState);
+		const effectivelyVisible = this.workerRelevantPaths(currentState);
 		for (const [path, state] of Object.entries(currentState)) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
 			if (!include(path) || !effectivelyVisible.has(path)) continue;
-			const touched = state.touched ? state : { ...state, touched: true };
+			if (submitting && this.acceptUnchangedOnSubmit(state, updates)) continue;
+			const touched =
+				mode === "observe" || state.touched
+					? state
+					: { ...state, touched: true };
 			if (touched !== state) updates[path] = touched;
 			await this.validateAndCollectAsync(
 				path,
@@ -4404,18 +5480,26 @@ export class FormEngine {
 					? await resolveConstraintMessageAsync(
 							async () =>
 								(await resolveLabelAsync(
-									fieldProseTemplate(field, "validate_msg"),
+									fieldProseTemplate(field, this.validationMessageSlot(field)),
 									async (part) =>
 										xpathToString(
 											await evaluateAsync(
 												this.expressions.prose(
 													part,
-													fieldProseSlot(field, "validate_msg"),
+													fieldProseSlot(
+														field,
+														this.validationMessageSlot(field),
+													),
 												),
 												path,
 											),
 										),
-								)) ?? proseSource(field, "validate_msg", this.printDoc),
+								)) ??
+								proseSource(
+									field,
+									this.validationMessageSlot(field),
+									this.printDoc,
+								),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
@@ -4481,18 +5565,26 @@ export class FormEngine {
 					? resolveConstraintMessage(
 							() =>
 								resolveLabel(
-									fieldProseTemplate(field, "validate_msg"),
+									fieldProseTemplate(field, this.validationMessageSlot(field)),
 									(part) =>
 										xpathToString(
 											evaluate(
 												this.expressions.prose(
 													part,
-													fieldProseSlot(field, "validate_msg"),
+													fieldProseSlot(
+														field,
+														this.validationMessageSlot(field),
+													),
 												),
 												ctx,
 											),
 										),
-								) ?? proseSource(field, "validate_msg", this.printDoc),
+								) ??
+								proseSource(
+									field,
+									this.validationMessageSlot(field),
+									this.printDoc,
+								),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 
@@ -4545,7 +5637,7 @@ export class FormEngine {
 	private initStatesInto(
 		states: EngineStoreState,
 		tree: FieldTreeNode[],
-		prefix = "/data",
+		prefix = this.rootPath,
 	): void {
 		for (const node of tree) {
 			const f = node.field;
@@ -4675,7 +5767,7 @@ export class FormEngine {
 	 * This program is shared by synchronous and worker-backed execution. */
 	private *initializeScope(
 		tree: readonly FieldTreeNode[],
-		prefix = "/data",
+		prefix = this.rootPath,
 		insertedPath?: string,
 		identity?: Readonly<Record<string, string>>,
 		healing = false,
@@ -4688,7 +5780,14 @@ export class FormEngine {
 				if (this.initializationStates)
 					this.initializationStates[path] = {
 						...DEFAULT_ENGINE_STATE,
-						visible: true,
+						// XFormParser applies a literal false relevance before ready
+						// actions. Other conditions start relevant until triggered.
+						visible:
+							this.expressions.expression({
+								entity: "field",
+								uuid: node.field.uuid,
+								slot: "relevant",
+							})?.kind !== "match-none",
 					};
 				if (node.field.kind === "repeat") {
 					if (!healing) this.instance.setRepeatCount(path, 0);
@@ -4744,10 +5843,68 @@ export class FormEngine {
 			if (
 				field.kind === "repeat" &&
 				field.repeat_mode === "query_bound" &&
+				// Context recovery recaptures an unvisited section's membership,
+				// model iteration's among it (`healEntryContext`).
 				(!healing || this.pendingSectionRepeats.has(path))
 			) {
 				const ids = yield* this.readQueryIds(field, path);
-				snapshots.set(path, { count: ids.length, ids });
+				const snapshot =
+					this.queryPlacement(field) === "model-iteration"
+						? yield* this.captureOpeningRows(path, ids, calculated)
+						: { count: ids.length, ids };
+				snapshots.set(path, snapshot);
+			}
+		}
+		if (prefix === this.rootPath && insertedPath === undefined && !healing) {
+			this.openingCreateIds.clear();
+			this.openingOperationIdBindings.clear();
+			for (const create of this.#rootCaseCreates ?? []) {
+				const source = create.exact
+					? this.expressions.source({
+							entity: "form",
+							uuid: this.inputFormUuid,
+							slot: "case_operation_target_expression",
+							member: { operationUuid: create.uuid },
+						})
+					: create.datum === undefined
+						? "uuid()"
+						: undefined;
+				let caseId = this.sessionData[create.datum ?? ""] ?? "";
+				if (source !== undefined) {
+					const value = yield { source, path: prefix };
+					if (isAsyncNodesetValues(value))
+						throw new Error("Expected one case ID.");
+					caseId = xpathToString(value);
+					this.openingCreateIds.set(create.uuid, caseId);
+				}
+				this.openingOperationIdBindings.set(create.uuid, w.str(caseId));
+			}
+
+			// HQ appends its case reads after the authored ready actions. At
+			// this event a repeat template alone does not supply a target.
+			// SetValueAction applies the answer cast and fires dependents before
+			// evaluating the next read, including another read into this field.
+			const destinations = new Map(
+				fields.map(({ node, path }) => [
+					node.field.uuid,
+					{ field: node.field, path },
+				]),
+			);
+			for (const assignment of this.openingAssignments) {
+				const destination = destinations.get(assignment.field);
+				if (!destination) continue;
+				const { field, path } = destination;
+				const value = this.castSetvalue(field, path, assignment.value, {
+					cause: "preload",
+					property: assignment.property,
+					caseType: assignment.caseType,
+					...(assignment.caseId && { caseId: assignment.caseId }),
+				});
+				this.instance.set(path, value);
+				yield* this.initializeExpressions(
+					this.dag.getAffectedInitialization([path], this.repeatCounts),
+					calculated,
+				);
 			}
 		}
 		if (insertedPath) {
@@ -4791,22 +5948,26 @@ export class FormEngine {
 				}
 				continue;
 			}
-			const snapshot = snapshots.get(path) ?? {
-				count:
-					node.field.repeat_mode === "count_bound"
-						? yield* this.readLiveRepeatCount(node.field, path)
-						: 1,
-			};
+			const snapshot = snapshots.get(path) ??
+				this.pendingSectionRepeats.get(path) ?? {
+					count:
+						node.field.repeat_mode === "count_bound"
+							? yield* this.readLiveRepeatCount(node.field, path)
+							: 0,
+				};
 			if (
-				prefix === "/data" &&
-				this.tree.some(
+				prefix === this.rootPath &&
+				this.controls.some(
 					(root) =>
 						root.field.kind === "section" &&
-						path.startsWith(`/data/${root.field.id}/`),
+						this.containsControl(controlValuePath(root, this.rootPath), path),
 				)
 			) {
 				this.pendingSectionRepeats.set(path, snapshot);
-			} else if (snapshot.ids !== undefined) {
+			} else if (
+				snapshot.ids !== undefined &&
+				this.queryPlacement(node.field) === "count"
+			) {
 				yield* this.materializeQueryResult(node, path, snapshot.ids, true);
 			} else {
 				yield* this.materializeInitializedRepeat(node, path, snapshot);
@@ -4832,9 +5993,48 @@ export class FormEngine {
 				attribute: "ids",
 			},
 		};
-		return isAsyncNodesetValues(result)
-			? result.values
-			: javaRosaSplitOnSpaces(xpathToString(result));
+		// The emitted ids bind joins the nodes into ONE space-separated
+		// value. A case ID containing a space participates in that spelling.
+		return javaRosaSplitOnSpaces(
+			isAsyncNodesetValues(result)
+				? result.values.join(" ")
+				: xpathToString(result),
+		);
+	}
+
+	/** Vellum's model iteration writes @ids, then separately assigns
+	 * count-selected(@ids). Each write triggers dependent formulas. An
+	 * irrelevant ancestor can therefore hide the IDs from the count even
+	 * though the assignment itself stored them. Neither value is recalculated
+	 * when a worker later changes an answer or enters the repeat's page. */
+	private *captureOpeningRows(
+		path: string,
+		query: readonly string[],
+		calculated: Set<string>,
+	): Generator<
+		InitializationRead,
+		RepeatInitializationSnapshot,
+		InitializationValue
+	> {
+		const joined = query.join(" ");
+		this.instance.setElementAttributes(path, { ids: joined, count: "" });
+		yield* this.initializeExpressions(
+			this.dag.getAffectedInitialization([`${path}/@ids`], this.repeatCounts),
+			calculated,
+		);
+		const ids = javaRosaSplitOnSpaces(joined);
+		const parent = path.slice(0, path.lastIndexOf("/"));
+		const count =
+			this.effectiveRelevanceByPath().get(parent) === false ? 0 : ids.length;
+		this.instance.setElementAttributes(path, {
+			ids: joined,
+			count: String(count),
+		});
+		yield* this.initializeExpressions(
+			this.dag.getAffectedInitialization([`${path}/@count`], this.repeatCounts),
+			calculated,
+		);
+		return { ids, count };
 	}
 
 	/** Where a query repeat's rows come from: model iteration takes them when
@@ -5039,10 +6239,10 @@ export class FormEngine {
 
 	/** A root section's rows grow only once its page is entered. */
 	private queryRowsMayGrow(path: string): boolean {
-		const section = this.tree.find(
+		const section = this.controls.find(
 			(root) =>
 				root.field.kind === "section" &&
-				path.startsWith(`/data/${root.field.id}/`),
+				this.containsControl(controlValuePath(root, this.rootPath), path),
 		);
 		return (
 			section === undefined ||
@@ -5094,7 +6294,7 @@ export class FormEngine {
 	 * Newly inserted rows run the ordinary scoped initialization program. */
 	private *growLiveRepeats(
 		tree: readonly FieldTreeNode[] = this.tree,
-		prefix = "/data",
+		prefix = this.rootPath,
 		entered = true,
 		visible: ReadonlySet<string> = this.effectivelyVisiblePaths(
 			this.initializationStates,
@@ -5132,14 +6332,14 @@ export class FormEngine {
 					// and its `@count` with it; a row its condition kept from
 					// being made is made once the condition holds at its place
 					// (`rowPromptRelevant`).
-					const written = this.instance.elementAttributesAt(path).ids;
-					const ids =
-						written === undefined ? [] : javaRosaSplitOnSpaces(written);
-					if (ids.length > this.instance.getRepeatCount(path)) {
+					const captured = this.instance.elementAttributesAt(path);
+					const count = Number(captured.count ?? 0);
+					if (count > this.instance.getRepeatCount(path)) {
+						const ids = javaRosaSplitOnSpaces(captured.ids ?? "");
 						beforeInsertion?.();
 						grew =
 							(yield* this.materializeInitializedRepeat(node, path, {
-								count: ids.length,
+								count,
 								ids,
 							})) || grew;
 					}
@@ -5229,7 +6429,7 @@ export class FormEngine {
 			}
 			return undefined;
 		};
-		const reason = refusedRow(this.tree, "/data");
+		const reason = refusedRow(this.tree, this.rootPath);
 		if (reason !== undefined) throw new PreviewDataRefusal(reason);
 	}
 
@@ -5241,7 +6441,7 @@ export class FormEngine {
 			await this.runInitializationAsync(
 				this.growLiveRepeats(
 					this.tree,
-					"/data",
+					this.rootPath,
 					true,
 					undefined,
 					beforeInsertion,
@@ -5339,29 +6539,28 @@ export class FormEngine {
 	private *initializeSection(
 		sectionUuid: Uuid,
 	): Generator<InitializationRead, void, InitializationValue> {
-		const section = this.tree.find(
+		const section = this.controls.find(
 			(node) =>
 				node.field.kind === "section" && node.field.uuid === sectionUuid,
 		);
 		if (!section) return;
 		this.activeSectionUuid = sectionUuid;
-		const prefix = `/data/${section.field.id}/`;
+		const sectionPath = controlValuePath(section, this.rootPath);
 		for (const [path, snapshot] of this.pendingSectionRepeats) {
 			if (
-				!path.startsWith(prefix) ||
-				!this.effectivelyVisiblePaths(this.initializationStates).has(path)
+				!this.containsControl(sectionPath, path) ||
+				!this.workerRelevantPaths(this.initializationStates).has(path)
 			)
 				continue;
 			const node = this.findTreeNode(path);
 			if (!node) throw new Error("Section repeat is unavailable.");
 			const field = node.field;
-			if (field.kind === "repeat" && field.repeat_mode === "query_bound") {
-				// Model iteration keeps the membership the form opened with; the
-				// count placement reads its query again as the page is entered.
-				const ids =
-					this.queryPlacement(field) === "count"
-						? yield* this.readQueryIds(field, path)
-						: (snapshot.ids ?? []);
+			if (
+				field.kind === "repeat" &&
+				field.repeat_mode === "query_bound" &&
+				this.queryPlacement(field) === "count"
+			) {
+				const ids = yield* this.readQueryIds(field, path);
 				yield* this.materializeQueryResult(node, path, ids, true);
 			} else {
 				const current =
@@ -5423,15 +6622,15 @@ export class FormEngine {
 	}
 
 	private pendingRepeatsInSection(sectionUuid: Uuid): string[] {
-		const section = this.tree.find(
+		const section = this.controls.find(
 			(node) =>
 				node.field.kind === "section" && node.field.uuid === sectionUuid,
 		);
 		if (!section) throw new Error("Section is unavailable.");
-		const prefix = `/data/${section.field.id}/`;
-		const visible = this.effectivelyVisiblePaths();
+		const sectionPath = controlValuePath(section, this.rootPath);
+		const visible = this.workerRelevantPaths();
 		return [...this.pendingSectionRepeats.keys()].filter(
-			(path) => path.startsWith(prefix) && visible.has(path),
+			(path) => this.containsControl(sectionPath, path) && visible.has(path),
 		);
 	}
 
@@ -5452,6 +6651,7 @@ export class FormEngine {
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid) this.enterSection(resolved.uuid);
 		else this.activeScreenPath = resolved.path;
+		this.drawAndroidDates(resolved?.path);
 	}
 
 	async enterSectionAsync(
@@ -5476,6 +6676,7 @@ export class FormEngine {
 		else if (resolved.uuid !== sectionUuid)
 			await this.enterSectionAsync(resolved.uuid, evaluateAsync);
 		else this.activeScreenPath = resolved.path;
+		this.drawAndroidDates(resolved?.path);
 	}
 
 	/** Nova context recovery re-evaluates untouched defaults with retained row
@@ -5483,7 +6684,13 @@ export class FormEngine {
 	 * the newly available context; consumed membership, including zero, stays. */
 	private healEntryContext(): void {
 		this.runInitialization(
-			this.initializeScope(this.tree, "/data", undefined, undefined, true),
+			this.initializeScope(
+				this.tree,
+				this.rootPath,
+				undefined,
+				undefined,
+				true,
+			),
 		);
 		this.publishInitializedSections();
 		this.evaluateAllInto();
@@ -5496,7 +6703,13 @@ export class FormEngine {
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
 		await this.runInitializationAsync(
-			this.initializeScope(this.tree, "/data", undefined, undefined, true),
+			this.initializeScope(
+				this.tree,
+				this.rootPath,
+				undefined,
+				undefined,
+				true,
+			),
 			evaluateAsync,
 		);
 		this.publishInitializedSections();
@@ -5596,11 +6809,11 @@ export class FormEngine {
 
 	private initializeModel(
 		tree: readonly FieldTreeNode[],
-		prefix = "/data",
+		prefix = this.rootPath,
 		insertedPath?: string,
 	): void {
 		if (this.asyncRuntime) return;
-		if (prefix === "/data") {
+		if (prefix === this.rootPath) {
 			this.pendingSectionRepeats.clear();
 			this.repeatInsertRefusals.clear();
 			this.activeSectionUuid = undefined;
@@ -5609,7 +6822,7 @@ export class FormEngine {
 		}
 		this.runInitialization(
 			this.initializeScope(tree, prefix, insertedPath),
-			prefix === "/data",
+			prefix === this.rootPath,
 		);
 	}
 
@@ -5649,10 +6862,10 @@ export class FormEngine {
 	private async initializeModelAsync(
 		tree: readonly FieldTreeNode[],
 		evaluateAsync: FormEngineAsyncEvaluator,
-		prefix = "/data",
+		prefix = this.rootPath,
 		insertedPath?: string,
 	): Promise<void> {
-		if (prefix === "/data") {
+		if (prefix === this.rootPath) {
 			this.pendingSectionRepeats.clear();
 			this.repeatInsertRefusals.clear();
 			this.activeSectionUuid = undefined;
@@ -5662,7 +6875,7 @@ export class FormEngine {
 		await this.runInitializationAsync(
 			this.initializeScope(tree, prefix, insertedPath),
 			evaluateAsync,
-			prefix === "/data",
+			prefix === this.rootPath,
 		);
 	}
 
@@ -5741,7 +6954,11 @@ export class FormEngine {
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
 					((f.optionsSource.kind === "lookup" &&
-						!lookupOptionsSourceCovered(f.optionsSource, data)) ||
+						!lookupOptionsSourceCovered(
+							f.optionsSource,
+							data,
+							f.optionsSource.sortColumnId,
+						)) ||
 						(f.optionsSource.kind === "cases" &&
 							!this.caseChoiceDataCovered(f.optionsSource)))
 				) {
@@ -5763,8 +6980,9 @@ export class FormEngine {
 	 *  coverage-keyed rebuild resolves them when fresh data arrives.
 	 *  Only a COVERED snapshot evaluates, so `lookupChoicesFromNodeset`'s
 	 *  identity throws stay a genuine validation-bypass surface. */
-	private caseChoiceDataCovered(source: CaseOptionsSource): boolean {
+	private caseChoiceDataCovered(source: DeviceCaseOptionsSource): boolean {
 		return (
+			source.kind === "available-cases" ||
 			source.filter === undefined ||
 			predicateLookupsCovered(source.filter, this.lookupData ?? undefined)
 		);
@@ -5822,54 +7040,73 @@ export class FormEngine {
 	}
 
 	private caseChoiceQuery(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		questionPath: string,
 	): string {
 		return serializeWire(
-			caseOptionsNodeset(
-				source,
-				this.choiceContext(questionPath),
-				{
-					...this.choiceBindings(questionPath),
-					...(this.lookupData && {
-						lookup: {
-							naming: this.lookupData.naming,
-							instanceScope: "xform" as const,
+			source.kind === "available-cases"
+				? availableCasesNodeset(source.status)
+				: caseOptionsNodeset(
+						source,
+						this.choiceContext(questionPath),
+						{
+							...this.choiceBindings(questionPath),
+							...(this.lookupData && {
+								lookup: {
+									naming: this.lookupData.naming,
+									instanceScope: "xform" as const,
+								},
+							}),
 						},
-					}),
-				},
-				this.expressions.projection,
-			),
+						this.expressions.projection,
+					),
 			{ target: "preview" },
 		).text;
 	}
 
 	private caseChoicesForIds(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		ids: readonly string[],
 	): readonly LookupChoice[] {
-		const labelPath = emitCasePropertyWirePath(source.labelProperty);
-		return ids.map((value) => {
+		const labelPath = emitCasePropertyWirePath(
+			source.kind === "cases" ? source.labelProperty : "case_name",
+		);
+		const sortPath =
+			source.kind !== "cases" || source.sortProperty === undefined
+				? undefined
+				: emitCasePropertyWirePath(source.sortProperty);
+		const choices = ids.map((value) => {
 			const node = this.choiceCaseNodes.get(value);
 			if (!node)
 				throw new Error(
 					`Case choice ${value} is missing from the captured case database.`,
 				);
-			const label = labelPath.startsWith("@")
-				? node.attributes(labelPath.slice(1))[0]
-				: node.children(labelPath)[0];
-			return { key: value, value, label: xpathToString(label?.value() ?? "") };
+			const readText = (path: string) => {
+				const leaf = path.startsWith("@")
+					? node.attributes(path.slice(1))[0]
+					: node.children(path)[0];
+				return xpathToString(leaf?.value() ?? "");
+			};
+			return {
+				choice: { key: value, value, label: readText(labelPath) },
+				sortText: sortPath === undefined ? "" : readText(sortPath),
+			};
 		});
+		if (sortPath !== undefined)
+			choices.sort((a, b) =>
+				a.sortText < b.sortText ? -1 : a.sortText > b.sortText ? 1 : 0,
+			);
+		return choices.map(({ choice }) => choice);
 	}
 
 	private computeCaseChoices(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		ctx: EvalContext,
 	): readonly LookupChoice[] | undefined {
 		if (!this.hasCaseSnapshot || !this.caseChoiceDataCovered(source))
 			return undefined;
 		const result = evaluateRuntime(
-			`${this.caseChoiceQuery(source, ctx.contextPath ?? "/data")}/@case_id`,
+			`${this.caseChoiceQuery(source, ctx.contextPath ?? this.rootPath)}/@case_id`,
 			ctx,
 		);
 		if (!isXPathNodeSet(result))
@@ -5881,7 +7118,7 @@ export class FormEngine {
 	}
 
 	private async computeCaseChoicesAsync(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<readonly LookupChoice[] | undefined> {
@@ -5907,10 +7144,13 @@ export class FormEngine {
 		ctx: EvalContext,
 	): readonly LookupChoice[] | undefined {
 		const data = this.lookupData;
-		if (data === null || !lookupOptionsSourceCovered(source, data)) {
+		if (
+			data === null ||
+			!lookupOptionsSourceCovered(source, data, source.sortColumnId)
+		) {
 			return undefined;
 		}
-		const questionPath = ctx.contextPath ?? "/data";
+		const questionPath = ctx.contextPath ?? this.rootPath;
 		const nodeset = serializeWire(
 			lookupOptionsNodeset(source, {
 				target: "preview",
@@ -5927,6 +7167,7 @@ export class FormEngine {
 				source,
 				data,
 				evaluateRuntime(nodeset, ctx),
+				source.sortColumnId,
 			);
 		} catch (error) {
 			/* A table with no rows refuses this question on a device; the
@@ -5955,14 +7196,18 @@ export class FormEngine {
 	private fieldPathsByUuid(): ReadonlyMap<Uuid, string> {
 		if (this.fieldPathsCacheTree !== this.tree) {
 			const paths = new Map<Uuid, string>();
+			this.datePathTemplates = [];
 			const walk = (nodes: FieldTreeNode[], prefix: string): void => {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
+					// An Android app replaces the Date widget, including its suggested day.
+					if (node.field.kind === "date" && node.field.androidApp === undefined)
+						this.datePathTemplates.push(nodePath);
 					if (node.children) walk(node.children, nodePath);
 				}
 			};
-			walk(this.tree, "/data");
+			walk(this.tree, this.rootPath);
 			this.fieldPathsCache = paths;
 			this.fieldPathsCacheTree = this.tree;
 		}
@@ -6020,7 +7265,7 @@ export class FormEngine {
 	private findTreeNode(
 		path: string,
 		tree?: FieldTreeNode[],
-		prefix = "/data",
+		prefix = this.rootPath,
 	): FieldTreeNode | undefined {
 		const target = stripIndices(path);
 		for (const node of tree ?? this.tree) {

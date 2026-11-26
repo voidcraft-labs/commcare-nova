@@ -4,10 +4,13 @@
  * the normalization and the comparison are held to what HQ actually serves
  * and never to a hand-written app source.
  */
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { retainedMenuLayouts } from "@/lib/commcare/hq/menuLayout";
 import { readHqApp } from "@/lib/commcare/reader";
 import {
 	readerInput,
@@ -16,11 +19,18 @@ import {
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { adoptedAppBaselineWrite, adoptedIdentityRows } from "../adoption";
+import { appRemoteChange } from "../appRemoteChange";
+import { sourceFromBaseline } from "../hqChanges/baselineSource";
 import {
 	type AppChangePart,
 	diffHqAppSource,
 	normalizeHqAppSource,
+	removedHqFileLine,
+	removedHqFileReplaced,
+	removedHqFiles,
 } from "../hqSourceBaseline";
+import { legacyMenuLayoutLines } from "../legacyMenuLayouts";
+import { decideRemoteChanges } from "../remoteChanges";
 import type { AppOwnership } from "../types";
 
 const READS = path.join(process.cwd(), "proof/hq-reads");
@@ -39,6 +49,21 @@ function retainedOwnership(relative: string): AppOwnership {
 	return JSON.parse(
 		readFileSync(path.join(READS, relative), "utf8"),
 	) as AppOwnership;
+}
+
+/** `app` with HQ's profile feature `dependencies` set to `apps`, beside its other features. */
+function setDependencies(
+	app: Record<string, unknown>,
+	apps: readonly string[],
+): void {
+	const profile = (app.profile ?? {}) as Record<string, unknown>;
+	app.profile = {
+		...profile,
+		features: {
+			...(profile.features as Record<string, unknown> | undefined),
+			dependencies: [...apps],
+		},
+	};
 }
 
 function normalized(source: unknown) {
@@ -334,6 +359,68 @@ describe("comparing two reads", () => {
 		).toEqual([{ kind: "settings" }]);
 	});
 
+	it("detects a project-space layout edit and treats absent HQ defaults as the same lists", () => {
+		const lists = edited((app) => {
+			app.use_grid_menus = false;
+			app.grid_form_menus = "none";
+		});
+		const absent = edited((app) => {
+			delete app.use_grid_menus;
+			delete app.grid_form_menus;
+		});
+		expect(diff(lists, absent, ownership)).toEqual([]);
+		const changed = edited((app) => {
+			app.grid_form_menus = "some";
+		});
+		expect(diff(lists, changed, ownership)).toEqual([{ kind: "settings" }]);
+	});
+
+	it("reads the location switch and the Android apps only where the baseline owns them", () => {
+		/* The two settings Nova writes on every publish: a person's flip of
+		 * either in HQ over a baseline that owns it is a change the publish asks
+		 * about, and over an older baseline that does not, none. */
+		expect(ownership.autoGpsCapture).toBe(true);
+		expect(ownership.profileFeatures).toEqual(["dependencies"]);
+		const located = edited((app) => {
+			app.auto_gps_capture = !app.auto_gps_capture;
+		});
+		expect(diff(base, located, ownership)).toEqual([{ kind: "settings" }]);
+		expect(
+			diff(base, located, { ...ownership, autoGpsCapture: false }),
+		).toEqual([]);
+		const required = edited((app) => {
+			setDependencies(app, ["org.commcare.dalvik.reminders"]);
+		});
+		expect(diff(base, required, ownership)).toEqual([{ kind: "settings" }]);
+		const { profileFeatures: _owned, ...older } = ownership;
+		expect(diff(base, required, older)).toEqual([]);
+		/* HQ's settings page saved with no app chosen posts `[]`: no selection. */
+		const emptied = edited((app) => {
+			setDependencies(app, []);
+		});
+		expect(diff(base, emptied, ownership)).toEqual([]);
+	});
+
+	it("reads case sharing only where the baseline owns it, an absent key as off", () => {
+		/* Every update writes case sharing, so a person's flip of it in HQ over
+		 * a baseline that owns it is a change the publish asks about; over a
+		 * baseline recorded before Nova owned it, none. */
+		const owning = { ...ownership, caseSharing: true };
+		const { caseSharing: _owned, ...older } = owning;
+		const shared = edited((app) => {
+			app.case_sharing = true;
+		});
+		expect(diff(base, shared, owning)).toEqual([{ kind: "settings" }]);
+		expect(diff(base, shared, older)).toEqual([]);
+		const offSpelledAbsent = edited((app) => {
+			app.case_sharing = false;
+		});
+		const absent = edited((app) => {
+			delete app.case_sharing;
+		});
+		expect(diff(offSpelledAbsent, absent, owning)).toEqual([]);
+	});
+
 	it("leaves the Web App setting to the Web Apps question", () => {
 		/* One question covers who moved it (`webApps.ts::webAppsChange`), so
 		 * the drift check never asks about the same value a second time. */
@@ -341,6 +428,184 @@ describe("comparing two reads", () => {
 			app.cloudcare_enabled = !app.cloudcare_enabled;
 		});
 		expect(diff(base, flipped, ownership)).toEqual([]);
+	});
+});
+
+describe("menu layouts HQ holds that no baseline accounts for", () => {
+	function legacyRead(edit: (app: Source) => void) {
+		const source = retainedRead("navigation-base/app-source.json");
+		edit(source);
+		return sourceFromBaseline(normalized(source).normalized);
+	}
+	const doc = buildDoc({ modules: [{ name: "Services" }] });
+	const [uuid] = doc.moduleOrder;
+	if (!uuid) throw new Error("The document needs a menu.");
+	const heldId = retainedRead("navigation-base/app-source.json").modules[0]
+		?.unique_id;
+	if (typeof heldId !== "string")
+		throw new Error("The retained first menu needs an identity.");
+	const identity = {
+		...targetWireIdentity([], []),
+		moduleUniqueId: () => heldId,
+	};
+	const held = legacyRead((app) => {
+		app.use_grid_menus = true;
+		app.grid_form_menus = "some";
+		const first = app.modules[0];
+		if (first) {
+			first.doc_type = "Module";
+			first.display_style = "grid";
+		}
+	});
+
+	it("lists every choice the document would replace, and nothing once a baseline accounts for them", () => {
+		const lines = legacyMenuLayoutLines({
+			doc,
+			identity,
+			source: held,
+			ownership: null,
+		});
+		expect(lines).toEqual([
+			"The first menu would change from a grid to a list.",
+			"The layout for the other menus would change from individual menu layouts to a list.",
+			"The layout chosen for “Patients” (menu 1) would change from a grid to a list.",
+		]);
+		expect(
+			legacyMenuLayoutLines({
+				doc,
+				identity,
+				source: held,
+				ownership: {
+					...retainedOwnership(NAVIGATION_BASE_OWNERSHIP),
+					menuLayouts: true,
+				},
+			}),
+		).toEqual([]);
+	});
+
+	it("lists nothing where the document already holds HQ's choices", () => {
+		const matched = structuredClone(doc);
+		matched.appSettings.firstMenuLayout = "grid";
+		matched.appSettings.formMenuLayout = "individual";
+		const menu = matched.modules[uuid];
+		if (menu) menu.menuLayout = "grid";
+		expect(
+			legacyMenuLayoutLines({
+				doc: matched,
+				identity,
+				source: held,
+				ownership: null,
+			}),
+		).toEqual([]);
+	});
+
+	it("names many menus in one bounded line, and a menu the document lost", () => {
+		const many = legacyRead((app) => {
+			const first = app.modules[0];
+			if (!first) return;
+			app.modules = Array.from({ length: 14 }, (_, i) => ({
+				...structuredClone(first),
+				doc_type: "Module",
+				display_style: "grid",
+				unique_id: i === 0 ? heldId : `menu-${i}`,
+				name: { en: `Menu ${i}` },
+			}));
+		});
+		const lines = legacyMenuLayoutLines({
+			doc,
+			identity,
+			source: many,
+			ownership: null,
+		});
+		expect(lines).toEqual([
+			"The layout chosen for “Menu 0” (menu 1) would change from a grid to a list.",
+			"Publishing would remove “Menu 1” (menu 2), “Menu 2” (menu 3), “Menu 3” (menu 4), “Menu 4” (menu 5), “Menu 5” (menu 6), “Menu 6” (menu 7), “Menu 7” (menu 8), “Menu 8” (menu 9), “Menu 9” (menu 10), “Menu 10” (menu 11) and 3 more menus, including the grid chosen there.",
+		]);
+	});
+
+	it("lists the replacements first on the app's change, bound to the read a person confirms", () => {
+		const read = normalized(retainedRead("navigation-base/app-source.json"));
+		const change = (layoutReplacements: readonly string[]) =>
+			appRemoteChange({
+				authority: {
+					actor: "editor",
+					role: "editor",
+					project: "project",
+					app: "app",
+					server: "production",
+					domain: "test",
+					remoteApp: "remote",
+					deployment: "deployment",
+					claim: "claim",
+					reviewGeneration: null,
+					headSeq: 1,
+					remoteRevision: 2,
+					baseline: null,
+				},
+				novaAppId: "app",
+				appName: "Care",
+				remoteAppId: "remote",
+				current: read,
+				baseline: {
+					source: read.normalized,
+					origin: "push",
+					ownership: retainedOwnership(NAVIGATION_BASE_OWNERSHIP),
+					mediaFiles: null,
+					approvedFileRemovals: [],
+				},
+				since: { kind: "published" },
+				languageNames: "nova",
+				mediaChanged: 0,
+				published: [],
+				canBringIn: true,
+				layoutReplacements,
+			});
+		/* HQ reads as the baseline does: nothing but the layouts to list. */
+		expect(change([])).toBeNull();
+		const listed = change([
+			"The first menu would change from a grid to a list.",
+		]);
+		expect(listed).toMatchObject({
+			parts: ["The first menu would change from a grid to a list."],
+			replacesMenuLayouts: true,
+			baselineKnown: true,
+		});
+		expect(listed?.requiresReview).toBeUndefined();
+		expect(listed?.note).toContain("App settings");
+		if (!listed) throw new Error("Expected the layouts to be listed.");
+		expect(
+			decideRemoteChanges({
+				observed: [listed],
+				discards: [
+					{
+						kind: "app",
+						novaResourceId: "app",
+						observedDigest: listed.observedDigest,
+					},
+				],
+			}),
+		).toMatchObject({ proceed: true });
+	});
+});
+
+it("finds a dormant individual grid in an existing target's normalized source", () => {
+	const source = retainedRead("navigation-base/app-source.json");
+	const modules = source.modules;
+	const withGrid = {
+		...source,
+		use_grid_menus: true,
+		modules: modules.map((menu, index) =>
+			index === 0
+				? { ...menu, doc_type: "Module", display_style: "grid" }
+				: menu,
+		),
+	};
+	expect(
+		retainedMenuLayouts(sourceFromBaseline(normalized(withGrid).normalized)),
+	).toEqual({
+		firstMenuLayout: "grid",
+		formMenuLayout: "list",
+		menus: [{ position: 0, layout: "grid" }],
 	});
 });
 
@@ -410,6 +675,138 @@ describe("a baseline an app brought in from CommCare HQ is born with", () => {
 			{ kind: "form", menu: 0, form: 0, name: "Visit", menuName: "Patients" },
 		]);
 	});
+});
+
+describe("the removal decision shared by a real publish and capture", () => {
+	const names = Array.from(
+		{ length: 22 },
+		(_, i) => `commcare/image/kept-${i}.jpg`,
+	);
+	const source = {
+		...retainedRead(NAVIGATION_BASE),
+		multimedia_map: Object.fromEntries(
+			names.map((p, i) => [
+				`jr://file/${p}`,
+				{ media_type: "CommCareImage", multimedia_id: `saved-${i}` },
+			]),
+		),
+	};
+	const current = normalizeHqAppSource(source);
+	if ("malformed" in current) throw new Error(current.malformed);
+	const sourceRead = current;
+	const ownership = retainedOwnership(NAVIGATION_BASE_OWNERSHIP);
+	const authority = {
+		actor: "editor",
+		role: "editor",
+		project: "project",
+		app: "app",
+		server: "production" as const,
+		domain: "test",
+		remoteApp: "remote",
+		deployment: "deployment",
+		claim: "claim",
+		reviewGeneration: null as string | null,
+		headSeq: 1,
+		remoteRevision: 2,
+		baseline: null,
+	};
+	const decision = (
+		origin: "create" | "read" | "push",
+		keep: readonly string[],
+		approved: readonly string[] = [],
+		context = authority,
+	) =>
+		appRemoteChange({
+			authority: context,
+			novaAppId: "app",
+			appName: "Care",
+			remoteAppId: "remote",
+			current: sourceRead,
+			baseline: {
+				source: sourceRead.normalized,
+				origin,
+				ownership,
+				mediaFiles: null,
+				approvedFileRemovals: approved,
+			},
+			since: { kind: "published" },
+			languageNames: "target",
+			mediaChanged: 0,
+			published: keep.map((wirePath) => ({ wirePath })),
+			canBringIn: origin !== "create",
+		});
+	it("asks separately for the identical file on another target, HQ app, or claim", () => {
+		const first = decision("push", names.slice(1));
+		if (!first) throw new Error("Expected the foreign file to be listed.");
+		const receipt = {
+			kind: "app" as const,
+			novaResourceId: "app",
+			observedDigest: first.observedDigest,
+		};
+		for (const scope of [
+			{ domain: "another" },
+			{ remoteApp: "replacement" },
+			{ claim: "later" },
+			{ project: "moved" },
+			{ actor: "co-editor" },
+			{ role: "admin" },
+			{ headSeq: 4 },
+			{ remoteRevision: 5 },
+			{ reviewGeneration: "later review" },
+		]) {
+			const observed = decision("push", names.slice(1), [], {
+				...authority,
+				...scope,
+			});
+			if (!observed)
+				throw new Error("Each independent owner removes the recorded file.");
+			expect(observed.parts).toEqual(first.parts);
+			expect(
+				decideRemoteChanges({ observed: [observed], discards: [receipt] })
+					.proceed,
+				JSON.stringify(scope),
+			).toBe(false);
+		}
+	});
+	it.each(["create", "read", "push"] as const)(
+		"binds the outgoing paths and requires the entire list on a %s baseline",
+		(origin) => {
+			const first = decision(origin, names.slice(1));
+			const next = decision(origin, names.slice(2));
+			if (!first || !next)
+				throw new Error(
+					"The two imports must list the foreign references they remove.",
+				);
+			expect(first.parts.join(" ")).toContain(names[0]);
+			expect(first.observedDigest).not.toBe(next.observedDigest);
+			const discard = {
+				kind: "app" as const,
+				novaResourceId: "app",
+				observedDigest: first.observedDigest,
+			};
+			expect(
+				decideRemoteChanges({ observed: [first], discards: [discard] }).proceed,
+			).toBe(true);
+			expect(
+				decideRemoteChanges({ observed: [next], discards: [discard] }).proceed,
+			).toBe(false);
+			const overflow = decision(origin, []);
+			if (!overflow)
+				throw new Error("Expected every saved file to be considered.");
+			expect(overflow.requiresReview).toBe(true);
+			expect(
+				decideRemoteChanges({
+					observed: [overflow],
+					discards: [{ ...discard, observedDigest: overflow.observedDigest }],
+				}).proceed,
+			).toBe(false);
+			const accepted = removedHqFiles(sourceRead.normalized, {
+				published: [],
+				recorded: null,
+			}).map((file) => file.digest);
+			expect(decision(origin, [], accepted)).toBeNull();
+		},
+	);
 });
 
 describe("the schema-growth rule", () => {
@@ -537,6 +934,7 @@ describe("HQ's reads after its own saves", () => {
 		"search-registration-link",
 		"case-list-inline",
 		"targeted-hq-side-state",
+		"targeted-hq-side-owned",
 		"targeted-hq-side-lookup",
 	] as const;
 
@@ -614,9 +1012,10 @@ describe("HQ's reads after its own saves", () => {
 
 	/* Each save a document's `hq-side.json` names, made over Nova's first
 	 * publish in a fork of its own: a UI translation is the target's own key,
-	 * which the next publish carries back; the location capture on an app that
-	 * is not a Connect app, two add-ons the app does not need and a profile
-	 * setting Nova does not own are HQ's, which the publish leaves as they are;
+	 * which the next publish carries back; two add-ons the app does not need
+	 * and a profile setting Nova does not own are HQ's, which the publish
+	 * leaves as they are; the location switch and a required Android app are
+	 * Nova's own, so either saved is a change the publish asks about;
 	 * and a build profile and a lookup table's upload touch nothing of the app
 	 * Nova compares. */
 	const HQ_SIDE_SAVES: readonly [
@@ -625,10 +1024,11 @@ describe("HQ's reads after its own saves", () => {
 		readonly AppChangePart["kind"][],
 	][] = [
 		["targeted-hq-side-state", "uiTranslations", []],
-		["targeted-hq-side-state", "appAttributes", []],
 		["targeted-hq-side-state", "buildProfiles", []],
 		["targeted-hq-side-state", "addOns", []],
 		["targeted-hq-side-state", "profileProperties", []],
+		["targeted-hq-side-owned", "appAttributes", ["settings"]],
+		["targeted-hq-side-owned", "profileFeatures", ["settings"]],
 		["targeted-hq-side-lookup", "lookupTable", []],
 	];
 	it.each(HQ_SIDE_SAVES)(
@@ -667,5 +1067,39 @@ describe("HQ's reads after its own saves", () => {
 				},
 			),
 		).toEqual([{ kind: "menu-list" }]);
+	});
+});
+
+describe("a removed file's line", () => {
+	const PATH = "jr://file/commcare/image/visit.png";
+	const holding = (id: string) => ({
+		multimedia_map: {
+			[PATH]: { media_type: "CommCareImage", multimedia_id: id },
+		},
+	});
+	const removal = (id: string) => {
+		const [file] = removedHqFiles(holding(id), {
+			published: [],
+			recorded: null,
+		});
+		if (!file) throw new Error("Expected the file the import removes.");
+		return file;
+	};
+
+	it("says the file at a path changed since the reading it is compared with, and only then", () => {
+		const later = removal("later-file");
+		expect(removedHqFileReplaced(later, holding("earlier-file"))).toBe(true);
+		expect(removedHqFileReplaced(later, holding("later-file"))).toBe(false);
+		expect(removedHqFileReplaced(later, { multimedia_map: {} })).toBe(false);
+		expect(removedHqFileReplaced(later, null)).toBe(false);
+		const accepted = removedHqFileLine(removal("earlier-file"));
+		const asked = removedHqFileLine(later, true);
+		expect(accepted).toBe(
+			"Publishing removes the file “commcare/image/visit.png” from the app in CommCare HQ. This app doesn't use it.",
+		);
+		expect(asked).toBe(
+			`${accepted} CommCare HQ holds a different file at that path than when Nova last read it.`,
+		);
+		expect(asked).not.toMatch(/\u2014|\u2026|\.\.\./);
 	});
 });

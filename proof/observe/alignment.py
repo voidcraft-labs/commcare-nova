@@ -191,6 +191,10 @@ def aligned_app(b_app, alignment: Alignment):
     copy_doc = map_values(copy.deepcopy(b_app.to_json()), mapping)
     app = type(b_app).wrap(copy_doc)
     for form, source in zip(app.get_forms(), sources, strict=True):
+        # A shadow form holds no source of its own: it reads its parent's (``ShadowForm.source``),
+        # which the parent's own position renamespaces.
+        if form.doc_type == "ShadowForm":
+            continue
         target = alignment.xmlns_at(f"form:{form.get_module().id}.{form.id}")
         form.source = renamespace_xform(source, target).decode("utf-8") if target and source else source
     return app

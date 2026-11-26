@@ -22,6 +22,7 @@ import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { TextField } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
+import { LayoutSelect } from "./ChoiceLayoutEditor";
 
 export const KEYPAD_LINE =
 	"Workers type on a number keypad. The answer is kept as text, so a leading zero or a + stays.";
@@ -52,6 +53,23 @@ export function KeypadEditor({
 				checked={checked}
 				onChange={toggle}
 			/>
+			{checked && (
+				<LayoutSelect
+					label="Use on"
+					value={field.keypad ?? "numbers"}
+					options={{
+						numbers: "Both platforms",
+						"android-numbers": "Android only",
+					}}
+					onChange={(next) => {
+						const outcome = updateField(field.uuid, "text", {
+							keypad:
+								next === "android-numbers" ? "android-numbers" : "numbers",
+						});
+						setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+					}}
+				/>
+			)}
 			{!checked && <PlatformNoteRow features={["number-keypad"]} />}
 			<RejectionInline message={rejection} />
 		</div>

@@ -106,7 +106,7 @@ function minDoc(): BlueprintDoc {
 
 /** Two valid top-level modules; tests reparent the second under a form-less
  * case-list-only root so the gate sees the topology change atomically. */
-function caseListRootDoc(childCaseType: "household" | "visit"): BlueprintDoc {
+function caseListRootDoc(childCaseType: string): BlueprintDoc {
 	return valid(
 		buildDoc({
 			appName: "Nested case list",
@@ -255,44 +255,26 @@ function docWithEmptyForm(formUuid = "form-e1"): BlueprintDoc {
 // ── evaluateCommit ─────────────────────────────────────────────────
 
 describe("evaluateCommit", () => {
-	it("rejects a different-case child under a form-less case-list root", () => {
-		const doc = caseListRootDoc("visit");
-		const [rootUuid, childUuid] = doc.moduleOrder;
-		if (rootUuid === undefined || childUuid === undefined) {
-			throw new Error("missing nested-menu gate fixture modules");
-		}
-		const verdict = gateCommit(doc, [
-			{
-				kind: "moveModule",
-				uuid: childUuid,
-				parentModuleUuid: rootUuid,
-				after: null,
-			},
-		]);
-		expect(codes(verdict)).toEqual([
-			"NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
-		]);
-		if (verdict.ok) throw new Error("Expected the nested menu to be refused");
-		expect(verdict.findings[0].location.moduleUuid).toBe(childUuid);
-	});
-
-	it("accepts a same-case child under a form-less case-list root", () => {
-		const doc = caseListRootDoc("household");
-		const [rootUuid, childUuid] = doc.moduleOrder;
-		if (rootUuid === undefined || childUuid === undefined) {
-			throw new Error("missing nested-menu gate fixture modules");
-		}
-		expect(
-			gateCommit(doc, [
-				{
-					kind: "moveModule",
-					uuid: childUuid,
-					parentModuleUuid: rootUuid,
-					after: null,
-				},
-			]),
-		).toMatchObject({ ok: true });
-	});
+	it.each(["household", "visit"])(
+		"opens a %s child under a form-less case-list root",
+		(caseType) => {
+			const doc = caseListRootDoc(caseType);
+			const [rootUuid, childUuid] = doc.moduleOrder;
+			if (rootUuid === undefined || childUuid === undefined) {
+				throw new Error("missing nested-menu gate fixture modules");
+			}
+			expect(
+				gateCommit(doc, [
+					{
+						kind: "moveModule",
+						uuid: childUuid,
+						parentModuleUuid: rootUuid,
+						after: null,
+					},
+				]),
+			).toMatchObject({ ok: true });
+		},
+	);
 
 	it("a new EMPTY_FORM (completeness) is rejected — an entity lands complete or not at all", () => {
 		const doc = minDoc();
@@ -361,11 +343,7 @@ describe("evaluateCommit", () => {
 		).toEqual(["REQUIRED_ON_HIDDEN"]);
 	});
 
-	it("a hidden field carrying both value sources is schema-legal and refused as soundness; clearing one slot is admitted", () => {
-		// Both slots are optional so historical documents hydrate; the gate is
-		// what makes the pair unrepresentable. A commit that introduces it is
-		// refused, and the clearing commit (the shape the one-off repair wrote)
-		// is admitted.
+	it("admits a starting answer alongside a calculation and clearing either independently", () => {
 		const doc = minDoc();
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const hidden: Field = {
@@ -382,12 +360,10 @@ describe("evaluateCommit", () => {
 			true,
 		);
 		expect(
-			codes(
-				gateCommit(doc, [
-					{ kind: "addField", parentUuid: formUuid, field: hidden },
-				]),
-			),
-		).toEqual(["HIDDEN_VALUE_BOTH_SOURCES"]);
+			gateCommit(doc, [
+				{ kind: "addField", parentUuid: formUuid, field: hidden },
+			]),
+		).toEqual({ ok: true });
 		expect(
 			gateCommit(both, [
 				{
@@ -627,25 +603,16 @@ describe("evaluateCommit", () => {
 		).toBe(true);
 	});
 
-	it("reports both conflicting writers after a kind change in one module", () => {
+	it("joins one choice and several on several after a kind change, and refuses the single choice that opens on the list", () => {
+		// One choice is a list holding it alone, so the writers agree on a
+		// list of choices; the other module's single-choice question still
+		// opens on the property's value, which a list can make no one choice.
 		const doc = peerWriters("score", "single_select");
-		const [first, second] = Object.values(doc.fields);
+		const [first] = Object.values(doc.fields);
 		const verdict = gateCommit(doc, [
 			{ kind: "convertField", uuid: first.uuid, toKind: "multi_select" },
 		]);
-		expect(codes(verdict)).toEqual([
-			"FIELD_KIND_WRITERS_DISAGREE",
-			"FIELD_KIND_WRITERS_DISAGREE",
-			"SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
-		]);
-		if (verdict.ok)
-			throw new Error("Expected conflicting writers to be refused");
-		expect(
-			verdict.findings
-				.filter(({ code }) => code === "FIELD_KIND_WRITERS_DISAGREE")
-				.map(({ location }) => location.fieldUuid)
-				.sort(),
-		).toEqual([first.uuid, second.uuid].sort());
+		expect(codes(verdict)).toEqual(["SELECT_PRELOAD_WRITE_NOT_AN_OPTION"]);
 	});
 });
 

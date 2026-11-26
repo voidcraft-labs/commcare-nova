@@ -197,7 +197,15 @@ describe("a form's answers", () => {
 				appearance: null,
 				counted: true,
 			},
-			{ path: "/data/r", kind: "group", appearance: null, counted: false },
+			/* A group whose rows repeat: the Web Apps row layout for repeats
+			 * reads it. */
+			{
+				path: "/data/r",
+				kind: "group",
+				appearance: null,
+				counted: false,
+				hasRepeatingRows: true,
+			},
 			{
 				path: "/data/r/item",
 				kind: "repeat",
@@ -276,13 +284,16 @@ describe("the app around its forms", () => {
 				uniqueId: "menu-1",
 				docType: "Module",
 				caseType: "household",
-				forms: ["urn:a", "urn:b"],
+				forms: [
+					{ id: "form-0", parent: null },
+					{ id: "form-1", parent: null },
+				],
 			},
 		]);
 		expect([...identity.forms.keys()]).toEqual(["urn:a", "urn:b"]);
 	});
 
-	it("reads a data root named otherwise as data, and keeps its namespace", () => {
+	it("reads controls at their actual submitted root and keeps its namespace", () => {
 		const form = onlyForm(
 			xform(
 				"<q/>",
@@ -293,7 +304,9 @@ describe("the app around its forms", () => {
 			),
 		);
 		expect(form.dataNamespace).toBe("urn:other");
-		expect(form.leaves.get("/data/q")).toMatchObject({
+		expect(form.dataRootName).toBe("visit");
+		expect(form.written.has("/visit/q")).toBe(true);
+		expect(form.leaves.get("/visit/q")).toMatchObject({
 			control: "input",
 			typeClass: "integer",
 		});
@@ -353,7 +366,7 @@ describe("a form left out", () => {
 	it("names a form with no xmlns, or a blank one", () => {
 		const identity = sourceIdentity(application([{ xmlns: "  ", xml: plain }]));
 		expect(identity.unread).toEqual([{ menu: 0, form: 0, reason: "no-xmlns" }]);
-		expect(identity.menus[0]?.forms).toEqual([""]);
+		expect(identity.menus[0]?.forms).toEqual([{ id: "form-0", parent: null }]);
 	});
 
 	it("reads neither of two forms that share an xmlns", () => {
@@ -452,4 +465,33 @@ describe("Core's type classes", () => {
 		}
 		expect(CORE_BIND_TYPE_CLASSES.size).toBe(52);
 	});
+});
+
+it("reads a listing menu's case type from its source, whatever its stored key holds", () => {
+	const app = application([]);
+	const listing = (caseType: string | null) => ({
+		doc_type: "ShadowModule",
+		unique_id: "menu-2",
+		source_module_id: "menu-1",
+		case_type: caseType,
+		forms: [],
+	});
+	// HQ's `ShadowModule.case_type` is the source module's, so the key an app
+	// saved earlier stored, and one it never stored, read the same.
+	for (const stored of [null, "household", "anything"])
+		expect(
+			sourceIdentity({
+				...app,
+				modules: [...(app.modules as unknown[]), listing(stored)],
+			}).menus[1]?.caseType,
+		).toBe("household");
+	expect(
+		sourceIdentity({
+			...app,
+			modules: [
+				...(app.modules as unknown[]),
+				{ ...listing("household"), source_module_id: "gone" },
+			],
+		}).menus[1]?.caseType,
+	).toBeNull();
 });

@@ -40,6 +40,12 @@ afresh when you come back.
 
 The page's address names the app, so you can keep it or send it to a teammate.
 
+Nova keeps extended wording on form labels, hints, help, validation messages,
+and choices. You can edit it alongside the ordinary wording in the field panel.
+For an inline choice, open the menu beside the choice to add extended text. Use
+Preview to see which wording workers get on each platform.
+
+
 ## When Nova can bring it in
 
 Nova shows you one review before anything is created.
@@ -51,12 +57,22 @@ forms, questions, languages and case types.
 uses and from its Web App setting in CommCare HQ. You can choose differently
 here or later in App settings.
 
+**Searches supplied by this project space** lists each search ID, the menus that use it, the values they send and the fields their screens read. Your source project space continues to decide which cases workers can find. When you publish to another project space, you can connect each search to the ID your administrator provides there.
+
 **Lookup tables** and **Places**: the tables and places the app reads come in as
 copies that CommCare HQ keeps managing. [Project data](/docs/project-data) and
-[Organization](/docs/organization) say what that means.
+[Organization](/docs/organization) say what that means. Nova also checks the levels, parent places and external IDs against a second reading of the same places. If the lists changed during the reading, the review can be run again after the change finishes.
 
 If your Project already has a lookup table by the same name, Nova asks which one
 this app should use and says what each answer does to your other apps.
+
+If a case change gives each case to the place at a level below its owner, that
+rule needs exactly one such place below each owner. Where the places in CommCare
+HQ have two, or none, the review names the level, the forms and the places it
+found, and asks who owns those cases. You can give them to the worker who fills
+in the form, which your first publish also changes in CommCare HQ and the
+Publishing card lists, or change the places in CommCare HQ and check again. Nova
+never picks one of the places for you.
 
 **Stays as it is in CommCare HQ** lists the settings Nova leaves alone when it
 publishes. [Publishing](/docs/publishing) shows the same list once the app is
@@ -84,6 +100,17 @@ Each reason has one of three labels.
 - **Something to change in CommCare HQ.** Once this is changed in CommCare HQ,
   you can check again and Nova will read the app afresh.
 
+If a form gives a table the same local name that CommCare HQ uses to fill in case
+data or submission details, Nova shows which name is shared. Giving the table
+a distinct name inside that form and updating its references keeps the table
+itself in place. Nova also names a source whose reference prevents CommCare HQ
+from building the app. After updating the source and its references there, you
+can check again.
+
+When a case list column gets its table from another part of the app, Nova checks
+which table each route to that screen gives the worker. If Nova can’t confirm
+the table on every route, it shows you the affected column.
+
 Under the list Nova says: When you check again, Nova may find more to name.
 
 Nova can't bring in an app whose case list column, filter, display condition or
@@ -94,9 +121,12 @@ that use `int()` or `substr()`.
 Two more things are listed with where they sit, since Nova would save or find
 something different from what CommCare HQ does today:
 
-- A date and time question, or a hidden value that works out a date and time,
-  saved straight to a case property. CommCare HQ keeps only its day there, and
-  Nova keeps the whole moment.
+- A hidden value that works out a date and time, saved straight to a case
+  property, or a date and time question saved straight as a case's name,
+  owner or external ID, or to the mobile worker's own record. CommCare HQ keeps
+  only the day there. A date and time question saved straight to any other
+  property comes in: Nova makes that property a date and keeps the day, as
+  CommCare does.
 - A search filter Nova would keep as part of the case list's filter, in a menu
   whose forms read its search, where the phone would read it differently from
   CommCare HQ's search. A filter that compares a case property with `!=` or
@@ -110,10 +140,10 @@ Nova keeps no copy of the list. **Copy the list** lets you take it with you, and
 
 Nova doesn't bring in part of an app.
 
-Nova reads only so much of an app's lookup tables: a table holding more data
-than Nova reads for one table is listed under **Nova can't hold this yet**, and
-an app whose tables together hold more lookup data than Nova brings in is too.
-That limit is Nova's, not the app's.
+Where a lookup table holds more than Nova reads at once while bringing in an
+app, the app comes in with the table's columns, and the table's page in Project
+data offers **Refresh**, which reads its rows in pages. Until then Nova has no
+copy of its rows to show or preview.
 
 Nova also gives each app only so much checking for its size. An app that takes
 more checking than that is listed under **Nova can't hold this yet** as an app
@@ -157,11 +187,27 @@ takes the form's name, Nova writes each form's case settings and each case
 list's settings in its own way, and a choice with no name leaves a case list's
 Sort by on Android.
 
+A wording saved on CommCare HQ's app translations page, such as a menu's name
+in one language, the app's name workers see on phones and in Web Apps, or a
+case list column's header, comes in as Nova's wording for that text, and
+publishing keeps it as it is. The text it stands in for keeps its own words.
+A saved wording that changes nothing, because it is blank, names nothing in
+the app, or matches what CommCare HQ writes there anyway, is removed on the
+first publish, and the list says so.
+
 A hint, validation message, or label for a group or repeat can reference a
 file that workers never see or hear there. When your app has references like
 these, the review explains that Nova removes them on the first publish. The
 files stay in CommCare HQ.
-A question or choice that shows the same file keeps showing it.
+A question or choice that shows the same file keeps showing it. If someone in CommCare HQ moves a missing picture to a different choice or adds it in another language, Nova asks you to review that change too.
+
+Pictures, sounds and videos come in at the size CommCare HQ holds them, even
+when a file is larger than one you could upload to Nova yourself. Nova brings
+in files up to 1 GB each, and pictures up to 64 MB. Nova names a larger file
+and the limit it passed, and once you save a smaller copy in CommCare HQ you
+can check again. When you publish, Nova sends each large file to CommCare HQ
+on its own. A picture of more than 178,956,970 pixels can't come in: CommCare
+HQ takes no new picture that large, so Nova names it for you to save smaller.
 
 If CommCare HQ no longer has the file for a menu or form icon, Nova can leave
 the icon out. Web Apps may show a default icon in place of an empty or broken
@@ -175,8 +221,7 @@ first publish turns it on for every form. Android asks for location permission
 if needed. When the worker grants it and the device gets a GPS fix, the
 submitted form includes that location. If a delivery form reaches CommCare
 Connect, its visit records the location. If the opportunity checks for missing
-GPS, the visit passes that check. If you turn off Connect before you
-publish, Nova leaves Auto Capture Location as it is in CommCare HQ.
+GPS, the visit passes that check. If you turn off Connect before publishing, **App settings → Request location for every form** and each form’s own switch determine the result.
 
 When the app was available in Web Apps and had no setting for incomplete
 forms, the Web Apps home screen counted it as showing incomplete forms.
@@ -191,6 +236,8 @@ Android shows stays off it while the app runs in Web Apps only. Where nothing
 in it changes what workers see or do, the list says so.
 
 ## Stopping
+
+Your review belongs to you and to the app in that project space. If another member takes over the review, or the app changes in CommCare HQ, Nova shows the current choices before applying them. Where a publish would remove file references, the review lists the paths and the files CommCare HQ holds there.
 
 An admin or owner of the Project can choose **Stop publishing here** on the
 project space's card. The app in CommCare HQ stays as it is, this app stops

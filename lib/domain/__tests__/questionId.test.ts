@@ -31,8 +31,7 @@ describe("questionIdProblem", () => {
 		["Meta", "reserved-name"],
 		["meta", "reserved-name"],
 		["Case", "reserved-name"],
-		["REGISTRATION", "reserved-name"],
-		["script", "reserved-name"],
+
 		["instance", "reserved-name"],
 		["bind", "reserved-name"],
 		["parsererror", "reserved-name"],
@@ -48,6 +47,8 @@ describe("questionIdProblem", () => {
 		"XmLcode",
 		"metadata",
 		"cases",
+		"Registration",
+		"script",
 		"registrations",
 		"scripts",
 		"instances",
@@ -84,12 +85,7 @@ describe("questionIdProblem", () => {
 	// keep what HQ's form builder does with each of these names. Removing one
 	// here is a reviewed change.
 	it("pins the reserved names", () => {
-		expect([...RESERVED_QUESTION_IDS.anyCase]).toEqual([
-			"meta",
-			"case",
-			"registration",
-			"script",
-		]);
+		expect([...RESERVED_QUESTION_IDS.anyCase]).toEqual(["meta", "case"]);
 		expect([...RESERVED_QUESTION_IDS.exact]).toEqual([
 			"instance",
 			"bind",
@@ -181,7 +177,7 @@ describe("names inside a form's Save to Case blocks", () => {
 		expect(sourceWritePropertyProblem("closed_on_visit")).toBeUndefined();
 	});
 
-	it("refuses an operation id for the three names only, and a link for close and create too", () => {
+	it("refuses an action name as a link unless the block already has that direct action", () => {
 		expect(caseOperationIdNameProblem("instance")).toBe("stops_form_builder");
 		expect(caseOperationIdNameProblem("close")).toBeUndefined();
 		expect(caseOperationIdNameProblem("_close")).toBeUndefined();
@@ -189,6 +185,15 @@ describe("names inside a form's Save to Case blocks", () => {
 			"stops_form_builder",
 		);
 		expect(caseOperationLinkNameProblem("create")).toBe("reads_as_case_action");
+		expect(
+			caseOperationLinkNameProblem("create", (action) => action === "close"),
+		).toBe("reads_as_case_action");
+		expect(
+			caseOperationLinkNameProblem("create", (action) => action === "create"),
+		).toBeUndefined();
+		expect(
+			caseOperationLinkNameProblem("close", (action) => action === "close"),
+		).toBeUndefined();
 		expect(caseOperationLinkNameProblem("_parent")).toBeUndefined();
 	});
 });

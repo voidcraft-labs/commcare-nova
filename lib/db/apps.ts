@@ -39,6 +39,7 @@ import {
 	selectedSourceDocumentsSchema,
 } from "@/lib/chat/selectedSources";
 import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
+import { connectRolesSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import {
@@ -133,6 +134,7 @@ import {
 } from "./credits";
 import {
 	appHasOpenRemoteWriteInTransaction,
+	type InstallationClaimGrant,
 	isHqAppClaimIndexViolation,
 	lockReleasedClaimsInTransaction,
 	remapDeploymentMediaPathsInTransaction,
@@ -211,7 +213,7 @@ export interface AppSummary {
 	/** The Project the app belongs to — its tenancy + sharing boundary. */
 	project_id: string;
 	app_name: string;
-	connect_type: AppDoc["connect_type"];
+	connect_roles: AppDoc["connect_roles"];
 	module_count: number;
 	form_count: number;
 	status: AppDoc["status"];
@@ -894,6 +896,14 @@ async function assertMoveLookupClosureEmpty(
 			"This app uses lookup tables and cannot move Projects yet. Remove those references or keep the app in its current Project.",
 		);
 	}
+	const assignments =
+		await sql`SELECT 1 FROM worker_group_members WHERE app_id=${appId} UNION ALL SELECT 1 FROM lookup_row_assignments WHERE app_id=${appId} LIMIT 1`.execute(
+			tx,
+		);
+	if (assignments.rows.length)
+		throw new BlueprintCommitRejectedError(
+			"Workers or places in this app have Project data assignments. You can remove those memberships and row assignments before moving the app.",
+		);
 }
 
 /**
@@ -2383,6 +2393,7 @@ const RESTORE_CLAIM_TRIES = 3;
 export async function restoreApp(
 	appId: string,
 	actorUserId: string,
+	grant?: InstallationClaimGrant,
 ): Promise<RestoredApp> {
 	for (let attempt = 0; attempt < RESTORE_CLAIM_TRIES; attempt++) {
 		let restored: RestoredApp | null;
@@ -2409,6 +2420,7 @@ export async function restoreApp(
 						actorUserId,
 						at: new Date(),
 						locks,
+						grant,
 					});
 				await tx
 					.updateTable("apps")
@@ -2461,39 +2473,42 @@ export async function loadAppForInspection(
 async function loadAppForReadOnlyInspection(
 	appId: string,
 	admission: "strict" | "schema",
+	tx?: Transaction<AppDatabase>,
 ): Promise<AppDoc | null> {
-	const db = await getAppDb();
-	return db
-		.transaction()
-		.setIsolationLevel("repeatable read")
-		.setAccessMode("read only")
-		.execute(async (tx) => {
-			const row = (await tx
-				.selectFrom("apps")
-				.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
-				.select(
-					sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
-						"case_types_text",
-					),
-				)
-				.select(
-					sql<string | null>`${sql.ref("apps.localization")}::text`.as(
-						"localization_text",
-					),
-				)
-				.select(
-					sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
-						"app_settings_text",
-					),
-				)
-				.where("id", "=", appId)
-				.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
-			if (row === undefined) return null;
-			return admission === "strict"
-				? (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app
-				: (await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, row))
-						.app;
-		});
+	if (tx === undefined) {
+		const db = await getAppDb();
+		return db
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.setAccessMode("read only")
+			.execute((snapshot) =>
+				loadAppForReadOnlyInspection(appId, admission, snapshot),
+			);
+	}
+	const row = (await tx
+		.selectFrom("apps")
+		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
+		.select(
+			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+				"case_types_text",
+			),
+		)
+		.select(
+			sql<string | null>`${sql.ref("apps.localization")}::text`.as(
+				"localization_text",
+			),
+		)
+		.select(
+			sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
+				"app_settings_text",
+			),
+		)
+		.where("id", "=", appId)
+		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
+	if (row === undefined) return null;
+	return admission === "strict"
+		? (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app
+		: (await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, row)).app;
 }
 
 /**
@@ -2506,8 +2521,10 @@ async function loadAppForReadOnlyInspection(
  */
 export async function loadSchemaAdmittedAppForInspection(
 	appId: string,
+	/** A caller's repeatable-read maintenance snapshot, when reading related rows. */
+	tx?: Transaction<AppDatabase>,
 ): Promise<AppDoc | null> {
-	return loadAppForReadOnlyInspection(appId, "schema");
+	return loadAppForReadOnlyInspection(appId, "schema", tx);
 }
 
 /** Whoever currently HOLDS the app's run window — see {@link loadAppHolder}.
@@ -2647,7 +2664,7 @@ async function projectAppSummary(
 		id: row.id,
 		project_id: row.project_id,
 		app_name: row.app_name,
-		connect_type: row.connect_type,
+		connect_roles: connectRolesSchema.parse(row.connect_roles),
 		module_count: row.module_count,
 		form_count: row.form_count,
 		status: isStale ? "error" : parsePersistedAppLifecycleStatus(row.status),
@@ -2876,7 +2893,7 @@ export async function listDeletedApps(
 			id: row.id,
 			project_id: row.project_id,
 			app_name: row.app_name,
-			connect_type: row.connect_type,
+			connect_roles: connectRolesSchema.parse(row.connect_roles),
 			module_count: row.module_count,
 			form_count: row.form_count,
 			// Soft-delete is the existence axis; lifecycle status remains true.

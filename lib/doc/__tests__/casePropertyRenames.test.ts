@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	CasePropertyRenamePlanError,
+	planCasePropertyRenames,
 	type RenameCasePropertiesMutation,
 } from "@/lib/doc/casePropertyRenames";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -53,7 +54,7 @@ function fixture(): BlueprintDoc {
 	const doc: BlueprintDoc = {
 		appId: "app",
 		appName: "App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{
@@ -1278,5 +1279,66 @@ describe("endpoint ambiguity and exact command provenance", () => {
 				]),
 			}),
 		).toThrow(CasePropertySemanticProvenanceRequiredError);
+	});
+});
+
+describe("a related property read across different case types", () => {
+	function relatedDoc(open: boolean) {
+		const doc = fixture();
+		const patient = doc.caseTypes?.[0];
+		const config = doc.modules[MODULE].caseListConfig;
+		if (!patient || !config || !doc.caseTypes)
+			throw new Error("Missing catalog");
+		doc.caseTypes.push({
+			name: "household",
+			properties: [{ name: "a", label: proseText("A"), data_type: "text" }],
+		});
+		if (!open)
+			patient.relations = ["patient", "household"].map((targetType) => ({
+				identifier: "site",
+				targetType,
+				relationship: "child",
+			}));
+		const col = {
+			...plainColumn(testUuid("related-rename"), "a", "Site status"),
+			via: [{ identifier: "site" }] as [{ identifier: string }],
+		};
+		config.columns.push(col);
+		config.listColumnOrder.push(col.uuid);
+		config.detailColumnOrder.push(col.uuid);
+		doc.refIndex = buildReferenceIndex(doc);
+		return doc;
+	}
+	it.each([false, true])(
+		"names the dependent if a single rename could change a different case's value (open %s)",
+		(open) => {
+			const doc = relatedDoc(open);
+			expect(
+				planCasePropertyRenames(
+					doc,
+					rename({ caseType: "patient", from: "a", to: "state" }),
+				),
+			).toMatchObject({
+				ok: false,
+				issue: {
+					reason: "related-read-changes-meaning",
+					dependent: expect.stringContaining("site → a column in Patients"),
+				},
+			});
+		},
+	);
+	it("renames both known bindings together and preserves the unrestricted link", () => {
+		const doc = relatedDoc(false);
+		const next = apply(
+			doc,
+			admittedRename(
+				{ caseType: "patient", from: "a", to: "state" },
+				{ caseType: "household", from: "a", to: "state" },
+			),
+		);
+		expect(next.modules[MODULE].caseListConfig?.columns.at(-1)).toMatchObject({
+			field: "state",
+			via: [{ identifier: "site" }],
+		});
 	});
 });

@@ -15,9 +15,18 @@
 // uses and its fields depth first), then each entry point. Within one owner,
 // uses follow `PLATFORM_FEATURE_IDS` order.
 
+import {
+	formCaseSelections,
+	formSelectionShowsConfirm,
+	menuEmittedAdvanced,
+} from "./advancedEntryDatums";
 import { afterSubmitCanGoHome } from "./afterSubmit";
 import type { BlueprintDoc } from "./blueprint";
-import { type EntryPointTarget, entryPointInventory } from "./entryPoints";
+import {
+	type EntryPointTarget,
+	entryPointInventory,
+	listedFormLinkPause,
+} from "./entryPoints";
 import {
 	type ExpressionContext,
 	type LookupTypeIndex,
@@ -28,9 +37,18 @@ import { walkSearchRuntimeValues } from "./expression/searchRuntimeValues";
 import { scalarDataType, typeOf } from "./expression/typeChecker";
 import type { CheckPath, Expression, SlotContextRef } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
-import { fieldDisplayValues } from "./fieldDisplay";
+import { choiceDisplayFeatures, fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
+import { formBehaviorRoles } from "./forms";
+import {
+	effectiveAppLocalization,
+	makeTranslationUnitId,
+	translationSourceFingerprint,
+	translationSourceFingerprintsEqual,
+} from "./localization";
+import { caseListRegistrationReturnOf } from "./menuForms";
+import { menuScreenOf } from "./menuScreens";
 import {
 	caseSelectionCardinality,
 	columnOnList,
@@ -43,18 +61,27 @@ import {
 	moduleHasCaseListMenuItem,
 	moduleSearchWorkflow,
 	type SearchInputDef,
+	searchOpensOnList,
+	searchScreenTitleText,
 	tileCellFor,
+	tileCellOnlyOnAndroid,
 } from "./modules";
+import { holdsLabelOnlyMedia } from "./multimedia";
 import {
+	declaredPlatforms,
 	expressionLeafFeature,
 	PLATFORM_FEATURE_IDS,
 	PLATFORM_FEATURES,
 	PLATFORMS,
 	type Platform,
 	type PlatformFeatureId,
+	type PlatformTargetCondition,
+	TARGET_CONDITIONED_FEATURES,
 	unavailablePlatform,
 } from "./platforms";
+import { firstMenuCaseRead } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
+import { answerRequiresAndroid } from "./submittedAnswerName";
 import type { Uuid } from "./uuid";
 
 export type PlatformFeatureOwner =
@@ -306,16 +333,40 @@ export function platformFeatureUses(
 	};
 
 	const out: PlatformFeatureUse[] = [];
+	const checksAutomaticLists =
+		wanted("auto-select-confirm") &&
+		Object.values(doc.modules).some((module) => module.autoSelectSingle);
 	const app: PlatformFeatureOwner = { kind: "app" };
 	const appUses: PlatformFeatureUse[] = [];
-	if (doc.connectType !== null) {
+	if (doc.connectRoles.length > 0) {
 		if (wanted("connect-app"))
-			appUses.push(slotUse("connect-app", app, "connectType"));
+			appUses.push(slotUse("connect-app", app, "connectRoles"));
 		if (wanted("connect-location-capture"))
-			appUses.push(slotUse("connect-location-capture", app, "connectType"));
+			appUses.push(slotUse("connect-location-capture", app, "connectRoles"));
 	}
+	if (wanted("menu-layout")) {
+		if (doc.appSettings.firstMenuLayout === "grid")
+			appUses.push(slotUse("menu-layout", app, "appSettings.firstMenuLayout"));
+		if (doc.appSettings.formMenuLayout !== undefined)
+			appUses.push(slotUse("menu-layout", app, "appSettings.formMenuLayout"));
+	}
+	if (
+		doc.connectRoles.length === 0 &&
+		doc.appSettings.captureLocation &&
+		wanted("connect-location-capture")
+	)
+		appUses.push(
+			slotUse("connect-location-capture", app, "appSettings.captureLocation"),
+		);
 	if (doc.logo !== undefined && wanted("app-logo"))
 		appUses.push(slotUse("app-logo", app, "logo"));
+	if (
+		doc.appSettings.requiredAndroidApps?.length &&
+		wanted("required-android-apps")
+	)
+		appUses.push(
+			slotUse("required-android-apps", app, "appSettings.requiredAndroidApps"),
+		);
 	if (doc.appSettings.showSavedForms && wanted("saved-forms"))
 		appUses.push(slotUse("saved-forms", app, "appSettings.showSavedForms"));
 	if (doc.appSettings.showIncompleteForms && wanted("incomplete-forms"))
@@ -324,10 +375,40 @@ export function platformFeatureUses(
 		);
 	out.push(...inFeatureOrder(appUses));
 
+	const readFirstMenuCase = firstMenuCaseRead(doc);
+	const firstMenuCaseOnRoute = (moduleUuid: Uuid) => {
+		if (!wanted("first-menu-previous") || !readFirstMenuCase()) return false;
+		const parent = doc.modules[moduleUuid]?.parentModuleUuid;
+		return (
+			menuScreenOf(doc, moduleUuid).kind === "first-menu" ||
+			(parent !== undefined && menuScreenOf(doc, parent).kind === "first-menu")
+		);
+	};
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) continue;
-		out.push(...moduleUses(moduleUuid, module, wanted, expressionUses));
+		out.push(
+			...moduleUses(
+				moduleUuid,
+				module,
+				wanted,
+				expressionUses,
+				searchTitleTranslated(doc, moduleUuid),
+			),
+		);
+		if (
+			module.caseListRegistrationForm?.kind === "always" &&
+			firstMenuCaseOnRoute(moduleUuid) &&
+			caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "new-case"
+		) {
+			out.push(
+				slotUse(
+					"first-menu-previous",
+					{ kind: "module", moduleUuid },
+					"caseListRegistrationForm",
+				),
+			);
+		}
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
@@ -337,6 +418,47 @@ export function platformFeatureUses(
 				formUuid,
 			};
 			const formUses: PlatformFeatureUse[] = [];
+			if (wanted("form-submit-wording") && form.submitLabel !== undefined)
+				formUses.push(slotUse("form-submit-wording", formOwner, "submitLabel"));
+			if (checksAutomaticLists && menuEmittedAdvanced(doc, moduleUuid)) {
+				for (const [index, choice] of formCaseSelections(
+					doc,
+					formUuid,
+				).entries()) {
+					if (
+						choice.source.kind === "choose" &&
+						doc.modules[choice.source.module]?.autoSelectSingle &&
+						formSelectionShowsConfirm(doc, formUuid, index)
+					)
+						formUses.push(
+							slotUse(
+								"auto-select-confirm",
+								formOwner,
+								`caseSelections[${choice.uuid}]`,
+							),
+						);
+				}
+			}
+			if (wanted("answer-name-requires-android")) {
+				const lockedPaths = [
+					...(form.ownClosePlacement ? [form.ownClosePlacement.path] : []),
+					...(form.caseOperations ?? []).flatMap((op) =>
+						op.placement?.kind === "save-to-case" ? [op.placement.path] : [],
+					),
+				];
+				if (
+					lockedPaths.some((path) =>
+						path.some((name) => answerRequiresAndroid(name)),
+					)
+				)
+					formUses.push(
+						slotUse(
+							"answer-name-requires-android",
+							formOwner,
+							"caseOperations",
+						),
+					);
+			}
 			if (wanted("after-submit-home") && afterSubmitCanGoHome(doc, formUuid))
 				formUses.push(
 					slotUse(
@@ -345,6 +467,37 @@ export function platformFeatureUses(
 						form.formLinks === undefined ? "postSubmit" : "otherwise",
 					),
 				);
+			if (wanted("first-menu-previous") && readFirstMenuCase()) {
+				const atHome = menuScreenOf(doc, moduleUuid).kind === "first-menu";
+				const staticUsesCase = (destination: string | undefined) =>
+					(destination === "previous" && atHome) ||
+					(destination === "module" &&
+						!atHome &&
+						firstMenuCaseOnRoute(moduleUuid));
+				const linkUsesCase = (
+					link:
+						| NonNullable<typeof form.formLinks>[number]
+						| Extract<NonNullable<typeof form.otherwise>, { kind: "link" }>,
+				) =>
+					firstMenuCaseOnRoute(
+						link.target.type === "this-form"
+							? moduleUuid
+							: link.target.moduleUuid,
+					);
+				if (!form.formLinks && staticUsesCase(form.postSubmit))
+					formUses.push(
+						slotUse("first-menu-previous", formOwner, "postSubmit"),
+					);
+				if (form.formLinks?.some(linkUsesCase))
+					formUses.push(slotUse("first-menu-previous", formOwner, "formLinks"));
+				if (
+					form.otherwise &&
+					(form.otherwise.kind === "link"
+						? linkUsesCase(form.otherwise)
+						: staticUsesCase(form.otherwise.destination))
+				)
+					formUses.push(slotUse("first-menu-previous", formOwner, "otherwise"));
+			}
 			// Two destinations are two frames; an otherwise beside an
 			// every-time destination needs a destination that may not run.
 			if (
@@ -354,13 +507,31 @@ export function platformFeatureUses(
 				formUses.push(
 					slotUse("after-submit-several-destinations", formOwner, "formLinks"),
 				);
+			if (form.badge !== undefined && wanted("menu-badge"))
+				formUses.push(slotUse("menu-badge", formOwner, "badge"));
+			if (form.captureLocation && wanted("connect-location-capture"))
+				formUses.push(
+					slotUse("connect-location-capture", formOwner, "captureLocation"),
+				);
+			if (wanted("web-apps-form-behavior"))
+				for (const role of formBehaviorRoles)
+					if (role !== "savedFormDescriptorText" && form[role])
+						formUses.push(slotUse("web-apps-form-behavior", formOwner, role));
+			if (form.savedFormDescriptorText && wanted("saved-form-descriptor"))
+				formUses.push(
+					slotUse(
+						"saved-form-descriptor",
+						formOwner,
+						"savedFormDescriptorText",
+					),
+				);
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(
 				...expressionUses({ entity: "form", uuid: formUuid }, () => formOwner),
 			);
 			out.push(...inFeatureOrder(formUses));
-			const walkFields = (parentUuid: Uuid) => {
+			const walkFields = (parentUuid: Uuid, inRepeat: boolean) => {
 				for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 					const field = doc.fields[fieldUuid];
 					if (field === undefined) continue;
@@ -368,26 +539,28 @@ export function platformFeatureUses(
 						...fieldUses(
 							{ kind: "field", moduleUuid, formUuid, fieldUuid },
 							field,
+							inRepeat,
 							wanted,
 							expressionUses,
 						),
 					);
-					walkFields(fieldUuid);
+					walkFields(fieldUuid, inRepeat || field.kind === "repeat");
 				}
 			};
-			walkFields(formUuid);
+			walkFields(formUuid, false);
 		}
 	}
 
-	if (wanted("entry-points"))
-		for (const item of entryPointInventory(doc))
-			out.push(
-				slotUse(
-					"entry-points",
-					{ kind: "entry-point", target: item.target },
-					"entryPoint",
-				),
-			);
+	if (wanted("entry-points") || wanted("first-menu-previous")) {
+		for (const item of entryPointInventory(doc)) {
+			if (listedFormLinkPause(doc, item.target)) continue;
+			const owner = { kind: "entry-point", target: item.target } as const;
+			if (wanted("entry-points"))
+				out.push(slotUse("entry-points", owner, "entryPoint"));
+			if (firstMenuCaseOnRoute(item.target.moduleUuid))
+				out.push(slotUse("first-menu-previous", owner, "entryPoint"));
+		}
+	}
 	return out;
 }
 
@@ -399,11 +572,38 @@ type ExpressionUses = (
 	ownerOf: (ref: SlotContextRef) => PlatformFeatureOwner,
 ) => PlatformFeatureUse[];
 
+/** Whether a language other than the source holds a search title text of its own. */
+function searchTitleTranslated(doc: BlueprintDoc, moduleUuid: Uuid): boolean {
+	const module = doc.modules[moduleUuid];
+	const search =
+		module === undefined ? undefined : effectiveCaseSearchConfig(module);
+	if (search === undefined) return false;
+	const unit = makeTranslationUnitId("module", moduleUuid, "search-title");
+	// Only a current translation shows: one of an older source shows the source's title.
+	const source = translationSourceFingerprint(
+		"text",
+		searchScreenTitleText(search) ?? "",
+	);
+	return Object.values(
+		effectiveAppLocalization(doc.localization).translations,
+	).some((entries) => {
+		const entry = entries[unit];
+		return (
+			entry !== undefined &&
+			typeof entry.value === "string" &&
+			entry.value.trim() !== "" &&
+			translationSourceFingerprintsEqual(entry.sourceFingerprint, source)
+		);
+	});
+}
+
 function moduleUses(
 	moduleUuid: Uuid,
 	module: Module,
 	wanted: (feature: PlatformFeatureId) => boolean,
 	expressionUses: ExpressionUses,
+	/** Whether a language other than the source shows a search title of its own. */
+	titleTranslated: boolean,
 ): PlatformFeatureUse[] {
 	const owner: PlatformFeatureOwner = { kind: "module", moduleUuid };
 	const list = module.caseListConfig;
@@ -414,11 +614,19 @@ function moduleUses(
 	// form, ride on it.
 	const formsReadSearch = moduleFormsReadSearch(module);
 	const own: PlatformFeatureUse[] = [];
+	if (list?.deviceLookup !== undefined && wanted("case-list-android-lookup"))
+		own.push(
+			slotUse("case-list-android-lookup", owner, "caseListConfig.deviceLookup"),
+		);
 	if (formsReadSearch && wanted("forms-read-search"))
 		own.push(
 			slotUse("forms-read-search", owner, "caseSearchConfig.formsReadSearch"),
 		);
-	if (workflow === "listFirst" && wanted("list-first"))
+	if (search?.searchOnClear && wanted("search-on-clear"))
+		own.push(
+			slotUse("search-on-clear", owner, "caseSearchConfig.searchOnClear"),
+		);
+	if (searchOpensOnList(workflow) && wanted("list-first"))
 		own.push(slotUse("list-first", owner, "caseSearchConfig.workflow"));
 	if (
 		caseSelectionCardinality(module) === "multiple" &&
@@ -445,12 +653,45 @@ function moduleUses(
 					: "caseListRegistrationForm.audioLabel",
 			),
 		);
+	if (list?.tile?.namedSlots && wanted("named-case-tile"))
+		own.push(
+			slotUse("named-case-tile", owner, "caseListConfig.tile.namedSlots"),
+		);
+	if (list?.detailTile && wanted("details-tile"))
+		own.push(slotUse("details-tile", owner, "caseListConfig.detailTile"));
+	if (list?.optimizations === true && wanted("case-list-faster-loading"))
+		own.push(
+			slotUse(
+				"case-list-faster-loading",
+				owner,
+				"caseListConfig.optimizations",
+			),
+		);
+	if (list?.emptyText !== undefined && wanted("case-list-empty-text"))
+		own.push(
+			slotUse("case-list-empty-text", owner, "caseListConfig.emptyText"),
+		);
+	if (
+		list?.selectButtonText !== undefined &&
+		wanted("case-list-continue-label")
+	)
+		own.push(
+			slotUse(
+				"case-list-continue-label",
+				owner,
+				"caseListConfig.selectButtonText",
+			),
+		);
+	// A menu's badge: Android hides and shortens what Web Apps shows whole.
+	if (module.badge !== undefined && wanted("menu-badge"))
+		own.push(slotUse("menu-badge", owner, "badge"));
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
 	// A search with no title holds no text for Android to leave out, so only
-	// an authored title text is a use.
+	// an authored title text is a use, in the source language or another.
 	const authoredTitleText =
-		search !== undefined && typeof search.searchScreenTitle === "string";
+		search !== undefined &&
+		(typeof search.searchScreenTitle === "string" || titleTranslated);
 	if (
 		search !== undefined &&
 		(authoredTitleText || search.searchScreenSubtitle !== undefined) &&
@@ -514,6 +755,10 @@ function moduleUses(
 	}
 	const byOwner = (target: PlatformFeatureOwner) =>
 		usesByMember.get(memberUuid(target)) ?? [];
+	if (list?.searchInputGroups && wanted("search-field-groups"))
+		own.push(
+			slotUse("search-field-groups", owner, "caseListConfig.searchInputGroups"),
+		);
 	own.push(...byOwner(owner));
 	const out = inFeatureOrder(own);
 
@@ -521,7 +766,28 @@ function moduleUses(
 		const target = columnOwner(column.uuid);
 		const uses: PlatformFeatureUse[] = [...byOwner(target)];
 		const slot = (path: string) => `caseListConfig.columns[${index}].${path}`;
+		if (column.kind === "worker-distance" && wanted("worker-distance"))
+			uses.push(slotUse("worker-distance", target, slot("kind")));
+		if (column.sort?.comparator === "distance" && wanted("sort-by-distance")) {
+			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
+		}
+		if (
+			column.kind === "image-map" &&
+			column.entryPointUuid &&
+			wanted("case-list-icon-actions")
+		)
+			uses.push(
+				slotUse("case-list-icon-actions", target, slot("entryPointUuid")),
+			);
 		const cell = tileCellFor(column, list?.tile);
+		if (tileCellOnlyOnAndroid(column, cell) && wanted("raw-custom-tile-field"))
+			uses.push(
+				slotUse(
+					"raw-custom-tile-field",
+					target,
+					slot(cell?.androidOnly ? "tile.androidOnly" : "kind"),
+				),
+			);
 		if (
 			cell !== undefined &&
 			cell.verticalAlign !== "middle" &&
@@ -555,6 +821,46 @@ function moduleUses(
 			);
 		if (columnSortLabelShows(column) && wanted("case-list-sort-label"))
 			uses.push(slotUse("case-list-sort-label", target, slot("sort.label")));
+		if (column.kind === "image-map" && wanted("case-image-descriptions")) {
+			const described = column.mapping.findIndex(
+				(row) => row.altText !== undefined && row.altText.trim() !== "",
+			);
+			if (described >= 0)
+				uses.push(
+					slotUse(
+						"case-image-descriptions",
+						target,
+						slot(`mapping[${described}].altText`),
+					),
+				);
+		}
+		if (column.kind === "map-location" && wanted("case-map-location"))
+			uses.push(slotUse("case-map-location", target, slot("kind")));
+		/* A later location of an advanced menu's detail is where Android, which
+		 * marks a case at its first location that holds one, reads past a
+		 * blank earlier one. */
+		if (
+			column.kind === "map-location" &&
+			wanted("case-map-fallback-locations") &&
+			(list?.columns ?? [])
+				.slice(0, index)
+				.some((earlier) => earlier.kind === "map-location")
+		)
+			uses.push(slotUse("case-map-fallback-locations", target, slot("kind")));
+		if (column.kind === "map-layer" && wanted("case-map-layers"))
+			uses.push(slotUse("case-map-layers", target, slot("layer")));
+		if (
+			(column.kind === "formatted-text" ||
+				(column.kind === "calculated" && column.showAs === "formatted-text")) &&
+			wanted("formatted-case-text")
+		)
+			uses.push(
+				slotUse(
+					"formatted-case-text",
+					target,
+					slot(column.kind === "calculated" ? "showAs" : "kind"),
+				),
+			);
 		if (column.kind === "link" && wanted("link-column"))
 			uses.push(slotUse("link-column", target, slot("kind")));
 		out.push(...inFeatureOrder(uses));
@@ -588,7 +894,11 @@ function searchInputUses(
 			uses.push(slotUse("hidden-search-field", owner, `${path}.kind`));
 		return uses;
 	}
+	if (input.kind === "address" && wanted("search-address-picker"))
+		uses.push(slotUse("search-address-picker", owner, `${path}.kind`));
 	if (!isVisibleSearchInput(input)) return uses;
+	if (input.hidden === true && wanted("hidden-search-field"))
+		uses.push(slotUse("hidden-search-field", owner, `${path}.hidden`));
 	const type = "type" in input ? input.type : undefined;
 	if (type === "date" && wanted("search-field-single-date"))
 		uses.push(slotUse("search-field-single-date", owner, `${path}.type`));
@@ -609,18 +919,37 @@ function searchInputUses(
 					: `${path}.validation`,
 			),
 		);
+	if (
+		type === "date-range" &&
+		"default" in input &&
+		input.default !== undefined &&
+		wanted("search-starting-dates")
+	)
+		uses.push(slotUse("search-starting-dates", owner, `${path}.default`));
 	if (type === "barcode" && wanted("barcode-search-field"))
 		uses.push(slotUse("barcode-search-field", owner, `${path}.type`));
+	if (input.allowBlank === true && wanted("search-for-blank"))
+		uses.push(slotUse("search-for-blank", owner, `${path}.allowBlank`));
 	return uses;
 }
 
 function fieldUses(
 	owner: Extract<PlatformFeatureOwner, { kind: "field" }>,
 	field: Field,
+	/** Whether a repeat holds the field, at any depth. */
+	inRepeat: boolean,
 	wanted: (feature: PlatformFeatureId) => boolean,
 	expressionUses: ExpressionUses,
 ): PlatformFeatureUse[] {
 	const uses: PlatformFeatureUse[] = [];
+	if (
+		wanted("answer-name-requires-android") &&
+		answerRequiresAndroid(
+			field.id,
+			field.kind === "hidden" ? field.answerNamespace : undefined,
+		)
+	)
+		uses.push(slotUse("answer-name-requires-android", owner, "id"));
 	for (const id of PLATFORM_FEATURE_IDS) {
 		if (PLATFORM_FEATURES[id].fieldKind === field.kind && wanted(id))
 			uses.push(slotUse(id, owner, "kind"));
@@ -631,18 +960,60 @@ function fieldUses(
 			(field.kind === "group" && field.fieldList === true))
 	)
 		uses.push(slotUse("question-pages", owner, "kind"));
+	if (
+		field.kind === "image" &&
+		field.maxDimension !== undefined &&
+		wanted("image-size")
+	)
+		uses.push(slotUse("image-size", owner, "maxDimension"));
 	// Every display setting whose value a platform reads differently, found
 	// through the one registry, so a new setting needs no detector here.
-	for (const { key, row } of fieldDisplayValues(field)) {
+	if ("androidApp" in field && field.androidApp !== undefined) {
+		const feature =
+			field.androidApp.kind === "use-question"
+				? "android-app-answer"
+				: "android-app-question";
+		if (wanted(feature)) uses.push(slotUse(feature, owner, "androidApp"));
+	}
+	const settings = fieldDisplayValues(field);
+	for (const { key, row } of settings) {
 		if (row.feature !== undefined && wanted(row.feature))
 			uses.push(slotUse(row.feature, owner, key));
 	}
+	for (const id of choiceDisplayFeatures(field)) {
+		if (wanted(id)) uses.push(slotUse(id, owner, "choiceLayout"));
+	}
+	if (
+		settings.length > 1 &&
+		!uses.some((use) => use.feature === "combined-question-display") &&
+		wanted("combined-question-display")
+	)
+		uses.push(slotUse("combined-question-display", owner, settings[0].key));
+	if (
+		field.kind === "barcode" &&
+		(field.addressLookup || field.receiveFrom) &&
+		!field.keypad &&
+		wanted("barcode-text-options")
+	)
+		uses.push(
+			slotUse(
+				"barcode-text-options",
+				owner,
+				field.addressLookup ? "addressLookup" : "receiveFrom",
+			),
+		);
 	if (
 		"plainLabel" in field &&
 		field.plainLabel === true &&
 		wanted("plain-text")
 	)
 		uses.push(slotUse("plain-text", owner, "plainLabel"));
+	if (
+		field.kind === "label" &&
+		field.askForConfirmation &&
+		wanted("confirm-message")
+	)
+		uses.push(slotUse("confirm-message", owner, "askForConfirmation"));
 	if ("plainHelp" in field && field.plainHelp === true && wanted("plain-text"))
 		uses.push(slotUse("plain-text", owner, "plainHelp"));
 	if (
@@ -651,6 +1022,32 @@ function fieldUses(
 		wanted("help-media")
 	)
 		uses.push(slotUse("help-media", owner, "help_media"));
+	if (
+		"label_media" in field &&
+		holdsLabelOnlyMedia(field.label_media) &&
+		wanted("label-inline-video")
+	)
+		uses.push(slotUse("label-inline-video", owner, "label_media"));
+	if (
+		"qr_code" in field &&
+		field.qr_code !== undefined &&
+		wanted("label-qr-code")
+	)
+		uses.push(slotUse("label-qr-code", owner, "qr_code"));
+	if (
+		"spoken_text" in field &&
+		field.spoken_text !== undefined &&
+		wanted("label-spoken-text")
+	)
+		uses.push(slotUse("label-spoken-text", owner, "spoken_text"));
+	if (
+		inRepeat &&
+		field.kind === "hidden" &&
+		field.default_value !== undefined &&
+		field.calculate !== undefined &&
+		wanted("row-starting-value")
+	)
+		uses.push(slotUse("row-starting-value", owner, "default_value"));
 	uses.push(
 		...expressionUses({ entity: "field", uuid: owner.fieldUuid }, () => owner),
 	);
@@ -703,4 +1100,39 @@ export function contentRunsOn(doc: BlueprintDoc): readonly Platform[] {
 		}),
 	);
 	return PLATFORMS.filter((platform) => !blocked.has(platform));
+}
+
+/** The uses of one feature whose reading on a platform the app declares
+ *  depends on the project space it is published to. */
+export interface TargetConditionUses {
+	readonly feature: PlatformFeatureId;
+	readonly condition: PlatformTargetCondition;
+	/** In document order; never empty. */
+	readonly uses: readonly PlatformFeatureUse[];
+}
+
+/**
+ * Every target condition the app's content meets, in table order, each with
+ * its uses: a feature whose condition names a platform the app declares and
+ * that some content uses. An app that does not declare the platform needs
+ * nothing of the project space for it (Android alone reads an address
+ * question as ordinary text).
+ */
+export function targetConditionUses(
+	doc: BlueprintDoc,
+): readonly TargetConditionUses[] {
+	const platforms = declaredPlatforms(doc);
+	const features = TARGET_CONDITIONED_FEATURES.filter((feature) => {
+		const condition = PLATFORM_FEATURES[feature].targetCondition;
+		return condition !== undefined && platforms.includes(condition.platform);
+	});
+	if (features.length === 0) return [];
+	const uses = platformFeatureUses(doc, { features: new Set(features) });
+	return features.flatMap((feature) => {
+		const condition = PLATFORM_FEATURES[feature].targetCondition;
+		const own = uses.filter((use) => use.feature === feature);
+		return condition === undefined || own.length === 0
+			? []
+			: [{ feature, condition, uses: own }];
+	});
 }

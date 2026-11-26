@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
+	addFixtureField,
 	caseListConfig,
 	lowerFixtureCaseWrites,
 } from "@/lib/__tests__/docHelpers";
@@ -146,14 +147,14 @@ describe("session datum admission", () => {
 	});
 	it("locates an absent datum in a Connect setting", () => {
 		const doc = formFixture();
-		doc.connectType = "deliver";
-		doc.forms[ids.form].connect = {
-			deliver_unit: {
-				id: "home_visit",
-				name: "Home visit",
-				entity_id: newCase,
-			},
-		};
+		doc.connectRoles = ["deliver"];
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+		addFixtureField(doc, ids.form, {
+			kind: "connect_activity",
+			uuid: testUuid("missing-session-activity"),
+			id: "home_visit",
+			activity: { kind: "delivery", name: "Home visit", entityId: newCase },
+		});
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(finding) => finding.code === "SESSION_DATUM_NOT_SUPPLIED",
 		);
@@ -161,11 +162,12 @@ describe("session datum admission", () => {
 		expect(findings[0].details).toMatchObject({
 			datumKind: "new-case",
 			slot: "deliver_entity_id",
-			carrier: "connect",
+			carrier: "field",
 		});
-		expect(userFacingError(findings[0])).toContain(
-			'A Connect setting of "Visit"',
+		expect(findings[0].location.fieldUuid).toBe(
+			testUuid("missing-session-activity"),
 		);
+		expect(userFacingError(findings[0])).toContain("home_visit");
 	});
 
 	it("reads a several-case form's chosen cases, and refuses the read once the menu chooses one case", () => {

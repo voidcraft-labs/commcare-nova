@@ -490,7 +490,13 @@ describe("the corpus emitter", () => {
 					role: "content.media",
 					paths,
 				},
-				{ at: "export", name: "republish", part: "b", role: "media", paths },
+				{
+					at: "export",
+					name: "republish",
+					part: "b",
+					role: "media",
+					paths: [],
+				},
 				...(edited !== undefined
 					? [
 							{
@@ -498,7 +504,9 @@ describe("the corpus emitter", () => {
 								name: "update",
 								part: "b_edit",
 								role: "media",
-								paths: await preparedMediaPaths(edited.document, PROOF_DOMAIN),
+								paths: (
+									await preparedMediaPaths(edited.document, PROOF_DOMAIN)
+								).filter((path) => !paths.includes(path)),
 							},
 						]
 					: []),
@@ -565,14 +573,6 @@ describe("the corpus emitter", () => {
 						.sort();
 					expect(files, where).toEqual(step.paths);
 				}
-				// The republish sends the content's media: one file holds it.
-				const exported = join(directory, "export", configuration);
-				const [content, republish] = await Promise.all(
-					["content", "republish"].map(async (name) =>
-						JSON.parse(await readFile(join(exported, `${name}.json`), "utf8")),
-					),
-				);
-				expect(republish.media, entry.id).toBe(content.media);
 			}
 		}
 		// This corpus has documents with media and documents without.

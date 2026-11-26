@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { Page, Route } from "@playwright/test";
+import type * as InventoryActions from "@/lib/deployment/managedInventoryActions";
 import { componentPeer } from "../../lib/componentPeer";
 import { test as base, expect } from "../../lib/fixtures";
 import { type RemovableRoutes, removableRoutes } from "../../lib/routes";
@@ -82,6 +83,9 @@ const test = base.extend<{ data: CaseDataPeer }>({
 test.use({ actionTimeout: 10_000 });
 test.beforeAll(async () => {
 	component = await componentPeer("e2e/lib/builder-data-client.tsx", [], {
+		"@/lib/deployment/managedInventoryActions": resolve(
+			"e2e/lib/source-inventory-boundary.ts",
+		),
 		"@/lib/preview/engine/caseDataBinding": resolve(
 			"e2e/lib/builder-data-boundary.ts",
 		),
@@ -298,4 +302,123 @@ test("native access refresh masks pending case-data work and drops its later not
 	await expect(
 		page.getByText("Sample cases created", { exact: true }),
 	).toHaveCount(0);
+});
+
+test("a source editor reads complete and fragmented rows and cancels only the unfinished refresh", async ({
+	page,
+}) => {
+	const generationId = "01890f45-0000-7000-8000-000000000003",
+		pendingId = "01890f45-0000-7000-8000-000000000004";
+	const small = JSON.stringify({
+		attributes: { district: "007" },
+		fields: {
+			name: [{ value: "Hill clinic", properties: { language: "English" } }],
+		},
+	});
+	const large = JSON.stringify({
+		attributes: {},
+		fields: {
+			name: [
+				{ value: `North 🌱 ${"z".repeat(70000)} Last ridge`, properties: {} },
+			],
+		},
+	});
+	const texts = [small, large];
+	let cancelled = false;
+	const seen: Array<[number, number]> = [];
+	const routes = removableRoutes(page);
+	try {
+		await routes.route("**/native/source-inventory/*", async (route) => {
+			const method = new URL(route.request().url()).pathname.split("/").at(-1);
+			const [project, table, arg] = route.request().postDataJSON();
+			expect(project).toBe("native-project");
+			expect(table).toBe("01890f45-0000-7000-8000-000000000001");
+			if (method === "status") {
+				const now = "2026-10-05T00:00:00.000Z";
+				await route.fulfill({
+					json: {
+						ok: true,
+						domain: "network",
+						distribution: "assigned",
+						active: {
+							generationId,
+							totalRows: 2,
+							recordedAt: now,
+							digest: "synthetic",
+						},
+						staged: cancelled
+							? null
+							: { generationId: pendingId, rowsRead: 1, expiresAt: now },
+					} satisfies Awaited<
+						ReturnType<typeof InventoryActions.getManagedInventoryStatusAction>
+					>,
+				});
+				return;
+			}
+			if (method === "cancel") {
+				expect(arg).toBe(pendingId);
+				cancelled = true;
+				await route.fulfill({ json: { ok: true } });
+				return;
+			}
+			expect(method).toBe("read");
+			expect(arg.generationId).toBe(generationId);
+			const ordinal = Number(arg.ordinal),
+				offset = Number(arg.byteOffset);
+			seen.push([ordinal, offset]);
+			const raw = Buffer.from(texts[ordinal]);
+			const end = offset === 0 ? (ordinal === 0 ? 30 : 123) : raw.length;
+			// Split both rows. The dialog should assemble the small one and pause at the large one.
+			const next =
+				end < raw.length
+					? { generationId, ordinal, byteOffset: end }
+					: ordinal === 0
+						? { generationId, ordinal: 1, byteOffset: 0 }
+						: null;
+			await route.fulfill({
+				json: {
+					ok: true,
+					generationId,
+					totalRows: 2,
+					item: {
+						rowId: `source-${ordinal}`,
+						ordinal,
+						part: raw.subarray(offset, end).toString("utf8"),
+						byteOffset: offset,
+						byteLength: end - offset,
+						totalBytes: raw.length,
+					},
+					next,
+				} satisfies Awaited<
+					ReturnType<typeof InventoryActions.readManagedInventoryAction>
+				>,
+			});
+		});
+		await page.goto(`${component.origin}?scenario=source-inventory`);
+		const dialog = page.getByRole("dialog", { name: "Source inventory" });
+		await expect(dialog.getByText(/Your refresh has read 1 row/)).toBeVisible();
+		await dialog.getByRole("button", { name: "Read first row" }).click();
+		await expect(
+			dialog.getByText("Hill clinic", { exact: true }),
+		).toBeVisible();
+		await expect(dialog.getByText("007", { exact: true })).toBeVisible();
+		await expect(dialog.getByText("English", { exact: true })).toBeVisible();
+		await dialog.getByRole("button", { name: "Next row" }).click();
+		await expect(dialog.getByText(/Source text, bytes 1 to 123/)).toBeVisible();
+		expect(seen).toEqual([
+			[0, 0],
+			[0, 30],
+			[1, 0],
+		]);
+		await dialog.getByRole("button", { name: "Next part" }).click();
+		await expect(dialog.getByText(/Source text, bytes 124 to/)).toBeVisible();
+		await dialog.getByRole("button", { name: "Cancel my refresh" }).click();
+		await expect(
+			dialog.getByRole("button", { name: "Cancel my refresh" }),
+		).toHaveCount(0);
+		await expect(dialog.getByText(/2 rows recorded/)).toBeVisible();
+		expect(cancelled).toBe(true);
+	} finally {
+		await routes.removeAll();
+	}
 });

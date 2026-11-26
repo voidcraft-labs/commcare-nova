@@ -261,10 +261,13 @@ export function useIsCaseListSelected(uuid: Uuid): boolean {
  * `true` when the current URL points to this exact form.
  * Used by `FormCard` in the tree sidebar for highlight state.
  */
-export function useIsFormSelected(uuid: Uuid): boolean {
+export function useIsFormSelected(uuid: Uuid, moduleUuid?: Uuid): boolean {
 	const project = useCallback(
-		(location: Location) => selectedFormUuid(location) === uuid,
-		[uuid],
+		(location: Location) =>
+			selectedFormUuid(location) === uuid &&
+			(!moduleUuid ||
+				("moduleUuid" in location && location.moduleUuid === moduleUuid)),
+		[uuid, moduleUuid],
 	);
 	return useLocationProjection(project);
 }
@@ -275,8 +278,8 @@ export function useIsFormSelected(uuid: Uuid): boolean {
  * only the previously-selected and newly-selected wrappers re-render
  * on a selection change.
  */
-export function useIsFieldSelected(uuid: Uuid): boolean {
-	return useIsBuilderFieldPathSelected(uuid);
+export function useIsFieldSelected(uuid: Uuid, route?: Uuid | null): boolean {
+	return useIsBuilderFieldPathSelected(uuid, route);
 }
 
 /** A single entry in the breadcrumb trail rendered by BuilderSubheader. */

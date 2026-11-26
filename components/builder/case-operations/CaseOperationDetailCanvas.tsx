@@ -111,8 +111,10 @@ import {
 	term,
 } from "@/lib/domain/expression";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import { readPlaceRuleIssuesAction } from "@/lib/organization/actions";
 import {
 	fixedLocationOwnerIssue,
+	placeRuleRequest,
 	reverseLocationOwnerRefusal,
 } from "@/lib/organization/ownerTargetVerdicts";
 import { useOrganization } from "@/lib/organization/useOrganization";
@@ -121,6 +123,7 @@ import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { managedPlacesContext } from "../app-setup/organizationUi";
+import { ToggleRow } from "../inspector/inspectorChrome";
 import { CaseOperationLinks } from "./CaseOperationLinks";
 import { useCaseTargetDraft } from "./CaseTargetDraftContext";
 import {
@@ -137,6 +140,11 @@ import {
 	caseOperationTextConstraint,
 	RUNTIME_TARGET_OPERATION_SCOPE,
 } from "./editorScope";
+import {
+	type FacetOnlyIfChangedSwitch,
+	facetOnlyIfChangedSwitch,
+	withOwner,
+} from "./facetOnlyIfChangedModel";
 import { operationFormFieldDecls } from "./formFieldScope";
 import {
 	casePropertyLabel,
@@ -294,6 +302,7 @@ export function CaseOperationDetailCanvas({
 					caseTypes,
 					expressionCaseType || undefined,
 					formType,
+					placements.own?.placement.kind === "basic",
 				)
 			: [];
 	const writeMenu = (writeIndex: number): OwnWriteMenu | undefined =>
@@ -307,6 +316,25 @@ export function CaseOperationDetailCanvas({
 					verdict: view.editVerdict,
 				})
 			: undefined;
+	/* Whether the rename and the owner are saved only when changed: offered
+	 * where CommCare HQ applies the mode to them (`facetOnlyIfChangedModel`). */
+	const facetSwitch = (facet: "name" | "owner") =>
+		operationCanEdit
+			? facetOnlyIfChangedSwitch({
+					facet,
+					operation,
+					formType,
+					inSaveToCase:
+						(own
+							? placements.own?.home
+							: placements.operations.find(
+									(entry) => entry.operationUuid === operation.uuid,
+								)?.entry.home) === "save-to-case",
+					verdict: view.editVerdict,
+				})
+			: undefined;
+	const nameSwitch = facetSwitch("name");
+	const ownerSwitch = facetSwitch("owner");
 	/** The case type a write lands on: the operation's, or the one its `via`
 	 *  reaches from the form's case. */
 	const writeCaseType = (write: CaseOperationWrite): string => {
@@ -574,6 +602,14 @@ export function CaseOperationDetailCanvas({
 						onChange={(name) => commit({ ...operation, name })}
 						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
+						footer={
+							nameSwitch !== undefined && (
+								<FacetOnlyIfChangedToggle
+									toggle={nameSwitch}
+									onCommit={commit}
+								/>
+							)
+						}
 					/>
 				)}
 
@@ -597,6 +633,14 @@ export function CaseOperationDetailCanvas({
 						onChange={(rename) => commit({ ...operation, rename })}
 						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
+						footer={
+							nameSwitch !== undefined && (
+								<FacetOnlyIfChangedToggle
+									toggle={nameSwitch}
+									onCommit={commit}
+								/>
+							)
+						}
 					/>
 				)}
 
@@ -617,10 +661,43 @@ export function CaseOperationDetailCanvas({
 						}
 						value={operation.owner}
 						canEdit={operationCanEdit}
-						onChange={(owner) => commit({ ...operation, owner })}
+						onChange={(owner) => commit(withOwner(operation, owner, formType))}
 						editorScope={editorScope}
+						footer={
+							ownerSwitch !== undefined && (
+								<FacetOnlyIfChangedToggle
+									toggle={ownerSwitch}
+									onCommit={commit}
+								/>
+							)
+						}
 					/>
 				)}
+
+				{((operation.action === "update" &&
+					operation.owner !== undefined &&
+					operation.target.kind !== "worker-record") ||
+					(operation.action === "create" &&
+						operation.target.kind === "new" &&
+						operation.target.idFrom === undefined &&
+						operation.target.expr === undefined)) &&
+					operation.ownerOnlyIfChanged === undefined && (
+						<OwnerConditionSection
+							slot={{
+								entity: "form",
+								uuid: formUuid,
+								slot: "case_operation_owner_condition",
+								member: { operationUuid },
+							}}
+							value={operation.ownerCondition}
+							canEdit={operationCanEdit}
+							onChange={(ownerCondition) =>
+								commit({ ...operation, ownerCondition })
+							}
+							editorScope={editorScope}
+							createsCase={operation.action === "create"}
+						/>
+					)}
 
 				<Section
 					title="What it saves"
@@ -782,6 +859,7 @@ export function CaseOwnerSection({
 	canEdit,
 	onChange,
 	editorScope,
+	footer,
 }: {
 	readonly action: "create" | "update";
 	readonly slot: ExpressionSlotRef;
@@ -789,6 +867,8 @@ export function CaseOwnerSection({
 	readonly canEdit: boolean;
 	readonly onChange: (next: Expression | undefined) => void;
 	readonly editorScope: EditorScope;
+	/** Shown under the owner, such as its Save only if changed switch. */
+	readonly footer?: React.ReactNode;
 }) {
 	const appId = useAppId();
 	const organization = useOrganization(appId ?? "");
@@ -826,7 +906,63 @@ export function CaseOwnerSection({
 		editorAxesOf(ownerContext).caseDataScope !== "global";
 	// Where CommCare HQ manages the places, a source with no destination or
 	// two is answered in CommCare HQ and a refresh, as the commit answers it.
+	const remoteQuery = useMemo(
+		() =>
+			organization.paged && reverseLevels.length
+				? JSON.stringify(
+						placeRuleRequest(
+							doc,
+							organization.revision,
+							reverseLevels.map((level) => level.uuid),
+						),
+					)
+				: undefined,
+		[organization.paged, organization.revision, doc, reverseLevels],
+	);
+	const [checked, setChecked] = useState<{
+		key: string;
+		error?: string;
+		issues?: Record<string, string>;
+	}>();
+	useEffect(() => {
+		if (!remoteQuery || !appId) return;
+		let live = true;
+		readPlaceRuleIssuesAction(appId, JSON.parse(remoteQuery)).then(
+			(response) => {
+				if (live)
+					setChecked(
+						response.success
+							? {
+									key: remoteQuery,
+									issues: response.data.reverse,
+									error: response.data.assignment,
+								}
+							: { key: remoteQuery, error: response.message },
+					);
+			},
+			() => {
+				if (live)
+					setChecked({
+						key: remoteQuery,
+						error:
+							"Nova couldn’t check these places. Open Organization to refresh them.",
+					});
+			},
+		);
+		return () => {
+			live = false;
+		};
+	}, [appId, remoteQuery]);
 	const reverseLevelIssues = useMemo(() => {
+		if (remoteQuery)
+			return new Map(
+				reverseLevels.map((level) => [
+					level.uuid,
+					checked?.key === remoteQuery
+						? (checked.error ?? checked.issues?.[level.uuid])
+						: "Checking the places at this level.",
+				]),
+			);
 		const managed = managedPlacesContext(organization.hq);
 		return new Map(
 			reverseLevels.map((level) => [
@@ -839,7 +975,14 @@ export function CaseOwnerSection({
 				),
 			]),
 		);
-	}, [doc, organization.hq, organization.locations, reverseLevels]);
+	}, [
+		doc,
+		organization.hq,
+		organization.locations,
+		reverseLevels,
+		remoteQuery,
+		checked,
+	]);
 	const fixedModeIssue = fixedOwnerModeIssue(
 		organization,
 		fixedLocationCandidates.length,
@@ -1007,6 +1150,18 @@ export function CaseOwnerSection({
 								Place that owns the case
 							</p>
 							<LocationChoiceSelect
+								remote={
+									organization.paged && appId
+										? {
+												appId,
+												revision: organization.revision,
+												activeOnly: true,
+												levelIds: levels
+													.filter(levelOwnsCases)
+													.map((level) => level.uuid),
+											}
+										: undefined
+								}
 								locations={fixedLocationCandidates}
 								value={
 									selected?.term.kind === "fixed-location"
@@ -1028,7 +1183,9 @@ export function CaseOwnerSection({
 								issueFor={(location) =>
 									fixedLocationOwnerIssue(
 										doc,
-										organization.locations,
+										location.path
+											? [...organization.locations, ...location.path, location]
+											: organization.locations,
 										location.id,
 									)
 								}
@@ -1106,6 +1263,7 @@ export function CaseOwnerSection({
 					)}
 				</div>
 			)}
+			{footer}
 		</Section>
 	);
 }
@@ -1213,6 +1371,7 @@ function OptionalExpressionSection({
 	onChange,
 	constraint,
 	editorScope,
+	footer,
 }: {
 	readonly slot: ExpressionSlotRef;
 	readonly title: string;
@@ -1227,6 +1386,8 @@ function OptionalExpressionSection({
 	readonly onChange: (next: Expression | undefined) => void;
 	readonly constraint: ReturnType<typeof storageAssignmentConstraint>;
 	readonly editorScope: EditorScope;
+	/** Shown under the value, such as its Save only if changed switch. */
+	readonly footer?: React.ReactNode;
 }) {
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 	return (
@@ -1261,6 +1422,77 @@ function OptionalExpressionSection({
 					value={value}
 					onChange={onChange}
 					constraint={constraint}
+					{...editorScope}
+				/>
+			)}
+			{value !== undefined && footer}
+		</Section>
+	);
+}
+
+function OwnerConditionSection({
+	slot,
+	value,
+	canEdit,
+	onChange,
+	editorScope,
+	createsCase,
+}: {
+	readonly slot: ExpressionSlotRef;
+	readonly value: Expression | undefined;
+	readonly canEdit: boolean;
+	readonly onChange: (next: Expression | undefined) => void;
+	readonly editorScope: EditorScope;
+	readonly createsCase: boolean;
+}) {
+	const expressionContext = useExpressionSlotContext(slot);
+	const { addRef, onCleared } = useClearedSlotFocus(value);
+	return (
+		<Section
+			title="When to assign the owner"
+			description={
+				createsCase
+					? "If the condition is false, the submitting worker owns the new case."
+					: "If the condition is false, the case keeps its current owner."
+			}
+			action={
+				value !== undefined && canEdit ? (
+					<ClearConditionButton
+						label="Always assign"
+						title="Always assign the owner?"
+						consequence="The owner will be assigned every time this change runs."
+						finalFocus={() => addRef.current}
+						onConfirm={() => {
+							onCleared();
+							onChange(undefined);
+						}}
+					/>
+				) : undefined
+			}
+		>
+			{value === undefined ? (
+				<AddSlotButton
+					ref={addRef}
+					label="Add an owner condition"
+					disabled={!canEdit || expressionContext === undefined}
+					onClick={() => {
+						if (expressionContext === undefined) return;
+						onChange(
+							firstComparisonDefault({
+								expressionContext,
+								...editorScope,
+								...editorAxesOf(expressionContext),
+								knownInputs: [],
+							}),
+						);
+					}}
+				/>
+			) : (
+				<ConditionSlotEditor
+					slot={slot}
+					value={value}
+					onChange={onChange}
+					rootLabel="when the owner is assigned"
 					{...editorScope}
 				/>
 			)}
@@ -1431,6 +1663,29 @@ function WriteRow({
 					</div>
 				)}
 			</div>
+		</div>
+	);
+}
+
+/** The Save only if changed switch under a new name or an owner. */
+function FacetOnlyIfChangedToggle({
+	toggle,
+	onCommit,
+}: {
+	readonly toggle: FacetOnlyIfChangedSwitch;
+	readonly onCommit: (next: CaseOperation) => boolean;
+}) {
+	return (
+		<div className="mt-3" data-facet-only-if-changed={toggle.on ? "on" : "off"}>
+			<ToggleRow
+				label={toggle.label}
+				description={toggle.line}
+				checked={toggle.on}
+				{...(toggle.disabledReason !== undefined && {
+					disabledReason: toggle.disabledReason,
+				})}
+				onChange={() => onCommit(toggle.next)}
+			/>
 		</div>
 	);
 }

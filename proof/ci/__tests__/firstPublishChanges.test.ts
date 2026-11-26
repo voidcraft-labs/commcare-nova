@@ -25,8 +25,8 @@ import {
 	RESPELLED_FORM_PARTS,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import {
-	FIRST_PUBLISH_CHANGE_IDS,
-	type FirstPublishChangeId,
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+	type CurrentFirstPublishChangeId,
 } from "@/lib/publish/firstPublishChangeIds";
 
 interface Row {
@@ -48,17 +48,16 @@ const CHECKS = new Set(["source", "proof1", "proof2", "proof3"]);
 const FORM_SOURCE = "/_attachments/*";
 const FORM_PART = `${FORM_SOURCE}/`;
 
-// The step of a trace path above a value a search sent CommCare HQ, as the lane's expectations read it
-// (`proof/matrix/test_expectations.py::SEARCH_QUERY`): HQ ANDs each value as one more filter
-// (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`), so how the values are cut is no
-// difference a worker meets; the cases HQ answers with are, at the list's rows and the request's
-// `answered`, which no such row names.
-const SEARCH_QUERY = "_xpath_query";
+// Values carried in an HQ Search request. Proof 3 separately compares HQ's
+// answers and what the worker sees.
+const SEARCH_REQUEST_PARAMETER =
+	/^\/runs\/\*\/trace\/\*\/(?:requests\/\*\/)?params\/(?:_xpath_query|commcare_sort)\/\*$/;
 
 function searchSent(row: Row): boolean {
 	return (
 		row.check === "proof3" &&
-		row.path.split("/").slice(-2).includes(SEARCH_QUERY)
+		row.artifact.startsWith("trace@") &&
+		SEARCH_REQUEST_PARAMETER.test(row.path)
 	);
 }
 
@@ -74,7 +73,7 @@ function load(): Change[] {
 describe("proof/first-publish-changes.json", () => {
 	it("holds one object a change, in registry order", () => {
 		expect(load().map((one) => one.change)).toEqual([
-			...FIRST_PUBLISH_CHANGE_IDS,
+			...CURRENT_FIRST_PUBLISH_CHANGE_IDS,
 		]);
 	});
 
@@ -82,13 +81,18 @@ describe("proof/first-publish-changes.json", () => {
 		for (const one of load())
 			expect([one.change, one.placeKinds]).toEqual([
 				one.change,
-				[...firstPublishPlaceKindsOf(one.change as FirstPublishChangeId)],
+				[
+					...firstPublishPlaceKindsOf(
+						one.change as CurrentFirstPublishChangeId,
+					),
+				],
 			]);
 	});
 
 	it("holds as each change's source rows exactly the stored-app pointers its entry allows, but a form's source where the change stands everywhere", () => {
 		for (const one of load()) {
-			const entry = FIRST_PUBLISH_CHANGES[one.change as FirstPublishChangeId];
+			const entry =
+				FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId];
 			const appWide = "appWide" in entry.at;
 			const source = one.rows.filter((row) => row.check === "source");
 			for (const row of source)
@@ -154,12 +158,12 @@ describe("proof/first-publish-changes.json", () => {
 			if (one.rows.some((row) => row.check === "proof3" && !searchSent(row)))
 				expect([
 					one.change,
-					FIRST_PUBLISH_CHANGES[one.change as FirstPublishChangeId]
+					FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId]
 						.touchesWorkers,
 				]).toEqual([one.change, true]);
 	});
 
-	it("reads as a value a search sends only a step of `_xpath_query`, never what HQ answered or a screen", () => {
+	it("reads Search query and order values only from request parameter paths", () => {
 		const row = (path: string): Row => ({
 			check: "proof3",
 			artifact: "trace@B",
@@ -169,7 +173,16 @@ describe("proof/first-publish-changes.json", () => {
 		expect(
 			searchSent(row("/runs/*/trace/*/requests/*/params/_xpath_query/*")),
 		).toBe(true);
+		expect(searchSent(row("/runs/*/trace/*/params/commcare_sort/*"))).toBe(
+			true,
+		);
+		expect(
+			searchSent(row("/runs/*/trace/*/requests/*/params/commcare_sort/*")),
+		).toBe(true);
 		expect(searchSent(row("/runs/*/trace/*/requests/*/answered"))).toBe(false);
+		expect(searchSent(row("/runs/*/trace/*/rows/*/commcare_sort/*"))).toBe(
+			false,
+		);
 		expect(searchSent(row("/runs/*/trace/*/rows/*"))).toBe(false);
 		expect(
 			searchSent({

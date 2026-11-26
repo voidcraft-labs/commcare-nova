@@ -1,4 +1,5 @@
 import { caseTypeHopMap } from "@/lib/commcare/caseTypeDepths";
+import { searchAnswersOf } from "@/lib/commcare/emissionPlan";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
@@ -23,6 +24,10 @@ import {
 } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	afterEmptySearchRegistrationFormOf,
+	moduleUuidOfForm,
+} from "@/lib/domain";
 import {
 	type ExpressionContext,
 	slotContext,
@@ -92,7 +97,7 @@ export function previewFormNodeProjection(
 		path(node) {
 			const coordinates = path(node);
 			if (coordinates === undefined) return undefined;
-			let result = FormPath.root();
+			let result = FormPath.root(form.dataRootName);
 			for (const coordinate of coordinates.slice(1)) {
 				const projected = step(coordinate);
 				if (projected === undefined) return undefined;
@@ -214,6 +219,16 @@ export function formExpressionRuntime(
 ): FormExpressionRuntime {
 	const projection = previewFormNodeProjection(doc, formUuid);
 	const reads = previewFormNodeProjection(doc, formUuid, { readPaths: true });
+	const menu = moduleUuidOfForm(doc, formUuid);
+	const search =
+		menu &&
+		searchAnswersOf(
+			doc,
+			menu,
+			afterEmptySearchRegistrationFormOf(doc, menu) === formUuid
+				? undefined
+				: formUuid,
+		);
 	const contexts = new Map<string, ExpressionContext>();
 	const context = (slot: SlotContextRef): ExpressionContext => {
 		const key = JSON.stringify(slot);
@@ -238,9 +253,8 @@ export function formExpressionRuntime(
 	): string => {
 		for (const { node } of formReads(expression)) {
 			if (
-				node.kind !== "field" &&
-				node.kind !== "repeat-row" &&
-				!(node.kind === "repeat" && node.role !== "count-result")
+				node.kind === "form-root" ||
+				(node.kind === "repeat" && node.role === "count-result")
 			)
 				throw new Error(
 					`Preview cannot yet evaluate the generated form node ${formNodeKey(node)}.`,
@@ -252,6 +266,13 @@ export function formExpressionRuntime(
 			form: projection,
 			bindings: {
 				...bindings,
+				...(search && {
+					searchInputNames: search.names,
+					searchInputInstanceId: search.instanceId,
+					searchAnswerInstances: search.answers,
+					searchResultInstances: search.instances,
+					searchResultInstance: search.resultsInstanceId,
+				}),
 				...(lookup === undefined
 					? {}
 					: {
@@ -266,7 +287,7 @@ export function formExpressionRuntime(
 			startingDatetime
 				? startingDatetimeWire(expression, build)
 				: toWire(expression, build),
-			{ target: "preview" },
+			{ target: "preview", formRootName: doc.forms[formUuid]?.dataRootName },
 		).text;
 	};
 	const texts = new Map<string, string | undefined>();

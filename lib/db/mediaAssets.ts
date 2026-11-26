@@ -1165,17 +1165,40 @@ export async function findReadyAssetByProjectAndHash(
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<MediaAssetRecord | null> {
 	const db = lockedDb ?? (await getAppDb());
-	const row = await db
-		.selectFrom("media_assets")
+	const row = await readyAssetsForContents(db, projectId, [contentHash])
 		.selectAll()
-		.where("project_id", "=", projectId)
-		.where("content_hash", "=", contentHash)
-		.where("status", "=", "ready")
-		.orderBy("created_at")
-		.orderBy("id")
 		.limit(1)
 		.executeTakeFirst();
 	return row ? mediaAssetRecordFromRow(row) : null;
+}
+
+/** The same Project and hash choice for the incoming review and the locked
+ * upload, including old Projects with several ready rows for one content. */
+function readyAssetsForContents(
+	db: Kysely<AppDatabase>,
+	projectId: string,
+	contentHashes: readonly string[],
+) {
+	return db
+		.selectFrom("media_assets")
+		.distinctOn("content_hash")
+		.where("project_id", "=", projectId)
+		.where("content_hash", "in", contentHashes)
+		.where("status", "=", "ready")
+		.orderBy("content_hash")
+		.orderBy("created_at")
+		.orderBy("id");
+}
+
+/** Only the matching IDs and hashes cross the review boundary. */
+export async function findReadyAssetIdsByProjectAndHashes(
+	projectId: string,
+	contentHashes: readonly string[],
+): Promise<readonly Pick<MediaAssetRecord, "id" | "contentHash">[]> {
+	if (contentHashes.length === 0) return [];
+	return readyAssetsForContents(await getAppDb(), projectId, contentHashes)
+		.select(["id", "content_hash as contentHash"])
+		.execute();
 }
 
 /**
@@ -1470,6 +1493,17 @@ export async function lockAndValidateMediaReferences(
 ): Promise<MediaAssetId[]> {
 	const ids = [...new Set(requirements.map((entry) => entry.assetId))].sort();
 	const assets = await getAssetsInTransaction(tx, ids);
+	validateMediaReferenceRows(projectId, requirements, assets);
+	return ids;
+}
+
+/** The read-only cutover scan and the locked commit apply the same Project,
+ * readiness, slot kind and platform checks to their respective snapshots. */
+export function validateMediaReferenceRows(
+	projectId: string,
+	requirements: readonly MediaReferenceRequirement[],
+	assets: ReadonlyMap<MediaAssetId, MediaAssetRecord>,
+): void {
 	for (const requirement of requirements) {
 		const asset = assets.get(requirement.assetId);
 		if (
@@ -1514,7 +1548,6 @@ export async function lockAndValidateMediaReferences(
 			unplayable,
 		);
 	}
-	return ids;
 }
 
 /** Remove the complete derived reference projection for one app. */

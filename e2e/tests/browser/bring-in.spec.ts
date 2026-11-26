@@ -27,6 +27,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
+import { asUuid } from "@/lib/domain/uuid";
 import {
 	accountHeadingLine,
 	accountLead,
@@ -91,6 +92,12 @@ import {
 	UNVERIFIED_LANDING_TITLE,
 } from "@/lib/publish/hqReadingCopy";
 import { CHOICE_OTHER_PROJECT } from "@/lib/publish/managedData";
+import {
+	OWNER_RULE_NEEDS_ANSWER,
+	OWNER_RULE_WORKER_LABEL,
+	ownerRuleBody,
+	ownerRuleTitle,
+} from "@/lib/publish/ownerRuleCopy";
 import { bringInHref } from "@/lib/routing/bringInLocation";
 import type {
 	BringInPeerConfig,
@@ -268,6 +275,7 @@ function reviewOf(overrides: Partial<ReadingReview> = {}): ReadingReview {
 		platformsOut: [],
 		kept: [],
 		tables: [DISTRICT_TABLE],
+		ownerRules: [],
 		places: null,
 		mediaLeftOut: 0,
 		firstPublish: {
@@ -300,6 +308,7 @@ const ANSWERED_INPUT: BringInInput = {
 	runsOnlyOn: null,
 	splitDatetime: false,
 	tableChoices: { district: "use-project" },
+	ownerRuleChoices: {},
 };
 
 function receiptOf(input: BringInInput): AdoptedAppReceipt {
@@ -1327,11 +1336,11 @@ function questionAt(path: string): HqPlace {
 
 /** Twenty-two findings of one sentence about one form's questions: a run that folds. */
 const FOLDED: Finding[] = Array.from({ length: 22 }, (_, index) => ({
-	code: "question-appearance.style",
+	code: "questions/itemset-filter-outside-predicate",
 	standing: "not-yet",
 	place: questionAt(`/data/visit/q${index + 1}`),
-	subject: "question-appearance",
-	detail: { name: "minimal" },
+	subject: "question-choices",
+	detail: { name: "facility_options" },
 }));
 
 const ACCOUNT_FINDINGS: Finding[] = [
@@ -1489,6 +1498,60 @@ test("the account groups what keeps the app out by where it lives, and its list 
 // ---------------------------------------------------------------------------
 
 test.describe("the review", () => {
+	test("shows which project space supplies each menu's search before creating the app", async ({
+		page,
+	}) => {
+		const routes = removableRoutes(page);
+		try {
+			const review = reviewOf({
+				projectSearches: [
+					{
+						searchUuid: asUuid("00000000-0000-7000-8000-000000000017"),
+						name: "Area visits",
+						endpointId: 17,
+						menus: [
+							{
+								menuUuid: asUuid("00000000-0000-7000-8000-000000000018"),
+								name: "Follow up",
+								parameters: ["area"],
+								results: [{ name: "district", type: "text" }],
+							},
+						],
+					},
+				],
+			});
+			await recorded(routes, "/api/commcare/bring-in/read", (route) =>
+				fulfillNdjson(route, answered(reviewAnswer(review))),
+			);
+			await open(page, routes, APP_ADDRESS);
+			await expect(
+				page.getByRole("heading", {
+					name: "Searches supplied by this project space",
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText("Area visits · Search ID 17", { exact: true }),
+			).toBeVisible();
+			await expect(
+				page.getByText("Follow up · Sends area · Reads district (text)", {
+					exact: true,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText(KEY.domain + " manages these searches", {
+					exact: false,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: BRING_IN_ACTIONS.bringItIn,
+					exact: true,
+				}),
+			).toBeEnabled();
+		} finally {
+			await routes.removeAll();
+		}
+	});
 	test("Where workers use this app is chosen for the person, and choosing another changes what the first publish changes", async ({
 		page,
 	}) => {
@@ -1648,6 +1711,67 @@ test.describe("the review", () => {
 			await button(page, BRING_IN_ACTIONS.bringItIn).click();
 			await expect.poll(() => creates.length).toBe(1);
 			expect(creates).toEqual([ANSWERED_INPUT]);
+		} finally {
+			await routes.removeAll();
+		}
+	});
+
+	test("Bring it in asks who owns the cases an owner rule can't place, never answers it, and sends the answer given", async ({
+		page,
+	}) => {
+		const rule = {
+			level: "clinic",
+			levelName: "Clinic",
+			conflict: {
+				kind: "two-places",
+				source: "North district",
+				places: ["First clinic", "Second clinic"],
+			},
+			forms: ["Transfer"],
+		} as const;
+		const routes = removableRoutes(page);
+		try {
+			await recorded(routes, "/api/commcare/bring-in/read", (route) =>
+				fulfillNdjson(
+					route,
+					answered(reviewAnswer(reviewOf({ tables: [], ownerRules: [rule] }))),
+				),
+			);
+			const input: BringInInput = {
+				...ANSWERED_INPUT,
+				tableChoices: {},
+				ownerRuleChoices: { clinic: "worker" },
+			};
+			const creates = await recorded(
+				routes,
+				"/api/commcare/bring-in/create",
+				(route) =>
+					fulfillNdjson(
+						route,
+						answered({ kind: "created", receipt: receiptOf(input) }),
+					),
+			);
+			await open(page, routes, APP_ADDRESS);
+			const group = page.locator('[data-review-owner-rule="clinic"]');
+			await expect(group.getByText(ownerRuleTitle(rule))).toBeVisible();
+			await expect(
+				group.getByText(ownerRuleBody(rule, KEY.domain), { exact: true }),
+			).toBeVisible();
+			await expect(group.getByRole("radio", { checked: true })).toHaveCount(0);
+
+			await button(page, BRING_IN_ACTIONS.bringItIn).click();
+			await expect(group.getByRole("alert")).toHaveText(
+				OWNER_RULE_NEEDS_ANSWER,
+			);
+			await expect(group.locator(":focus")).toHaveCount(1);
+			expect(creates).toEqual([]);
+
+			await group
+				.getByRole("radio", { name: OWNER_RULE_WORKER_LABEL, exact: true })
+				.click();
+			await button(page, BRING_IN_ACTIONS.bringItIn).click();
+			await expect.poll(() => creates.length).toBe(1);
+			expect(creates).toEqual([input]);
 		} finally {
 			await routes.removeAll();
 		}

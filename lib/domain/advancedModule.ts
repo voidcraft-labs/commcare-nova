@@ -14,7 +14,8 @@ import type { BlueprintDoc } from "./blueprint";
 import { rootSelectionAlignment } from "./entryDatumSupplies";
 import { effectiveFilterForEmission } from "./expression/simplify";
 import { substituteUnansweredSearchInputs } from "./expression/walk";
-import { operationCaseType } from "./forms";
+import { operationCaseType, usesFormEntryActions } from "./forms";
+import { menuWithInheritedCaseSettings } from "./listedForms";
 import {
 	caseSelectionCardinality,
 	moduleFormsReadSearch,
@@ -43,7 +44,9 @@ import type { Uuid } from "./uuid";
  */
 export type AdvancedKindBlocker =
 	| { readonly kind: "several-cases" }
+	| { readonly kind: "several-record-types" }
 	| { readonly kind: "forms-read-search" }
+	| { readonly kind: "individual-grid" }
 	| {
 			readonly kind: "case-list-menu-item-narrowed";
 			readonly why: "filter" | "hidden-owners" | "chosen-before";
@@ -396,7 +399,7 @@ function parentSelectionChain(
 /** How the menu's own case list, shown as a menu item, is narrowed, the
  *  first of filter, hidden owners and a case chosen before it; `undefined`
  *  where it lists every open case of its type. */
-function caseListNarrowing(
+export function caseListNarrowing(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): "filter" | "hidden-owners" | "chosen-before" | undefined {
@@ -434,9 +437,26 @@ export function advancedKindBlockers(
 	const blockers: AdvancedKindBlocker[] = [];
 	if (caseSelectionCardinality(module) === "multiple")
 		blockers.push({ kind: "several-cases" });
+	// Advanced manual loads and the advanced case-list item bind only their
+	// own case type, including a load supplied by an earlier menu.
+	if (
+		parentSelectionChain(doc, moduleUuid).some(
+			(uuid) => doc.modules[uuid]?.caseListConfig?.additionalCaseTypes?.length,
+		)
+	)
+		blockers.push({ kind: "several-record-types" });
 	if (moduleFormsReadSearch(module))
 		blockers.push({ kind: "forms-read-search" });
-	if (moduleHasCaseListMenuItem(module)) {
+	if (module.menuLayout === "grid") blockers.push({ kind: "individual-grid" });
+	const formEntryList =
+		module.heldKind === "advanced" ||
+		module.autoSelectSingle ||
+		module.caseType === "commcare-user" ||
+		(doc.formOrder[moduleUuid] ?? []).some((id) => {
+			const form = doc.forms[id];
+			return form !== undefined && usesFormEntryActions(form);
+		});
+	if (moduleHasCaseListMenuItem(module) && !formEntryList) {
 		const why = caseListNarrowing(doc, moduleUuid);
 		if (why !== undefined)
 			blockers.push({ kind: "case-list-menu-item-narrowed", why });
@@ -444,8 +464,11 @@ export function advancedKindBlockers(
 	if (module.parentCaseModuleUuid !== undefined) {
 		const chain = parentSelectionChain(doc, moduleUuid);
 		for (let i = 1; i < chain.length; i++) {
-			const parentType = doc.modules[chain[i - 1]]?.caseType;
-			const childType = doc.modules[chain[i]]?.caseType;
+			const parentType = menuWithInheritedCaseSettings(
+				doc,
+				chain[i - 1],
+			)?.caseType;
+			const childType = menuWithInheritedCaseSettings(doc, chain[i])?.caseType;
 			if (parentType === undefined || childType === undefined) continue;
 			const index = advancedChainIndex(doc, childType, parentType);
 			if (index.kind === "several") {

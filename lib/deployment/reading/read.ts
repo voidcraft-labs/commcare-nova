@@ -1,4 +1,5 @@
 import "server-only";
+import type { HqManagementGrant } from "../store";
 
 /**
  * One read of a CommCare HQ app for review: who may ask for it, and the read
@@ -19,7 +20,9 @@ declare const bringInAuthorized: unique symbol;
 /** Proof that the person held `edit` in the Project when the request began. Only
  *  `authorizeBringIn` makes one: the brand's key is not exported. */
 export interface BringInActor {
+	readonly requireOperation?: HqManagementGrant;
 	readonly userId: string;
+	readonly role: string;
 	readonly projectId: string;
 	readonly [bringInAuthorized]: true;
 }
@@ -34,12 +37,12 @@ export async function authorizeBringIn(
 	projectId: string,
 ): Promise<BringInActor | null> {
 	try {
-		await resolveProjectAccess(userId, projectId, "edit");
+		const { role } = await resolveProjectAccess(userId, projectId, "edit");
+		return { userId, projectId, role } as BringInActor;
 	} catch (error) {
 		if (error instanceof AppAccessError) return null;
 		throw error;
 	}
-	return { userId, projectId } as BringInActor;
 }
 
 /**
@@ -53,6 +56,7 @@ export function readHqAppForReview(
 	options: {
 		readonly onEvent: (event: ReadingEvent) => void;
 		readonly cancel?: AbortSignal;
+		readonly continuationReadingId?: string;
 	},
 ): Promise<ReadingAnswer> {
 	return withBringInRoom(
@@ -60,6 +64,7 @@ export function readHqAppForReview(
 		(room) =>
 			readInRoom(actor, key, {
 				onEvent: options.onEvent,
+				continuationReadingId: options.continuationReadingId,
 				cancel:
 					options.cancel === undefined
 						? room.signal
@@ -75,17 +80,18 @@ async function readInRoom(
 	options: {
 		readonly onEvent: (event: ReadingEvent) => void;
 		readonly cancel?: AbortSignal;
+		readonly continuationReadingId?: string;
 	},
 ): Promise<ReadingAnswer> {
 	const started = performance.now();
-	const readingId = uuidv7();
+	const readingId = options.continuationReadingId ?? uuidv7();
 	const appId = broughtInAppId(actor.userId, key, readingId);
 	const { result, facts } = await gatherReading({
 		actor,
 		key,
 		readingId,
 		appId,
-		keepMedia: false,
+		stageMedia: null,
 		onEvent: options.onEvent,
 		...(options.cancel !== undefined && { cancel: options.cancel }),
 	});

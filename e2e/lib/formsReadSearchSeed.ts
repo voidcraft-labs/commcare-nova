@@ -8,7 +8,8 @@
  * the Results a completed search lands on (rows, or the "No cases match"
  * notice carrying the register action), and the case list registration
  * form that opens prefilled from the search's answers and returns to
- * Results showing the case it made. The fixture is the smallest shape that
+ * Results, which list no row though the search holds the case it made
+ * (as Web Apps shows them). The fixture is the smallest shape that
  * exercises every hop: one required visible prompt on the case name, one
  * hidden prompt (the search time, `now()`), one case-loading menu form so
  * the module is case-first, and one registration form the menu's

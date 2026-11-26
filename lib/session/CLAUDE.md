@@ -1,6 +1,6 @@
 # lib/session — Builder ephemeral session store
 
-Transient UI state scoped to the builder route: preview mode, sidebar visibility, agent run status, active field, connect-mode stash, staged media uploads. None of it is undoable; none of it persists across page loads.
+Transient UI state scoped to the builder route: preview mode, sidebar visibility, agent run status, active field, staged media uploads. None of it is undoable; none of it persists across page loads.
 
 ## Boundary rule
 
@@ -162,11 +162,19 @@ session over as Android's reset does
 `AndroidSessionWrapper.reset` → `CommCareSession.clearAllState`: a new
 frame and an empty frame stack): it clears every navigation fact (the case
 target, the Register launch, the task continuation, the after-submit stack,
-an entry point's launch, the selected case, the menu selections, a parent
-case request, the searches) and mints a new `previewSessionId`, so a held
-form menu the browser's history kept no longer stands. The worker, the
-platform, the last sync and the device id are the device's and stay; Start
-opens the app on that new session. `previewDeviceSyncedAt` is this Preview run's
+an entry point's launch and its Android visit, the selected case, the menu
+selections, a parent case request, the searches) and mints a new
+`previewSessionId`, so a held form menu the browser's history kept no longer
+stands. The worker, the platform, the last sync and the device id are the
+device's and stay; Start opens the app on that new session.
+`previewEntryPointVisit` is an Android visit an entry point opened, set by
+`installEntryPointLaunch` on Android and kept when ordinary navigation retires
+the launch's bypass (`clearEntryPointLaunch`): Android ends such a visit when
+its first form ends, submitted or left
+(`SessionLaunchDelegate.kt::exitFromExternalLaunch`), so `FormScreen`'s
+submission and `BreadcrumbStrip`'s Back and crumbs on a form land on the
+phone's home screen through `setPreviewAtDeviceHome(true)`, which clears it
+with every other navigation fact. `previewDeviceSyncedAt` is this Preview run's
 last sync on Android, set when Preview starts on Android, by a change of worker
 or an entry-point launch there, and by Sync with server; it clears on leaving
 Preview. `previewAndroidDeviceId` is the UUID of Android's `deviceid`, minted
@@ -201,25 +209,6 @@ retain the set. Home clears the current task's case facts and search context,
 without changing worker identity or authorization. Preview reset, persona change, Project boundary, or module
 removal clears it. A maximum change does not trim it: the running screen holds
 the over-limit set until the worker removes enough cases.
-
-## Connect UI state is not Connect document ownership
-
-The store owns only the form-settings convenience state: mode-specific draft
-stashes and `lastConnectType` as the next-dialog default. `switchConnectMode`
-never infers a target mode from that hint. Its caller supplies an explicit mode
-and, for learn/deliver, the complete desired participant blocks; the store
-delegates document planning to `lib/doc/connectTargetState.ts` and gates the
-returned batch once, under the Project lookup context the one
-`ConnectSwitchRequest` carries beside the target and blocks.
-`useSwitchConnectMode` first runs the shared `builderWriteAdmission` (a viewer,
-a lookup catalog still loading or failed) and then binds the builder's live
-context from `useLookupCommitState`, so a doc that carries a lookup-backed
-select can still switch modes; the store deliberately has no default for the
-context, because the gate is absolute and an unavailable one refuses every
-switch on such a doc. A null target clears the app mode and every form block;
-an enabled target clears every unlisted block. The stash is updated only after
-the document batch commits and can never make a dormant Connect configuration
-part of the blueprint.
 
 ## Lifecycle = events buffer + runCompletedAt + the run-start capture
 
@@ -370,7 +359,7 @@ chat status line instead of falling back to `understanding`.
 
 `stagedUploads` is why a slot upload is session state and not doc state: the doc must never reference an asset that isn't `ready`, so a picked file lives here — keyed by carrier slot, with progress and an error state — until its upload confirms and the slot dispatches the normal gated attach (`components/builder/media/useStagedUpload.ts` is the driver). Abort handles are functions, so they live in a factory-closure registry beside the store (the `docStoreRef` pattern), never in serializable state; `cancelStagedUpload` aborts through it and `reset()` aborts everything (a torn-down session must not let an orphaned upload attach into a dead store). Keying by slot identity (not component instance) is what lets a slot that unmounts mid-upload re-render its chip from the store on remount.
 
-`assetMeta` is the sibling registry: asset rows observed this session (library pages the pickers load, upload confirms, the budget check's own fetches), keyed by id. Each row carries its `mediaFormat`, which the attach guard, the pickers and Preview's stand-in read, and its `contentHash` and `extension`, from which Preview's list filter reads the `jr://file/` path a device holds for an image map's image. The browser's pre-dispatch export-ceiling check (`components/builder/media/useAttachBudget.ts`) resolves the doc's referenced ids against it and fetches only the gaps. Advisory by design — the export boundary re-loads fresh rows server-side, so staleness here can only mis-tune the courtesy check, never the enforcement.
+`assetMeta` is the sibling registry: asset rows observed this session (library pages the pickers load, upload confirms, the attach check's candidates, the referenced-row reader's fetches), keyed by id. Each row carries its `mediaFormat`, which the attach guard, the pickers and Preview's stand-in read, and its `contentHash` and `extension`, from which Preview's list filter reads the `jr://file/` path a device holds for an image map's image. Advisory by design — the commit kernel and the export boundary re-load fresh rows server-side, so staleness here can only mis-tune a courtesy check, never the enforcement.
 
 ## A pending identity move
 
@@ -480,3 +469,9 @@ Preview's identity menu and missing-persona recovery return the URL to app entry
 when choosing a different worker. The session action clears prior record and
 Search bindings; the UI navigation replaces the prior form route. Choosing a
 worker never changes the member who authorizes access to Project data.
+
+The Preview phone's installed Android apps belong to its simulated installation. Switching workers or platforms keeps the phone’s selection. App settings own the ordered requirements independently.
+
+### First-menu selection after submission
+
+The home screen normally clears the worker’s selections. On Android a Previous task that returns directly to Home carries the case datums from its actual frame. The browser history entry records these for this Preview session. Starting a fresh Home, changing worker or changing platform creates a fresh case choice.

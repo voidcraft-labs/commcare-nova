@@ -15,7 +15,12 @@ import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { getHqCredentials } from "@/lib/db/settings";
-import { type BlueprintDoc, entryPointInventory } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	entryPointInventory,
+	type SuppliedCaseCreation,
+	suppliedCreationIssue,
+} from "@/lib/domain";
 import type { EntryPointLink, PublishedEntryPoint } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
 import { publishedRemoteApp } from "./resources";
@@ -35,6 +40,7 @@ function refuse(message: string): never {
 export function entryPointArguments(
 	entry: PublishedEntryPoint,
 	selections: readonly { moduleUuid: string; caseIds: readonly string[] }[],
+	creations: readonly SuppliedCaseCreation[] = [],
 ): URLSearchParams {
 	const args = new URLSearchParams();
 	if (
@@ -64,7 +70,30 @@ export function entryPointArguments(
 			refuse("Case IDs must be nonempty, distinct, and contain no commas.");
 		args.set(required.argumentId, ids.join(","));
 	}
-	return args;
+	const requiredCreations = entry.requiredCreations ?? [];
+	const chosenIds = new Set(selections.flatMap((row) => row.caseIds));
+	if (creations.some((row) => chosenIds.has(row.caseId)))
+		refuse("A new case ID also names a selected case. Choose a fresh ID.");
+	const issue = suppliedCreationIssue(requiredCreations, creations);
+	if (issue) refuse(issue);
+	for (const required of requiredCreations) {
+		const input = creations.find(
+			(row) => row.operationUuid === required.operationUuid,
+		);
+		if (!input) refuse("Provide every new case ID before creating the link.");
+		args.set(required.argumentId, input.caseId);
+	}
+	if (!entry.argumentOrder) return args;
+	const ordered = new URLSearchParams();
+	for (const key of entry.argumentOrder) {
+		const value = args.get(key);
+		if (value === null)
+			refuse("Publish the app again to refresh its deep link arguments.");
+		ordered.append(key, value);
+	}
+	if (ordered.size !== args.size)
+		refuse("Publish the app again to refresh its deep link arguments.");
+	return ordered;
 }
 
 /** A fresh bounded observation, never a request to the claim-capable link itself. */
@@ -76,6 +105,7 @@ export async function getEntryPointLink(input: {
 	sourceSequence: number;
 	entryPointUuid: string;
 	selections: readonly { moduleUuid: string; caseIds: readonly string[] }[];
+	creations?: readonly SuppliedCaseCreation[];
 }): Promise<EntryPointLink> {
 	const { scope, target } = input;
 	const deployment = await readDeployment(scope, target);
@@ -117,7 +147,7 @@ export async function getEntryPointLink(input: {
 			current.target.formUuid !== entry.target.formUuid)
 	)
 		refuse("Publish this entry point before creating its HQ link.");
-	const args = entryPointArguments(entry, input.selections);
+	const args = entryPointArguments(entry, input.selections, input.creations);
 	const credentials = await getHqCredentials(scope.actorUserId, target.domain);
 	if (!credentials.ok)
 		throw new DeploymentError(
@@ -251,7 +281,7 @@ export async function getEntryPointLink(input: {
 		);
 	const checkedAt = new Date().toISOString();
 	if (
-		!(await recordEntryPointObservation(scope, target, {
+		!(await recordEntryPointObservation(scope, target, remote.pushToken, {
 			generation: manifest.generation,
 			remoteAppId: remote.remoteId,
 			entryPointUuid: entry.uuid,

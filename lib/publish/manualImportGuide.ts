@@ -1,3 +1,9 @@
+import { NATIVE_INSTALLATION_CHOICES } from "@/lib/domain/installationProfiles";
+import { AS_ORIGIN } from "@/lib/hostnames";
+import {
+	MANUAL_LOOKUP_INSTALL_PATH,
+	MANUAL_LOOKUP_MANIFEST,
+} from "./manualLookupManifest";
 /**
  * The steps a person takes to bring the HQ import file into CommCare HQ by
  * hand, derived from what the file carries and what the app needs.
@@ -30,8 +36,11 @@ import {
 } from "./projectSpaceCompatibility";
 
 export type ManualImportStepKind =
+	| "install-lookup-data"
 	| "lookup-tables"
 	| "managed-lookup-tables"
+	| "bind-project-data"
+	| "practice-installations"
 	| "import-app"
 	| "commcare-version"
 	| "media"
@@ -48,7 +57,10 @@ export type ManualImportStepKind =
 
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"lookup-tables",
+	"install-lookup-data",
 	"managed-lookup-tables",
+	"bind-project-data",
+	"practice-installations",
 	"import-app",
 	"commcare-version",
 	"media",
@@ -84,8 +96,17 @@ export function manualImportStepKey(step: ManualImportStep): string {
 export interface ManualImportGuideInput {
 	/** The app JSON's member name in the ZIP, without its extension. */
 	readonly appFileName: string;
+	readonly practiceInstallations?: readonly {
+		readonly name: string;
+		readonly languages: readonly string[];
+	}[];
 	/** The tag of each lookup table the workbook carries; empty for none. */
 	readonly lookupTags: readonly string[];
+	readonly manualLookupTables?: readonly string[];
+	readonly additionalLookupFiles?: readonly {
+		path: string;
+		tags: readonly string[];
+	}[];
 	/**
 	 * The file's workbooks of the lookup tables CommCare HQ manages, one per
 	 * project space that manages some, in the order the archive holds them:
@@ -93,6 +114,7 @@ export interface ManualImportGuideInput {
 	 * Nova's copy was last refreshed. Empty for none.
 	 */
 	readonly managedLookupFiles: readonly ManagedLookupGuideFile[];
+	readonly referencedTables?: readonly { tag: string; projectSpace?: string }[];
 	readonly hasMedia: boolean;
 	/** The floor as text, "2.57". The caller formats it; the guide imports no constant. */
 	readonly versionFloor: string;
@@ -150,15 +172,21 @@ export const MANUAL_IMPORT_MEDIA_ZIP = "multimedia.zip";
  * existing tables" box that makes CommCare HQ's copy match Nova's. It comes
  * first, so the app finds its data the moment CommCare HQ builds it.
  */
-function lookupTablesStep(tags: readonly string[]): ManualImportStep {
+function lookupTablesStep(
+	tags: readonly string[],
+	fileName = MANUAL_IMPORT_LOOKUP_WORKBOOK,
+): ManualImportStep {
 	return {
 		kind: "lookup-tables",
-		title: "Upload the lookup tables",
+		title:
+			fileName === MANUAL_IMPORT_LOOKUP_WORKBOOK
+				? "Upload the lookup tables"
+				: `Upload ${fileName}`,
 		lines: [
 			"Open the Lookup Tables page in CommCare HQ:",
 			"  https://www.commcarehq.org/a/<your-project>/fixtures/",
 			"",
-			`Upload "${MANUAL_IMPORT_LOOKUP_WORKBOOK}" there, tick "Replace existing`,
+			`Upload "${fileName}" there, tick "Replace existing`,
 			"tables\", and click Upload Tables. Replacing makes CommCare's copy of",
 			"each table in the file match this export exactly. Tables the file",
 			"doesn't mention are left alone.",
@@ -439,15 +467,65 @@ export function manualImportGuide(
 	input: ManualImportGuideInput,
 ): readonly ManualImportStep[] {
 	return [
+		...(input.manualLookupTables?.length
+			? [
+					{
+						kind: "install-lookup-data" as const,
+						title: "Install lookup data in Nova",
+						lines: [
+							`Open ${AS_ORIGIN}${MANUAL_LOOKUP_INSTALL_PATH} and choose "${MANUAL_LOOKUP_MANIFEST}" from this ZIP.`,
+							"Choose the same connected project space where you’ll import the app. Complete the lookup install before importing the app JSON.",
+							`Tables: ${input.manualLookupTables.join(", ")}.`,
+						],
+					},
+				]
+			: []),
 		...(input.lookupTags.length > 0
 			? [lookupTablesStep(input.lookupTags)]
 			: []),
+		...(input.additionalLookupFiles ?? []).map((file) =>
+			lookupTablesStep(file.tags, file.path),
+		),
 		...managedLookupTablesSteps(
 			input.managedLookupFiles,
 			input.lookupTags.length > 0,
 		),
+		...(input.referencedTables?.length
+			? [
+					{
+						kind: "bind-project-data" as const,
+						title: "Connect your project space’s data",
+						lines: [
+							...input.referencedTables.map(({ tag, projectSpace }) =>
+								projectSpace
+									? `“${tag}” uses the existing table in ${projectSpace}. When importing there, keep that table in place.`
+									: `“${tag}” needs a table in the destination project space.`,
+							),
+							"Before importing into another space, its admin can prepare each table from a current selected-table export in CommCare HQ. Check its tag, columns, indexes, row values and order. For assigned rows, match users, groups and places to the intended recipients in that space and verify which rows they receive when they sync.",
+							"To use different data, you can create a table in Project data, choose its lookup and sharing settings, and connect your app’s fields to that table before downloading a new app file.",
+						],
+					},
+				]
+			: []),
 		importAppStep(input.appFileName),
 		commCareVersionStep(input.versionFloor),
+		...(input.practiceInstallations?.length
+			? [
+					{
+						kind: "practice-installations" as const,
+						title: "Choose the practice workers for these installations",
+						lines: [
+							"After importing the app, open Releases → Application Profiles in this project space. Give any blank or repeated profiles different names so you can identify each one in the download menu. Select an active practice worker for each installation and save.",
+							...input.practiceInstallations.map(
+								({ name, languages }) =>
+									`• ${name || "Unnamed profile"} (${languages.join(" → ")}).`,
+							),
+							NATIVE_INSTALLATION_CHOICES,
+							"Choose Make new version. Under Deploy → Download to Android → Offline Installation, select each named Application Profile and download its CommCare_vN.ccz. Open it on a device and check the expected language and practice data before sending it to workers.",
+						],
+					},
+				]
+			: []),
 		...(input.hasMedia ? [mediaStep()] : []),
 		...(input.capabilities.length > 0
 			? [capabilitiesStep(input.capabilities)]

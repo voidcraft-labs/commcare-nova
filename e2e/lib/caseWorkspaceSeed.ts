@@ -694,8 +694,10 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
  *
  * Core keeps a time's written clock whatever the device's zone, so the test
  * that reads it pins its browser to `Asia/Kolkata` (+05:30, no daylight
- * saving): `08:45Z` still reads `8:45 AM` there. A field that converted the
- * time would show another clock.
+ * saving): `08:45Z` still reads `08:45` there, Web Apps' 24-hour clock for a
+ * time question that asks for no 12-hour one (`form_entry/entries.js::
+ * TimeEntry`, `HH:mm` unless `TIME_12_HOUR`). A field that converted the time
+ * would show another clock.
  *
  * The time deliberately carries NO milliseconds. That is the shape the
  * writer produced before the padding rule landed, so real rows hold it: it
@@ -708,7 +710,7 @@ const SEEDED_NEXT_DOSE = "08:45:00Z";
 
 /** What that stored value reads as once a person can see it. */
 export const SEEDED_TEMPORAL_DISPLAY = {
-	nextDose: "8:45 AM",
+	nextDose: "08:45",
 } as const;
 
 export interface CaseWorkspaceRoutes {

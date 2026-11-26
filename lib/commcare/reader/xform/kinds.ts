@@ -98,8 +98,7 @@ function numericAppearance(appearance: string | undefined): boolean {
 const PHONE_TOKEN = FIELD_DISPLAY_SETTING_TOKENS.keypad.numbers;
 const LABEL_TOKEN = kindAppearanceToken("label");
 const SIGNATURE_TOKEN = UPLOAD_APPEARANCE_BY_CAPTURE_KIND.signature;
-/** The appearance Vellum's Face Capture writes on an image upload, which Nova offers no kind for. */
-const FACE_TOKEN = "face";
+const FACE_TOKEN = FIELD_DISPLAY_SETTING_TOKENS.captureSource["face-camera"];
 
 function takeRow(
 	sites: KindSites,
@@ -146,8 +145,7 @@ function hiddenRows(
 			(facts) => none(facts) && !facts.hasCalculate && !facts.hasDefault,
 			extra,
 		),
-		// Both sources outside every repeat: the calculate alone where no runtime reads the
-		// default, decided over the bound document (`afterBinding.ts::settleBothSources`).
+		// A source outside a repeat is classified after its consumers bind.
 		takeRow(
 			X.kind.hiddenBothUnread,
 			"hidden",
@@ -158,11 +156,12 @@ function hiddenRows(
 				!facts.inRepeat,
 			extra,
 		),
-		// In a repeat row the default can outlast the calculate.
-		refuseRow(
-			X.refusedKind.hiddenBoth,
+		takeRow(
+			X.kind.hiddenBothObserved,
+			"hidden",
 			(facts) =>
 				none(facts) && facts.hasCalculate && facts.hasDefault && facts.inRepeat,
+			extra,
 		),
 	];
 }
@@ -240,8 +239,9 @@ export const FIELD_KIND_ROWS: readonly FieldKindRow[] = [
 		X.refusedKind.long,
 		(facts) => input(facts) && typed("long")(facts),
 	),
-	refuseRow(
-		X.refusedKind.intent,
+	takeRow(
+		X.kind.androidApp,
+		"text",
 		(facts) => input(facts) && typed("intent")(facts),
 	),
 	refuseRow(
@@ -313,10 +313,9 @@ export const FIELD_KIND_ROWS: readonly FieldKindRow[] = [
 		"label",
 		(facts) => facts.control === "trigger" && facts.appearance === LABEL_TOKEN,
 	),
-	refuseRow(
-		X.refusedKind.acknowledgeLabel,
-		(facts) => facts.control === "trigger",
-	),
+	takeRow(X.kind.acknowledge, "label", (facts) => facts.control === "trigger", {
+		slots: { askForConfirmation: true },
+	}),
 	// upload
 	takeRow(
 		X.kind.image,
@@ -339,13 +338,15 @@ export const FIELD_KIND_ROWS: readonly FieldKindRow[] = [
 			facts.appearance === SIGNATURE_TOKEN,
 		{ typeClaim: X.binaryType },
 	),
-	refuseRow(
-		X.refusedKind.face,
+	takeRow(
+		X.kind.face,
+		"image",
 		(facts) =>
 			facts.control === "upload" &&
 			facts.bindType === BINARY &&
 			facts.mediaType === upload("image") &&
 			facts.appearance === FACE_TOKEN,
+		{ slots: { captureSource: "face-camera" }, typeClaim: X.binaryType },
 	),
 	takeRow(
 		X.kind.audio,
@@ -387,7 +388,13 @@ export const FIELD_KIND_ROWS: readonly FieldKindRow[] = [
 		undefined,
 	),
 	...hiddenRows(typed(DATETIME), X.hiddenDatetimeType),
-	refuseRow(X.refusedKind.hiddenOtherType, (facts) => facts.control === "none"),
+	...hiddenRows(
+		(facts) =>
+			facts.bindType !== undefined &&
+			facts.bindType !== STRING &&
+			facts.bindType !== DATETIME,
+		X.hiddenTypedAnswer,
+	),
 ];
 
 /** The first row that matches; undefined for the one shape the table leaves unclaimed, an upload

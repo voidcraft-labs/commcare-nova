@@ -1,3 +1,5 @@
+import { bindCalculationText } from "./calculationText";
+import { mappingIdentityAt } from "./mappingIdentity";
 /**
  * A menu's two details read into one case list (`readCaseDetails`): the
  * detail's own keys, each column of the short and the long detail
@@ -6,14 +8,18 @@
  * What the pass decides is written into the menu's draft; what the second
  * pass compares is kept in the reading (`caseListReading`).
  */
+
 import { type Draft, produce } from "immer";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseListDeviceLookup,
 	type CaseProperty,
 	type Column,
 	type ColumnSort,
 	type ColumnVia,
+	caseListDeviceLookupSchema,
+	caseListWordingUnitId,
 	casePropertyOptionTranslationUnitId,
 	columnFieldText,
 	columnPropertyCaseType,
@@ -25,18 +31,36 @@ import {
 } from "@/lib/domain";
 import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
+import {
+	caseMappingComparison,
+	caseMappingRowUuid,
+	caseMappingTextUnit,
+} from "@/lib/domain/caseMappingRows";
+import {
+	type CaseRelation,
+	CaseRelationCatalog,
+} from "@/lib/domain/caseRelations";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
+	CASE_LIST_LOOKUP_WORKER_FIELDS,
 	caseListColumnTextShows,
 	columnSortLabelShows,
+	type DeviceLookupExtra,
 } from "@/lib/domain/modules";
+import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { sharedSources } from "../../hq/suiteDetailSources";
 import { emptyShortListColumns } from "../../hqJson/caseList";
+import { hqXPath, hqXPathText } from "../../hqJson/xpath";
+import { lookupCaseKeyWire } from "../../suite/case-list/deviceLookup";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
+import { scannedInstances } from "../../xpath/instanceSources";
+import { sessionContextPath } from "../../xpath/wire/fromExpression";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import { indexTarget } from "../caseManagement/basicActions";
@@ -50,6 +74,7 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { detailSourceSpans } from "../fixtureRows";
 import {
 	hqDeviceText,
 	keyDefinedAfterLineEnd,
@@ -57,7 +82,7 @@ import {
 	pythonBlank,
 	recordTextRewrite,
 } from "../heldText";
-import { externalKey } from "../identity";
+import { type ExternalKey, externalKey, externalKeyText } from "../identity";
 import { reReadUuidOf } from "../identityMap";
 import {
 	isJsonObject,
@@ -67,19 +92,29 @@ import {
 } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { listFilterWithoutOwnerClause } from "../search/settings";
-import { sameXPathText } from "../syntaxCompare";
+import { sourceFactories } from "../sourceFactories";
+import { recordSyntaxKey, sameXPathText } from "../syntaxCompare";
+import { sharedFormSyntax } from "../syntaxRead";
 import type { SameStateRegister } from "../types";
+import { readMediaMap } from "../xform/media";
+import { storedColumnKind } from "./columnIdentity";
 import {
 	appCodes,
 	type ColumnOptions,
 	type ColumnProposal,
 	type ColumnReading,
+	type HeldTexts,
+	heldTextsIn,
+	noteRespelled,
 	readDetailColumn,
+	refuseUnheldKey,
 	type SelectProperty,
 	shownTexts,
+	sourceCode,
 	sourceText,
 	translatedTexts,
 } from "./columns";
+import { literalText } from "./literalText";
 import { CALCULATED_FIELD, readSortElements, type SortReading } from "./order";
 import { claimRestUnderFinding } from "./refusedWhole";
 import { readTile, type TileReading } from "./tile";
@@ -87,6 +122,10 @@ import { readTile, type TileReading } from "./tile";
 const A = "menus-and-case-lists/";
 
 export const DETAIL_CLAIMS = defineClaims("caseList.details", {
+	pairShared: take(
+		`${A}detail-columns-short`,
+		"schema:ShadowModule.case_details",
+	),
 	pairModule: take(`${A}detail-columns-short`, "schema:Module.case_details"),
 	pairAdvanced: take(
 		`${A}detail-columns-short`,
@@ -136,6 +175,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-max-select-value-above-100`,
 		"schema:Detail.max_select_value",
 	),
+	maxSelectOutsideRuntime: refuse(
+		`${A}detail-max-select-value-above-2147483647`,
+		"schema:Detail.max_select_value",
+	),
 	maxSelectZero: refuse(
 		`${A}detail-max-select-value-of-0-or-below-1-on-a-multi-select-basic`,
 		"schema:Detail.max_select_value",
@@ -148,7 +191,7 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}multi-select-auto-select-or-max-select-value-on-an-advanced-or`,
 		"schema:Detail.max_select_value",
 	),
-	autoSelectMulti: refuse(
+	autoSelectMulti: take(
 		`${A}detail-auto-select-multi-select`,
 		"schema:Detail.auto_select",
 	),
@@ -160,16 +203,20 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}multi-select-auto-select-or-max-select-value-on-an-advanced-or`,
 		"schema:Detail.auto_select",
 	),
-	persistentFromModule: refuse(
+	persistentFromModule: take(
 		`${A}detail-persistent-case-tile-from-module`,
 		"schema:Detail.persistent_case_tile_from_module",
 	),
-	pullDown: refuse(`${A}detail-pull-down-tile`, "schema:Detail.pull_down_tile"),
-	persistContext: refuse(
+	pullDown: take(`${A}detail-pull-down-tile`, "schema:Detail.pull_down_tile"),
+	persistForPullDown: take(
+		`${A}detail-persistent-case-tile-from-module`,
+		"schema:Detail.persist_tile_on_forms",
+	),
+	persistContext: take(
 		`${A}detail-persist-case-context-persistent-case-context-xml`,
 		"schema:Detail.persist_case_context",
 	),
-	persistContextXml: refuse(
+	persistContextXml: take(
 		`${A}detail-persist-case-context-persistent-case-context-xml`,
 		"schema:Detail.persistent_case_context_xml",
 	),
@@ -180,6 +227,42 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 	persistContextXmlBeside: drop(
 		`${A}persist-case-context-beside-persist-tile-on-forms-on-a-short`,
 		"schema:Detail.persistent_case_context_xml",
+	),
+	contextUnavailable: refuse(
+		`${A}form-context-without-a-compatible-case-tile`,
+		"schema:Detail.persistent_case_tile_from_module",
+	),
+	inlineUnavailable: refuse(
+		`${A}form-context-without-a-compatible-case-tile`,
+		"schema:Detail.pull_down_tile",
+	),
+	competingContext: refuse(
+		`${A}two-different-values-for-the-same-form-context`,
+		"schema:Detail.persist_case_context",
+	),
+	competingContextValue: refuse(
+		`${A}two-different-values-for-the-same-form-context`,
+		"schema:Detail.persistent_case_context_xml",
+	),
+	dormantMenu: drop(
+		`${A}existing-form-context-source-with-no-tile`,
+		"schema:Detail.persistent_case_tile_from_module",
+	),
+	contextUnused: drop(
+		`${A}form-context-setting-outside-a-case-selection`,
+		"schema:Detail.persist_case_context",
+	),
+	contextXmlUnused: drop(
+		`${A}form-context-setting-outside-a-case-selection`,
+		"schema:Detail.persistent_case_context_xml",
+	),
+	contextMenuUnused: drop(
+		`${A}form-context-setting-outside-a-case-selection`,
+		"schema:Detail.persistent_case_tile_from_module",
+	),
+	contextInlineUnused: drop(
+		`${A}form-context-setting-outside-a-case-selection`,
+		"schema:Detail.pull_down_tile",
 	),
 	persistContextFalse: drop(
 		`${A}detail-persistence-switches-false`,
@@ -213,7 +296,7 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-no-items-text-equal-to-hq-s-default`,
 		"schema:Detail.no_items_text",
 	),
-	noItemsOther: refuse(
+	noItemsOther: take(
 		`${A}detail-no-items-text-other-than-hq-s-default-en-list-is-empty`,
 		"schema:Detail.no_items_text",
 	),
@@ -221,38 +304,97 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-select-text-default-en-continue`,
 		"schema:Detail.select_text",
 	),
-	selectOther: refuse(
+	selectOther: take(
 		`${A}detail-select-text-non-default`,
+		"schema:Detail.select_text",
+	),
+	textsUnread: drop(
+		`${A}detail-texts-no-worker-reads`,
+		"schema:Detail.no_items_text",
+	),
+	selectTextUnread: drop(
+		`${A}detail-texts-no-worker-reads`,
 		"schema:Detail.select_text",
 	),
 	ownerClauseFilter: derived(
 		`${A}detail-filter-value-lifts-into-predicate`,
 		"schema:Detail.filter",
 	),
-	tabs: refuse(`${A}plain-tab-header-starting-index`, "schema:Detail.tabs"),
-	tabsDataChild: refuse(
-		`${A}data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset`,
-		"schema:Detail.tabs",
+	tabs: take(`${A}plain-tab-header-starting-index`, "schema:Detail.tabs"),
+	tabTitle: take(
+		`${A}plain-tab-header-starting-index`,
+		"schema:DetailTab.header",
 	),
-	tabsDataCustom: refuse(
+	tabPosition: take(
+		`${A}plain-tab-header-starting-index`,
+		"schema:DetailTab.starting_index",
+	),
+	// `isTab` is the Case Detail page's state, no field of HQ's schema, so the
+	// claim stands on the tab itself.
+	tabEditorFlag: derived(`${A}a-stored-tab-without-istab`, "schema:DetailTab"),
+	tabChildEnabled: take(
+		`${A}data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset`,
+		"schema:DetailTab.has_nodeset",
+	),
+	tabChildType: take(
+		`${A}data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset`,
+		"schema:DetailTab.nodeset_case_type",
+	),
+	tabRecordsEnabled: take(
 		`${A}data-tab-over-a-custom-nodeset-xpath`,
-		"schema:Detail.tabs",
+		"schema:DetailTab.has_nodeset",
+	),
+	tabRowsMissing: refuse(
+		`${A}detail-tab-without-a-resolvable-row-source`,
+		"schema:DetailTab.has_nodeset",
+	),
+	tabRowsInert: drop(
+		`${A}inactive-detail-tab-row-settings`,
+		"schema:DetailTab.nodeset",
+	),
+	tabSearchChildren: take(
+		`${A}related-child-type-beside-an-explicit-tab-collection`,
+		"schema:DetailTab.nodeset_case_type",
+	),
+	tabChildTypeNotAdded: refuse(
+		`${A}detail-tab-child-type-no-form-of-its-menu-s-case-type-adds`,
+		"schema:DetailTab.nodeset_case_type",
+	),
+	tabTypeInvalid: refuse(
+		`${A}detail-tab-without-a-resolvable-row-source`,
+		"schema:DetailTab.nodeset_case_type",
+	),
+	tabTypeInert: drop(
+		`${A}inactive-detail-tab-row-settings`,
+		"schema:DetailTab.nodeset_case_type",
+	),
+	tabFilterInert: drop(
+		`${A}inactive-detail-tab-row-settings`,
+		"schema:DetailTab.nodeset_filter",
 	),
 	tabsColumnsAbove: refuse(
 		`${A}columns-above-the-first-tab-when-tabs-exist`,
 		"schema:Detail.tabs",
 	),
-	tabRelevant: refuse(
-		`${A}tab-relevant-lifts-into-predicate-not`,
-		"schema:DetailTab.relevant",
-	),
 	tabsTileRowMixed: refuse(
 		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`,
 		"schema:DetailTab.starting_index",
 	),
-	tabsTileRowMixedAdvanced: refuse(
+	tabsTileRowMixedTabs: refuse(
+		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`,
+		"schema:Detail.tabs",
+	),
+	tabsTileRowMixedAdvanced: take(
 		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-an-advanced`,
 		"schema:DetailTab.starting_index",
+	),
+	lookupRelativeExtra: refuse(
+		`${A}lookup-extra-relative-without-case-context`,
+		"schema:Detail.lookup_extras",
+	),
+	lookupMissingResultHeader: refuse(
+		`${A}lookup-case-id-result-without-a-header-map`,
+		"schema:Detail.lookup_display_results",
 	),
 	lookupNoExtras: refuse(
 		`${A}callout-with-no-extras-or-no-responses`,
@@ -269,6 +411,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 	undeclared: refuse(
 		`${A}any-other-undeclared-key`,
 		"schema:Detail.<undeclared>",
+	),
+	tabUndeclared: refuse(
+		`${A}any-other-undeclared-key`,
+		"schema:DetailTab.<undeclared>",
 	),
 });
 
@@ -316,6 +462,188 @@ const LOOKUP_ON_KEYS = defineClaims("caseList.details.lookupOn", {
 		"schema:Detail.lookup_action",
 	),
 });
+
+const TEXT_LOOKUP_FIELD_ENTRIES = new Map<string, string>([
+	["lookup_name", "lookup-name"],
+	["lookup_autolaunch", "lookup-autolaunch"],
+	["lookup_responses", "lookup-responses-key"],
+	["lookup_extras", "lookup-extras-fixed-text"],
+	["lookup_image", "lookup-image-jr"],
+]);
+
+const TEXT_LOOKUP_KEYS = defineClaims(
+	"caseList.details.textLookup",
+	recordFromEntries(
+		CALLOUT_KEYS.map((key) => [
+			key,
+			take(
+				`${A}${TEXT_LOOKUP_FIELD_ENTRIES.get(key) ?? "lookup-with-text-extras"}`,
+				`schema:Detail.${key}`,
+			),
+		]),
+	) as Record<string, Claim<"take">>,
+);
+
+const LOOKUP_WITH_WORKER_EXTRA = defineClaims("caseList.details.workerLookup", {
+	extras: take(
+		`${A}lookup-extras-worker-context`,
+		"schema:Detail.lookup_extras",
+	),
+});
+
+/** Android evaluates the extra when it creates the list's click listener.
+ * A bare field name needs a main instance, which the list session has not
+ * got. Keep other calculation shapes under the general refusal. */
+function lookupHasBareRelativeExtra(extras: unknown[]): boolean {
+	return (
+		!extras.some(
+			(extra) => isJsonObject(extra) && extra.key === "force_xpath_parsing",
+		) &&
+		extras.some((extra) => {
+			if (
+				!isJsonObject(extra) ||
+				typeof extra.key !== "string" ||
+				typeof extra.value !== "string"
+			)
+				return false;
+			const parsed = sharedFormSyntax(extra.value);
+			return parsed.ok && parsed.node?.kind === "name" && !parsed.node.wildcard;
+		})
+	);
+}
+
+const workerExtraText = CASE_LIST_LOOKUP_WORKER_FIELDS.map((field) => ({
+	field,
+	text: hqXPathText(hqXPath(sessionContextPath(field))),
+}));
+
+const LOOKUP_CONFIDENCE_KEYS = defineClaims(
+	"caseList.details.lookupConfidence",
+	{
+		lookup_display_results: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_display_results",
+		),
+		lookup_field_header: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_field_header",
+		),
+		lookup_field_template: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_field_template",
+		),
+	},
+);
+const lookupCaseKey = hqXPathText(hqXPath(lookupCaseKeyWire()));
+
+function textDeviceLookup(
+	ctx: ReadContext,
+	detail: JsonCursor,
+): { lookup: CaseListDeviceLookup; heading?: HeldTexts } | undefined {
+	const image = detail.peek("lookup_image");
+	const results = detail.peek("lookup_display_results");
+	const automatic = detail.peek("lookup_autolaunch");
+	const action = detail.peek("lookup_action");
+	const label = detail.peek("lookup_name");
+	const rawExtras = detail.peek("lookup_extras");
+	const rawResponses = detail.peek("lookup_responses");
+	if (
+		(image !== undefined && image !== null && typeof image !== "string") ||
+		(results !== undefined &&
+			results !== null &&
+			typeof results !== "boolean") ||
+		(automatic !== undefined &&
+			automatic !== null &&
+			typeof automatic !== "boolean") ||
+		typeof action !== "string" ||
+		action.trim() !== action ||
+		typeof label !== "string" ||
+		label.trim() !== label ||
+		!Array.isArray(rawExtras) ||
+		!Array.isArray(rawResponses)
+	)
+		return undefined;
+	const extras: DeviceLookupExtra[] = [];
+	for (const entry of rawExtras) {
+		if (
+			!isJsonObject(entry) ||
+			Object.keys(entry).length !== 2 ||
+			typeof entry.key !== "string" ||
+			entry.key.trim() !== entry.key ||
+			entry.key === "force_xpath_parsing" ||
+			typeof entry.value !== "string"
+		)
+			return undefined;
+		const source = entry.value;
+		const parsed = sharedFormSyntax(source);
+		const value = parsed.ok ? literalText(parsed.node) : undefined;
+		if (value !== undefined) {
+			extras.push({ name: entry.key, value });
+			continue;
+		}
+		const field = workerExtraText.find(({ text }) =>
+			sameXPathText(source, text),
+		)?.field;
+		if (field === undefined) return undefined;
+		extras.push({
+			name: entry.key,
+			expression: { kind: "term", term: { kind: "session-context", field } },
+		});
+	}
+	const responses = [];
+	for (const entry of rawResponses) {
+		if (
+			!isJsonObject(entry) ||
+			Object.keys(entry).length !== 1 ||
+			typeof entry.key !== "string" ||
+			entry.key.trim() !== entry.key
+		)
+			return undefined;
+		responses.push(entry.key);
+	}
+	let heading: HeldTexts | undefined;
+	if (results === true) {
+		const template = detail.peek("lookup_field_template");
+		if (
+			detail.peek("case_tile_template") ||
+			typeof template !== "string" ||
+			!sameXPathText(template, lookupCaseKey)
+		)
+			return undefined;
+		heading = heldTextsIn(
+			detail.peek("lookup_field_header"),
+			appCodes(ctx),
+			sourceCode(ctx),
+			"case-list-lookup-result-heading",
+		);
+		if (heading === undefined) return undefined;
+	}
+	const value = caseListDeviceLookupSchema.safeParse({
+		action,
+		label,
+		extras,
+		responses,
+		...(automatic === true && { automatic: true }),
+		...(heading !== undefined && {
+			resultHeading: sourceText(ctx, heading.texts),
+		}),
+	});
+	return value.success ? { lookup: value.data, heading } : undefined;
+}
+
+/** HQ writes an empty width-zero header for an empty map. Core requires a text child there. */
+function lookupHasEmptyCaseIdResultHeader(detail: JsonCursor): boolean {
+	const header = detail.peek("lookup_field_header");
+	const template = detail.peek("lookup_field_template");
+	return (
+		!detail.peek("case_tile_template") &&
+		detail.peek("lookup_display_results") === true &&
+		isJsonObject(header) &&
+		Object.keys(header).length === 0 &&
+		typeof template === "string" &&
+		sameXPathText(template, lookupCaseKey)
+	);
+}
 
 const LOOKUP_LONG_KEYS = defineClaims(
 	"caseList.details.lookupLong",
@@ -403,17 +731,28 @@ export interface JoinedDetails {
 function sameProposal(a: ColumnProposal, b: ColumnProposal): boolean {
 	const slots = (proposal: ColumnProposal) =>
 		recordFromEntries(
-			Object.entries(proposal.column).filter(([key]) => key !== "header"),
+			Object.entries(proposal.column).filter(
+				([key]) => key !== "header" && key !== "entryPointUuid",
+			),
 		);
 	const restA = slots(a);
 	const restB = slots(b);
 	if (a.column.kind === "calculated" || b.column.kind === "calculated") {
-		if (a.column.kind !== b.column.kind) return false;
+		if (
+			!sameJson(restA, restB) ||
+			!sameJson(a.textKeys ?? [], b.textKeys ?? [])
+		)
+			return false;
 		const ta = a.expression?.text;
 		const tb = b.expression?.text;
 		if (ta === undefined || tb === undefined || !sameXPathText(ta, tb))
 			return false;
 	} else if (!sameJson(restA, restB)) return false;
+	if ((a.conditions?.size ?? 0) !== (b.conditions?.size ?? 0)) return false;
+	for (const [index, source] of a.conditions ?? []) {
+		const twin = b.conditions?.get(index);
+		if (!twin || !sameXPathText(source.text, twin.text)) return false;
+	}
 	return sameHeader(a, b) && sameJson(a.texts, b.texts);
 }
 
@@ -465,59 +804,43 @@ function fieldTextOf(proposal: ColumnProposal): string | undefined {
 	return body.kind === "calculated" ? undefined : columnFieldText(body);
 }
 
-/** The type a read walk reaches from `caseType`: `parent` by the catalog's parent, any other step
- *  by the type it names, whether or not the catalog holds it yet. */
-function walkedType(
-	via: ColumnVia | undefined,
-	caseType: string | undefined,
-	catalog: readonly { readonly name: string; readonly parent_type?: string }[],
-): string | undefined {
-	let at = caseType;
-	for (const step of via ?? []) {
-		if (at === undefined) return undefined;
-		at =
-			step.identifier === "parent"
-				? catalog.find((one) => one.name === at)?.parent_type
-				: step.throughCaseType;
-	}
-	return at;
-}
-
-/**
- * The walk a column's indices name from `caseType`, each step typed as Nova types it: `parent`
- * by the catalog's parent (no type stated on the step, since the catalog gives it), any other
- * index by the type the app links it to (`caseManagement/basicActions.ts::indexTarget`), which
- * the step names. Undefined where a step reaches no type, or a type outside the case type grammar.
- * A type the walk reaches that the catalog holds nowhere else is declared where the column's
- * property is noted.
- */
+/** The detail field carries only index names. Preserve the native path, even
+ * when several known target types or a historical row outside the app may
+ * supply the value. A uniquely known custom destination keeps its existing
+ * Nova type hint for callers that inspect that catalog identity. */
 export function readColumnVia(
 	ctx: ReadContext,
 	caseType: string | undefined,
 	steps: readonly string[],
-): { readonly via: ColumnVia; readonly caseType: string } | undefined {
-	if (caseType === undefined || steps.length === 0) return undefined;
-	const catalog = ctx.draft.caseTypes ?? [];
-	const declared = (name: string | undefined) =>
-		name !== undefined && CASE_TYPE_PATTERN.test(name);
+): { readonly via: ColumnVia; readonly caseType?: string } | undefined {
+	if (caseType === undefined || !steps.length) return undefined;
+	const graph = new CaseRelationCatalog(ctx.draft.caseTypes ?? []);
 	const via: ColumnVia[number][] = [];
-	let at = caseType;
+	let current: string | undefined = caseType;
 	for (const identifier of steps) {
-		if (identifier === "parent") {
-			const parent =
-				catalog.find((one) => one.name === at)?.parent_type ??
-				indexTarget(ctx, at, "parent");
-			if (!declared(parent)) return undefined;
-			via.push({ identifier });
-			at = parent as string;
-			continue;
-		}
-		const reached = indexTarget(ctx, at, identifier);
-		if (!declared(reached)) return undefined;
-		via.push({ identifier, throughCaseType: reached as string });
-		at = reached as string;
+		const edges: readonly CaseRelation[] =
+			current === undefined ? [] : graph.edges(current, identifier);
+		const names = new Set(edges.map((edge) => edge.targetType));
+		const next: string | undefined =
+			names.size === 1
+				? [...names][0]
+				: names.size === 0 && current !== undefined
+					? indexTarget(ctx, current, identifier)
+					: undefined;
+		via.push(
+			next !== undefined && identifier !== "parent"
+				? { identifier, throughCaseType: next }
+				: { identifier },
+		);
+		current = next;
 	}
-	return { via: via as ColumnVia, caseType: at };
+	const scope = graph.reached(caseType, via);
+	const only =
+		!scope.open && scope.types.length === 1 ? scope.types[0] : current;
+	return {
+		via: via as ColumnVia,
+		...(only !== undefined && { caseType: only }),
+	};
 }
 
 /**
@@ -656,11 +979,11 @@ export function joinDetailColumns(
 	return { columns, listOrder, detailOrder };
 }
 
-/** A calculated column's `field` in the detail its expression was not registered from: the same
+/** A calculated column's `field`, or a mapping condition's `key`, in the detail its expression was not registered from: the same
  *  tree, so the expression stage's claim of the registration holds it too. */
 export interface ColumnFieldTwin {
 	readonly registration: number;
-	readonly site: { readonly json: JsonCursor; readonly key: "field" };
+	readonly site: { readonly json: JsonCursor; readonly key: string };
 	readonly place: HqPlace;
 }
 
@@ -688,6 +1011,64 @@ export interface CaseListReading {
 }
 
 const READINGS = new WeakMap<ReadContext, Map<Uuid, CaseListReading>>();
+
+/** Whether a short detail's `persistent_case_tile_from_module` names a menu whose list holds no
+ *  tile: Core's `EntriesHelper` finds that menu, then uses the selecting menu's own tile or line,
+ *  so the setting changes no build (`existing-form-context-source-with-no-tile`, INERT). A menu
+ *  that is missing is no such source: HQ raises on it. */
+/**
+ * Whether a short detail shows another menu's tile above its forms, expanded into that menu's
+ * case detail, with the `persist_tile_on_forms` HQ's Case List page keeps beside it: the page
+ * offers the source menu and the pull-down only with this menu's own persistence switched on,
+ * and its save writes the pull-down off where that switch is off
+ * (`details/bootstrap5/screen.js`, `enableTilePullDown`). HQ's build reads the source menu
+ * first (`entries.py::get_detail_persistent_attr`, `get_detail_inline_attr`), so the switch is
+ * the source's setting there, never this menu's own tile persisting.
+ */
+export function persistHeldByExternalPullDown(
+	ctx: ReadContext,
+	module: DraftModule,
+	short: JsonCursor,
+): boolean {
+	const sourceId = short.peek("persistent_case_tile_from_module");
+	if (
+		short.peek("persist_tile_on_forms") !== true ||
+		short.peek("pull_down_tile") !== true ||
+		typeof sourceId !== "string" ||
+		!sourceId ||
+		dormantFormContextSource(ctx, sourceId)
+	)
+		return false;
+	const source = ctx.draft.modules.find((menu) => menu.uniqueId === sourceId);
+	const details = source?.json.peek("case_details");
+	const sourceShort =
+		isJsonObject(details) && isJsonObject(details.short)
+			? details.short
+			: undefined;
+	return (
+		source !== undefined &&
+		!!sourceShort?.case_tile_template &&
+		source.module.caseType === module.module.caseType
+	);
+}
+
+export function dormantFormContextSource(
+	ctx: ReadContext,
+	sourceId: unknown,
+): boolean {
+	if (typeof sourceId !== "string" || !sourceId) return false;
+	const source = ctx.draft.modules.find((menu) => menu.uniqueId === sourceId);
+	const details = source?.json.peek("case_details");
+	const sourceShort =
+		isJsonObject(details) && isJsonObject(details.short)
+			? details.short
+			: undefined;
+	return (
+		source !== undefined &&
+		!sourceShort?.case_tile_template &&
+		!sourceShort?.custom_xml
+	);
+}
 
 /** The case list each menu's first pass read, by the menu's uuid. */
 export function caseListReadings(
@@ -738,7 +1119,12 @@ function listNeeded(
 		const caseList = module.json.peek("case_list");
 		if (isJsonObject(caseList) && caseList.show === true) return "needed";
 	}
-	for (const form of module.forms) {
+	// HQ delegates requires_case_details to the complete source, including excluded forms.
+	const source = module.module.formsFromMenu;
+	const owner = source
+		? ctx.draft.modules.find((menu) => menu.uuid === source.menuUuid)
+		: module;
+	for (const form of owner?.forms ?? []) {
 		const requires = form.json.peek("requires");
 		if (requires === "case") return "needed";
 		const actions = form.json.peek("actions");
@@ -895,42 +1281,78 @@ function readDetailTexts(
 	detail: JsonCursor,
 	codes: readonly string[],
 	screen: "short" | "long",
+	wording?: CaseListShortReading,
 ): boolean {
 	let ok = true;
 	const texts = (
-		key: string,
+		key: "no_items_text" | "select_text",
 		fallback: string,
 		inert: Claim<"drop">,
-		other: Claim<"refuse">,
+		other: Claim<"take">,
 		printed: unknown,
 	) => {
 		// Each language as HQ's build shows it (`app_strings.py`, `clean_trans`): a language the
 		// map lacks or holds blank shows another's text. A text the reader cannot know (a number,
 		// an object) is left unclaimed, for the close to name at its key.
-		const shown = shownTexts(detail.peek(key), codes);
+		const stored = detail.peek(key);
+		const shown = shownTexts(stored, codes);
 		if (shown === undefined) {
 			ok = false;
 			return;
 		}
-		const texts = Object.values(shown);
-		const lineEnd = texts
+		const shownTextsList = Object.values(shown);
+		const lineEnd = shownTextsList
 			.map(keyDefinedAfterLineEnd)
 			.find((one) => one !== undefined);
 		if (lineEnd !== undefined) {
 			detail.refuse(key, LINE_END_DEFINES_KEY, { name: lineEnd });
 			ok = false;
-		} else if (texts.every((text) => hqDeviceText(text) === fallback)) {
+		} else if (
+			shownTextsList.every((text) => hqDeviceText(text) === fallback)
+		) {
 			detail.drop(key, inert);
-			if (!sameJson(detail.peek(key), printed))
+			if (!sameJson(stored, printed))
 				recordTextRewrite(
 					ctx,
 					{ entry: inert.entry, path: `${detail.pointer}/${key}` },
 					"list-settings-respelled",
 					false,
 				);
+		} else if (wording === undefined) {
+			// HQ's build writes a detail's texts only from a case list's own short detail
+			// (`details.py::add_no_items_text_to_detail`, `add_select_text_to_detail`, under
+			// `detail_type.endswith('short')`), so no worker reads this one; the first publish
+			// writes HQ's default in its place.
+			const unread =
+				key === "no_items_text" ? D.textsUnread : D.selectTextUnread;
+			detail.drop(key, unread);
+			recordTextRewrite(
+				ctx,
+				{ entry: unread.entry, path: `${detail.pointer}/${key}` },
+				"list-settings-respelled",
+				false,
+			);
 		} else {
-			detail.refuse(key, other);
-			ok = false;
+			const role =
+				key === "no_items_text"
+					? "case-list-empty-text"
+					: "case-list-select-text";
+			const held = heldTextsIn(stored, codes, sourceCode(ctx), role);
+			if (held === undefined) {
+				refuseUnheldKey(detail, key, codes, sourceCode(ctx), role);
+				ok = false;
+				return;
+			}
+			const texts = detail.take(key, other, () => held).value;
+			noteRespelled(
+				ctx,
+				other.entry,
+				`${detail.pointer}/${key}`,
+				stored,
+				texts,
+			);
+			if (key === "no_items_text") wording.empty = texts;
+			else wording.select = texts;
 		}
 	};
 	texts(
@@ -946,6 +1368,14 @@ function readDetailTexts(
 		en: SELECT_DEFAULT,
 	});
 	return ok;
+}
+
+/** A case list's own texts as the reading of its short detail holds them, each language's. */
+interface CaseListShortReading {
+	empty?: HeldTexts;
+	select?: HeldTexts;
+	deviceLookup?: CaseListDeviceLookup;
+	lookup?: HeldTexts;
 }
 
 /**
@@ -972,7 +1402,7 @@ function registerTabFilter(
 		{
 			ref: { entity: "module", uuid: module.uuid, slot: "case_list_filter" },
 			text,
-			mode: { target: "hq-json", interpolation: "case" },
+			mode: { target: "hq-json", interpolation: "no-case" },
 			place: tab.place,
 			key: "schema:DetailTab.nodeset_filter",
 			usesOnly: true,
@@ -987,6 +1417,8 @@ function readDetailKeys(
 	module: DraftModule,
 	detail: JsonCursor,
 	screen: "short" | "long",
+	competingLine = false,
+	wording?: CaseListShortReading,
 ): boolean {
 	let ok = true;
 	detail.drop("display", D.display);
@@ -1003,39 +1435,34 @@ function readDetailKeys(
 		detail.drop("multi_select", D.multiSelectAdvanced);
 		detail.drop("max_select_value", D.maxSelectAdvanced);
 		detail.drop("auto_select", D.autoSelectAdvanced);
-	} else if (detail.peek("auto_select") === true) {
-		detail.refuse(
-			"auto_select",
-			multi ? D.autoSelectMulti : D.autoSelectSingle,
-		);
+	} else if (
+		detail.peek("auto_select") === true &&
+		(screen !== "short" || !multi)
+	) {
+		detail.refuse("auto_select", D.autoSelectSingle);
 		ok = false;
 	}
-	if (detail.used("persistent_case_tile_from_module")) {
-		detail.refuse("persistent_case_tile_from_module", D.persistentFromModule);
-		ok = false;
-	}
-	// HQ's Case List page writes the three switches `false` on every save of a short detail, and
-	// every reader tests each by truth, as it tests the `null` default.
 	for (const [key, claim] of [
 		["persist_case_context", D.persistContextFalse],
 		["persist_tile_on_forms", D.persistTileFalse],
 		["pull_down_tile", D.pullDownFalse],
 	] as const)
 		if (detail.peek(key) === false) detail.drop(key, claim);
-	const on = (key: string) => detail.used(key) && detail.peek(key) !== false;
-	if (on("pull_down_tile")) {
-		detail.refuse("pull_down_tile", D.pullDown);
-		ok = false;
-	}
-	const context = on("persist_case_context");
-	if (context || detail.used("persistent_case_context_xml")) {
-		if (detail.peek("persist_tile_on_forms") === true) {
-			if (context) detail.drop("persist_case_context", D.persistContextBeside);
-			detail.drop("persistent_case_context_xml", D.persistContextXmlBeside);
-		} else {
-			if (context) detail.refuse("persist_case_context", D.persistContext);
-			detail.refuse("persistent_case_context_xml", D.persistContextXml);
+	if (screen === "long") {
+		if (detail.used("persistent_case_tile_from_module"))
+			detail.drop("persistent_case_tile_from_module", D.contextMenuUnused);
+		if (detail.peek("pull_down_tile") === true)
+			detail.drop("pull_down_tile", D.contextInlineUnused);
+		if (competingLine) {
+			detail.refuse("persist_case_context", D.competingContext);
+			if (detail.used("persistent_case_context_xml"))
+				detail.refuse("persistent_case_context_xml", D.competingContextValue);
 			ok = false;
+		} else {
+			if (detail.peek("persist_case_context") === true)
+				detail.drop("persist_case_context", D.contextUnused);
+			if (detail.used("persistent_case_context_xml"))
+				detail.drop("persistent_case_context_xml", D.contextXmlUnused);
 		}
 	}
 	if (detail.used("custom_xml")) {
@@ -1047,22 +1474,21 @@ function readDetailKeys(
 		detail.refuse("custom_variables_dict", D.customVariables);
 		ok = false;
 	}
-	ok = readDetailTexts(ctx, detail, appCodes(ctx), screen) && ok;
+	ok = readDetailTexts(ctx, detail, appCodes(ctx), screen, wording) && ok;
 	const stored = detail.peek("tabs");
 	const tabs = objectMembers(stored) ?? [];
 	if (tabs.length > 0) {
 		// Every kind the tabs hold is a finding; the first kind of the tabs themselves claims the key.
 		const start = tabs[0]?.starting_index;
-		const data = tabs.filter((tab) => tab.has_nodeset === true);
-		const overChildren = (tab: Readonly<Record<string, unknown>>) =>
-			typeof tab.nodeset_case_type === "string" && tab.nodeset_case_type !== "";
-		const child = data.some(overChildren);
-		const custom = data.some((tab) => !overChildren(tab));
+		// A basic or shadow menu's tile row holding fields of two tabs, which HQ's build refuses.
+		const mixed =
+			screen === "long" &&
+			detail.peek("case_tile_template") === "custom" &&
+			tileRowMixesTabs(detail, tabs) &&
+			module.docType !== "AdvancedModule";
 		const kinds = [
 			...(typeof start === "number" && start > 0 ? [D.tabsColumnsAbove] : []),
-			...(data.length < tabs.length ? [D.tabs] : []),
-			...(child ? [D.tabsDataChild] : []),
-			...(custom ? [D.tabsDataCustom] : []),
+			...(mixed ? [D.tabsTileRowMixedTabs] : []),
 		];
 		// Each other kind, and a tab's display condition, is a class of the tabs too, so it stands
 		// at each key of them its entry names (`Accounting.findingAt`).
@@ -1074,27 +1500,13 @@ function readDetailKeys(
 		if (primary !== undefined)
 			for (const tab of detail.coveredList("tabs", "DetailTab"))
 				registerTabFilter(ctx, module, tab);
-		if (
-			screen === "long" &&
-			detail.peek("case_tile_template") === "custom" &&
-			tileRowMixesTabs(detail, tabs)
-		)
-			ctx.accounting.findingAt(
-				module.docType === "AdvancedModule"
-					? D.tabsTileRowMixedAdvanced
-					: D.tabsTileRowMixed,
-				detail.place,
-				tabsAt,
-			);
-		if (
-			tabs.some(
-				(tab) => typeof tab.relevant === "string" && tab.relevant.trim() !== "",
-			)
-		)
-			ctx.accounting.findingAt(D.tabRelevant, detail.place, tabsAt);
-		ok = false;
+		if (mixed)
+			ctx.accounting.findingAt(D.tabsTileRowMixed, detail.place, tabsAt);
+		if (primary !== undefined || screen !== "long") ok = false;
 	}
 	if (detail.peek("lookup_enabled") === true) {
+		const parsedLookup =
+			screen === "short" && wording ? textDeviceLookup(ctx, detail) : undefined;
 		if (
 			screen === "short" &&
 			detail.peek("case_tile_template") === "icon_text_grid"
@@ -1109,10 +1521,56 @@ function readDetailKeys(
 				if (claim !== undefined) detail.refuse(key, claim);
 			}
 			ok = false;
+		} else if (wording && parsedLookup !== undefined) {
+			const { lookup, heading } = parsedLookup;
+			wording.lookup = heading;
+			noteRespelled(
+				ctx,
+				LOOKUP_CONFIDENCE_KEYS.lookup_field_header.entry,
+				`${detail.pointer}/lookup_field_header`,
+				detail.peek("lookup_field_header"),
+				heading,
+			);
+			const image = detail.peek("lookup_image");
+			if (typeof image === "string" && image !== "") {
+				const ref = readMediaMap(
+					ctx,
+					recordFromEntries(appCodes(ctx).map((language) => [language, image])),
+					{
+						site: { json: detail, key: "lookup_image" },
+						place: detail.place,
+						slot: "case_list_lookup_icon",
+						mediaKind: "image",
+					},
+				);
+				if (ref.kind === "asset") {
+					const assetId = mediaAssetIdSchema.safeParse(ref.assetId);
+					if (assetId.success) lookup.icon = assetId.data;
+				}
+			}
+			for (const key of CALLOUT_KEYS) {
+				const resultClaim =
+					heading !== undefined &&
+					(key === "lookup_display_results" ||
+						key === "lookup_field_header" ||
+						key === "lookup_field_template")
+						? LOOKUP_CONFIDENCE_KEYS[key]
+						: undefined;
+				const claim =
+					resultClaim ??
+					(key === "lookup_extras" &&
+					lookup.extras.some((extra) => "expression" in extra)
+						? LOOKUP_WITH_WORKER_EXTRA.extras
+						: TEXT_LOOKUP_KEYS[key]);
+				if (
+					claim !== undefined &&
+					detail.used(key) &&
+					(key !== "lookup_image" || lookup.icon !== undefined || !image)
+				)
+					wording.deviceLookup = detail.take(key, claim, () => lookup).value;
+			}
 		} else {
-			// A callout is one finding: one with no extras or no responses, which HQ's build
-			// refuses, is refused as that, any other as a callout, and every other key of it is
-			// claimed under that one finding.
+			// Report the decisive failure once and claim the remaining lookup keys under it.
 			const extras = detail.peek("lookup_extras");
 			const responses = detail.peek("lookup_responses");
 			const unready =
@@ -1120,22 +1578,32 @@ function readDetailKeys(
 				extras.length === 0 ||
 				!Array.isArray(responses) ||
 				responses.length === 0;
+			const relativeExtra =
+				!unready &&
+				typeof detail.peek("lookup_action") === "string" &&
+				typeof detail.peek("lookup_name") === "string" &&
+				lookupHasBareRelativeExtra(extras);
+			let cause: Claim<"refuse">;
 			if (unready) {
-				detail.refuse("lookup_extras", D.lookupNoExtras);
+				cause = D.lookupNoExtras;
+				detail.refuse("lookup_extras", cause);
 				detail.refuse("lookup_responses", D.lookupNoResponses);
 				ctx.accounting.finding(D.lookupNoExtras, detail.place);
+			} else if (relativeExtra) {
+				cause = D.lookupRelativeExtra;
+				detail.refuse("lookup_extras", cause);
+			} else if (lookupHasEmptyCaseIdResultHeader(detail)) {
+				cause = D.lookupMissingResultHeader;
+				detail.refuse("lookup_display_results", cause);
 			} else {
-				detail.refuse("lookup_enabled", LOOKUP_ON_KEYS.lookup_enabled);
+				cause = LOOKUP_ON_KEYS.lookup_enabled;
+				detail.refuse("lookup_enabled", cause);
 				detail.refuse("lookup_action", LOOKUP_ON_KEYS.lookup_action);
 			}
 			claimRestUnderFinding(
 				ctx,
 				detail,
-				{
-					code: (unready ? D.lookupNoExtras : LOOKUP_ON_KEYS.lookup_enabled)
-						.entry,
-					place: detail.place,
-				},
+				{ code: cause.entry, place: detail.place },
 				(key) => CALLOUT_KEYS.includes(key),
 			);
 			ok = false;
@@ -1175,6 +1643,16 @@ function readSelection(
 		return { ok: true };
 	}
 	short.take("multi_select", D.multiSelect, Boolean).value;
+	const automatic =
+		short.peek("auto_select") === true
+			? {
+					autoSelect: short.take(
+						"auto_select",
+						D.autoSelectMulti,
+						() => true as const,
+					).value,
+				}
+			: {};
 	// A null is HQ's model's `None`, for which HQ's build writes no `max-select-value`
 	// (`suite_xml/xml_models.py`, an `IntegerField`, which leaves out `None`), and Core then
 	// takes 100 (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`), Nova's own maximum.
@@ -1186,7 +1664,10 @@ function readSelection(
 			`${short.pointer}/max_select_value`,
 			"list-settings-respelled",
 		);
-		return { ok: true, selection: { kind: "multiple", maximum: 100 } };
+		return {
+			ok: true,
+			selection: { kind: "multiple", maximum: 100, ...automatic },
+		};
 	}
 	// Any other value that is no number is one HQ's model refuses as it wraps the app
 	// (`IntegerProperty`, an `AssertTypeProperty`), so no source HQ serves holds it: no entry
@@ -1194,6 +1675,11 @@ function readSelection(
 	if (typeof max !== "number") return { ok: false };
 	if (max === 0 || max < -1) {
 		short.refuse("max_select_value", D.maxSelectZero);
+		return { ok: false };
+	}
+	// Core's SessionDatumParser parses the suite attribute as a signed Java integer.
+	if (max > 2_147_483_647) {
+		short.refuse("max_select_value", D.maxSelectOutsideRuntime);
 		return { ok: false };
 	}
 	if (max > 100) {
@@ -1210,59 +1696,12 @@ function readSelection(
 		);
 	return {
 		ok: true,
-		selection: { kind: "multiple", maximum: maximum === -1 ? 100 : maximum },
+		selection: {
+			kind: "multiple",
+			maximum: maximum === -1 ? 100 : maximum,
+			...automatic,
+		},
 	};
-}
-
-/**
- * The choices the catalog drops from each property a raw plain column shows, where no column of
- * the app shows that property by its choices' labels: Nova writes a plain column over a property
- * with no choices as its values, so the property the select questions writing it would give
- * choices keeps none, and the column reads as written. Its select type stays.
- */
-function withholdRawShownChoices(
-	ctx: ReadContext,
-	caseType: string,
-	joined: JoinedDetails,
-	labelShown: (property: string, caseType?: string) => boolean,
-): void {
-	const catalog = ctx.draft.caseTypes;
-	if (catalog == null) return;
-	// By the type whose property each column shows: a column read through a relation shows the
-	// related type's.
-	const raw = new Set(
-		joined.columns.flatMap((column) => {
-			const body = column.proposal.column;
-			if (
-				body.kind !== "plain" ||
-				column.proposal.choices !== undefined ||
-				column.proposal.json.peek("useXpathExpression") === true
-			)
-				return [];
-			const owner = columnPropertyCaseType(body, caseType, catalog);
-			return owner !== undefined && !labelShown(body.field, owner)
-				? [`${owner}\u0000${body.field}`]
-				: [];
-		}),
-	);
-	if (raw.size === 0) return;
-	const withChoices = catalog.some((type) =>
-		type.properties.some(
-			(one) =>
-				raw.has(`${type.name}\u0000${one.name}`) &&
-				(one.options ?? []).length > 0,
-		),
-	);
-	if (!withChoices) return;
-	const next = produce(catalog, (draft) => {
-		for (const type of draft)
-			for (const property of type.properties)
-				if (raw.has(`${type.name}\u0000${property.name}`))
-					delete property.options;
-	});
-	ctx.writeDraft(() => {
-		ctx.draft.caseTypes = next;
-	});
 }
 
 /** A catalog entry for a standard property, named by its name and kept in name order, as
@@ -1294,7 +1733,7 @@ const SHOWN_STATED = new WeakMap<ReadContext, Set<string>>();
  */
 function declareShownChoices(
 	ctx: ReadContext,
-	caseType: string,
+	typesOf: (column: JoinedColumn) => readonly string[],
 	joined: JoinedDetails,
 ): void {
 	const catalog = ctx.draft.caseTypes;
@@ -1304,13 +1743,11 @@ function declareShownChoices(
 	const shown = joined.columns.flatMap((column) => {
 		const body = column.proposal.column;
 		const choices = column.proposal.choices;
-		const owner =
-			body.kind === "plain"
-				? columnPropertyCaseType(body, caseType, catalog)
-				: undefined;
-		return body.kind === "plain" && choices !== undefined && owner !== undefined
-			? [{ owner, property: body.field, choices }]
-			: [];
+		if (body.kind !== "plain" || choices === undefined) return [];
+		return typesOf(column).flatMap((type) => {
+			const owner = columnPropertyCaseType(body, type, catalog);
+			return owner ? [{ owner, property: body.field, choices }] : [];
+		});
 	});
 	if (shown.length === 0) return;
 	const stated = SHOWN_STATED.get(ctx) ?? new Set<string>();
@@ -1364,13 +1801,6 @@ function declareShownChoices(
 			);
 }
 
-/** What a menu's columns read of the properties of its case type: whose choices the catalog keeps,
- *  and which a column of the app shows by its choices' labels. */
-export interface ShownChoices {
-	readonly selectProperty: SelectProperty;
-	readonly labelShown: (property: string, caseType?: string) => boolean;
-}
-
 /**
  * Reads one menu's two details into its case list: every key claimed, the columns joined, the
  * order and the tile read, each column minted, every expression registered and every text handed
@@ -1379,13 +1809,16 @@ export interface ShownChoices {
 export function readCaseDetails(
 	ctx: ReadContext,
 	module: DraftModule,
-	choices: ShownChoices,
+	selectProperty: SelectProperty,
 ): void {
-	const { selectProperty } = choices;
 	const pair = module.json.object(
 		"case_details",
 		"DetailPair",
-		module.docType === "AdvancedModule" ? D.pairAdvanced : D.pairModule,
+		module.docType === "ShadowModule"
+			? D.pairShared
+			: module.docType === "AdvancedModule"
+				? D.pairAdvanced
+				: D.pairModule,
 	);
 	const listPlace = caseListPlace(module, "case-list");
 	const detailPlace = caseListPlace(module, "case-detail");
@@ -1405,8 +1838,25 @@ export function readCaseDetails(
 		return;
 	}
 	// Both details are read whatever the first holds, so every finding is raised in one pass.
-	const shortKeys = readDetailKeys(ctx, module, short, "short");
-	const longKeys = readDetailKeys(ctx, module, long, "long");
+	const wording: CaseListShortReading = {};
+	const shortKeys = readDetailKeys(ctx, module, short, "short", false, wording);
+	// HQ generates a single shared detail ID for every enabled line on this
+	// menu. Core keeps the last definition. A long-only line is unreferenced,
+	// but a second, different definition shadows what the Case List editor
+	// says the worker sees. Do not import the earlier value.
+	const definesLine = (screen: JsonCursor) =>
+		screen.peek("persist_case_context") === true &&
+		!(
+			screen.peek("case_tile_template") &&
+			screen.peek("persist_tile_on_forms") === true
+		);
+	const lineText = (screen: JsonCursor) =>
+		screen.peek("persistent_case_context_xml") ?? "case_name";
+	const competingLine =
+		definesLine(short) &&
+		definesLine(long) &&
+		lineText(short) !== lineText(long);
+	const longKeys = readDetailKeys(ctx, module, long, "long", competingLine);
 	let whole = shortKeys && longKeys;
 	const selection = readSelection(ctx, module, short);
 	whole &&= selection.ok;
@@ -1431,6 +1881,8 @@ export function readCaseDetails(
 	const longCursors = long.list("columns", "DetailColumn", D.longColumns);
 	const shared = {
 		selectProperty,
+		optimizationsOn:
+			module.json.peek("show_case_list_optimization_options") === true,
 		advanced: module.docType === "AdvancedModule",
 		offersSearch: menuOffersSearch(module),
 		relationVia: (steps: readonly string[]) =>
@@ -1443,6 +1895,7 @@ export function readCaseDetails(
 	const shortOptions: Omit<ColumnOptions, "filterChangesBuild"> = {
 		...shared,
 		inTile,
+		namedTile: tileTemplate === "icon_text_grid",
 		formats: formatCounts(short),
 		searchInstancesRead:
 			autoLaunch || short.peek("instance_name") === "results",
@@ -1460,9 +1913,23 @@ export function readCaseDetails(
 			filterChangesBuild: filterChangesBuild(short, index),
 		}),
 	);
-	const longReadings = longCursors.map((column) =>
-		readDetailColumn(ctx, module, column, "long", longOptions),
-	);
+	const sourceTabs = objectMembers(long.peek("tabs")) ?? [];
+	const sourceAt = detailSourceSpans(sourceTabs, longCursors.length);
+	const rowTabAt = (index: number) => sourceAt[index]?.tab;
+	const childTypeAt = (index: number) => sourceAt[index]?.caseType;
+	const longReadings = longCursors.map((column, i) => {
+		const child = childTypeAt(i);
+		const source = sourceAt[i];
+		return readDetailColumn(ctx, module, column, "long", {
+			...longOptions,
+			dataRows: rowTabAt(i)?.has_nodeset === true,
+			fixtureRow: source?.fixture === true,
+			...(child && {
+				relationVia: (steps) => readColumnVia(ctx, child, steps),
+				selectProperty: (name, owner) => selectProperty(name, owner ?? child),
+			}),
+		});
+	});
 	whole &&=
 		shortReadings.every((one) => one !== undefined) &&
 		longReadings.every((one) => one !== undefined);
@@ -1478,6 +1945,51 @@ export function readCaseDetails(
 		readings.map((one) => (one === "dropped" ? undefined : one));
 	const shortProposals = proposalsOf(shortReadings);
 	const longProposals = proposalsOf(longReadings);
+	// HQ emits a plain or invisible calculated field's expression in its
+	// physical detail template. Sort-only nodes are outside get_all_xpaths.
+	const factories = sourceFactories(ctx.input);
+	const screens = [shortProposals, longProposals].map((proposals, screen) => {
+		const kind = screen === 0 ? "short" : "long";
+		// Module.get_details can clone these same columns onto search_short/long.
+		const ids = ["case", "search"].map(
+			(family) => `m${module.index}_${family}_${kind}`,
+		);
+		const sources = new Map<string, string>();
+		for (const proposal of proposals)
+			if (
+				proposal?.expression &&
+				["plain", "invisible"].includes(
+					String(proposal.json.peek("format") ?? "plain"),
+				)
+			) {
+				for (const [name, src] of scannedInstances(
+					proposal.expression.text,
+					factories,
+				))
+					sources.set(name, src);
+			}
+		const scopes: ReadonlyMap<string, string>[] = [];
+		for (const id of ids) {
+			const observed = ctx.input.suiteDetails?.get(id);
+			if (observed === null) continue;
+			if (!observed) {
+				// The ordinary screen always has this template. A search clone
+				// exists only if a served suite or module configuration provides one.
+				if (id === ids[0] || shared.offersSearch) scopes.push(sources);
+				continue;
+			}
+			const resolved = new Map(sources);
+			for (const [name, src] of observed) {
+				if (src === null) resolved.delete(name);
+				else resolved.set(name, src);
+			}
+			scopes.push(resolved);
+		}
+		return { ids, sources: sharedSources(scopes), reached: scopes.length > 0 };
+	});
+	const both = sharedSources(
+		screens.filter((screen) => screen.reached).map((screen) => screen.sources),
+	);
 
 	const joined = joinDetailColumns(
 		shortProposals,
@@ -1507,11 +2019,31 @@ export function readCaseDetails(
 	// Each property a column or a sort element reads is a property of the catalog: of the case
 	// type its walk reaches, for a column read through a relation.
 	const caseType = module.module.caseType;
+	// The case types whose properties a column shows: the list's own on
+	// Results, and a Details tab's child type on Details. A column on neither
+	// detail (a sort's carrier) reads the list's own type.
+	const typesOf = (column: JoinedColumn) => {
+		const types = new Set([
+			...(column.short !== undefined ? [caseType] : []),
+			...(column.long !== undefined
+				? [childTypeAt(column.long) ?? caseType]
+				: []),
+		]);
+		return [...(types.size > 0 ? types : [caseType])];
+	};
 	const properties = joined.columns.flatMap((column) => {
 		const body = column.proposal.column;
 		if (body.kind === "calculated" || typeof body.field !== "string") return [];
-		const owner = walkedType(body.via, caseType, ctx.draft.caseTypes ?? []);
-		return owner === undefined ? [] : [[owner, body.field] as const];
+		// The worker's own record is no case type of the catalog.
+		if (body.readFrom === "worker-record") return [];
+		const graph = new CaseRelationCatalog(ctx.draft.caseTypes ?? []);
+		return typesOf(column).flatMap((type) =>
+			type === undefined
+				? []
+				: graph
+						.reached(type, body.via ?? [])
+						.types.map((owner) => [owner, body.field] as const),
+		);
 	});
 	if (
 		caseType !== undefined &&
@@ -1527,47 +2059,417 @@ export function readCaseDetails(
 				}
 			});
 		});
-	if (caseType !== undefined) {
-		withholdRawShownChoices(ctx, caseType, joined, choices.labelShown);
-		declareShownChoices(ctx, caseType, joined);
-	}
+	if (caseType !== undefined) declareShownChoices(ctx, typesOf, joined);
 
 	// Each column's identity: by (kind, field, n), n its ordinal among equal pairs in list order.
 	const seen = new Map<string, number>();
 	const uuids: Uuid[] = new Array(joined.columns.length);
+	const startKeys = new Map<number, { uuid: Uuid; key: ExternalKey }>();
 	for (const index of joined.listOrder) {
 		const column = joined.columns[index] as JoinedColumn;
 		const field = fieldOf(column.proposal) ?? "";
-		const pairKey = JSON.stringify([column.proposal.column.kind, field]);
+		const kind =
+			column.proposal.choices !== undefined
+				? "choice-label"
+				: column.proposal.column.kind === "calculated" &&
+						column.proposal.column.showAs === "formatted-text"
+					? "calculated-formatted-text"
+					: column.proposal.column.kind === "id-mapping" &&
+							column.proposal.column.behavior === "first-match"
+						? "conditional-label"
+						: column.proposal.column.kind;
+		const pairKey = JSON.stringify([kind, field]);
 		const n = seen.get(pairKey) ?? 0;
 		seen.set(pairKey, n + 1);
+		const key = externalKey.caseListColumn(module.uniqueId, kind, field, n);
 		const minted = ctx.accounting.identity(
-			ctx.identities.claim(
-				externalKey.caseListColumn(
-					module.uniqueId,
-					column.proposal.column.kind,
-					field,
-					n,
-				),
-				`${module.uniqueId}/case-list/${index}`,
-			),
+			ctx.identities.claim(key, `${module.uniqueId}/case-list/${index}`),
 			listPlace,
 			"schema:DetailColumn",
 		);
 		if (minted === undefined) whole = false;
+		else {
+			ctx.facts.detailColumnOwners.push({
+				uuid: minted,
+				short:
+					column.short === undefined
+						? undefined
+						: shortCursors[column.short]?.pointer,
+				long:
+					column.long === undefined
+						? undefined
+						: longCursors[column.long]?.pointer,
+			});
+			if (column.long !== undefined)
+				startKeys.set(column.long, { uuid: minted, key });
+		}
 		uuids[index] = minted ?? (`${module.uuid}-column-${index}` as Uuid);
 	}
 
 	const config: CaseListConfig = {
 		columns: [],
+		...(sort.calculations.length > 0 && {
+			calculatedSorts: [...sort.calculations],
+		}),
 		listColumnOrder: joined.listOrder.map((index) => uuids[index] as Uuid),
 		detailColumnOrder: joined.detailOrder.map((index) => uuids[index] as Uuid),
 		searchInputs: [],
 		...(selection.selection !== undefined && {
 			selection: selection.selection,
 		}),
-		...(tile.config !== undefined && { tile: tile.config }),
+		...(wording.empty !== undefined && {
+			emptyText: sourceText(ctx, wording.empty.texts),
+		}),
+		...(wording.select !== undefined && {
+			selectButtonText: sourceText(ctx, wording.select.texts),
+		}),
+		...(wording.deviceLookup !== undefined && {
+			deviceLookup: wording.deviceLookup,
+		}),
+		// Claimed by the menu's reading (`menus/modules.ts`), held here with the list it serves.
+		...(module.json.peek("show_case_list_optimization_options") === true && {
+			optimizations: true as const,
+		}),
+		...(tile.config !== undefined && {
+			tile: {
+				...tile.config,
+				...(tile.slots && {
+					namedSlots: recordFromEntries(
+						[...tile.slots].map(
+							([slot, index]) => [slot, uuids[index] as Uuid] as const,
+						),
+					) as NonNullable<NonNullable<CaseListConfig["tile"]>["namedSlots"]>,
+				}),
+			},
+		}),
+		...(tile.detailCells && {
+			detailTile: {
+				cells: recordFromEntries(
+					[...tile.detailCells].map(
+						([i, cell]) => [uuids[i] as Uuid, cell] as const,
+					),
+				),
+			},
+		}),
 	};
+	const ownPersistent = tile.config?.persistOnForms === true;
+	const sourceId = short.peek("persistent_case_tile_from_module");
+	const usesLine = short.peek("persist_case_context") === true;
+	const inline = short.peek("pull_down_tile") === true;
+	let external: DraftModule | undefined;
+	if (typeof sourceId === "string" && sourceId) {
+		const source = ctx.draft.modules.find((menu) => menu.uniqueId === sourceId);
+		const details = source?.json.peek("case_details");
+		const sourceShort =
+			isJsonObject(details) && isJsonObject(details.short)
+				? details.short
+				: undefined;
+		if (dormantFormContextSource(ctx, sourceId)) {
+			// EntriesHelper finds the named menu, then uses this menu's own
+			// tile or line. A missing menu is a different outcome: HQ raises.
+			short.drop("persistent_case_tile_from_module", D.dormantMenu);
+		} else if (
+			!source ||
+			!sourceShort?.case_tile_template ||
+			source.module.caseType !== module.module.caseType
+		) {
+			short.refuse("persistent_case_tile_from_module", D.contextUnavailable);
+			whole = false;
+		} else {
+			short.take(
+				"persistent_case_tile_from_module",
+				D.persistentFromModule,
+				String,
+			).value;
+			external = source;
+			config.contextAboveForm = {
+				kind: "menu-tile",
+				moduleUuid: source.uuid,
+				...(inline && { expandDetails: true }),
+			};
+		}
+	}
+	if (inline) {
+		if (external || ownPersistent) {
+			short.take("pull_down_tile", D.pullDown, Boolean).value;
+			if (external && persistHeldByExternalPullDown(ctx, module, short))
+				short.take("persist_tile_on_forms", D.persistForPullDown, Boolean)
+					.value;
+			else if (external)
+				// HQ's build expands the source menu's tile with this menu's persistence off too;
+				// Nova writes it on, as HQ's Case List page keeps the pull-down.
+				sameState(
+					ctx,
+					D.persistForPullDown.entry,
+					`${short.pointer}/persist_tile_on_forms`,
+					"list-settings-respelled",
+				);
+			if (!external)
+				config.contextAboveForm = { kind: "own-tile", expandDetails: true };
+		} else {
+			short.refuse("pull_down_tile", D.inlineUnavailable);
+			whole = false;
+		}
+	}
+	if (usesLine) {
+		if (ownPersistent) {
+			short.drop("persist_case_context", D.persistContextBeside);
+			short.drop("persistent_case_context_xml", D.persistContextXmlBeside);
+		} else {
+			short.take("persist_case_context", D.persistContext, Boolean).value;
+			const value = short.peek("persistent_case_context_xml") ?? "case_name";
+			if (typeof value !== "string") {
+				ctx.accounting.circumstance("unrecognized", short.place, {
+					name: "schema:Detail.persistent_case_context_xml",
+				});
+				whole = false;
+			} else {
+				ctx.pending.register(
+					{
+						ref: {
+							entity: "module",
+							uuid: module.uuid,
+							slot: "case_form_context_line",
+						},
+						text: value,
+						mode: { target: "hq-json", interpolation: "none" },
+						place: short.place,
+						key: "schema:Detail.persistent_case_context_xml",
+					},
+					{ json: short, key: "persistent_case_context_xml" },
+				);
+				const expression = pendingPlaceholder("value");
+				config.contextAboveForm = external
+					? {
+							kind: "menu-tile",
+							moduleUuid: external.uuid,
+							expression,
+							...(inline && { expandDetails: true }),
+						}
+					: { kind: "line", expression };
+			}
+		}
+	} else if (short.used("persistent_case_context_xml"))
+		short.drop("persistent_case_context_xml", D.contextXmlUnused);
+	if (longKeys && long.used("tabs")) {
+		const tabs = long.list("tabs", "DetailTab", D.tabs);
+		const detailed: NonNullable<CaseListConfig["detailTabs"]> = [];
+		let previous = -1;
+		const mixed =
+			module.docType === "AdvancedModule" &&
+			long.peek("case_tile_template") === "custom" &&
+			tileRowMixesTabs(long, objectMembers(long.peek("tabs")) ?? []);
+		for (const [tabIndex, tab] of tabs.entries()) {
+			// `isTab` is the Case Detail page's own (`tabEditorFlag`); any other key a tab
+			// does not declare is no word a person knows from HQ's pages.
+			for (const key of tab.undeclared())
+				if (key !== "isTab") {
+					tab.refuse(key, D.tabUndeclared);
+					whole = false;
+				}
+			const start = tab.take(
+				"starting_index",
+				mixed ? D.tabsTileRowMixedAdvanced : D.tabPosition,
+				(value) => value,
+			).value;
+			const anchor =
+				typeof start === "number" ? startKeys.get(start) : undefined;
+			if (
+				anchor === undefined ||
+				typeof start !== "number" ||
+				start <= previous ||
+				(previous < 0 && start !== 0)
+			) {
+				ctx.accounting.circumstance("unrecognized", tab.place, {
+					name: "schema:DetailTab.starting_index",
+				});
+				whole = false;
+				continue;
+			}
+			previous = start;
+			const held = heldTextsIn(
+				tab.peek("header"),
+				appCodes(ctx),
+				sourceCode(ctx),
+				"case-detail-tab-title",
+			);
+			if (!held) {
+				refuseUnheldKey(
+					tab,
+					"header",
+					appCodes(ctx),
+					sourceCode(ctx),
+					"case-detail-tab-title",
+				);
+				whole = false;
+				continue;
+			}
+			const titles = tab.take("header", D.tabTitle, () => held.texts).value;
+			noteRespelled(
+				ctx,
+				D.tabTitle.entry,
+				`${tab.pointer}/header`,
+				tab.peek("header"),
+				held,
+			);
+			tab.derived("isTab", D.tabEditorFlag);
+			const nextStart = tabs[tabIndex + 1]?.peek("starting_index");
+			const end =
+				typeof nextStart === "number"
+					? Math.min(nextStart, longCursors.length)
+					: longCursors.length;
+			const members: ExternalKey[] = [];
+			for (let i = start + 1; i < end; i++) {
+				const member = startKeys.get(i);
+				if (member) members.push(member.key);
+			}
+			const uuid = ctx.accounting.identity(
+				ctx.identities.claim(
+					externalKey.caseDetailTab(anchor.key, members),
+					`${module.uniqueId}/detail-tab/${start}`,
+				),
+				detailPlace,
+				"schema:DetailTab",
+			);
+			if (uuid === undefined) {
+				whole = false;
+				continue;
+			}
+			const tabBody: NonNullable<CaseListConfig["detailTabs"]>[number] = {
+				uuid,
+				title: sourceText(ctx, titles),
+				startColumnUuid: anchor.uuid,
+			};
+			const condition = tab.peek("relevant");
+			if (typeof condition === "string" && condition !== "") {
+				ctx.pending.register(
+					{
+						ref: {
+							entity: "module",
+							uuid: module.uuid,
+							slot: "case_detail_tab_condition",
+							member: { tabUuid: uuid },
+						},
+						text: condition,
+						mode: { target: "hq-json", interpolation: "none" },
+						place: tab.place,
+						key: "schema:DetailTab.relevant",
+					},
+					{ json: tab, key: "relevant" },
+				);
+				tabBody.displayCondition = pendingPlaceholder("condition");
+			}
+			const nodes = tab.peek("nodeset"),
+				child = tab.peek("nodeset_case_type"),
+				filter = tab.peek("nodeset_filter");
+			const active = tab.peek("has_nodeset") === true;
+			const custom = active && typeof nodes === "string" && nodes !== "";
+			const children =
+				active &&
+				!custom &&
+				typeof child === "string" &&
+				CASE_TYPE_PATTERN.test(child);
+			if (custom || children) {
+				tab.take(
+					"has_nodeset",
+					custom ? D.tabRecordsEnabled : D.tabChildEnabled,
+					Boolean,
+				).value;
+				if (children) tabBody.rowSource = { kind: "children", caseType: child };
+				const relatedType =
+					typeof child === "string" && CASE_TYPE_PATTERN.test(child)
+						? child
+						: undefined;
+				if (relatedType) {
+					tab.take(
+						"nodeset_case_type",
+						children ? D.tabChildType : D.tabSearchChildren,
+						String,
+					).value;
+					// The type a tab names, its rows' or a search's related
+					// children, is a type of the catalog.
+					if (
+						ctx.draft.caseTypes &&
+						!ctx.draft.caseTypes.some((type) => type.name === relatedType)
+					)
+						ctx.writeDraft(() => {
+							ctx.draft.caseTypes = [
+								...(ctx.draft.caseTypes ?? []),
+								{ name: relatedType, properties: [] },
+							];
+						});
+				} else if (custom && child && shared.offersSearch) {
+					tab.refuse("nodeset_case_type", D.tabTypeInvalid);
+					whole = false;
+				}
+				if (custom || (typeof filter === "string" && filter !== "")) {
+					const key = custom ? "nodeset" : "nodeset_filter";
+					ctx.pending.register(
+						{
+							ref: {
+								entity: "module",
+								uuid: module.uuid,
+								slot: custom
+									? "case_detail_tab_rows"
+									: "case_detail_tab_filter",
+								member: { tabUuid: uuid },
+							},
+							text: custom ? nodes : (filter as string),
+							mode: {
+								target: "hq-json",
+								interpolation: custom ? "none" : "no-case",
+							},
+							place: tab.place,
+							key: `schema:DetailTab.${key}`,
+						},
+						{ json: tab, key },
+					);
+					if (custom)
+						tabBody.rowSource = {
+							kind: "records",
+							rows: pendingPlaceholder("value"),
+							...(relatedType && { includeChildrenOfType: relatedType }),
+						};
+					else if (tabBody.rowSource?.kind === "children")
+						tabBody.rowSource.condition = pendingPlaceholder("condition");
+				}
+				const orderFields = joined.columns
+					.flatMap((c, i) =>
+						c.long !== undefined &&
+						rowTabAt(c.long)?.starting_index === start &&
+						longCursors[c.long]?.peek("format") === "invisible"
+							? [{ uuid: uuids[i], place: c.long }]
+							: [],
+					)
+					.sort((a, b) => a.place - b.place)
+					.map((c) => c.uuid);
+				if (orderFields.length) tabBody.orderFields = orderFields;
+			} else if (active) {
+				tab.refuse("has_nodeset", D.tabRowsMissing);
+				if (tab.used("nodeset_case_type"))
+					tab.refuse("nodeset_case_type", D.tabTypeInvalid);
+				whole = false;
+			}
+			if (!custom && tab.used("nodeset")) tab.drop("nodeset", D.tabRowsInert);
+			if (
+				(!active ||
+					(custom &&
+						(typeof child !== "string" || !CASE_TYPE_PATTERN.test(child)) &&
+						!shared.offersSearch)) &&
+				tab.used("nodeset_case_type")
+			)
+				tab.drop("nodeset_case_type", D.tabTypeInert);
+			if (!children && tab.used("nodeset_filter"))
+				tab.drop("nodeset_filter", D.tabFilterInert);
+			detailed.push(tabBody);
+			ctx.translations.set(
+				makeTranslationUnitId("detail-tab", uuid, "title"),
+				"text",
+				translatedTexts(ctx, titles),
+			);
+		}
+		if (detailed.length) config.detailTabs = detailed;
+	}
 	const named = applicationReading(ctx)?.languages.tagOf !== undefined;
 	const twins: ColumnFieldTwin[] = [];
 	joined.columns.forEach((column, index) => {
@@ -1576,27 +2478,132 @@ export function readCaseDetails(
 			...column.proposal.column,
 			uuid,
 			...(column.sort !== undefined && { sort: column.sort }),
-			...(column.visibleInList === false && { visibleInList: false }),
+			...(column.visibleInList === false &&
+				!tile.cells.get(index)?.androidOnly &&
+				!tile.config?.rawSlots?.some(
+					(slot) => tile.slots?.get(slot) === index,
+				) && { visibleInList: false }),
 			...(column.visibleInDetail === false && { visibleInDetail: false }),
 			...(column.notOnList === true && { notOnList: true }),
 			...(tile.cells.get(index) !== undefined && {
 				tile: tile.cells.get(index),
 			}),
 		} as Column;
+		if (built.kind === "image-map" || built.kind === "id-mapping") {
+			const counts = new Map<string, number>();
+			for (const [index, row] of built.mapping.entries()) {
+				const source = column.proposal.conditions?.get(index);
+				const comparison = source
+					? JSON.stringify(["condition", recordSyntaxKey(source.text)])
+					: caseMappingComparison(row);
+				const key = externalKey.caseMappingRow(
+					uuid,
+					mappingIdentityAt(comparison, counts),
+				);
+				const matched = ctx.accounting.identity(
+					ctx.identities.claim(
+						key,
+						`${module.uniqueId}/case-list/${uuid}/mapping/${index}`,
+					),
+					column.proposal.json.place,
+					"schema:MappingItem",
+				);
+				if (matched === undefined) whole = false;
+				else {
+					// A saved value's row is known by its column and comparison, as
+					// HQ keys its translations (`caseMappingRows.ts::caseMappingRowUuid`);
+					// it holds an identity only where the document it was published
+					// from gave it one of its own. A condition always holds one.
+					const known =
+						matched !==
+						caseMappingRowUuid(uuid, {
+							value: row.value,
+							...("match" in row && { match: row.match }),
+						});
+					if (source !== undefined || row.when !== undefined || known)
+						row.uuid = matched;
+					if (source) {
+						const registration = ctx.pending.register(
+							{
+								ref: {
+									entity: "module",
+									uuid: module.uuid,
+									slot: "case_list_mapping_condition",
+									member: { columnUuid: uuid, rowUuid: matched },
+								},
+								text: source.text,
+								mode: source.mode,
+								place: source.place,
+								key: source.key,
+							},
+							source.at,
+						);
+						const other =
+							column.proposal.json === shortProposals[column.short ?? -1]?.json
+								? longProposals[column.long ?? -1]
+								: shortProposals[column.short ?? -1];
+						const twin = other?.conditions?.get(index);
+						if (twin && twin.at.json !== source.at.json)
+							twins.push({ registration, site: twin.at, place: twin.place });
+					}
+				}
+			}
+		}
 		const expression = column.proposal.expression;
 		if (built.kind === "calculated" && expression !== undefined) {
+			const physical = screens.filter((_, i) =>
+				i === 0 ? column.short !== undefined : column.long !== undefined,
+			);
+			let text = expression.text;
+			const keys = column.proposal.textKeys;
+			if (keys !== undefined) {
+				const pieces: NonNullable<typeof built.texts> = [];
+				const owners = keys.map((key) =>
+					externalKey.caseCalculationText(uuid, key),
+				);
+				const reserved = new Set(owners.map(externalKeyText));
+				for (const [index, key] of keys.entries()) {
+					const piece = ctx.accounting.identity(
+						ctx.identities.claim(
+							owners[index],
+							`${module.uniqueId}/case-list/${uuid}/text/${index}`,
+							reserved,
+						),
+						column.proposal.json.place,
+						"schema:MappingItem",
+					);
+					if (piece === undefined) {
+						whole = false;
+						return;
+					}
+					pieces.push({
+						uuid: piece,
+						label: sourceText(ctx, column.proposal.texts[key]),
+					});
+				}
+				built.texts = pieces;
+				text = bindCalculationText(expression.text, keys, pieces);
+			}
 			const registration = ctx.pending.register(
 				{
+					suiteDetails: physical.flatMap((screen) => screen.ids),
+					suiteSources:
+						physical.length === 2
+							? both
+							: physical[0]?.reached
+								? physical[0].sources
+								: undefined,
 					ref: {
 						entity: "module",
 						uuid: module.uuid,
 						slot: "case_list_column_expression",
 						member: { columnUuid: uuid },
 					},
-					text: expression.text,
+					text,
 					mode: expression.mode,
 					place: expression.place,
 					key: expression.key,
+					...(expression.readerClaimed && { readerClaimed: true }),
 				},
 				expression.at,
 			);
@@ -1630,13 +2637,42 @@ export function readCaseDetails(
 			"text",
 			byLanguage(column.proposal.header),
 		);
-		for (const [value, map] of Object.entries(column.proposal.texts))
+		if (built.kind === "image-map" || built.kind === "id-mapping") {
+			for (const [index, row] of built.mapping.entries()) {
+				const key = String(index);
+				const map = column.proposal.texts[key];
+				if (map !== undefined)
+					ctx.translations.set(
+						caseMappingTextUnit(
+							uuid,
+							row,
+							built.kind === "image-map" ? "image-description" : "mapping",
+						),
+						"text",
+						byLanguage(map),
+					);
+			}
+		}
+		if (built.kind === "calculated")
+			for (const [index, piece] of (built.texts ?? []).entries()) {
+				const key = column.proposal.textKeys?.[index];
+				if (key !== undefined)
+					ctx.translations.set(
+						makeTranslationUnitId(
+							"column",
+							uuid,
+							"calculation-text",
+							piece.uuid,
+						),
+						"text",
+						byLanguage(column.proposal.texts[key]),
+					);
+			}
+		if (built.kind === "interval" && column.proposal.texts[""] !== undefined)
 			ctx.translations.set(
-				value === ""
-					? makeTranslationUnitId("column", uuid, "text")
-					: makeTranslationUnitId("column", uuid, "mapping", value),
+				makeTranslationUnitId("column", uuid, "text"),
 				"text",
-				byLanguage(map),
+				byLanguage(column.proposal.texts[""]),
 			);
 	});
 	// The array in the list's order, as the reader returns it (`columnsInListOrder`): a column an
@@ -1680,6 +2716,17 @@ export function readCaseDetails(
 		}
 	}
 
+	for (const [slot, held] of [
+		["empty", wording.empty],
+		["select", wording.select],
+		["lookup", wording.lookup],
+	] as const)
+		if (held !== undefined)
+			ctx.translations.set(
+				caseListWordingUnitId(module.uuid, slot),
+				"text",
+				translatedTexts(ctx, held.texts),
+			);
 	ctx.writeDraft(() => {
 		(module.module as { caseListConfig?: CaseListConfig }).caseListConfig =
 			config;
@@ -1814,6 +2861,40 @@ function identitiesByListOrder(
 	return renamed;
 }
 
+/** Named Results assignments follow the short fields. Details cells follow
+ * the long fields, which a join can attach to a different short field. */
+function remappedCaseTileRefs(
+	config: Pick<CaseListConfig, "tile" | "detailTile">,
+	short: (uuid: Uuid) => Uuid,
+	long: (uuid: Uuid) => Uuid,
+): Pick<CaseListConfig, "tile" | "detailTile"> {
+	const tile = config.tile;
+	const detailTile = config.detailTile;
+	return {
+		...(tile?.namedSlots !== undefined && {
+			tile: {
+				...tile,
+				namedSlots: recordFromEntries(
+					Object.entries(tile.namedSlots).map(([slot, uuid]) => [
+						slot,
+						short(uuid),
+					]),
+				) as NonNullable<typeof tile.namedSlots>,
+			},
+		}),
+		...(detailTile !== undefined && {
+			detailTile: {
+				cells: recordFromEntries(
+					Object.entries(detailTile.cells).map(([uuid, cell]) => [
+						long(uuid as Uuid),
+						cell,
+					]),
+				),
+			},
+		}),
+	};
+}
+
 /** `config`'s columns renamed by `renamed` in the draft, in both orders and with the
  *  translations each one's print holds. */
 function renameColumns(
@@ -1823,9 +2904,12 @@ function renameColumns(
 ): void {
 	if (renamed.size === 0) return;
 	const rename = (uuid: Uuid) => renamed.get(uuid) ?? uuid;
+	Object.assign(config, remappedCaseTileRefs(config, rename, rename));
 	for (const column of config.columns) column.uuid = rename(column.uuid);
 	config.listColumnOrder = config.listColumnOrder.map(rename);
 	config.detailColumnOrder = config.detailColumnOrder.map(rename);
+	for (const tab of config.detailTabs ?? [])
+		tab.startColumnUuid = rename(tab.startColumnUuid);
 	for (const targets of Object.values(draft.localization?.translations ?? {})) {
 		if (targets === undefined) continue;
 		const moved: [string, unknown][] = [];
@@ -1988,6 +3072,7 @@ export function sortNamedHiddenColumnHeader(doc: BlueprintDoc): BlueprintDoc {
  * (`detailPrintKey`). It reads the orders `columns-off-a-screen-last-in-its-order` gives.
  */
 export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const effectiveTypes = effectiveCaseTypes(doc);
 	const next = new Map<
 		Uuid,
 		{
@@ -2108,13 +3193,14 @@ export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
 		const named = built.map(({ column: one, printOf }) => {
 			const field = (one as { field?: unknown }).field;
 			const property = typeof field === "string" ? field : "";
-			const pair = JSON.stringify([one.kind, property]);
+			const kind = storedColumnKind(one, module?.caseType, effectiveTypes);
+			const pair = JSON.stringify([kind, property]);
 			const n = counts.get(pair) ?? 0;
 			counts.set(pair, n + 1);
 			const uuid = reRead(
 				externalKey.caseListColumn(
 					DERIVED_WIRE_IDENTITY.moduleUniqueId(module?.uuid ?? moduleUuid),
-					one.kind,
+					kind,
 					property,
 					n,
 				),
@@ -2134,6 +3220,7 @@ export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
 				? at(shortAt.get(joined) ?? -1)
 				: at(longAt.get(uuid) ?? -1);
 		});
+		const newLong = new Map(long.map((uuid, index) => [uuid, onDetail[index]]));
 		const detail = [
 			...onDetail,
 			...list.filter((uuid) => !onDetail.includes(uuid)),
@@ -2141,9 +3228,25 @@ export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
 		next.set(moduleUuid, {
 			config: {
 				...config,
+				...remappedCaseTileRefs(
+					config,
+					(uuid) => {
+						const index = shortAt.get(uuid);
+						return index === undefined ? uuid : at(index);
+					},
+					(uuid) => newLong.get(uuid) ?? uuid,
+				),
 				columns: [...named, ...rest.map(column)],
 				listColumnOrder: list,
 				detailColumnOrder: detail,
+				...(config.detailTabs && {
+					detailTabs: config.detailTabs.map((tab) => ({
+						...tab,
+						startColumnUuid:
+							onDetail[long.indexOf(tab.startColumnUuid)] ??
+							tab.startColumnUuid,
+					})),
+				}),
 			},
 			units,
 		});

@@ -6,6 +6,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -18,6 +19,7 @@ import {
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -91,6 +93,58 @@ function apply(
 }
 
 describe("a delta between two readings of CommCare HQ's app", () => {
+	it("replays surviving case properties in their new positions and preserves their declarations", () => {
+		const base = start();
+		const prev = {
+			...base,
+			caseTypes: [
+				...(base.caseTypes ?? []),
+				{
+					name: "member",
+					properties: ["left", "reborn", "right"].map((name) => ({
+						name,
+						label: proseText(name),
+					})),
+				},
+			],
+		};
+		const next = produce(prev, (draft) => {
+			const type = draft.caseTypes.find(
+				(candidate) => candidate.name === "member",
+			);
+			if (!type) throw new Error("Expected the member catalog");
+			type.properties = [
+				"right",
+				"first_arrival",
+				"left",
+				"reborn",
+				"last_arrival",
+			].map((name) => ({
+				name,
+				label: proseText(name === "reborn" ? "New declaration" : name),
+			}));
+		});
+		const diff = diffDocsToMutations(prev, next, HQ_READING_DELTA);
+		expect(diff.some((m) => m.kind === "moveCaseProperty")).toBe(true);
+		expect(
+			diff
+				.filter((m) => m.kind === "removeCaseProperty")
+				.map((m) => m.property),
+		).toEqual([]);
+		expect(toPersistableDoc(apply(prev, diff))).toEqual(toPersistableDoc(next));
+		for (const [property, after] of [
+			["absent", null],
+			["right", "absent"],
+			["right", "right"],
+		] as const) {
+			expect(
+				mutationTargetsInvalid(prev, [
+					{ kind: "moveCaseProperty", caseType: "member", property, after },
+				]),
+			).toBe(true);
+		}
+	});
+
 	it("emits a removed and an added property, never a rename, and replays to the target", () => {
 		const before = start();
 		// The endpoint a rename makes is exactly the shape the refusal guards:

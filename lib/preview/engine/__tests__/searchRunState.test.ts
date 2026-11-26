@@ -85,6 +85,47 @@ describe("search run commands", () => {
 		expect(filtered.draft).not.toBe(foreign);
 		expect(foreign.get("unknown")).toBe("untrusted");
 	});
+	it("keeps the worker’s edited range through a changed default and never restores a removed starting answer", () => {
+		const state = (value: string, scope = "search") => {
+			const fields = [
+				simpleSearchInputDef(
+					INPUT,
+					"period",
+					"Visit dates",
+					"date-range",
+					"period",
+					{ default: term(literal(value)) },
+				),
+			];
+			return buildSearchRunState(
+				scope,
+				fields,
+				SESSION,
+				runEnvironment(fields),
+			);
+		};
+		const first = state("an old answer");
+		expect(first.draft.get("period:starting")).toBe("an old answer");
+		const picked = new Map([["period:from", "2024-03-01"]]);
+		const edited = changeSearchRunDraft(first, first, picked, false);
+		const refreshed = reconcileSearchRunState(
+			edited,
+			state("2024-05-01 to 2024-06-01"),
+		);
+		expect(refreshed.draft).toEqual(picked);
+		const cleared = clearSearchRun(refreshed, refreshed);
+		expect(
+			reconcileSearchRunState(cleared, state("another answer")).draft.size,
+		).toBe(0);
+		const nextMenu = reconcileSearchRunState(
+			edited,
+			state("2024-03-10", "other menu"),
+		);
+		expect(nextMenu.draft).toEqual(
+			new Map([["period:starting", "2024-03-10"]]),
+		);
+		expect(nextMenu.submitted.size).toBe(0);
+	});
 	it("refreshes untouched defaults, preserves edits and treats clear as intentional until scope changes", () => {
 		const first = initial();
 		expect(first.draft).toEqual(answers("Alice"));

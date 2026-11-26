@@ -20,6 +20,7 @@ import {
 	FINDING_LABELS,
 	FINDING_NEXT_STEPS,
 	FIX_CAUSE_CLAUSES,
+	FIX_IN_HQ_ENTRY_SENTENCES,
 	FIX_IN_HQ_SENTENCES,
 	FIX_IN_HQ_STEMS,
 	findingLine,
@@ -221,6 +222,29 @@ describe("the sentences of fix-in-hq findings", () => {
 		}
 	});
 
+	it("holds an entry's own sentence only for a fix-in-hq entry of the manifest, and reads it in place of its subject's", () => {
+		const byId = new Map(manifest.inventory.map((entry) => [entry.id, entry]));
+		for (const [id, sentence] of Object.entries(FIX_IN_HQ_ENTRY_SENTENCES)) {
+			const entry = byId.get(id);
+			expect(entry && standingOf(entry), id).toBe("fix-in-hq");
+			if (
+				entry === undefined ||
+				(entry.disposition !== "HELD-NEW" && entry.disposition !== "REFUSED")
+			)
+				continue;
+			const finding = {
+				code: id,
+				subject: entry.subject,
+				standing: "fix-in-hq",
+				cause: fixCauseOf(entry) ?? undefined,
+				place: { kind: "app" },
+				detail: { name: "région" },
+			} as unknown as ManifestFinding;
+			expect(findingLine(finding)).toEqual({ sentence, named: "région" });
+			expect(sentence).not.toMatch(/—|\.\.\./);
+		}
+	});
+
 	it("refuses a pair with no sentence, naming where the sentence goes", () => {
 		expect(() => fixInHqSentence("hand-written-content", "hq-refuses")).toThrow(
 			/hand-written-content.*hq-refuses.*hqFindingCopy\.ts/,
@@ -368,26 +392,36 @@ describe("circumstanceBlock", () => {
 // ---------------------------------------------------------------------------
 
 describe("findingLine", () => {
-	const manifestFinding: ManifestFinding = {
-		code: "questions/an-appearance",
-		standing: "not-yet",
-		place: questionPlace,
-		subject: "question-appearance",
-		detail: { name: "quick" },
-	};
+	it.each([
+		"case-search/search-group-layout-unreadable",
+		"case-search/search-group-heading-unreadable",
+	])(
+		"reads the current Search group finding’s guidance and name (%s)",
+		(code) => {
+			const manifestFinding: ManifestFinding = {
+				code,
+				standing: "never",
+				place: { kind: "search", menu: 0, name: "Households" },
+				subject: "search-fields",
+				detail: { name: "follow_up" },
+			};
+			expect(findingLine(manifestFinding)).toEqual({
+				sentence: FINDING_COPY["search-fields"].never,
+				named: "follow_up",
+			});
+			expect(findingLine({ ...manifestFinding, detail: {} }).named).toBeNull();
+		},
+	);
 
-	it("reads a manifest finding's sentence and names it", () => {
-		expect(findingLine(manifestFinding)).toEqual({
-			sentence: FINDING_COPY["question-appearance"]["not-yet"],
-			named: "quick",
-		});
-		expect(findingLine({ ...manifestFinding, detail: {} }).named).toBeNull();
+	it("uses the manifest finding’s repair cause", () => {
 		expect(
 			findingLine({
-				...manifestFinding,
+				code: "questions/jr-count-naming-a-decimal-question",
 				standing: "fix-in-hq",
 				cause: "breaks-when-run",
 				subject: "repeats",
+				place: questionPlace,
+				detail: {},
 			}).sentence,
 		).toBe(fixInHqSentence("repeats", "breaks-when-run"));
 	});

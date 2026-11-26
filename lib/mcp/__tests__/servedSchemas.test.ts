@@ -189,6 +189,43 @@ function takes(name: string, input: Json) {
 	return validate(input) || validate.errors;
 }
 
+it("serves a named address picker and an ordered Search receiver", () => {
+	const address = {
+		kind: "address",
+		type: "address",
+		name: "address",
+		label: "Address",
+	};
+	const city = {
+		kind: "simple",
+		type: "text",
+		name: "village",
+		label: "Village",
+		property: "village",
+		addressReceiver: {
+			kind: "address",
+			source: "address",
+			parts: ["us_state", "city"],
+		},
+	};
+	const withInputs = (receiver: typeof city) => ({
+		work_id: "00000000-0000-4000-8000-000000000001",
+		request_id: "address-search",
+		moduleUuid: "Patients",
+		searchInputs: [address, receiver],
+	});
+	expect(takes("add_search_inputs", withInputs(city))).toBe(true);
+	expect(
+		takes(
+			"add_search_inputs",
+			withInputs({
+				...city,
+				addressReceiver: { ...city.addressReceiver, parts: ["unknown-part"] },
+			}),
+		),
+	).not.toBe(true);
+});
+
 it("serves a question's keypad and text settings, a search with no title, where blanks sort and the calculated value in text", () => {
 	const module = {
 		work_id: "00000000-0000-4000-8000-000000000001",
@@ -405,10 +442,19 @@ it("tells a client what an upload records and what a move offer asks of the user
 	);
 });
 
-it("tells a client what a build profile's stop asks of it, right after the unreadable source's", () => {
-	expect(served("upload_app_to_hq").description).toContain(
-		"If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If an application profile of the app on CommCare HQ includes a language the app no longer has, the call returns `hq_build_profile_language_missing` before sending the app's content: relay the `message` and its `url`, and upload again once the user has changed the profile there.",
-	);
+it("tells a client what to do for unreadable source and installation profile stops", () => {
+	const { description } = served("upload_app_to_hq");
+	const instructions = [
+		"If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged.",
+		"If an installation profile needs an edit in the project space, show the complete hq_installation_profile_review message and its review_url. Follow any Read the next part choice until the complete review has been disclosed. Use the replacement_choices labels to browse Nova installations and their matching installations in the project space. Send the chosen navigation token to see that page. Ask the user to confirm the exact destination ID, languages and worker before sending a binding choice. Ask the user to confirm a newly selected practice worker before sending confirm_installation_profiles with the returned confirmation.",
+		"If an application profile of the app on CommCare HQ includes a language the app no longer has, the call returns `hq_build_profile_language_missing` before sending the app's content: relay the `message` and its `url`, and upload again once the user has changed the profile there.",
+	];
+	let previous = -1;
+	for (const instruction of instructions) {
+		const position = description?.indexOf(instruction) ?? -1;
+		expect(position, instruction).toBeGreaterThan(previous);
+		previous = position;
+	}
 });
 
 it("tells a client what the two stops over data CommCare HQ manages ask of it, right after the drift stop's", () => {
@@ -460,7 +506,8 @@ it("serves provision_workers' confirm_worker_levels as level codes, and withdraw
 		validateFormats: false,
 	}).compile(properties.confirm_worker_levels);
 	expect(validateLevels(["district", "Health_Facility", "_ward-2"])).toBe(true);
-	expect(validateLevels(["2nd-level"])).toBe(false);
+	/* A level code HQ derives from a name is checked where the call is read:
+	 * its rule is a refinement no JSON Schema keyword states. */
 	expect(validateLevels("district")).toBe(false);
 	expect(properties.confirm_worker_levels.description).toContain(
 		"`worker_levels_unconfirmed`",
@@ -553,6 +600,7 @@ it("serves bring_in_hq_app with every answer required and no default", () => {
 		"app_name",
 		"domain",
 		"hq_app_id",
+		"owner_rule_choices",
 		"project_id",
 		"reading_id",
 		"review_digest",
@@ -619,10 +667,49 @@ it("serves the four other bring-in tools as closed objects", () => {
 		additionalProperties: false,
 	});
 	expect(inputShape("set_lookup_table_management")).toEqual({
-		properties: ["managed_by", "project_id", "review_digest", "table_id"],
+		properties: [
+			"current_workbook_base64",
+			"managed_by",
+			"project_id",
+			"review_digest",
+			"source_domain",
+			"source_server",
+			"table_id",
+		],
 		required: ["managed_by", "project_id", "table_id"],
 		additionalProperties: false,
 	});
+	expect(inputShape("separate_lookup_table")).toEqual({
+		properties: [
+			"app_ids",
+			"name",
+			"project_id",
+			"review_digest",
+			"table_id",
+			"tag",
+		],
+		required: ["project_id", "table_id"],
+		additionalProperties: false,
+	});
+	/* A separate table is made only under the digest of the preview the
+	 * user read, and never for an app named some other way. */
+	expect(
+		takes("separate_lookup_table", {
+			project_id: "program",
+			table_id: "table",
+			confirmed: true,
+		}),
+	).not.toBe(true);
+	expect(
+		takes("separate_lookup_table", {
+			project_id: "program",
+			table_id: "table",
+			name: "Facilities 2",
+			tag: "facilities_2",
+			app_ids: ["app"],
+			review_digest: "a".repeat(64),
+		}),
+	).toBe(true);
 	/* A change of who manages a table is made only under the digest of the
 	 * preview the user read: there is no bare yes. */
 	expect(
@@ -694,6 +781,7 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 	const answers = [
 		"app_id",
 		"discard_nova_changes",
+		"owner_rule_choices",
 		"reading_id",
 		"review_digest",
 		"table_choices",
@@ -709,6 +797,9 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 	const choices = validatorOf("bring_in_hq_changes", "table_choices");
 	expect(choices({ district: "use-project" })).toBe(true);
 	expect(choices({ district: "both" })).toBe(false);
+	const owners = validatorOf("bring_in_hq_changes", "owner_rule_choices");
+	expect(owners({ clinic: "worker" })).toBe(true);
+	expect(owners({ clinic: "first_clinic" })).toBe(false);
 	expect(
 		everyPosition("bring_in_hq_changes").filter(
 			(schema) => "default" in schema,
@@ -721,7 +812,7 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 
 it("tells a client an agent never chooses for the user", () => {
 	expect(served("bring_in_hq_app").description).toContain(
-		"never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them",
+		"never choose the name, where the app runs, the date-and-time split, a lookup table's answer or an owner rule's answer for them",
 	);
 	expect(served("read_hq_app").description).toContain(
 		"never choose it for them",

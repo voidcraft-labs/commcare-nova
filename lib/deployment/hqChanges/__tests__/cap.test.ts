@@ -90,6 +90,14 @@ vi.mock("@/lib/media/manifest", () => ({
 	resolveMediaManifest: vi.fn(async () => new Map()),
 }));
 vi.mock("../../store", () => ({
+	/* The snapshot's reads are the mocked reads below, under the caller's role. */
+	withDeploymentReadSnapshot: vi.fn(
+		async (
+			scope: { readonly role: string },
+			_capability: string,
+			body: (snapshot: unknown) => Promise<unknown>,
+		) => body({ scope, db: null, role: scope.role }),
+	),
 	readDeployment: vi.fn(),
 	readAppBaseline: vi.fn(),
 	readTargetIdentity: vi.fn(async () => EMPTY_TARGET_IDENTITY),
@@ -99,6 +107,7 @@ vi.mock("../../store", () => ({
 	recordHqChangesTaken: vi.fn(async () => {}),
 	recordRefreshedAppBaseline: vi.fn(),
 	HqChangesBaselineMovedError: class extends Error {},
+	HqReviewWriteInFlightError: class extends Error {},
 }));
 vi.mock("../../resources", () => ({
 	activeRemoteApp: vi.fn(),
@@ -175,7 +184,6 @@ const NOTHING: ReadingProjectSide = {
 		projectRevision: "0" as LookupRevision,
 		definitions: [],
 		rowsByTable: {},
-		keptColumns: {},
 	}),
 	referencingApps: async () => ({}),
 	siblings: async () => [],
@@ -357,7 +365,7 @@ function review() {
 	return computeHqChanges(
 		SCOPE,
 		TARGET,
-		{ readingId: READING_ID, keepMedia: false, onEvent: () => {} },
+		{ readingId: READING_ID, stageMedia: null, onEvent: () => {} },
 		"review",
 	);
 }
@@ -417,6 +425,8 @@ describe("a review of changes made in CommCare HQ at the byte cap", () => {
 					reason: "base-too-large",
 					/* What a brought-in baseline measures against, as its sentence names it. */
 					since: expect.objectContaining({ kind: "brought-in" }),
+					/* No map was read, so no publish over it can be offered. */
+					requiresReview: true,
 				});
 			},
 		);

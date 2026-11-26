@@ -248,12 +248,9 @@ describe("lookup persistence migration", () => {
 			["Facilities", "x".repeat(33), "1", "1", 1, 0, 0, ACTOR],
 			["Facilities", "facilities", "-1", "1", 1, 0, 0, ACTOR],
 			["Facilities", "facilities", "1", "-1", 1, 0, 0, ACTOR],
-			["Facilities", "facilities", "1", "1", 0, 0, 0, ACTOR],
-			["Facilities", "facilities", "1", "1", 251, 0, 0, ACTOR],
+			["Facilities", "facilities", "1", "1", -1, 0, 0, ACTOR],
 			["Facilities", "facilities", "1", "1", 1, -1, 0, ACTOR],
-			["Facilities", "facilities", "1", "1", 1, 5001, 0, ACTOR],
 			["Facilities", "facilities", "1", "1", 1, 0, -1, ACTOR],
-			["Facilities", "facilities", "1", "1", 1, 0, 8388609, ACTOR],
 		];
 		for (const parameters of invalidRows) {
 			await expectSqlState(pgClient, "23514", baseInsert, parameters);
@@ -267,6 +264,19 @@ describe("lookup persistence migration", () => {
 			250,
 			5000,
 			8388608,
+			ACTOR,
+		]);
+		// The service, not the catalog, bounds a table's columns, rows and
+		// bytes now: a table brought in may hold no columns, and a generation
+		// grows a table past one request's rows and bytes.
+		await pgClient.query(baseInsert, [
+			"Grown table",
+			"grown_table",
+			"0",
+			"0",
+			0,
+			5001,
+			8388609,
 			ACTOR,
 		]);
 	});
@@ -323,7 +333,7 @@ describe("lookup persistence migration", () => {
 		pgClient,
 	}) => {
 		const tableId = await insertTable(pgClient);
-		const columnId = await insertColumn(pgClient, tableId);
+		await insertColumn(pgClient, tableId);
 
 		await expectSqlState(
 			pgClient,
@@ -353,12 +363,6 @@ describe("lookup persistence migration", () => {
 				ACTOR,
 			]);
 		}
-		await expectSqlState(pgClient, "23514", insert, [
-			tableId,
-			"V",
-			JSON.stringify({ [columnId]: "x".repeat(262145) }),
-			ACTOR,
-		]);
 
 		const boundaryTableId = await insertTable(pgClient, {
 			name: "Exact row boundary",

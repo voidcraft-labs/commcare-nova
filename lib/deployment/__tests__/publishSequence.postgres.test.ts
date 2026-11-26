@@ -1,3 +1,28 @@
+import { v7 } from "uuid";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
+import { withInstallationRuntimeRole } from "@/__tests__/helpers/installationRuntimeRole";
+import { serveWorkingInstallationInventory } from "@/__tests__/helpers/workingInstallationInventory";
+import { withAppTx } from "@/lib/db/pg";
+import {
+	publishFromSession as publishAppToHq,
+	publishSession,
+} from "@/lib/deployment/__tests__/publishWithGrant";
+import {
+	installManualLookupData,
+	manualLookupManifest,
+} from "@/lib/deployment/manualLookupInstall";
+import {
+	type LookupColumnId,
+	type LookupRowId,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
+import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
+import { applyLookupValueEditInTransaction } from "@/lib/lookup/largeValues/service";
+import { getLookupTable } from "@/lib/lookup/service";
+import type { LookupAuthoringRowOperation } from "@/lib/lookup/types";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
+import { credentialWriteGrant } from "@/lib/mcp/credentialWriteGrant";
 /**
  * The publish sequence: the requests `publishAppToHq` sends, what it
  * records, and what it refuses, over real Postgres and a peer standing in
@@ -16,7 +41,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import AdmZip from "adm-zip";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
@@ -26,7 +51,10 @@ import {
 	isSaveCounterPath,
 	withHqPeer,
 } from "@/__tests__/helpers/hqSaveCounter";
-import { readMultipartRequest } from "@/__tests__/helpers/httpPeer";
+import {
+	readHttpRequestBody,
+	readMultipartRequest,
+} from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedPublishRead,
 	replyRetained,
@@ -34,14 +62,17 @@ import {
 	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import {
+	testUuid as installationUuid,
+	testMediaAssetId,
+} from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
 import { compileCcz } from "@/lib/commcare/compiler";
-import { decrypt } from "@/lib/commcare/encryption";
+import { decrypt, encrypt } from "@/lib/commcare/encryption";
 import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
-import { readHqAppSource } from "@/lib/commcare/hq/appSource";
+import { parseHqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	derivedFormXmlns,
@@ -59,6 +90,8 @@ import {
 	removeKid,
 } from "@/lib/db/__tests__/heldPlacementApp";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
+import { saveCommCareSettings } from "@/lib/db/settings";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -68,15 +101,19 @@ import {
 	type OrganizationLevel,
 } from "@/lib/domain";
 import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
-import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
-import { createLocation } from "@/lib/organization/service";
+import {
+	createLookupTable,
+	replaceLookupRows,
+	updateLookupTableTag,
+} from "@/lib/lookup/service";
+import { createLocation, updateLocation } from "@/lib/organization/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
-import { downloadAssetBytes } from "@/lib/storage/media";
 import { adoptedAppBaselineWrite } from "../adoption";
 import { attachmentUrlTarget } from "../attachmentTarget";
 import { resolveDownloadTarget } from "../downloadTarget";
 import { getEntryPointLink } from "../entryPointLinks";
 import { ABSENT_RESOURCE_DIGEST } from "../hqResourceBaseline";
+import { checkInstallationPublish } from "../installationProfilePublish";
 import {
 	previewProjectSpaceFor,
 	readPreviewDeploymentAnswer,
@@ -102,7 +139,6 @@ import {
 	type PublishInput,
 	type PublishOutcome,
 	projectSpaceConfirmations,
-	publishAppToHq,
 	setupArtifactFor,
 } from "../service";
 import {
@@ -110,19 +146,29 @@ import {
 	readAppBaseline,
 	readDeployment,
 	readDeploymentNovaRevisions,
+	readEntryPointEvidence,
+	readSiblingLookupMappings,
 	readTargetFacts,
 	readTargetIdentity,
+	recordPushedResources,
 } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
+import { servePlaceInventory } from "./placeInventoryPeer";
+import { servePublishedImage, storeProjectImages } from "./publishedImage";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 import { stopHere } from "./stopHere";
 
-vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/commcare/encryption", () => ({
+	decrypt: vi.fn(),
+	encrypt: vi.fn(),
+}));
+vi.mock("@/lib/storage/media", () => ({
+	streamAsset: vi.fn(),
+	getStoredObjectMetadata: vi.fn(),
+}));
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
-	vi.mocked(downloadAssetBytes).mockReset();
 });
 afterEach(() => vi.useRealTimers());
 
@@ -199,9 +245,12 @@ const CONFIRM_ALL: readonly DeploymentConfirmationKey[] = [
 function publish(
 	doc: BlueprintDoc,
 	discardRemoteChanges?: readonly RemoteChangeDiscard[],
+	requireHqImport: (() => void) | null = null,
+	confirmInstallationProfiles?: string,
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
-		requireHqImport: null,
+		requireHqImport,
+		confirmInstallationProfiles,
 		scope: SCOPE,
 		...TARGET,
 		doc,
@@ -211,6 +260,39 @@ function publish(
 		confirm: CONFIRM_ALL,
 		...(discardRemoteChanges && { discardRemoteChanges }),
 	});
+}
+
+async function managedPublisher(doc: BlueprintDoc) {
+	const ctx = await installationCredential(h.db(), ACTOR, [
+		"nova.read",
+		"nova.write",
+		"nova.hq.write",
+		"nova.hq.import",
+	]);
+	if (ctx.grant?.kind !== "api-key") throw new Error("Expected an API key");
+	const { keyId } = ctx.grant;
+	const grant = credentialWriteGrant(ctx, "upload_app_to_hq", [
+		"nova.hq.write",
+		"nova.hq.import",
+	]);
+	return {
+		revoke: () =>
+			sql`UPDATE auth_apikey SET enabled=false WHERE id=${keyId}`.execute(
+				h.db(),
+			),
+		publish: (confirmInstallationProfiles?: string, compiledAtSeq = 0) =>
+			publishAppToHq({
+				confirmInstallationProfiles,
+				requireHqImport: null,
+				scope: { ...SCOPE, requireInstallationManagement: grant },
+				...TARGET,
+				doc,
+				compiledAtSeq,
+				reloadHead: reloadHeadFor(APP, ACTOR),
+				appName: doc.appName,
+				confirm: CONFIRM_ALL,
+			}),
+	};
 }
 
 function request(peer: MockAgent, path: string, method = "GET") {
@@ -229,6 +311,7 @@ function accepted(
 	status: 200 | 201,
 	appId = HQ_APP,
 	bodies?: unknown[],
+	onReply?: () => Promise<void>,
 ) {
 	request(peer, IMPORT, "POST").reply(async (opts) => {
 		if (bodies !== undefined) {
@@ -241,6 +324,7 @@ function accepted(
 			});
 		}
 		if (status === 201) saves.create(appId);
+		await onReply?.();
 		return {
 			statusCode: status,
 			data: JSON.stringify({
@@ -428,21 +512,16 @@ function tableRows(peer: MockAgent) {
 }
 /** The levels, and the places the project space holds. */
 function inventory(peer: MockAgent, withNorth: boolean) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: withNorth ? [remotePlace] : [],
-	});
+	servePlaceInventory(
+		peer,
+		"clinic",
+		withNorth ? [remotePlace] : [],
+		remoteLevels,
+	);
 }
 /** The inventory read after the last batch, which reads the pushed place back. */
 function placesReadBack(peer: MockAgent) {
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: [remotePlace],
-	});
+	inventory(peer, true);
 }
 
 function emptyTables(peer: MockAgent) {
@@ -455,11 +534,7 @@ function tablesAfterPush(peer: MockAgent) {
 	});
 }
 function emptyInventory(peer: MockAgent) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, { meta: { next: null }, objects: [] });
+	inventory(peer, false);
 }
 function workbookTaken(peer: MockAgent) {
 	request(peer, WORKBOOK, "POST").reply(200, { code: 200, message: "Done" });
@@ -499,7 +574,7 @@ describe("a first publish", () => {
 				media_format: "png",
 			})
 			.execute();
-		vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+		storeProjectImages(PROJECT, [png]);
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
 		await withPeer(async (peer) => {
 			accepted(peer, 201, HQ_APP, bodies);
@@ -521,6 +596,13 @@ describe("a first publish", () => {
 				errors: [],
 			});
 
+			const filePath = servePublishedImage(peer, {
+				source: SOURCE,
+				read: "source-after-create-then-update",
+				wirePath: `commcare/${hash}.png`,
+				id: "published-image",
+				bytes: png,
+			});
 			const outcome = await publish(doc);
 			expect(outcome).toMatchObject({
 				landed: true,
@@ -534,21 +616,29 @@ describe("a first publish", () => {
 				`GET ${SOURCE}`,
 				`POST ${media}`,
 				`GET ${media}status/media-job/`,
+				`GET ${SOURCE}`,
+				`GET ${filePath}`,
 			]);
 		});
 
 		const [shell, update] = bodies;
 		expect(shell.appId).toBeNull();
-		// Seven keys: `auto_gps_capture` is written only for a Connect app, and
+		// The app-wide location choice is present even when it is false; this
+		// app has no case-sharing setting, so the shell leaves HQ's alone.
 		// `add_ons` and `profile` arrive with the update over the shell's read.
 		// HQ keeps its own `build_spec`, so no body names one.
 		expect(Object.keys(shell.app)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
+			APP_SHELL_KEYS.filter(
+				(key) => key !== "case_sharing" && key !== "build_profiles",
+			),
 		);
-		expect(shell.app).toMatchObject({ modules: [], _attachments: {} });
+		expect(shell.app).toMatchObject({
+			modules: [],
+			_attachments: {},
+			auto_gps_capture: false,
+		});
 		for (const key of [
 			"add_ons",
-			"auto_gps_capture",
 			"multimedia_map",
 			"logo_refs",
 			"profile",
@@ -660,19 +750,103 @@ describe("a first publish", () => {
 				`GET ${TABLES}`,
 				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 				`POST ${WORKBOOK}`,
 				`GET ${TABLES}`,
 				`GET ${ROWS}`,
 				`PATCH ${PLACE_PUSH}`,
+				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`GET ${SOURCE}`,
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 			]);
 		});
 	});
+
+	it.each(["inline audience", "streamed audience", "expired session"] as const)(
+		"keeps the shell and sends no workbook when the %s changes before upload",
+		async (circumstance) => {
+			const doc = await seed(await lookupDocument());
+			const tableId = lookupTableIdSchema.parse(
+				(
+					await h
+						.db()
+						.selectFrom("lookup_tables")
+						.select("id")
+						.where("tag", "=", "facilities")
+						.executeTakeFirstOrThrow()
+				).id,
+			);
+			const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+			let table = await getLookupTable(scope, tableId);
+			if (circumstance === "streamed audience") {
+				const [code, name] = table.columns;
+				await replaceLookupRows(scope, {
+					tableId,
+					expectedTableRevision: table.tableRevision,
+					rows: Array.from({ length: 1001 }, (_, i) => ({
+						[code.id]: String(i),
+						[name.id]: `Area ${i}`,
+					})),
+				});
+				table = await getLookupTable(scope, tableId);
+			}
+			await withPeer(async (peer) => {
+				emptyTables(peer);
+				accepted(peer, 201);
+				const source = retainedPublishRead("source-shell");
+				request(peer, SOURCE).reply(async () => {
+					if (circumstance === "expired session")
+						await sql`DELETE FROM auth_session WHERE "userId"=${ACTOR}`.execute(
+							h.db(),
+						);
+					else
+						await withAppTx(async (tx) =>
+							applyLookupAuthoringBatchInTransaction(
+								tx,
+								await authorizeLookupWriteInTransaction(tx, scope, "edit"),
+								{
+									operationId: v7(),
+									updateTables: [
+										{
+											tableId,
+											expectedTableRevision: table.tableRevision,
+											workerAccess: "assigned",
+										},
+									],
+								},
+							),
+						);
+					return {
+						statusCode: source.status,
+						data: retainedBodyText(source),
+						responseOptions: { headers: source.headers },
+					};
+				});
+				const result = await publish(doc);
+				expect(refusal(result)).toMatchObject({
+					phase: "resources",
+					failure: { code: "app_not_ready" },
+				});
+				expect(
+					requests(peer).filter((path) => path.startsWith("POST")),
+				).toEqual([`POST ${IMPORT}`]);
+				expect((await state())?.active.map((r) => r.kind)).toEqual(["app"]);
+				expect(
+					await h
+						.db()
+						.selectFrom("hq_remote_writes")
+						.select("id")
+						.where("resource_kind", "=", "lookup-table")
+						.execute(),
+				).toEqual([]);
+			});
+		},
+	);
 
 	it("keeps the mapped shell when the read after the create fails, and fills that same app once a person publishes over it", async () => {
 		const doc = await seed(await lookupDocument());
@@ -987,6 +1161,18 @@ describe("a stop at a table or place push", () => {
 				accepted(peer, 200);
 				serve(peer, SOURCE, "source-live");
 				expect((await publish(doc)).landed).toBe(true);
+				if (places) {
+					// Identical places are never patched. Make this a real
+					// authored edit before exercising HQ's write refusal.
+					const location = await h
+						.db()
+						.selectFrom("app_locations")
+						.select("id")
+						.where("app_id", "=", APP)
+						.where("site_code", "=", "north")
+						.executeTakeFirstOrThrow();
+					await updateLocation(SCOPE, location.id, { name: "North region" });
+				}
 				preflight(peer, true);
 				serve(peer, SOURCE, "source-live");
 				stop(peer);
@@ -1117,6 +1303,7 @@ describe("a failure after the shell is mapped", () => {
 				serve(peer, SOURCE, "source-shell");
 				workbookTaken(peer);
 				tablesAfterPush(peer);
+				tableRows(peer);
 				serve(peer, SOURCE, answer);
 				expect(refusal(await publish(doc))).toMatchObject({
 					phase: "upload",
@@ -1436,6 +1623,97 @@ function hqChangesCheck(outcome: PublishOutcome) {
 }
 
 describe("changes made in CommCare HQ", () => {
+	it.each([true, false])(
+		"lists a grid CommCare HQ held before Nova wrote menu layouts, and accounts for it once published over (usable reference: %s)",
+		async (paired) => {
+			const doc = await seed();
+			const heldGrid = (source: Record<string, unknown>) => {
+				source.use_grid_menus = true;
+			};
+			await withPeer(async (peer) => {
+				accepted(peer, 201);
+				serve(peer, SOURCE, "source-shell");
+				accepted(peer, 200);
+				serveEdited(peer, SOURCE, "source-live", heldGrid);
+				expect((await publish(doc)).landed).toBe(true);
+				const db = h.db();
+				const deployment = await db
+					.selectFrom("app_deployments")
+					.select("id")
+					.where("app_id", "=", APP)
+					.executeTakeFirstOrThrow();
+				/* A baseline recorded before Nova wrote menu layouts, over an HQ app
+				 * whose first menu someone made a grid there before it: both reads
+				 * agree, so no comparison of the two can show the grid. */
+				await db
+					.updateTable("app_deployment_baselines")
+					.set({
+						ownership: sql`ownership - 'menuLayouts'`,
+						...(!paired && { nova_revision: null }),
+					})
+					.where("deployment_id", "=", deployment.id)
+					.executeTakeFirstOrThrow();
+				const before = requests(peer).length;
+				serveEdited(peer, SOURCE, "source-live", heldGrid);
+				const stopped = refusal(await publish(doc));
+				expect(stopped).toMatchObject({
+					phase: "preflight",
+					failure: {
+						code: "hq_changed",
+						message: expect.stringContaining("menu layouts"),
+					},
+					remoteChanges: [
+						{
+							kind: "app",
+							replacesMenuLayouts: true,
+							baselineKnown: true,
+						},
+					],
+				});
+				const [shown] = stopped.remoteChanges;
+				/* The settings the baseline held agree with HQ's: the grid is the one part. */
+				expect(shown?.parts).toEqual([
+					"The first menu would change from a grid to a list.",
+				]);
+				expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+				const confirm = [
+					{
+						kind: "app" as const,
+						novaResourceId: APP,
+						observedDigest: shown?.observedDigest ?? fail(),
+					},
+				];
+				/* HQ moved after the person was shown the list: they confirm again. */
+				serveEdited(peer, SOURCE, "source-live", (source) => {
+					heldGrid(source);
+					source.grid_form_menus = "all";
+				});
+				const changed = refusal(await publish(doc, confirm));
+				expect(changed.remoteChanges[0]?.observedDigest).not.toBe(
+					confirm[0].observedDigest,
+				);
+				expect(changed.remoteChanges[0]?.parts).toContain(
+					"The layout for the other menus would change from a grid to a list.",
+				);
+				serveEdited(peer, SOURCE, "source-live", heldGrid);
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc, confirm)).landed).toBe(true);
+				const after = await readAppBaseline(SCOPE, TARGET);
+				expect(
+					after !== null &&
+						after.origin !== "unread" &&
+						after.ownership.menuLayouts,
+				).toBe(true);
+				/* Accounted for: the next publish over the same app lists nothing. */
+				serve(peer, SOURCE, "source-live");
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc)).landed).toBe(true);
+			});
+		},
+	);
+
 	it("lands three publishes of an unchanged app in a row, saying what it compared", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
@@ -1555,6 +1833,133 @@ describe("changes made in CommCare HQ", () => {
 		).toEqual({ origin: "push", discarded_by: ACTOR });
 	});
 
+	it("asks before writing case sharing over a person's change in HQ, sends its own once confirmed, and reads an older baseline as not owning it", async () => {
+		/* Every update writes case sharing (the app holds none here, so off),
+		 * so a person turning it on in HQ is a change the next publish names,
+		 * and only the confirmed publish turns it off again. */
+		const doc = await seed();
+		const shared = (source: Record<string, unknown>) => {
+			source.case_sharing = true;
+		};
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			const owning = (await baselineRow()).ownership;
+			expect(owning).toMatchObject({ caseSharing: true });
+
+			const sent = requests(peer).length;
+			serveEdited(peer, SOURCE, "source-live", shared);
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toMatchObject({
+				phase: "preflight",
+				failure: { code: "hq_changed" },
+				remoteChanges: [
+					expect.objectContaining({
+						kind: "app",
+						parts: ["A setting this app writes"],
+						baselineKnown: true,
+					}),
+				],
+			});
+			expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+			const digest = stopped.remoteChanges[0]?.observedDigest ?? fail();
+			serveEdited(peer, SOURCE, "source-live", shared);
+			const bodies: { app: Record<string, unknown> }[] = [];
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			expect(
+				(
+					await publish(doc, [
+						{ kind: "app", novaResourceId: APP, observedDigest: digest },
+					])
+				).landed,
+			).toBe(true);
+			expect(bodies.map(({ app }) => app.case_sharing)).toEqual([false]);
+
+			/* A baseline recorded before Nova owned case sharing compares none:
+			 * the same change in HQ does not stop the publish. */
+			const { caseSharing: _owned, ...older } = owning as Record<
+				string,
+				unknown
+			>;
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({ ownership: JSON.stringify(older) })
+				.execute();
+			serveEdited(peer, SOURCE, "source-live", shared);
+			accepted(peer, 200, HQ_APP);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+		});
+	});
+
+	it("asks before writing its location switch and Android apps over a person's change to either in HQ, and sends its own once confirmed", async () => {
+		/* Nova's push baseline owns both settings, so a person's save of either
+		 * in HQ is a change the next publish names, and only the confirmed
+		 * publish writes Nova's value back. */
+		const doc = await seed();
+		const edits = [
+			(source: Record<string, unknown>) => {
+				source.auto_gps_capture = true;
+			},
+			(source: Record<string, unknown>) => {
+				setDependencies(source, ["org.commcare.dalvik.reminders"]);
+			},
+		];
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			expect((await baselineRow()).ownership).toMatchObject({
+				autoGpsCapture: true,
+				profileFeatures: ["dependencies"],
+			});
+			for (const edit of edits) {
+				const sent = requests(peer).length;
+				serveEdited(peer, SOURCE, "source-live", edit);
+				const stopped = refusal(await publish(doc));
+				expect(stopped).toMatchObject({
+					phase: "preflight",
+					failure: { code: "hq_changed" },
+					remoteChanges: [
+						expect.objectContaining({
+							kind: "app",
+							parts: ["A setting this app writes"],
+							baselineKnown: true,
+						}),
+					],
+				});
+				expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+				const digest = stopped.remoteChanges[0]?.observedDigest ?? fail();
+				serveEdited(peer, SOURCE, "source-live", edit);
+				const bodies: { app: Record<string, unknown> }[] = [];
+				accepted(peer, 200, HQ_APP, bodies);
+				serve(peer, SOURCE, "source-live");
+				expect(
+					(
+						await publish(doc, [
+							{ kind: "app", novaResourceId: APP, observedDigest: digest },
+						])
+					).landed,
+				).toBe(true);
+				const [body] = bodies;
+				expect(body?.app.auto_gps_capture).toBe(false);
+				expect(
+					(
+						(body?.app.profile as Record<string, unknown> | undefined)
+							?.features as Record<string, unknown> | undefined
+					)?.dependencies,
+				).toBeUndefined();
+			}
+		});
+	});
+
 	it("lands an app whose read back failed, and the next publish asks before writing over it", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
@@ -1641,7 +2046,13 @@ describe("changes made in CommCare HQ", () => {
 		});
 	});
 
-	it("stops at the upload when the app's compared keys moved during the push, and not when only an ignored key did", async () => {
+	async function protectTarget() {
+		const current = (await state()) ?? fail();
+		await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${current.deployment.id},'other-editor','{"previousKeys":[]}'::jsonb)`.execute(
+			h.db(),
+		);
+	}
+	it("records the admitted workbook while preserving a dropped place when its management grant changes", async () => {
 		const doc = await seed(await lookupDocument());
 		await withPeer(async (peer) => {
 			emptyTables(peer);
@@ -1654,38 +2065,267 @@ describe("changes made in CommCare HQ", () => {
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-live");
 			expect((await publish(doc)).landed).toBe(true);
-
-			const republish = (
-				secondRead: (source: Record<string, unknown>) => void,
-			) => {
-				tablesAfterPush(peer);
-				tableRows(peer);
-				serve(peer, SOURCE, "source-live");
-				workbookTaken(peer);
-				tablesAfterPush(peer);
-				tableRows(peer);
-				serveEdited(peer, SOURCE, "source-live", secondRead);
-			};
-			republish(savedInHq);
+			await recordPushedResources(
+				SCOPE,
+				TARGET,
+				[
+					{
+						kind: "location",
+						novaResourceId: installationUuid("old-place"),
+						remoteId: "old-place",
+						ownership: "nova-created",
+						pushedRevision: null,
+						remoteRevision: null,
+					},
+				],
+				{ status: "partial" },
+				{ expectedEndings: 0 },
+			);
+			await protectTarget();
+			const sender = await managedPublisher(doc);
+			const offset = requests(peer).length;
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
+			request(peer, WORKBOOK, "POST").reply(async () => {
+				await sender.revoke();
+				return { statusCode: 200, data: { code: 200, message: "Done" } };
+			});
+			tablesAfterPush(peer);
+			tableRows(peer);
+			await expect(sender.publish()).rejects.toMatchObject({
+				name: "McpCredentialInactiveError",
+			});
+			expect((await state())?.active.map((r) => r.remoteId)).toContain(
+				"old-place",
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("hq_remote_writes")
+					.select("id")
+					.where("write_kind", "=", "workbook")
+					.where("settled_at", "is not", null)
+					.execute(),
+			).toHaveLength(2);
+			expect(
+				requests(peer)
+					.slice(offset)
+					.filter((r) => r.startsWith("POST ")),
+			).toEqual([`POST ${WORKBOOK}`]);
+			const restored = await managedPublisher(doc);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-live");
-			expect((await publish(doc)).landed).toBe(true);
-
-			republish(renamedInHq);
-			const stopped = refusal(await publish(doc));
-			expect(stopped).toEqual(
-				expect.objectContaining({
-					phase: "upload",
-					failure: {
-						code: "hq_changed",
-						message: HQ_CHANGED_DURING_PUSH_MESSAGE,
-						details: [],
-					},
-					remoteChanges: [],
-				}),
+			expect((await restored.publish()).landed).toBe(true);
+			expect((await state())?.superseded.map((r) => r.remoteId)).toContain(
+				"old-place",
 			);
 		});
 	});
+	it("keeps an incomplete app's phase when its separate source read loses authority after a workbook", async () => {
+		const doc = await seed(await lookupDocument());
+		await withPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			request(peer, WORKBOOK, "POST").reply(403, "");
+			expect(refusal(await publish(doc)).phase).toBe("resources");
+			await protectTarget();
+			const sender = await managedPublisher(doc);
+			emptyTables(peer);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			let held: Awaited<ReturnType<typeof state>> = null;
+			request(peer, SOURCE).reply(async () => {
+				held = await state();
+				await sender.revoke();
+				return { statusCode: 200, data: "{" };
+			});
+			await expect(sender.publish()).rejects.toMatchObject({
+				name: "McpCredentialInactiveError",
+			});
+			expect(held).not.toBeNull();
+			expect(await state()).toEqual(held);
+			expect(
+				(await state())?.active.some((r) => r.kind === "lookup-table"),
+			).toBe(true);
+			const restored = await managedPublisher(doc);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			request(peer, SOURCE).reply(200, "{");
+			expect(refusal(await restored.publish()).phase).toBe("upload");
+			expect((await state())?.deployment.resumePhase).toBe("upload");
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			request(peer, IMPORT, "POST").reply(async () => {
+				await restored.revoke();
+				return { statusCode: 400, data: "Invalid application" };
+			});
+			expect(refusal(await restored.publish()).failure.code).toBe(
+				"hq_rejected_upload",
+			);
+			expect((await state())?.deployment.phases.upload).toMatchObject({
+				status: "failed",
+				failure: { code: "hq_rejected_upload" },
+			});
+		});
+	});
+	it("accounts for the admitted workbook but checks the current installation grant for a separate missing-app read", async () => {
+		const doc = await seed(await lookupDocument());
+		await withPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			const before = (await state()) ?? fail();
+			await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${before.deployment.id},'other-editor','{"previousKeys":[]}'::jsonb)`.execute(
+				h.db(),
+			);
+			const ctx = await installationCredential(h.db(), ACTOR, [
+				"nova.read",
+				"nova.write",
+				"nova.hq.write",
+				"nova.hq.import",
+			]);
+			const grant = credentialWriteGrant(ctx, "upload_app_to_hq", [
+				"nova.hq.write",
+				"nova.hq.import",
+			]);
+			const first = requests(peer).length;
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			request(peer, SOURCE).reply(async () => {
+				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+				const answer = retainedPublishRead("source-missing");
+				return {
+					statusCode: answer.status,
+					data: retainedBodyText(answer),
+					responseOptions: { headers: { ...answer.headers } },
+				};
+			});
+			await expect(
+				publishAppToHq({
+					requireHqImport: null,
+					scope: { ...SCOPE, requireInstallationManagement: grant },
+					...TARGET,
+					doc,
+					compiledAtSeq: 0,
+					reloadHead: reloadHeadFor(APP, ACTOR),
+					appName: doc.appName,
+					confirm: CONFIRM_ALL,
+				}),
+			).rejects.toMatchObject({ name: "McpCredentialInactiveError" });
+			const sent = requests(peer).slice(first);
+			expect(sent).toContain(`POST ${WORKBOOK}`);
+			expect(sent).not.toContain(`POST ${IMPORT}`);
+			const current = (await state()) ?? fail();
+			expect(activeRemoteApp(current)?.remoteMissingAt).toBeNull();
+			expect(
+				current.active.some((resource) => resource.kind === "lookup-table"),
+			).toBe(true);
+		});
+	});
+
+	it.each(["app name", "legacy Android requirements"] as const)(
+		"stops at the upload when %s changes during the push, and accepts a save that only touched an ignored key",
+		async (change) => {
+			const doc = await seed(await lookupDocument());
+			await withPeer(async (peer) => {
+				emptyTables(peer);
+				accepted(peer, 201);
+				serve(peer, SOURCE, "source-shell");
+				workbookTaken(peer);
+				tablesAfterPush(peer);
+				tableRows(peer);
+				serve(peer, SOURCE, "source-shell");
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc)).landed).toBe(true);
+
+				const republish = (
+					secondRead: (source: Record<string, unknown>) => void,
+				) => {
+					tablesAfterPush(peer);
+					tableRows(peer);
+					serve(peer, SOURCE, "source-live");
+					workbookTaken(peer);
+					tablesAfterPush(peer);
+					tableRows(peer);
+					serveEdited(peer, SOURCE, "source-live", secondRead);
+				};
+				republish(savedInHq);
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc)).landed).toBe(true);
+
+				if (change === "legacy Android requirements") {
+					await h
+						.db()
+						.updateTable("app_deployment_baselines")
+						.set({
+							ownership: sql`ownership - 'profileFeatures'`,
+						})
+						.execute();
+					republish((source) => {
+						const profile = source.profile as
+							| Record<string, unknown>
+							| undefined;
+						source.profile = {
+							...profile,
+							features: {
+								...(profile?.features as Record<string, unknown> | undefined),
+								dependencies: ["com.simprints.id"],
+							},
+						};
+					});
+				} else {
+					republish(renamedInHq);
+				}
+				const stopped = refusal(await publish(doc));
+				expect(stopped).toEqual(
+					expect.objectContaining({
+						phase: "upload",
+						failure: {
+							code: "hq_changed",
+							message: HQ_CHANGED_DURING_PUSH_MESSAGE,
+							details: [],
+						},
+						remoteChanges: [],
+					}),
+				);
+			});
+		},
+	);
 
 	it("stops at the upload when the shell this publish made is given a menu during the push", async () => {
 		const doc = await seed(await lookupDocument());
@@ -2496,6 +3136,21 @@ async function publishFresh(
 	expect((await publish(doc)).landed).toBe(true);
 }
 
+/** `app` with HQ's profile feature `dependencies` set to `apps`, beside its other features. */
+function setDependencies(
+	app: Record<string, unknown>,
+	apps: readonly string[],
+): void {
+	const profile = (app.profile ?? {}) as Record<string, unknown>;
+	app.profile = {
+		...profile,
+		features: {
+			...(profile.features as Record<string, unknown> | undefined),
+			dependencies: [...apps],
+		},
+	};
+}
+
 async function baselineRow() {
 	return h
 		.db()
@@ -2511,6 +3166,68 @@ async function baselineRow() {
 }
 
 describe("a publish over an app Nova brought in", () => {
+	it("asks before replacing an ordinary target's previously kept location choice even when its source has not changed", async () => {
+		const doc = await seed();
+		const on = (source: Record<string, unknown>) => {
+			source.auto_gps_capture = true;
+		};
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			const read = await bringIn(peer, doc, on);
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({
+					ownership: JSON.stringify({
+						...read.ownership,
+						autoGpsCapture: false,
+					}),
+				})
+				.where("deployment_id", "=", (await state())?.deployment.id ?? fail())
+				.execute();
+			const sent = requests(peer).length;
+			serveEdited(peer, SOURCE, "source-live", on);
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toMatchObject({
+				failure: { code: "hq_changed" },
+				remoteChanges: [
+					expect.objectContaining({
+						identity: HQ_APP,
+						parts: [
+							"Automatic location for every form will change from on to off",
+						],
+						baselineKnown: true,
+					}),
+				],
+			});
+			expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+			const change = stopped.remoteChanges[0];
+			serveEdited(peer, SOURCE, "source-live", on);
+			const bodies: unknown[] = [];
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			expect(
+				(
+					await publish(doc, [
+						{
+							kind: "app",
+							novaResourceId: APP,
+							observedDigest: change.observedDigest,
+						},
+					])
+				).landed,
+			).toBe(true);
+			expect(bodies).toEqual([
+				expect.objectContaining({
+					app: expect.objectContaining({ auto_gps_capture: false }),
+				}),
+			]);
+			expect((await baselineRow()).ownership).toMatchObject({
+				autoGpsCapture: true,
+			});
+		});
+	});
+
 	it("updates the app it came from under the ids HQ holds, keeps the mapping adopted, records the files it publishes, and says so", async () => {
 		const doc = await seed();
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
@@ -2652,10 +3369,10 @@ describe("a publish over an app Nova brought in", () => {
 				media_format: "png",
 			})
 			.execute();
-		vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+		storeProjectImages(PROJECT, [png]);
 		const media = `/a/clinic/apps/api/${HQ_APP}/multimedia/`;
 		const zips: AdmZip[] = [];
-		const mediaTaken = (peer: MockAgent) => {
+		const mediaTaken = (peer: MockAgent, wirePath: string) => {
 			request(peer, media, "POST").reply(async (opts) => {
 				const form = await readMultipartRequest(opts);
 				const file = form.get("bulk_upload_file");
@@ -2675,6 +3392,13 @@ describe("a publish over an app Nova brought in", () => {
 				unmatched_files: [],
 				errors: [],
 			});
+			servePublishedImage(peer, {
+				source: SOURCE,
+				read: "source-live",
+				wirePath,
+				id: "uploaded-adopted-image",
+				bytes: png,
+			});
 		};
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
 		await withPeer(async (peer) => {
@@ -2682,7 +3406,7 @@ describe("a publish over an app Nova brought in", () => {
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-live");
-			mediaTaken(peer);
+			mediaTaken(peer, `commcare/${hash}.png`);
 			expect((await publish(doc)).landed).toBe(true);
 			await bringIn(
 				peer,
@@ -2723,11 +3447,34 @@ describe("a publish over an app Nova brought in", () => {
 				})
 				.execute();
 
+			// This caller still holds the head it submitted for the first push.
+			// That push recorded the keyed creation's placement. On republish,
+			// Nova reloads that newer head and repeats its target preflight.
+			serve(peer, SOURCE, "source-live");
 			serve(peer, SOURCE, "source-live");
 			accepted(peer, 200, HQ_APP, bodies);
 			serve(peer, SOURCE, "source-live");
-			mediaTaken(peer);
-			expect((await publish(doc)).landed).toBe(true);
+			mediaTaken(peer, heldPath);
+			const sent = requests(peer).length;
+			const outcome = await publish(doc);
+			expect({
+				refusal: outcome.landed ? null : outcome.refusal,
+				members: zips[1]?.getEntries().map((entry) => entry.entryName),
+				requests: requests(peer).slice(sent),
+			}).toEqual({
+				refusal: null,
+				members: [heldPath],
+				requests: [
+					`GET ${SOURCE}`,
+					`GET ${SOURCE}`,
+					`POST ${IMPORT}`,
+					`GET ${SOURCE}`,
+					`POST ${media}`,
+					`GET ${media}status/media-job/`,
+					`GET ${SOURCE}`,
+					"GET /hq/multimedia/file/CommCareImage/uploaded-adopted-image/",
+				],
+			});
 		});
 
 		const [update] = bodies;
@@ -3201,13 +3948,110 @@ describe("the save counter a publish's reads are bound to", () => {
 		});
 	});
 
+	/* Nova's earlier publish uploaded a file the app no longer uses: HQ's
+	 * import saves the app, then prunes that map key and saves it again in
+	 * the same request (`hqmedia/models.py::remove_unused_mappings`). */
+	const OLD_FILE = "jr://file/commcare/image/old.png";
+	async function heldOldFile(peer: MockAgent, doc: BlueprintDoc) {
+		await publishFresh(peer, doc);
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({
+				media_files: JSON.stringify({ "commcare/image/old.png": "old-file" }),
+			})
+			.execute();
+		serveEdited(peer, SOURCE, "source-live", (source) => {
+			source.multimedia_map = {
+				[OLD_FILE]: { media_type: "CommCareImage", multimedia_id: "old-file" },
+			};
+		});
+	}
+	/** An accepted update HQ saved twice before it answered. */
+	function acceptedTwice(peer: MockAgent) {
+		request(peer, IMPORT, "POST").reply(() => {
+			saves.save(HQ_APP);
+			return {
+				statusCode: 200,
+				data: JSON.stringify({
+					success: true,
+					app_id: HQ_APP,
+					version: saves.save(HQ_APP),
+				}),
+			};
+		});
+	}
+
+	it("records a push baseline where the second save is HQ pruning the map key the app stopped using", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await heldOldFile(peer, doc);
+			acceptedTwice(peer);
+			serve(peer, SOURCE, "source-live");
+			const landed = await publish(doc);
+			expect(landed).toMatchObject({ landed: true });
+			expect(landed.warnings).not.toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+			expect((await baselineRow()).origin).toBe("push");
+			expect((await mapping()).pushed_remote_revision).toBe("4");
+		});
+	});
+
+	it.each([
+		["kept the map key", () => {}],
+		[
+			"pruned the map key and changed what the import leaves alone",
+			(source: Record<string, unknown>) => {
+				source.multimedia_map = {};
+				source.comment = "Saved in CommCare HQ";
+			},
+		],
+	] as const)(
+		"records no push baseline where the second save %s, and says so",
+		async (_, readBack) => {
+			const doc = await seed();
+			await withPeer(async (peer) => {
+				await heldOldFile(peer, doc);
+				acceptedTwice(peer);
+				serveEdited(peer, SOURCE, "source-live", (source) => {
+					source.multimedia_map = {
+						[OLD_FILE]: {
+							media_type: "CommCareImage",
+							multimedia_id: "old-file",
+						},
+					};
+					readBack(source);
+				});
+				const landed = await publish(doc);
+				expect(landed).toMatchObject({ landed: true });
+				expect(landed.warnings).toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+				expect((await baselineRow()).origin).toBe("unread");
+			});
+		},
+	);
+
+	it("stops before the import where HQ saved the app after its counter was read", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			const sent = allRequests(peer).length;
+			/* The save lands after the counter was read and before the import:
+			 * the counter read right before the POST no longer stands there. */
+			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
+			const stopped = refusal(await publish(doc));
+			expect(stopped?.failure.code).toBe("hq_changed");
+			expect(allRequests(peer).slice(sent)).not.toContain(`POST ${IMPORT}`);
+			expect((await baselineRow()).origin).toBe("push");
+		});
+	});
+
 	it("keeps the target settings at the acknowledged version after an extra save and asks before publishing over it", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
-			/* The save lands after the counter was read and before the import. */
-			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
-			accepted(peer, 200);
+			/* Another save lands while HQ takes the import, after the counter
+			 * read right before the POST, and prunes nothing. */
+			serve(peer, SOURCE, "source-live");
+			acceptedTwice(peer);
 			const heldSettings = (source: Record<string, unknown>) => {
 				source.secure_submissions = true;
 				const profile = source.profile as {
@@ -3353,6 +4197,2139 @@ describe("the save counter a publish's reads are bound to", () => {
 	});
 });
 
+// ── Tables that travel through CommCare HQ's JSON resources ─────────────
+
+/**
+ * CommCare HQ's lookup resources for the project space, kept as state and
+ * answered as `fixtures/resources/v0_1.py` and `v0_6.py` answer: the table
+ * list and detail with each field's properties, a create answered 201 with
+ * no body, a row create appended at the largest rank plus one and answered
+ * with the saved row, `FixtureResource`'s rows in rank order (one value per
+ * field as a string where every field holds one, else `field_list`), and
+ * each row's detail. `answer` lets a case lose an answer: a write it names
+ * still lands, and is answered 500, which says nothing of whether it did; a
+ * read it names is answered 500 and read nothing. `drop` loses a request
+ * before CommCare HQ reads it: nothing is done, and it is answered 500 as a
+ * lost answer is. `after` runs once a request has done its work and before
+ * its answer goes back, as something happening in Nova, or a person's edit
+ * in CommCare HQ (`edit`), between two requests.
+ *
+ * Every request is kept in `exchanges` with the answer the model gave, and
+ * every person's edit in CommCare HQ the case makes (`edit`) in its place
+ * among them, so `proof/hq/test_lookup_json_publish.py` can send the same
+ * requests to CommCare HQ's own resources and hold each answer Nova's
+ * publish read to the one HQ gives.
+ */
+function jsonLookupPeer(
+	peer: MockAgent,
+	answer: {
+		readOnly?: boolean;
+		mayEditData?: () => boolean;
+		lose?: (method: string, path: string) => boolean;
+		drop?: (method: string, path: string) => boolean;
+		after?: (method: string, path: string) => Promise<void>;
+	} = {},
+) {
+	type Row = {
+		id: string;
+		table: string;
+		sortKey: number;
+		fields: Record<
+			string,
+			{ field_value: string; properties: Record<string, string> }[]
+		>;
+		attributes: Record<string, string>;
+	};
+	const tables = new Map<string, Record<string, unknown>>();
+	const rows = new Map<string, Row>();
+	const writes: string[] = [];
+	const exchanges: JsonLookupExchange[] = [];
+	let minted = 0;
+	const mint = () => (++minted).toString(16).padStart(32, "0");
+	const api = "/a/clinic/api/";
+	const ordered = (table: string) =>
+		[...rows.values()]
+			.filter((row) => row.table === table)
+			.sort((a, b) => a.sortKey - b.sortKey || (a.id < b.id ? -1 : 1));
+	if (!answer.readOnly)
+		peer
+			.get(HOST)
+			.intercept({
+				path: (path) => path.startsWith(`${api}device-log/v1/?`),
+				method: "GET",
+			})
+			.reply(() =>
+				answer.mayEditData?.() === false
+					? { statusCode: 403, data: "" }
+					: { statusCode: 200, data: { objects: [] } },
+			)
+			.persist();
+	peer
+		.get(HOST)
+		.intercept({
+			path: (path) =>
+				path.startsWith(`${api}lookup_table`) ||
+				path.startsWith(`${api}fixture/v1/`),
+			method: /^(GET|POST|PUT|DELETE)$/,
+		})
+		.reply(async (opts) => {
+			const url = new URL(opts.path, HOST);
+			const path = url.pathname;
+			const sent = await readHttpRequestBody(opts);
+			const body = sent.length === 0 ? undefined : JSON.parse(sent.toString());
+			const exchange = {
+				kind: "request" as const,
+				method: opts.method,
+				path: `${path}${url.search}`,
+				body: body ?? null,
+			};
+			if (answer.drop?.(opts.method, path)) {
+				exchanges.push({
+					...exchange,
+					status: 500,
+					answer: null,
+					lost: "request",
+				});
+				return { statusCode: 500, data: "" };
+			}
+			if (opts.method !== "GET") writes.push(`${opts.method} ${path}`);
+			const answered = handle(opts.method, url, path, body);
+			const lost = answer.lose?.(opts.method, path) ?? false;
+			exchanges.push({
+				...exchange,
+				status: answered.statusCode,
+				answer: answered.data === "" ? null : structuredClone(answered.data),
+				...(lost && { lost: "answer" as const }),
+			});
+			await answer.after?.(opts.method, path);
+			return lost ? { statusCode: 500, data: "" } : answered;
+		})
+		.persist();
+	/** A person's edit of a row in CommCare HQ, kept among the exchanges. */
+	function edit(change: JsonLookupHqEdit) {
+		const row = rows.get(change.rowId) ?? fail();
+		if (change.kind === "delete-row") rows.delete(change.rowId);
+		else row.fields = structuredClone(change.fields);
+		exchanges.push(structuredClone(change));
+	}
+	function handle(
+		method: string,
+		url: URL,
+		path: string,
+		// biome-ignore lint/suspicious/noExplicitAny: a parsed request body
+		body: any,
+	): { statusCode: number; data: string | Record<string, unknown> } {
+		if (path === `${api}lookup_table/v1/` && method === "GET")
+			return {
+				statusCode: 200,
+				data: { objects: [...tables.values()], meta: { next: null } },
+			};
+		if (path === `${api}lookup_table/v1/` && method === "POST") {
+			if ([...tables.values()].some((t) => t.tag === body.tag))
+				return { statusCode: 400, data: "" };
+			const id = mint();
+			tables.set(id, { id, ...body });
+			return { statusCode: 201, data: "" };
+		}
+		const tableDetail = path.match(/lookup_table\/v1\/([a-f0-9]{32})\/$/);
+		if (tableDetail && method === "GET") {
+			const table = tables.get(tableDetail[1] ?? "");
+			return table
+				? { statusCode: 200, data: table }
+				: { statusCode: 404, data: "" };
+		}
+		if (path === `${api}lookup_table_item/v2/` && method === "POST") {
+			const ranks = ordered(body.data_type_id).map((row) => row.sortKey);
+			const row: Row = {
+				id: mint(),
+				table: body.data_type_id,
+				sortKey: ranks.length === 0 ? 0 : Math.max(...ranks) + 1,
+				fields: Object.fromEntries(
+					Object.entries(
+						body.fields as Record<
+							string,
+							{ field_list: Row["fields"][string] }
+						>,
+					).map(([name, value]) => [name, value.field_list]),
+				),
+				attributes: body.item_attributes,
+			};
+			rows.set(row.id, row);
+			return {
+				statusCode: 201,
+				data: {
+					id: row.id,
+					data_type_id: row.table,
+					sort_key: row.sortKey,
+					fields: body.fields,
+					item_attributes: row.attributes,
+				},
+			};
+		}
+		const rowDetail = path.match(/lookup_table_item\/v[12]\/([a-f0-9]{32})\/$/);
+		if (rowDetail && method === "GET") {
+			const row = rows.get(rowDetail[1] ?? "");
+			if (!row) return { statusCode: 404, data: "" };
+			return {
+				statusCode: 200,
+				data: {
+					id: row.id,
+					data_type_id: row.table,
+					sort_key: row.sortKey,
+					item_attributes: row.attributes,
+					fields: Object.fromEntries(
+						Object.entries(row.fields).map(([name, list]) => [
+							name,
+							{ field_list: list },
+						]),
+					),
+				},
+			};
+		}
+		if (path === `${api}fixture/v1/` && method === "GET") {
+			const table = tables.get(url.searchParams.get("fixture_type_id") ?? "");
+			const held = table ? ordered(table.id as string) : [];
+			return {
+				statusCode: 200,
+				data: {
+					meta: { next: null, total_count: held.length },
+					objects: held.map((row) => {
+						const scalar = Object.values(row.fields).every(
+							(list) => list.length === 1,
+						);
+						return {
+							id: row.id,
+							fixture_type: table?.tag,
+							fields: Object.fromEntries(
+								Object.entries(row.fields).map(([name, list]) => [
+									name,
+									scalar ? list[0]?.field_value : { field_list: list },
+								]),
+							),
+						};
+					}),
+				},
+			};
+		}
+		const putRow = path.match(/lookup_table_item\/v2\/([a-f0-9]{32})\/$/);
+		if (putRow && method === "PUT") {
+			const row = rows.get(putRow[1] ?? "");
+			if (!row || row.table !== body.data_type_id)
+				return { statusCode: 404, data: "" };
+			row.sortKey = body.sort_key;
+			row.fields = Object.fromEntries(
+				Object.entries(
+					body.fields as Record<string, { field_list: Row["fields"][string] }>,
+				).map(([name, value]) => [name, value.field_list]),
+			);
+			row.attributes = body.item_attributes;
+			/* The v0.6 row resource returns data (`always_return_data`): the
+			 * saved row, answered 200 (`proof/hq/test_lookup_json_publish.py`). */
+			return {
+				statusCode: 200,
+				data: {
+					id: row.id,
+					data_type_id: row.table,
+					sort_key: row.sortKey,
+					fields: body.fields,
+					item_attributes: row.attributes,
+				},
+			};
+		}
+		if (putRow && method === "DELETE") {
+			if (!rows.delete(putRow[1] ?? "")) return { statusCode: 404, data: "" };
+			return { statusCode: 204, data: "" };
+		}
+		return { statusCode: 404, data: "" };
+	}
+	return { tables, rows, writes, exchanges, edit };
+}
+
+/** A person's edit of one row in CommCare HQ's table page, between Nova's requests. */
+type JsonLookupHqEdit =
+	| { readonly kind: "delete-row"; readonly rowId: string }
+	| {
+			readonly kind: "edit-row";
+			readonly rowId: string;
+			readonly fields: Record<
+				string,
+				{ field_value: string; properties: Record<string, string> }[]
+			>;
+	  };
+
+/** One request the JSON peer answered, or one edit a person made in CommCare HQ. */
+type JsonLookupExchange =
+	| {
+			readonly kind: "request";
+			readonly method: string;
+			readonly path: string;
+			readonly body: unknown;
+			readonly status: number;
+			readonly answer: unknown;
+			/** The answer never reached Nova, or the request never reached CommCare HQ. */
+			readonly lost?: "answer" | "request";
+	  }
+	| JsonLookupHqEdit;
+
+const editorScope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+
+/** The table `typesDocument` made: its id, its columns by export name, and its rows in order. */
+async function typesTable() {
+	const { id: tableId } = await h
+		.db()
+		.selectFrom("lookup_tables")
+		.select("id")
+		.where("project_id", "=", PROJECT)
+		.executeTakeFirstOrThrow();
+	const table = await getLookupTable(editorScope, tableId);
+	const column = (wireName: string) =>
+		table.columns.find((candidate) => candidate.wireName === wireName)?.id ??
+		fail();
+	const rows = await h
+		.db()
+		.selectFrom("lookup_rows")
+		.select("id")
+		.where("table_id", "=", tableId)
+		.orderBy("order_key")
+		.execute();
+	return {
+		tableId,
+		tableRevision: table.tableRevision,
+		columns: { code: column("code"), name: column("name") },
+		rowIds: rows.map((row) => row.id),
+	};
+}
+
+/** Edit `typesDocument`'s rows in Nova, as its Project data page does. */
+async function editTypesRows(
+	operations: (
+		rowIds: readonly LookupRowId[],
+		columns: { code: LookupColumnId; name: LookupColumnId },
+	) => LookupAuthoringRowOperation[],
+) {
+	const { tableId, tableRevision, columns, rowIds } = await typesTable();
+	await withAppTx(async (tx) =>
+		applyLookupAuthoringBatchInTransaction(
+			tx,
+			await authorizeLookupWriteInTransaction(tx, editorScope, "edit"),
+			{
+				operationId: v7(),
+				updateTables: [
+					{
+						tableId,
+						expectedTableRevision: tableRevision,
+						rowOperations: operations(rowIds, columns),
+					},
+				],
+			},
+		),
+	);
+}
+
+async function typesDocument(
+	extraRows = 0,
+	paged = false,
+): Promise<BlueprintDoc> {
+	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	const table = await createLookupTable(scope, {
+		name: "Kinds",
+		tag: "types",
+		columns: [
+			{ wireName: "code", label: "Code", dataType: "text" },
+			{ wireName: "name", label: "Name", dataType: "text" },
+		],
+	});
+	const [code, name] = table.columns;
+	await replaceLookupRows(scope, {
+		tableId: table.id,
+		expectedTableRevision: table.tableRevision,
+		rows: [
+			{ [code.id]: "001", [name.id]: " Clinic " },
+			{ [code.id]: "002", [name.id]: "Hospital" },
+			...Array.from({ length: extraRows }, (_, index) => ({
+				[code.id]: String(index + 3),
+				[name.id]:
+					paged && index < 24 ? "x".repeat(45_000) : `Facility ${index + 3}`,
+			})),
+		],
+	});
+	return buildDoc({
+		appName: "Facility kinds",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							{
+								id: "kind",
+								kind: "single_select",
+								optionsSource: {
+									kind: "lookup",
+									tableId: table.id,
+									valueColumnId: code.id,
+									labelColumnId: name.id,
+								},
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+async function stageTypesLabel(value: string) {
+	const { tableId, tableRevision, columns, rowIds } = await typesTable();
+	const bytes = Buffer.from(value);
+	const operationId = v7();
+	const edit = async (
+		change: Parameters<typeof applyLookupValueEditInTransaction>[2],
+	) =>
+		withAppTx(async (tx) =>
+			applyLookupValueEditInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, editorScope, "edit"),
+				change,
+				"paged-json-fixture",
+			),
+		);
+	await edit({
+		kind: "begin",
+		tableId,
+		rowId: rowIds[0] ?? fail(),
+		slot: { kind: "cell", columnId: columns.name },
+		expectedTableRevision: tableRevision,
+		operationId,
+		baseDigest: createHash("sha256").update(" Clinic ").digest("hex"),
+		startByte: 0,
+		endByte: Buffer.byteLength(" Clinic "),
+		replacementBytes: bytes.length,
+		replacementDigest: createHash("sha256").update(bytes).digest("hex"),
+	});
+	for (let offset = 0; offset < bytes.length; offset += 16_001)
+		await edit({
+			kind: "append",
+			tableId,
+			operationId,
+			offset,
+			base64: bytes.subarray(offset, offset + 16_001).toString("base64"),
+		});
+	await edit({ kind: "finish", tableId, operationId });
+	return value;
+}
+
+describe("a table only CommCare HQ's JSON resources can carry", () => {
+	it("puts a table tagged types there row by row with its exact values, records it as Nova's, and writes nothing to it on the next publish", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const first = await publish(doc);
+			expect(first.landed ? null : first.refusal).toBeNull();
+			/* No workbook: the table, then each row, through the JSON resources. */
+			expect(requests(peer).some((line) => line.includes("fixapi"))).toBe(
+				false,
+			);
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table/v1/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+			]);
+			const [table] = hq.tables.values();
+			expect(table).toMatchObject({ tag: "types", is_global: true });
+			expect(
+				[...hq.rows.values()].map((row) => row.fields.name?.[0]?.field_value),
+			).toEqual([" Clinic ", "Hospital"]);
+
+			const view = (await state()) ?? fail();
+			expect(
+				view.active.filter((resource) => resource.kind === "lookup-table"),
+			).toEqual([
+				expect.objectContaining({
+					remoteId: table?.id,
+					ownership: "nova-created",
+					pushedIdentity: "types",
+				}),
+			]);
+			/* Another app's reading of this project space finds the table there
+			 * as its JSON destination, which a workbook's rules never judge. */
+			expect(
+				await readSiblingLookupMappings(
+					{ ...SCOPE, appId: "another-app" },
+					TARGET,
+					[
+						(
+							await h
+								.db()
+								.selectFrom("lookup_tables")
+								.select("id")
+								.where("project_id", "=", PROJECT)
+								.executeTakeFirstOrThrow()
+						).id,
+					],
+				),
+			).toEqual([
+				expect.objectContaining({
+					appId: APP,
+					remoteId: table?.id,
+					pushedIdentity: "types",
+					jsonDestination: true,
+				}),
+			]);
+			/* Every JSON request was admitted as the publisher's write, and settled. */
+			const jsonWrites = await h
+				.db()
+				.selectFrom("hq_remote_writes")
+				.select(["write_kind", "actor_user_id", "settled_at"])
+				.where("write_kind", "=", "lookup-json")
+				.execute();
+			expect(jsonWrites).toHaveLength(3);
+			for (const write of jsonWrites) {
+				expect(write.actor_user_id).toBe(ACTOR);
+				expect(write.settled_at).not.toBeNull();
+			}
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-after-create-then-update");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const second = await publish(doc);
+			expect(second.landed).toBe(true);
+			expect(hq.writes).toEqual([]);
+			expect(
+				((await state()) ?? fail()).active.filter(
+					(resource) => resource.kind === "lookup-table",
+				),
+			).toHaveLength(1);
+		});
+	});
+
+	it("resumes the ordinary publish of a paged lookup without sending the settled rows again", async () => {
+		const doc = await seed(await typesDocument(201, true));
+		const value = await stageTypesLabel("s".repeat(65_535));
+
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "resources",
+				failure: {
+					code: "hq_lookup_publish_checkpoint",
+					message: expect.stringContaining("saved its progress"),
+				},
+			});
+			expect(hq.writes).toHaveLength(200);
+			expect(hq.rows.size).toBe(199);
+			const firstId = [...hq.rows.keys()][0] ?? fail();
+			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);
+			expect(
+				requests(peer).filter((line) => line === `POST ${IMPORT}`),
+			).toHaveLength(1);
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const resumed = await publish(doc);
+			expect(resumed.landed ? null : resumed.refusal).toBeNull();
+			expect(hq.rows.size).toBe(203);
+			expect(hq.writes).toEqual(
+				Array(4).fill("POST /a/clinic/api/lookup_table_item/v2/"),
+			);
+			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);
+			expect(requests(peer).some((line) => line.includes("fixapi"))).toBe(
+				false,
+			);
+		});
+	});
+
+	it("stops before any CommCare HQ writes if its connected account cannot edit lookup data", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer, { mayEditData: () => false });
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "domain_not_authorized",
+					message: expect.stringContaining("permission to edit data"),
+				},
+			});
+			expect(hq.writes).toEqual([]);
+			expect(requests(peer).filter((line) => line.startsWith("POST "))).toEqual(
+				[],
+			);
+		});
+	});
+
+	it("rechecks the HQ data grant before the next journaled row write", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			let allowed = true;
+			const hq = jsonLookupPeer(peer, {
+				mayEditData: () => allowed,
+				after: async (method, path) => {
+					if (method === "POST" && path.endsWith("/lookup_table/v1/"))
+						allowed = false;
+				},
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "resources",
+				failure: { code: "hq_rejected_resource_push" },
+			});
+			expect(hq.writes).toEqual(["POST /a/clinic/api/lookup_table/v1/"]);
+			expect(hq.rows.size).toBe(0);
+			expect(
+				requests(peer).filter((line) => line === `POST ${IMPORT}`),
+			).toHaveLength(1);
+		});
+	});
+
+	it("refuses an external lookup value JavaRosa cannot load before a publish or manual install", async () => {
+		const doc = await seed(await typesDocument());
+		await stageTypesLabel("🌱".repeat(17_000));
+		const grant = await publishSession(ACTOR);
+		for (const mode of ["hq-json", "ccz"] as const) {
+			await expect(
+				prepareExportBoundary({
+					mode,
+					manualLookupInstaller: mode === "hq-json",
+					access: SCOPE,
+					doc,
+					compiledAtSeq: 0,
+					attachmentTarget: null,
+					archiveActor: () => ({ appId: APP, grant }),
+				}),
+			).resolves.toMatchObject({
+				ok: false,
+				violations: expect.arrayContaining([
+					expect.objectContaining({
+						code: "LOOKUP_CELL_TEXT_UNREPRESENTABLE",
+						details: expect.objectContaining({
+							problem: "runtime-value-length",
+						}),
+					}),
+				]),
+			});
+		}
+		await withPeer(async (peer) => {
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: { code: "app_not_ready" },
+			});
+			expect(requests(peer).filter((line) => line.startsWith("POST "))).toEqual(
+				[],
+			);
+		});
+	});
+
+	it("installs a paged manual package through reviewed data-only waves and checks current authority", async () => {
+		const doc = await seed(await typesDocument(201, true));
+		const value = await stageTypesLabel("s".repeat(65_535));
+		const grant = await publishSession(ACTOR);
+		const boundary = await prepareExportBoundary({
+			mode: "hq-json",
+			manualLookupInstaller: true,
+			access: SCOPE,
+			doc,
+			compiledAtSeq: 0,
+			attachmentTarget: null,
+			archiveActor: () => ({ appId: APP, grant }),
+		});
+		if (!boundary.ok) throw new Error(JSON.stringify(boundary.violations));
+		expect(boundary.prepared.lookupWorkbook).toBeUndefined();
+		expect(boundary.prepared.pagedJsonRows?.size).toBe(1);
+		const manifest = manualLookupManifest(APP, boundary.prepared);
+		const request = { actorUserId: ACTOR, grant, target: TARGET, manifest };
+
+		await withPeer(async (peer) => {
+			let mayEditData = true;
+			const hq = jsonLookupPeer(peer, { mayEditData: () => mayEditData });
+			const reviewed = await installManualLookupData(request);
+			if (reviewed.status !== "review") return fail();
+			expect(reviewed.tables).toEqual([
+				{ name: "Kinds", tag: "types", rows: 203 },
+			]);
+			expect(hq.writes).toEqual([]);
+			expect(await state()).toBeNull();
+			await expect(
+				installManualLookupData({ ...request, confirm: "0".repeat(64) }),
+			).rejects.toMatchObject({ status: 409 });
+			expect(hq.writes).toEqual([]);
+
+			const confirmed = { ...request, confirm: reviewed.confirmation };
+
+			mayEditData = false;
+			await expect(installManualLookupData(confirmed)).rejects.toMatchObject({
+				status: 403,
+			});
+			expect(hq.writes).toEqual([]);
+			mayEditData = true;
+			const first = await installManualLookupData(confirmed);
+			expect(first).toMatchObject({
+				status: "checkpoint",
+				message: expect.stringContaining("Continue installing"),
+			});
+			expect(hq.rows.size).toBe(199);
+			const firstId = [...hq.rows.keys()][0] ?? fail();
+			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);
+
+			await sql`UPDATE auth_session SET "expiresAt"=now() WHERE "userId"=${ACTOR}`.execute(
+				h.db(),
+			);
+			hq.writes.length = 0;
+			await expect(installManualLookupData(confirmed)).rejects.toMatchObject({
+				code: "not_found",
+			});
+			expect(hq.writes).toEqual([]);
+			await sql`UPDATE auth_session SET "expiresAt"=now()+interval '1 hour' WHERE "userId"=${ACTOR}`.execute(
+				h.db(),
+			);
+
+			expect(await installManualLookupData(confirmed)).toEqual({
+				status: "complete",
+				tables: 1,
+			});
+			expect(hq.rows.size).toBe(203);
+			expect(hq.writes).toEqual(
+				Array(4).fill("POST /a/clinic/api/lookup_table_item/v2/"),
+			);
+			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);
+			expect(
+				requests(peer).filter((line) => line === `POST ${IMPORT}`),
+			).toEqual([]);
+			expect((await state())?.active.map(({ kind }) => kind)).toEqual([
+				"lookup-table",
+			]);
+		});
+	}, 20_000);
+
+	it("puts a table given a new export tag there as a new table, and names the one under the old tag as left behind", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			expect((await publish(doc)).landed).toBe(true);
+			const [old] = hq.tables.values();
+			const oldRows = structuredClone([...hq.rows.values()]);
+
+			/* An admin gives the table a new export tag in Project data. */
+			const admin = { projectId: PROJECT, actorId: "admin", role: "owner" };
+			await h.seedProjectMember("admin", PROJECT, "owner");
+			const { id: tableId } = await h
+				.db()
+				.selectFrom("lookup_tables")
+				.select("id")
+				.where("project_id", "=", PROJECT)
+				.executeTakeFirstOrThrow();
+			const table = await getLookupTable(admin, tableId);
+			await updateLookupTableTag(admin, {
+				tableId,
+				expectedTableRevision: table.tableRevision,
+				tag: "kinds",
+			});
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-after-create-then-update");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const again = await publish(doc);
+			expect(again.landed ? null : again.refusal).toBeNull();
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table/v1/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+			]);
+			const created = [...hq.tables.values()].find((t) => t.tag === "kinds");
+			/* The table under the old tag, and its rows, are as they were. */
+			expect(hq.tables.get(old?.id as string)).toEqual(old);
+			expect(
+				[...hq.rows.values()].filter((row) => row.table === old?.id),
+			).toEqual(oldRows);
+			const view = (await state()) ?? fail();
+			expect(
+				view.active.filter((resource) => resource.kind === "lookup-table"),
+			).toEqual([
+				expect.objectContaining({
+					remoteId: created?.id,
+					pushedIdentity: "kinds",
+				}),
+			]);
+			expect(leftBehindResources(view, new Map())).toEqual([
+				expect.objectContaining({ kind: "lookup-table", remoteId: old?.id }),
+			]);
+		});
+	});
+
+	it("settles a table create whose answer was lost by its tag on the next publish, and carries on from there", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const tablesPath = "/a/clinic/api/lookup_table/v1/";
+			let createLost = false;
+			let listLost = false;
+			const hq = jsonLookupPeer(peer, {
+				/* The create lands and its answer is lost, and so is the list
+				 * read that would have found it. */
+				lose: (method, path) => {
+					if (path !== tablesPath) return false;
+					if (method === "POST" && !createLost) {
+						createLost = true;
+						return true;
+					}
+					if (method === "GET" && createLost && !listLost) {
+						listLost = true;
+						return true;
+					}
+					return false;
+				},
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				failure: { code: "hq_resource_state_unknown" },
+			});
+			expect(hq.writes).toEqual([`POST ${tablesPath}`]);
+			expect(hq.tables.size).toBe(1);
+
+			/* The table under the tag is the one Nova's create made, so the
+			 * next publish finds it there, records it, and sends the rows. */
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const again = await publish(doc);
+			expect(again.landed ? null : again.refusal).toBeNull();
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table_item/v2/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+			]);
+			const [table] = hq.tables.values();
+			expect(
+				((await state()) ?? fail()).active.filter(
+					(resource) => resource.kind === "lookup-table",
+				),
+			).toEqual([
+				expect.objectContaining({
+					remoteId: table?.id,
+					ownership: "nova-created",
+					pushedIdentity: "types",
+				}),
+			]);
+		});
+	});
+
+	it("reads a row create left for a person again on the next publish, and sends it once the row it left is gone", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
+			let rowCreates = 0;
+			const hq = jsonLookupPeer(peer, {
+				/* The second row lands and its answer is lost. */
+				lose: (method, path) =>
+					method === "POST" && path === rowsPath && ++rowCreates === 2,
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				failure: { code: "hq_resource_state_unknown" },
+			});
+			expect(hq.rows.size).toBe(2);
+			const open = await h
+				.db()
+				.selectFrom("lookup_json_operations")
+				.select(["id", "state"])
+				.where("settled_at", "is", null)
+				.execute();
+			expect(open).toEqual([expect.objectContaining({ state: "review" })]);
+
+			/* A person removes the row Nova could not name, and the request's
+			 * hold passes. */
+			const stranger = [...hq.rows.values()].at(-1) ?? fail();
+			hq.rows.delete(stranger.id);
+			await h
+				.db()
+				.updateTable("lookup_json_operations")
+				.set({ admitted_at: sql`now() - interval '1 hour'` })
+				.where("id", "=", open[0]?.id ?? fail())
+				.execute();
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const again = await publish(doc);
+			expect(again.landed ? null : again.refusal).toBeNull();
+			expect(hq.writes).toEqual([`POST ${rowsPath}`]);
+			expect(
+				[...hq.rows.values()].map((row) => row.fields.name?.[0]?.field_value),
+			).toEqual([" Clinic ", "Hospital"]);
+			expect(
+				await h
+					.db()
+					.selectFrom("lookup_json_operations")
+					.select("state")
+					.where("id", "=", open[0]?.id ?? fail())
+					.executeTakeFirst(),
+			).toEqual({ state: "not-applied" });
+		});
+	});
+
+	it("admits each request on the publisher's standing at that moment, and sends nothing past one it refuses", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
+			let removed = false;
+			const hq = jsonLookupPeer(peer, {
+				/* The publisher leaves the Project once the first row is there.
+				 * (An edit of the table in Nova waits for a request still open,
+				 * so it cannot land between two of them.) */
+				after: async (method, path) => {
+					if (method !== "POST" || path !== rowsPath || removed) return;
+					removed = true;
+					await h.removeProjectMember(ACTOR, PROJECT);
+				},
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			/* However the publish answers a publisher with no standing, it
+			 * sends CommCare HQ nothing more. */
+			await publish(doc).catch((error: unknown) => error);
+			expect(removed).toBe(true);
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table/v1/",
+				`POST ${rowsPath}`,
+			]);
+			/* The refused request was never journaled. */
+			expect(
+				await h
+					.db()
+					.selectFrom("lookup_json_operations")
+					.select("state")
+					.execute(),
+			).toEqual([{ state: "applied" }, { state: "applied" }]);
+		});
+	});
+
+	it("sends nothing past a request once the publisher's CommCare HQ key changed under the publish", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
+			let rekeyed = false;
+			const hq = jsonLookupPeer(peer, {
+				/* The publisher saves another key once the first row is there: the
+				 * connection the publish was planned under is no longer theirs. */
+				after: async (method, path) => {
+					if (method !== "POST" || path !== rowsPath || rekeyed) return;
+					rekeyed = true;
+					vi.mocked(encrypt).mockResolvedValueOnce("another-ciphertext");
+					await saveCommCareSettings(ACTOR, {
+						username: "account",
+						apiKey: "different-key",
+						server: TARGET.server,
+						approvedDomains: [{ name: TARGET.domain, displayName: "Clinic" }],
+					});
+				},
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			const outcome = await publish(doc);
+			expect(rekeyed).toBe(true);
+			expect(outcome).toMatchObject({
+				landed: false,
+				refusal: { phase: "resources", failure: { code: "app_not_ready" } },
+			});
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table/v1/",
+				`POST ${rowsPath}`,
+			]);
+			/* The refused request was never journaled. */
+			expect(
+				await h
+					.db()
+					.selectFrom("lookup_json_operations")
+					.select("state")
+					.execute(),
+			).toEqual([{ state: "applied" }, { state: "applied" }]);
+		});
+	});
+
+	it("puts a changed row and a removed row there by their ids on the next publish", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			expect((await publish(doc)).landed).toBe(true);
+			const [clinic, hospital] = [...hq.rows.values()];
+
+			await editTypesRows((ids, columns) => [
+				{
+					kind: "update",
+					rowId: ids[0] ?? fail(),
+					cells: [
+						{ columnId: columns.code, value: "001" },
+						{ columnId: columns.name, value: " Clinic 2 " },
+					],
+				},
+				{ kind: "remove", rowId: ids[1] ?? fail() },
+			]);
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-after-create-then-update");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const again = await publish(doc);
+			expect(again.landed ? null : again.refusal).toBeNull();
+			expect(hq.writes).toEqual([
+				`DELETE /a/clinic/api/lookup_table_item/v2/${hospital?.id}/`,
+				`PUT /a/clinic/api/lookup_table_item/v2/${clinic?.id}/`,
+			]);
+			expect(
+				[...hq.rows.values()].map((row) => [
+					row.id,
+					row.fields.name?.[0]?.field_value,
+				]),
+			).toEqual([[clinic?.id, " Clinic 2 "]]);
+		});
+	});
+
+	it("keeps every request of a JSON table's lifecycle, for CommCare HQ's own resources to answer again", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
+			let fault:
+				| "lose-row-create"
+				| "drop-put"
+				| "lose-put"
+				| "edit-between"
+				| null = null;
+			const hq = jsonLookupPeer(peer, {
+				lose: (method, path) =>
+					(fault === "lose-row-create" &&
+						method === "POST" &&
+						path === rowsPath) ||
+					(fault === "lose-put" && method === "PUT"),
+				drop: (method) => fault === "drop-put" && method === "PUT",
+				after: async (method, path) => {
+					if (fault !== "edit-between" || method !== "PUT") return;
+					fault = null;
+					/* A person edits the other row Nova is about to change. */
+					const other =
+						[...hq.rows.values()].find(
+							(row) =>
+								!path.includes(row.id) &&
+								["001", "004"].includes(
+									row.fields.code?.[0]?.field_value ?? "",
+								),
+						) ?? fail();
+					hq.edit({
+						kind: "edit-row",
+						rowId: other.id,
+						fields: {
+							...other.fields,
+							name: [{ field_value: "Theirs", properties: {} }],
+						},
+					});
+				},
+			});
+			/* The app's source as CommCare HQ serves it after Nova's content. */
+			const current = () => {
+				const answer = retainedPublishRead("source-after-create-then-update");
+				const source = retainedBodyJson(answer);
+				replyRetained(request(peer, SOURCE), {
+					...answer,
+					body: JSON.stringify(source),
+				});
+			};
+			/* A republish reads the app's source in preflight and again before
+			 * its import, then once after it. */
+			const landed = async () => {
+				current();
+				current();
+				accepted(peer, 200);
+				current();
+				const outcome = await publish(doc);
+				expect(outcome.landed ? null : outcome.refusal).toBeNull();
+				expect(outcome.landed ? outcome.warnings : []).toEqual([]);
+			};
+			const stopped = async () => {
+				current();
+				expect(refusal(await publish(doc)).failure.code).toBe(
+					"hq_resource_state_unknown",
+				);
+			};
+			/* The time a request could still land passes: its journal entry's
+			 * and its remote write's. */
+			const holdPassed = async () => {
+				await h
+					.db()
+					.updateTable("lookup_json_operations")
+					.set({ admitted_at: sql`now() - interval '1 hour'` })
+					.where("settled_at", "is", null)
+					.execute();
+				await h
+					.db()
+					.updateTable("hq_remote_writes")
+					.set({
+						opened_at: sql`now() - interval '2 hours'`,
+						held_until: sql`now() - interval '1 hour'`,
+					})
+					.where("write_kind", "=", "lookup-json")
+					.where("settled_at", "is", null)
+					.execute();
+			};
+			const writesOf = async (step: () => Promise<void>) => {
+				hq.writes.length = 0;
+				await step();
+				return [...hq.writes];
+			};
+			const name = (value: string) => ({ value });
+
+			/* The first publish creates the table, then each row. */
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			expect((await publish(doc)).landed).toBe(true);
+			/* The same table again writes nothing. */
+			expect(await writesOf(landed)).toEqual([]);
+			const [r1, r2] = (await typesTable()).rowIds;
+
+			/* Append, change, reorder and remove, each its own publish. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "add",
+					key: "k3",
+					cells: [
+						{ columnId: c.code, ...name("003") },
+						{ columnId: c.name, ...name("Health post") },
+					],
+				},
+			]);
+			expect(await writesOf(landed)).toEqual([`POST ${rowsPath}`]);
+			const r3 = (await typesTable()).rowIds[2] ?? fail();
+			await editTypesRows((_, c) => [
+				{
+					kind: "update",
+					rowId: r1 ?? fail(),
+					cells: [
+						{ columnId: c.code, ...name("001") },
+						{ columnId: c.name, ...name(" Clinic 2 ") },
+					],
+				},
+			]);
+			expect(await writesOf(landed)).toHaveLength(1);
+			await editTypesRows(() => [
+				{ kind: "move", rowId: r3, afterRowId: null },
+			]);
+			expect(
+				(await writesOf(landed)).every((line) => line.startsWith("PUT")),
+			).toBe(true);
+			await editTypesRows(() => [{ kind: "remove", rowId: r2 ?? fail() }]);
+			expect(await writesOf(landed)).toHaveLength(1);
+			expect(await writesOf(landed)).toEqual([]);
+
+			/* A row create whose answer is lost is never adopted: the table
+			 * waits for a person, who removes the row in CommCare HQ, and the
+			 * create is sent once more after its hold. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "add",
+					key: "k4",
+					cells: [
+						{ columnId: c.code, ...name("004") },
+						{ columnId: c.name, ...name("Field office") },
+					],
+				},
+			]);
+			fault = "lose-row-create";
+			expect(await writesOf(stopped)).toEqual([`POST ${rowsPath}`]);
+			fault = null;
+			expect(await writesOf(stopped)).toEqual([]);
+			const stranger = [...hq.rows.values()].at(-1) ?? fail();
+			hq.edit({ kind: "delete-row", rowId: stranger.id });
+			await holdPassed();
+			expect(await writesOf(landed)).toEqual([`POST ${rowsPath}`]);
+			const r4 = (await typesTable()).rowIds.at(-1) ?? fail();
+
+			/* A change whose request never reached CommCare HQ waits for its
+			 * hold, then goes once. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "update",
+					rowId: r3,
+					cells: [
+						{ columnId: c.code, ...name("003") },
+						{ columnId: c.name, ...name("Health post 2") },
+					],
+				},
+			]);
+			fault = "drop-put";
+			expect(await writesOf(stopped)).toEqual([]);
+			fault = null;
+			await holdPassed();
+			expect(await writesOf(landed)).toHaveLength(1);
+
+			/* A change whose answer is lost is read, found landed, and never sent again. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "update",
+					rowId: r4,
+					cells: [
+						{ columnId: c.code, ...name("004") },
+						{ columnId: c.name, ...name("Field office 2") },
+					],
+				},
+			]);
+			fault = "lose-put";
+			expect(await writesOf(landed)).toHaveLength(1);
+			fault = null;
+			/* The write whose answer was lost keeps the table's edits waiting
+			 * until its hold passes, though the read found it landed. */
+			await holdPassed();
+
+			/* A person edits a row in CommCare HQ between Nova's two requests:
+			 * the second, which would write over it, is never sent. */
+			await editTypesRows((_, c) => [
+				{
+					kind: "update",
+					rowId: r1 ?? fail(),
+					cells: [
+						{ columnId: c.code, ...name("001") },
+						{ columnId: c.name, ...name("Clinic 3") },
+					],
+				},
+				{
+					kind: "update",
+					rowId: r4,
+					cells: [
+						{ columnId: c.code, ...name("004") },
+						{ columnId: c.name, ...name("Field office 3") },
+					],
+				},
+			]);
+			fault = "edit-between";
+			hq.writes.length = 0;
+			current();
+			const between = await publish(doc);
+			expect(refusal(between).failure.code).toBe("hq_resource_state_unknown");
+			expect(hq.writes.filter((line) => line.startsWith("PUT"))).toHaveLength(
+				1,
+			);
+
+			const [table] = hq.tables.values();
+			const recorded = {
+				domain: "clinic",
+				exchanges: hq.exchanges,
+				table: table?.id,
+				final: [...hq.rows.values()]
+					.filter((row) => row.table === table?.id)
+					.sort((a, b) => a.sortKey - b.sortKey || (a.id < b.id ? -1 : 1))
+					.map((row) => ({
+						id: row.id,
+						sortKey: row.sortKey,
+						fields: row.fields,
+						itemAttributes: row.attributes,
+					})),
+			};
+			const fixture = new URL(
+				"../../../proof/hq/fixtures/lookup-json-publish.json",
+				import.meta.url,
+			);
+			if (process.env.WRITE_LOOKUP_JSON_PUBLISH_FIXTURE === "1")
+				writeFileSync(fixture, `${JSON.stringify(recorded, null, "\t")}\n`);
+			expect(recorded).toEqual(JSON.parse(readFileSync(fixture, "utf-8")));
+		});
+	});
+
+	it("stops before the app's content where CommCare HQ holds a table under the tag that Nova didn't make", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer, { readOnly: true });
+			hq.tables.set("f".repeat(32), {
+				id: "f".repeat(32),
+				tag: "types",
+				is_global: true,
+				fields: [{ field_name: "code", properties: [] }],
+				item_attributes: [],
+			});
+			const outcome = await publish(doc);
+			expect(refusal(outcome)).toMatchObject({
+				failure: { code: "hq_resource_conflict" },
+			});
+			expect(hq.writes).toEqual([]);
+			expect(requests(peer).some((line) => line.startsWith("POST"))).toBe(
+				false,
+			);
+		});
+	});
+});
+
 function fail(): never {
 	throw new Error("Expected a value");
 }
+
+describe("named installations on a destination", () => {
+	it("requires HQ Import before the first profile shell or live mapping", async () => {
+		const uuid = installationUuid("night-team");
+		const doc = clinicVisitsDocument();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Night team",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+		};
+		await seed(doc);
+		await withPeer(async (peer) => {
+			await expect(
+				publish(doc, undefined, () => {
+					throw new Error("Missing HQ Import");
+				}),
+			).rejects.toThrow("Missing HQ Import");
+			expect(requests(peer).filter((line) => line.startsWith("POST "))).toEqual(
+				[],
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_resources")
+					.select("remote_id")
+					.where("superseded_at", "is", null)
+					.execute(),
+			).toEqual([]);
+			expect(
+				await h.db().selectFrom("hq_remote_writes").select("id").execute(),
+			).toEqual([]);
+		});
+	});
+
+	it.each(["revoke", "move", "unchanged"] as const)(
+		"accounts for the acknowledged intermediate language import when the review can %s",
+		async (change) => {
+			const uuid = installationUuid("language-transfer"),
+				key = uuid.replaceAll("-", "");
+			const doc = clinicVisitsDocument();
+			doc.appSettings.installationProfiles = {
+				[uuid]: {
+					uuid,
+					name: "Field office",
+					languages: ["eng"],
+					requiresPracticeWorker: false,
+				},
+			};
+			await seed(doc);
+			const profiles = {
+				[key]: {
+					name: "Field office",
+					langs: ["en"],
+					practice_mobile_worker_id: "",
+					doc_type: "BuildProfile",
+				},
+			};
+			const raw = (
+				name: "source-shell" | "source-after-create-then-update",
+				langs = ["en"],
+			) => ({
+				...retainedBodyJson(retainedPublishRead(name)),
+				langs,
+				build_profiles: profiles,
+			});
+			await withPeer(async (peer) => {
+				accepted(peer, 201);
+				request(peer, SOURCE).reply(200, raw("source-shell"));
+				request(peer, SOURCE).reply(200, raw("source-shell"));
+				accepted(peer, 200);
+				request(peer, SOURCE).reply(
+					200,
+					raw("source-after-create-then-update"),
+				);
+				expect((await publish(doc)).landed).toBe(true);
+				const mutate = (mutations: Mutation[]) =>
+					commitGuardedBatchProposal({
+						appId: APP,
+						expectedProjectId: PROJECT,
+						actorUserId: ACTOR,
+						batchId: crypto.randomUUID(),
+						kind: "autosave",
+						mutations,
+					});
+				const desired = await mutate([
+					{
+						kind: "addLanguage",
+						language: { language: "spa" },
+						wireCode: "es",
+					},
+					{
+						kind: "setAppSettings",
+						settings: {
+							installationProfile: {
+								operation: "update",
+								uuid,
+								patch: { languages: ["spa"] },
+							},
+						},
+					},
+				]);
+				const author = await managedPublisher(
+					hydratePersistedBlueprint(desired.committedDoc),
+				);
+				const sends = requests(peer).filter((p) =>
+					p.startsWith("POST "),
+				).length;
+				request(peer, SOURCE).reply(
+					200,
+					raw("source-after-create-then-update"),
+				);
+				request(peer, SOURCE).reply(
+					200,
+					raw("source-after-create-then-update"),
+				);
+				accepted(peer, 200, HQ_APP, undefined, async () => {
+					if (change === "revoke") await author.revoke();
+					if (change === "move")
+						await mutate([
+							{ kind: "setAppName", name: "Relabeled during import" },
+						]);
+				});
+				request(peer, SOURCE).reply(
+					200,
+					raw("source-after-create-then-update", ["en", "es"]),
+				);
+				const answer = author.publish(undefined, desired.seq);
+				if (change === "revoke")
+					await expect(answer).rejects.toMatchObject({
+						name: "McpCredentialInactiveError",
+						message: expect.stringContaining("CommCare HQ received the app"),
+					});
+				else
+					expect(refusal(await answer).failure.message).toContain(
+						change === "move" ? "Publish again" : "languages workers need",
+					);
+				const privateRow = await h
+					.db()
+					.selectFrom("app_deployment_installation_reviews")
+					.select("checkpoint")
+					.where("actor_id", "=", ACTOR)
+					.executeTakeFirstOrThrow();
+				expect(privateRow.checkpoint).toMatchObject({
+					phase: change === "unchanged" ? "edit-profiles" : "prepare-languages",
+				});
+				const receipt = await sql<{
+					version: number;
+					settled: boolean;
+				}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version, settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP} ORDER BY opened_at DESC LIMIT 1`.execute(
+					h.db(),
+				);
+				expect(receipt.rows).toEqual([
+					{ version: saves.at(HQ_APP), settled: true },
+				]);
+				expect(
+					requests(peer).filter((p) => p.startsWith("POST ")).length - sends,
+				).toBe(1);
+			});
+		},
+	);
+	it("creates a profile on the shell, verifies its assigned key, and only records the final app after the complete map is read back", async () => {
+		const uuid = installationUuid("night-team");
+		const key = uuid.replaceAll("-", "");
+		const doc = clinicVisitsDocument();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Night team",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+		};
+		await seed(doc);
+		const profiles = {
+			[key]: {
+				name: "Night team",
+				langs: ["en"],
+				practice_mobile_worker_id: "",
+				doc_type: "BuildProfile",
+			},
+		};
+		const read = (
+			name: "source-shell" | "source-after-create-then-update",
+		) => ({
+			...retainedBodyJson(retainedPublishRead(name)),
+			build_profiles: profiles,
+		});
+		await withPeer(async (peer) => {
+			const bodies: unknown[] = [];
+			accepted(peer, 201, HQ_APP, bodies);
+			request(peer, SOURCE).reply(200, read("source-shell"));
+			request(peer, SOURCE).reply(200, read("source-shell"));
+			accepted(peer, 200, HQ_APP, bodies);
+			request(peer, SOURCE).reply(200, read("source-after-create-then-update"));
+			const result = await publish(doc);
+			expect(result).toMatchObject({ landed: true });
+			expect(bodies[0]).toMatchObject({
+				app: {
+					build_profiles: { [key]: { name: "Night team", langs: ["en"] } },
+				},
+			});
+			expect(bodies[1]).not.toHaveProperty("app.build_profiles");
+			const rows = await h
+				.db()
+				.selectFrom("app_deployment_installation_profiles")
+				.select(["nova_profile_uuid", "profile_key", "practice_worker_id"])
+				.execute();
+			expect(rows).toEqual([
+				{ nova_profile_uuid: uuid, profile_key: key, practice_worker_id: null },
+			]);
+
+			const check = async (
+				workingDoc: BlueprintDoc,
+				raw: Record<string, unknown>,
+				token?: string,
+			) => {
+				const sequence = Number((await h.readAppRow(APP))?.mutation_seq);
+				const parsed = parseHqAppSource(raw);
+				if (parsed.kind !== "source")
+					throw new Error("The controlled source is unreadable.");
+				const snapshot = await state();
+				const mapping = snapshot?.active.find((r) => r.kind === "app");
+				if (!mapping || !snapshot)
+					throw new Error("Missing installation mapping");
+				return checkInstallationPublish({
+					claim: {
+						mapping: mapping.pushToken,
+						endings: snapshot.deployment.endings,
+					},
+					scope: SCOPE,
+					target: TARGET,
+					remoteAppId: HQ_APP,
+					source: parsed.source,
+					doc: workingDoc,
+					sequence,
+					identity: await readTargetIdentity(SCOPE, TARGET),
+					workingVersion: saves.at(HQ_APP),
+					needsBuildableContent: false,
+					creds: {
+						server: TARGET.server,
+						username: "account",
+						apiKey: "fixture-key",
+					},
+					releasesUrl: HOST,
+					confirmWorkers: token,
+					requireHqImport: () => {},
+				});
+			};
+			const working = read("source-after-create-then-update");
+			const absent = await check(doc, { ...working, build_profiles: {} });
+			expect(absent).toMatchObject({
+				kind: "review",
+				message: expect.stringContaining("create its replacement"),
+			});
+			const restored = {
+				...working,
+				build_profiles: { newKey: profiles[key] },
+			};
+			const choose = await check(doc, restored);
+			if (choose.kind !== "review" || !choose.choices?.[0])
+				throw new Error(
+					"The missing profile did not offer an exact replacement.",
+				);
+			const offered = choose.choices[0];
+			expect(offered.label).toContain("newKey");
+			// A confirmation from a different working source cannot rebind this UUID.
+			expect(
+				await check(
+					doc,
+					{ ...restored, build_profiles: { otherKey: profiles[key] } },
+					offered.confirmation,
+				),
+			).toMatchObject({ kind: "review" });
+			expect(
+				(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+			).toMatchObject([{ uuid, key }]);
+			await check(doc, restored);
+			saves.save(HQ_APP);
+			const resaved = await check(doc, restored, offered.confirmation);
+			if (resaved.kind !== "review" || !resaved.choices?.[0])
+				throw new Error("Expected a new agreement after HQ saved");
+			expect(resaved.choices[0].confirmation).not.toBe(offered.confirmation);
+			expect(
+				await check(doc, restored, resaved.choices[0].confirmation),
+			).toMatchObject({
+				kind: "agreed",
+			});
+			expect(
+				(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+			).toMatchObject([{ uuid, key: "newKey" }]);
+
+			const desired = structuredClone(doc);
+			desired.localization = {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "spa"],
+				wireCodes: { eng: "en", spa: "es" },
+				translations: {},
+			};
+			if (!desired.appSettings.installationProfiles)
+				throw new Error("Lost the current installation.");
+			desired.appSettings.installationProfiles[uuid].languages = ["spa"];
+			const previous = {
+				...working,
+				langs: ["en", "fra"],
+				build_profiles: {
+					newKey: {
+						...profiles[key],
+						langs: ["fra"],
+						practice_mobile_worker_id: "inactive",
+					},
+				},
+			};
+			request(
+				peer,
+				`/a/clinic/apps/download/${HQ_APP}/suite.xml?profile=newKey`,
+			).reply(500, "Worker is disabled");
+			expect(await check(desired, previous)).toMatchObject({
+				kind: "review",
+				message: expect.stringContaining("clear or replace"),
+			});
+			expect(
+				await check(desired, {
+					...previous,
+					build_profiles: {
+						newKey: {
+							...previous.build_profiles.newKey,
+							practice_mobile_worker_id: null,
+						},
+					},
+				}),
+			).toMatchObject({ kind: "prepare-languages" });
+			const add = (
+				name: string,
+				uuid: ReturnType<typeof installationUuid>,
+			): Mutation => ({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: {
+						operation: "add",
+						profile: {
+							uuid,
+							name,
+							languages: ["eng"],
+							requiresPracticeWorker: false,
+						},
+					},
+				},
+			});
+			const save = (mutations: Mutation[]) =>
+				commitGuardedBatchProposal({
+					appId: APP,
+					expectedProjectId: PROJECT,
+					batchId: crypto.randomUUID(),
+					mutations,
+					actorUserId: ACTOR,
+					kind: "autosave",
+				});
+			const a = installationUuid("crew A"),
+				b = installationUuid("crew B");
+			const added = await save([add("New crew", a), add("New crew", b)]);
+			const saved = hydratePersistedBlueprint(added.committedDoc);
+			const unresolved = {
+				...working,
+				build_profiles: { newKey: profiles[key] },
+			};
+			expect(await check(saved, unresolved)).toMatchObject({ kind: "review" });
+			const physical = {
+				...working,
+				build_profiles: {
+					...unresolved.build_profiles,
+					crewFirst: { ...profiles[key], name: "New crew" },
+					crewSecond: { ...profiles[key], name: "New crew" },
+				},
+			};
+			const offers = await check(saved, physical);
+			if (offers.kind !== "review" || !offers.choices)
+				throw new Error(
+					"Expected a choice between two indistinguishable installations.",
+				);
+			expect(offers.choices).toHaveLength(2);
+			const forA = async (
+				doc: BlueprintDoc,
+				choices: NonNullable<typeof offers.choices>,
+			) => {
+				const choice = choices.find((c) => c.label.includes(a));
+				if (!choice) throw new Error("Expected the Nova installation chooser");
+				const destinations = await check(doc, physical, choice.confirmation);
+				if (destinations.kind !== "review" || !destinations.choices)
+					throw new Error("Expected project-space installations");
+				return destinations.choices;
+			};
+			const selected = (await forA(saved, offers.choices)).find(
+				(c) => c.label.includes(a) && c.label.includes("crewSecond"),
+			);
+			if (!selected) throw new Error("Expected the second destination key.");
+			const renamed = hydratePersistedBlueprint(
+				(await save([{ kind: "setAppName", name: "Unrelated app edit" }]))
+					.committedDoc,
+			);
+			const refreshed = await check(renamed, physical, selected.confirmation);
+			if (refreshed.kind !== "review" || !refreshed.choices)
+				throw new Error("Expected fresh choices after an unrelated app edit.");
+			const fresh = (await forA(renamed, refreshed.choices)).find(
+				(c) => c.label.includes(a) && c.label.includes("crewSecond"),
+			);
+			if (!fresh)
+				throw new Error("The existing HQ row must remain selectable.");
+			expect(fresh.confirmation).not.toBe(selected.confirmation);
+			const remaining = await check(renamed, physical, fresh.confirmation);
+			if (remaining.kind !== "review" || !remaining.choices?.[0])
+				throw new Error(
+					"The other named installation still needs its own exact selection.",
+				);
+			expect(remaining.choices).toHaveLength(1);
+			expect(
+				await check(renamed, physical, remaining.choices[0].confirmation),
+			).toMatchObject({ kind: "agreed" });
+			expect(
+				(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+			).toEqual(
+				expect.arrayContaining([
+					{ uuid: a, key: "crewSecond" },
+					{ uuid: b, key: "crewFirst" },
+				]),
+			);
+			expect(bodies).toHaveLength(2);
+		});
+	}, 20_000);
+	it.each([
+		{ entitled: false, saveDuring: null },
+		{ entitled: true, saveDuring: null },
+		{ entitled: true, saveDuring: "final-suite" },
+		{ entitled: true, saveDuring: "content-suite" },
+		{ entitled: true, saveDuring: "restricted-runtime" },
+		{ entitled: true, saveDuring: "revoke-on-content" },
+		{ entitled: true, saveDuring: "revoke-on-resume" },
+		{ entitled: true, saveDuring: "move-on-content" },
+		{ entitled: true, saveDuring: "end-on-content" },
+	] as const)(
+		"fills the first shell once, then observes a named practice restore (entitled $entitled, concurrent save $saveDuring)",
+		async ({ entitled, saveDuring }) => {
+			const uuid = installationUuid("training");
+			const key = uuid.replaceAll("-", "");
+			const doc = clinicVisitsDocument();
+			doc.appSettings.installationProfiles = {
+				[uuid]: {
+					uuid,
+					name: "Practice",
+					languages: ["eng"],
+					requiresPracticeWorker: true,
+				},
+			};
+			await seed(doc);
+			const profile = {
+				name: "Practice",
+				langs: ["en"],
+				practice_mobile_worker_id: "selected-worker",
+				doc_type: "BuildProfile",
+			};
+			const source = (
+				name: "source-shell" | "source-after-create-then-update",
+			) => ({
+				...retainedBodyJson(retainedPublishRead(name)),
+				build_profiles: { [key]: profile },
+			});
+			const resource = (path: string, id: string) =>
+				`<resource id="${id}" version="1"><location authority="remote">./${path}?profile=${key}</location></resource>`;
+			const suite = `<suite>${["default", "en"].map((lang) => `<locale language="${lang}">${resource(`${lang}/app_strings.txt`, lang)}</locale>`).join("")}<user-restore>${resource("practice_user_restore.xml", "practice-user-restore")}</user-restore></suite>`;
+			if (saveDuring === "end-on-content")
+				await h.seedProjectMember(ADMIN, PROJECT, "admin");
+			const publisher = await managedPublisher(doc);
+			const journey = () =>
+				withPeer(async (peer) => {
+					const bodies: unknown[] = [];
+					accepted(peer, 201, HQ_APP, bodies);
+					accepted(peer, 200, HQ_APP, bodies, async () => {
+						if (saveDuring === "end-on-content")
+							await stopHere(ADMIN_SCOPE, TARGET);
+						if (saveDuring === "revoke-on-content") await publisher.revoke();
+						if (saveDuring === "move-on-content")
+							await commitGuardedBatchProposal({
+								appId: APP,
+								expectedProjectId: PROJECT,
+								actorUserId: ACTOR,
+								batchId: crypto.randomUUID(),
+								kind: "autosave",
+								mutations: [
+									{ kind: "setAppName", name: "Renamed during confirmation" },
+								],
+							});
+					});
+					request(peer, SOURCE)
+						.reply(() => ({
+							statusCode: 200,
+							data: JSON.stringify(
+								source(
+									saves.at(HQ_APP) <= 1
+										? "source-shell"
+										: "source-after-create-then-update",
+								),
+							),
+						}))
+						.persist();
+					let workerActive = false;
+					let promotedSuites = 0;
+					let checkingPrepared = false;
+					let changed = false;
+					request(
+						peer,
+						`/a/clinic/apps/download/${HQ_APP}/suite.xml?profile=${key}`,
+					)
+						.reply(async () => {
+							if (checkingPrepared) promotedSuites++;
+							if (
+								saveDuring === "revoke-on-resume" &&
+								checkingPrepared &&
+								promotedSuites === 1
+							)
+								await publisher.revoke();
+							if (
+								!changed &&
+								((saveDuring === "final-suite" && promotedSuites === 2) ||
+									(saveDuring === "content-suite" && saves.at(HQ_APP) === 2))
+							) {
+								changed = true;
+								profile.practice_mobile_worker_id = "another-active-worker";
+								saves.save(HQ_APP);
+							}
+							return workerActive
+								? { statusCode: 200, data: suite }
+								: {
+										statusCode: 500,
+										data: "The selected practice worker is inactive",
+									};
+						})
+						.persist();
+					let built = false;
+					request(peer, `/a/clinic/api/application/v1/${HQ_APP}/`)
+						.reply(() => ({
+							statusCode: 200,
+							data: JSON.stringify({
+								id: HQ_APP,
+								name: "Practice",
+								version: saves.at(HQ_APP),
+								built_from_app_id: null,
+								modules: [],
+								versions: built
+									? [
+											{
+												id: "practice-build",
+												version: saves.at(HQ_APP),
+												is_released: false,
+											},
+										]
+									: [],
+							}),
+						}))
+						.persist();
+					const first = refusal(await publish(doc));
+					const token = first.failure.installationProfileConfirmation;
+					if (!token)
+						throw new Error(
+							"Expected a destination-specific worker confirmation",
+						);
+					const disabled = refusal(await publish(doc, undefined, null, token));
+					expect(disabled.failure.message).toContain("active practice worker");
+					expect(requests(peer).filter((s) => s.startsWith("POST "))).toEqual([
+						`POST ${IMPORT}`,
+					]);
+					expect(bodies).toHaveLength(1);
+					expect(
+						(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+					).toBeUndefined();
+					workerActive = true;
+					if (saveDuring === "end-on-content") {
+						await publisher.publish(token);
+						expect((await state())?.deployment.state).toBe("ended");
+						expect(activeRemoteApp((await state()) ?? fail())).toBeNull();
+						const receipt = await sql<{
+							version: number | null;
+							settled: boolean;
+						}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version,settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP}`.execute(
+							h.db(),
+						);
+						expect(receipt.rows).toEqual([
+							{ version: saves.at(HQ_APP), settled: true },
+						]);
+						expect(bodies).toHaveLength(2);
+						return;
+					}
+					if (
+						saveDuring === "revoke-on-content" ||
+						saveDuring === "move-on-content"
+					) {
+						const before = (await state()) ?? fail();
+						await expect(publisher.publish(token)).rejects.toMatchObject({
+							message: expect.stringContaining("CommCare HQ received the app"),
+						});
+						const receipts = await sql<{
+							version: number | null;
+							settled: boolean;
+						}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version,settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP}`.execute(
+							h.db(),
+						);
+						expect(receipts.rows).toEqual([
+							{ version: saves.at(HQ_APP), settled: true },
+						]);
+						const after = (await state()) ?? fail();
+						expect(activeRemoteApp(after)?.pushToken).toBe(
+							activeRemoteApp(before)?.pushToken,
+						);
+						expect(activeRemoteApp(after)?.pushedRevision).toBeNull();
+						expect(
+							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+						).toBeUndefined();
+						expect(bodies).toHaveLength(2);
+						return;
+					}
+					const waiting = refusal(await publish(doc, undefined, null, token));
+					expect(
+						(await readEntryPointEvidence(SCOPE, TARGET)).manifest,
+					).toBeNull();
+					if (saveDuring === "content-suite") {
+						expect(changed).toBe(true);
+						expect(waiting.failure.message).toMatch(/changed|verify/);
+						expect(
+							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+						).toBeUndefined();
+						const held = await state();
+						expect(
+							held?.active.find((r) => r.kind === "app")?.pushedRevision,
+						).toBeNull();
+						return;
+					}
+					expect(waiting.failure.message).toContain(
+						`CommCare_v${saves.at(HQ_APP)}.ccz`,
+					);
+					expect(bodies).toHaveLength(2);
+					expect(bodies[0]).toMatchObject({ app: { modules: [] } });
+					expect(bodies[1]).toMatchObject({
+						app: { modules: expect.arrayContaining([expect.anything()]) },
+					});
+					const mapping = () =>
+						h
+							.db()
+							.selectFrom("app_deployment_resources")
+							.select(["remote_id", "pushed_revision"])
+							.where("kind", "=", "app")
+							.where("superseded_at", "is", null)
+							.executeTakeFirstOrThrow();
+					expect(await mapping()).toMatchObject({
+						remote_id: HQ_APP,
+						pushed_revision: null,
+					});
+					expect(
+						(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+					).toBeUndefined();
+					built = true;
+					serveWorkingInstallationInventory(
+						peer,
+						HOST,
+						HQ_APP,
+						saves.at(HQ_APP),
+						{ counterAlreadyServed: true },
+					);
+					const blobs = Object.fromEntries(
+						[
+							"profile.ccpr",
+							"suite.xml",
+							"profile.xml",
+							"media_profile.xml",
+							"media_profile.ccpr",
+							"media_suite.xml",
+							"default/app_strings.txt",
+							"en/app_strings.txt",
+							"modules-0/forms-0.xml",
+							...[
+								"profile.xml",
+								"media_profile.xml",
+								"media_profile.ccpr",
+								"media_suite.xml",
+								"modules-0/forms-0.xml",
+							].map((file) => `${key}/${file}`),
+							`${key}/profile.ccpr`,
+							`${key}/suite.xml`,
+							`${key}/default/app_strings.txt`,
+							`${key}/en/app_strings.txt`,
+							...(entitled ? [`${key}/practice_user_restore.xml`] : []),
+						].map((path) => [`files/${path}`, { content_length: 20 }]),
+					);
+					request(
+						peer,
+						"/a/clinic/api/application/v1/practice-build/?extras=true",
+					).reply(200, {
+						id: "practice-build",
+						_id: "practice-build",
+						domain: "clinic",
+						doc_type: "Application",
+						copy_of: HQ_APP,
+						built_from_app_id: HQ_APP,
+						version: saves.at(HQ_APP),
+						is_released: false,
+						langs: ["en"],
+						modules: [
+							{
+								forms: [
+									{ doc_type: "Form" },
+									{ doc_type: "ShadowForm" },
+									{
+										doc_type: "Form",
+										is_release_notes_form: true,
+										enable_release_notes: false,
+									},
+								],
+							},
+						],
+						build_profiles: { [key]: profile },
+						external_blobs: blobs,
+					});
+					checkingPrepared = true;
+					if (saveDuring === "revoke-on-resume") {
+						const receipt = () =>
+							sql<{
+								id: string;
+								at: Date | null;
+								version: number | null;
+							}>`SELECT id,settled_at AS at,(to_jsonb(w)->>'import_acknowledged_version')::integer AS version FROM hq_remote_writes w WHERE write_kind='import'`.execute(
+								h.db(),
+							);
+						const before = await receipt();
+						expect(before.rows).toMatchObject([
+							{ at: expect.any(Date), version: saves.at(HQ_APP) },
+						]);
+						await expect(publisher.publish()).rejects.toMatchObject({
+							name: "McpCredentialInactiveError",
+						});
+						expect((await receipt()).rows).toEqual(before.rows);
+						expect((await mapping()).pushed_revision).toBeNull();
+						expect(bodies).toHaveLength(2);
+						return;
+					}
+					const finished = await publish(doc);
+					if (saveDuring === "final-suite") {
+						expect(changed).toBe(true);
+						expect(refusal(finished).failure.message).toContain("changed");
+						expect((await mapping()).pushed_revision).toBeNull();
+						return;
+					}
+					if (entitled) {
+						expect(finished).toMatchObject({ landed: true });
+						expect((await mapping()).pushed_revision).not.toBeNull();
+						const evidence = await readEntryPointEvidence(SCOPE, TARGET);
+						expect(evidence.manifest).toMatchObject({
+							generation: evidence.generation,
+							remoteAppId: HQ_APP,
+							sourceSequence: Number((await mapping()).pushed_revision),
+						});
+						expect(
+							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+						).toMatchObject([
+							{
+								uuid,
+								key,
+								practiceWorkerId: "selected-worker",
+								practiceWitness: { buildId: "practice-build" },
+							},
+						]);
+					} else {
+						expect(refusal(finished).failure.message).toContain(
+							"make a new version",
+						);
+						expect((await mapping()).pushed_revision).toBeNull();
+						expect(
+							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+						).toBeUndefined();
+					}
+					expect(requests(peer).filter((s) => s.startsWith("POST "))).toEqual([
+						`POST ${IMPORT}`,
+						`POST ${IMPORT}`,
+					]);
+				});
+			if (saveDuring === "restricted-runtime")
+				await withInstallationRuntimeRole(h, journey);
+			else await journey();
+		},
+		45_000,
+	);
+	it("keeps a shell incomplete when the destination must supply an active practice worker", async () => {
+		const uuid = installationUuid("training");
+		const key = uuid.replaceAll("-", "");
+		const doc = clinicVisitsDocument();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Practice",
+				languages: ["eng"],
+				requiresPracticeWorker: true,
+			},
+		};
+		await seed(doc);
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			request(peer, SOURCE).reply(200, {
+				...retainedBodyJson(retainedPublishRead("source-shell")),
+				build_profiles: {
+					[key]: {
+						name: "Practice",
+						langs: ["en"],
+						practice_mobile_worker_id: null,
+						doc_type: "BuildProfile",
+					},
+				},
+			});
+			const stopped = refusal(await publish(doc));
+			expect(stopped.failure).toMatchObject({
+				code: "hq_installation_profile_review",
+				installationProfileReviewUrl: `${HOST}/a/clinic/apps/view/${HQ_APP}/releases/`,
+			});
+			expect(requests(peer).filter((s) => s === `POST ${IMPORT}`)).toHaveLength(
+				1,
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_reviews")
+					.select("checkpoint")
+					.executeTakeFirstOrThrow(),
+			).toMatchObject({
+				checkpoint: { phase: "edit-profiles", appId: HQ_APP },
+			});
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_profiles")
+					.select("practice_worker_id")
+					.execute(),
+			).toEqual([]);
+		});
+	});
+});

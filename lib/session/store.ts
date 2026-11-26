@@ -1,4 +1,9 @@
+import type { DeviceLocation } from "@/lib/domain/locationCapture";
 import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchTypes";
+import type {
+	PreviewDraft,
+	PreviewSavedForm,
+} from "@/lib/preview/previewFormRecords";
 /**
  * BuilderSession store — ephemeral UI state for the builder.
  *
@@ -37,27 +42,20 @@ import {
 	foldProvisioningOutcome,
 	provisioningOutcomeKey,
 } from "@/lib/deployment/workerProvisionPlan";
-import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { planConnectTargetState } from "@/lib/doc/connectTargetState";
-import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
-import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import type {
 	PendingIdentityMove,
 	PendingIdentityMoveSlot,
 } from "@/lib/doc/pendingIdentityMove";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
-import type { Mutation } from "@/lib/doc/types";
-import { userFacingErrors } from "@/lib/doc/userFacingErrors";
-import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
-import type { MediaFormatValue, MediaKind } from "@/lib/domain/multimedia";
-import {
-	declaredPlatforms,
-	declaresWebApps,
-	type Platform,
-} from "@/lib/domain/platforms";
+import type {
+	AssetKind,
+	MediaFormatValue,
+	MediaKind,
+} from "@/lib/domain/multimedia";
+import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
+import type { RequiredAndroidApp } from "@/lib/domain/requiredAndroidApps";
 import type { Event } from "@/lib/log/types";
-import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
 import { previewSelectionsTargetOf } from "@/lib/routing/previewSelectionsHistory";
@@ -83,12 +81,20 @@ import type {
 } from "./types";
 
 /**
- * One asset row the session has observed: what the budget check reads, the
+ * One asset row the session has observed: its status, kind and size, the
  * variant its bytes are, which the attach guard, the pickers and Preview's
  * stand-in read, and the content hash and extension every export names the
  * file by, which Preview's list filter reads an image map's path from.
  */
-export type AssetMetaRow = ExportBudgetRowView & {
+/** The submissions an opening lays over the restore, newest last
+ *  (`formOpeningAction.ts`, which takes as many). */
+export const MAX_UNSYNCED_ENTRIES = 32;
+
+export type AssetMetaRow = {
+	/** The wire row's status; only `ready` files are referenced. */
+	status: string;
+	kind: AssetKind;
+	sizeBytes: number;
 	contentHash: string;
 	extension: string;
 	mediaFormat?: MediaFormatValue;
@@ -130,24 +136,6 @@ export interface EditScrollMemory {
 	offset: number;
 	/** Snapshot of measured row sizes (`virtualizer.measurementsCache`). */
 	measurements: VirtualItem[];
-}
-
-/** What `switchConnectMode` is asked to reach, and what it gates the planned
- *  batch under. */
-export interface ConnectSwitchRequest {
-	/** The mode to reach; `null` turns Connect off. */
-	readonly type: ConnectType | null;
-	/** For learn/deliver, the AUTHORITATIVE complete set of participating
-	 *  forms with their blocks; a form absent here stays auxiliary. Omitted
-	 *  (or empty) means no participants — which the planner refuses for a
-	 *  non-null mode. */
-	readonly blocks?: Record<string, ConnectConfig>;
-	/** The Project's lookup-definition context the commit verdict runs
-	 *  against — the builder's live one, from `useLookupCommitState`. */
-	readonly lookupContext: LookupValidationContext;
-	/** `false` when the caller presents the rejection itself (the manager's
-	 *  footer); otherwise a rejection announces through the error toast. */
-	readonly announce?: boolean;
 }
 
 /**
@@ -297,6 +285,14 @@ export interface BuilderSessionState {
 	 *  → `currentState.reset()`). */
 	previewAfterSubmitStack: PreviewAfterSubmitStack;
 	previewEntryPointLaunch: EntryPointPreviewLaunch | undefined;
+	/** An Android visit an entry point opened, until its first form ends.
+	 *  Android finishes such a visit when that form is submitted or left
+	 *  (`SessionLaunchDelegate.kt::exitFromExternalLaunch`, the launch's
+	 *  `ccodk_exit_after_form_submission`, true by default): it resets the
+	 *  session and returns to the app that opened the link, whatever the
+	 *  form's after-submit says. Unlike `previewEntryPointLaunch`, which
+	 *  ordinary navigation retires, it lasts through the visit's menus. */
+	previewEntryPointVisit: boolean;
 
 	/** The case currently open in the running-app case list's detail/confirm
 	 *  (the row clicked, before continuing). Mirrors the case list's local
@@ -355,16 +351,39 @@ export interface BuilderSessionState {
 	 *  is derived (`effectivePreviewPlatform` over the app's declaration), so a
 	 *  choice the app no longer declares derives away with no write here. */
 	previewPlatform: Platform | undefined;
+	/** Apps installed on the simulated phone, independently of the app being authored. */
+	previewInstalledAndroidApps: RequiredAndroidApp[];
+	/** Authorized Search target and settings currently supplying this worker session. */
+	previewSearchRevision?: string;
 	/** Preview on Android is showing the device's home screen. A running
 	 *  fact, not a route: the URL's `home` is shared with edit mode and gains
 	 *  no Preview-only kind. */
 	previewAtDeviceHome: boolean;
+	previewFormRecords: readonly PreviewSavedForm[];
+	previewResumedDraft: PreviewDraft | undefined;
+	savePreviewFormRecord: (record: PreviewSavedForm, run: string) => boolean;
+	resumePreviewDraft: (entryKey: string) => PreviewDraft | undefined;
+	removePreviewFormRecord: (entryKey: string) => void;
 	/** Epoch milliseconds of this Preview run's last sync on Android: set when
 	 *  Preview starts on Android and by Sync with server. */
 	previewDeviceSyncedAt: number | undefined;
+	/** The form entries this run's device submitted since it last synced, in
+	 *  order: it holds what each wrote, a case one closed among it, until it
+	 *  syncs. A new run is a device that holds none. */
+	previewUnsyncedEntries:
+		| { readonly run: string; readonly keys: readonly string[] }
+		| undefined;
 	/** The UUID part of Android's `deviceid` (`commcare_<uuid>`), minted when
 	 *  the store is created: one page load is one install. */
 	previewAndroidDeviceId: string;
+	/** The chosen sensor fix applies to the next Android form entry. */
+	previewLocationFix?: DeviceLocation;
+	setPreviewLocationFix: (fix: DeviceLocation | undefined) => void;
+	/** The last committed form's automatic location, if the app requested it. */
+	previewSubmissionLocation?: DeviceLocation | null;
+	setPreviewSubmissionLocation: (
+		location: DeviceLocation | null | undefined,
+	) => void;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
 
@@ -375,24 +394,6 @@ export interface BuilderSessionState {
 		chat: { open: boolean; stashed: boolean | undefined };
 		structure: { open: boolean; stashed: boolean | undefined };
 	};
-
-	// ── Connect stash (ephemeral, not undoable) ──────────────────────────
-
-	/** Preserved form connect configs for the INACTIVE mode(s). Keyed by
-	 *  connect type -> form uuid -> config. Written when a mode is switched
-	 *  away from (or Connect disabled) so the work survives; the Connect
-	 *  manager reads it to seed the inactive mode's drafts. Uses uuid instead
-	 *  of moduleIndex/formIndex so renames and reorders don't invalidate the
-	 *  stash. */
-	connectStash: Record<
-		ConnectType,
-		Record<string /* formUuid */, ConnectConfig>
-	>;
-
-	/** Last active connect type — the mode the manager defaults its selector
-	 *  to when Connect is currently off. Every `switchConnectMode` document
-	 *  command still states its target mode exactly. */
-	lastConnectType: ConnectType | undefined;
 
 	// ── Staged media uploads (ephemeral, never doc state) ────────────────
 
@@ -529,15 +530,14 @@ export interface BuilderSessionState {
 	 *  silent — cancel already cleared the slot. */
 	cancelStagedUpload: (slotKey: string) => void;
 
-	/** Budget-relevant asset metadata observed this session — every
-	 *  library page the builder's pickers load, every upload confirm, and
-	 *  every row the attach budget check fetches lands here, keyed by
-	 *  asset id. The browser's pre-dispatch export-ceiling check
-	 *  (`components/builder/media/useAttachBudget.ts`) resolves the doc's
-	 *  referenced ids against this registry and fetches only the gaps.
-	 *  Advisory data by design: the export boundary re-loads fresh rows
-	 *  server-side, so a stale entry here can only mis-tune the courtesy
-	 *  check, never the enforcement. */
+	/** Asset metadata observed this session — every library page the
+	 *  builder's pickers load, every upload confirm, every file an attach
+	 *  is checked for, and every row the referenced-row reader
+	 *  (`components/builder/media/useReferencedAssetRows.ts`) fetches lands
+	 *  here, keyed by asset id. Advisory data by design: the commit kernel
+	 *  and the export boundary re-load fresh rows server-side, so a stale
+	 *  entry here can only mis-tune a courtesy check, never the
+	 *  enforcement. */
 	assetMeta: Record<string, AssetMetaRow>;
 
 	/** Merge observed asset rows into the registry. Idempotent — a batch
@@ -689,53 +689,6 @@ export interface BuilderSessionState {
 	/** Append a single event. Convenience wrapper over `pushEvents`. */
 	pushEvent: (event: Event) => void;
 
-	// ── Connect stash actions ────────────────────────────────────────────
-
-	/** Apply an app-level Connect configuration — ONE gated batch:
-	 *  `setConnectType` (when the mode changes) plus the per-form connect
-	 *  blocks needed to reach the requested state.
-	 *
-	 *  Passing a mode (`'learn'` or `'deliver'`) sets that mode and makes
-	 *  `desiredBlocks` the AUTHORITATIVE complete set of participating forms:
-	 *  a form present in the map participates with that config; a form absent
-	 *  has any existing block cleared and stays auxiliary. The store does NOT
-	 *  consult the stash to restore blocks — the Connect manager seeds its
-	 *  drafts from the live doc (current mode) and the stash (the other mode)
-	 *  and hands over the whole truth, so an edited block is never overwritten
-	 *  by a stale stash entry. Every incoming block is already a complete
-	 *  final `ConnectConfig`; app-wide identity conflicts are rejected by the
-	 *  same atomic admission gate as every other invalid batch. Switching AWAY from a
-	 *  non-null mode stashes that mode's live blocks first (the manager reads
-	 *  the stash to repopulate the inactive mode later).
-	 *
-	 *  Passing `null` disables Connect entirely (always valid — standard apps
-	 *  need no blocks; the outgoing mode is stashed so re-enabling restores
-	 *  the work). A non-null call must state the exact mode and complete
-	 *  participant set; the session never infers a document command from its
-	 *  UI-only `lastConnectType`.
-	 *
-	 *  The whole batch runs the shared commit verdict before anything
-	 *  dispatches — a state that would leave the app with NO participating
-	 *  form is rejected (findings returned in the outcome) and the doc +
-	 *  stash stay untouched. An apply that leaves the doc unchanged commits
-	 *  nothing. A pass commits as one undo entry. A rejection announces via
-	 *  the error toast unless the caller opts out with `announce: false`
-	 *  because it presents the outcome itself (the manager's footer) — one
-	 *  rejection, one presentation.
-	 *
-	 *  `request.lookupContext` is the Project's lookup-definition context the
-	 *  verdict runs under; `useSwitchConnectMode` binds the builder's live one
-	 *  after running the shared builder write admission. The gate is absolute,
-	 *  so on a doc that carries a lookup-backed select an unavailable context
-	 *  refuses every switch, which is why the store cannot default it. */
-	switchConnectMode: (request: ConnectSwitchRequest) => CommitOutcome;
-
-	/** Get a single form's stashed connect config (does not remove it). */
-	getFormConnectStash: (
-		mode: ConnectType,
-		formUuid: string,
-	) => ConnectConfig | undefined;
-
 	// ── Preview + sidebar actions ────────────────────────────────────────
 
 	/** Atomically enter/leave preview mode with sidebar stash/restore.
@@ -756,10 +709,17 @@ export interface BuilderSessionState {
 	 *  reach) and opens Android on its home screen. The caller navigates
 	 *  home. */
 	setPreviewPlatform: (platform: Platform) => void;
+	setPreviewAndroidAppInstalled: (
+		app: RequiredAndroidApp,
+		installed: boolean,
+	) => void;
+	setPreviewSearchRevision: (revision: string | undefined) => void;
 	/** Show or leave Android's home screen. */
 	setPreviewAtDeviceHome: (atHome: boolean) => void;
 	/** Record Sync with server's time. */
 	markPreviewDeviceSynced: (at: number) => void;
+	/** Record a committed submission of this run's device. */
+	notePreviewSubmission: (run: string, entryKey: string) => void;
 	clearEntryPointLaunch: () => void;
 	/** Choose which persona Preview runs as. `undefined` = the signed-in
 	 *  member. Changing identity mid-session drops the case target: the
@@ -792,7 +752,9 @@ export interface BuilderSessionState {
 
 	/** Home ends the running task, retaining worker identity and authorization,
 	 *  and starts a new one (`previewTaskId`). */
-	clearPreviewNavigation: () => void;
+	clearPreviewNavigation: (
+		homeSelections?: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	) => void;
 
 	/** Back or Forward past Home onto a history entry of an earlier task of
 	 *  this session, on Web Apps: the entry's case selections become the
@@ -950,6 +912,31 @@ export function newPreviewSessionId(): string {
 	return uuidv7();
 }
 
+function emptyPreviewFormRecords() {
+	return {
+		previewFormRecords: [],
+		previewResumedDraft: undefined,
+	};
+}
+
+function freshPreviewNavigation() {
+	return {
+		previewResumedDraft: undefined,
+		previewSubmissionLocation: undefined,
+		previewCaseTarget: undefined,
+		previewCaseListRegistrationEntry: undefined,
+		previewTaskContinuation: undefined,
+		previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+		previewEntryPointLaunch: undefined,
+		previewEntryPointVisit: false,
+		previewSelectedCase: undefined,
+		previewMenuCaseSelections: {},
+		previewSessionId: newPreviewSessionId(),
+		previewParentCaseRequest: undefined,
+		previewSearchStates: {},
+	};
+}
+
 /** Create a scoped Zustand session store. Called once per BuilderProvider
  *  mount — the parent provider's `buildId` controls the store lifetime.
  *
@@ -963,7 +950,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 	};
 	/* Non-reactive ref — lives outside Zustand state so it doesn't serialize
 	 * to devtools and doesn't fire subscribers on install/clear. Read
-	 * imperatively by `switchConnectMode`, `beginRun`, and `endRun`. */
+	 * imperatively by `beginRun` and `endRun`. */
 	let docStoreRef: BlueprintDocStore | null = null;
 
 	/* The platform Preview plays, derived over the document this store
@@ -1021,6 +1008,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewEntryPointLaunch: undefined as
 					| EntryPointPreviewLaunch
 					| undefined,
+				previewEntryPointVisit: false,
 				previewSelectedCase: undefined as PreviewSelectedCase | undefined,
 				previewMenuCaseSelections: {} as Readonly<
 					Record<string, PreviewMenuCaseSelection>
@@ -1032,11 +1020,20 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewSearchInputs: NO_SEARCH_INPUTS_GIVEN,
 				previewPersonaUuid: undefined as string | undefined,
 				previewPlatform: undefined as Platform | undefined,
+				previewInstalledAndroidApps: [] as RequiredAndroidApp[],
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
+				...emptyPreviewFormRecords(),
+				previewUnsyncedEntries: undefined as
+					| { readonly run: string; readonly keys: readonly string[] }
+					| undefined,
 				/* `uuid` rather than `crypto.randomUUID`, for the reason
 				 * `newPreviewSessionId` gives: the builder opened over plain
 				 * http on a LAN address would throw making this store. */
+				setPreviewSubmissionLocation: (previewSubmissionLocation) =>
+					set({ previewSubmissionLocation }),
+				setPreviewLocationFix: (previewLocationFix) =>
+					set({ previewLocationFix }),
 				previewAndroidDeviceId: uuidv4(),
 				previewSessionId: newPreviewSessionId(),
 				previewTaskId: newPreviewSessionId(),
@@ -1046,13 +1043,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					chat: { open: true, stashed: undefined },
 					structure: { open: true, stashed: undefined },
 				},
-
-				/* Connect stash */
-				connectStash: { learn: {}, deliver: {} } as Record<
-					ConnectType,
-					Record<string, ConnectConfig>
-				>,
-				lastConnectType: undefined as ConnectType | undefined,
 
 				/* Staged media uploads */
 				stagedUploads: {} as Record<string, StagedUpload>,
@@ -1157,11 +1147,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				setAppId(id: string) {
 					if (id === get().appId) return;
-					set({ appId: id });
+					set({ appId: id, ...emptyPreviewFormRecords() });
 				},
 
 				activateCreatedApp(id: string, snapshot: BuilderAccessSnapshot) {
 					set({
+						...emptyPreviewFormRecords(),
 						appId: id,
 						projectId: snapshot.projectId,
 						role: snapshot.role,
@@ -1238,14 +1229,18 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewTaskContinuation: undefined,
 										previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 										previewEntryPointLaunch: undefined,
+										previewEntryPointVisit: false,
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
 										previewSessionId: newPreviewSessionId(),
 										previewParentCaseRequest: undefined,
 										previewSearchStates: {},
+										previewSubmissionLocation: undefined,
+										previewLocationFix: undefined,
 										previewPersonaUuid: undefined,
 										previewPlatform: undefined,
 										previewAtDeviceHome: false,
+										...emptyPreviewFormRecords(),
 										previewDeviceSyncedAt: undefined,
 									}
 								: {}),
@@ -1260,6 +1255,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						projectCanEdit: false,
 						canEdit: false,
 						accessPhase: "revoked",
+						...emptyPreviewFormRecords(),
 					});
 				},
 
@@ -1270,6 +1266,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						projectCanEdit: false,
 						canEdit: false,
 						accessPhase: "upgradeRequired",
+						...emptyPreviewFormRecords(),
 					});
 				},
 
@@ -1278,173 +1275,27 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ loading });
 				},
 
-				// ── Connect stash actions ───────────────────────────────
-
-				switchConnectMode(request: ConnectSwitchRequest): CommitOutcome {
-					if (!docStoreRef) return { ok: false, messages: [] };
-					const { type, blocks: desiredBlocks } = request;
-					const announce = request.announce !== false;
-					const s = get();
-					const docState = docStoreRef.getState();
-
-					const currentType = (docState.connectType ?? undefined) as
-						| ConnectType
-						| undefined;
-					/* `desiredBlocks` is the AUTHORITATIVE complete set of
-					 * participating forms for `type`: a form present here
-					 * participates with this config, a form absent stays auxiliary.
-					 * The manager seeds these drafts from the live doc (current
-					 * mode) and the stash (the other mode), so the store no longer
-					 * restores from the stash itself — what the caller hands over
-					 * is the whole truth. */
-					const blocks = desiredBlocks ?? {};
-
-					const plan = planConnectTargetState(
-						docState,
-						type === null
-							? { mode: null }
-							: {
-									mode: type,
-									participants: Object.entries(blocks).map(
-										([formUuid, connect]) => ({
-											formUuid,
-											connect,
-										}),
-									),
-								},
-					);
-					if (!plan.ok) {
-						if (announce) notifyRejectedCommit([...plan.messages]);
-						return { ok: false, messages: [...plan.messages] };
-					}
-
-					/* Stash the OUTGOING mode's live blocks when the mode is
-					 * actually leaving a non-null type (a mode switch or a disable),
-					 * so the work survives for a later switch-back — the manager
-					 * reads this stash to seed the inactive mode's drafts. A
-					 * same-mode apply leaves the active configs on the doc, so it
-					 * stashes nothing. */
-					let nextStash = s.connectStash;
-					if (currentType && currentType !== type) {
-						const outgoing: Record<string, ConnectConfig> = {};
-						for (const moduleUuid of docState.moduleOrder) {
-							const formUuids = docState.formOrder[moduleUuid] ?? [];
-							for (const formUuid of formUuids) {
-								const form = docState.forms[formUuid];
-								if (form?.connect) {
-									outgoing[formUuid] = structuredClone(form.connect);
-								}
-							}
-						}
-						nextStash = { ...nextStash, [currentType]: outgoing };
-					}
-
-					/* Blocks dropped by a SAME-mode apply (a form the manager removed
-					 * from participation) — stashed below so removal stays reversible,
-					 * the same guarantee the per-form toggle gives. A mode switch /
-					 * disable already stashed its outgoing blocks wholesale above, so
-					 * this only collects the same-mode case. */
-					const droppedBlocks: Record<string, ConnectConfig> = {};
-					if (type && currentType === type) {
-						for (const moduleUuid of docState.moduleOrder) {
-							const formUuids = docState.formOrder[moduleUuid] ?? [];
-							for (const formUuid of formUuids) {
-								const current = docState.forms[formUuid]?.connect;
-								if (current !== undefined && blocks[formUuid] === undefined) {
-									droppedBlocks[formUuid] = structuredClone(current);
-								}
-							}
-						}
-					}
-
-					/* Fold any same-mode drops into the outgoing mode's stash so a
-					 * removed form is restorable — per-form-toggle parity. */
-					if (currentType && Object.keys(droppedBlocks).length > 0) {
-						nextStash = {
-							...nextStash,
-							[currentType]: { ...nextStash[currentType], ...droppedBlocks },
-						};
-					}
-
-					/* Nothing to do — the doc already matches the request. Return
-					 * success without committing so an unchanged apply is inert. */
-					if (plan.mutations.length === 0) return { ok: true };
-
-					/* A Connect app runs on Android only: Connect workers open it in
-					 * the Connect app on Android. Turning Connect on in an app that
-					 * runs in Web Apps sets it to Android only in the same batch, so
-					 * Connect and the declaration are one undo step. A switch
-					 * between Learn and Deliver adds nothing (the app already runs
-					 * on Android only), and turning Connect off never widens. */
-					const mutations: Mutation[] =
-						type !== null &&
-						currentType === undefined &&
-						declaresWebApps(docState)
-							? [
-									{
-										kind: "setAppSettings",
-										settings: { runsOnlyOn: "android" },
-									},
-									...plan.mutations,
-								]
-							: [...plan.mutations];
-
-					/* The shared commit verdict — the same gate every other write
-					 * surface runs. The pure planner has already rejected malformed
-					 * target-state input; this gate adjudicates the complete app
-					 * candidate. A refusal dispatches nothing, so the doc and the UI
-					 * stash stay exactly as they were. */
-					const verdict = mutationCommitVerdict(
-						docState,
-						mutations,
-						request.lookupContext,
-					);
-					if (!verdict.ok) {
-						// Concise builder copy for both the toast and the returned
-						// outcome (the manager footer reads it); the SA keeps the
-						// verbose `ValidationError.message`.
-						const lines = userFacingErrors(verdict.findings);
-						if (announce) notifyRejectedCommit(lines);
-						return { ok: false, messages: lines };
-					}
-					/* Commit the validated candidate (one reducer run, one undo
-					 * entry) with the batch that produced it — this is an author
-					 * edit, so it joins the command queue persistence sends. THEN
-					 * the stash, a pure state write that can't fail. */
-					docStoreRef.getState().commitDoc(verdict.nextDoc, verdict.mutations);
-					set({
-						connectStash: nextStash,
-						// "Last active connect type" = the mode now in effect, or the
-						// one just left when turning off. It is only a manager-default
-						// hint; every document command still states its mode exactly.
-						lastConnectType: type ?? currentType ?? s.lastConnectType,
-					});
-					return { ok: true };
-				},
-
-				getFormConnectStash(
-					mode: ConnectType,
-					formUuid: string,
-				): ConnectConfig | undefined {
-					return get().connectStash[mode]?.[formUuid];
-				},
-
 				installEntryPointLaunch(launch: EntryPointPreviewLaunch) {
 					const s = get();
 					set({
 						previewing: true,
 						previewPersonaUuid: launch.personaUuid,
+						...(launch.personaUuid === s.previewPersonaUuid
+							? { previewResumedDraft: undefined }
+							: emptyPreviewFormRecords()),
 						previewAtDeviceHome: false,
 						previewDeviceSyncedAt: previewRunsOnAndroid(s.previewPlatform)
 							? Date.now()
 							: s.previewDeviceSyncedAt,
 						previewEntryPointLaunch: launch,
+						previewEntryPointVisit: previewRunsOnAndroid(s.previewPlatform),
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewCaseTarget: launch.formTarget,
 						previewCaseListRegistrationEntry: undefined,
 						previewMenuCaseSelections: launch.menuSelections,
-						previewSessionId: newPreviewSessionId(),
+						previewSessionId:
+							launch.receiptRunTransition?.from ?? newPreviewSessionId(),
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
@@ -1486,6 +1337,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							previewTaskContinuation: undefined,
 							previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 							previewEntryPointLaunch: undefined,
+							previewEntryPointVisit: false,
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
 							previewSessionId: newPreviewSessionId(),
@@ -1514,6 +1366,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const structureStashed = s.sidebars.structure.stashed;
 					set({
 						previewing: false,
+						previewSubmissionLocation: undefined,
+						...emptyPreviewFormRecords(),
+						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						/* `previewPlatform` stays: a flip back in keeps the runtime
 						 * the author is checking. */
@@ -1524,6 +1379,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
+						previewEntryPointVisit: false,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewSessionId: newPreviewSessionId(),
@@ -1550,16 +1406,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const android = previewRunsOnAndroid(get().previewPlatform);
 					set({
 						previewPersonaUuid: personaUuid,
-						previewCaseTarget: undefined,
-						previewCaseListRegistrationEntry: undefined,
-						previewTaskContinuation: undefined,
-						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
-						previewEntryPointLaunch: undefined,
-						previewSelectedCase: undefined,
-						previewMenuCaseSelections: {},
-						previewSessionId: newPreviewSessionId(),
-						previewParentCaseRequest: undefined,
-						previewSearchStates: {},
+						...freshPreviewNavigation(),
+						...emptyPreviewFormRecords(),
 						/* The identity menu also navigates home; a new worker on a
 						 * phone starts from its home screen, freshly synced. */
 						previewAtDeviceHome: android,
@@ -1569,25 +1417,95 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				setPreviewAndroidAppInstalled(app, installed) {
+					set((state) => {
+						const apps = state.previewInstalledAndroidApps;
+						if (apps.includes(app) === installed) return state;
+						return {
+							previewInstalledAndroidApps: installed
+								? [...apps, app]
+								: apps.filter((item) => item !== app),
+						};
+					});
+				},
+
 				setPreviewPlatform(platform: Platform) {
 					/* The platform Preview will play, not the raw choice: a
 					 * choice the app does not declare derives away. */
 					const android = previewRunsOnAndroid(platform);
 					set({
 						previewPlatform: platform,
-						previewCaseTarget: undefined,
-						previewCaseListRegistrationEntry: undefined,
-						previewTaskContinuation: undefined,
-						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
-						previewEntryPointLaunch: undefined,
-						previewSelectedCase: undefined,
-						previewMenuCaseSelections: {},
-						previewSessionId: newPreviewSessionId(),
-						previewParentCaseRequest: undefined,
-						previewSearchStates: {},
+						...freshPreviewNavigation(),
 						previewAtDeviceHome: android,
 						previewDeviceSyncedAt: android ? Date.now() : undefined,
 					});
+				},
+
+				setPreviewSearchRevision(revision) {
+					const state = get();
+					if (state.previewSearchRevision === revision) return;
+					// Each transition owns a new session, including A → B → A. A
+					// restored history entry or late read cannot reuse the first A.
+					set({
+						previewSearchRevision: revision,
+						...(state.previewing && freshPreviewNavigation()),
+					});
+				},
+
+				savePreviewFormRecord(record, run) {
+					const state = get();
+					if (
+						!state.previewing ||
+						state.previewSessionId !== run ||
+						state.appId !== record.appId ||
+						!state.canEdit ||
+						state.accessPhase !== "authorized" ||
+						!previewRunsOnAndroid(state.previewPlatform)
+					)
+						return false;
+					set({
+						previewFormRecords: [
+							record,
+							...state.previewFormRecords.filter(
+								(item) => item.entryKey !== record.entryKey,
+							),
+						],
+					});
+					return true;
+				},
+
+				resumePreviewDraft(entryKey) {
+					const state = get();
+					const draft = state.previewFormRecords.find(
+						(item) => item.entryKey === entryKey,
+					);
+					if (
+						draft?.kind !== "incomplete" ||
+						state.appId !== draft.appId ||
+						!state.previewing ||
+						!state.previewAtDeviceHome ||
+						!state.canEdit ||
+						state.accessPhase !== "authorized" ||
+						!previewRunsOnAndroid(state.previewPlatform)
+					)
+						return undefined;
+					set({
+						previewResumedDraft: draft,
+						previewAtDeviceHome: false,
+						previewCaseTarget: draft.target,
+						previewMenuCaseSelections: draft.menuSelections,
+						previewSearchStates: draft.searchStates,
+						previewCaseListRegistrationEntry: draft.registration,
+					});
+					return draft;
+				},
+
+				removePreviewFormRecord(entryKey) {
+					set((state) => ({
+						previewFormRecords: state.previewFormRecords.filter(
+							(record) => record.entryKey !== entryKey,
+						),
+					}));
 				},
 
 				setPreviewAtDeviceHome(atHome: boolean) {
@@ -1607,11 +1525,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						atHome
 							? {
 									previewAtDeviceHome: true,
+									previewResumedDraft: undefined,
 									previewCaseTarget: undefined,
 									previewCaseListRegistrationEntry: undefined,
 									previewTaskContinuation: undefined,
 									previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 									previewEntryPointLaunch: undefined,
+									previewEntryPointVisit: false,
 									previewSelectedCase: undefined,
 									previewMenuCaseSelections: {},
 									previewSessionId: newPreviewSessionId(),
@@ -1623,7 +1543,20 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				markPreviewDeviceSynced(at: number) {
-					set({ previewDeviceSyncedAt: at });
+					set({ previewDeviceSyncedAt: at, previewUnsyncedEntries: undefined });
+				},
+
+				notePreviewSubmission(run: string, entryKey: string) {
+					const held = get().previewUnsyncedEntries;
+					const keys = held?.run === run ? held.keys : [];
+					if (keys.includes(entryKey)) return;
+					/* The newest are kept: an opening reads at most this many. */
+					set({
+						previewUnsyncedEntries: {
+							run,
+							keys: [...keys, entryKey].slice(-MAX_UNSYNCED_ENTRIES),
+						},
+					});
 				},
 
 				setActiveFieldId(fieldId: string | undefined) {
@@ -1638,7 +1571,22 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * is unchanged too. */
 					if (
 						current?.formUuid === target?.formUuid &&
+						current?.opening?.binding.evidence.signature ===
+							target?.opening?.binding.evidence.signature &&
 						previewCaseChoicesEqual(current?.cases, target?.cases) &&
+						previewCaseChoicesEqual(
+							current?.entryChoices,
+							target?.entryChoices,
+						) &&
+						(current?.entryChoices ?? []).every(
+							(row, index) =>
+								row.selectionUuid ===
+									target?.entryChoices?.[index]?.selectionUuid &&
+								stringRecordsEqual(
+									row.earlierValues,
+									target?.entryChoices?.[index]?.earlierValues,
+								),
+						) &&
 						current?.caseData === target?.caseData &&
 						current?.caseDatabase === target?.caseDatabase &&
 						current?.searchLaunch?.moduleUuid ===
@@ -1721,7 +1669,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ previewSelectedCase: selected });
 				},
 
-				clearPreviewNavigation() {
+				clearPreviewNavigation(homeSelections) {
 					const current = get();
 					/* Home leaves the path the last frame opened, so what was
 					 * pending would be dropped at the next completion anyway
@@ -1740,13 +1688,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * ended (`lib/routing/previewSelectionsHistory.ts`). */
 					set({
 						previewTaskId: newPreviewSessionId(),
+						previewResumedDraft: undefined,
 						previewCaseTarget: undefined,
 						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: afterSubmitStack,
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
-						previewMenuCaseSelections: {},
+						previewMenuCaseSelections: homeSelections ?? {},
 						previewSearchStates: {},
 					});
 				},
@@ -2153,17 +2102,21 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* Interaction */
 						previewing: false,
+						...emptyPreviewFormRecords(),
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
 						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
+						previewEntryPointVisit: false,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
+						previewSubmissionLocation: undefined,
+						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						previewPlatform: undefined,
 						previewAtDeviceHome: false,
@@ -2176,13 +2129,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							chat: { open: true, stashed: undefined },
 							structure: { open: true, stashed: undefined },
 						},
-
-						/* Connect stash */
-						connectStash: { learn: {}, deliver: {} } as Record<
-							ConnectType,
-							Record<string, ConnectConfig>
-						>,
-						lastConnectType: undefined as ConnectType | undefined,
 
 						/* Staged media uploads */
 						stagedUploads: {} as Record<string, StagedUpload>,

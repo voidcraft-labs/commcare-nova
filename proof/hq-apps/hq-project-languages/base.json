@@ -1,0 +1,19 @@
+{
+	"id": "hq-project-languages",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/langs-code-nova-s-language-registry-cannot-name",
+		"application-and-settings/langs-order-langs-0-default",
+		"questions/label-default-text-itext-value"
+	]
+}

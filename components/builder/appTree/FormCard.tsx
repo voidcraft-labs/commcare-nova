@@ -34,6 +34,7 @@ import { PeerBadge } from "@/components/builder/PeerBadge";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useFormHasConnectActivity } from "@/lib/doc/hooks/useConnectRoles";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
@@ -44,27 +45,28 @@ import { useIsFormSelected, useNavigate } from "@/lib/routing/hooks";
 
 export const FormCard = memo(function FormCard({
 	formId,
+	sourceMenuUuid,
 	moduleUuid,
 	onSelect,
 	delay,
 	collapsed,
 	toggle,
 	searchResult,
-	connectType,
 	locked,
 }: {
 	formId: Uuid;
+	sourceMenuUuid?: Uuid;
 	moduleUuid: Uuid;
 	onSelect: TreeSelectHandler;
 	delay: number;
 	collapsed: Set<Uuid>;
 	toggle: (key: Uuid) => void;
 	searchResult: SearchResult | null;
-	connectType?: string;
 	locked?: boolean;
 }) {
 	/** Subscribe to this form's entity from the doc store. */
 	const form = useFormDoc(formId);
+	const usesConnect = useFormHasConnectActivity(formId);
 	const caseListRegistration = useIsCaseListRegistrationForm(
 		moduleUuid,
 		formId,
@@ -81,15 +83,17 @@ export const FormCard = memo(function FormCard({
 
 	/** Boolean selection: URL-driven via useIsFormSelected.
 	 *  Only this form + the previously selected re-render on change. */
-	const isSelected = useIsFormSelected(formId);
+	const isSelected = useIsFormSelected(formId, moduleUuid);
 
-	const { removeForm } = useBlueprintMutations();
+	const { removeForm, setFormListed } = useBlueprintMutations();
 	const navigate = useNavigate();
 	// Removing the form (cascades its fields) is one gated, undoable batch; if
 	// it was the open form, fall back to its module so the URL stays valid.
 	// Returns whether the gate committed so the row can disarm on a refusal.
 	const handleDelete = () => {
-		const { ok } = removeForm(formId);
+		const { ok } = sourceMenuUuid
+			? setFormListed(moduleUuid, sourceMenuUuid, formId, false)
+			: removeForm(formId);
 		if (ok && isSelected) navigate.openModule(moduleUuid);
 		return ok;
 	};
@@ -183,7 +187,7 @@ export const FormCard = memo(function FormCard({
 								formName
 							)}
 						</span>
-						{form.connect && connectType && (
+						{usesConnect && (
 							<ConnectLogomark
 								size={11}
 								className="text-nova-violet-bright shrink-0"
@@ -206,7 +210,10 @@ export const FormCard = memo(function FormCard({
 					</div>
 				</div>
 				{!locked && (
-					<TreeRowDelete label="Delete form" onDelete={handleDelete} />
+					<TreeRowDelete
+						label={sourceMenuUuid ? "Hide form in this menu" : "Delete form"}
+						onDelete={handleDelete}
+					/>
 				)}
 				{/* Outermost on every row type: one constant right-edge offset
 				 *  (the hover-delete fades in just inboard). */}
@@ -227,6 +234,7 @@ export const FormCard = memo(function FormCard({
 									key={uuid}
 									uuid={uuid}
 									moduleUuid={moduleUuid}
+									sharedRouteUuid={sourceMenuUuid ? moduleUuid : null}
 									formUuid={formId}
 									onSelect={onSelect}
 									depth={0}

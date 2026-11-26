@@ -322,7 +322,7 @@ const stepSources = new Map();
 
 /** A step file's function, as a page expression. Names are "<folder>/<file>". */
 function stepSource(name) {
-	if (!/^[a-z]+\/[a-z_]+$/.test(name)) {
+	if (!/^[a-z]+\/[a-z][a-z_-]*$/.test(name)) {
 		throw new StepFailed(
 			"request",
 			`"${name}" is not a step file name; step files are named "<folder>/<file>" under ${STEPS_DIR}.`,
@@ -1834,7 +1834,7 @@ async function runVellum(message) {
 			if (!outcome.edit?.edited) {
 				throw new StepFailed(
 					"page",
-					`The run's edit of ${message.edit.path} did not take (${outcome.edit?.reason}), so the driver did not save the form.`,
+					`The run's ${message.edit.way} edit${message.edit.path ? ` of ${message.edit.path}` : ""} did not take (${outcome.edit?.reason}), so the driver did not save the form.`,
 				);
 			}
 		}
@@ -2097,6 +2097,33 @@ class PageRun {
 				return;
 			}
 		}
+		// The real address widget uses the provider's v5 forward-geocoding
+		// API. A named synthetic result answers only the matching browser
+		// request. The browser's external network stays fenced.
+		const geocoder = this.geocoderFixture;
+		if (
+			geocoder &&
+			request.method() === "GET" &&
+			url.origin === "https://api.mapbox.com" &&
+			url.pathname ===
+				`/geocoding/v5/mapbox.places/${encodeURIComponent(geocoder.query)}.json`
+		) {
+			entry.answeredBy = "geocoder-fixture";
+			entry.status = 200;
+			await route.fulfill({
+				status: 200,
+				headers: {
+					"access-control-allow-origin": ORIGIN,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					type: "FeatureCollection",
+					query: geocoder.query.toLowerCase().split(" "),
+					features: [geocoder.feature],
+				}),
+			});
+			return;
+		}
 		if (url.origin !== ORIGIN) {
 			entry.answeredBy = "refused";
 			await route.abort("blockedbyclient");
@@ -2344,6 +2371,8 @@ async function runSteps(page, run, steps) {
 			if (step.label !== undefined && step.recover === undefined) {
 				// A place a missed wait skips to; nothing to do.
 				outcome.label = step.label;
+			} else if (step.geocoderFixture !== undefined) {
+				run.geocoderFixture = step.geocoderFixture;
 			} else if (step.mark !== undefined) {
 				answeredAtMark = run.answered.length;
 				lastMissed = false;

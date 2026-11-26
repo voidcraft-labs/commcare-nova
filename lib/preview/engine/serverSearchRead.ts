@@ -1,3 +1,4 @@
+import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 // lib/preview/engine/serverSearchRead.ts
 //
 // A records screen's search and the read its Results run, for the server-side
@@ -7,6 +8,7 @@
 // window, so a paged Results read and a form's unpaged search-results read
 // (`searchResultsSnapshot.ts`) both come from here.
 
+import { searchOwnerOverride } from "@/lib/domain/modules";
 import "server-only";
 import type { RestoreScope } from "@/lib/case-store";
 import type { BlueprintDoc, CaseType, LanguageTag, Uuid } from "@/lib/domain";
@@ -16,14 +18,20 @@ import {
 	caseQueryReadingFor,
 	SEARCH_READING,
 } from "@/lib/domain/expression/temporalType";
+import { projectSearchOf } from "@/lib/domain/modules";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { caseListStep } from "../caseListPhase";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
 import { previewMenuCaseContext } from "../menuProjection";
 import { previewPlatformRules } from "../platform";
-import { projectWorkerModule } from "../workerModule";
+import {
+	projectWorkerModule,
+	type WorkerListPurpose,
+	workerListFor,
+} from "../workerModule";
 import type { readCases } from "./caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "./caseListOrder";
+import { completedSearchRequest } from "./completedSearchRequest";
 import { PreviewDataRefusal } from "./dataRefusal";
 import { caseListStepSession } from "./entrySessionData";
 import { evaluateSearch } from "./evaluateForm";
@@ -49,6 +57,7 @@ export interface ServerSearchWorld {
 	readonly doc: BlueprintDoc & { readonly caseTypes: readonly CaseType[] };
 	readonly language: LanguageTag;
 	readonly appId: string;
+	readonly projectId: string;
 	readonly identity: FormEvaluationContext["identity"];
 	/** The device the session runs on: its platform's search rules and
 	 *  session values (`previewDevice.ts`). */
@@ -64,6 +73,13 @@ export interface ServerSearchWorld {
 
 /** What the worker did on the records screen. */
 export interface ServerSearchRequest {
+	readonly completeForForm?: boolean;
+	readonly advancedListItem?: boolean;
+	readonly formEntry?: {
+		readonly chosenCaseIds: Readonly<Record<string, string>>;
+		readonly sessionData: Readonly<Record<string, string>>;
+		readonly under?: { caseId: string; caseType: string; identifier: string };
+	};
 	readonly moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
 	readonly submitted?: readonly { name: string; value: string }[];
@@ -72,6 +88,9 @@ export interface ServerSearchRequest {
 	readonly answers?: readonly { name: string; value: string }[];
 	/** The case a no-matches form registered, which Results then show alone. */
 	readonly registeredCaseId?: string;
+	/** The return frame ended on this search: Results show no row
+	 *  (`PreviewSearchState`'s `listsNoRow`). */
+	readonly listsNoRow?: true;
 }
 
 /**
@@ -115,24 +134,34 @@ export async function serverRecordsRead(
 	request: ServerSearchRequest,
 	refuse: (reason: "no-record-list" | "parent-required") => Error,
 ) {
-	const mod = projectWorkerModule(
+	const menu = projectWorkerModule(
 		world.doc,
 		world.language,
 		request.moduleUuid,
 	);
+	const listPurpose: WorkerListPurpose | undefined = request.formEntry
+		? "form-selection"
+		: request.advancedListItem
+			? "advanced-list-item"
+			: undefined;
+	const mod = workerListFor(menu, listPurpose);
 	if (!mod?.caseType) throw refuse("no-record-list");
 	const caseType = mod.caseType;
 	const search = await evaluateSearch(
 		world.doc,
 		{
 			moduleUuid: request.moduleUuid,
+			listPurpose,
+			registeredResult: request.registeredCaseId !== undefined,
 			language: world.language,
 			submitted: request.submitted,
 			entry: request.entry,
 			answers: request.answers,
+			completeForForm: request.completeForForm,
 		},
 		{
 			identity: world.identity,
+			session: { appId: world.appId, menuSelections: world.selections },
 			device: world.device,
 			cases: world.deviceCases,
 			lookup: world.lookup,
@@ -151,6 +180,7 @@ export async function serverRecordsRead(
 			workflow: search.workflow,
 			formsReadSearch: search.formsReadSearch,
 			searchRelevant: search.relevant,
+			searchReopened: request.entry?.cleared === true,
 			hasSubmitted: false,
 			rules,
 		}) !== "search";
@@ -159,7 +189,8 @@ export async function serverRecordsRead(
 		request.moduleUuid,
 		world.selections,
 	);
-	if (caseContext.requiredParentCase) throw refuse("parent-required");
+	if (!listPurpose && caseContext.requiredParentCase)
+		throw refuse("parent-required");
 	/* A completed or submitted search's Results read HQ's search population,
 	 * as the browser's do; a browse list reads the session's restore. */
 	const searched = recordsReadSearch(mod, {
@@ -168,6 +199,13 @@ export async function serverRecordsRead(
 		registeredCaseId: request.registeredCaseId,
 	});
 	const registeredCaseId = request.registeredCaseId;
+	if (
+		resultVisible &&
+		searched &&
+		registeredCaseId === undefined &&
+		projectSearchOf(mod)
+	)
+		throw new PreviewDataRefusal({ kind: "project-search" });
 	/* The session at the list's step: what a browse filter's chosen case and
 	 * a search's runtime values read. A search's rows reach the store folded
 	 * with what this session's device works out, as the browser's do. */
@@ -189,7 +227,7 @@ export async function serverRecordsRead(
 					caseListConfig: searchConfig,
 					answers: search.inputValues,
 					session,
-					sessionData: step.data,
+					sessionData: request.formEntry?.sessionData ?? step.data,
 					caseDatabase: world.deviceCases,
 					lookup,
 				})
@@ -218,7 +256,13 @@ export async function serverRecordsRead(
 		refusal === undefined;
 	/* The assigned-case exclusion is the Results read's rule: its refusal
 	 * stops the list where Preview's Results read stops, and is the list's. */
-	if (readsResults && search.exclusionRefusal !== undefined)
+	const inheritedOwnerRule =
+		!searched || searchOwnerOverride(mod.caseListConfig) === undefined;
+	if (
+		readsResults &&
+		inheritedOwnerRule &&
+		search.exclusionRefusal !== undefined
+	)
 		throw new SurfacedDataRefusal(
 			new PreviewDataRefusal(search.exclusionRefusal),
 			"list",
@@ -231,7 +275,11 @@ export async function serverRecordsRead(
 					caseType,
 					reading: searchedReading(searched),
 					tileGrouping: rules.tileGrouping,
-					caseIds: registeredCaseId ? [registeredCaseId] : undefined,
+					caseIds: registeredCaseId
+						? request.listsNoRow === true
+							? []
+							: [registeredCaseId]
+						: undefined,
 					caseTypeSchemas: world.caseTypeSchemas,
 					caseListConfig: mod.caseListConfig,
 					...(mod.caseListConfig !== undefined && {
@@ -242,11 +290,21 @@ export async function serverRecordsRead(
 							world.language,
 						),
 					}),
-					parentCase: parentCaseConstraint(
-						world.doc,
-						request.moduleUuid,
-						caseContext.parentCase,
-					),
+					parentCase: request.formEntry
+						? request.formEntry.under
+							? {
+									caseType: request.formEntry.under.caseType,
+									caseIds: [request.formEntry.under.caseId],
+									index: request.formEntry.under.identifier,
+								}
+							: undefined
+						: request.advancedListItem
+							? undefined
+							: parentCaseConstraint(
+									world.doc,
+									request.moduleUuid,
+									caseContext.parentCase,
+								),
 					inputValues: registeredCaseId ? undefined : search.inputValues,
 					...(searchCsql !== undefined && { searchCsql }),
 					bindings: {
@@ -257,20 +315,39 @@ export async function serverRecordsRead(
 							search.expressionValues,
 							world.timeZone,
 						),
-						chosenCaseIds: step.chosenCaseIds,
+						chosenCaseIds:
+							request.formEntry?.chosenCaseIds ?? step.chosenCaseIds,
 					},
-					lookupTableSchemas: new Map(
-						world.lookup.definitions.map((table) => [
-							table.id,
-							new Map(
-								table.columns.map((column) => [column.id, column.dataType]),
-							),
-						]),
+					lookupTableSchemas: workerLookupSchemas(
+						world.projectId,
+						world.lookup,
 					),
-					excludedOwnerIds: search.excludedOwnerIds,
-					authoredExcludedOwnerIds: search.authoredExcludedOwnerIds,
+					excludedOwnerIds: inheritedOwnerRule
+						? search.excludedOwnerIds
+						: undefined,
+					authoredExcludedOwnerIds: inheritedOwnerRule
+						? search.authoredExcludedOwnerIds
+						: undefined,
 					...(searched
-						? { searchPopulation: { heldBy: world.restoreScope } }
+						? {
+								searchPopulation: {
+									heldBy: world.restoreScope,
+									...(registeredCaseId === undefined && {
+										request: completedSearchRequest(
+											mod,
+											search.inputValues,
+											wire?.filterValues,
+											world.device.searchConfiguration,
+											{
+												doc: world.doc,
+												caseType,
+												moduleUuid: request.moduleUuid,
+											},
+											search.defaultSearch,
+										),
+									}),
+								},
+							}
 						: { restoreScope: world.restoreScope }),
 				};
 	return { search, searched, read, refusal };
@@ -284,8 +361,13 @@ export async function serverRecordsRead(
 export async function serverSearchResults(
 	store: Parameters<typeof readSearchResultsSnapshot>[0],
 	read: Awaited<ReturnType<typeof serverRecordsRead>>["read"],
+	readsHitScore = false,
 ): Promise<SearchResultsSnapshot | undefined> {
 	if (read?.searchPopulation === undefined) return undefined;
 	const { restoreScope: _restore, searchPopulation, ...rest } = read;
-	return readSearchResultsSnapshot(store, { ...rest, searchPopulation });
+	return readSearchResultsSnapshot(
+		store,
+		{ ...rest, searchPopulation },
+		readsHitScore,
+	);
 }

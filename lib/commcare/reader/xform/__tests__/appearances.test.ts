@@ -10,6 +10,8 @@
 
 import { Element } from "domhandler";
 import { describe, expect, it } from "vitest";
+import { writeFieldAppearance } from "@/lib/commcare/xform/appearance";
+import type { FieldKind } from "@/lib/domain";
 import {
 	type AppearanceForm,
 	appearanceFacts,
@@ -23,6 +25,7 @@ import {
 	formFindings,
 	readFields,
 	readForm,
+	unrecognizedAt,
 	xformSource,
 } from "./formReading";
 
@@ -116,15 +119,21 @@ describe("classifyAppearance", () => {
 		expect(verdict(text, "xsd:string", "1x2-per-row")).toBe(
 			Q("any-other-per-row-token-the-first-token-web-apps-per-row-pattern"),
 		);
-		expect(verdict(text, "xsd:string", "2-per-row receive-a-b")).toBe(
-			Q(
-				"a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
-			),
+		const starts = Q(
+			"a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
 		);
-		expect(verdict(select1, "xsd:string", "2-per-row compact")).toBe(
-			Q(
-				"a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
-			),
+		expect(verdict(text, "xsd:string", "2receive3-per-row")).toBe(starts);
+		expect(verdict(image, "binary", "2broadcast-a3-per-row")).toBe(starts);
+		expect(verdict(select1, "xsd:string", "2compact3-per-row")).toBe(starts);
+		// A token already spelled `<k>-per-row` drops nothing, so the other
+		// words are their own rows': the string reads as its tokens.
+		const multi = Q(
+			"multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
+		);
+		expect(verdict(text, "xsd:string", "2-per-row receive-a-b")).toBe(multi);
+		expect(verdict(select1, "xsd:string", "2-per-row compact")).toBe(multi);
+		expect(verdict(select1, "xsd:string", "2-per-row")).toBe(
+			Q("n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one"),
 		);
 	});
 
@@ -145,9 +154,7 @@ describe("classifyAppearance", () => {
 
 	it("reads an intent value against the form's intents and callout questions", () => {
 		const intents = { intents: new Set(["scan"]), callouts: new Set(["scan"]) };
-		expect(verdict(text, "xsd:string", "intent:scan", intents)).toBe(
-			Q("intent-id-on-any-input-other-than-an-intent-typed-one-where-id"),
-		);
+		expect(verdict(text, "xsd:string", "intent:scan", intents)).toBe("held");
 		expect(
 			verdict(text, "xsd:string", "intent:scan", {
 				intents: new Set(["scan"]),
@@ -204,32 +211,39 @@ describe("classifyAppearance", () => {
 });
 
 describe("a trigger's appearance, read through the form's stages", () => {
-	it("reads a label only where Android's widget draws no acknowledge", async () => {
+	it("holds the checkbox answer independently of a trigger's display tokens", async () => {
 		const reading = await readForm(
 			xformSource({
-				data: "<list/><foo/><copy/><banner/>",
-				body: '<trigger ref="/data/list" appearance="field-list"/><trigger ref="/data/foo" appearance="foo"/><trigger ref="/data/copy" appearance="selectable"/><trigger ref="/data/banner" appearance="floating-good"/>',
+				data: "<list/><foo/><copy/><banner/><aligned/>",
+				body: '<trigger ref="/data/list" appearance="field-list"/><trigger ref="/data/foo" appearance="foo"/><trigger ref="/data/copy" appearance="selectable"/><trigger ref="/data/banner" appearance="floating-good"/><trigger ref="/data/aligned" appearance="text-align-center"/>',
 			}),
 		);
 		const fields = readFields(reading.xform ?? ({} as never));
 		expect(
 			fields.map((field) => [field.id, field.kind, field.standIn]),
 		).toEqual([
-			["list", "hidden", true],
-			["foo", "hidden", true],
+			["list", "label", false],
+			["foo", "label", false],
 			["copy", "label", false],
 			["banner", "label", false],
+			["aligned", "label", false],
 		]);
-		const acknowledge = Q(
-			"acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
-		);
-		expect(codesAt(reading, "list")).toEqual([acknowledge]);
-		expect(codesAt(reading, "foo")).toEqual([acknowledge]);
-		expect(codesAt(reading, "copy")).toEqual([Q("trigger-selectable")]);
-		expect(codesAt(reading, "banner")).toEqual([
-			Q("floating-good-floating-caution-floating-bad"),
+		expect(fields.slice(0, 2).map((field) => field.field)).toEqual([
+			expect.objectContaining({ askForConfirmation: true }),
+			expect.objectContaining({ askForConfirmation: true }),
 		]);
-		expect(reading.xform?.inertAppearances).toEqual([]);
+		expect(codesAt(reading, "list")).toEqual([]);
+		expect(codesAt(reading, "foo")).toEqual([]);
+		expect(codesAt(reading, "copy")).toEqual([]);
+		expect(fields[2].field.selectableText).toBe(true);
+		expect(codesAt(reading, "banner")).toEqual([]);
+		expect(fields[3].field.banner).toBe("good");
+		expect(codesAt(reading, "aligned")).toEqual([]);
+		expect(fields[4].field).toMatchObject({
+			askForConfirmation: true,
+			textAlignment: "center",
+		});
+		expect(reading.xform?.inertAppearances).toEqual(["list", "foo"]);
 	});
 });
 
@@ -245,7 +259,7 @@ describe("the head's odkx:intent an input names", () => {
 			}),
 		);
 		expect(codesAt(reading, "scan")).toEqual([
-			Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+			Q("android-app-callout-that-cannot-be-recreated"),
 		]);
 		expect(codesAt(reading, "other")).toEqual([
 			Q("intent-id-naming-an-odkx-intent-that-no-callout-question-writes"),
@@ -269,7 +283,11 @@ describe("the inert appearances of a form", () => {
 			}),
 		);
 		expect(reading.xform?.inertAppearances).toEqual(["g", "c"]);
-		expect(codesAt(reading, "b")).toEqual([Q("select1-minimal")]);
+		expect(codesAt(reading, "b")).toEqual([]);
+		expect(
+			(reading.xform ? readFields(reading.xform) : []).find((f) => f.id === "b")
+				?.field.choiceLayout,
+		).toEqual({ kind: "dropdown" });
 		expect(codesAt(reading, "g")).toEqual([]);
 		expect(codesAt(reading, "c")).toEqual([]);
 	});
@@ -305,5 +323,152 @@ describe("an appearance a runtime reads that no row names", () => {
 				)
 				.map((finding) => finding.detail.name),
 		).toEqual(["full"]);
+	});
+});
+
+/* Core opens a group screen only for the whole appearance `field-list`
+ * (`FormEntryController.getQuestionPrompts`); Android reads `compact` only as
+ * each widget's layout (`FormController.indexIsInCompact`). So a compact
+ * group pages its questions and a worker still adds a repeat's entries. */
+describe("a compact group", () => {
+	const grouped = (appearance: string) =>
+		readForm(
+			xformSource({
+				data: '<g><n><a/></n><r jr:template=""><q/></r></g>',
+				model:
+					'<bind nodeset="/data/g/n/a" type="xsd:string"/><bind nodeset="/data/g/r/q" type="xsd:string"/>',
+				body: `<group ref="/data/g" appearance="${appearance}"><label>G</label><group ref="/data/g/n"><label>N</label><input ref="/data/g/n/a"><label>A</label></input></group><group><repeat nodeset="/data/g/r"><input ref="/data/g/r/q"><label>Q</label></input></repeat></group></group>`,
+			}),
+		);
+	/** The question-list entries the reading claimed anything under. */
+	const questionList = (reading: Awaited<ReturnType<typeof grouped>>) =>
+		Object.keys(reading.closed.claims.counts).filter((entry) =>
+			entry.includes("question-list"),
+		);
+
+	it("takes its setting and leaves a user repeat and a nested group as they are", async () => {
+		const reading = await grouped("compact");
+		expect(
+			(reading.xform ? readFields(reading.xform) : []).find((f) => f.id === "g")
+				?.field.compact,
+		).toBe(true);
+		expect(questionList(reading)).toEqual([]);
+		expect(formFindings(reading)).toEqual([]);
+	});
+
+	it("differs from a field-list group, which refuses the repeat and holds the nested group", async () => {
+		const reading = await grouped("field-list");
+		expect(questionList(reading)).toContain(
+			Q("groups-nested-in-a-question-list"),
+		);
+		expect(formFindings(reading).map((finding) => finding.code)).toEqual([
+			Q("user-controlled-repeat-inside-a-question-list-a-group-whose"),
+		]);
+	});
+});
+
+/* The writer joins a row count with the control's other display words. The
+ * reader must take back exactly what the writer wrote, or a publish could not
+ * be brought back in once someone saves in CommCare HQ. */
+describe("a row count beside the control's other display words", () => {
+	const item = "<item><label>A</label><value>a</value></item>";
+	const controls: Partial<
+		Record<
+			FieldKind,
+			{ readonly type: string; readonly body: (appearance: string) => string }
+		>
+	> = {
+		text: {
+			type: "xsd:string",
+			body: (a) =>
+				`<input ref="/data/q" appearance="${a}"><label>Q</label></input>`,
+		},
+		barcode: {
+			type: "barcode",
+			body: (a) =>
+				`<input ref="/data/q" appearance="${a}"><label>Q</label></input>`,
+		},
+		date: {
+			type: "xsd:date",
+			body: (a) =>
+				`<input ref="/data/q" appearance="${a}"><label>Q</label></input>`,
+		},
+		single_select: {
+			type: "xsd:string",
+			body: (a) =>
+				`<select1 ref="/data/q" appearance="${a}"><label>Q</label>${item}</select1>`,
+		},
+		image: {
+			type: "binary",
+			body: (a) =>
+				`<upload ref="/data/q" mediatype="image/*" appearance="${a}"><label>Q</label></upload>`,
+		},
+		audio: {
+			type: "binary",
+			body: (a) =>
+				`<upload ref="/data/q" mediatype="audio/*" appearance="${a}"><label>Q</label></upload>`,
+		},
+	};
+	it.each<[FieldKind, Record<string, unknown>]>([
+		["text", { receiveFrom: { channel: "a", field: "city" } }],
+		["image", { sendTopics: ["home"] }],
+		["single_select", { choiceLayout: { kind: "grid" } }],
+		["single_select", { choiceLayout: { kind: "search" } }],
+		["date", { calendar: "gregorian" }],
+		["audio", { recorder: "legacy" }],
+		["image", { overlaySize: "small" }],
+		["image", { captureSource: "camera" }],
+		["barcode", { canEditScan: true }],
+	])("reads %s %j with two per row back as written", async (kind, extra) => {
+		const settings = { ...extra, itemsPerRow: "2" };
+		const appearance = writeFieldAppearance(kind, settings);
+		const control = controls[kind];
+		if (appearance === undefined || control === undefined)
+			throw new Error(`No appearance for ${kind}.`);
+		expect(appearance).toContain("2-per-row");
+		const reading = await readForm(
+			xformSource({
+				data: "<q/>",
+				model: `<bind nodeset="/data/q" type="${control.type}"/>`,
+				body: control.body(appearance),
+			}),
+		);
+		expect(codesAt(reading, "q")).toEqual([]);
+		expect(
+			(reading.xform ? readFields(reading.xform) : []).find((f) => f.id === "q")
+				?.field,
+		).toMatchObject(settings);
+	});
+});
+
+describe("a lone broadcast on a question no address search sends from", () => {
+	it.each([
+		["text", "xsd:string"],
+		["barcode", "barcode"],
+	])("stands unrecognized on %s rather than vanish", async (_kind, type) => {
+		const reading = await readForm(
+			xformSource({
+				data: "<q/>",
+				model: `<bind nodeset="/data/q" type="${type}"/>`,
+				body: '<input ref="/data/q" appearance="broadcast-home"><label>Q</label></input>',
+			}),
+		);
+		expect(unrecognizedAt(reading, "q")).toEqual(["broadcast-home"]);
+		expect(reading.xform?.inertAppearances ?? []).not.toContain("q");
+	});
+
+	it("is still taken beside address search", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<q/>",
+				model: '<bind nodeset="/data/q" type="xsd:string"/>',
+				body: '<input ref="/data/q" appearance="address broadcast-home"><label>Q</label></input>',
+			}),
+		);
+		expect(codesAt(reading, "q")).toEqual([]);
+		expect(
+			(reading.xform ? readFields(reading.xform) : []).find((f) => f.id === "q")
+				?.field,
+		).toMatchObject({ addressLookup: true, sendTopics: ["home"] });
 	});
 });

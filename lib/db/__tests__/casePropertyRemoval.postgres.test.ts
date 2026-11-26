@@ -7,6 +7,9 @@ import {
 	withSchemaContext,
 } from "@/lib/case-store";
 import type { Database } from "@/lib/case-store/sql/database";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import type { Mutation } from "@/lib/doc/types";
 import { commitGuardedBatchProposal } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -98,10 +101,76 @@ async function fixture(withWriter = false) {
 				properties,
 			},
 		});
-	return { appId, db, remove, insert };
+	return { appId, db, doc, remove, insert };
 }
 
 describe("unused property removal at the canonical transaction", () => {
+	it("restores a recreated property's position across persisted history without moving case values", async () => {
+		const x = await fixture();
+		await x.insert({ keep: "Original value" });
+		await x.remove();
+		const restored = {
+			kind: "addCaseProperty",
+			caseType: "item",
+			property: {
+				name: "unused",
+				label: { parts: [{ kind: "text", text: "New description" }] },
+				data_type: "text",
+			},
+		} satisfies Mutation;
+		const moved = {
+			kind: "moveCaseProperty",
+			caseType: "item",
+			property: "unused",
+			after: "date_opened",
+		} satisfies Mutation;
+		async function commit(mutation: Mutation) {
+			return commitGuardedBatchProposal({
+				appId: x.appId,
+				expectedProjectId: PROJECT,
+				actorUserId: OWNER,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				mutations: [mutation],
+			});
+		}
+		const reborn = await commit(restored);
+		expect(
+			reborn.committedDoc.caseTypes?.[0]?.properties.map(({ name }) => name),
+		).toEqual(["case_name", "date_opened", "keep", "unused"]);
+		const persisted = await commit(moved);
+		expect(
+			persisted.committedDoc.caseTypes?.[0]?.properties.map(({ name }) => name),
+		).toEqual(["case_name", "date_opened", "unused", "keep"]);
+		const changes = await h
+			.db()
+			.selectFrom("app_changes")
+			.select(["seq", "mutations"])
+			.where("app_id", "=", x.appId)
+			.orderBy("seq")
+			.execute();
+		expect(changes.map(({ seq }) => seq)).toEqual(["1", "2", "3"]);
+		expect(changes[2]?.mutations).toEqual([moved]);
+		let replay = x.doc;
+		for (const { mutations } of changes)
+			replay = prepareMutationCandidate(
+				replay,
+				admitMutationBatch(mutations),
+			).nextDoc;
+		expect(replay.fields).toEqual(x.doc.fields);
+		expect(replay.caseTypes).toEqual(persisted.committedDoc.caseTypes);
+		expect((await h.readAppRow(x.appId))?.case_types).toEqual(replay.caseTypes);
+		expect(
+			await x.db
+				.selectFrom("cases")
+				.select(["case_id", "properties"])
+				.where("app_id", "=", x.appId)
+				.execute(),
+		).toEqual([
+			{ case_id: "item-one", properties: { keep: "Original value" } },
+		]);
+	});
+
 	it("removes an empty definition and its storage contract while preserving other saved values", async () => {
 		const x = await fixture();
 		await x.insert({ keep: "Collected value" });

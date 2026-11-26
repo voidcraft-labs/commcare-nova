@@ -52,6 +52,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
+import { searchConditionOf } from "@/lib/domain/searchConditions";
 import { type ValidationError, validationError } from "../../errors";
 
 interface WhitespaceMatch {
@@ -68,7 +69,7 @@ export function matchModeWhitespaceInValue(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 
-	const filter = mod.caseListConfig?.filter;
+	const filter = searchConditionOf(mod.caseListConfig);
 	if (filter !== undefined) {
 		for (const match of collectMatches(filter)) {
 			errors.push(
@@ -76,7 +77,10 @@ export function matchModeWhitespaceInValue(
 					mod,
 					moduleUuid,
 					match,
-					slot: "caseListConfig.filter",
+					slot:
+						mod.caseListConfig?.searchCondition === undefined
+							? "caseListConfig.filter"
+							: "caseListConfig.searchCondition",
 					adviceSlotName: "the case list's always-on filter card",
 				}),
 			);

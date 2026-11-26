@@ -288,7 +288,8 @@ test("native publish consent expires when the dialog closes or its destination c
 	)
 		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
-	expect(sent).toHaveLength(2);
+	// The click resolves before the route sees the request.
+	await expect.poll(() => sent.length).toBe(2);
 	expect(sent[1]).toMatchObject({ adopt_resources: [] });
 	await page.getByRole("checkbox", { name: "Clinics (clinics)" }).check();
 	await choose(page, "Publish option", "CommCare HQ app file");
@@ -300,6 +301,7 @@ test("native publish consent expires when the dialog closes or its destination c
 	)
 		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect.poll(() => sent.length).toBe(3);
 	expect(sent[2]).toMatchObject({ adopt_resources: [] });
 });
 test("native publish lists what changed in CommCare HQ, publishes over each ticked change as it was shown, and lands with the App Preview line", async ({
@@ -3382,6 +3384,7 @@ test("a change made in CommCare HQ to the app that Nova can bring in shows the c
 						observedDigest: "digest-app",
 						renamedInNova: [],
 						tables: [],
+						ownerRules: [],
 						readingId: "01928c3e-5b7a-7cde-8f01-23456789abcd",
 						reviewDigest: "review-digest",
 					},
@@ -3429,6 +3432,84 @@ test("a change made in CommCare HQ to the app that Nova can bring in shows the c
 	} finally {
 		answer.resolve();
 	}
+});
+
+test("menu layouts CommCare HQ holds that a publish replaces are listed with their tick where Nova can bring in changes, and the tick publishes over them", async ({
+	page,
+}) => {
+	const layoutLine =
+		"The first menu shows a grid in CommCare HQ, and a list after publishing";
+	const layoutNote =
+		"Nova now publishes menu layouts. You can keep these choices by matching them in App settings and in each menu's settings, or publish over them.";
+	const sent: Record<string, unknown>[] = [];
+	const reviews: unknown[] = [];
+	const layouts = {
+		...appChanged,
+		refusal: {
+			...appChanged.refusal,
+			remoteChanges: appChanged.refusal.remoteChanges.map((change) => ({
+				...change,
+				parts: [layoutLine],
+				note: layoutNote,
+				replacesMenuLayouts: true,
+				canBringIn: true,
+			})),
+		},
+	} satisfies PublishResponseBody;
+	const landed = {
+		success: true,
+		hq_app_action: "updated",
+		app_preview_note: APP_PREVIEW_NOTE,
+		url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+		warnings: [],
+		deployment: null,
+		preview_project_space: "alpha",
+	} satisfies PublishResponseBody;
+	await page.route("**/api/commcare/upload", (route) => {
+		sent.push(route.request().postDataJSON());
+		return route.fulfill({ json: sent.length === 1 ? layouts : landed });
+	});
+	/* The review compares HQ's reading with the last one, which hold the
+	 * same layouts: it has nothing to show. */
+	await page.route("**/api/commcare/changes/review", (route) => {
+		reviews.push(route.request().postDataJSON());
+		return route.fulfill({
+			status: 200,
+			contentType: "application/x-ndjson",
+			body: `${JSON.stringify({
+				type: "done",
+				answer: {
+					kind: "nothing",
+					since: { kind: "published" },
+					publishChanges: [],
+				},
+			})}\n`,
+		});
+	});
+	await open(page, "role=admin");
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(page.getByText(layoutLine, { exact: true })).toBeVisible();
+	await expect(page.getByText(layoutNote, { exact: true })).toBeVisible();
+	const tick = page.getByRole("checkbox", {
+		name: "Publish over this Clinic visits",
+	});
+	await expect(tick).toBeVisible();
+	/* Nothing publishes again until the person answers the layouts. */
+	expect(sent).toHaveLength(1);
+	await tick.check();
+	await page
+		.getByRole("button", { name: "Publish over these changes", exact: true })
+		.click();
+	await expect(page.getByText(APP_PREVIEW_NOTE, { exact: true })).toBeVisible();
+	expect(sent).toHaveLength(2);
+	expect(sent[1]?.discard_remote_changes).toEqual([
+		{
+			kind: "app",
+			novaResourceId: "native-publishing",
+			observedDigest: "digest-app",
+		},
+	]);
+	expect(reviews).toEqual([]);
 });
 
 test("publishing a brought-in app to a second project space says it makes a new app there", async ({
@@ -3517,4 +3598,79 @@ test("Check connection reads the connection route alone, says so when it can't, 
 	).toHaveCount(0);
 	expect(answers).toBe(2);
 	expect(navigations).toEqual([]);
+});
+
+test("offers named Android downloads only for eligible apps and targets, keeping the exact empty-named selection through the request", async ({
+	page,
+}) => {
+	const picker = page.getByRole("combobox", { name: "Installation profile" });
+	await open(page, "installations=true&webOnly=true", false);
+	await expect(picker).toHaveCount(0);
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(picker).toHaveCount(0);
+	await open(page, "installations=true", false);
+	await page.route("**/publishing/download-targets", (route) =>
+		route.fulfill({
+			json: {
+				success: true,
+				data: { targets: [], heldFromHq: [], webAppsOnly: false },
+			},
+		}),
+	);
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(
+		page.getByText(/Once the app is published, you can download the CCZ/),
+	).toBeVisible();
+	await expect(picker).toHaveCount(0);
+	await open(page, "installations=true", false);
+	await expect(picker).toHaveCount(0);
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(picker).toBeVisible();
+	await picker.click();
+	await expect(
+		page.getByRole("option", {
+			name: "Profile 3 · Team (English)",
+			exact: true,
+		}),
+	).toBeVisible();
+	await page
+		.getByRole("option", {
+			name: "Profile 1 · Unnamed profile (English)",
+			exact: true,
+		})
+		.click();
+	await expect(picker).toHaveText("Profile 1 · Unnamed profile (English)");
+	await reviewDestination(page);
+	await expect(
+		page.getByText(
+			"Installation profile: Profile 1 · Unnamed profile (English)",
+			{ exact: true },
+		),
+	).toBeVisible();
+	const reached = Promise.withResolvers<string>(),
+		finish = Promise.withResolvers<void>();
+	await page.route("**/publishing/download/ccz?*", async (route) => {
+		reached.resolve(
+			new URL(route.request().url()).searchParams.get("profile") ?? "",
+		);
+		await finish.promise;
+		await route.fulfill({ json: { ok: true } });
+	});
+	try {
+		await page
+			.getByRole("button", { name: "Download CCZ", exact: true })
+			.click();
+		expect(await reached.promise).toBe("0199a000-0000-7000-8000-00000000a000");
+		await expect(picker).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Back", exact: true }),
+		).toBeDisabled();
+	} finally {
+		finish.resolve();
+	}
+	await expect(
+		page.getByText("Mobile app file downloaded", { exact: true }),
+	).toBeVisible();
 });

@@ -34,6 +34,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { CaseOperation } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import {
 	advancedFixture,
 	OP,
@@ -67,6 +68,18 @@ async function readEdited(doc: Doc, edits: ExportEdits): Promise<ReadOutcome> {
 			knownCaseTypes: knownCaseTypesOf(doc),
 		}),
 	);
+}
+
+function entryRows(outcome: ReadOutcome) {
+	expect(outcome.defects).toEqual([]);
+	expect(account(outcome)).toEqual({ findings: [], defects: 0 });
+	if (outcome.kind !== "read") throw new Error("Expected the form to be read");
+	const doc = outcome.draft.doc;
+	const form = Object.values(doc.forms).find(
+		(item) => item.name === "Under test",
+	);
+	if (!form) throw new Error("Expected the form under test");
+	return formCaseSelections(doc, form.uuid);
 }
 
 /** Each finding as its entry and its place, and each reader defect. */
@@ -201,7 +214,7 @@ describe("a load the reading refuses", () => {
 		});
 	});
 
-	it("covers an index to an auto-selected load it refuses, which HQ's page offers on any later load", async () => {
+	it("filters the next record list by the worker-data selection", async () => {
 		const { doc } = memberFollowup();
 		const outcome = await readEdited(doc, {
 			modules: (modules) => {
@@ -217,13 +230,18 @@ describe("a load the reading refuses", () => {
 				return modules;
 			},
 		});
-		expect(account(outcome)).toEqual({
-			findings: [`${F}/auto-select-mode-user @form`],
-			defects: 0,
+		const [workerValue, chosen] = entryRows(outcome);
+		expect(workerValue?.source).toEqual({
+			kind: "worker-data",
+			property: { kind: "session-user", field: "household_id" },
+		});
+		expect(chosen?.source).toMatchObject({
+			kind: "choose",
+			under: { selection: workerValue?.uuid },
 		});
 	});
 
-	it("covers the chain it breaks where it leaves an earlier load of another case type last", async () => {
+	it("keeps a named connection to an earlier record as the next supply", async () => {
 		const { doc } = memberFollowup();
 		const outcome = await readEdited(doc, {
 			modules: (modules) => {
@@ -246,9 +264,12 @@ describe("a load the reading refuses", () => {
 				return modules;
 			},
 		});
-		expect(account(outcome)).toEqual({
-			findings: [`${F}/auto-select-mode-case-index-of-an-earlier-load @form`],
-			defects: 0,
+		const [chosen, linked] = entryRows(outcome);
+		expect(chosen?.source.kind).toBe("choose");
+		expect(linked?.source).toEqual({
+			kind: "index",
+			selection: chosen?.uuid,
+			identifier: "head",
 		});
 	});
 
@@ -285,15 +306,15 @@ describe("a load the reading refuses", () => {
 				return modules;
 			},
 		});
-		expect(account(outcome)).toEqual({
-			findings: [
-				`${F}/an-index-on-the-first-chosen-load-naming-the-worker-s-record-loaded-before-it @form`,
-			],
-			defects: 0,
+		const [worker, chosen] = entryRows(outcome);
+		expect(worker?.source.kind).toBe("worker-record");
+		expect(chosen?.source).toMatchObject({
+			kind: "choose",
+			under: { selection: worker?.uuid, identifier: "parent" },
 		});
 	});
 
-	it("refuses the worker's record's load stored before the chosen loads, which HQ's entry computes first", async () => {
+	it("keeps the worker record before two manual choices", async () => {
 		const { doc } = memberFollowup([
 			{
 				uuid: OP("worker"),
@@ -317,9 +338,63 @@ describe("a load the reading refuses", () => {
 				return modules;
 			},
 		});
-		expect(account(outcome)).toEqual({
+		const [worker, first, second] = entryRows(outcome);
+		expect(worker?.source.kind).toBe("worker-record");
+		expect(first?.source).toMatchObject({ kind: "choose" });
+		expect(first?.source).not.toHaveProperty("under");
+		expect(second?.source).toMatchObject({
+			kind: "choose",
+			under: { selection: first?.uuid },
+		});
+	});
+});
+
+describe("a record ID calculated when the form opens", () => {
+	it("distinguishes a missing input from a raw expression whose value exists at the same step", async () => {
+		const { doc } = memberFollowup();
+		const readValue = (value_key: string) =>
+			readEdited(doc, {
+				modules: (modules) => {
+					const form = underTest(modules);
+					const [first, own] = form.actions.load_update_cases as [Json, Json];
+					own.auto_select = {
+						doc_type: "AutoSelectCase",
+						mode: "raw",
+						value_source: "",
+						value_key,
+					};
+					own.case_index = {
+						doc_type: "CaseIndex",
+						tag: "",
+						reference_id: "parent",
+						relationship: "child",
+						relationship_question: "",
+					};
+					own.details_module = null;
+					form.actions.load_update_cases = [first, own];
+					return modules;
+				},
+			});
+		const earlier = await readValue(
+			"instance('commcaresession')/session/data/case_id_load_household0",
+		);
+		const [chosen, reached] = entryRows(earlier);
+		expect(reached?.source).toMatchObject({
+			kind: "expression",
+			value: {
+				kind: "term",
+				term: {
+					kind: "session-datum",
+					datum: { kind: "form-selection", selection: chosen?.uuid },
+				},
+			},
+		});
+		const missing = await readValue(
+			"instance('commcaresession')/session/data/missing_id",
+		);
+		expect(account(missing)).toEqual({
 			findings: [
-				`${F}/the-worker-s-record-s-auto-selected-load-stored-before-a-chosen-load @form`,
+				"expressions-and-data/session-data-datum-the-entry-does-not-supply @form",
 			],
 			defects: 0,
 		});
@@ -350,7 +425,7 @@ describe("an advanced form's display condition reading the case", () => {
 		expect(account(autoSelected).findings.sort()).toEqual(
 			[
 				`${F}/a-display-condition-reading-case-user-casedb-with-no-non-auto @form`,
-				`${F}/auto-select-mode-raw-value-key @form`,
+				`${F}/loadupdateaction-case-index-on-an-auto-selected-load-or-on-the @form`,
 			].sort(),
 		);
 		const chosen = await readEdited(doc, {

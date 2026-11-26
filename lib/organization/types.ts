@@ -58,8 +58,19 @@ export interface OrganizationScope {
  */
 export type OrganizationRevision = string;
 
+/** Source values the place APIs and worker fixtures expose differently. A
+ * legacy managed row without an observation must refresh before transfer. */
+export interface PlaceSourceObservation {
+	readonly nameIsNull: boolean;
+	readonly wire: Readonly<Record<string, string>>;
+	readonly worker: Readonly<Record<string, string>>;
+	readonly latitudeText: string | null;
+	readonly longitudeText: string | null;
+}
+
 /** One place in the organization, as stored. */
 export interface StoredLocation {
+	readonly source?: PlaceSourceObservation;
 	readonly id: Uuid;
 	/** The blueprint `organizationLevel` this place stands at. */
 	readonly levelUuid: string;

@@ -69,7 +69,12 @@ export interface JsonCursor {
 	 * under it holds (`part` names it, one record a part), beside the key's own claim: a class of
 	 * the runtime values a search row reads.
 	 */
-	takePart(key: string, part: string, claim: Claim<"take">): void;
+	takePart(
+		key: string,
+		part: string,
+		claim: Claim<"take">,
+		index?: number,
+	): void;
 	/**
 	 * Refuse one part of `key`'s value (`part` names it, one finding a part) at
 	 * `key`'s pointer, where the value the claim names sits, beside the key's
@@ -617,10 +622,21 @@ export class JsonCursorImpl implements JsonCursor {
 		);
 	}
 
-	takePart(key: string, part: string, claim: Claim<"take">): void {
+	takePart(
+		key: string,
+		part: string,
+		claim: Claim<"take">,
+		index?: number,
+	): void {
 		if (!this.used(key)) return;
 		this.ledger.claim(
-			{ ...this.site(key), sub: `${key}${PART}${part}` },
+			{
+				...this.site(key),
+				sub: `${key}${PART}${part}`,
+				...(index !== undefined && {
+					at: () => `${this.pointer}/${pointerToken(key)}/${index}`,
+				}),
+			},
 			claim,
 			this.place,
 		);

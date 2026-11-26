@@ -24,7 +24,11 @@ import {
 	type HeldAs,
 	MemoryMeterFullError,
 } from "./memoryMeter";
-import { type BoundedBody, readBoundedBody } from "./readBody";
+import {
+	type BoundedBody,
+	consumeBoundedBody,
+	readBoundedBody,
+} from "./readBody";
 
 export { HQ_REFUSED_BODY_READ_MAX_BYTES } from "./bounds";
 
@@ -44,6 +48,8 @@ export interface CommCareApiError {
 	 * slug.
 	 */
 	edgeRefusal?: boolean;
+	/** The app has a named installation with no addressable HQ key. */
+	installationProfileKeyUnusable?: boolean;
 	/**
 	 * Why a read synthesized its status: no answer reached Nova (`network`,
 	 * 503), the deadline ran out (`timeout`, 503), the body was longer than
@@ -211,6 +217,43 @@ export function baseUrl(creds: CommCareCredentials): string {
 }
 
 /**
+ * `/a/<domain>`, the path every project space view sits under, for a valid
+ * slug alone: a domain holding `/`, `?` or `#` would name another resource
+ * on the server, so it is refused here, where each path is built.
+ */
+export function hqDomainPath(domain: string): string {
+	if (!isValidDomainSlug(domain))
+		throw new Error(
+			`“${domain}” is not a CommCare HQ project space name, so no request names it. Check the project space it came from.`,
+		);
+	return `/a/${domain}`;
+}
+
+/**
+ * The URL `path` names on the credentials' own CommCare HQ server, or null
+ * where it would name anything else: a path is one `/` and what follows,
+ * and the URL it makes has that server's origin and no user name or
+ * password. This is what keeps the credentials' key on their server.
+ */
+export function hqRequestUrl(
+	creds: CommCareCredentials,
+	path: string,
+): URL | null {
+	if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\"))
+		return null;
+	const base = new URL(baseUrl(creds));
+	const url = new URL(path, base);
+	if (url.origin !== base.origin || url.username !== "" || url.password !== "")
+		return null;
+	return url;
+}
+
+/** The path and query of a URL built on the credentials' server, as `sendHq` takes it. */
+export function hqPathOf(url: URL): string {
+	return `${url.pathname}${url.search}`;
+}
+
+/**
  * Build the Authorization header for CommCare HQ API key auth.
  *
  * Format: `ApiKey {username}:{api_key}` — this is CommCare HQ's custom
@@ -311,18 +354,29 @@ export interface HqAnswer {
 	 * `unavailable`.
 	 */
 	read(maxBytes: number, held: HeldAs): Promise<BoundedBody>;
+	/**
+	 * Stream a bounded response, each chunk handed to `consumer` and awaited
+	 * before the next is read. A media digest knows its expected file size and
+	 * a media stream writes each chunk on to storage; neither retains the
+	 * payload, so neither is held to `HQ_BODY_BOUND_CEILING`.
+	 */
+	consume(
+		maxBytes: number,
+		consumer: (chunk: Uint8Array) => void | Promise<void>,
+		mode?: "media-digest" | "media-stream",
+	): Promise<"read" | "too-long" | "unavailable">;
 	/** Let the body go unread. Never throws. */
 	discard(): Promise<void>;
 }
 
 /** What a request to CommCare HQ carries beyond its URL and credentials. */
 export interface HqRequest {
-	readonly method?: "GET" | "POST" | "PUT" | "PATCH";
+	readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 	/** The `Accept` header, where the request names one. */
 	readonly accept?: string;
 	/** The `Content-Type` of a JSON body; a `FormData` body sets its own. */
 	readonly contentType?: string;
-	readonly body?: string | FormData;
+	readonly body?: string | FormData | ReadableStream<Uint8Array>;
 	readonly signal: AbortSignal;
 	/** `no-store` on every read; a write leaves it out. */
 	readonly noStore?: boolean;
@@ -330,16 +384,23 @@ export interface HqRequest {
 
 /**
  * Send one request to CommCare HQ with the credentials' own header and no
- * redirect followed, and answer what came back. It rejects where `fetch`
+ * redirect followed, and answer what came back. `path` is a path on the
+ * credentials' own server (`hqRequestUrl`); anything else sends nothing and
+ * throws. It rejects where `fetch`
  * does: no answer began, or the signal ended it first; and, sending nothing,
  * with a `MemoryMeterFullError` where the request's lease has refused a
  * charge, since nothing it reads now could be kept.
  */
 export async function sendHq(
 	creds: CommCareCredentials,
-	url: string,
+	path: string,
 	request: HqRequest,
 ): Promise<HqAnswer> {
+	const url = hqRequestUrl(creds, path);
+	if (url === null)
+		throw new Error(
+			"A request to CommCare HQ named a place outside the server its credentials belong to, so nothing was sent.",
+		);
 	if (currentMemoryLease()?.exhausted === true)
 		throw new MemoryMeterFullError();
 	const headers = {
@@ -349,10 +410,11 @@ export async function sendHq(
 			"Content-Type": request.contentType,
 		}),
 	};
-	const response = await fetch(url, {
+	const response = await fetch(url.href, {
 		method: request.method ?? "GET",
 		headers,
 		...(request.body === undefined ? {} : { body: request.body }),
+		...(request.body instanceof ReadableStream && { duplex: "half" as const }),
 		redirect: "manual",
 		...(request.noStore === true ? { cache: "no-store" as const } : {}),
 		signal: request.signal,
@@ -379,6 +441,12 @@ export async function sendHq(
 					? Number(length.trim())
 					: null;
 			return readBoundedBody(response.body, maxBytes, hint, held);
+		},
+		async consume(maxBytes, consumer, mode) {
+			if (body !== "unread")
+				throw new Error("A CommCare HQ response was already consumed.");
+			body = "read";
+			return consumeBoundedBody(response.body, maxBytes, consumer, mode);
 		},
 		async discard() {
 			if (body !== "unread") return;

@@ -74,8 +74,9 @@ last confirmed status.
 
 Some of what an app uses comes with some CommCare HQ plans and not others: Web
 Apps for an app that runs there, worker records, lookup tables, child cases,
-links to other forms, Save to Case, locations, and Data Forwarding for a
-CommCare Connect app. No API key can read a
+links to other forms, Save to Case, locations, integration with Android apps, Data Forwarding for a
+CommCare Connect app, and Geocoder for a question that searches for an address
+in Web Apps. No API key can read a
 project space's plan, so Nova asks you. The Publish dialog lists each one your
 app needs and what goes wrong without it. **Details** shows the plans that
 include it, the forms that need it, and options when it is unavailable. Tick
@@ -108,6 +109,20 @@ change to the plan either: if the project space loses something you confirmed,
 choose **Withdraw** beside it on the project space's card in **App setup →
 Publishing**, and the next publish asks again.
 
+#### Search connections
+
+When a menu uses a search supplied by a project space, the Publish dialog
+shows the menu and the names it sends. An editor can enter the ID of that
+search in the selected space and save the connection. Your team can use the
+same logical search in two spaces with different IDs. Nova checks access and
+search support in each destination. The team managing the search there can
+confirm the ID, accepted names and available result fields.
+
+An HQ app file or a mobile app file for this app also needs a specific project
+space. A missing connection stops the download and publish before anything
+is sent. Once the editor has connected the search, the person publishing or
+downloading can try again.
+
 #### The CommCare version
 
 Each app on CommCare HQ is set to a CommCare version, and Nova's apps need 2.57
@@ -124,24 +139,35 @@ more slowly, or a persona may be missing worker information that CommCare HQ
 will ask for later. Read [Project-space compatibility](/docs/project-space-compatibility)
 for the complete check.
 
-#### Application profiles
+#### Installation profiles
 
-In CommCare HQ, an app can have application profiles, each a set of the app's languages for one
-group of phones. Nova keeps them as they are and can't change them. If you remove a language in
-Nova that a profile there still includes, the next publish to that project space stops before
-it sends anything and names the profile and the language. You can take the language out of the
-profile, or remove the profile, on the Application Profiles tab of the app's Releases page in
-CommCare HQ, then publish again. That tab shows only where the project space's plan includes
-application profiles. On any plan, removing the language on the Languages tab of the app's
-settings in CommCare HQ takes it out of every profile too, and the next publish may show you that
-change before it sends anything. A language you add in Nova joins no profile until you add it
-there.
+An installation profile gives one team a particular set of app languages. You can create it in **App setup → Languages** and choose it in Preview or when downloading the mobile app file. [Working with languages](/docs/languages#choose-the-languages-a-team-installs)
 
-If someone added the language in CommCare HQ since Nova's last publish, the publish first shows
-you that as a [change made in CommCare HQ](#changes-made-in-commcare-hq). Publishing over it takes
-the language out of the app there, so the profile is then held to the app's languages too.
+When you bring an app in, Nova shows each installation’s name, ID, language order and practice worker for this project space, along with the plan features to confirm before its first publish. CommCare HQ can keep a profile and its selected practice worker after a plan changes. Check that the project space has **Build Profiles** and, if the installation uses a practice worker, **Practice mode for mobile workers**.
 
-### Data in place
+If someone changes an installation in CommCare HQ, **Bring in changes** shows its previous and current name, languages and worker. If you removed the installation in Nova, accepting a worker change records the worker that restoring it would use. An external client needs both **HQ Import** and **HQ Write** to adopt an installation or accept its changes.
+
+A new installation profile belongs to your app. Its practice worker, if you choose to use one, belongs to the project space. When publishing to another space you can choose a practice worker who is active there.
+
+For a custom language order, Nova lists the defaults to select in CommCare HQ. Set each default in turn, saving after each one. Keep the selected languages as they are between saves.
+
+CommCare HQ keeps the existing profiles on an app when Nova updates its content. If the names, language orders or worker bindings need to change, Nova shows the profiles to keep on the destination. Open the app’s **Releases → Application Profiles** tab in CommCare HQ, make those changes and publish again in Nova. Nova checks what the project space now holds before continuing.
+
+On a first publish with a practice worker, Nova sends the app and its resources once the project-space worker is confirmed. The publish stays open while you prepare its installation. If your changes need a different order for the secondary languages, the review lists the defaults to select and save, in order. Leave the language selection as it is between saves.
+
+For a new practice worker, Nova asks you to prepare the named installation on the **Releases** page. For the version Nova identifies, choose **Deploy → Download to Android → Offline Installation**. Under **Application Profile**, choose the named installation and download its **CommCare_vN.ccz** file. Return to Nova and publish again. If you prepare several profiles over more than one visit, Nova remembers the workers it has verified and shows the profiles still waiting. If the version was already prepared before this review, save the installation profiles and make a new version first. Nova checks which worker that version names and whether CommCare HQ prepared their restore. The restore stays with CommCare HQ.
+
+If someone removes the original profile in CommCare HQ, you can keep its place in Nova. Create a replacement on the project space’s **Releases → Application Profiles** page with the requested name, languages and practice setting. When you publish again, choose its exact new ID from Nova’s review. If more than one profile matches, Nova lists each HQ ID and the Nova installation it can be used for. Choose the pair you want. The same choice is available if the app changed while you were editing in HQ. For profiles already on an older app, **Bring in changes** shows the installations the project space holds so you can adopt them first.
+
+Changes from HQ show the previous and proposed name, starting language, language order and practice worker for each affected installation. You can accept or leave the change, including when only the worker changes.
+
+When importing an HQ app file by hand, its guide lists each installation that needs a practice worker. Select an active worker in that project space for each listed profile and prepare its offline installation before giving it to the team.
+
+A later edit can reuse that proof for the same installation and worker. It shows what CommCare HQ prepared for that version. Your API key does not report the current practice-worker subscription. Deployment status checks the files already stored on your released version. If an installation is waiting for files, downloading that version’s offline installation prepares them.
+
+If several installations match, choose the installation in Nova first. Browse the matching installations in the project space, check the ID, languages and practice worker, then choose the one to use. Long reviews show the details a page at a time. After the final page, you can confirm the workers or choose the numbered destination. A new save in CommCare HQ can ask you to review that choice again.
+
+## Data in place
 
 Two things go on the project space before the app's content does, because the
 app reaches for them by name while somebody is using it. Content that arrived
@@ -166,8 +192,56 @@ raise isn't a change Nova asks you about first.
 Nova puts them there and replaces their rows with the rows in Nova. Tables your
 app does not read are left alone.
 
+Nova checks the data and who can receive it just before each lookup workbook
+goes to CommCare HQ. If either changed, you can review the table in Project
+data and publish again. Edits to a table that’s already uploading can resume
+when its upload finishes.
+
 If Nova cannot reliably read the tables already on your project space, it
 stops before sending data. Check your CommCare HQ connection, then publish again.
+
+Most tables go in one workbook upload. A table a workbook can't carry exactly,
+such as one whose export tag is `types`, a value that starts or ends with a
+space, or a value list with an empty entry, goes through CommCare HQ's table
+and row resources instead, one change at a time. That way works for a table
+shared with every worker that has no indexed columns. Nova remembers which row
+on CommCare HQ is which of yours, so publishing again sends only the rows you
+added, changed, moved or removed, and nothing at all when the table is
+unchanged. Every app in your Project that reads the table shares that record.
+
+Direct publish can also send a paged global table when the workbook cannot
+preserve its values. Nova prepares up to 10,000 rows and 16 MiB of data across
+these tables per publish. If Nova saves its progress while sending rows,
+publish again to continue from the last confirmed change. Nova sends the app
+content after it has verified all the rows.
+
+If a change's answer gets lost on the way back, Nova reads that row in CommCare
+HQ before it sends anything else to the table, and waits a few minutes where
+the change could still arrive. If a row someone else added or changed is there,
+or a new row appeared that Nova can't name, the publish stops and names the
+table so nothing is written over it. Nova also reads each row again just before
+it changes or removes it, so an edit someone makes in CommCare HQ while Nova is
+publishing stops the publish instead of being replaced. Each later publish reads the table again
+first, so once the row is gone or put back in CommCare HQ, publishing again
+picks up from there. Changing a table's columns after it's there isn't
+something these resources can do safely, so Nova asks you to give the table a
+new export tag instead: the next publish puts it there as a new table and
+leaves the old one as it is.
+
+When a CommCare HQ app download includes `lookup-install.json`, open **Install
+lookup data** from the included guide before importing the app. Choose your
+connected project space and review the tables there. If Nova saves its
+progress, choose **Continue installing**. Nova reads the current Project data
+again before continuing. If the app or its lookup data changed, download a
+fresh file. Your CommCare HQ connection needs permission to edit data in
+that project space. The same download can also include lookup workbooks. The guide
+lists the steps to complete before you import the app in CommCare HQ.
+
+A table that's already on the project space from a workbook stays in one
+there, since Nova can't tell its rows apart in those resources. If it now holds
+something a workbook can't carry, such as a value that starts or ends with a
+space, the publish names it, and you can change those rows in Project data or
+give the table a new export tag so it goes there as a new table.
 
 A publish stops before it sends anything when a lookup table with the same tag
 in CommCare HQ holds something Nova can't keep yet: field properties, row
@@ -293,11 +367,19 @@ once the publish has finished. If another publish has already updated the app
 when Nova is ready to send the media, Nova keeps the later publish's files and
 shows a message on the earlier publish.
 
-If the app arrives but its media upload cannot be confirmed, Nova keeps the
-published app and reports the media warning. Publishing again updates that app
-and retries its media upload. When CommCare HQ accepts the media but Nova cannot
-confirm that processing finished, the warning says so. You can check the media
-in CommCare HQ before deciding whether to retry.
+Nova checks that it can read the media files in your Project before it sends
+the app. If CommCare HQ accepts an earlier version while Nova updates the app, you can use **See what changed in CommCare HQ** to compare it with the current version before publishing again.
+
+If a file changes after CommCare HQ accepts the app, Nova checks what now occupies each destination before sending the files. If it can’t verify a destination, the app stays published and its files wait for your next review.
+You can review changes from CommCare HQ to see which pictures and sounds it holds.
+
+Nova reuses each file that project space already holds for this app and sends
+the rest. After the upload, Nova checks that each file it sent arrived. If the app
+arrives but its media upload cannot be confirmed, Nova keeps the published app
+and reports which media still needs attention. Publishing again updates that
+app and retries its media upload. When CommCare HQ accepts the media but Nova
+cannot confirm that processing finished, the warning says so. You can check the
+media in CommCare HQ before deciding whether to retry.
 
 Nova never deletes anything on CommCare HQ. So when a publish stops pointing at
 something it put there before, whether that is an app it replaced or a lookup
@@ -312,7 +394,8 @@ list. Each unused resource appears only once.
 
 The first time Nova publishes a form, it records where CommCare HQ keeps each
 of its case changes, so publishing again keeps them there and your exports keep
-their columns. If a change you make can't stay there, Nova says what moves
+their columns. When you bring in a form, Nova also keeps the original spelling of
+its record tags, including hyphens. If a change you make can't stay there, Nova says what moves
 before it saves, and undoing the change puts it back. When a project space's
 plan doesn't include Save to Case, Nova offers to move the case changes that
 don't need it, and the move applies wherever the app is published. See
@@ -341,7 +424,40 @@ couldn't confirm it is ready. Choose **Check status** to try again.
 The **Open in CommCare HQ** link appears as soon as the app is there, and it
 goes to the app's page for you to work on. It is not the link workers use.
 
+
 ## Changes made in CommCare HQ
+
+If you publish the same app to two project spaces, each keeps its own
+comparison. You can refresh settings in one space while an edit in Nova is
+still waiting to be published. Your next review in either space shows the
+changes since the version that space received.
+
+If you've reviewed a picture getting a new name or two file paths becoming one, an unrelated edit in HQ keeps that choice. Nova asks again when the change affects a different question, choice or language. This includes workers who see the default picture because their language has no picture of its own.
+
+Nova publishes each app's menu layouts: the first menu's, the one for the other menus, and each menu's own choice. An app Nova published before it did so can hold layouts someone chose in CommCare HQ. The first publish that would replace one stops and lists each layout and what it would become, even when nothing else changed. You can keep a layout by choosing it in App settings or in the menu's settings, then publish again, or tick **Publish over this** to use the app's layouts.
+
+A publish can remove an unused file reference in CommCare HQ, including on an app Nova has published before. Nova shows the file's path in the app. If a later save puts a different file at that path, Nova asks again and says that CommCare HQ holds a different file there. To review these changes, open **See what changed in CommCare HQ** on this project space. The review names unused file references the publish would remove. Bring in the review to update the Publishing card, then publish when you're ready. If Nova can't verify the earlier reading, a Project admin or owner can choose **Stop publishing here** for this project space. Once any publish in progress finishes, you can bring the HQ app in as a new Nova app. You can also publish the current Nova app to a different project space. Stopping here affects only this project space. When there are too many changes to show every file in the publish dialog, you can open the full review and choose which version to keep after reading the complete list. Nova checks the file list even when the app sends no new files. If CommCare HQ saves the app while Nova is reading its files, Nova stops before uploading the app. Publishing again checks what changed. If CommCare HQ can’t show the list, you can try the publish again when it’s available.
+If HQ adds the same picture to two places under different filenames, the app can
+keep showing it in both places under one filename when you bring in the changes.
+Publishing the app as it stands in Nova can remove both references. Nova shows
+the filenames each choice would remove.
+
+
+Before your first publish to the space an app came from, its Publishing card
+shows which HQ settings that publish will change. Bringing in a later HQ save
+updates the card, even when the forms stay the same. If someone puts a
+setting back in HQ, bringing that save in removes its warning. This includes
+a picture or sound saved in HQ that the app no longer uses. **Refresh from
+CommCare HQ** can pick up settings such as fuzzy search directly. When a
+change affects the Publishing card, Nova offers to review it with you. A
+publish also pauses if it would remove a file reference someone added in HQ
+since that review. If
+publishing would change the Web Apps switch, Nova asks you to confirm it.
+For apps with a saved comparison from an earlier Nova upgrade, the review also lists any language the project space still holds that this publish would remove.
+
+If you restore a deleted app and it can publish to the same CommCare HQ app
+again, Nova remembers the version it last sent there. You can start a fresh
+review to see what changed while the app was away.
 
 Each publish remembers what CommCare HQ held just after it: the app, each
 lookup table and each place. An app you brought in from CommCare HQ starts from
@@ -360,13 +476,22 @@ the changes in, and the dialog opens again to say so. Your next publish then
 goes ahead as usual; if CommCare HQ's version holds a few things Nova writes
 its own way, the Publish dialog lists what that publish changes first.
 
+If the changes give cases to the place at a level below their owner and the
+places in CommCare HQ have two such places, or none, below an owner, the list
+asks who owns those cases, as [bringing an app in](/docs/bringing-in-from-commcare-hq)
+does. You can give them to the worker who fills in the form, or change the places
+in CommCare HQ and check again. Giving them to the worker is a change your next
+publish makes in CommCare HQ too, and the Publish dialog lists it.
+
 **When the app changed in both places, you choose one.** Nova shows a second
 list, **What changed in Nova since then**, and doesn't combine the two. **Use
 CommCare HQ's version** takes CommCare HQ's changes and removes the ones listed
 under Nova, and Nova can't put those back, so **Copy both lists** is there if
 you'd like a record first. If you renamed a case property in Nova since then,
-Nova asks you to rename it back before it offers CommCare HQ's version, so
-saved cases keep their values. **Publish over CommCare HQ's changes** sends
+you can rename it back if the name still identifies the same property, then
+check again. Its saved case values move with it. If a name was reused, Nova lists the
+recorded moves. You can check which values the properties hold before deciding
+which version to keep. **Publish over CommCare HQ's changes** sends
 this app's version and replaces what changed there. An admin or owner of the
 Project can also choose **Stop publishing here**, which leaves the app in
 CommCare HQ as it is; a later publish there makes a new app. You can also close
@@ -428,9 +553,10 @@ change.
 Some changes read a little differently:
 
 - **Nova couldn't confirm what its last publish left.** CommCare HQ may have
-  been unavailable when Nova read it back, or saved the app a second time while
-  removing an unused reference to a picture or sound. That extra save looks the
-  same to Nova as another person saving the app at the same time. Your publish
+  been unavailable when Nova read it back, or someone may have saved the app
+  while Nova published it. When CommCare HQ saves the app a second time only to
+  remove the unused picture or sound references Nova expected, Nova recognizes
+  that save as part of the publish and says nothing. Your publish
   landed. If Nova could read the settings at the version CommCare HQ reported,
   your download, Preview and the Publishing card still use those settings.
   Nova asks before writing over the app on the next publish.
@@ -448,9 +574,9 @@ Some changes read a little differently:
   change is Nova's own. Publishing over it sends this app again.
 
 **A publish keeps what was set in CommCare HQ for things Nova doesn't hold**: UI
-translations, add-ons and Auto Capture Location, along with the app settings
+translations and add-ons, along with the app settings
 above that Nova only writes where none is set. It replaces what Nova holds: the
-app's name, each language's name, and the saved and incomplete forms settings.
+app's name, each language's name, automatic form location, and the saved and incomplete forms settings.
 It also sets the Web App setting from where the app runs, asking first where it
 differs ([A note on Web Apps](#a-note-on-web-apps)). What it keeps is what
 CommCare HQ held when the publish last read your app.
@@ -641,6 +767,12 @@ What to do next depends on where it stopped, and Nova says which:
   not confirm): the app is already on your project space. Sort it out on
   CommCare HQ, then choose **Check status**; there is no need to publish
   again.
+
+### When a publish asks for place IDs
+
+CommCare HQ imports external IDs through its organization workbook. If a place needs its ID set on a destination, **Download place ID workbook** prepares a private file for that project space. Open **Organization** in the named space and import each workbook in the download. Check the affected places, confirm the import, then publish again. Nova reads the saved IDs there before it sends the app. A different destination has its own place IDs and its own file.
+
+If a workbook would change another value in that space, the publish names the place and field. Set the exact ID on that place in CommCare HQ, then publish again. When the ID and destination data already match, Nova carries on immediately.
 
 ## Updates to review
 

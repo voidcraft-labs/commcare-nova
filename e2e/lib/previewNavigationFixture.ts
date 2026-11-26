@@ -50,6 +50,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { eq, literal, prop, sessionUser, term } from "@/lib/domain/expression";
 
 export const NAVIGATION_APP_ID = "native-navigation";
@@ -109,12 +110,22 @@ export function buildNavigationDoc(
 	if (fixture === "parent-chain") return buildParentChainDoc();
 	if (fixture === "place-condition") return buildPlaceConditionDoc();
 	if (fixture === "place-screens") return buildPlaceScreensDoc();
-	return buildDoc({
+	const doc = buildDoc({
 		appId: NAVIGATION_APP_ID,
 		appName: "Navigation",
 		caseTypes: [{ name: "patient", properties: [] }],
 		modules: buildNavigationModules(fixture, withDetails),
 	});
+	if (fixture === "search-first") {
+		doc.appSettings.formMenuLayout = "grid";
+		const visit = Object.values(doc.forms).find(
+			(form) => form.name === "Visit",
+		);
+		if (!visit)
+			throw new Error("The case-first fixture requires its Visit command.");
+		visit.icon = builtinIconRef("record_vitals");
+	}
+	return doc;
 }
 
 /** The "Patients" menu of the one-menu fixtures. */

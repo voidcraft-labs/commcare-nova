@@ -36,11 +36,11 @@ import {
 	MalformedCursorError,
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
-import {
-	ASSET_KINDS,
-	MAX_MEDIA_EXPORT_ASSETS,
-	mediaAssetIdSchema,
-} from "@/lib/domain/multimedia";
+import { ASSET_KINDS, mediaAssetIdSchema } from "@/lib/domain/multimedia";
+
+/** The most ids one resolve request names. It bounds the rows one query loads; a
+ *  client with more asks in chunks (`mediaClient.ts::fetchAssetsByIds` asks 50). */
+const RESOLVE_IDS_MAX = 500;
 
 const querySchema = z.strictObject({
 	// Repeated `?kind=` collects into an array; each must be an accepted kind.
@@ -48,11 +48,8 @@ const querySchema = z.strictObject({
 	kinds: z.array(z.enum(ASSET_KINDS)),
 	cursor: z.string().optional(),
 	query: z.string().max(200).optional(),
-	// Repeated `?id=` switches to resolve mode. Capped at the export-asset
-	// ceiling: a doc can't reference more exportable assets than that, so
-	// a larger request is malformed, and the cap bounds the row set loaded
-	// in one query the same way the boundary's pre-load cap does.
-	ids: z.array(mediaAssetIdSchema).max(MAX_MEDIA_EXPORT_ASSETS),
+	// Repeated `?id=` switches to resolve mode, at most `RESOLVE_IDS_MAX` a request.
+	ids: z.array(mediaAssetIdSchema).max(RESOLVE_IDS_MAX),
 	// Present when listing within an app context (the builder media pickers):
 	// scopes to the app's Project. Absent for the personal file manager,
 	// which scopes to the caller's active Project.
@@ -72,7 +69,7 @@ export async function GET(req: NextRequest) {
 		});
 		if (!parsed.success) {
 			throw new ApiError(
-				"Library query couldn't be parsed, each `kind` must be one of image/audio/video/pdf/text/docx/xlsx, `cursor` must be the opaque token a prior page returned, `q` must be at most 200 characters, and `id` must be repeated asset ids (at most the export-asset limit).",
+				"Library query couldn't be parsed, each `kind` must be one of image/audio/video/pdf/text/docx/xlsx, `cursor` must be the opaque token a prior page returned, `q` must be at most 200 characters, and `id` must be repeated asset ids (at most 500 in one request).",
 				400,
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);

@@ -3,10 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SearchInputDef } from "@/lib/domain";
 import { PLATFORMS } from "@/lib/domain/platforms";
-import {
-	type PreviewDataRefusal,
-	readPreviewScreen,
-} from "../engine/dataRefusal";
+import { PreviewDataRefusal, readPreviewScreen } from "../engine/dataRefusal";
 import {
 	awaitsPreviewIdentity,
 	type PreviewSearchSessionValues,
@@ -17,6 +14,7 @@ import {
 	buildSearchRunState,
 	changeSearchRunDraft,
 	clearSearchRun,
+	drawnSearchInputs,
 	hasNonEmptyValue,
 	openSearchRunState,
 	reconcileSearchRunState,
@@ -30,7 +28,14 @@ import {
 	previewPlatformRules,
 } from "../platform";
 
+import {
+	type SearchRangeTarget,
+	useSearchRangeOpening,
+} from "./useSearchRangeOpening";
 export interface SearchInputRunState {
+	readonly defaults: SearchInputValues;
+	readonly openingMessage?: string;
+	readonly retryOpening?: () => void;
 	readonly draft: SearchInputValues;
 	/** Every value the last Search carried: the worker's answers plus the
 	 *  hidden inputs' system-generated values, exactly as CommCare's
@@ -74,17 +79,6 @@ export interface SearchInputRunState {
 	readonly pending?: true;
 }
 
-/** The inputs a Search screen draws on a platform: Web Apps hides a hidden
- *  input; Android draws it as an editable field holding its value. */
-export function drawnSearchInputs(
-	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">,
-): readonly SearchInputDef[] {
-	return rules.hiddenSearchFieldWithDefault === "editable"
-		? searchInputs
-		: searchInputs.filter((input) => input.kind !== "hidden");
-}
-
 const DEFAULT_RULES = previewPlatformRules(
 	effectivePreviewPlatform(PLATFORMS, undefined),
 );
@@ -92,11 +86,15 @@ const DEFAULT_RULES = previewPlatformRules(
 /** React owns subscription timing; searchRunState owns the search commands. */
 export function useSearchInputRunState(args: {
 	readonly scopeKey: string;
+	readonly rangeTarget?: SearchRangeTarget;
 	readonly searchInputs: readonly SearchInputDef[];
 	readonly session: PreviewSearchSessionValues;
 	readonly environment: PreviewSearchEnvironment;
 	/** The platform Preview plays; defaults to an app's default platform. */
-	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">;
+	readonly rules?: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>;
 	/** The lookup data failed to load, so the screen opens over what the
 	 *  data it holds covers rather than waiting for data that will not
 	 *  arrive. */
@@ -108,23 +106,53 @@ export function useSearchInputRunState(args: {
 	 * data the device lacks is the screen's refusal on both platforms, held as state. A
 	 * session still waiting for its worker, or for the lookup data those
 	 * reads read, is read not at all. */
+	const waitingForWorker = awaitsPreviewIdentity(args.session);
+	const ranges = useSearchRangeOpening(
+		args.scopeKey,
+		args.environment.moduleUuid,
+		args.environment.doc.modules[args.environment.moduleUuid]?.caseListConfig
+			?.searchInputs ?? args.searchInputs,
+		args.rangeTarget,
+		!waitingForWorker,
+	);
 	const pending =
-		awaitsPreviewIdentity(args.session) ||
+		waitingForWorker ||
+		ranges.pending ||
+		ranges.retry !== undefined ||
 		(args.lookupLoadFailed !== true &&
-			!searchScreenOpeningCovered(args.searchInputs, args.environment));
+			!searchScreenOpeningCovered(
+				args.searchInputs,
+				args.environment,
+				ranges.opened,
+			));
+
 	const read = useMemo(
 		() =>
-			pending
-				? undefined
-				: readPreviewScreen(() =>
-						openSearchRunState(
-							args.scopeKey,
-							args.searchInputs,
-							args.session,
-							args.environment,
+			ranges.refusal
+				? {
+						kind: "refused" as const,
+						refusal: new PreviewDataRefusal(ranges.refusal),
+					}
+				: pending
+					? undefined
+					: readPreviewScreen(() =>
+							openSearchRunState(
+								args.scopeKey,
+								args.searchInputs,
+								args.session,
+								args.environment,
+								ranges.opened,
+							),
 						),
-					),
-		[pending, args.scopeKey, args.searchInputs, args.session, args.environment],
+		[
+			pending,
+			ranges.refusal,
+			ranges.opened,
+			args.scopeKey,
+			args.searchInputs,
+			args.session,
+			args.environment,
+		],
 	);
 	/* A screen that waits or refuses holds no field: the state of a screen
 	 * with no inputs, which the opened screen replaces as a new revision. */
@@ -165,6 +193,9 @@ export function useSearchInputRunState(args: {
 		[current.submitted, current.submittedHidden],
 	);
 	return {
+		retryOpening: ranges.retry,
+		openingMessage: ranges.message,
+		defaults: current.defaults,
 		draft: current.draft,
 		submitted,
 		draftActive: hasNonEmptyValue(current.draft),

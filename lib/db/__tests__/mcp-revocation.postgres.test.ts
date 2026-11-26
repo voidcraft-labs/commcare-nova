@@ -16,7 +16,10 @@ import type { AuthDatabase } from "@/lib/auth/db";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import type { AppDatabase } from "@/lib/db/pg";
+import type { ToolContext } from "@/lib/mcp/types";
 
+const seenCaller = vi.hoisted(() => ({ verified: null as ToolContext | null }));
 // Only the tool payload is diagnostic: authentication, protocol dispatch, JWT
 // verification, JWKS transport and persistence all run their production code.
 vi.mock("@/lib/mcp/server", () => ({
@@ -24,6 +27,7 @@ vi.mock("@/lib/mcp/server", () => ({
 		server: import("@modelcontextprotocol/server").McpServer,
 		context: import("@/lib/mcp/types").ToolContext,
 	) => {
+		seenCaller.verified = context;
 		server.registerTool(
 			"caller",
 			{ description: "Return verified caller", inputSchema: {} },
@@ -186,6 +190,96 @@ async function seed() {
 	});
 	return { clientId: client.client_id, consentId: consent.id };
 }
+it("rechecks the signed OAuth installation grant against its expiry, consent and revocation watermark at the consuming transaction", async () => {
+	const { clientId, consentId } = await seed();
+	const now = Math.floor(Date.now() / 1000);
+	const claims = {
+		sub: "native-user",
+		azp: clientId,
+		iat: now,
+		exp: now + 240,
+		iss: `${origin}/api/auth`,
+		aud: `${origin}/api/mcp`,
+		scope: "nova.read nova.write nova.hq.import nova.hq.write",
+	};
+	const token = (await auth.api.signJWT({ body: { payload: claims } })).token;
+	expect((await call(token)).status).toBe(200);
+	const caller = seenCaller.verified;
+	if (caller?.grant?.kind !== "oauth")
+		throw new Error("Missing signed client identity");
+	const { credentialWriteGrant } = await import(
+		"@/lib/mcp/credentialWriteGrant"
+	);
+	const { recordOAuthGrantRevocation, revokeAuthorizedClient } = await import(
+		"@/lib/db/oauth-consents"
+	);
+	// The shared test database owns the pool's teardown, as it does for Better Auth.
+	const db = new Kysely<AppDatabase>({
+		dialect: new PostgresDialect({
+			pool: dbHandle.pool as unknown as PostgresPool,
+		}),
+	});
+	const granted = [
+		"nova.read",
+		"nova.write",
+		"nova.hq.import",
+		"nova.hq.write",
+	];
+	const setScopes = (scopes: readonly string[]) =>
+		dbHandle.pool.query(
+			"UPDATE auth_oauth_consent SET scopes=$1::jsonb WHERE id=$2",
+			[JSON.stringify(scopes), consentId],
+		);
+	await setScopes(granted);
+	const grant = credentialWriteGrant(caller, "bring_in_hq_app", [
+		"nova.hq.import",
+		"nova.hq.write",
+	]);
+	const consume = () => db.transaction().execute((tx) => grant(tx));
+	await consume();
+	await setScopes(granted.filter((s) => s !== "nova.hq.write"));
+	await expect(consume()).rejects.toMatchObject({
+		name: "McpCredentialInactiveError",
+	});
+	await setScopes(granted);
+	await consume();
+	// A verified caller keeps the original expiry while Nova reads the app.
+	const nearExpiry = Math.floor(Date.now() / 1000) + 2;
+	const short = (
+		await auth.api.signJWT({
+			body: { payload: { ...claims, exp: nearExpiry } },
+		})
+	).token;
+	expect((await call(short)).status).toBe(200);
+	const shortCaller = seenCaller.verified;
+	if (!shortCaller) throw new Error("Missing expiring signed client identity");
+	const shortGrant = credentialWriteGrant(shortCaller, "bring_in_hq_app", [
+		"nova.hq.import",
+		"nova.hq.write",
+	]);
+	await db.transaction().execute((tx) => shortGrant(tx));
+	await dbHandle.pool.query("SELECT pg_sleep_until(to_timestamp($1))", [
+		nearExpiry,
+	]);
+	await expect(
+		db.transaction().execute((tx) => shortGrant(tx)),
+	).rejects.toMatchObject({ name: "McpCredentialInactiveError" });
+	await recordOAuthGrantRevocation(caller.userId, clientId);
+	await expect(consume()).rejects.toMatchObject({
+		name: "McpCredentialInactiveError",
+	});
+	// A newly authorized token gets its own signed issue time. The persisted
+	// watermark remains and applies independently of the continued consent row.
+	await dbHandle.pool.query(
+		'UPDATE auth_oauth_grant_revocation SET "revokedAt"=to_timestamp($1) WHERE "userId"=$2 AND "clientId"=$3',
+		[now - 20, caller.userId, clientId],
+	);
+	await consume();
+	await revokeAuthorizedClient(caller.userId, consentId);
+	await expect(consume()).rejects.toMatchObject({
+		name: "McpCredentialInactiveError",
+	});
+});
 it("real signed JWTs enforce signature, issuer, audience, expiry, scopes and live grant/user revocation through native MCP", async () => {
 	const { clientId, consentId } = await seed();
 	const claims = {
@@ -225,6 +319,14 @@ it("real signed JWTs enforce signature, issuer, audience, expiry, scopes and liv
 						userId: "native-user",
 						scopes: ["nova.read", "nova.write"],
 						authKind: "oauth",
+						// Project data reads lock this verified token's grant.
+						grant: {
+							kind: "oauth",
+							clientId,
+							issuedAt: claims.iat,
+							expiresAt: claims.exp,
+							scopes: ["nova.read", "nova.write"],
+						},
 					}),
 				},
 			],

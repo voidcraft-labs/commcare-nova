@@ -24,9 +24,10 @@ import {
 	tableColumn,
 	tableLookup,
 } from "@/lib/domain/expression";
+import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 
-export function lookupAppFixture(reversed = false) {
+export function lookupAppFixture(reversed = false, rich = false) {
 	const table = wireTable("regions", [
 		{ name: "value", type: "text" },
 		{ name: "label", type: "text" },
@@ -38,13 +39,50 @@ export function lookupAppFixture(reversed = false) {
 		wireRow(table, "s", { value: "south", label: "Southland", province: "p2" }),
 		wireRow(table, "e", { value: "east", label: "Eastland", province: "p1" }),
 	];
+	const rowCode = {
+		id: lookupMemberIdSchema.parse(
+			value.id.slice(0, -1) + (value.id.endsWith("0") ? "1" : "0"),
+		),
+		wireName: "row_code",
+		label: "Row code",
+	};
+	const language = {
+		id: lookupMemberIdSchema.parse(
+			label.id.slice(0, -1) + (label.id.endsWith("0") ? "1" : "0"),
+		),
+		wireName: "lang",
+		label: "Language",
+	};
+	if (rich) {
+		table.attributes = [rowCode];
+		label.repeated = true;
+		label.properties = [language];
+		label.index = "indexed";
+		for (const row of orderedRows) {
+			const text = String(row.values[label.id]);
+			row.attributes = { [rowCode.id]: String(row.values[value.id]) };
+			row.occurrences = {
+				[label.id]: [
+					{ text: `Original ${text}`, properties: { [language.id]: "en" } },
+					{ text: `Choix ${text}`, properties: { [language.id]: "fr" } },
+				],
+			};
+			delete row.values[label.id];
+		}
+	}
 	const rows = reversed ? [...orderedRows].reverse() : orderedRows;
 	const naming = lookupWireNaming([table]);
 	const source = {
 		kind: "lookup",
 		tableId: table.id,
-		valueColumnId: value.id,
-		labelColumnId: label.id,
+		valueColumnId: rich ? { attributeId: rowCode.id } : value.id,
+		labelColumnId: rich
+			? {
+					columnId: label.id,
+					where: { propertyId: language.id, equals: "fr" },
+					occurrence: 1,
+				}
+			: label.id,
 	} as const;
 	const root = testUuid("lookup-root-province");
 	const repeated = testUuid("lookup-repeated-province");
@@ -55,8 +93,11 @@ export function lookupAppFixture(reversed = false) {
 			"Region",
 			tableLookup(
 				table.id,
-				label.id,
-				eq(tableColumn(table.id, value.id), prop("patient", "region")),
+				source.labelColumnId,
+				eq(
+					tableColumn(table.id, source.valueColumnId),
+					prop("patient", "region"),
+				),
 			),
 		),
 	];
@@ -76,7 +117,7 @@ export function lookupAppFixture(reversed = false) {
 				name: "Patients",
 				caseType: "patient",
 				displayCondition: eq(
-					tableLookup(table.id, label.id, matchAll()),
+					tableLookup(table.id, source.labelColumnId, matchAll()),
 					literal("Northland"),
 				),
 				caseListConfig: {
@@ -122,7 +163,7 @@ export function lookupAppFixture(reversed = false) {
 								optionsSource: {
 									...source,
 									filter: eq(
-										tableColumn(table.id, value.id),
+										tableColumn(table.id, source.valueColumnId),
 										sessionContext("username"),
 									),
 								},
@@ -184,8 +225,11 @@ export function lookupAppFixture(reversed = false) {
 					property: "resolved",
 					value: tableLookup(
 						table.id,
-						label.id,
-						eq(tableColumn(table.id, value.id), prop("patient", "region")),
+						source.labelColumnId,
+						eq(
+							tableColumn(table.id, source.valueColumnId),
+							prop("patient", "region"),
+						),
 					),
 				},
 			],

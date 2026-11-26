@@ -162,3 +162,45 @@ function joined(chunks: readonly Uint8Array[], length: number): Uint8Array {
 	}
 	return bytes;
 }
+
+/** Decode a selected part of a response without retaining other case or worker
+ * data. The consumer may keep its own bounded projection only. */
+export async function consumeBoundedBody(
+	stream: ReadableStream<Uint8Array> | null,
+	maxBytes: number,
+	consume: (chunk: Uint8Array) => void | Promise<void>,
+	mode?: "media-digest" | "media-stream",
+): Promise<"read" | "too-long" | "unavailable"> {
+	if (mode === "media-digest" || mode === "media-stream") {
+		if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
+			throw new Error(
+				"A streamed media file needs the most of it Nova reads, a whole number.",
+			);
+	} else assertBodyBound(maxBytes);
+	if (stream === null) return "read";
+	const reader = stream.getReader();
+	const lease = currentMemoryLease();
+	let total = 0;
+	let complete = false;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) {
+				complete = true;
+				return "read";
+			}
+			total += value.byteLength;
+			if (total > maxBytes) return "too-long";
+			if (lease && !lease.charge("text", value.byteLength))
+				return "unavailable";
+			try {
+				await consume(value);
+			} finally {
+				lease?.giveBack("text", value.byteLength);
+			}
+		}
+	} finally {
+		if (!complete) await reader.cancel().catch(() => undefined);
+		reader.releaseLock();
+	}
+}

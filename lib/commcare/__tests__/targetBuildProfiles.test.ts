@@ -52,8 +52,11 @@ describe("buildProfileLanguageGaps", () => {
 		).toEqual([{ id: "mandarin", name: "", missing: ["zho"], emptied: true }]);
 	});
 
-	it("gives no gap for a profile with no languages", () => {
-		expect(buildProfileLanguageGaps(langs, [profile("empty", [])])).toEqual([]);
+	it("distinguishes an empty collection from a profile with no default language", () => {
+		expect(buildProfileLanguageGaps(langs, [])).toEqual([]);
+		expect(buildProfileLanguageGaps(langs, [profile("empty", [])])).toEqual([
+			{ id: "empty", name: "empty", missing: [], emptied: true },
+		]);
 	});
 
 	it("keeps HQ's profile order and passes over the profiles that fit", () => {

@@ -43,6 +43,7 @@ export function caseDataTypeForFieldKind(
 	kind: FieldKind,
 ): CasePropertyDataType | undefined {
 	switch (kind) {
+		case "label":
 		case "text":
 		case "barcode":
 		case "secret":
@@ -66,8 +67,9 @@ export function caseDataTypeForFieldKind(
 			return "multi_select";
 		case "geopoint":
 			return "geopoint";
+		case "case_change":
+		case "connect_activity":
 		case "hidden":
-		case "label":
 		case "group":
 		case "repeat":
 		case "section":

@@ -56,6 +56,50 @@ function tableRead(tag: string, id: string): HqLookupTableRead {
 	};
 }
 
+/** One table shaped as the `hq-lookup-data` base's: a field with a property and two values a
+ *  row, a row attribute, and a field one row holds, one holds no value of, one does not hold and
+ *  one holds as the empty string. */
+function richTableRead(
+	tag: string,
+	id: string,
+	isGlobal = true,
+): HqLookupTableRead {
+	const table: HqLookupTable = {
+		id,
+		tag,
+		isGlobal,
+		fields: ["id", "name", "note"],
+		fieldProperties: { id: [], name: ["lang"], note: [] },
+		itemAttributes: ["code"],
+	};
+	const names = [
+		{ value: "Maize", properties: { lang: "en" } },
+		{ value: "Makka", properties: { lang: "hin" } },
+	];
+	const notes = [
+		[{ value: "Grows fast", properties: {} }],
+		[],
+		undefined,
+		[{ value: "", properties: {} }],
+	];
+	const rows = notes.map((note, index) => ({
+		id: `${id}-row-${index}`,
+		sortKey: index,
+		itemAttributes: { code: `c-${index}` },
+		fields: {
+			id: [{ value: `crop-${index}`, properties: {} }],
+			name: names,
+			...(note === undefined ? {} : { note }),
+		},
+	}));
+	return {
+		kind: "read",
+		table,
+		rows,
+		canonical: canonicalLookupTable(table, rows),
+	};
+}
+
 /** The project data a reading gathers over `reads`, through the production assembly, with no
  *  Project table of any tag. */
 function projectData(reads: readonly HqLookupTableRead[]) {
@@ -72,7 +116,6 @@ function projectData(reads: readonly HqLookupTableRead[]) {
 			definitions: [],
 			rowsByTable: {},
 			apps: {},
-			keptColumns: {},
 			siblings: [],
 			mayAdminister: true,
 		},
@@ -85,7 +128,7 @@ function projectData(reads: readonly HqLookupTableRead[]) {
 const DATA = projectData([
 	tableRead("villages", "a1"),
 	tableRead("seasons", "b2"),
-	/* A period in a tag is a finding of the table's own, so nothing of it is held. */
+	/* A period in a tag is an XML name Nova holds: its tag settles the period entry. */
 	tableRead("crop.types", "c3"),
 ]);
 
@@ -144,7 +187,7 @@ const MEDIA: ReadingMediaPlan = {
 		},
 		gone: { kind: "missing" },
 	},
-	kept: new Map(),
+	staged: new Map(),
 	published: {},
 };
 
@@ -232,7 +275,7 @@ describe("settledClaims", () => {
 			data: DATA,
 			reads: readsOf({ villages: ["name"], "crop.types": ["name"] }),
 			doc: buildDoc({}, (doc) => {
-				doc.connectType = "learn";
+				doc.connectRoles = ["learn"];
 			}),
 			media: MEDIA,
 		});
@@ -246,6 +289,16 @@ describe("settledClaims", () => {
 			{
 				artifact: "lookup-tables",
 				where: "/villages/id",
+				entry: `${E}/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table`,
+			},
+			{
+				artifact: "lookup-tables",
+				where: "/crop.types/tag",
+				entry: `${E}/tag-or-field-name-holding-a-period`,
+			},
+			{
+				artifact: "lookup-tables",
+				where: "/crop.types/id",
 				entry: `${E}/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table`,
 			},
 			{
@@ -297,6 +350,140 @@ describe("settledClaims", () => {
 			},
 			...BUILT,
 		]);
+	});
+
+	it("settles a table under the tag types, in any case, as the one whose sheet name CommCare HQ's workbook keeps", () => {
+		const records = settledClaims({
+			data: projectData([tableRead("Types", "t1")]),
+			reads: readsOf({ Types: ["name"] }),
+			doc: null,
+			media: null,
+		});
+		expect(
+			shown(records).filter((record) => record.artifact === "lookup-tables"),
+		).toEqual([
+			{
+				artifact: "lookup-tables",
+				where: "/Types/tag",
+				entry: `${E}/table-tag-in-nova-s-grammar`,
+			},
+			{
+				artifact: "lookup-tables",
+				where: "/Types/tag",
+				entry: `${E}/tag-types`,
+			},
+			{
+				artifact: "lookup-tables",
+				where: "/Types/id",
+				entry: `${E}/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table`,
+			},
+		]);
+		expect(
+			records.find((record) => record.entry === `${E}/tag-types`),
+		).toMatchObject({ standing: "held", key: null });
+	});
+
+	it("settles a rich table's field values, row attributes and absent cells where HQ's definition holds them, and none of a table HQ keeps per owner", () => {
+		const records = settledClaims({
+			data: projectData([
+				richTableRead("crops", "d4"),
+				richTableRead("plots", "e5", false),
+			]),
+			reads: readsOf({ crops: ["name"], plots: ["name"] }),
+			doc: null,
+			media: null,
+		});
+		const tables = records.filter(
+			(record) => record.artifact === "lookup-tables",
+		);
+		expect(
+			tables.map(({ where, entry, standing }) => ({ where, entry, standing })),
+		).toEqual([
+			{
+				where: "/crops/tag",
+				entry: `${E}/table-tag-in-nova-s-grammar`,
+				standing: "held",
+			},
+			{
+				where: "/crops/fields/1/properties",
+				entry: `${E}/fields-properties-and-multi-valued-cells-name-lang-en-name-name`,
+				standing: "held",
+			},
+			{
+				where: "/crops/fields/2",
+				entry: `${E}/absent-field-vs-zero-values-vs-empty-string`,
+				standing: "held",
+			},
+			{
+				where: "/crops/item_attributes",
+				entry: `${E}/item-attributes-and-per-row-attribute-values`,
+				standing: "held",
+			},
+			{
+				where: "/crops/id",
+				entry: `${E}/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table`,
+				standing: "kept",
+			},
+			{
+				where: "/plots/tag",
+				entry: `${E}/table-tag-in-nova-s-grammar`,
+				standing: "held",
+			},
+			{
+				where: "/plots/id",
+				entry: `${E}/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table`,
+				standing: "kept",
+			},
+		]);
+	});
+
+	it("settles a held file past its kind's upload cap at its first path, and none at the cap", () => {
+		const at = "/multimedia_map/jr:~1~1file~1commcare~1image~1large.png";
+		for (const sizeBytes of [5 * 1024 * 1024, 5 * 1024 * 1024 + 1]) {
+			const records = settledClaims({
+				data: DATA,
+				reads: readsOf({}),
+				doc: null,
+				media: {
+					files: [
+						planFile("large", "image", ["jr://file/commcare/image/large.png"]),
+					],
+					verdicts: {
+						large: {
+							kind: "held",
+							file: {
+								...judged({
+									mediaFormat: "png",
+									kind: "image",
+									mimeType: "image/png",
+								}),
+								sizeBytes,
+							},
+						},
+					},
+					staged: new Map(),
+					published: {},
+				},
+			});
+			const large = records.filter(
+				(record) =>
+					record.entry ===
+					`${E}/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+			);
+			expect(large).toEqual(
+				sizeBytes > 5 * 1024 * 1024
+					? [
+							{
+								artifact: "app.json",
+								where: at,
+								key: null,
+								entry: `${E}/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+								standing: "held",
+							},
+						]
+					: [],
+			);
+		}
 	});
 
 	it("settles no file before its verdict, no path outside jr://file/, and no Connect entry for an app that is none", () => {

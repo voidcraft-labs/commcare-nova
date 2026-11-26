@@ -1,3 +1,4 @@
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 /**
  * Validation runner — single entry point for structured blueprint validation.
  *
@@ -107,7 +108,13 @@ export interface RunValidationOptions {
  * locations (`formUuid` always present).
  */
 const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
+	"MENU_FORM_SOURCE_INVALID",
 	"ENTRY_POINT_INVALID",
+	// A case list icon names a form that may sit in another menu, so an edit
+	// there can strand it.
+	"CASE_LIST_ICON_ACTION_INVALID",
+	// A form behavior text: a translation or language edit anywhere can break it.
+	"FORM_BEHAVIOR_TEXT_INVALID",
 	// APP_RULES products.
 	"CASE_PARENT_SELECTION_CONFLICT",
 	// A child form's entry reads its root menu's first form, so a batch in
@@ -117,8 +124,6 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"EMPTY_APP_NAME",
 	"APP_TEXT_UNREPRESENTABLE",
 	"CASE_PROPERTY_OPTION_VALUE_INVALID",
-	"CONNECT_ID_DUPLICATE",
-	"CONNECT_NO_PARTICIPATING_FORMS",
 	"PLATFORM_FEATURE_UNAVAILABLE",
 	// A move scoped to another module can strand a case list registration
 	// slot, so its backstop runs as an app rule.
@@ -126,6 +131,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// The case list registration app rule reads a form in another module for
 	// the `always` arm, and owns each of these codes whole, both arms alike.
 	"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+	"CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT",
 	"CASE_LIST_REGISTRATION_MULTIPLE_RETURN",
 	"CASE_LIST_REGISTRATION_FORM_NOT_FOUND",
 	"CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST",
@@ -181,6 +187,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// carriers and are therefore scope-exempt just like app-wide rules.
 	"LOOKUP_CONTEXT_UNAVAILABLE",
 	"LOOKUP_TABLE_NOT_AVAILABLE",
+	"LOOKUP_PATH_NAME_UNAVAILABLE",
 	"LOOKUP_COLUMN_NOT_AVAILABLE",
 	"LOOKUP_COLUMN_TYPE_MISMATCH",
 ]);
@@ -307,7 +314,8 @@ export function* structuralValidationSteps(
 
 	const entryPlan = entryPlanContext(doc);
 	for (const moduleUuid of doc.moduleOrder) {
-		const mod = doc.modules[moduleUuid];
+		const mod =
+			menuWithInheritedCaseSettings(doc, moduleUuid) ?? doc.modules[moduleUuid];
 		const inModuleScope = scopeHasModule(scope, moduleUuid);
 
 		// The scope filter restricts WHICH entities are walked — the perf
@@ -387,11 +395,7 @@ function runDeepValidation(
 		(deep): ValidationError => {
 			switch (deep.kind) {
 				case "field-xpath":
-					return presentFormLogicFinding(
-						doc,
-						{ entity: "field", uuid: deep.fieldUuid, slot: deep.surface },
-						deep.error,
-					);
+					return presentFormLogicFinding(doc, deep.ref, deep.error);
 				case "field-prose":
 					if (deep.error.slot !== undefined)
 						return presentFormLogicFinding(doc, deep.error.slot, deep.error);
@@ -413,12 +417,6 @@ function runDeepValidation(
 						},
 					);
 
-				case "connect-xpath":
-					return presentFormLogicFinding(
-						doc,
-						{ entity: "form", uuid: deep.formUuid, slot: deep.slot },
-						deep.error,
-					);
 				case "form-link-xpath": {
 					const entry = formLinkEntries(doc.forms[deep.formUuid])[
 						deep.indices[0]
@@ -549,6 +547,15 @@ const PROSE_SURFACE_LABELS: Record<ProseSurface, string> = {
 	hint: "hint",
 	help: "help text",
 	validate_msg: "validation message",
+	extended_text: "extended text",
+	extended_hint: "extended hint",
+	extended_help: "extended help",
+	extended_validate_msg: "extended validation message",
+	option_extended_text: "extended choice text",
+	qr_code: "QR code",
+	spoken_text: "spoken text",
+	addFirstLabel: "first entry button",
+	addLabel: "another entry button",
 	option_label: "answer option label",
 };
 

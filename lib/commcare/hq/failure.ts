@@ -56,6 +56,7 @@ export type HqPermissionNeed =
 	| "locations";
 
 interface HqFailureOf<K extends HqFailureKind> {
+	readonly installationProfileKeyUnusable?: boolean;
 	readonly kind: K;
 	readonly request: HqRequestKind;
 	/** The status HQ, its edge or the reader gave. */
@@ -128,7 +129,13 @@ export function classifyHqFailure(
 	if (error.cause === "too-large") return of("too-large");
 	if (error.cause === "browser-page" || (status >= 300 && status <= 399))
 		return of("browser-only");
-	if (error.cause === "malformed") return of("answer-unreadable");
+	if (error.cause === "malformed")
+		return {
+			...of("answer-unreadable"),
+			...(error.installationProfileKeyUnusable && {
+				installationProfileKeyUnusable: true,
+			}),
+		};
 	if (status === 401) {
 		/* `hqmedia/views.py::ViewMultimediaFile` asks no key, plan or
 		 * permission, so a 401 on a media file says nothing of the caller's. */
@@ -186,6 +193,8 @@ const PERMISSION_CIRCUMSTANCE: Readonly<
 
 /** The `READ_CIRCUMSTANCES` code a failed read of HQ is, by its kind and by what was asked. */
 export function hqReadCircumstance(failure: HqFailure): ReadCircumstance {
+	if (failure.installationProfileKeyUnusable)
+		return "installation-profile-key-unusable";
 	switch (failure.kind) {
 		case "gateway-refused":
 			return "hq-gateway-refused";
@@ -207,15 +216,15 @@ export function hqReadCircumstance(failure: HqFailure): ReadCircumstance {
 		 * Nova could not read. */
 		case "not-found":
 			return APP_REQUESTS.has(failure.request) ? "app-gone" : "hq-unavailable";
-		/* `too-large` words the app itself; the rows of the tables one request
-		 * reads, together past what Nova brings in, are the app's lookup data;
-		 * a long list is no app. */
+		/* `too-large` words the app itself; a long list is no app. No size of
+		 * lookup data stops a read: a table's rows past one inline read answer
+		 * `past-limit`, and the table comes in as its confirmed definition
+		 * (`reading/projectData/lookupTableStore.ts`), so `too-large` on a rows
+		 * read is an answer Nova could not read like any other. */
 		case "too-large":
 			return APP_BODY_REQUESTS.has(failure.request)
 				? "too-large"
-				: failure.request === "lookup-rows"
-					? "lookup-data-too-large"
-					: "hq-unavailable";
+				: "hq-unavailable";
 		case "hq-unavailable":
 		case "timed-out":
 		case "answer-unreadable":

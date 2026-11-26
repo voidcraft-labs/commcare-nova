@@ -146,6 +146,7 @@ export function keptValues() {
 			),
 		},
 	};
+	doc.appSettings.captureLocation = true;
 	return targetedDocument({
 		id: ID,
 		rows: [

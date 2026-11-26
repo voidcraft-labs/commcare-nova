@@ -81,8 +81,7 @@ export interface ConditionalCaseUpdate {
 
 /**
  * HQ's `CaseIndex`. `relationship` is a `choices=` slot (`child`,
- * `extension`, `question`); Nova writes the first two, and no
- * `relationship_question`, so that slot is its default `""`.
+ * `extension`, `question`); a question supplies its connection kind at runtime.
  */
 export interface CaseIndex {
 	doc_type: "CaseIndex";
@@ -90,16 +89,16 @@ export interface CaseIndex {
 	tag: string;
 	/** The index's name; HQ's default `"parent"` where `tag` is `""`. */
 	reference_id: string;
-	relationship: "child" | "extension";
-	relationship_question: "";
+	relationship: "child" | "extension" | "question";
+	relationship_question: string;
 }
 
 /** HQ's `AutoSelectCase`, in the one mode Nova writes: the worker's own record. */
 export interface AutoSelectCase {
 	doc_type: "AutoSelectCase";
-	mode: "usercase";
-	value_source: "";
-	value_key: "";
+	mode: "usercase" | "user" | "fixture" | "case" | "raw";
+	value_source: string;
+	value_key: string;
 }
 
 /** HQ's `LoadUpdateAction`: a case the form loads, and what it writes to it. */
@@ -111,7 +110,7 @@ export interface LoadUpdateAction {
 	details_module: string | null;
 	case_properties: Record<string, ConditionalCaseUpdate>;
 	/** Always empty: a preload is a question's default in Nova. */
-	preload: Record<string, never>;
+	preload: Record<string, string>;
 	close_condition: FormActionCondition;
 	case_index: CaseIndex;
 	auto_select: AutoSelectCase | null;
@@ -149,6 +148,7 @@ export interface AdvancedFormActions {
  * surfaces in place of the key when the row matches.
  */
 export interface MappingItem<Key = string> {
+	alt_text?: LocalizedString;
 	key: Key;
 	value: LocalizedString;
 }
@@ -168,7 +168,14 @@ export type DetailColumnFormat =
 	| "date"
 	| "phone"
 	| "enum"
+	// Ordered conditions over the column, each showing its translated text
+	// (`detail_screen.py::ConditionalEnum`).
+	| "conditional-enum"
 	| "enum-image"
+	// An `enum-image` a worker's tap on a case list runs: it submits the form
+	// whose entry point `endpoint_action_id` names
+	// (`detail_screen.py::ClickableIcon`).
+	| "clickable-icon"
 	| "time-ago"
 	| "late-flag"
 	| "translatable-enum"
@@ -177,7 +184,13 @@ export type DetailColumnFormat =
 	// `detail_screen.py::Markdown` (`@register_format_type('markdown')`) and
 	// unconstrained on the wire — `models/case_list.py::DetailColumn.format`
 	// is a bare `StringProperty()` with no `choices`, so it imports cleanly.
+	| "distance"
 	| "markdown"
+	| "address"
+	| "geo-boundary"
+	| "geo-boundary-color"
+	| "geo-points"
+	| "geo-points-colors"
 	| "invisible";
 
 interface DetailColumnBase<XPath> {
@@ -207,7 +220,10 @@ interface DetailColumnBase<XPath> {
 	isTab: boolean;
 	graph_configuration: null;
 	relevant: XPath | "";
-	case_tile_field: null;
+	case_tile_field: string | null;
+	/** How a phone loads the value (`DetailColumn.optimization`), written
+	 *  only on a column that holds a load behavior. */
+	optimization?: "cache" | "lazy_load" | "cache_and_lazy_load";
 	/**
 	 * Custom-tile placement, zero-based. CCHQ's own names are
 	 * `grid_x` / `grid_y` for the origin and the unprefixed
@@ -246,9 +262,15 @@ export type DetailColumn<
 		| { useXpathExpression: false; field: string }
 		| { useXpathExpression: true; field: XPath }
 	) &
-	(Format extends "enum-image"
-		? { format: Format; enum: MappingItem<XPath>[] }
-		: { format: Format; enum: MappingItem[] });
+	(Format extends "clickable-icon"
+		? {
+				format: Format;
+				enum: MappingItem<XPath | string>[];
+				endpoint_action_id: string;
+			}
+		: Format extends "enum-image" | "conditional-enum"
+			? { format: Format; enum: MappingItem<XPath | string>[] }
+			: { format: Format; enum: MappingItem[] });
 
 /**
  * One sort row of a case-list short detail, CCHQ's `SortElement`
@@ -258,8 +280,9 @@ export type DetailColumn<
  * `_cc_calculated_<position>`; `type` the page's word (`plain`, `date`,
  * `int`, `double`); `direction` the long-form `ascending` / `descending`;
  * `blanks` `first` ascending and `last` descending; `display` the first
- * language's wire code with empty text; `sort_calculation` empty, since the
- * save empties it unless the project has `SORT_CALCULATION_IN_CASE_LIST`.
+ * language's wire code with empty text when no label is supplied. A calculation-only
+ * rule stores its expression under `sort_calculation` and needs the project
+ * flag `SORT_CALCULATION_IN_CASE_LIST` for the Case List editor to retain it.
  * The oracle (`validator/hqJsonOracle.ts`) refuses the former spellings.
  */
 export interface SortElement<XPath = string> {
@@ -271,6 +294,18 @@ export interface SortElement<XPath = string> {
 	sort_calculation: XPath | "";
 }
 
+export interface DetailTab<XPath = string> {
+	doc_type: "DetailTab";
+	isTab: true;
+	header: Record<string, string>;
+	starting_index: number;
+	has_nodeset: boolean;
+	relevant?: XPath;
+	nodeset?: XPath;
+	nodeset_case_type?: string;
+	nodeset_filter?: XPath;
+}
+
 export interface DetailBase<XPath = string> {
 	/**
 	 * CommCare's case-list cardinality. These fields are written only on the
@@ -278,6 +313,7 @@ export interface DetailBase<XPath = string> {
 	 * Omission keeps CommCare's single-select defaults.
 	 */
 	multi_select?: boolean;
+	auto_select?: true;
 	max_select_value?: number;
 	sort_elements: SortElement<XPath>[];
 	/**
@@ -288,7 +324,12 @@ export interface DetailBase<XPath = string> {
 	 * page's language.
 	 */
 	no_items_text?: LocalizedString;
-	tabs: unknown[];
+	/**
+	 * The Continue label, per app language, written only where the case
+	 * list holds its own; HQ's model default is `{en: "Continue"}`.
+	 */
+	select_text?: LocalizedString;
+	tabs: DetailTab<XPath>[];
 	/** Always-on filter applied to the case list nodeset, before user
 	 *  search. The bare on-device XPath wire string lands here per
 	 *  CCHQ's `Detail.filter = StringProperty(exclude_if_none=True)`.
@@ -298,14 +339,14 @@ export interface DetailBase<XPath = string> {
 	lookup_enabled: boolean;
 	lookup_autolaunch: boolean;
 	lookup_display_results: boolean;
-	lookup_name: null;
-	lookup_image: null;
-	lookup_action: null;
-	lookup_field_template: null;
-	lookup_field_header: Record<string, never>;
-	lookup_extras: unknown[];
-	lookup_responses: unknown[];
-	persist_case_context: null;
+	lookup_name: string | null;
+	lookup_image: string | null;
+	lookup_action: string | null;
+	lookup_field_template: XPath | null;
+	lookup_field_header: LocalizedString;
+	lookup_extras: { key: string; value: XPath }[];
+	lookup_responses: { key: string }[];
+	persist_case_context: true | null;
 	persistent_case_context_xml: XPath;
 	/**
 	 * Keeps the short detail on screen once a case is chosen from the list,
@@ -316,8 +357,8 @@ export interface DetailBase<XPath = string> {
 	 * (`suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`).
 	 */
 	persist_tile_on_forms: boolean | null;
-	persistent_case_tile_from_module: null;
-	pull_down_tile: null;
+	persistent_case_tile_from_module: string | null;
+	pull_down_tile: true | null;
 	/**
 	 * Which tile vocabulary CCHQ regenerates this detail with. Nova emits
 	 * only `"custom"` — the arm where every column carries its own grid
@@ -335,7 +376,7 @@ export interface DetailBase<XPath = string> {
 	 * which is exactly why it bypasses the per-template slot-mapping
 	 * validators.
 	 */
-	case_tile_template: "custom" | null;
+	case_tile_template: "custom" | "icon_text_grid" | null;
 	/**
 	 * Grouping for a tile-laid-out short detail: which case index keys
 	 * the groups, and how many of the tile's top rows are the group
@@ -437,6 +478,7 @@ export interface CaseSearchItemset<XPath = string> {
 }
 
 export interface CaseSearchProperty<XPath = string> {
+	receiver_expression?: string;
 	name: string;
 	label: LocalizedString;
 	hint?: LocalizedString;
@@ -509,16 +551,27 @@ export interface DefaultCaseSearchProperty<XPath = string> {
  * It is never an author-facing option.
  */
 export interface CaseSearchConfig<XPath = string> {
+	instance_name?: string;
 	doc_type: "CaseSearch";
+	case_search_endpoint_id?: number;
 	search_button_label: LocalizedString | Record<string, never>;
 	properties: CaseSearchProperty<XPath>[];
 	auto_launch: boolean;
 	default_search: boolean;
+	search_on_clear?: true;
 	inline_search: boolean;
 	include_all_related_cases: boolean;
+	additional_case_types?: string[];
+	custom_related_case_property?: string;
 	search_button_display_condition?: XPath;
 	default_properties: DefaultCaseSearchProperty<XPath>[];
 	blacklisted_owner_ids_expression?: XPath;
+	custom_sort_properties?: {
+		doc_type: "CaseSearchCustomSortProperty";
+		property_name: string;
+		sort_type: "exact" | "date" | "numeric";
+		direction: "ascending" | "descending";
+	}[];
 	title_label: LocalizedString | Record<string, never>;
 	description: LocalizedString | Record<string, never>;
 }
@@ -585,8 +638,11 @@ export type HqFormLink<XPath = string> =
 
 /** The keys a basic and an advanced form share (HQ's `FormBase` and its mixins). */
 interface HqFormBase<XPath, LinkXPath> {
+	submit_label?: LocalizedString;
 	session_endpoint_id?: string;
+	auto_gps_capture?: boolean;
 	respect_relevancy?: boolean;
+	function_datum_endpoints?: string[];
 	unique_id: string;
 	name: LocalizedString;
 	xmlns: string;
@@ -629,12 +685,33 @@ export interface HqAdvancedForm<XPath = string, LinkXPath = XPath>
 	doc_type: "AdvancedForm";
 	form_type: "advanced_form";
 	actions: AdvancedFormActions;
-	arbitrary_datums: [];
+	arbitrary_datums: {
+		doc_type: "ArbitraryDatum";
+		datum_id: string;
+		datum_function: string;
+	}[];
+}
+
+/** A second entry of one advanced form. HQ computes its namespace and
+ * actions from its parent. Only extra_actions belongs in the upload. */
+export interface HqShadowForm<XPath = string, LinkXPath = XPath>
+	extends Omit<
+		HqAdvancedForm<XPath, LinkXPath>,
+		"actions" | "doc_type" | "form_type" | "xmlns"
+	> {
+	doc_type: "ShadowForm";
+	form_type: "shadow_form";
+	shadow_parent_form_id: string;
+	extra_actions: AdvancedFormActions;
+	xmlns: null;
 }
 
 /** The keys a basic and an advanced module share (HQ's `ModuleBase` and its mixins). */
 interface HqModuleBase<XPath> {
 	session_endpoint_id?: string;
+	/** Faster loading is on (`show_case_list_optimization_options`, a field of
+	 *  `Module`, `AdvancedModule` and `ShadowModule`); written only where on. */
+	show_case_list_optimization_options?: true;
 	case_list_session_endpoint_id?: string;
 	unique_id: string;
 	name: LocalizedString;
@@ -699,19 +776,39 @@ export interface HqAdvancedModule<XPath = string, LinkXPath = XPath>
 	extends HqModuleBase<XPath> {
 	doc_type: "AdvancedModule";
 	module_type: "advanced";
-	forms: HqAdvancedForm<XPath, LinkXPath>[];
+	forms: (HqAdvancedForm<XPath, LinkXPath> | HqShadowForm<XPath, LinkXPath>)[];
 	product_details: DetailPair<XPath>;
 }
 
-/** Either kind of menu Nova writes. */
+/** A menu with its own navigation and details that lists a source menu's forms. */
+export interface HqSharedFormsModule<XPath = string>
+	extends Omit<HqModuleBase<XPath>, "case_type"> {
+	case_type?: never;
+	doc_type: "ShadowModule";
+	module_type: "shadow";
+	shadow_module_version: 2;
+	source_module_id: string;
+	excluded_form_ids: string[];
+	form_session_endpoints: {
+		doc_type: "ShadowFormEndpoint";
+		form_id: string;
+		session_endpoint_id: string;
+	}[];
+	forms: [];
+	parent_select: HqModule<XPath>["parent_select"];
+}
+
+/** Every kind of menu Nova writes. */
 export type HqAnyModule<XPath = string, LinkXPath = XPath> =
 	| HqModule<XPath, LinkXPath>
-	| HqAdvancedModule<XPath, LinkXPath>;
+	| HqAdvancedModule<XPath, LinkXPath>
+	| HqSharedFormsModule<XPath>;
 
 /** Either kind of form Nova writes. */
 export type HqAnyForm<XPath = string, LinkXPath = XPath> =
 	| HqForm<XPath, LinkXPath>
-	| HqAdvancedForm<XPath, LinkXPath>;
+	| HqAdvancedForm<XPath, LinkXPath>
+	| HqShadowForm<XPath, LinkXPath>;
 
 /**
  * CommCare HQ's complete profile bag on an existing app source.
@@ -730,6 +827,7 @@ export interface HqApplicationProfile {
 	 * carries as it is.
 	 */
 	properties?: Record<string, unknown>;
+	features?: Record<string, unknown>;
 	/**
 	 * HQ persists this inside an unschematized DictProperty. Nova-authored
 	 * values are strings, but a target app may already contain any JSON value;
@@ -742,8 +840,7 @@ export interface HqApplicationProfile {
 /**
  * The HQ app document Nova emits, listing ONLY fields Nova authors.
  *
- * App content Nova does not author yet (`case_sharing`)
- * and target-owned settings and state (`secure_submissions`, `build_spec` and
+ * Target-owned settings and state (`secure_submissions`, `build_spec` and
  * the rest of the build/release metadata, `logo_refs`, and the rest of HQ's
  * App Settings fields) are deliberately absent. Three keys hold Nova's values
  * beside the target's own: `translations`, `add_ons` and `profile`. An
@@ -752,7 +849,12 @@ export interface HqApplicationProfile {
  * result equals what HQ holds.
  */
 export interface HqApplication<XPath = string, LinkXPath = XPath> {
+	build_profiles?: Record<
+		string,
+		import("./installationProfiles").WireBuildProfile
+	>;
 	doc_type: "Application";
+	case_sharing?: boolean;
 	application_version: string;
 	name: string;
 	langs: string[];
@@ -767,6 +869,8 @@ export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	 * `true` for a Connect app, and absent otherwise, so an update keeps the
 	 * Auto Capture Location a person turned on in HQ.
 	 */
+	use_grid_menus?: boolean;
+	grid_form_menus?: "none" | "all" | "some";
 	auto_gps_capture?: boolean;
 	/**
 	 * The seventeen settings, and the derived custom properties where Nova
@@ -801,6 +905,6 @@ export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	 * carries the target's other slugs beside them.
 	 */
 	add_ons?: Record<string, boolean>;
-	modules: (HqModule<XPath, LinkXPath> | HqAdvancedModule<XPath, LinkXPath>)[];
+	modules: HqAnyModule<XPath, LinkXPath>[];
 	_attachments: Record<string, string>;
 }

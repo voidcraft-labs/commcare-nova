@@ -89,6 +89,91 @@ describe("search widget admission", () => {
 				destinationCaseType: "patient",
 			});
 	});
+	// The project space's own matching rule matches a field with its matching over any type: a
+	// date range over text reads the date its index reads from the stored text.
+	it.each([
+		["date-range", "text"],
+		["date-range", "int"],
+		["barcode", "int"],
+	] satisfies [SearchInputType, CasePropertyDataType][])(
+		"admits %s over %s with the project space's matching, and offers it where Nova's refuses",
+		(type, dataType) => {
+			const refused = findings(candidate(type, dataType)).filter(
+				(error) => error.code === code,
+			);
+			expect(refused[0]?.details).toMatchObject({
+				projectSpaceCanMatch: "true",
+			});
+			const doc = candidate(type, dataType);
+			const module = doc.modules[doc.moduleOrder[0]];
+			const config = module.caseListConfig;
+			if (config === undefined) throw new Error("The fixture lists cases.");
+			const native = {
+				...doc,
+				modules: {
+					...doc.modules,
+					[module.uuid]: {
+						...module,
+						caseListConfig: {
+							...config,
+							searchInputs: config.searchInputs.map((input) => ({
+								...input,
+								matching: "project-space" as const,
+							})),
+						},
+					},
+				},
+			};
+			expect(findings(native)).toEqual([]);
+		},
+	);
+	it("offers no project space matching to a field that searches another property", () => {
+		const base = admittedCaseListDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "value", label: proseText("Value"), data_type: "text" },
+					],
+				},
+			],
+		});
+		const errors = findings(
+			withSearchInputs(base, [
+				simpleSearchInputDef(
+					testUuid("prompt"),
+					"seen",
+					"Seen",
+					"barcode",
+					"value",
+				),
+			]),
+		).filter((error) => error.code === code);
+		expect(errors).toEqual([]);
+		const int = admittedCaseListDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "value", label: proseText("Value"), data_type: "int" },
+					],
+				},
+			],
+		});
+		const refused = findings(
+			withSearchInputs(int, [
+				simpleSearchInputDef(
+					testUuid("prompt"),
+					"seen",
+					"Seen",
+					"barcode",
+					"value",
+				),
+			]),
+		).filter((error) => error.code === code);
+		expect(refused).toHaveLength(1);
+		expect(refused[0]?.details?.projectSpaceCanMatch).toBeUndefined();
+	});
 	it("admits a date advanced prompt without inventing one target property", () =>
 		expect(findings(candidate("date", "int", true))).toEqual([]));
 });

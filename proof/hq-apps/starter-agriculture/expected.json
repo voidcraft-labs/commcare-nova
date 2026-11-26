@@ -127,6 +127,7 @@
 		"forms-and-case-writes/version",
 		"forms-and-case-writes/xmlns-form-json-and-xform-data-node",
 		"menus-and-case-lists/1-plain-over-a-property-that-is-not-a-select-with-options",
+		"menus-and-case-lists/1p-plain-over-a-property-select-questions-write",
 		"menus-and-case-lists/2-date-date-format-d-m-y-d-m-y-m-d-y-m-d-y-b-d-y",
 		"menus-and-case-lists/4-phone",
 		"menus-and-case-lists/5-enum-id-mapping",
@@ -229,7 +230,6 @@
 		"sort-rule-kept-as-hidden-column",
 		"list-settings-respelled",
 		"names-respelled",
-		"media-maps-respelled",
-		"hidden-value-defaults-dropped"
+		"media-maps-respelled"
 	]
 }

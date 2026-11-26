@@ -32,7 +32,11 @@ import {
 	USE_HQ_VERSION_ACTION,
 	USE_HQ_VERSION_HELPER,
 } from "@/lib/publish/hqChangesCopy";
-import type { CircumstanceFinding, Finding } from "@/lib/publish/hqFindings";
+import {
+	type CircumstanceFinding,
+	circumstanceFinding,
+	type Finding,
+} from "@/lib/publish/hqFindings";
 import {
 	bothListsText,
 	cardDriftReference,
@@ -78,6 +82,7 @@ function changes(overrides: Partial<ChangesReview> = {}): ChangesReview {
 		observedDigest: "o".repeat(64),
 		renamedInNova: [],
 		tables: [],
+		ownerRules: [],
 		projectName: "Field team",
 		readingId: "reading-1",
 		reviewDigest: "d".repeat(64),
@@ -144,6 +149,58 @@ describe("the review", () => {
 		expect(
 			nextRequest(reduceHqChangesPanel(opened, { type: "sent", id: 7 })),
 		).toEqual({ id: 1, kind: "review" });
+	});
+
+	it("shows how to recover a claimed target whose required review is unavailable", () => {
+		const state = answered({
+			kind: "unavailable",
+			reason: "baseline-unread",
+			since: { kind: "published" },
+			requiresReview: true,
+		});
+		for (const context of [CARD, PUBLISH]) {
+			const body = panelView(state, context).body;
+			if (body.kind !== "line")
+				throw new Error("Expected recovery for the unread HQ target.");
+			for (const step of [
+				"Project admin or owner",
+				"Stop publishing here",
+				"publish in progress finishes",
+				"new Nova app",
+				"different project space",
+			])
+				expect(body.line).toContain(step);
+		}
+	});
+
+	it("waits for the member to accept an older target's first-publish review and shows no discard", () => {
+		const state = answered(
+			changes({
+				requiresReview: true,
+				hqChanges: ["Publishing removes the old picture reference."],
+			}),
+		);
+		expect(nextRequest(state)).toBeNull();
+		expect(publishOverDiscard(state, "app-1")).toBeNull();
+		for (const context of [CARD, PUBLISH])
+			expect(panelView(state, context).body).toMatchObject({
+				kind: "lists",
+				choices: { bringIn: { discard: false }, publishOver: null },
+			});
+		const pending = reduceHqChangesPanel(state, {
+			type: "bring-in-pressed",
+			discard: false,
+			at: AT,
+		});
+		expect(nextRequest(pending)?.kind).toBe("bring-in");
+		const done = reduceHqChangesPanel(pending, {
+			type: "bring-in-answered",
+			outcome: { kind: "recorded", deployment: VIEW },
+		});
+		expect(panelView(done, CARD).body).toEqual({
+			kind: "brought-in",
+			line: "Nova recorded your review for the next publish.",
+		});
 	});
 
 	it("draws the stage row with the stage the stream names, its file count moving every ten files for a screen reader", () => {
@@ -258,6 +315,7 @@ describe("changes, and nothing in Nova would be removed", () => {
 			readingId: "reading-1",
 			reviewDigest: "d".repeat(64),
 			tableChoices: {},
+			ownerRuleChoices: {},
 		});
 		const sent = reduceHqChangesPanel(pressed, { type: "sent", id: 2 });
 		expect(nextRequest(sent)).toBeNull();
@@ -356,20 +414,27 @@ describe("changes, and changes in Nova that would be removed", () => {
 		expect(publishOverDiscard(running, "app-1")).toBeNull();
 	});
 
-	it("puts the renamed properties' line in place of Use CommCare HQ's version where a case property was renamed in Nova, and refuses the press", () => {
-		const renames = [{ caseType: "patient", from: "age", to: "years" }];
-		const state = answered({ ...s2, renamedInNova: renames });
-		expect(panelView(state, PUBLISH).body).toMatchObject({
-			choices: { bringIn: null, renamed: renamedInNovaLine(renames) },
-		});
-		expect(
-			reduceHqChangesPanel(state, {
-				type: "bring-in-pressed",
-				discard: true,
-				at: AT,
-			}),
-		).toBe(state);
-	});
+	it.each([true, false])(
+		"explains the saved-data hold and refuses the take with a Nova change list present: %s",
+		(removes) => {
+			const renames = [{ caseType: "patient", from: "age", to: "years" }];
+			const state = answered({
+				...s2,
+				novaChanges: removes ? s2.novaChanges : [],
+				renamedInNova: renames,
+			});
+			expect(panelView(state, PUBLISH).body).toMatchObject({
+				choices: { bringIn: null, renamed: renamedInNovaLine(renames) },
+			});
+			expect(
+				reduceHqChangesPanel(state, {
+					type: "bring-in-pressed",
+					discard: removes,
+					at: AT,
+				}),
+			).toBe(state);
+		},
+	);
 
 	it("copies every line of both lists, shown or not, under their two headings", () => {
 		const long = changes({
@@ -404,6 +469,30 @@ describe("changes, and changes in Nova that would be removed", () => {
 });
 
 describe("a list longer than ten lines", () => {
+	it("waits to offer either decision until every physical file it would remove is visible", () => {
+		const files = Array.from(
+			{ length: 20 },
+			(_, i) =>
+				`Publishing removes the reference to “visit-${i}” from the app in CommCare HQ. This app doesn't use it.`,
+		);
+		const state = answered(
+			changes({
+				hqChanges: [...files, "The app’s name"],
+				fileReviewLines: files.length,
+			}),
+		);
+		const take = { type: "bring-in-pressed", discard: false, at: 1 } as const;
+		expect(panelView(state, PUBLISH).body).toMatchObject({
+			choices: { bringIn: null, publishOver: null },
+		});
+		expect(reduceHqChangesPanel(state, take)).toBe(state);
+		expect(publishOverDiscard(state, "app")).toBeNull();
+		const all = reduceHqChangesPanel(state, { type: "show-all", list: "hq" });
+		expect(reduceHqChangesPanel(all, take).phase.kind).toBe("bringing-in");
+		expect(publishOverDiscard(all, "app")).toMatchObject({
+			novaResourceId: "app",
+		});
+	});
 	it("shows its first ten and Show all with the whole count, then every line", () => {
 		const lines = Array.from({ length: 13 }, (_, i) => `line ${i}`);
 		const state = answered(changes({ hqChanges: lines }));
@@ -530,6 +619,82 @@ describe("a table that asks its choice", () => {
 		});
 		expect(pressed.needsChoice).toEqual({ nonce: 1 });
 		expect(nextRequest(pressed)).toBeNull();
+	});
+});
+
+describe("an owner rule the places cannot satisfy", () => {
+	const rule = {
+		level: "clinic",
+		levelName: "Clinic",
+		conflict: { kind: "no-place", source: "North district" },
+		forms: ["Transfer"],
+	} as const;
+	const withRule = changes({ ownerRules: [rule] });
+
+	it("is drawn, and a bring-in pressed before it is answered asks for it and sends nothing", () => {
+		const state = answered(withRule);
+		expect(panelView(state, PUBLISH).body).toMatchObject({
+			ownerRules: [rule],
+		});
+		const pressed = reduceHqChangesPanel(state, {
+			type: "bring-in-pressed",
+			discard: false,
+			at: AT,
+		});
+		expect(pressed.needsChoice).toEqual({ nonce: 1 });
+		expect(nextRequest(pressed)).toBeNull();
+	});
+
+	it("sends the person's answer with the bring-in", () => {
+		const pressed = run(
+			[
+				{ type: "owner-rule-chosen", level: "clinic", choice: "worker" },
+				{ type: "bring-in-pressed", discard: false, at: AT },
+			],
+			answered(withRule),
+		);
+		expect(nextRequest(pressed)).toMatchObject({
+			kind: "bring-in",
+			ownerRuleChoices: { clinic: "worker" },
+		});
+	});
+
+	it("takes no answer for a level the review does not ask about", () => {
+		const state = reduceHqChangesPanel(answered(withRule), {
+			type: "owner-rule-chosen",
+			level: "region",
+			choice: "worker",
+		});
+		expect(state.ownerRuleChoices).toEqual({});
+	});
+
+	it("asks again where the review the bring-in came back with asks another question", () => {
+		const sent = run(
+			[
+				{ type: "owner-rule-chosen", level: "clinic", choice: "worker" },
+				{ type: "bring-in-pressed", discard: false, at: AT },
+				{ type: "sent", id: 2 },
+			],
+			answered(withRule),
+		);
+		const now = changes({
+			reviewDigest: "e".repeat(64),
+			ownerRules: [
+				{
+					...rule,
+					conflict: {
+						kind: "two-places",
+						source: "North district",
+						places: ["First clinic", "Second clinic"],
+					},
+				},
+			],
+		});
+		const moved = reduceHqChangesPanel(sent, {
+			type: "bring-in-answered",
+			outcome: { kind: "changed", now, editedBy: null },
+		});
+		expect(moved.ownerRuleChoices).toEqual({});
 	});
 });
 
@@ -704,6 +869,7 @@ describe("nothing to bring in", () => {
 			readingId: "reading-2",
 			reviewDigest: "r".repeat(64),
 			tableChoices: {},
+			ownerRuleChoices: {},
 		});
 		const sent = reduceHqChangesPanel(state, { type: "sent", id: 2 });
 		expect(nextRequest(sent)).toBeNull();
@@ -744,6 +910,7 @@ describe("nothing to bring in", () => {
 				readingId: "reading-2",
 				reviewDigest: "r".repeat(64),
 				tableChoices: {},
+				ownerRuleChoices: {},
 			});
 			expect(checked.settled).toBeNull();
 			const landed = run(
@@ -895,6 +1062,31 @@ describe("something Nova can't hold, and the stops", () => {
 		});
 	});
 
+	it("draws one file past what Nova reads as the account's item, with the file named, never as the app's size", () => {
+		const file = circumstanceFinding(
+			"media-file-too-large",
+			{ kind: "media", path: "jr://file/commcare/video/visit.mp4" },
+			{
+				name: "jr://file/commcare/video/visit.mp4 (over 1 GB, the most Nova reads of a video)",
+			},
+		);
+		const view = panelView(
+			answered({
+				kind: "account",
+				findings: [file],
+				more: 0,
+				counts: { notYet: 0, never: 0, fixInHq: 1 },
+			}),
+			PUBLISH,
+		);
+		expect(view.body).toMatchObject({
+			kind: "account",
+			lead: cannotBringInLead(1),
+			tooLarge: null,
+		});
+		expect(view.drawsItem).toBe(true);
+	});
+
 	it("says CommCare HQ's version takes more checking than Nova gives one app, with the finding's block and no Check again", () => {
 		const tooIntricate = finding("too-intricate");
 		const view = panelView(
@@ -945,7 +1137,11 @@ describe("something Nova can't hold, and the stops", () => {
 	it("draws a held change and a failed read of CommCare HQ with the item", () => {
 		expect(
 			panelView(
-				answered({ kind: "held", reason: "languages-reordered", runs: null }),
+				answered({
+					kind: "held",
+					reason: "runs-elsewhere",
+					runs: { app: ["android", "web-apps"], hq: ["android"] },
+				}),
 				PUBLISH,
 			).drawsItem,
 		).toBe(true);
@@ -1227,7 +1423,11 @@ describe("the moved line over what the bring-in found", () => {
 				finding: { code: "hq-unreachable" } as unknown as CircumstanceFinding,
 			},
 			{ kind: "unavailable", reason: "nova-defect", since: null },
-			{ kind: "held", reason: "languages-reordered", runs: null },
+			{
+				kind: "held",
+				reason: "runs-elsewhere",
+				runs: { app: ["android", "web-apps"], hq: ["android"] },
+			},
 			{
 				kind: "account",
 				findings: [{ code: "x" }] as unknown as Finding[],
@@ -1263,7 +1463,11 @@ describe("the ways on the card's sentences name", () => {
 			},
 			{ kind: "unavailable", reason: "base-too-large", since: null },
 			{ kind: "unavailable", reason: "nova-defect", since: null },
-			{ kind: "held", reason: "languages-reordered", runs: null },
+			{
+				kind: "held",
+				reason: "runs-elsewhere",
+				runs: { app: ["android", "web-apps"], hq: ["android"] },
+			},
 			{ kind: "held", reason: "runs-elsewhere", runs: null },
 		];
 		for (const review of named) {

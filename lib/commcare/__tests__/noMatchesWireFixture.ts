@@ -21,6 +21,8 @@ export const FOLLOWUP_FORM = testUuid("00000000-0000-4000-8000-0000000b0011");
 export const REGISTER_FORM = testUuid("00000000-0000-4000-8000-0000000b0012");
 export const NAME_INPUT = testUuid("00000000-0000-4000-8000-0000000b0001");
 export const NAME_FIELD = testUuid("00000000-0000-4000-8000-0000000b0020");
+export const CREATE_RECORD_FIELD = testUuid("no-matches-create-record");
+export const CREATE_RECORD_YES = testUuid("no-matches-create-record-yes");
 export const HOUSEHOLD_MODULE = testUuid(
 	"00000000-0000-4000-8000-0000000b0030",
 );
@@ -33,7 +35,12 @@ export const HOUSEHOLD_MODULE = testUuid(
  * the case list as the menu's entry.
  */
 export function noMatchesDoc(
-	options: { readonly label?: string; readonly bareCaseList?: boolean } = {},
+	options: {
+		readonly label?: string;
+		readonly bareCaseList?: boolean;
+		readonly secondList?: boolean;
+		readonly includeCreateChoice?: boolean;
+	} = {},
 ): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 	config.searchInputs = [
@@ -56,8 +63,30 @@ export function noMatchesDoc(
 				id: "case_name",
 				label: proseText("Name"),
 				caseWrite: { caseType: "patient", property: "case_name" },
-				default_value: term(input(NAME_INPUT)),
+				...(!options.secondList && { default_value: term(input(NAME_INPUT)) }),
 			}),
+			...(options.includeCreateChoice
+				? [
+						f({
+							uuid: CREATE_RECORD_FIELD,
+							kind: "single_select",
+							id: "create_record",
+							label: proseText("Create a patient record?"),
+							options: [
+								{
+									uuid: CREATE_RECORD_YES,
+									value: "yes",
+									label: proseText("Yes"),
+								},
+								{
+									uuid: testUuid("no-matches-create-record-no"),
+									value: "no",
+									label: proseText("No"),
+								},
+							],
+						}),
+					]
+				: []),
 		],
 	};
 	const doc = buildDoc({
@@ -96,6 +125,28 @@ export function noMatchesDoc(
 							],
 						}),
 			},
+			...(options.secondList
+				? [
+						{
+							uuid: "second-list",
+							name: "Walk-in patients",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									uuid: "walk-in-visit",
+									name: "Walk-in visit",
+									type: "followup" as const,
+									fields: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
+								},
+							],
+						},
+					]
+				: []),
 		],
 		caseTypes: [
 			{
@@ -115,12 +166,19 @@ export const noMatchesWireScenarios = [
 	"parent-bare",
 	"home",
 	"multiple-home",
+	"new-case",
+	"second-list",
 ] as const;
 export function noMatchesWireFixture(
 	scenario: (typeof noMatchesWireScenarios)[number],
 ) {
 	let doc = noMatchesDoc({
 		bareCaseList: scenario === "bare" || scenario === "parent-bare",
+		secondList: scenario === "second-list",
+		includeCreateChoice:
+			scenario === "new-case" ||
+			scenario === "basic" ||
+			scenario === "second-list",
 	});
 	if (scenario === "parent" || scenario === "parent-bare") {
 		const base = doc;
@@ -168,6 +226,40 @@ export function noMatchesWireFixture(
 				[REGISTER_FORM]: {
 					...base.forms[REGISTER_FORM],
 					postSubmit: "firstMenu",
+				},
+			},
+		};
+	}
+	if (scenario === "second-list") {
+		const second = testUuid("second-list");
+		doc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[second]: {
+					...doc.modules[second],
+					caseListRegistrationForm: {
+						kind: "always",
+						formUuid: REGISTER_FORM,
+						afterSubmit: "new-case",
+					},
+				},
+			},
+		};
+	}
+	if (scenario === "new-case") {
+		const host = doc.modules[HOST_MODULE];
+		doc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[HOST_MODULE]: {
+					...host,
+					caseListRegistrationForm: {
+						kind: "after-empty-search",
+						formUuid: REGISTER_FORM,
+						afterSubmit: "new-case",
+					},
 				},
 			},
 		};

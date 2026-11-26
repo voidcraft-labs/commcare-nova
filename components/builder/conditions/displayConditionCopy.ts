@@ -175,7 +175,7 @@ export function menuAboveOffTheMenuNote(
 export const FIRST_MENU_NAME = "the app's first menu";
 
 const NO_CASE_SCOPE_NOTE =
-	"No case has been chosen at that point, so the condition can use fixed values and information about the person signed in, not case information.";
+	"No case has been chosen here. The condition can still use the worker's information and data tables.";
 
 function quoted(name: string): string {
 	return `“${name}”`;
@@ -351,6 +351,6 @@ export function displayConditionCopy(
 		...shared,
 		lede: `People reach ${name} by picking a ${caseWord} first, so CommCare checks this once that ${caseWord} is chosen.`,
 		locus,
-		scopeNote: `The chosen ${caseWord}'s own information is available here. Information from connected cases, and counts of them, is not. CommCare cannot reach them from this screen.`,
+		scopeNote: `The chosen ${caseWord}, its connected records and records on the device are available here.`,
 	};
 }

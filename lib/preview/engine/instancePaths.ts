@@ -91,6 +91,23 @@ function parseSegments(path: string): PathSegment[] | undefined {
 	return segments.length === 0 ? undefined : segments;
 }
 
+/** The repeat rows supplying a concrete answer, outermost first. Each row's
+ * repeat path retains every outer index and leaves its own index off. */
+export function repeatRowsAtPath(
+	path: string,
+): { repeat: string; index: number }[] {
+	const rows = [];
+	let current = "";
+	for (const segment of parseSegments(path) ?? []) {
+		current += "/" + segment.name;
+		if (segment.index !== undefined) {
+			rows.push({ repeat: current, index: segment.index });
+			current += `[${segment.index}]`;
+		}
+	}
+	return rows;
+}
+
 function validSegmentKeys(
 	keys: readonly string[],
 	expectedLength: number,

@@ -26,8 +26,10 @@ registration.
   suite and, for the two-registrations control, the error HQ's own module
   validator gives its case list (``ModuleValidator.validate_case_list_form``).
 - ``localizations(family)``: the localization and worker corpora, each form
-  regenerated and, for localization, each language's app strings
-  (``<scenario>.hq.<lang>.strings.txt``).
+  regenerated and, for localization, built at the CommCare version Nova
+  publishes at (``DEFAULT_COMMCARE_VERSION``), each language's app strings
+  (``<scenario>.hq.<lang>.strings.txt``) and, for the image wording, the
+  default table (``<scenario>.hq.default.strings.txt``).
 
 Form-link and nested-menu also load their session-read targeted documents
 through ``session_reads``, and search loads ``targeted-inline-search-reads``,
@@ -38,6 +40,7 @@ family's fixture records.
 
 from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
 from proof.native.hq_support import (
+    NATIVE_COMMCARE_VERSION,
     NOVA_SERVER_ORIGIN,
     app_sources,
     hand_assembled_suite,
@@ -118,6 +121,10 @@ def searches(family):
                 raw = source.read_bytes()
                 app = _target(import_source(raw, SEARCH_DOMAIN), SEARCH_APP_ID)
                 suite = hand_assembled_suite(app)
+                if family == "search" and source.stem == "named-parent":
+                    form = app.get_module(0).get_form(0)
+                    source.with_suffix(".hq-form.xml").write_bytes(regenerate_form(form, SEARCH_DOMAIN))
+                    source.with_suffix(".hq.strings.txt").write_text(known_app_strings(app, "en"))
                 (exports / f"{source.stem}.hq-suite.xml").write_bytes(suite)
                 records.append(
                     {
@@ -178,32 +185,54 @@ def menu_screens(session):
     # declares a menu's instances on the menu itself rather than on each of its entries
     # (``feature_support.py::supports_menu_instances``, ``post_process/instances.py::InstancesHelper.update_suite``),
     # which is where Nova's local suite declares them, and Nova publishes at 2.57 and above.
-    with native_check(
-        ENDPOINT_DOMAIN, flags=flags, commcare_version=DEFAULT_COMMCARE_VERSION, server_origin=NOVA_SERVER_ORIGIN
-    ):
-        from corehq.apps.app_manager.helpers.validators import ModuleValidator
+    from corehq.apps.app_manager.helpers.validators import ModuleValidator
+    from corehq.apps.app_manager.views.modules import _case_list_form_options
 
-        for source in app_sources(exports):
-            if source.name.endswith((".screens.json", ".offers.json", ".tiles.json")):
-                continue
-            raw = source.read_bytes()
-            app = _target(import_source(raw, ENDPOINT_DOMAIN), "menu-screens-evidence")
-            suite = hand_assembled_suite(app, endpoints=True)
-            source.with_suffix(".hq-suite.xml").write_bytes(suite)
-            records.append(
-                {
+    sources = [
+        source for source in app_sources(exports)
+        if not source.name.endswith((".screens.json", ".offers.json", ".tiles.json"))
+    ]
+    for followups in (False, True):
+        enabled = flags | ({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM"} if followups else set())
+        with native_check(
+            ENDPOINT_DOMAIN, flags=enabled, privileges={"USERCASE"}, commcare_version=DEFAULT_COMMCARE_VERSION,
+            server_origin=NOVA_SERVER_ORIGIN,
+        ):
+            for source in sources:
+                roles = source.stem.startswith("case-list-action-roles-")
+                # Run the same source with the flag disabled through the actual
+                # editor option finder and build validator as the paired control.
+                if followups and not roles:
+                    continue
+                raw = source.read_bytes()
+                app = _target(import_source(raw, ENDPOINT_DOMAIN), "menu-screens-evidence")
+                errors = sorted(
+                    error["type"]
+                    for module in app.get_modules()
+                    if module.doc_type == "Module"
+                    for error in ModuleValidator(module).validate_case_list_form()
+                )
+                if roles:
+                    hosts = [app.get_module(1), app.get_module(2)]
+                    offered = [
+                        module.case_list_form.form_id in _case_list_form_options(app, module)["options"]
+                        for module in hosts
+                    ]
+                    assert offered == [True, followups], (source.stem, followups, offered)
+                    if not followups:
+                        assert errors == ["case list form not registration"], (source.stem, errors)
+                        continue
+                suite = hand_assembled_suite(app, endpoints=True)
+                source.with_suffix(".hq-suite.xml").write_bytes(suite)
+                if source.stem == "menu-badge-readings":
+                    source.with_suffix(".hq.properties").write_text(known_app_strings(app, "en"))
+                records.append({
                     "scenario": source.stem,
                     "sourceSha256": sha256(raw),
                     "local": source.with_suffix(".suite.xml").read_bytes(),
                     "native": suite,
-                    "caseListFormErrors": sorted(
-                        error["type"]
-                        for module in app.get_modules()
-                        if module.doc_type == "Module"
-                        for error in ModuleValidator(module).validate_case_list_form()
-                    ),
-                }
-            )
+                    "caseListFormErrors": errors,
+                })
     return records
 
 
@@ -214,7 +243,17 @@ def localizations(family):
         exports = session.family(family)
         pattern = "locale-*.json" if family == "localization" else "worker-*.json"
         records = []
-        with _check(session, LOCALIZATION_DOMAIN, {"CASE_SEARCH_ADVANCED"}):
+        # The localization scenarios build at the CommCare version Nova publishes at: from 2.54 HQ writes an image
+        # map's descriptions as app strings (``feature_support.py::supports_alt_text``,
+        # ``app_strings.py::_create_custom_app_strings``), which Nova's own archive carries, and Nova publishes at
+        # 2.57 and above. The worker scenarios keep the native proofs' default.
+        version = DEFAULT_COMMCARE_VERSION if family == "localization" else NATIVE_COMMCARE_VERSION
+        with native_check(
+            LOCALIZATION_DOMAIN,
+            flags={"CASE_SEARCH_ADVANCED"},
+            commcare_version=version,
+            server_origin=NOVA_SERVER_ORIGIN,
+        ):
             for source in app_sources(exports, pattern):
                 raw = source.read_bytes()
                 app = _target(import_source(raw, LOCALIZATION_DOMAIN), "localization-evidence")
@@ -227,7 +266,14 @@ def localizations(family):
                 # UI translation catalog (those strings are not Nova's).
                 for lang in app.langs if family == "localization" else []:
                     (exports / f"{source.stem}.hq.{lang}.strings.txt").write_text(known_app_strings(app, lang))
+                if source.stem == "locale-image-wording":
+                    from corehq.apps.app_manager.app_strings import SelectKnownAppStrings
+                    catalog = SelectKnownAppStrings(lambda *_args, **_kwargs: {})
+                    (exports / f"{source.stem}.hq.default.strings.txt").write_text(catalog.create_default_app_strings(app))
                 records.append({"scenario": source.stem, "languages": list(app.langs), "sourceSha256": sha256(raw)})
+        if family == "worker":
+            from proof.native.steps.worker_groups import restored_audiences
+            restored_audiences(exports)
         return records
 
     return run

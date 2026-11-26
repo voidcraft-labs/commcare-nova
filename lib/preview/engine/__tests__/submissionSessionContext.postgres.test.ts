@@ -2,13 +2,20 @@
  * Preview plays, through the submission Server Action's own program: real
  * app storage, authorization and case writes, with only the authenticated
  * request session supplied at its external boundary. */
+import { sql } from "kysely";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import {
+	readAuthorizedPreviewSearchCatalog,
+	setPreviewSearchSettings,
+} from "@/lib/deployment/previewSearchSettings";
+import { endDeployment } from "@/lib/deployment/store";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	ANDROID_DEVICE_ID_PREFIX,
 	WEB_APPS_DEVICE_ID,
 } from "@/lib/preview/platform";
+import { resolvePreviewSearchFacts } from "@/lib/preview/searchSettings";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { submitFormAction } from "../caseDataBinding";
 import { FormEngine } from "../formEngine";
@@ -27,6 +34,7 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/auth-utils")>()),
 	getSession: async () => ({
 		user: { id: "device-id-writer", name: "Amara", email: "amara@dimagi.com" },
+		session: { id: "device-id-writer-session" },
 	}),
 }));
 const h = setupAppStateTestDb("submission_session_context_", {
@@ -35,6 +43,10 @@ const h = setupAppStateTestDb("submission_session_context_", {
 });
 beforeEach(async () => {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	// The live browser session every Project data read locks.
+	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
+		VALUES ('device-id-writer-session','device-id-token',${ACTOR},now()+interval '1 hour',now(),now())
+		ON CONFLICT (id) DO NOTHING`.execute(h.db());
 });
 
 async function deviceRecordApp() {
@@ -80,8 +92,7 @@ async function deviceRecordApp() {
 	return { appId, doc };
 }
 
-async function submitOn(device: PreviewDevice): Promise<unknown> {
-	const { appId } = await deviceRecordApp();
+async function openRegistration(appId: string, device: PreviewDevice) {
 	const context = await resolveAuthorizedPreviewContext({
 		appId,
 		required: "edit",
@@ -116,15 +127,28 @@ async function submitOn(device: PreviewDevice): Promise<unknown> {
 	);
 	for (const field of Object.values(doc.fields))
 		if (field.kind === "text") engine.setValue(`/data/${field.id}`, "Asha");
-	const result = await submitFormAction(
-		engine.computeSubmissionMutation({ entryKey: crypto.randomUUID() }),
-		appId,
-		canonicalJsonDigest(stored),
-		undefined,
-		undefined,
-		undefined,
-		device,
-	);
+	const mutation = engine.computeSubmissionMutation({
+		entryKey: crypto.randomUUID(),
+	});
+	return {
+		projectSpace: context.identity.session.user.commcare_project,
+		submit: () =>
+			submitFormAction(
+				mutation,
+				appId,
+				canonicalJsonDigest(stored),
+				undefined,
+				undefined,
+				undefined,
+				device,
+			),
+	};
+}
+
+async function submitOn(device: PreviewDevice): Promise<unknown> {
+	const { appId } = await deviceRecordApp();
+	const entry = await openRegistration(appId, device);
+	const result = await entry.submit();
 	if (result.kind === "blueprint-changed" || result.kind === "unauthenticated")
 		throw new Error(JSON.stringify(result));
 	const rows = await h
@@ -145,4 +169,84 @@ it("stores the Android install's device id through an Android device", async () 
 	expect(await submitOn(androidDevice())).toBe(
 		`${ANDROID_DEVICE_ID_PREFIX}${TEST_ANDROID_DEVICE_ID}`,
 	);
+});
+
+it("refuses stale destination effects while allowing an exact receipt replay", async () => {
+	const { appId } = await deviceRecordApp();
+	const scope = {
+		appId,
+		projectId: PROJECT,
+		role: "owner",
+		actorUserId: ACTOR,
+	} as const;
+	const target = {
+		kind: "destination",
+		server: "eu",
+		domain: "clinic",
+	} as const;
+	const remoteId = "e".repeat(32);
+	await sql`
+		WITH deployed AS (
+			INSERT INTO app_deployments (app_id, project_id, server, domain, state, created_by)
+			VALUES (${appId}, ${PROJECT}, ${target.server}, ${target.domain}, 'uploaded', ${ACTOR})
+			RETURNING id
+		)
+		INSERT INTO app_deployment_resources (deployment_id, kind, nova_resource_id, remote_id, ownership)
+		SELECT id, 'app', ${appId}, ${remoteId}, 'nova-created' FROM deployed
+	`.execute(h.db());
+	const selectedDevice = async () => {
+		const catalog = await readAuthorizedPreviewSearchCatalog(
+			appId,
+			PROJECT,
+			ACTOR,
+		);
+		return {
+			...webAppsDevice(),
+			searchConfiguration: {
+				target,
+				revision: resolvePreviewSearchFacts(catalog, target).revision,
+			},
+		};
+	};
+	const originalDevice = await selectedDevice();
+	const saved = await openRegistration(appId, originalDevice);
+	const staleSettings = await openRegistration(appId, originalDevice);
+	expect(saved.projectSpace).toBe(target.domain);
+	const receipt = await saved.submit();
+	if (receipt.kind !== "registration") throw new Error(JSON.stringify(receipt));
+	expect(
+		await setPreviewSearchSettings(scope, ACTOR, target, "0", {
+			timeZone: "UTC",
+		}),
+	).toMatchObject({ kind: "saved" });
+	expect(await staleSettings.submit()).toMatchObject({
+		kind: "error",
+		message: expect.stringContaining("project space changed"),
+	});
+	const staleDeployment = await openRegistration(appId, await selectedDevice());
+	expect(staleDeployment.projectSpace).toBe(target.domain);
+	await endDeployment(scope, target, remoteId);
+	expect(await staleDeployment.submit()).toMatchObject({
+		kind: "error",
+		message: expect.stringContaining("project space changed"),
+	});
+	expect(await saved.submit()).toEqual(receipt);
+	const undeployed = await openRegistration(appId, webAppsDevice());
+	expect(undeployed.projectSpace).toBeUndefined();
+	const localReceipt = await undeployed.submit();
+	if (localReceipt.kind !== "registration")
+		throw new Error(JSON.stringify(localReceipt));
+	const rows = await h
+		.pool()
+		.query<{ case_id: string }>(
+			"SELECT case_id FROM cases WHERE app_id = $1 AND case_name = 'Device record'",
+			[appId],
+		);
+	const effectIds = [receipt, localReceipt].flatMap((result) =>
+		(result.caseDatabasePatch?.rows ?? [])
+			.filter((row) => row.case_name === "Device record")
+			.map((row) => row.case_id),
+	);
+	expect(effectIds).toHaveLength(2);
+	expect(rows.rows.map((row) => row.case_id).sort()).toEqual(effectIds.sort());
 });

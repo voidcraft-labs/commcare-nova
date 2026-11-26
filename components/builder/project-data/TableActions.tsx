@@ -36,6 +36,8 @@ import { useProjectId } from "@/lib/session/hooks";
 import { AddColumnDialog } from "./AddColumnDialog";
 import { CsvImportDialog } from "./CsvImportDialog";
 import { DestructiveChangeDialog } from "./DestructiveChangeDialog";
+import { EditLookupDetailsDialog } from "./EditLookupDetailsDialog";
+import { ImportStructuredRowsDialog } from "./ImportStructuredRowsDialog";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
 import {
 	createRevisionedTextDraft,
@@ -46,9 +48,8 @@ import {
 	type RevisionedTextDraft,
 	readAgainAfterRefusal,
 	reconcileRevisionedTextDraft,
-	rowAdditionRefusal,
-	tableCapacity,
 } from "./projectDataModel";
+import { TableWorkerAccess } from "./RowAssignments";
 import { useTableIsEditable } from "./useProjectData";
 
 export function TableActions({
@@ -84,6 +85,8 @@ export function TableActions({
 	if (reconciledTag !== tag) setTag(reconciledTag);
 	const [renaming, setRenaming] = useState(false);
 	const [editingTag, setEditingTag] = useState(false);
+	const [editingDetails, setEditingDetails] = useState(false);
+	const [addingFile, setAddingFile] = useState(false);
 	const [importing, setImporting] = useState(false);
 	const [addingColumn, setAddingColumn] = useState<{
 		readonly projectId: string;
@@ -96,8 +99,9 @@ export function TableActions({
 	const [failure, setFailure] = useState<string | null>(null);
 	const [status, setStatus] = useState<string | null>(null);
 
-	const capacity = tableCapacity(table);
-	const full = rowAdditionRefusal(capacity);
+	const scalarTable =
+		!table.attributes?.length &&
+		!table.columns.some((column) => column.repeated);
 	const tableBusy = addingRow || settingWrite !== null;
 
 	const addRow = async () => {
@@ -140,7 +144,7 @@ export function TableActions({
 							type="button"
 							variant="outline"
 							className="gap-2"
-							disabled={full !== undefined || tableBusy}
+							disabled={tableBusy}
 							onClick={() => void addRow()}
 						>
 							<Icon
@@ -173,21 +177,27 @@ export function TableActions({
 							/>
 							Add column
 						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							className="gap-2"
-							disabled={tableBusy}
-							onClick={() => setImporting(true)}
-						>
-							<Icon
-								icon={tablerTableImport}
-								width="16"
-								height="16"
-								aria-hidden="true"
-							/>
-							Replace rows from CSV
-						</Button>
+						{scalarTable ? (
+							<Button
+								type="button"
+								variant="outline"
+								className="gap-2"
+								disabled={tableBusy || !scalarTable}
+								onClick={() => setImporting(true)}
+							>
+								<Icon
+									icon={tablerTableImport}
+									width="16"
+									height="16"
+									aria-hidden="true"
+								/>
+								Replace rows from CSV
+							</Button>
+						) : (
+							<Button variant="outline" onClick={() => setAddingFile(true)}>
+								Add rows from a file
+							</Button>
+						)}
 						<Button
 							type="button"
 							variant="ghost"
@@ -198,6 +208,11 @@ export function TableActions({
 							Rename
 						</Button>
 					</>
+				)}
+				{canEdit && (
+					<Button variant="outline" onClick={() => setEditingDetails(true)}>
+						Edit row details
+					</Button>
 				)}
 				{canChangeSchema && (
 					<Button
@@ -228,11 +243,6 @@ export function TableActions({
 				)}
 			</div>
 
-			{full !== undefined && (
-				<p className="max-w-prose text-[12px] leading-snug text-nova-text-muted">
-					{full}
-				</p>
-			)}
 			{failure !== null && (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-rose">
 					{failure}
@@ -247,6 +257,13 @@ export function TableActions({
 				</p>
 			)}
 
+			{canEdit && (
+				<TableWorkerAccess
+					table={table}
+					workspace={workspace}
+					canWiden={canChangeSchema}
+				/>
+			)}
 			{canEdit && renaming && (
 				<div className="space-y-2">
 					<div className="flex flex-wrap items-center gap-2">
@@ -421,9 +438,10 @@ export function TableActions({
 
 			{canEdit && addingColumn !== null && (
 				<AddColumnDialog
+					table={table}
 					open
 					onClose={() => setAddingColumn(null)}
-					onCreate={async (draft) => {
+					onCreate={async (draft, reviewed) => {
 						if (
 							projectId !== addingColumn.projectId ||
 							table.id !== addingColumn.tableId
@@ -434,6 +452,7 @@ export function TableActions({
 							tableId: addingColumn.tableId,
 							expectedTableRevision: addingColumn.revision,
 							column: draft,
+							reviewed,
 						});
 						if (!result.success) {
 							if (
@@ -460,7 +479,28 @@ export function TableActions({
 				/>
 			)}
 
-			{canEdit && importing && (
+			{canEdit && editingDetails && (
+				<EditLookupDetailsDialog
+					canChangeShape={canChangeSchema}
+					table={table}
+					onClose={() => setEditingDetails(false)}
+					onSaved={workspace.reload}
+				/>
+			)}
+			{canEdit && addingFile && (
+				<ImportStructuredRowsDialog
+					table={table}
+					onSaved={workspace.reload}
+					onClose={() => setAddingFile(false)}
+				/>
+			)}
+			{canEdit && !scalarTable && (
+				<p className="text-xs text-nova-text-secondary">
+					This table holds row details or repeated values. You can edit them by
+					opening a row.
+				</p>
+			)}
+			{canEdit && scalarTable && importing && (
 				<CsvImportDialog
 					open
 					table={table}

@@ -8,7 +8,7 @@
  * cast that throws stops the form from opening (or, for a repeat insert's
  * setvalue, stops the insert). A blank result never reaches the cast. A
  * `calculate` never casts (`Recalculate.apply` stores the wrapped value),
- * so nothing here runs for one.
+ * so a calculation shares the wrapping step and skips the final cast.
  *
  * Three steps, each one Core symbol:
  * - `coreAnswerType`: the node's data type (`XFormParser.getDataType`, then
@@ -43,6 +43,8 @@ import {
 export type CoreAnswerType =
 	| "text"
 	| "int"
+	| "long"
+	| "boolean"
 	| "decimal"
 	| "date"
 	| "time"
@@ -56,19 +58,32 @@ export type CoreAnswerType =
 /** The answer types whose cast can refuse a value. */
 export type RefusingAnswerType = Extract<
 	CoreAnswerType,
-	"int" | "decimal" | "date" | "time" | "datetime" | "geopoint" | "choice-list"
+	| "int"
+	| "long"
+	| "boolean"
+	| "decimal"
+	| "date"
+	| "time"
+	| "datetime"
+	| "geopoint"
+	| "choice-list"
 >;
 
 /** `XFormParser.typeMappings` over every bind type Nova emits. */
 const CORE_TYPE_BY_BIND: Readonly<Record<FieldBindType, CoreAnswerType>> = {
 	"xsd:string": "text",
 	"xsd:int": "int",
+	"xsd:long": "long",
+	"xsd:boolean": "boolean",
+	"xsd:listItem": "choice",
+	"xsd:listItems": "choice-list",
 	"xsd:double": "decimal",
 	"xsd:date": "date",
 	"xsd:time": "time",
 	"xsd:dateTime": "datetime",
 	geopoint: "geopoint",
 	barcode: "untyped",
+	intent: "untyped",
 	binary: "untyped",
 };
 
@@ -124,7 +139,9 @@ function numberText(value: number, type: CoreAnswerType): string {
 		return String(javaInt(value));
 	}
 	// LongData prints its long; DecimalData prints Double.toString.
-	return integral ? long.toString() : openJdk17DoubleToString(value);
+	return type === "long" || integral
+		? long.toString()
+		: openJdk17DoubleToString(value);
 }
 
 const pad = (value: number, width: number): string =>
@@ -213,6 +230,10 @@ export function setvalueText(
 ): string | undefined {
 	if (result === "") return undefined;
 	if (typeof result === "number" && Number.isNaN(result)) return undefined;
+	if (type === "boolean") {
+		if (typeof result === "number") return Math.abs(result) > 1e-12 ? "1" : "0";
+		if (typeof result === "string") return "1";
+	}
 	if (typeof result === "boolean") return result ? "1" : "0";
 	if (typeof result === "number") return numberText(result, type);
 	if (type === "choice" || type === "choice-list") {
@@ -291,6 +312,18 @@ export function castAnswerText(
 			return selections.includes("")
 				? REFUSED
 				: { ok: true, text: selections.join(" ") };
+		}
+		case "boolean":
+			// BooleanData.cast compares the UncastData itself with "1" and "0".
+			// Every nonblank setvalue reaches its IllegalArgumentException.
+			return REFUSED;
+		case "long": {
+			const normalized = normalizeJavaIntegerLexical(text);
+			if (normalized === undefined) return REFUSED;
+			const value = BigInt(normalized);
+			return value < LONG_MIN || value > LONG_MAX
+				? REFUSED
+				: { ok: true, text: String(value) };
 		}
 		case "int": {
 			const value = javaParseInt(text);
@@ -389,6 +422,8 @@ export function isRefusingAnswerType(
 ): type is RefusingAnswerType {
 	return (
 		type === "int" ||
+		type === "long" ||
+		type === "boolean" ||
 		type === "decimal" ||
 		type === "date" ||
 		type === "time" ||

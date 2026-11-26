@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import type { SearchInputDef } from "@/lib/domain";
 import {
+	COMMCARE_SEARCH_INVALID_MESSAGE,
 	hiddenSearchInputDef,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	simpleSearchInputDef,
@@ -81,6 +82,51 @@ describe("searchInputConstraintErrors", () => {
 			constraintEnvironment(INPUTS),
 		);
 		expect(errors.get("name")).toBe(SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE);
+	});
+
+	// A requirement with no message still keeps the search from running, with a blank message,
+	// as Core reports one HQ built blank (`QueryPrompt.getRequiredMessage`); a check with no
+	// message of its own reports Core's sentence (`QueryPrompt.getValidationMessage`).
+	it("fires a requirement with no message blank, and a check with none of its own with Core's sentence", () => {
+		const silent = simpleSearchInputDef(
+			NAME,
+			"name",
+			"Name",
+			"text",
+			"case_name",
+			{
+				required: { noMessage: true },
+			},
+		);
+		const bare = simpleSearchInputDef(
+			PHONE,
+			"phone",
+			"Phone",
+			"text",
+			"phone",
+			{
+				validation: { rule: eq(input(PHONE), literal("555")) },
+			},
+		);
+		const inputs = [silent, bare];
+		const errors = searchInputConstraintErrors(
+			WEB_APPS_RULES,
+			inputs,
+			new Map([["phone", "123"]]),
+			SESSION,
+			constraintEnvironment(inputs),
+		);
+		expect(errors.get("name")).toBe("");
+		expect(errors.get("phone")).toBe(COMMCARE_SEARCH_INVALID_MESSAGE);
+		expect(
+			searchInputConstraintErrors(
+				ANDROID_RULES,
+				inputs,
+				new Map([["phone", "123"]]),
+				SESSION,
+				constraintEnvironment(inputs),
+			).size,
+		).toBe(0);
 	});
 
 	it("fires a conditional requirement only when its condition holds over the siblings", () => {

@@ -22,10 +22,10 @@ import type { WireIdentity } from "./wireIdentity";
 const APP_STRINGS_DOMAIN = "nova-app-strings";
 
 /**
- * A document's app strings, by language code: the table of each language's
- * own directory (the `default` directory repeats the default language's and
- * is left out), each value the text it is, before HQ's spelling of the file
- * is applied, and each string's source unit.
+ * A document's app strings, by language code. Each named table is read
+ * over the default table, as Core installs them. The named file omits
+ * zero-length generated text; the default supplies the first nonblank
+ * translation in build order. Values here precede locale-file escaping.
  *
  * The archive is compiled for a fixed stand-in target, with no media, and
  * with each lookup table the document reads named as `lookupDefinitions`
@@ -81,8 +81,12 @@ export function localAppStringTable(
 		languages: Object.fromEntries(
 			Object.entries(parts.tables)
 				.filter(([dir]) => dir !== "default")
-				.map(([code, table]) => [code, Object.fromEntries(table)]),
+				.map(([code, table]) => [
+					code,
+					Object.fromEntries([...parts.tables.default, ...table]),
+				]),
 		),
 		units: parts.appStringUnits,
+		wordingUnits: parts.wordingUnits,
 	};
 }

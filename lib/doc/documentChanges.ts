@@ -16,6 +16,7 @@
  * joined by "/", since an id is unique only among its siblings.
  */
 
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
@@ -26,6 +27,10 @@ import {
 	type PersistableDoc,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	effectiveAppLocalization,
+	languageEntries,
+} from "@/lib/domain/localization";
 import { type AssetRef, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	type DocumentDifference,
@@ -140,24 +145,31 @@ export interface DocumentChanges {
  * where it is no change, and one a change moved has its line.
  */
 export const MENU_KEY_PARTS = {
+	autoSelectSingle: "case-list",
 	entryPoint: "settings",
 	caseListEntryPoint: "case-list",
 	uuid: null,
 	id: "settings",
 	name: "name",
+	formsFromMenu: "settings",
 	parentModuleUuid: "settings",
 	parentCaseModuleUuid: "case-list",
+	searchResultsName: "case-list",
 	caseType: "settings",
 	caseListMenuItem: "case-list",
 	caseListRegistrationForm: "case-list",
 	purpose: "note",
 	displayCondition: "settings",
+	badge: "settings",
 	hiddenFromMenu: "settings",
 	formsInMenuAbove: "settings",
+	menuLayout: "settings",
 	caseListConfig: "case-list",
 	caseSearchConfig: "search",
 	icon: "settings",
 	audioLabel: "settings",
+	mediaByLanguage: "settings",
+	mediaByFormerCode: "settings",
 	heldKind: "settings",
 } as const satisfies Record<keyof Module, MenuPart | null>;
 
@@ -167,40 +179,71 @@ export const MENU_KEY_PARTS = {
  * `columnParts`).
  */
 export const CASE_LIST_KEY_PARTS = {
+	additionalCaseTypes: "case-list",
+	calculatedSorts: "case-list",
 	columns: "case-list",
 	listColumnOrder: "case-list",
 	detailColumnOrder: "case-details",
+	detailTabs: "case-details",
+	detailTile: "case-details",
+	contextAboveForm: "case-details",
 	filter: "case-list",
 	searchInputs: "search",
+	searchInputGroups: "search",
+	searchFilters: "search",
+	searchCondition: "search",
 	selection: "case-list",
+	emptyText: "case-list",
+	selectButtonText: "case-list",
+	optimizations: "case-list",
+	deviceLookup: "case-list",
 	tile: "case-list",
 } as const satisfies Record<keyof CaseListConfig, MenuPart>;
 
 /**
  * The part each key of a form is listed under. `null` only for the form's
  * own `uuid`. Its type, its conditions, its case changes and the held place
- * of its own close are what it saves to cases.
+ * of its own close and of its opening records are what it saves to cases.
  */
 export const FORM_KEY_PARTS = {
+	heldSelectionTags: "case-changes",
+	shadowOf: "case-changes",
+	caseSelections: "case-changes",
+	openingAssignments: "case-changes",
+	heldBasicOpening: "case-changes",
+	computedDatums: "settings",
+	submitLabel: "settings",
 	entryPoint: "settings",
+	entryCaseCreations: "settings",
 	uuid: null,
 	id: "settings",
 	name: "name",
 	type: "case-changes",
 	purpose: "note",
 	displayCondition: "settings",
+	badge: "settings",
 	hiddenFromMenu: "settings",
+	captureLocation: "settings",
 	plainText: "settings",
 	openCondition: "case-changes",
 	closeCondition: "case-changes",
 	ownClosePlacement: "case-changes",
-	connect: "settings",
 	postSubmit: "after-submit",
 	formLinks: "after-submit",
 	otherwise: "after-submit",
 	caseOperations: "case-changes",
 	icon: "settings",
 	audioLabel: "settings",
+	mediaByLanguage: "settings",
+	mediaByFormerCode: "settings",
+	dataRootName: "settings",
+	automaticSubmissionText: "settings",
+	skipAutomaticSyncText: "settings",
+	validateChangedAnswersText: "settings",
+	activityKeyText: "settings",
+	activityTitleText: "settings",
+	activityWindowText: "settings",
+	savedFormDescriptorText: "settings",
 } as const satisfies Record<keyof Form, FormPart | null>;
 
 /** Where a key of the document's root is filed: an app part, or one of the walks below. */
@@ -222,7 +265,7 @@ type RootPlace =
 export const ROOT_KEY_PLACES = {
 	appId: "settings",
 	appName: "name",
-	connectType: "settings",
+	connectRoles: "settings",
 	caseTypes: "case-types",
 	localization: "localization",
 	appSettings: "settings",
@@ -314,37 +357,76 @@ function formFieldOrder(doc: BlueprintDoc, form: string): string[] {
 /** The slot path of each media reference `walkAssetRefs` visits. */
 function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 	const location = ref.location;
+	const icon = location.translationOverride ? "iconOverride" : "icon";
+	const audio = location.translationOverride
+		? "audioLabelOverride"
+		: "audioLabel";
+	const language =
+		location.language === undefined
+			? []
+			: [
+					location.formerLanguage ? "mediaByFormerCode" : "mediaByLanguage",
+					location.language,
+				];
 	switch (location.kind) {
 		case "app_logo":
 			return ["logo"];
 		case "module_icon":
-			return ["modules", location.moduleUuid, "icon"];
+			return ["modules", location.moduleUuid, ...language, icon];
 		case "module_audio_label":
-			return ["modules", location.moduleUuid, "audioLabel"];
+			return ["modules", location.moduleUuid, ...language, audio];
 		case "case_list_icon":
-			return ["modules", location.moduleUuid, "caseListMenuItem", "icon"];
+			return [
+				"modules",
+				location.moduleUuid,
+				"caseListMenuItem",
+				...language,
+				icon,
+			];
 		case "case_list_audio_label":
-			return ["modules", location.moduleUuid, "caseListMenuItem", "audioLabel"];
+			return [
+				"modules",
+				location.moduleUuid,
+				"caseListMenuItem",
+				...language,
+				audio,
+			];
+		case "case_list_lookup_icon":
+			return [
+				"modules",
+				location.moduleUuid,
+				"caseListConfig",
+				"deviceLookup",
+				"icon",
+			];
 		case "case_list_registration_icon":
 			return [
 				"modules",
 				location.moduleUuid,
 				"caseListRegistrationForm",
-				"icon",
+				...language,
+				icon,
 			];
 		case "case_list_registration_audio_label":
 			return [
 				"modules",
 				location.moduleUuid,
 				"caseListRegistrationForm",
-				"audioLabel",
+				...language,
+				audio,
 			];
 		case "form_icon":
-			return ["forms", location.formUuid, "icon"];
+			return ["forms", location.formUuid, ...language, icon];
 		case "form_audio_label":
-			return ["forms", location.formUuid, "audioLabel"];
+			return ["forms", location.formUuid, ...language, audio];
 		case "field_media_bundle":
-			return ["fields", location.fieldUuid, location.bundleKey, ref.slotKind];
+			return [
+				"fields",
+				location.fieldUuid,
+				location.bundleKey,
+				...language,
+				ref.role ?? ref.slotKind,
+			];
 		case "option_media": {
 			const field = doc.fields[location.fieldUuid];
 			const options =
@@ -362,7 +444,8 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				"options",
 				String(at),
 				"media",
-				ref.slotKind,
+				...language,
+				ref.role ?? ref.slotKind,
 			];
 		}
 		case "image_map_mapping": {
@@ -407,7 +490,12 @@ function mediaSlotIdentity(
 ): readonly string[] {
 	const location = ref.location;
 	if (location.kind === "option_media")
-		return ["option", location.optionUuid, ref.slotKind];
+		return [
+			"option",
+			location.optionUuid,
+			...(location.language ? [location.language] : []),
+			ref.role ?? ref.slotKind,
+		];
 	if (location.kind === "image_map_mapping")
 		return ["image-map", location.columnUuid];
 	return path;
@@ -837,7 +925,7 @@ function translationEntries(
 	doc: BlueprintDoc,
 	language: string,
 ): readonly string[] {
-	const map = doc.localization?.translations[language];
+	const map = languageEntries(doc.localization, language);
 	return map === undefined ? [] : Object.keys(map);
 }
 
@@ -857,11 +945,37 @@ function fileLocalizationDifference(
 			collector.translations.set(key, kind);
 	};
 	if (path.length === 1) {
-		collector.app.add("languages");
+		// The root appears or goes with its first or last stored wording; the languages change
+		// only where the effective catalog does.
+		const languagesOf = (doc: BlueprintDoc) => {
+			const {
+				translations: _translations,
+				generatedSourceWording: _wording,
+				...languages
+			} = effectiveAppLocalization(doc.localization);
+			return languages;
+		};
+		if (!deepEqual(languagesOf(before.doc), languagesOf(after.doc)))
+			collector.app.add("languages");
 		for (const doc of [before.doc, after.doc]) {
-			for (const language of Object.keys(doc.localization?.translations ?? {}))
+			for (const language of doc.localization?.languageOrder ?? [])
 				for (const unit of translationEntries(doc, language))
 					noteUnit(language, unit, "text");
+		}
+		return;
+	}
+	if (path[1] === "generatedSourceWording") {
+		for (const { doc } of [before, after]) {
+			const loc = doc.localization;
+			if (!loc) continue;
+			for (const unit of path[2]
+				? [path[2]]
+				: Object.keys(loc.generatedSourceWording ?? {}))
+				noteUnit(
+					loc.sourceLanguage,
+					unit,
+					path.length <= 3 || path[3] === "value" ? "text" : "review",
+				);
 		}
 		return;
 	}

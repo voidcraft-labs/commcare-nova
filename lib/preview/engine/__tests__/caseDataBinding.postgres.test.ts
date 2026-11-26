@@ -1911,7 +1911,10 @@ describe("readCases — running-app search-input composition", () => {
 			["window:from", "2025-06-01"],
 			["window:to", "2025-06-30"],
 		]);
-		const query = async (property: "dob" | "last_seen") =>
+		const query = async (
+			property: "dob" | "last_seen",
+			answers = inputValues,
+		) =>
 			readCases(store, {
 				tileGrouping: "grouped",
 				reading: SEARCH_READING,
@@ -1927,10 +1930,11 @@ describe("readCases — running-app search-input composition", () => {
 							"Date window",
 							"date-range",
 							property,
+							{ default: term(literal("2025-06-30")) },
 						),
 					],
 				}),
-				inputValues,
+				inputValues: answers,
 			});
 
 		for (const property of ["dob", "last_seen"] as const) {
@@ -1939,6 +1943,18 @@ describe("readCases — running-app search-input composition", () => {
 			if (result.kind !== "rows") continue;
 			expect(result.rows.map((row) => row.case_id)).toEqual([finalDayId]);
 		}
+		const single = await query(
+			"dob",
+			new Map([["window:starting", "2025-06-30"]]),
+		);
+		expect(single.kind).toBe("rows");
+		if (single.kind === "rows")
+			expect(single.rows.map((row) => row.case_id)).toEqual([finalDayId]);
+		const three = await query(
+			"dob",
+			new Map([["window:starting", "2025-05-31__2025-06-30__2025-07-01"]]),
+		);
+		expect(three.kind).toBe("empty");
 	});
 });
 
@@ -2393,8 +2409,13 @@ describe("readCaseData", () => {
 		let calls = 0;
 		const flaky: CaseStore = {
 			query: (a) => store.query(a),
+			holdsDeviceCases: (a) => store.holdsDeviceCases(a),
 			readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 			readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
+			readSearchResultInstance: (a) => store.readSearchResultInstance(a),
+			querySearchResults: (a, g) => store.querySearchResults(a, g),
+			readSubmittedCaseDatabasePatch: (a) =>
+				store.readSubmittedCaseDatabasePatch(a),
 			queryGrouped: (a) => store.queryGrouped(a),
 			count: (a) => store.count(a),
 			insert: (a) => store.insert(a),
@@ -3677,5 +3698,83 @@ describe("readFilterPreview", () => {
 		});
 
 		expect(result).toMatchObject({ kind: "rows", totalCount: 1 });
+	});
+});
+
+describe("a Details tab that lists records", () => {
+	// A field made for a table tab reads a table row, which no case-store
+	// query has in scope; Preview reads no tab's records, so the list and
+	// the case's Details read without it instead of failing.
+	it("reads the list and the case without the fields of its rows", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { age: 30 },
+			},
+		});
+		const table = "018f0000-0000-7000-8000-0000000000c1" as never;
+		const rowField = testUuid("50000000-0000-0000-0000-0000000000c2");
+		const config = resolveCaseListConfig({
+			columns: [
+				plainColumn(NAME_COLUMN_UUID, "case_name", "Name"),
+				{
+					kind: "calculated",
+					uuid: rowField,
+					header: "Clinic",
+					expression: term({
+						kind: "table-column",
+						tableId: table,
+						columnId: "018f0000-0000-7000-8000-0000000000c3" as never,
+					}),
+					rowField: true,
+					visibleInList: false,
+					notOnList: true,
+				},
+			],
+			searchInputs: [],
+			detailTabs: [
+				{
+					uuid: testUuid("50000000-0000-0000-0000-0000000000c4"),
+					title: "Case",
+					startColumnUuid: NAME_COLUMN_UUID,
+				},
+				{
+					uuid: testUuid("50000000-0000-0000-0000-0000000000c5"),
+					title: "Clinics",
+					startColumnUuid: rowField,
+					rowSource: {
+						kind: "records",
+						rows: { kind: "table-rows", tableId: table, where: [] },
+					},
+				},
+			],
+		});
+		const list = await readCases(store, {
+			tileGrouping: "grouped",
+			reading: CASEDB_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: config,
+		});
+		expect(list.kind).toBe("rows");
+		const detail = await readCaseData(store, {
+			reading: CASEDB_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			caseId: ALICE_CASE_ID,
+			ancestorDepth: 5,
+			caseListConfig: config,
+		});
+		expect(detail.kind).toBe("row");
+		if (detail.kind !== "row") return;
+		expect(detail.row.calculated[rowField]).toBeUndefined();
 	});
 });

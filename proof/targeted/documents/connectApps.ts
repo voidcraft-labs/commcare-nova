@@ -42,8 +42,14 @@
  * Fixed values: each form holds what the worker answers (`./echo.ts`).
  */
 
+import { connectSectionForm } from "@/lib/__tests__/connectSectionForm";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+} from "@/lib/commcare/__tests__/releasedConnectDefaults";
 import { NEW_APP_SETTINGS, proseText } from "@/lib/domain";
+import { connectRecipientRule } from "@/lib/domain/connectRecipientRule";
 import { formField, term } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
@@ -62,7 +68,7 @@ function deliverApp(
 		buildDoc({
 			appId: id,
 			appName: "Home visits",
-			connectType: "deliver",
+			connectRoles: ["deliver"],
 			// A Connect app runs on Android alone.
 			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 			modules: [
@@ -74,9 +80,6 @@ function deliverApp(
 							uuid: form,
 							name: "Home visit",
 							type: "survey",
-							connect: {
-								deliver_unit: { id: deliverUnit, name: "Home visit" },
-							},
 							fields: [
 								f({
 									kind: "text",
@@ -84,19 +87,35 @@ function deliverApp(
 									id: "household",
 									label: proseText("Household"),
 								}),
+								f({
+									kind: "connect_activity",
+									uuid: uuid("delivery"),
+									id: deliverUnit,
+									activity: {
+										kind: "delivery",
+										name: "Home visit",
+										entityId: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+										entityName: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+									},
+								}),
 							],
 						},
 						{
 							uuid: uuid("task-form"),
 							name: task.name,
 							type: "survey",
-							connect: { task: { id: taskId, ...task } },
 							fields: [
 								f({
 									kind: "label",
 									uuid: uuid("note"),
 									id: "note",
 									label: proseText(task.description),
+								}),
+								f({
+									kind: "connect_activity",
+									uuid: uuid("task"),
+									id: taskId,
+									activity: { kind: "assigned-task", ...task },
 								}),
 							],
 						},
@@ -147,7 +166,7 @@ function learnApp(
 		const doc = buildDoc({
 			appId: id,
 			appName: "Hand washing course",
-			connectType: "learn",
+			connectRoles: ["learn"],
 			// A Connect app runs on Android alone.
 			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 			modules: [
@@ -159,15 +178,6 @@ function learnApp(
 							uuid: form,
 							name: "Hand washing",
 							type: "survey",
-							connect: {
-								learn_module: {
-									id: learnModule,
-									name: "Hand washing",
-									description: "Wash for twenty seconds.",
-									time_estimate: 5,
-								},
-								assessment: { id: assessment },
-							},
 							fields: [
 								f({
 									kind: "int",
@@ -175,16 +185,32 @@ function learnApp(
 									id: "score",
 									label: proseText("Score"),
 								}),
+								f({
+									kind: "connect_activity",
+									uuid: uuid("lesson"),
+									id: learnModule,
+									activity: {
+										kind: "learning-module",
+										name: "Hand washing",
+										description: "Wash for twenty seconds.",
+										estimatedHours: 5,
+									},
+								}),
+								f({
+									kind: "connect_activity",
+									uuid: uuid("assessment"),
+									id: assessment,
+									activity: {
+										kind: "assessment",
+										score: term(formField(uuid("score"))),
+									},
+								}),
 							],
 						},
 					],
 				},
 			],
 		});
-		const config = doc.forms[form].connect;
-		if (config && "assessment" in config && config.assessment) {
-			config.assessment.user_score = term(formField(uuid("score")));
-		}
 		return doc;
 	};
 	return targetedDocument({
@@ -215,4 +241,112 @@ export function connectLearnHyphenIds() {
 		["intro-module-2", "intro-check-2"],
 		["names, a Connect block ID holding a hyphen"],
 	);
+}
+
+/** One payment unit in each added row. D′ renames the recipient question while
+ * preserving its receiver reference and the comparison with every other row. */
+export function connectRecipientRepeat() {
+	const id = "targeted-connect-recipient-repeat";
+	const uuid = (name: string) => targetedUuid(id, name);
+	const form = uuid("form"),
+		rows = uuid("rows"),
+		person = uuid("person");
+	const make = (questionId: string) =>
+		buildDoc({
+			appId: id,
+			appName: "Community deliveries",
+			connectRoles: ["deliver"],
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+			modules: [
+				{
+					uuid: uuid("menu"),
+					name: "Deliveries",
+					forms: [
+						{
+							uuid: form,
+							name: "Household visits",
+							type: "survey",
+							fields: [
+								f({
+									uuid: rows,
+									id: "rows",
+									kind: "repeat",
+									label: proseText("Households"),
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											uuid: person,
+											id: questionId,
+											kind: "text",
+											label: proseText("Recipient ID"),
+											required: { kind: "match-all" },
+											validate: connectRecipientRule(rows, person),
+											validate_msg: proseText(
+												"Each delivery needs a different recipient ID of up to 255 characters.",
+											),
+										}),
+										f({
+											uuid: uuid("delivery"),
+											id: "home_visit",
+											kind: "connect_activity",
+											activity: {
+												kind: "delivery",
+												name: "Home visit",
+												entityId: term({
+													...formField(person),
+													spelling: "relative",
+												}),
+											},
+										}),
+									],
+								}),
+								f({
+									uuid: uuid("confirm"),
+									id: "confirmed",
+									kind: "text",
+									label: proseText("Visit notes"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+	return targetedDocument({
+		id,
+		rows: [
+			"Connect repeated delivery, required distinct recipient per submitted unit",
+		],
+		doc: make("recipient"),
+		edit: make("person"),
+		expected: {
+			intent: [answerHeld("visit-notes", form, "/data/confirmed", "Done")],
+		},
+	});
+}
+
+/** The exact released worker pages and every leading, nested, interleaved
+ * and trailing activity. Editing the wording preserves their submitted identities. */
+export function connectSectionOrder() {
+	const id = "targeted-connect-section-order";
+	const doc = connectSectionForm(id);
+	const form = doc.formOrder[doc.moduleOrder[0]][0];
+	return targetedDocument({
+		id,
+		rows: [
+			"Worker pages carry their original Connect activity addresses and traversal order",
+		],
+		doc,
+		edit: connectSectionForm(id, "Plan for next time"),
+		expected: {
+			intent: [
+				answerHeld(
+					"next-step-held",
+					form,
+					"/data/follow_up/next_step",
+					"Return tomorrow",
+				),
+			],
+		},
+	});
 }

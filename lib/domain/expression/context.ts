@@ -1,6 +1,8 @@
+import { formCaseSelections } from "../advancedEntryDatums";
 import { ancestorWalk } from "../advancedModule";
 import { registrationMintsOwnCaseId } from "../basicCaseSlots";
 import type { BlueprintDoc, CaseType } from "../blueprint";
+import { caseListLookupCountSource } from "../caseListLookupCount";
 import type { CasePropertyDataType } from "../casePropertyTypes";
 import {
 	caseDataTypeForFieldKind,
@@ -8,10 +10,14 @@ import {
 	reachableCaseTypes,
 	toReachableIndex,
 } from "../caseTypes";
+import { detailConditionFixtures, detailTabForColumn } from "../detailTabs";
 import {
+	detailEntrySupplies,
 	type EntryDatumSupplies,
 	entryDatumSupplies,
 	formLinkTargetSupplies,
+	loadedSearchModules,
+	sharedFormDatumSupplies,
 } from "../entryDatumSupplies";
 import { formOfField } from "../fieldForm";
 import type { SelectOption } from "../fields";
@@ -22,13 +28,24 @@ import {
 	orderedCaseOperations,
 	sameCaseWriteKey,
 } from "../forms";
+import { menuWithInheritedCaseSettings } from "../listedForms";
 import type { TranslationUnitId } from "../localization";
-import type { LookupColumnId, LookupTableId } from "../lookupIds";
-import { afterEmptySearchRegistrationFormOf } from "../menuForms";
-import { menuScreenOf, screenChoosesCaseFirst } from "../menuScreens";
+import type {
+	LookupColumnId,
+	LookupMemberId,
+	LookupTableId,
+} from "../lookupIds";
 import {
+	afterEmptySearchRegistrationFormOf,
+	caseListsOffering,
+} from "../menuForms";
+import { formRouteBeforeCase } from "../menuScreens";
+import {
+	directParentSearchRequestKey,
 	effectiveCaseSearchConfig,
+	isSearchAnswerInput,
 	moduleFormsReadSearch,
+	projectSearchOf,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
 	searchInputRuntimeValueType,
 } from "../modules";
@@ -40,6 +57,7 @@ import {
 } from "../organization";
 import { declaredPlatforms, type Platform } from "../platforms";
 import { proseText } from "../prose";
+import { searchSupplierAddresses } from "../referenceNames";
 import {
 	expressionSlotValues,
 	FIELD_REFERENCE_SLOTS,
@@ -48,6 +66,7 @@ import {
 	type FormReferenceSlot,
 } from "../referenceSlots";
 import {
+	isFacetWriteThroughIndex,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
 } from "../standardCaseProperties";
@@ -64,11 +83,12 @@ import { inferExpressionTypes } from "./inference";
 import { type RuleSet, type SlotProfile, slotProfile } from "./profiles";
 import { resolveRelationDestination } from "./relationDestination";
 import type { Held, ScalarHeld, ScalarType } from "./typeChecker";
+import { expressionRowScope } from "./typeChecker";
 import { datumRefKey, type FormNodeRef, type SlotContextRef } from "./types";
 
 export type LookupTypeIndex = ReadonlyMap<
 	LookupTableId,
-	ReadonlyMap<LookupColumnId, CasePropertyDataType>
+	ReadonlyMap<string, CasePropertyDataType>
 >;
 /** Names for parsing and wire projection; no table rows or persistence layer. */
 export type LookupDefinitionIndex = ReadonlyMap<
@@ -77,7 +97,18 @@ export type LookupDefinitionIndex = ReadonlyMap<
 		readonly id: LookupTableId;
 		readonly name: string;
 		readonly tag: string;
+		readonly attributes?: readonly {
+			readonly id: LookupMemberId;
+			readonly wireName: string;
+			readonly label: string;
+		}[];
 		readonly columns: readonly {
+			readonly repeated?: true;
+			readonly properties?: readonly {
+				readonly id: LookupMemberId;
+				readonly wireName: string;
+				readonly label: string;
+			}[];
 			readonly id: LookupColumnId;
 			readonly wireName: string;
 			readonly label: string;
@@ -86,6 +117,9 @@ export type LookupDefinitionIndex = ReadonlyMap<
 	}
 >;
 export interface SearchInputDecl {
+	readonly matchingOnly?: true;
+	readonly supplier?: Uuid;
+	readonly supplierId?: string;
 	readonly uuid: Uuid;
 	readonly name: string;
 	readonly data_type?: CasePropertyDataType;
@@ -104,6 +138,7 @@ export type RowScope =
 			readonly capturedCase?: CaseRowScope;
 	  }
 	| { readonly kind: "location"; readonly root: "locations" }
+	| { readonly kind: "worker-group"; readonly root: "worker-groups" }
 	| { readonly kind: "repeat"; readonly root: "form"; readonly repeat: Uuid };
 /** The per-document facts the checker reads. `caseTypes`, `hiddenTypes`,
  * `hiddenHeld` and `clockLost` are inference's (`inference.ts`); the rest are
@@ -123,6 +158,7 @@ export interface ExpressionFacts {
 	readonly organizationLevels: Readonly<Record<string, OrganizationLevel>>;
 	readonly locationProperties: ReadonlyMap<Uuid, LocationProperty>;
 	readonly moduleCaseTypes: ReadonlyMap<Uuid, string>;
+	readonly projectSearchMenus?: ReadonlySet<Uuid>;
 	readonly moduleUuids: ReadonlySet<Uuid>;
 	readonly operationCaseTypes: ReadonlyMap<Uuid, string>;
 	readonly moduleSearchInputs: ReadonlyMap<Uuid, readonly SearchInputDecl[]>;
@@ -154,10 +190,15 @@ export interface FormExpressionFacts extends FormStructure {
 	 * (`menuForms.ts::afterEmptySearchRegistrationFormOf`), which opens from
 	 * Results after a search found nothing and carries the Search answers. */
 	readonly caseListRegistrationForm: boolean;
+	/** A second list can open the same hidden form without running its owning menu's search. */
+	readonly opensFromAnotherList?: boolean;
 	/** Whether the form's menu has its forms read the search, so its forms
 	 * open after the inline query that keeps the Search answers
 	 * (`search-input:results:inline`). */
 	readonly formsReadSearchModule: boolean;
+	readonly searchResultsName?: string;
+	/** The menus whose query steps are in this form's entry, by their current authored names. */
+	readonly searchSuppliers?: readonly { module: Uuid; resultsName?: string }[];
 	/** Whether a translation unit this form's questions or choices own shows
 	 * an answer in some language (`translationUnits.ts::formTranslationUnits`).
 	 * Asked only by a `jr:itext` or `jr:choice-name` read, so a form with none
@@ -216,10 +257,19 @@ export interface ExpressionContext {
 	readonly lookupTables: LookupTypeIndex;
 	readonly supplies: EntryDatumSupplies;
 	readonly targetSupplies?: EntryDatumSupplies;
+	readonly caseListLookupCountSource?: Uuid;
+	readonly detailConditionFixtures?: ReadonlySet<LookupTableId | "places">;
 	/** A value of a server search condition that a device works out before
 	 * the search runs (`searchRuntimeValues.ts`): the slot names no device
 	 * target, yet Core evaluates this expression. */
 	readonly runsOnDevice?: true;
+	/** A displayed condition also reads the Search result snapshot when its menu offers Search. */
+	readonly runsOnSearchResults?: true;
+	/** The translated pieces this calculated field owns. */
+	readonly caseTexts?: readonly {
+		readonly uuid: Uuid;
+		readonly label: string;
+	}[];
 	/** The platforms the app declares (`declaredPlatforms`): what an
 	 * expression leaf one platform lacks is refused against. */
 	readonly platforms: readonly Platform[];
@@ -231,7 +281,8 @@ export type RecordQueryRowScope =
 			readonly tableId: LookupTableId;
 			readonly capturedCase?: Extract<RecordQueryRowScope, { kind: "case" }>;
 	  }
-	| { readonly kind: "location" };
+	| { readonly kind: "location" }
+	| { readonly kind: "worker-group" };
 /** A SQL query has no authored slot, device target, or form evaluation node. */
 export interface RecordQueryContext {
 	readonly kind: "record-query";
@@ -346,11 +397,16 @@ export function untypedExpressionFacts(
 		moduleSearchInputs: new Map(
 			Object.values(doc.modules).map((module) => [
 				module.uuid,
-				(module.caseListConfig?.searchInputs ?? []).map((input) => ({
-					uuid: input.uuid,
-					name: input.name,
-					data_type: searchInputRuntimeValueType(input),
-				})),
+				(module.caseListConfig?.searchInputs ?? [])
+					.filter(isSearchAnswerInput)
+					.map((input) => ({
+						uuid: input.uuid,
+						name: input.name,
+						...(directParentSearchRequestKey(input) !== undefined && {
+							matchingOnly: true as const,
+						}),
+						data_type: searchInputRuntimeValueType(input),
+					})),
 			]),
 		),
 		userPropertySlugs: userPropertySlugsByUuid(doc),
@@ -361,16 +417,32 @@ export function untypedExpressionFacts(
 				property,
 			]),
 		),
+		projectSearchMenus: new Set(
+			Object.values(doc.modules)
+				.filter((module) => projectSearchOf(module) !== undefined)
+				.map((module) => module.uuid),
+		),
 		moduleCaseTypes: new Map(
-			Object.values(doc.modules).flatMap((module) =>
-				module.caseType === undefined
-					? []
-					: [[module.uuid, module.caseType] as const],
-			),
+			Object.values(doc.modules).flatMap((module) => {
+				const value = menuWithInheritedCaseSettings(doc, module.uuid)?.caseType;
+				return value === undefined ? [] : [[module.uuid, value] as const];
+			}),
 		),
 	};
 	untypedFacts.set(doc, result);
 	return result;
+}
+
+/** A project service returns its own rows. Ordinary search guarantees one
+ * record type and can add related cases beside the actual matches. */
+export function readsProjectSearchResults(
+	ctx: ExpressionContext,
+	supplier?: Uuid,
+): boolean {
+	const source = supplier ?? ctx.supplies.searchResults?.module;
+	return (
+		source !== undefined && ctx.facts.projectSearchMenus?.has(source) === true
+	);
 }
 
 export function expressionFacts(doc: BlueprintDoc): ExpressionFacts {
@@ -551,20 +623,52 @@ function buildFormFacts(
 			repeats: repeatsByField.get(uuid) ?? [],
 		});
 	}
-	const searchInputs = (module?.caseListConfig?.searchInputs ?? []).map(
-		(input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			data_type: searchInputRuntimeValueType(input),
-		}),
+	const supplied = loadedSearchModules(
+		entryDatumSupplies(
+			doc,
+			{ kind: "form", module: structure.moduleUuid, form: structure.formUuid },
+			structure,
+		),
 	);
+	const menuNames = supplied.some((uuid) => uuid !== structure.moduleUuid)
+		? searchSupplierAddresses(doc.modules)
+		: undefined;
+	const searchInputs = [
+		...new Set([structure.moduleUuid, ...supplied]),
+	].flatMap((uuid) => {
+		const owner = doc.modules[uuid];
+		return (owner?.caseListConfig?.searchInputs ?? [])
+			.filter(isSearchAnswerInput)
+			.map((input) => ({
+				uuid: input.uuid,
+				name: input.name,
+				...(directParentSearchRequestKey(input) !== undefined && {
+					matchingOnly: true as const,
+				}),
+				data_type: searchInputRuntimeValueType(input),
+				...(uuid !== structure.moduleUuid && {
+					supplier: uuid,
+					supplierId: menuNames?.get(uuid),
+				}),
+			}));
+	});
 	return {
 		...structure,
 		fields,
+		searchResultsName: module?.searchResultsName,
+		searchSuppliers: supplied.map((uuid) => ({
+			module: uuid,
+			resultsName: doc.modules[uuid].searchResultsName,
+		})),
 		searchInputs,
 		caseListRegistrationForm:
 			afterEmptySearchRegistrationFormOf(doc, structure.moduleUuid) ===
 			structure.formUuid,
+		...(afterEmptySearchRegistrationFormOf(doc, structure.moduleUuid) ===
+			structure.formUuid &&
+			caseListsOffering(doc, structure.formUuid).length > 0 && {
+				opensFromAnotherList: true,
+			}),
 		formsReadSearchModule:
 			module !== undefined && moduleFormsReadSearch(module),
 		unitShowsAnswer: (unitId) =>
@@ -705,16 +809,23 @@ export function slotContext(
 					: provisionalFormExpressionFacts(doc, formUuid, options.facts)
 			: buildFormFacts(doc, options.form, facts);
 	const moduleUuid = slot.entity === "module" ? slot.uuid : form?.moduleUuid;
-	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	const module =
+		moduleUuid === undefined
+			? undefined
+			: menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (module === undefined || moduleUuid === undefined) return undefined;
-	const searchInputs = (module.caseListConfig?.searchInputs ?? []).map(
-		(input) => ({
+	const searchInputs = (module.caseListConfig?.searchInputs ?? [])
+		.filter(isSearchAnswerInput)
+		.map((input) => ({
 			uuid: input.uuid,
 			name: input.name,
+			...(directParentSearchRequestKey(input) !== undefined && {
+				matchingOnly: true as const,
+			}),
 			data_type: searchInputRuntimeValueType(input),
-		}),
-	);
+		}));
 	let profile: SlotProfile;
+	let caseTexts: ExpressionContext["caseTexts"];
 	let rows: RowScope[] = [];
 	let sourceNode: FormNodeRef | undefined;
 	let supplies: EntryDatumSupplies = { refs: [] };
@@ -732,9 +843,8 @@ export function slotContext(
 				!declaration.repeatModes.includes(field.repeatMode as never))
 		)
 			return undefined;
-		if (slot.slot === "option_label" && !field.choices?.kind) return undefined;
 		if (
-			slot.slot === "option_label" &&
+			(slot.slot === "option_label" || slot.slot === "option_extended_text") &&
 			(field.choices?.kind !== "inline" ||
 				!field.choices.options.some(
 					(option) => option.uuid === slot.member.optionUuid,
@@ -743,6 +853,30 @@ export function slotContext(
 			return undefined;
 		// A query repeat's `relevant` evaluates at its row, in both placements.
 		sourceNode = { kind: "field", uuid: slot.uuid };
+		if (slot.slot === "assessment_user_score") {
+			if (field.activityKind !== "assessment") return undefined;
+			sourceNode = {
+				kind: "connect-assessment",
+				activity: slot.uuid,
+				role: "score",
+			};
+		} else if (
+			slot.slot === "deliver_entity_id" ||
+			slot.slot === "deliver_entity_name" ||
+			slot.slot === "deliver_work_area_id"
+		) {
+			if (field.activityKind !== "delivery") return undefined;
+			const role = {
+				deliver_entity_id: "entity-id",
+				deliver_entity_name: "entity-name",
+				deliver_work_area_id: "work-area-id",
+			} as const;
+			sourceNode = {
+				kind: "connect-delivery",
+				activity: slot.uuid,
+				role: role[slot.slot],
+			};
+		}
 		if (slot.slot === "repeat_count")
 			sourceNode = { kind: "repeat", repeat: slot.uuid, role: "count-result" };
 		if (slot.slot === "ids_query")
@@ -764,7 +898,8 @@ export function slotContext(
 		);
 		if (slot.slot === "lookup_options_source") {
 			const choices = field.choices;
-			if (choices === undefined || choices.kind === "inline") return undefined;
+			if (choices?.kind !== "lookup" && choices?.kind !== "cases")
+				return undefined;
 			profile = slotProfile(
 				"record",
 				choices.kind === "cases" ? "case" : "table",
@@ -789,7 +924,7 @@ export function slotContext(
 							},
 						];
 		}
-		supplies = entryDatumSupplies(
+		supplies = sharedFormDatumSupplies(
 			doc,
 			{
 				kind: "form",
@@ -808,7 +943,7 @@ export function slotContext(
 			!declaration.formTypes.includes(form.type)
 		)
 			return undefined;
-		supplies = entryDatumSupplies(
+		supplies = sharedFormDatumSupplies(
 			doc,
 			{
 				kind: "form",
@@ -817,23 +952,64 @@ export function slotContext(
 			},
 			options.form,
 		);
-		if (slot.slot === "form_display_condition") {
-			if (saved === undefined) return undefined;
-			const caseFirst = screenChoosesCaseFirst(
-				doc,
-				menuScreenOf(doc, moduleUuid),
-				options.form,
+		if (
+			slot.slot === "form_selection_source" ||
+			slot.slot === "form_entry_value"
+		) {
+			if (!saved) return undefined;
+			const choices = formCaseSelections(doc, slot.uuid);
+			const values = saved.computedDatums ?? [];
+			const rows = slot.slot === "form_selection_source" ? choices : values;
+			const index = rows.findIndex(
+				(row) => row.uuid === slot.member.supplyUuid,
 			);
+			if (index < 0) return undefined;
+			const prefix =
+				slot.slot === "form_selection_source"
+					? choices.slice(0, index)
+					: choices;
+			const earlierValues =
+				slot.slot === "form_entry_value" ? values.slice(0, index) : [];
+			supplies = {
+				refs: supplies.refs.filter(({ ref }) => {
+					if (ref.kind === "form-selection")
+						return prefix.some((row) => row.uuid === ref.selection);
+					if (ref.kind === "entry-value")
+						return earlierValues.some((row) => row.uuid === ref.datum);
+					if (ref.kind === "worker-record")
+						return prefix.some((row) => row.source.kind === "worker-record");
+					if (ref.kind === "selected-case")
+						return (
+							prefix.filter(
+								(row) =>
+									row.source.kind === "choose" &&
+									row.source.module === ref.module,
+							).length === 1
+						);
+					return false;
+				}),
+			};
+			profile = slotProfile("form", "session", ["SU", "HQ", "PV"], {
+				kind: "value",
+			});
+		} else if (
+			slot.slot === "form_display_condition" ||
+			slot.slot === "form_badge"
+		) {
+			if (saved === undefined) return undefined;
+			const caseFirst =
+				formRouteBeforeCase(doc, moduleUuid, slot.uuid, options.form) ===
+				undefined;
 			profile = slotProfile(
 				"record",
 				"session",
 				["SU", "HQ", "PV"],
-				{ kind: "condition" },
-				{ caseData: caseFirst },
+				slot.slot === "form_badge" ? { kind: "value" } : { kind: "condition" },
+				{ caseData: caseFirst || slot.slot === "form_badge" },
 			);
 			if (caseFirst)
 				rows = [{ kind: "case", root: "casedb", caseType: module.caseType }];
-			supplies = entryDatumSupplies(
+			supplies = sharedFormDatumSupplies(
 				doc,
 				{
 					kind: "form-menu",
@@ -927,9 +1103,13 @@ export function slotContext(
 				return undefined;
 			const condition =
 				slot.slot === "case_operation_condition" ||
+				slot.slot === "case_operation_close_condition" ||
+				slot.slot === "case_operation_owner_condition" ||
+				slot.slot === "case_operation_type_condition" ||
 				slot.slot === "case_operation_write_condition";
 			const target =
-				slot.slot === "case_operation_target_expression" ||
+				(slot.slot === "case_operation_target_expression" &&
+					operation.target?.kind !== "new") ||
 				slot.slot === "case_operation_link_target_expression";
 			// A write lands on the operation's case after any retype, or through
 			// `via` on the case above it; the form's own change saves to its
@@ -950,7 +1130,12 @@ export function slotContext(
 					: viaDestination.ok
 						? viaDestination.caseType
 						: undefined;
-			const destinations: CasePropertyDataType[] = !("property" in member)
+			// A facet, and the name or owner of a case above saved through
+			// `via`, take an identifier's text.
+			const facetText =
+				!("property" in member) ||
+				(write !== undefined && isFacetWriteThroughIndex(write));
+			const destinations: CasePropertyDataType[] = facetText
 				? ["text"]
 				: destinationType === undefined
 					? []
@@ -978,7 +1163,7 @@ export function slotContext(
 					: {
 							kind: "assignment",
 							destinations,
-							...(!("property" in member) && {
+							...(facetText && {
 								identifierText: true as const,
 							}),
 						},
@@ -1004,27 +1189,7 @@ export function slotContext(
 				form.fields.get(operation.forEach.repeat)?.kind === "repeat"
 			)
 				sourceNode = { kind: "field", uuid: operation.forEach.repeat };
-		} else {
-			const block =
-				slot.slot === "assessment_user_score" ? "assessment" : "deliver_unit";
-			if (form.connect[block] === undefined) return undefined;
-			sourceNode =
-				slot.slot === "assessment_user_score"
-					? { kind: "connect-assessment", form: slot.uuid, role: "score" }
-					: {
-							kind: "connect-delivery",
-							form: slot.uuid,
-							role:
-								slot.slot === "deliver_entity_id" ? "entity-id" : "entity-name",
-						};
-			profile = slotProfile(
-				"form",
-				"form",
-				["XF"],
-				{ kind: "value" },
-				{ searchInputs: form.searchInputs },
-			);
-		}
+		} else return undefined;
 	} else {
 		const searchInputUuid =
 			"member" in slot && "searchInputUuid" in slot.member
@@ -1042,21 +1207,78 @@ export function slotContext(
 			input === undefined
 		)
 			return undefined;
+		if (slot.slot === "case_list_mapping_condition") {
+			const column = module.caseListConfig?.columns.find(
+				(entry) => entry.uuid === slot.member.columnUuid,
+			);
+			if (
+				(column?.kind !== "id-mapping" && column?.kind !== "image-map") ||
+				!column.mapping.some((row) => row.uuid === slot.member.rowUuid)
+			)
+				return undefined;
+		}
+		if (
+			slot.slot === "search_filter_value" &&
+			!module.caseListConfig?.searchFilters?.some(
+				(filter) =>
+					"target" in filter && filter.uuid === slot.member.filterUuid,
+			)
+		)
+			return undefined;
+		if (
+			slot.slot === "project_search_parameter" &&
+			!projectSearchOf(module)?.defaults.some(
+				(parameter) => parameter.uuid === slot.member.parameterUuid,
+			)
+		)
+			return undefined;
 		if (slot.slot === "case_list_column_expression") {
 			const column = module.caseListConfig?.columns.find(
 				(entry) => entry.uuid === slot.member.columnUuid,
 			);
 			if (column?.kind !== "calculated") return undefined;
+			caseTexts = column.texts;
 		}
+		if (
+			slot.slot === "case_list_sort_expression" &&
+			!module.caseListConfig?.calculatedSorts?.some(
+				(rule) => rule.uuid === slot.member.sortUuid,
+			)
+		)
+			return undefined;
+		const orderValue =
+			slot.slot === "case_list_sort_expression" ||
+			slot.slot === "case_list_mapping_condition" ||
+			slot.slot === "case_list_column_expression";
+		const tabUuid =
+			"member" in slot && "tabUuid" in slot.member
+				? slot.member.tabUuid
+				: undefined;
+		const tab =
+			tabUuid &&
+			module.caseListConfig?.detailTabs?.find((tab) => tab.uuid === tabUuid);
+		if ("member" in slot && "tabUuid" in slot.member && !tab) return undefined;
 		const caseSlot = [
+			"case_list_mapping_condition",
+			"case_form_context_line",
+			"case_detail_tab_filter",
+			"case_detail_tab_rows",
+			"case_detail_tab_condition",
 			"case_list_filter",
+			"case_search_filter",
 			"case_list_column_expression",
+			"case_list_sort_expression",
 			"search_input_predicate",
 		].includes(slot.slot);
 		if (caseSlot && module.caseType === undefined) return undefined;
 		const condition = [
+			"case_list_mapping_condition",
+			"case_detail_tab_filter",
+			"case_detail_tab_condition",
 			"module_display_condition",
+			"case_list_action_condition",
 			"case_list_filter",
+			"case_search_filter",
 			"search_button_display_condition",
 			"search_input_predicate",
 			"search_input_options",
@@ -1064,39 +1286,57 @@ export function slotContext(
 			"search_input_validation_rule",
 		].includes(slot.slot);
 		const admitsInputs = [
+			"case_list_mapping_condition",
+			"search_filter_value",
 			"case_list_filter",
+			"case_search_filter",
 			"case_list_column_expression",
+			"case_list_sort_expression",
 			"search_input_predicate",
 			"excluded_owner_ids",
+			"project_search_parameter",
 			"search_input_required_when",
 			"search_input_validation_rule",
 		].includes(slot.slot);
 		const searchable = effectiveCaseSearchConfig(module) !== undefined;
 		const targets: readonly import("./profiles").ExpressionTarget[] =
-			slot.slot === "search_input_predicate"
-				? ["CS", "PG"]
-				: slot.slot === "case_list_filter"
-					? searchable
-						? ["SU", "HQ", "CS", "PG"]
-						: ["SU", "HQ", "PG"]
-					: slot.slot === "case_list_column_expression"
-						? searchable
-							? ["SU", "HQ", "CS", "PG", "PV"]
-							: ["SU", "HQ", "PG", "PV"]
-						: slot.slot === "excluded_owner_ids"
-							? ["SU", "CS", "PG"]
-							: ["SU", "HQ", "PV"];
+			slot.slot === "case_list_mapping_condition"
+				? ["SU", "HQ", "PG", "PV"]
+				: slot.slot === "case_detail_tab_rows" ||
+						slot.slot === "case_detail_tab_filter" ||
+						slot.slot === "case_detail_tab_condition" ||
+						slot.slot === "case_form_context_line"
+					? ["HQ", "SU", "PV", "PG"]
+					: slot.slot === "search_input_predicate" ||
+							slot.slot === "case_search_filter"
+						? ["CS", "PG"]
+						: slot.slot === "case_list_filter"
+							? searchable &&
+								module.caseListConfig?.searchCondition === undefined
+								? ["SU", "HQ", "CS", "PG"]
+								: ["SU", "HQ", "PG"]
+							: orderValue
+								? searchable
+									? ["SU", "HQ", "CS", "PG", "PV"]
+									: ["SU", "HQ", "PG", "PV"]
+								: slot.slot === "excluded_owner_ids"
+									? ["SU", "CS", "PG"]
+									: ["SU", "HQ", "PV"];
 		profile = slotProfile(
 			"record",
 			caseSlot ? "case" : "global",
 			targets,
 			condition ? { kind: "condition" } : { kind: "value" },
 			{
+				...(slot.slot === "module_badge" ||
+				slot.slot === "module_display_condition"
+					? { caseData: true }
+					: {}),
 				searchInputs: admitsInputs ? searchInputs : [],
 				patternMatching:
 					slot.slot === "search_input_required_when" ||
 					slot.slot === "search_input_validation_rule",
-				here: slot.slot === "case_list_column_expression",
+				here: orderValue,
 			},
 		);
 		if (slot.slot === "excluded_owner_ids")
@@ -1105,19 +1345,96 @@ export function slotContext(
 			rows = [
 				{
 					kind: "case",
-					root: slot.slot === "search_input_predicate" ? "results" : "casedb",
+					root:
+						slot.slot === "search_input_predicate" ||
+						slot.slot === "case_search_filter"
+							? "results"
+							: "casedb",
 					caseType: module.caseType,
 				},
 			];
+		if (slot.slot === "case_detail_tab_rows")
+			profile = { ...profile, expectation: { kind: "value", many: true } };
+		if (slot.slot === "case_detail_tab_filter") {
+			if (tab?.rowSource?.kind !== "children") return undefined;
+			rows = [
+				{ kind: "case", root: "casedb", caseType: tab.rowSource.caseType },
+			];
+		}
+		if (slot.slot === "case_list_column_expression") {
+			const tab = detailTabForColumn(
+				module.caseListConfig,
+				slot.member.columnUuid,
+			);
+			const source = tab?.rowSource;
+			if (source?.kind === "children")
+				rows = [{ kind: "case", root: "casedb", caseType: source.caseType }];
+			if (tab && source?.kind === "records") {
+				const context = slotContext(
+					doc,
+					{
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_detail_tab_rows",
+						member: {
+							tabUuid: tab.uuid,
+						},
+					},
+					lookupTables,
+					options,
+				);
+				const row = context && expressionRowScope(source.rows, context);
+				if (row) {
+					rows = [row];
+					profile = {
+						...profile,
+						...(row.kind !== "case" && {
+							targets: new Set<import("./profiles").ExpressionTarget>([
+								"HQ",
+								"SU",
+								"PV",
+							]),
+						}),
+						scope:
+							row.kind === "table"
+								? "table"
+								: row.kind === "location"
+									? "global"
+									: "case",
+					};
+				}
+			}
+		}
 		// The case list filter and an advanced search input's condition run at
 		// the module's case list step, after the selections before its own
 		// (`lib/domain/entryDatumSupplies.ts`).
-		if (slot.slot === "case_list_filter")
+		if (
+			slot.slot === "case_list_filter" ||
+			slot.slot === "case_list_action_condition"
+		)
 			supplies = entryDatumSupplies(doc, {
 				kind: "case-list",
 				module: moduleUuid,
 			});
-		if (slot.slot === "search_input_predicate")
+		if (
+			slot.slot === "case_detail_tab_rows" ||
+			slot.slot === "case_detail_tab_filter" ||
+			slot.slot === "case_detail_tab_condition" ||
+			slot.slot === "case_form_context_line" ||
+			(slot.slot === "case_list_column_expression" &&
+				detailTabForColumn(module.caseListConfig, slot.member.columnUuid))
+		) {
+			// The earlier selections are available on every path into this
+			// selector. An inline search also supplies the rows from which its
+			// worker just chose a case on every path into its detail.
+			supplies = detailEntrySupplies(doc, moduleUuid);
+		}
+		if (
+			slot.slot === "search_input_predicate" ||
+			slot.slot === "search_filter_value" ||
+			slot.slot === "case_search_filter" ||
+			slot.slot === "project_search_parameter"
+		)
 			supplies = entryDatumSupplies(doc, {
 				kind: "search",
 				module: moduleUuid,
@@ -1138,19 +1455,13 @@ export function slotContext(
 					"search_input_required_when",
 					"search_input_validation_rule",
 				].includes(slot.slot) &&
-				input.kind === "hidden"
+				(input.kind === "hidden" || input.kind === "address")
 			)
 				return undefined;
 			if (
 				slot.slot === "search_input_default" &&
 				"type" in input &&
-				input.type === "date-range"
-			)
-				return undefined;
-			if (
-				slot.slot === "search_input_default" &&
-				"type" in input &&
-				input.type !== "date-range"
+				input.kind !== "address"
 			)
 				profile = {
 					...profile,
@@ -1171,11 +1482,27 @@ export function slotContext(
 		// evaluates (questions, Connect, case operations, links, choice filters).
 		windowWidth:
 			slot.entity === "module" ||
-			(slot.entity === "form" && slot.slot === "form_display_condition"),
+			(slot.entity === "form" &&
+				(slot.slot === "form_display_condition" || slot.slot === "form_badge")),
 	};
+	const lookupCountSource =
+		profile.caseListSearchText && formUuid !== undefined
+			? caseListLookupCountSource(doc, formUuid)
+			: undefined;
 	return {
 		slot,
+		...(lookupCountSource && { caseListLookupCountSource: lookupCountSource }),
+		...(slot.entity === "module" &&
+			slot.slot === "case_detail_tab_condition" &&
+			module.caseListConfig && {
+				detailConditionFixtures: detailConditionFixtures(doc, module),
+			}),
 		ruleSet: profile.ruleSet,
+		...(caseTexts !== undefined && { caseTexts }),
+		...(slot.slot === "case_list_mapping_condition" &&
+			effectiveCaseSearchConfig(module) !== undefined && {
+				runsOnSearchResults: true,
+			}),
 		profile,
 		facts,
 		...(form === undefined ? {} : { form }),

@@ -322,7 +322,14 @@ it.each([
 				updates: { kind: "text", caseWrite },
 			}),
 		);
-		const saved = property === "external_id" || property === "owner_id";
+		// The external id and the owner are a write's own facts, and CommCare HQ's
+		// server keeps a written location and copies a written hq_user_id into
+		// the external id, as the case store does.
+		const saved =
+			property === "external_id" ||
+			property === "owner_id" ||
+			property === "location_id" ||
+			property === "hq_user_id";
 		expect("error" in result.result).toBe(!saved);
 		if (saved) {
 			valid(harness.currentDoc());
@@ -610,6 +617,13 @@ it("materializes independent children in cousin repeats nested inside real query
 	]);
 	const runtime = engine(doc, formUuid);
 	expect(runtime.getRepeatCount("/data/outer/rows")).toBe(2);
+	// Each kids repeat opens with no entry, as Core opens a repeat written
+	// as a template.
+	for (const row of [0, 1])
+		for (const side of ["left", "right"])
+			expect(runtime.addRepeat(`/data/outer/rows[${row}]/${side}/kids`)).toBe(
+				0,
+			);
 	expect(runtime.addRepeat("/data/outer/rows[1]/right/kids")).toBe(1);
 	const answers = [
 		["/data/outer/rows[0]/left/kids[0]", "Amina"],

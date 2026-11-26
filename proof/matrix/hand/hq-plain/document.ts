@@ -32,7 +32,11 @@
  *   name order; and the one declared type is `village`'s, the kind of the one
  *   select question that writes it, since the writers of every other property
  *   give its type (the reader's catalog rules,
- *   `lib/commcare/reader/caseManagement/catalog.ts::noteProperty`);
+ *   `lib/commcare/reader/caseManagement/catalog.ts::noteProperty`), and its
+ *   choices are that question's;
+ * - the list's village column shows the saved value, as a plain column over
+ *   a property HQ's build reads (`showChoice: "saved-value"`), not the
+ *   choice's label;
  * - each form's own case change is kept where the Case Management page saves
  *   it, the form's basic actions (`open_case`, `update_case`), the placement
  *   `{ kind: "basic", slot: "own" }`; and the follow-up form's writes are
@@ -179,6 +183,10 @@ export function handDocument(): BlueprintDoc {
 						name: "village",
 						label: proseText("village"),
 						data_type: "single_select",
+						options: [
+							{ value: "north", label: proseText("North") },
+							{ value: "south", label: proseText("South") },
+						],
 					},
 					{ name: "visit_date", label: proseText("visit_date") },
 				],
@@ -192,6 +200,7 @@ export function handDocument(): BlueprintDoc {
 				caseListConfig: caseListOf([
 					plainColumn(uuid("listName"), "case_name", "Name"),
 					plainColumn(uuid("listVillage"), "village", "Village", {
+						showChoice: "saved-value",
 						sort: columnSort("asc", 0, "first"),
 					}),
 					plainColumn(uuid("detailMembers"), "members", "Members", {
@@ -272,6 +281,9 @@ export function handDocument(): BlueprintDoc {
 								kind: "hidden",
 								uuid: uuid("membersPlusOne"),
 								id: "members_plus_one",
+								// The form builder binds a Hidden Value with no type, which
+								// Core holds as entered.
+								answerType: "untyped",
 								calculate: "#form/members + 1",
 							}),
 						],

@@ -17,7 +17,7 @@
  * besides the app; it asks CommCare HQ nothing.
  */
 
-import { buildConnectSlugMap } from "@/lib/commcare/connectSlugs";
+import { formConnectActivities } from "@/lib/commcare/connectSlugs";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	commtrackReasons,
@@ -39,6 +39,7 @@ import {
 	FLAT_LOCATION_FIXTURE,
 	FORM_ENTRY_SYNC_OFF,
 	formEntrySyncWhereMissing,
+	geocoderWhereMissing,
 	isPlanFeatureId,
 	type PlanFeatureCheck,
 	type PlanFeatureId,
@@ -75,7 +76,7 @@ export function requiredConfirmations(
 	attachmentTarget: AttachmentUrlTarget | null,
 	lookupNaming: LookupWireNaming | undefined,
 ): DeploymentConfirmationNeeded[] {
-	const connect = buildConnectSlugMap(doc);
+	const connect = formConnectActivities(doc);
 	const needed: DeploymentConfirmationNeeded[] = requiredPlanFeatures(
 		doc,
 		pushes,
@@ -144,7 +145,8 @@ export function requiredConfirmations(
 /**
  * What a person can do where the project space lacks a plan feature, for the
  * features where Nova has something to offer: Web Apps, which an app can do
- * without by running on Android only, and Save to Case, whose case changes
+ * without by running on Android only; Geocoder, whose address questions can
+ * take typed text instead, or run on Android only; and Save to Case, whose case changes
  * Nova can move to Case Management where every one of them fits there.
  */
 function planFeatureWhereMissing(
@@ -155,6 +157,10 @@ function planFeatureWhereMissing(
 	switch (feature) {
 		case "web-apps":
 			return webAppsWhereMissing(narrowingTo(doc, "android"));
+		case "geocoder":
+			return geocoderWhereMissing(narrowingTo(doc, "android"));
+		case "locked-questions":
+			return "You can remove the question locks in Nova before publishing to this project space.";
 		case "advanced-case-actions":
 			return saveToCaseWhereMissing(
 				placementMoveOffer(doc, "save-to-case") !== null,

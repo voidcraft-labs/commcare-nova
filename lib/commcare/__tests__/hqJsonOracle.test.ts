@@ -1299,7 +1299,8 @@ function advancedModuleOf(app: HqApplication) {
 
 function advancedFormOf(app: HqApplication) {
 	const form = advancedModuleOf(app).forms[0];
-	if (form === undefined) throw new Error("The advanced menu has a form.");
+	if (form?.doc_type !== "AdvancedForm")
+		throw new Error("Expected the ordinary advanced form.");
 	return form;
 }
 

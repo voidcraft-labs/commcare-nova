@@ -7,6 +7,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	ENDPOINT_FORM,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	CHOOSE_NAME_QUESTION_MESSAGE,
@@ -337,23 +341,41 @@ describe("planFormTypeChange", () => {
 
 	it.each([
 		["a save to the case above it", { via: [{ identifier: "parent" }] }],
-		["a save only if changed", { onlyIfChanged: true }],
+		["a new name saved only when changed", { nameOnlyIfChanged: true }],
 	] as const)(
 		"follow-up → registration refuses an own case with %s",
 		(_label, facet) => {
 			const doc = fixture((draft) => {
 				const own = draft.forms[FUP].caseOperations?.[0];
-				if (own?.writes?.[0] !== undefined)
-					Object.assign(own.writes[0], structuredClone(facet));
+				if ("via" in facet) {
+					if (own?.writes?.[0] !== undefined)
+						Object.assign(own.writes[0], structuredClone(facet));
+				} else if (own !== undefined)
+					Object.assign(own, { name: answerOf(FUP_NOTE), ...facet });
 			});
 			expect(
 				planFormTypeChange(doc, FUP, "registration", { nameField: FUP_NOTE }),
 			).toEqual({ ok: false, message: NEW_CASE_WRITE_FACETS_MESSAGE });
 			expect(NEW_CASE_WRITE_FACETS_MESSAGE).toBe(
-				"A new case has no earlier value or case above it. Remove Save only if changed and any save to a case above it first.",
+				"A new case has no earlier name or case above it. Turn off Save only if changed under the new name, and remove any save to a case above it, first.",
 			);
 		},
 	);
+
+	it("follow-up → registration keeps a write saved only when changed, which on a new case saves a given answer", () => {
+		const doc = fixture((draft) => {
+			const own = draft.forms[FUP].caseOperations?.[0];
+			if (own?.writes?.[0] !== undefined) own.writes[0].onlyIfChanged = true;
+		});
+		const plan = planFormTypeChange(doc, FUP, "registration", {
+			nameField: FUP_NOTE,
+		});
+		expect(plan.ok).toBe(true);
+		const next = land(doc, plan);
+		expect(next.forms[FUP]?.caseOperations?.[0]?.writes?.[0]).toMatchObject({
+			onlyIfChanged: true,
+		});
+	});
 
 	it("close → registration drops the close condition", () => {
 		const doc = fixture((draft) => {
@@ -456,4 +478,25 @@ describe("module case-type changes and form moves", () => {
 			{ kind: "moveForm", uuid: FUP, toModuleUuid: PATIENTS, after: null },
 		]);
 	});
+});
+
+describe("a form whose deep link supplies the ID of the case it creates", () => {
+	it.each([
+		{ link: "kept", keep: true },
+		{ link: "removed", keep: false },
+	])(
+		"becomes a survey with the choice leaving with its case (deep link $link)",
+		({ keep }) => {
+			const doc = endpointWireFixture("registration-supplied");
+			if (!keep) delete doc.forms[ENDPOINT_FORM].entryPoint;
+			assertAdmittedDoc(doc);
+			const plan = planFormTypeChange(doc, ENDPOINT_FORM, "survey");
+			if (!plan.ok) throw new Error(plan.message);
+			const next = commit(doc, plan.mutations);
+			expect(next.forms[ENDPOINT_FORM].type).toBe("survey");
+			expect(next.forms[ENDPOINT_FORM]).not.toHaveProperty(
+				"entryCaseCreations",
+			);
+		},
+	);
 });

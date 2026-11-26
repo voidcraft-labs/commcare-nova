@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"data_type_id\": \"f0c71f8e17ed4176be1313f94b046a27\", \"fields\": {\"id\": {\"field_list\": [{\"field_value\": \"beans\", \"properties\": {}}]}, \"name\": {\"field_list\": [{\"field_value\": \"Beans\", \"properties\": {\"lang\": \"en\"}}, {\"field_value\": \"Sem\", \"properties\": {\"lang\": \"hin\"}}]}, \"note\": {\"field_list\": []}}, \"id\": \"7302462bedbb46e2bce92e47ca92c71d\", \"item_attributes\": {\"code\": \"c-beans\"}, \"resource_uri\": \"\", \"sort_key\": 1}"
+}

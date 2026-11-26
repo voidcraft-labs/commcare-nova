@@ -20,6 +20,7 @@ import { v4 as uuidv4 } from "uuid";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { FieldLanguageMedia } from "@/components/builder/media/FieldLanguageMedia";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import { RefLabelInput } from "@/components/builder/RefLabelInput";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
@@ -38,16 +39,19 @@ import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
+import { useStoredField } from "@/lib/doc/hooks/useEntity";
 import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useOptionRemovalBlockers } from "@/lib/doc/hooks/useOptionRemovalBlockers";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	asUuid,
 	type CommitOutcome,
+	EMPTY_PROSE_TEMPLATE,
 	type Field,
 	mintSelectOptionPlaceholder,
 	type ProseTemplate,
@@ -67,6 +71,7 @@ import {
 	replaceOptionMedia,
 	replaceOptionPlainLabel,
 	settleDraft,
+	withStoredOptionMedia,
 } from "./optionsDraftModel";
 
 export interface OptionsEditorWidgetProps {
@@ -168,7 +173,7 @@ export function OptionsEditorWidget({
 	// The value box admits only what the wire can carry: a typed space
 	// becomes an underscore as it is typed, so the row never holds a value
 	// the commit gate would bounce for whitespace
-	// (`SELECT_OPTION_VALUE_INVALID`); a value holding both quote marks is
+	// (`SELECT_OPTION_VALUE_INVALID`); other problems are
 	// refused beneath its row (`optionValueRefusal`). The same grammar the
 	// SA's schema teaches and the validator enforces, applied at the
 	// keystroke; the
@@ -222,6 +227,28 @@ export function OptionsEditorWidget({
 			const next = replaceOptionLabel(draft, index, label);
 			setDraft(next);
 			return commit(next);
+		},
+		[draft, commit],
+	);
+
+	const [editingExtended, setEditingExtended] = useState<string | null>(null);
+	const saveExtended = useCallback(
+		(index: number, text: ProseTemplate | undefined) => {
+			const option = draft[index];
+			if (option === undefined) return;
+			if (text === undefined && option.extended_text === undefined) {
+				setEditingExtended(null);
+				return;
+			}
+			const row = { ...option };
+			if (text === undefined) delete row.extended_text;
+			else row.extended_text = text;
+			const next = [...draft];
+			next[index] = row;
+			setDraft(next);
+			const result = commit(next);
+			if (!result || result.ok) setEditingExtended(null);
+			return result;
 		},
 		[draft, commit],
 	);
@@ -453,8 +480,40 @@ export function OptionsEditorWidget({
 										)}
 									</span>
 								</DropdownMenuCheckboxItem>
+								{opt.extended_text === undefined && showsSource && (
+									<DropdownMenuItem
+										onClick={() => setEditingExtended(opt.uuid)}
+									>
+										Add extended text
+									</DropdownMenuItem>
+								)}
 							</DropdownMenuContent>
 						</DropdownMenu>
+						{(opt.extended_text !== undefined ||
+							editingExtended === opt.uuid) && (
+							<fieldset
+								className="basis-full min-w-0 border-0 p-0 m-0"
+								onBlur={(event) => event.stopPropagation()}
+							>
+								<RefLabelInput
+									label="Extended text"
+									value={opt.extended_text ?? EMPTY_PROSE_TEMPLATE}
+									onSave={(text) => saveExtended(i, text)}
+									onEmpty={() => saveExtended(i, undefined)}
+									autoFocus={editingExtended === opt.uuid}
+									proseSlot={
+										fieldUuid === undefined
+											? undefined
+											: {
+													entity: "field",
+													uuid: fieldUuid,
+													slot: "option_extended_text",
+													member: { optionUuid: opt.uuid },
+												}
+									}
+								/>
+							</fieldset>
+						)}
 						<OptionValueRefusal message={optionValueRefusal(draft, i)} />
 						{opt.plainLabel === true && !formFormattingOff && (
 							<p
@@ -493,15 +552,29 @@ export function OptionsEditorWidget({
 							</fieldset>
 						)}
 						<div className="basis-full pl-1">
-							<MediaSlot
-								value={opt.media}
-								onChange={(media) => setOptionMedia(i, media)}
-								kinds={MEDIA_KINDS}
-								// The UUID is the authored identity. Values are mutable
-								// wire projections and never address option media.
-								slotKey={`option:${slotKeyBase}:${opt.uuid}`}
-								ariaLabel={projectProse(opt.label).trim() || `Option ${i + 1}`}
-							/>
+							{fieldUuid ? (
+								<FieldLanguageMedia
+									fieldUuid={fieldUuid}
+									slot="label"
+									optionUuid={opt.uuid}
+									slotKey={`option:${slotKeyBase}:${opt.uuid}`}
+									ariaLabel={
+										projectProse(opt.label).trim() || `Option ${i + 1}`
+									}
+								/>
+							) : (
+								<MediaSlot
+									value={opt.media}
+									onChange={(media) => setOptionMedia(i, media)}
+									kinds={MEDIA_KINDS}
+									// The UUID is the authored identity. Values are mutable
+									// wire projections and never address option media.
+									slotKey={`option:${slotKeyBase}:${opt.uuid}`}
+									ariaLabel={
+										projectProse(opt.label).trim() || `Option ${i + 1}`
+									}
+								/>
+							)}
 						</div>
 					</div>
 				))}
@@ -536,6 +609,15 @@ export function OptionsEditor<F extends Field>(
 	 * a person who sees only that one would think their own edit was the
 	 * problem. Cleared on the next save that lands. */
 	const [rejection, setRejection] = useState<string | null>(null);
+	/* The rows show the worker language's files; the write keeps every
+	 * choice's stored files (`withStoredOptionMedia`). */
+	const stored = useStoredField(field.uuid);
+	const storedOptions =
+		stored !== undefined &&
+		"optionsSource" in stored &&
+		stored.optionsSource.kind === "inline"
+			? stored.optionsSource.options
+			: undefined;
 	if (source.kind !== "inline") {
 		return (
 			<div
@@ -560,7 +642,7 @@ export function OptionsEditor<F extends Field>(
 				onSave={(next) => {
 					const outcome = onChange({
 						kind: "inline",
-						options: next,
+						options: withStoredOptionMedia(storedOptions, next),
 					} as F["optionsSource" & keyof F]);
 					setRejection(
 						outcome.ok || outcome.messages.length === 0

@@ -137,6 +137,7 @@ import {
 	LOCAL_CONFIGURATION,
 	OPERATION_ORDINALS,
 } from "./entropy.mts";
+import { fixtureRowsFiles } from "./fixtureRowsFilename";
 import { type Footprint, wireLanguages, wireLayout } from "./footprint";
 import {
 	EMPTY_LIST_TEXT_ARCHIVE,
@@ -147,6 +148,7 @@ import {
 	retainedMigrationA,
 	writeDocumentInputs,
 } from "./inputs";
+import { mediaRole, writeMediaSidecar } from "./mediaSidecar";
 import {
 	type BringInRecord,
 	type CapturedRequest,
@@ -284,6 +286,7 @@ function storedInputs(publish: PublishDocument) {
 						mimeType: asset.mimeType,
 						extension: asset.extension,
 						base64: asset.bytes.toString("base64"),
+						...(asset.source !== undefined && { source: asset.source }),
 					},
 				]),
 			),
@@ -303,6 +306,9 @@ function hqAuthoredJson(facts: HqAuthoredFacts) {
 	return {
 		identity: facts.identity,
 		declaration: facts.declaration,
+		...(facts.ownerRuleChoices !== undefined && {
+			ownerRuleChoices: facts.ownerRuleChoices,
+		}),
 		firstPublish: facts.firstPublish,
 		mediaPaths: Object.fromEntries(facts.mediaPaths),
 	};
@@ -442,14 +448,13 @@ async function writeStep(
 		step.lookup === undefined
 			? undefined
 			: await writeShared(directory, name, "lookups", step.lookup, written);
-	const mediaFile =
-		step.media === undefined
-			? undefined
-			: await writeShared(directory, name, "media", step.media, written);
+	const media = await writeMediaSidecar(step.mediaUploads, (request, role) =>
+		writeShared(directory, name, role, request, written),
+	);
 	await writeRequest(directory, name, step.importApp, {
 		compatibility: step.compatibility,
 		...(lookupFile !== undefined && { lookups: lookupFile }),
-		...(mediaFile !== undefined && { media: mediaFile }),
+		...media,
 		...updateSidecar(step),
 	});
 }
@@ -476,8 +481,8 @@ function updateSidecar(
 		layout: TWO_IMPORT_LAYOUT,
 		placeholderAppId: PLACEHOLDER_APP_ID,
 		saveCounter: step.saveCounter,
-		...(step.mediaSaveCounter !== undefined && {
-			mediaSaveCounter: step.mediaSaveCounter,
+		...(Object.keys(step.verifiedMedia).length > 0 && {
+			verifiedMedia: step.verifiedMedia,
 		}),
 		assumedSource: step.assumedSource,
 		...(step.assumedResources !== undefined && {
@@ -544,13 +549,14 @@ function archiveTargetFacts(
  * configuration's republish was sent after a bring-in of those saves
  * (`SentImport`'s `sent` and `sentUnder`), the document the bring-in gave,
  * with the placements its emission records, under the record the bring-in
- * left; otherwise D under the empty record, every id derived.
+ * left; otherwise D under its original search connections, if any.
  * Configurations that disagree stop the emission rather than choose one.
  */
 function republishedDocument(
 	documentId: string,
 	captures: ReadonlyMap<string, PublishCapture | RepublishCapture>,
 	publish: PublishDocument,
+	startingIdentity: TargetIdentity,
 ): {
 	readonly publish: PublishDocument;
 	readonly targetIdentity: TargetIdentity;
@@ -571,7 +577,7 @@ function republishedDocument(
 	});
 	const brought = sent.filter((each) => each.taken !== undefined);
 	if (brought.length === 0)
-		return { publish, targetIdentity: EMPTY_TARGET_IDENTITY };
+		return { publish, targetIdentity: startingIdentity };
 	const [first] = brought;
 	const key = (taken: (typeof sent)[number]["taken"]) =>
 		JSON.stringify({
@@ -675,6 +681,10 @@ function verdictLacks(
 	const lacking = minimum.flags
 		.filter((flag) => !configuration.flags.includes(flag))
 		.sort();
+	for (const alternatives of minimum.flagsAny ?? []) {
+		if (!alternatives.some((flag) => configuration.flags.includes(flag)))
+			lacking.push(alternatives.join(" or "));
+	}
 	if (minimum.caseSearchEnabled && !configuration.caseSearchEnabled) {
 		lacking.push("case search");
 	}
@@ -738,6 +748,7 @@ const AUTHORED_FILES_WHERE_HELD = [
 	"tables.json",
 	"places.json",
 	"practice-workers.json",
+	"project-searches.json",
 ] as const;
 
 /**
@@ -963,7 +974,7 @@ type ServedFieldValue =
  * holds them before Nova's first publish over A (`PublishInput.hqTables`):
  * each table HQ's table list answered (`lookup-tables.json`), under the id
  * HQ gave it, with its rows as HQ's rows read answered them
- * (`fixture-rows-<tag>.json`) where the base retains that read, and its
+ * (`fixtureRowsFiles`) where the base retains that read, and its
  * description and each row's attributes as HQ's models hold them
  * (`tables.json`). A table whose rows no reading asked for holds none here,
  * and no publish over A reads them.
@@ -993,19 +1004,21 @@ async function retainedPeerTables(retained: string): Promise<PeerTable[]> {
 			}[])
 		: [];
 	const tables: PeerTable[] = [];
+	const files = fixtureRowsFiles(await readdir(retained));
 	for (const table of list.objects ?? []) {
 		const model = modelled.find((one) => one.tag === table.tag);
-		const rowsPath = join(retained, `fixture-rows-${table.tag}.json`);
-		const served = existsSync(rowsPath)
-			? ((
-					(await retainedBody(rowsPath)) as {
-						readonly objects?: readonly {
-							readonly id: string;
-							readonly fields: Readonly<Record<string, ServedFieldValue>>;
-						}[];
-					}
-				).objects ?? [])
-			: [];
+		const name = files.get(table.tag);
+		const served =
+			name !== undefined
+				? ((
+						(await retainedBody(join(retained, name))) as {
+							readonly objects?: readonly {
+								readonly id: string;
+								readonly fields: Readonly<Record<string, ServedFieldValue>>;
+							}[];
+						}
+					).objects ?? [])
+				: [];
 		tables.push({
 			id: table.id,
 			tag: table.tag,
@@ -1249,6 +1262,10 @@ export async function writeEntry(
 					mediaPaths: authored.mediaPaths,
 					keyedCaseIds: authored.keyedCaseIds,
 					columnWords: authored.columnWords,
+					...(authored.projectSearches?.length && {
+						projectSearches: authored.projectSearches,
+					}),
+					installationProfiles: authored.installationProfiles,
 				};
 	const captures = new Map<string, PublishCapture | RepublishCapture>();
 	for (const [name, configuration] of named) {
@@ -1275,6 +1292,10 @@ export async function writeEntry(
 							mediaPaths: authored.mediaPaths,
 							keyedCaseIds: authored.keyedCaseIds,
 							columnWords: authored.columnWords,
+							...(authored.projectSearches?.length && {
+								projectSearches: authored.projectSearches,
+							}),
+							installationProfiles: authored.installationProfiles,
 						},
 						...(hqTables !== undefined && hqTables.length > 0 && { hqTables }),
 					})
@@ -1349,15 +1370,20 @@ export async function writeEntry(
 				await writeFile(join(directory, file), bytes);
 			}
 			const written: WrittenRequests = new Map();
-			const { workbook, media } = exported.publish;
+			const { workbook, mediaUploads } = exported.publish;
 			if (exported.named.lookups !== undefined && workbook !== undefined) {
 				written.set(
 					"lookups",
 					new Map([[exported.named.lookups, workbook.body]]),
 				);
 			}
-			if (exported.named.media !== undefined && media !== undefined) {
-				written.set("media", new Map([[exported.named.media, media.body]]));
+			for (const [index, upload] of (mediaUploads ?? []).entries()) {
+				const file = exported.named.media[index];
+				if (!file)
+					throw new Error(
+						`The retained media upload ${index + 1} has no file.`,
+					);
+				written.set(mediaRole(index), new Map([[file, upload.body]]));
 			}
 			const republish = capture.updates.republish;
 			if (republish?.status === "sent") {
@@ -1409,7 +1435,10 @@ export async function writeEntry(
 	 * document the republish sent: D, or, where a person's saves in HQ were
 	 * brought in before it, the document the bring-in gave, which A after the
 	 * saves and B both hold (`republishedDocument`). */
-	const republished = republishedDocument(document.id, captures, publish);
+	const republished = republishedDocument(document.id, captures, publish, {
+		...EMPTY_TARGET_IDENTITY,
+		projectSearches: adopted?.projectSearches ?? [],
+	});
 	const targetFacts = archiveTargetFacts(document.id, captures, "republish");
 	await writeJson(
 		join(root, "document.json"),
@@ -1493,7 +1522,11 @@ export async function writeEntry(
 	}
 	await writeFile(
 		join(root, "import-file.zip"),
-		await importFile(republished.publish, PROOF_DOMAIN),
+		await importFile(
+			republished.publish,
+			PROOF_DOMAIN,
+			targetIdentity.projectSearches ?? [],
+		),
 	);
 
 	if (edit !== undefined && editVerdict !== undefined) {
@@ -1520,6 +1553,16 @@ export async function writeEntry(
 			),
 		);
 		await writeJson(join(editRoot, "verdict.json"), verdictJson(editVerdict));
+		if (authored?.editedImportFile) {
+			await writeFile(
+				join(editRoot, "import-file.zip"),
+				await importFile(
+					edit.publish,
+					PROOF_DOMAIN,
+					targetIdentity.projectSearches ?? [],
+				),
+			);
+		}
 		for (const [name] of named) {
 			const capture = captures.get(name);
 			const update =

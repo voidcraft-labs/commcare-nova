@@ -34,9 +34,15 @@
 
 import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
-import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import { caseFormContextSchema } from "./caseFormContext";
+import { uniqueCaseMappingRows } from "./caseMappingRows";
+import {
+	authoredCasePropertyNameSchema,
+	readCasePropertyNameSchema,
+} from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
+import { detailTabSpans, detailTabsSchema } from "./detailTabSchema";
 import { entryPointSchema } from "./entryPoints";
 import type {
 	Expression,
@@ -44,6 +50,7 @@ import type {
 	RelationStep,
 } from "./expression/types";
 import {
+	caseTypeNameSchema,
 	conditionSchema,
 	relationPathSchema,
 	relationStepSchema,
@@ -51,13 +58,23 @@ import {
 	XML_ELEMENT_NAME_PATTERN,
 } from "./expression/types";
 import {
+	persistableJsonIntegerSchema,
 	persistableJsonNonnegativeIntegerSchema,
 	persistableJsonPositiveIntegerSchema,
 } from "./jsonNumber";
 import { lookupOptionsSourceSchema } from "./lookupCarriers";
-import { lookupColumnIdSchema } from "./lookupIds";
+import { lookupReadSchema, sameLookupRead } from "./lookupRead";
+import { menuBadgeSchema } from "./menuBadge";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
-import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "./standardCaseProperties";
+import {
+	formerNavigationMediaSchema,
+	navigationMediaSchema,
+} from "./navigationMedia";
+import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
+	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+} from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Sort + visibility — common column slots ──────────────────────
@@ -74,10 +91,8 @@ import { type Uuid, uuidSchema } from "./uuid";
 // whole-document admission enforces uniqueness. The positional tie-break keeps
 // the pure projection deterministic without weakening that stored invariant.
 //
-// The comparator type (lexicographic / numeric / date / decimal)
-// is NOT authored here — wire emission derives it from the case
-// property's `data_type` (or, for calculated columns, from the
-// expression's resolved result type).
+// A rule follows the value’s type unless the author selects another
+// comparison. A display format with its own key still decides its comparison.
 
 export const SORT_DIRECTIONS = ["asc", "desc"] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
@@ -103,7 +118,27 @@ export function defaultSortBlanks(direction: SortDirection): SortBlanks {
 
 /** A rule's keys with no rule between them: what a tool input takes before
  *  `columnSort` stores it. */
+export const SORT_COMPARISONS = [
+	"text",
+	"integer",
+	"decimal",
+	"distance",
+] as const;
+export type SortComparison = (typeof SORT_COMPARISONS)[number];
+
 export const columnSortShape = {
+	/** Earlier positions name hidden choices before those that follow the default order. */
+	menuPosition: persistableJsonNonnegativeIntegerSchema
+		.optional()
+		.describe(
+			"Position among the extra choices workers can pick in Sort by, starting at 0. Leave it out to follow the default case order. Displayed fields already follow their Results positions.",
+		),
+	comparator: z
+		.enum(SORT_COMPARISONS)
+		.optional()
+		.describe(
+			"How to compare the values. Leave it out to use the field’s usual order. Text orders 10 before 2. A whole-number or decimal comparison orders 2 before 10. Distance orders locations from the worker’s position on Android.",
+		),
 	direction: z.enum(SORT_DIRECTIONS),
 	priority: persistableJsonNonnegativeIntegerSchema,
 	/** Where cases with no value sort. Stored only where it differs from the
@@ -127,8 +162,8 @@ export const columnSortShape = {
 
 /**
  * Per-column sort directive: direction, priority, and where blanks sort
- * where that differs from the direction's own. The comparator type is
- * derived at wire emission, not authored.
+ * where that differs from the direction's own. The field supplies its ordinary comparator.
+ * An explicit comparator chooses another reading.
  *
  * `priority` is a non-negative integer; tie-break to Results display
  * order is uniform across saga / preview / wire layers (no layer
@@ -180,6 +215,8 @@ export function columnSort(
 	priority: number,
 	blanks?: SortBlanks,
 	label?: string,
+	comparator?: SortComparison,
+	menuPosition?: number,
 ): ColumnSort {
 	return {
 		direction,
@@ -187,6 +224,8 @@ export function columnSort(
 		...(blanks !== undefined &&
 			blanks !== defaultSortBlanks(direction) && { blanks }),
 		...(label !== undefined && { label }),
+		...(comparator !== undefined && { comparator }),
+		...(menuPosition !== undefined && { menuPosition }),
 	};
 }
 
@@ -305,13 +344,67 @@ const columnCommonSlots = z.strictObject({
 export const TILE_GRID_COLUMNS = 12;
 
 /**
- * Rows in one tile. CommCare bounds the row extent nowhere — the
- * renderer sizes the grid from whatever the fields occupy — so this
- * is declared Nova policy: a tile is a 12 x 12 grid, which keeps the
- * layout editor a fixed, learnable surface and keeps a tile visually
- * comparable to the row it replaces.
+ * The fewest rows a tile offers. Neither runtime bounds a tile's rows:
+ * both size the grid from the cells it holds (Core's
+ * `Detail.getMaxWidthHeight`, Android's `EntityViewTile.getMaxRows`). The
+ * bound is CommCare HQ's own Case List and Case Detail pages, which offer
+ * a cell's start row and height from `max(columns + 1, 7)`, the columns
+ * being the screen's own non-filter columns, a long detail's tabs among
+ * them (`static/app_manager/js/details/bootstrap5/screen.js`,
+ * `caseTileRowMax`; `column.js`, `tileRowOptions` and `tileHeightOptions`).
+ * Each select binds Knockout's `value` with `options` and no
+ * `valueAllowUnset`, so a stored start row the page does not offer comes
+ * back as the first row, and a height it does not offer as one row, and
+ * the page's next save writes that: observed on HQ's own pages by proof 4
+ * over `targeted-tile-row-bound`. So a cell's bottom edge may reach
+ * `max(fields, 6)` rows, and a tile holding more than twelve fields may
+ * be taller than twelve rows (`tileRowLimit`).
  */
-export const TILE_GRID_ROWS = 12;
+export const TILE_MIN_ROWS = 6;
+
+/**
+ * The rows a tile of `fields` fields offers: the bottom edge a cell may
+ * reach (`TILE_MIN_ROWS` says where the number comes from). The fields are
+ * the columns HQ's page shows for that screen: a Results tile's
+ * (`resultsTileFieldCount`) or a Details tile's
+ * (`detailsTileFieldCount`).
+ */
+export function tileRowLimit(fields: number): number {
+	return Math.max(fields, TILE_MIN_ROWS);
+}
+
+/**
+ * The fields of a custom Results tile's short detail, which are the
+ * columns HQ's Case List page counts: every column on the list that the
+ * tile shows (`lib/domain/caseListOrder.ts`, rule 1: a column hidden from
+ * Results is no field of a tile list, and a column that is not on the
+ * list is no field of any). Counted as the tile would hold them whether
+ * or not the layout is on, so a placement kept while tiles are off still
+ * fits when they come back on.
+ */
+export function resultsTileFieldCount(
+	config: Pick<CaseListConfig, "columns">,
+): number {
+	return config.columns.filter(
+		(column) => columnOnList(column) && column.visibleInList !== false,
+	).length;
+}
+
+/**
+ * The columns HQ's Case Detail page counts for a Details tile: every field
+ * shown in Details and each tab, which the page holds as a column of its
+ * own (`screen.js`, the tabs spliced into the columns before the filters
+ * are dropped). Observed: a Details tile of six fields and two tabs keeps a
+ * cell ending on the eighth row.
+ */
+export function detailsTileFieldCount(
+	config: Pick<CaseListConfig, "columns" | "detailTabs">,
+): number {
+	return (
+		config.columns.filter((column) => column.visibleInDetail !== false).length +
+		(config.detailTabs?.length ?? 0)
+	);
+}
 
 // Alignment vocabulary is constrained by what the Web Apps renderer
 // HONORS, not by what the suite parser accepts.
@@ -388,6 +481,7 @@ export type TileFontSize = (typeof TILE_FONT_SIZES)[number];
  * off the wire when unset.
  */
 export const tileCellSchema = z.strictObject({
+	androidOnly: z.literal(true).optional(),
 	x: persistableJsonNonnegativeIntegerSchema,
 	y: persistableJsonNonnegativeIntegerSchema,
 	width: persistableJsonPositiveIntegerSchema,
@@ -399,6 +493,9 @@ export const tileCellSchema = z.strictObject({
 	showShading: z.boolean().optional(),
 });
 export type TileCell = z.infer<typeof tileCellSchema>;
+export const detailTileSchema = z.strictObject({
+	cells: z.record(uuidSchema, tileCellSchema),
+});
 
 /** The alignment and size a cell takes when its maker states none: HQ's own
  *  defaults, which its first Case List save would write. */
@@ -439,6 +536,7 @@ export function tileCell(
 			presentation.verticalAlign ?? TILE_CELL_DEFAULTS.verticalAlign,
 		fontSize: presentation.fontSize ?? TILE_CELL_DEFAULTS.fontSize,
 	};
+	if (presentation.androidOnly) out.androidOnly = true;
 	if (presentation.showBorder !== undefined)
 		out.showBorder = presentation.showBorder;
 	if (presentation.showShading !== undefined)
@@ -506,12 +604,35 @@ export function tileCellsOverlap(a: TileCell, b: TileCell): boolean {
  * case-detail screen is a plain field list whatever the case list does.
  */
 export function tileCellFor(
-	column: Pick<Column, "tile" | "visibleInList">,
+	column: Pick<Column, "tile" | "visibleInList"> & { uuid?: Uuid },
 	layout: CaseTileLayout | undefined,
 ): TileCell | undefined {
 	if (layout === undefined) return undefined;
 	if (column.visibleInList === false) return undefined;
+	if (layout.namedSlots) {
+		const slot = NAMED_TILE_SLOTS.find(
+			(slot) => layout.namedSlots?.[slot] === column.uuid,
+		);
+		return slot ? namedTileCell(slot) : undefined;
+	}
 	return column.tile;
+}
+
+/**
+ * Whether a Results tile cell draws only on Android. HQ writes an
+ * `invisible` field (a cell marked `androidOnly`) and an `address` (a map
+ * location) with a zero template width (`detail_screen.py::HideShortColumn`):
+ * Web Apps hides a zero-width tile field (`tile_item.html`), and Android
+ * draws its stored value at its cell (`EntityViewTile.addFieldView`).
+ */
+export function tileCellOnlyOnAndroid(
+	column: Pick<Column, "kind">,
+	cell: TileCell | undefined,
+): boolean {
+	return (
+		cell !== undefined &&
+		(cell.androidOnly === true || column.kind === "map-location")
+	);
 }
 
 /**
@@ -608,7 +729,22 @@ export type ColumnVia = [RelationStep, ...RelationStep[]];
 
 /** The slot every property-backed column kind carries beside its `field`. */
 const propertyColumnSlots = {
-	field: authoredCasePropertyNameSchema,
+	workerPropertyUuid: uuidSchema
+		.optional()
+		.describe(
+			"The worker information this field reads, when it is defined in the app.",
+		),
+	readFrom: z
+		.literal("worker-record")
+		.optional()
+		.describe("Use the signed-in worker’s case record for this field."),
+	showOwner: z
+		.literal("name")
+		.optional()
+		.describe(
+			"Show the name of the group or worker who owns this case. Choose the owner ID field.",
+		),
+	field: readCasePropertyNameSchema,
 	/** Shows `field` of the case these indices reach rather than the list's own. */
 	via: columnViaSchema.optional(),
 };
@@ -620,6 +756,12 @@ const propertyColumnSlots = {
 const plainColumnSchema = columnBase.extend({
 	kind: z.literal("plain"),
 	...propertyColumnSlots,
+	showChoice: z
+		.literal("saved-value")
+		.optional()
+		.describe(
+			"Show the saved choice value in this column. Leave this out to show the choice label.",
+		),
 	header: z.string(),
 });
 
@@ -647,6 +789,71 @@ const dateColumnSchema = columnBase.extend({
  * Phone-number column — renders the property as a tappable phone
  * link in the running app. Plain text in static contexts.
  */
+export const DATE_COUNT_PERIODS = [
+	"years-since",
+	"months-since",
+	"weeks-since",
+	"days-since",
+	"days-until",
+	"weeks-until",
+	"months-until",
+] as const;
+export type DateCountPeriod = (typeof DATE_COUNT_PERIODS)[number];
+
+/** A count is the signed number of whole periods separating two local calendar dates. */
+export const DATE_COUNT_DAYS: Readonly<Record<DateCountPeriod, number>> = {
+	"years-since": TIME_SINCE_UNIT_DAYS.years,
+	"months-since": TIME_SINCE_UNIT_DAYS.months,
+	"weeks-since": TIME_SINCE_UNIT_DAYS.weeks,
+	"days-since": 1,
+	"days-until": -1,
+	"weeks-until": -TIME_SINCE_UNIT_DAYS.weeks,
+	"months-until": -TIME_SINCE_UNIT_DAYS.months,
+};
+const dateCountColumnSchema = columnBase.extend({
+	kind: z.literal("date-count"),
+	...propertyColumnSlots,
+	header: z.string(),
+	period: z.enum(DATE_COUNT_PERIODS),
+});
+
+export const CASE_MAP_LAYER_KINDS = [
+	"boundary",
+	"boundary-color",
+	"points",
+	"point-colors",
+] as const;
+export type CaseMapLayerKind = (typeof CASE_MAP_LAYER_KINDS)[number];
+const workerDistanceColumnSchema = columnBase.extend({
+	kind: z.literal("worker-distance"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+const mapLocationColumnSchema = columnBase.extend({
+	kind: z.literal("map-location"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+const mapLayerColumnSchema = columnBase.extend({
+	kind: z.literal("map-layer"),
+	...propertyColumnSlots,
+	header: z.string(),
+	layer: z.enum(CASE_MAP_LAYER_KINDS),
+});
+
+const formattedTextColumnSchema = columnBase.extend({
+	kind: z.literal("formatted-text"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+
+const overdueMarkerColumnSchema = columnBase.extend({
+	kind: z.literal("overdue-marker"),
+	...propertyColumnSlots,
+	header: z.string(),
+	afterDays: persistableJsonIntegerSchema,
+});
+
 const phoneColumnSchema = columnBase.extend({
 	kind: z.literal("phone"),
 	...propertyColumnSlots,
@@ -661,22 +868,31 @@ const phoneColumnSchema = columnBase.extend({
  * sorts the column by (`lib/domain/caseListOrder.ts`, the
  * `mapping-position` key), which is CommCare HQ's `enum` sort.
  */
-const idMappingEntrySchema = z.strictObject({
-	// Nonempty whitespace-free token. A blank new-row control is local
-	// component state and is never a persisted mapping entry. The wire
-	// emits the entry as `selected(field, '<value>')`. CommCare's
-	// `selected()` trims the value and looks for it whole among the
-	// property's space-separated tokens
-	// (`commcare-core/.../xpath/expr/XPathSelectedFunc.multiSelected`), so
-	// a value holding a space matches only a property holding that same
-	// run of tokens, which no single select or saved token does. The
-	// characters HQ's ID mapping cannot hold are a validator rule
-	// (`CASE_LIST_ID_MAPPING_KEY_CHARACTERS`), not a schema check.
+// Old literal rows may have no identity. Every newly saved row gets one at
+// creation. A condition binds a row in its own record expression slot.
+const mappingSource = {
+	uuid: uuidSchema.optional(),
 	value: z
 		.string()
-		.regex(/^\S+$/, "A mapping value is one word with no spaces."),
-	label: z.string(),
-});
+		.optional()
+		.describe(
+			"The exact saved value, including spaces or an empty string. Omit when the row has a condition.",
+		),
+	when: conditionSchema
+		.optional()
+		.describe(
+			"Show this row when the case meets this condition. Omit for a literal saved value.",
+		),
+};
+const oneMappingSource = (row: { value?: string; when?: Expression }) =>
+	(row.value !== undefined) !== (row.when !== undefined);
+const mappingSourceIssue = "Choose a saved value or a condition for this row.";
+const idMappingEntrySchema = z
+	.strictObject({
+		...mappingSource,
+		label: z.string(),
+	})
+	.refine(oneMappingSource, { error: mappingSourceIssue });
 
 /** The characters CommCare HQ's ID mapping cannot hold in a key: its build
  *  writes a key unescaped inside an XPath string literal, and its mapping
@@ -699,6 +915,12 @@ export function idMappingValueHoldsForbiddenCharacter(value: string): boolean {
 
 const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
+	behavior: z
+		.literal("first-match")
+		.optional()
+		.describe(
+			"Show the first matching label and sort by that label in the worker’s language. Without this setting, show each matching choice label and sort by mapping position.",
+		),
 	...propertyColumnSlots,
 	header: z.string(),
 	// The table may be empty: that is the complete "show no mapped labels"
@@ -710,15 +932,10 @@ const idMappingColumnSchema = columnBase.extend({
 	// surfaces nothing the authoring layer predicts. Authors who
 	// genuinely want one value to render as multiple labels concatenate
 	// them inside one `label` slot.
-	mapping: z
-		.array(idMappingEntrySchema)
-		.refine(
-			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
-			{
-				error:
-					"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
-			},
-		),
+	mapping: z.array(idMappingEntrySchema).refine(uniqueCaseMappingRows, {
+		error:
+			"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
+	}),
 });
 
 /**
@@ -730,16 +947,25 @@ const idMappingColumnSchema = columnBase.extend({
  * text label. The entry order is the order the list sorts the column by
  * (`lib/domain/caseListOrder.ts`, the `mapping-position` key).
  */
-const imageMapEntrySchema = z.strictObject({
-	// Same one-word constraint and rationale as the id-mapping entry's
-	// `value`.
-	value: z
-		.string()
-		.regex(/^\S+$/, "A mapping value is one word with no spaces."),
-	assetId: mediaAssetIdSchema,
-});
+const imageMapEntrySchema = z
+	.strictObject({
+		...mappingSource,
+		/** With no comparison the image looks for the value among the worker's selected choices. */
+		match: z.literal("exact").optional(),
+		altText: z.string().optional(),
+		assetId: mediaAssetIdSchema.optional(),
+	})
+	.refine(oneMappingSource, { error: mappingSourceIssue })
+	.refine((row) => !(row.when && row.match), {
+		error: "A condition supplies its own comparison.",
+	});
 const imageMapColumnSchema = columnBase.extend({
 	kind: z.literal("image-map"),
+	/** On Results, the deep link of the form a worker's tap on the image
+	 * submits for the tapped case (CommCare's clickable icon). The image stays
+	 * an image on the case detail. `lib/commcare/listIconAction.ts` decides
+	 * which entry points qualify. */
+	entryPointUuid: uuidSchema.optional(),
 	...propertyColumnSlots,
 	header: z.string(),
 	// The table may be empty: that is the complete "show no mapped images"
@@ -748,15 +974,10 @@ const imageMapColumnSchema = columnBase.extend({
 	// arm per entry, so two entries sharing a value both match the same
 	// row and the cell concatenates their image paths into one
 	// unrenderable string.
-	mapping: z
-		.array(imageMapEntrySchema)
-		.refine(
-			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
-			{
-				error:
-					"Mapping values are not unique within this image-map column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would concatenate each matching image path into one unrenderable cell. Keep one entry per value.",
-			},
-		),
+	mapping: z.array(imageMapEntrySchema).refine(uniqueCaseMappingRows, {
+		error:
+			"This image table repeats the same comparison and saved value. Give each rule a distinct comparison or value.",
+	}),
 });
 
 /**
@@ -787,6 +1008,24 @@ const intervalColumnSchema = columnBase.extend({
 	display: z.enum(INTERVAL_DISPLAYS),
 	text: z.string(),
 });
+
+/**
+ * How a phone loads a column's value: kept between visits (`cache`), worked
+ * out after the list first shows (`defer`), or both. HQ writes each on the
+ * column's field and promotes it to the detail
+ * (`detail_screen.py::FormattedDetailColumn._set_case_list_optimizations`,
+ * `suite_xml/sections/details.py::_add_detail_optimizations`), only for a
+ * column HQ reads through an expression in the address, date, markdown,
+ * phone, plain or enum format (`models/case_list.py::DetailColumn.supports_optimizations`).
+ * Android keeps each per field (`AsyncNodeEntityFactory`); Web Apps loads the
+ * whole list later and keeps nothing.
+ */
+export const columnLoadBehaviorSchema = z
+	.enum(["cache", "defer", "cache-and-defer"])
+	.describe(
+		"How a phone loads this value: cache keeps it between visits, defer works it out after the list shows, cache-and-defer does both. Needs the case list's faster loading turned on.",
+	);
+export type ColumnLoadBehavior = z.infer<typeof columnLoadBehaviorSchema>;
 
 /**
  * Link column — renders the property's value as a tappable link
@@ -820,6 +1059,7 @@ const linkColumnSchema = columnBase.extend({
 			/^[^\[\]]+$/,
 			"Link text can't contain square brackets. The cell is rendered as markdown, where a bracket ends the link's label early and the row shows the raw text instead of a link.",
 		),
+	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 
 /**
@@ -834,14 +1074,39 @@ const linkColumnSchema = columnBase.extend({
  * from the expression's resolved result type.
  */
 const calculatedColumnSchema = columnBase.extend({
+	/** An individual value picked from the tab's records. An authored calculation
+	 * over a record uses the ordinary calculation control. */
+	rowField: z.literal(true).optional(),
 	kind: z.literal("calculated"),
 	header: z.string(),
+	texts: z
+		.array(z.strictObject({ uuid: uuidSchema, label: z.string() }))
+		.refine(
+			(entries) =>
+				new Set(entries.map((entry) => entry.uuid)).size === entries.length,
+			{ error: "Each piece of translated text needs its own identity." },
+		)
+		.optional(),
+
+	showAs: z
+		.literal("formatted-text")
+		.optional()
+		.describe(
+			"Show this calculation as formatted text. Workers on Web Apps can follow Markdown links in a case result.",
+		),
 	expression: valueSchema,
+	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 
 export const columnSchema = z.discriminatedUnion("kind", [
 	plainColumnSchema,
 	dateColumnSchema,
+	dateCountColumnSchema,
+	overdueMarkerColumnSchema,
+	formattedTextColumnSchema,
+	workerDistanceColumnSchema,
+	mapLocationColumnSchema,
+	mapLayerColumnSchema,
 	phoneColumnSchema,
 	idMappingColumnSchema,
 	imageMapColumnSchema,
@@ -865,6 +1130,35 @@ export function columnRelationPath(
 		: { kind: "ancestor", via: column.via };
 }
 
+/** A translated value ordered by distance needs a physical location field.
+ * The property arm reads one saved value directly. A calculation with its
+ * own conditions or a type-restricted walk cannot use this representation. */
+export function translatedDistanceProperty(
+	column: Column,
+): Pick<PropertyColumn, "field" | "via" | "uuid"> | undefined {
+	if (
+		column.kind !== "calculated" ||
+		column.texts === undefined ||
+		column.sort?.comparator !== "distance" ||
+		column.visibleInList === false ||
+		column.expression.kind !== "term"
+	)
+		return undefined;
+	const source = column.expression.term;
+	if (source.kind !== "prop" || source.property === "case_id") return undefined;
+	if (
+		source.via &&
+		source.via.kind !== "self" &&
+		(source.via.kind !== "ancestor" ||
+			source.via.via.some((step) => step.throughCaseType !== undefined))
+	)
+		return undefined;
+	return {
+		uuid: column.uuid,
+		field: source.property,
+		...(source.via?.kind === "ancestor" && { via: source.via.via }),
+	};
+}
 /**
  * The text CommCare HQ's case list stores as a property column's `field`:
  * each index of the column's walk, then the property, joined by `/`, which
@@ -872,11 +1166,13 @@ export function columnRelationPath(
  * index by index. A step's case type is Nova's alone and no part of it.
  */
 export function columnFieldText(
-	column: Pick<PropertyColumn, "field" | "via">,
+	column: Pick<PropertyColumn, "field" | "via" | "readFrom" | "showOwner">,
 ): string {
+	const field = column.showOwner === "name" ? "#owner_name" : column.field;
+	if (column.readFrom === "worker-record") return `user/${field}`;
 	return column.via === undefined
-		? column.field
-		: [...column.via.map((step) => step.identifier), column.field].join("/");
+		? field
+		: [...column.via.map((step) => step.identifier), field].join("/");
 }
 
 /** Whether two column walks are one walk: the same indices, each naming the
@@ -950,7 +1246,7 @@ export function imageMapShowsImages(
 	column: Extract<Column, { kind: "image-map" }>,
 	mediaOn: boolean,
 ): boolean {
-	return mediaOn || column.mapping.length === 0;
+	return mediaOn || column.mapping.every((row) => row.assetId === undefined);
 }
 
 /** Single id-mapping entry — value-to-label pair surfaced by the
@@ -993,7 +1289,15 @@ export interface ColumnCommonSlots {
 
 /** The slots a property column's builder takes: the common ones and the
  *  walk to the case whose property it shows (`columnViaSchema`). */
-export interface PropertyColumnSlots extends ColumnCommonSlots {
+export interface ColumnRecordSource {
+	readonly workerPropertyUuid?: Uuid;
+	readonly readFrom?: "worker-record";
+	readonly showOwner?: "name";
+}
+
+export interface PropertyColumnSlots
+	extends ColumnCommonSlots,
+		ColumnRecordSource {
 	readonly via?: ColumnVia;
 }
 
@@ -1002,9 +1306,15 @@ function withPropertySlots<T extends Record<string, unknown>>(
 	base: T,
 	slots: PropertyColumnSlots,
 ): T & PropertyColumnSlots {
-	const out: T & { via?: ColumnVia } = withCommonSlots(base, slots);
-	if (slots.via !== undefined) out.via = slots.via;
-	return out;
+	return {
+		...withCommonSlots(base, slots),
+		...(slots.via && { via: slots.via }),
+		...(slots.readFrom && { readFrom: slots.readFrom }),
+		...(slots.workerPropertyUuid && {
+			workerPropertyUuid: slots.workerPropertyUuid,
+		}),
+		...(slots.showOwner && { showOwner: slots.showOwner }),
+	};
 }
 
 /**
@@ -1041,10 +1351,16 @@ export function plainColumn(
 	uuid: Uuid,
 	field: string,
 	header: string,
-	slots: PropertyColumnSlots = {},
+	slots: PropertyColumnSlots & { showChoice?: "saved-value" } = {},
 ): Extract<Column, { kind: "plain" }> {
 	return withPropertySlots(
-		{ uuid, kind: "plain" as const, field, header },
+		{
+			uuid,
+			kind: "plain" as const,
+			field,
+			header,
+			...(slots.showChoice && { showChoice: slots.showChoice }),
+		},
 		slots,
 	);
 }
@@ -1077,6 +1393,84 @@ export function dateColumn(
  * referenced property as a tappable telephone link; static
  * contexts fall back to plain text.
  */
+export function dateCountColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	period: DateCountPeriod,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "date-count" }> {
+	return withPropertySlots(
+		{ uuid, kind: "date-count" as const, field, header, period },
+		slots,
+	);
+}
+
+export function workerDistanceColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "worker-distance" }> {
+	return withPropertySlots(
+		{ uuid, kind: "worker-distance" as const, field, header },
+		slots,
+	);
+}
+export function workerDistanceValueId(uuid: Uuid): string {
+	return `km:${uuid}`;
+}
+
+export function mapLocationColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "map-location" }> {
+	return withPropertySlots(
+		{ uuid, kind: "map-location" as const, field, header },
+		slots,
+	);
+}
+
+export function mapLayerColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	layer: CaseMapLayerKind,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "map-layer" }> {
+	return withPropertySlots(
+		{ uuid, kind: "map-layer" as const, field, header, layer },
+		{ visibleInDetail: false, ...slots },
+	);
+}
+
+export function formattedTextColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "formatted-text" }> {
+	return withPropertySlots(
+		{ uuid, kind: "formatted-text" as const, field, header },
+		slots,
+	);
+}
+
+export function overdueMarkerColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	afterDays: number,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "overdue-marker" }> {
+	return withPropertySlots(
+		{ uuid, kind: "overdue-marker" as const, field, header, afterDays },
+		slots,
+	);
+}
+
 export function phoneColumn(
 	uuid: Uuid,
 	field: string,
@@ -1152,10 +1546,17 @@ export function imageMapColumn(
 	field: string,
 	header: string,
 	mapping: readonly ImageMapEntry[],
-	slots: PropertyColumnSlots = {},
+	slots: PropertyColumnSlots & { readonly entryPointUuid?: Uuid } = {},
 ): Extract<Column, { kind: "image-map" }> {
 	return withPropertySlots(
-		{ uuid, kind: "image-map" as const, field, header, mapping: [...mapping] },
+		{
+			uuid,
+			kind: "image-map" as const,
+			...(slots.entryPointUuid && { entryPointUuid: slots.entryPointUuid }),
+			field,
+			header,
+			mapping: [...mapping],
+		},
 		slots,
 	);
 }
@@ -1164,9 +1565,9 @@ export function imageMapColumn(
  *  helper so ad-hoc literals can't drift out of the schema shape. */
 export function imageMapEntry(
 	value: string,
-	assetId: MediaAssetId,
+	assetId?: MediaAssetId,
 ): ImageMapEntry {
-	return { value, assetId };
+	return { value, ...(assetId !== undefined && { assetId }) };
 }
 
 /**
@@ -1281,26 +1682,39 @@ export const SEARCH_INPUT_TYPES = [
 	"barcode",
 	"select",
 	"multi-select",
+	"checkboxes",
 ] as const;
 export type SearchInputType = (typeof SEARCH_INPUT_TYPES)[number];
 export const SCALAR_SEARCH_INPUT_TYPES = ["text", "date", "barcode"] as const;
 export type ScalarSearchInputType = (typeof SCALAR_SEARCH_INPUT_TYPES)[number];
 /**
- * Choice widgets. Both are lookup-backed: the CommCare query prompt reads
+ * Choice widgets. All are lookup-backed: the CommCare query prompt reads
  * its choices only from an `<itemset>` over a fixture
  * (`commcare-core/.../org/commcare/xml/QueryPromptParser.java` reads no inline
  * items), so a choice input always names a Project lookup table.
  *
  *   - `select` — one choice; wire `input="select1"`.
- *   - `multi-select` — several choices; wire `input="select"`. The runtime
+ *   - `multi-select` — several choices in a Web Apps list; wire `input="select"`.
+ *   - `checkboxes` — several choices on either platform; wire `input="checkbox"`. The runtime
  *     splits the `#,#`-joined answer into repeated query parameters
  *     (`RemoteQuerySessionManager.getRawQueryParams` →
  *     `extractMultipleChoices`), and HQ's exact match over a list is any-of
  *     (`corehq/apps/es/case_search.py::exact_case_property_text_query`), so a
  *     simple multi-select input means "the property equals any chosen value".
  */
-export const SELECT_SEARCH_INPUT_TYPES = ["select", "multi-select"] as const;
+export const SELECT_SEARCH_INPUT_TYPES = [
+	"select",
+	"multi-select",
+	"checkboxes",
+] as const;
 export type SelectSearchInputType = (typeof SELECT_SEARCH_INPUT_TYPES)[number];
+
+/** Several choices in item order, sent as repeated values of the same parameter. */
+export function takesMultipleSearchChoices(
+	type: string,
+): type is "multi-select" | "checkboxes" {
+	return type === "multi-select" || type === "checkboxes";
+}
 
 /** Whether a widget type reads its answers from a lookup-backed choice list. */
 export function isSelectSearchInputType(
@@ -1350,6 +1764,40 @@ export function searchInputNameRefusal(name: string): string | undefined {
 		: SEARCH_INPUT_NAME_REJECTION;
 }
 
+export const SEARCH_ADDRESS_PARTS = [
+	"full",
+	"geopoint",
+	"street",
+	"city",
+	"district",
+	"county",
+	"zipcode",
+	"postcode",
+	"region",
+	"state_long",
+	"state_short",
+	"us_state",
+	"us_state_short",
+	"country",
+	"country_short",
+] as const;
+
+export const searchAddressReceiverSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("address"),
+		source: uuidSchema,
+		parts: z.array(z.enum(SEARCH_ADDRESS_PARTS)).min(1),
+	}),
+	z.strictObject({
+		kind: z.literal("unsubscribed"),
+		topic: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+		fields: z
+			.string()
+			.regex(/^[A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*$/),
+	}),
+]);
+export type SearchAddressReceiver = z.infer<typeof searchAddressReceiverSchema>;
+
 // Common slots present on every SearchInputDef arm.
 //
 // `name` is written as an attribute value (`<prompt key="X">`), a string
@@ -1364,13 +1812,37 @@ const searchInputBase = z.strictObject({
 		.string()
 		.regex(SEARCH_INPUT_NAME_PATTERN, SEARCH_INPUT_NAME_REJECTION),
 	label: z.string(),
+	group: uuidSchema.optional(),
 });
+
+/**
+ * Localized heading for an ordered set of Search fields. Its placement and
+ * members are independent of a project's wire identifiers.
+ */
+export const searchInputGroupSchema = z.strictObject({
+	uuid: uuidSchema,
+	label: z.string().trim().min(1),
+});
+export type SearchInputGroup = z.infer<typeof searchInputGroupSchema>;
 
 /**
  * Whether a worker must answer a prompt before Search runs. `{}` is
  * "always required"; `when` makes it conditional on the Search screen's
- * own state (other answers, session values, literals). `message` replaces
- * the runtime's stock "Sorry, this response is required!".
+ * own state (other answers, session values, literals). `message` is the
+ * author's sentence; without one the worker reads Nova's
+ * (`SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`).
+ *
+ * `noMessage` is a requirement with no message at all, as CommCare HQ
+ * builds one whose text is blank in every language: its build writes the
+ * requirement's text blank (`remote_requests.py::build_query_prompts`,
+ * `app_strings.py`: `clean_trans` of an empty map), so Core reports a blank
+ * message for it (`QueryPrompt.getRequiredMessage`). The blank is a no-break
+ * space in the language table (`localeFile.ts::hqLocaleFileValue`, HQ's
+ * `commcare_translations.dumps`), which Core's line trim keeps, so Web Apps
+ * reads a message (`query.js::getError`): it draws the field invalid with no
+ * words under it, names it among the fields to check, and sends no search
+ * (`inputsHaveErrors`), so the search waits for the answer. It never stands beside a `message`
+ * (`searchCheckMessageRefusal`).
  *
  * Evaluated on the Search screen where the worker's answers ARE loaded
  * (`RemoteQuerySessionManager.validateUserAnswers` runs `<required test>`
@@ -1381,6 +1853,7 @@ const searchInputBase = z.strictObject({
 export const searchInputRequiredSchema = z.strictObject({
 	when: conditionSchema.optional(),
 	message: z.string().min(1).optional(),
+	noMessage: z.literal(true).optional(),
 });
 export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
 
@@ -1390,11 +1863,15 @@ export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
  * (`QueryPromptParser.parse` assigns a single `validation` slot), so a list
  * here would silently drop every rule but one. `rule` evaluates in the same
  * Search-screen scope as `required.when`; `message` is what the worker reads
- * when the rule is false.
+ * when the rule is false. A check with no message of its own shows
+ * CommCare's sentence (`COMMCARE_SEARCH_INVALID_MESSAGE`): CommCare HQ
+ * builds no text for a validation whose text is blank in every language
+ * (`remote_requests.py`, `validation.has_text`), and Core then reports its
+ * own (`QueryPrompt.getValidationMessage`).
  */
 export const searchInputValidationSchema = z.strictObject({
 	rule: conditionSchema,
-	message: z.string().min(1),
+	message: z.string().min(1).optional(),
 });
 export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
 
@@ -1405,9 +1882,34 @@ export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
  */
 const visibleSearchInputBase = searchInputBase
 	.extend({
+		addressReceiver: searchAddressReceiverSchema.optional(),
 		hint: z.string().min(1).optional(),
 		required: searchInputRequiredSchema.optional(),
 		validation: searchInputValidationSchema.optional(),
+		/**
+		 * The worker may also ask for cases whose property is blank. Web Apps
+		 * draws a checkbox under the field and, where it is ticked, sends a
+		 * blank value before the answer (`query.js::encodeValue` joins them with
+		 * `#,#`), so the Search screen's own value of the field holds both.
+		 * CommCare HQ's match of the field's own key reads that blank as "the
+		 * property is blank, or matches" (`case_search/utils.py`,
+		 * `_get_case_property_query`); a condition reading the field reads the
+		 * value as it stands. Android shows the field alone. A simple field
+		 * carries it only where CommCare HQ matches it by its own key
+		 * (`searchForBlankRefusal`). Absent is no.
+		 */
+		allowBlank: z.literal(true).optional(),
+		/**
+		 * Web Apps does not draw the field, and searches with its starting value
+		 * as it stands (`query.js` hides a hidden prompt's row whole with
+		 * `d-none`). Neither Core nor Android reads the attribute, so Android
+		 * draws the field like any other, where the worker can change it, and
+		 * draws none of a widget its Search screen does not show. A hidden field
+		 * carries no hint, requirement, check or search for blank, since nobody
+		 * in Web Apps can see them (`hiddenSearchFieldRefusal`). Absent is
+		 * shown. A value the search never matches is the `hidden` arm.
+		 */
+		hidden: z.literal(true).optional(),
 	})
 	.strict();
 
@@ -1422,6 +1924,8 @@ const visibleSearchInputBase = searchInputBase
  */
 const simpleSearchInputSlots = {
 	kind: z.literal("simple"),
+	/** The key of this field chooses the project space's native matcher. */
+	matching: z.literal("project-space").optional(),
 	// `property` is constrained to CommCare's case-property identifier
 	// vocabulary — same character class the predicate AST's
 	// `propertyRefSchema.property` enforces. The wire emitter
@@ -1445,25 +1949,34 @@ export const simpleScalarSearchInputSchema = visibleSearchInputBase
 	})
 	.strict();
 
+/** Fixed inclusive dates chosen together by a person in any editor. */
+export const searchStartingDatesSchema = z
+	.object({ from: z.iso.date(), to: z.iso.date() })
+	.strict()
+	.refine(
+		(dates) => dates.from <= dates.to,
+		"The end date comes before the start date.",
+	);
+
 export const simpleDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.literal("date-range"),
+		default: valueSchema.optional(),
 		mode: rangeSearchInputModeSchema,
 	})
 	.strict();
 
 /**
- * The lookup choices of a Search question: a form select's source plus the
- * column whose text orders the choices. Absent `sortColumnId` means the label
- * column, and the reducer stores a sort column equal to the label column as
- * absent, so one order has one spelling. The sort belongs to Search questions
- * alone: HQ's Case List save refuses a lookup prompt without one
- * (`views/modules.py::_update_search_properties`), and a form select writes
- * none.
+ * The lookup choices of a Search question: a form select's source, whose
+ * `sortColumnId` reads differently here. Absent, it means the label column,
+ * and the reducer stores a sort column equal to the label column as absent,
+ * so one order has one spelling: HQ's Case List save refuses a lookup prompt
+ * without a sort (`views/modules.py::_update_search_properties`). A form
+ * select's absent sort keeps the table's row order instead.
  */
 export const searchInputLookupOptionsSchema = lookupOptionsSourceSchema
-	.extend({ sortColumnId: lookupColumnIdSchema.optional() })
+	.extend({ sortColumnId: lookupReadSchema.optional() })
 	.strict();
 export type SearchInputLookupOptions = z.infer<
 	typeof searchInputLookupOptionsSchema
@@ -1490,7 +2003,10 @@ export function withCanonicalSearchInputOptions<T extends SearchInputDef>(
 ): T {
 	if (!isSelectSearchInput(input)) return input;
 	const { sortColumnId, ...options } = input.options;
-	if (sortColumnId === undefined || sortColumnId !== options.labelColumnId) {
+	if (
+		sortColumnId === undefined ||
+		!sameLookupRead(sortColumnId, options.labelColumnId)
+	) {
 		return input;
 	}
 	return { ...input, options };
@@ -1537,6 +2053,7 @@ export const advancedDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.literal("date-range"),
+		default: valueSchema.optional(),
 		predicate: conditionSchema,
 	})
 	.strict();
@@ -1551,6 +2068,38 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 	})
 	.strict();
 
+/** A project search defines what each answer means. The field can send its
+ * answer under its name or only supply another parameter's expression. */
+const projectParameter = {
+	kind: z.literal("parameter"),
+	sendAnswer: z.boolean(),
+};
+export const projectScalarSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
+		default: valueSchema.optional(),
+	})
+	.strict();
+export const projectRangeSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.literal("date-range"),
+	})
+	.strict();
+export const projectChoiceSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
+		options: searchInputLookupOptionsSchema,
+		default: valueSchema.optional(),
+	})
+	.strict();
+export type ProjectParameterSearchInput =
+	| z.infer<typeof projectScalarSearchInput>
+	| z.infer<typeof projectRangeSearchInput>
+	| z.infer<typeof projectChoiceSearchInput>;
+
 /**
  * Hidden search input — a value Nova computes when the Search screen opens
  * and carries with the completed search, never shown and never a filter.
@@ -1563,13 +2112,46 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
  * with a `<display>` label HQ still requires. The `default` attribute needs
  * HQ's advanced case search on the target project space, the same
  * requirement a visible prompt with a starting value already carries.
+ *
+ * Absent `value` is a hidden field with no starting value: Web Apps holds it
+ * blank and sends nothing for it, and Android, which shows every hidden
+ * field, shows it empty for the worker to fill in
+ * (`RemoteQuerySessionManager.initUserAnswers` seeds an answer only from a
+ * starting value). It is still never a filter: what the worker types there
+ * reaches only a condition that reads it.
  */
 export const hiddenSearchInputSchema = searchInputBase
 	.extend({
 		kind: z.literal("hidden"),
-		value: valueSchema,
+		/** Send the computed value to the search supplied by the project space. */
+		sendAnswer: z.literal(true).optional(),
+		value: valueSchema.optional(),
 	})
 	.strict();
+
+/** A Web Apps search for a place supplies other prompts by identity. It
+ * does not bind an ordinary search answer. */
+export const addressSearchInputSchema = searchInputBase.extend({
+	name: z
+		.string()
+		.regex(
+			/^[A-Za-z_][A-Za-z0-9_]*$/,
+			"Use letters, numbers or underscores in an address field name.",
+		),
+	kind: z.literal("address"),
+	type: z.literal("address"),
+	excludeFromRequest: z.literal(true).optional(),
+	// Match the optional slots read by shared prompt projections without
+	// allowing expressions or answer-entry settings on an address picker.
+	required: z.never().optional(),
+	validation: z.never().optional(),
+	default: z.never().optional(),
+	hidden: z.never().optional(),
+	addressReceiver: z.never().optional(),
+	hint: z.string().min(1).optional(),
+	allowBlank: z.never().optional(),
+});
+export type AddressSearchInput = z.infer<typeof addressSearchInputSchema>;
 
 /**
  * Exact seven-arm union over two authoring dimensions:
@@ -1579,7 +2161,7 @@ export const hiddenSearchInputSchema = searchInputBase
  *
  * This cannot be a Zod `discriminatedUnion("kind", ...)`: simple and advanced
  * each appear in three arms. Keeping the widget split structural is what makes
- * a range default, a scalar range mode, a choice input without a table, or a
+ * a scalar range mode, a choice input without a table, or a
  * required hidden value unrepresentable.
  */
 export const searchInputDefSchema = z.union([
@@ -1589,6 +2171,10 @@ export const searchInputDefSchema = z.union([
 	advancedScalarSearchInputSchema,
 	advancedDateRangeSearchInputSchema,
 	advancedSelectSearchInputSchema,
+	projectScalarSearchInput,
+	projectRangeSearchInput,
+	projectChoiceSearchInput,
+	addressSearchInputSchema,
 	hiddenSearchInputSchema,
 ]);
 export type SimpleScalarSearchInputDef = z.infer<
@@ -1621,10 +2207,12 @@ export type AdvancedSearchInputDef =
 	| AdvancedSelectSearchInputDef;
 /** Every arm a worker can see and answer. */
 export type VisibleSearchInputDef =
+	| ProjectParameterSearchInput
 	| SimpleSearchInputDef
 	| AdvancedSearchInputDef;
 /** Every arm that names a lookup table for its choices. */
 export type SelectSearchInputDef =
+	| z.infer<typeof projectChoiceSearchInput>
 	| SimpleSelectSearchInputDef
 	| AdvancedSelectSearchInputDef;
 
@@ -1637,7 +2225,15 @@ export function isHiddenSearchInput(
 export function isVisibleSearchInput(
 	input: SearchInputDef,
 ): input is VisibleSearchInputDef {
-	return input.kind !== "hidden";
+	return input.kind !== "hidden" && input.kind !== "address";
+}
+
+export type SearchAnswerInput = Exclude<SearchInputDef, { kind: "address" }>;
+
+export function isSearchAnswerInput(
+	input: SearchInputDef,
+): input is SearchAnswerInput {
+	return input.kind !== "address";
 }
 
 export function isSelectSearchInput(
@@ -1649,11 +2245,11 @@ export function isSelectSearchInput(
 /** The inputs a worker sees on the Search screen, in authored order. */
 export function visibleSearchInputs(
 	inputs: readonly SearchInputDef[],
-): VisibleSearchInputDef[] {
-	return inputs.filter(isVisibleSearchInput);
+): Exclude<SearchInputDef, { kind: "hidden" }>[] {
+	return inputs.filter((input) => input.kind !== "hidden");
 }
 
-/** Scalar prompt seed, absent by construction on the date-range and hidden arms. */
+/** The device expression that supplies a visible prompt’s starting value. */
 export function searchInputDefault(
 	input: SearchInputDef,
 ): Expression | undefined {
@@ -1666,7 +2262,7 @@ export function searchInputDefault(
  * input binds whatever text its expression printed.
  */
 export function searchInputRuntimeValueType(
-	input: SearchInputDef,
+	input: SearchAnswerInput,
 ): CasePropertyDataType {
 	return input.kind === "hidden"
 		? "text"
@@ -1684,14 +2280,56 @@ export const SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE =
 
 /**
  * The message shown when this input is required and left blank: the author's
- * own sentence, else Nova's default. `undefined` when the input is never
- * required.
+ * own sentence, `""` for a requirement with no message (`noMessage`), else
+ * Nova's default. `undefined` when the input is never required.
  */
 export function searchInputRequiredMessage(
 	input: SearchInputDef,
 ): string | undefined {
-	if (input.kind === "hidden" || input.required === undefined) return undefined;
+	if (!isVisibleSearchInput(input) || input.required === undefined)
+		return undefined;
+	if (input.required.noMessage === true) return "";
 	return input.required.message ?? SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE;
+}
+
+/**
+ * The sentence Core reports for a Search field check with no message of its
+ * own (`QueryPrompt.DEFAULT_VALIDATION_ERROR`). Core asks the app strings for
+ * `case.search.answer.invalid` first, which no CommCare app string table
+ * defines, so a worker reads these words in every language.
+ */
+export const COMMCARE_SEARCH_INVALID_MESSAGE =
+	"Sorry, this response is invalid!";
+
+/**
+ * The message shown when this input's answer fails its check: the author's
+ * own sentence, else CommCare's (`COMMCARE_SEARCH_INVALID_MESSAGE`).
+ * `undefined` when the input has no check.
+ */
+export function searchInputValidationMessage(
+	input: SearchInputDef,
+): string | undefined {
+	if (!isVisibleSearchInput(input) || input.validation === undefined)
+		return undefined;
+	return input.validation.message ?? COMMCARE_SEARCH_INVALID_MESSAGE;
+}
+
+/**
+ * Why a Search field's requirement can't carry the message settings it has,
+ * or `undefined` where it can: a requirement either has no message at all or
+ * may have one of its own, never both. Shared by the commit gate and the
+ * builder.
+ */
+export function searchCheckMessageRefusal(
+	input: SearchInputDef,
+): string | undefined {
+	if (
+		isVisibleSearchInput(input) &&
+		input.required?.noMessage === true &&
+		input.required.message !== undefined
+	)
+		return "A requirement with no message can't have a message of its own too. Remove the message, or let it show one.";
+	return undefined;
 }
 
 /** The lookup options source of a choice input; absent on every other arm. */
@@ -1726,7 +2364,7 @@ export interface SearchInputScreenPredicate {
 export function searchInputScreenExpressions(
 	input: SearchInputDef,
 ): readonly SearchInputScreenPredicate[] {
-	if (input.kind === "hidden") return [];
+	if (!isVisibleSearchInput(input)) return [];
 	const out: SearchInputScreenPredicate[] = [];
 	if (input.required?.when !== undefined) {
 		out.push({ slot: "required", predicate: input.required.when });
@@ -1746,7 +2384,8 @@ export function searchInputScreenExpressions(
 export function searchInputExpressions(
 	input: SearchInputDef,
 ): readonly Expression[] {
-	if (input.kind === "hidden") return [input.value];
+	if (input.kind === "hidden")
+		return input.value === undefined ? [] : [input.value];
 	const seed = searchInputDefault(input);
 	return seed === undefined ? [] : [seed];
 }
@@ -1817,17 +2456,21 @@ export function rangeMode(): Extract<SearchInputMode, { kind: "range" }> {
 
 /** Slots every visible prompt may carry beside its widget-specific ones. */
 interface SearchInputVisibleSlots {
+	readonly addressReceiver?: SearchAddressReceiver;
 	readonly hint?: string;
 	readonly required?: SearchInputRequired;
 	readonly validation?: SearchInputValidation;
+	readonly allowBlank?: true;
+	readonly hidden?: true;
 }
 
-/** Scalar-widget slot that seeds the input's initial state. */
+/** The slot that seeds a visible input's initial state. */
 interface SearchInputCommonSlots extends SearchInputVisibleSlots {
 	readonly default?: Expression;
 }
 
 interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
+	readonly matching?: "project-space";
 	/** Optional relation walk to a destination case type. `selfPath()`
 	 *  is structurally equivalent to absent and the builder omits the
 	 *  key in that case. */
@@ -1836,13 +2479,15 @@ interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
 	readonly mode?: ScalarSearchInputMode;
 }
 
-interface SimpleDateRangeSearchInputSlots extends SearchInputVisibleSlots {
+interface SimpleDateRangeSearchInputSlots extends SearchInputCommonSlots {
+	readonly matching?: "project-space";
 	readonly via?: RelationPath;
 	/** The builder writes the sole valid stored mode when omitted. */
 	readonly mode?: Extract<SearchInputMode, { kind: "range" }>;
 }
 
 interface SimpleSelectSearchInputSlots extends SearchInputCommonSlots {
+	readonly matching?: "project-space";
 	readonly via?: RelationPath;
 	/** The lookup table and columns the prompt's choices come from. */
 	readonly options: SearchInputLookupOptions;
@@ -1861,15 +2506,22 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 	slots: SearchInputCommonSlots,
 ): T & SearchInputCommonSlots {
 	const out: T & {
+		addressReceiver?: SearchAddressReceiver;
 		default?: Expression;
 		hint?: string;
 		required?: SearchInputRequired;
 		validation?: SearchInputValidation;
+		allowBlank?: true;
+		hidden?: true;
 	} = { ...base };
+	if (slots.addressReceiver !== undefined)
+		out.addressReceiver = slots.addressReceiver;
 	if (slots.default !== undefined) out.default = slots.default;
 	if (slots.hint !== undefined) out.hint = slots.hint;
 	if (slots.required !== undefined) out.required = slots.required;
 	if (slots.validation !== undefined) out.validation = slots.validation;
+	if (slots.allowBlank === true) out.allowBlank = true;
+	if (slots.hidden === true) out.hidden = true;
 	return out;
 }
 
@@ -1931,20 +2583,13 @@ export function simpleSearchInputDef(
 		| SimpleDateRangeSearchInputSlots
 		| SimpleSelectSearchInputSlots = {},
 ): SimpleSearchInputDef {
-	const out = {
-		uuid,
-		kind: "simple",
-		name,
-		label,
-		type,
-		property,
+	const candidate: Record<string, unknown> = {
+		...withSearchInputCommonSlots(
+			{ uuid, kind: "simple", name, label, type, property },
+			slots,
+		),
 	};
-	const candidate: Record<string, unknown> = { ...out };
-	if ("default" in slots && slots.default !== undefined)
-		candidate.default = slots.default;
-	if (slots.hint !== undefined) candidate.hint = slots.hint;
-	if (slots.required !== undefined) candidate.required = slots.required;
-	if (slots.validation !== undefined) candidate.validation = slots.validation;
+	if (slots.matching) candidate.matching = slots.matching;
 	if ("options" in slots) candidate.options = slots.options;
 	if (slots.via !== undefined && slots.via.kind !== "self")
 		candidate.via = slots.via;
@@ -1976,7 +2621,7 @@ export function advancedSearchInputDef(
 	label: string,
 	type: "date-range",
 	predicate: Expression,
-	slots?: SearchInputVisibleSlots,
+	slots?: SearchInputCommonSlots,
 ): AdvancedDateRangeSearchInputDef;
 export function advancedSearchInputDef(
 	uuid: Uuid,
@@ -2020,21 +2665,21 @@ export function advancedSearchInputDef(
 
 /**
  * Constructs a hidden search input. `value` is the global-scope expression
- * Nova evaluates when the Search screen opens; the input never shows and
- * never filters.
+ * Nova evaluates when the Search screen opens, or absent for a hidden field
+ * with no starting value; the input never filters.
  */
 export function hiddenSearchInputDef(
 	uuid: Uuid,
 	name: string,
 	label: string,
-	value: Expression,
+	value: Expression | undefined,
 ): HiddenSearchInputDef {
 	return hiddenSearchInputSchema.parse({
 		uuid,
 		kind: "hidden",
 		name,
 		label,
-		value,
+		...(value !== undefined && { value }),
 	});
 }
 
@@ -2065,6 +2710,7 @@ export const APPLICABLE_SEARCH_MODES: Readonly<
 	barcode: ["exact"],
 	select: ["exact"],
 	"multi-select": ["exact"],
+	checkboxes: ["exact"],
 };
 
 /**
@@ -2149,6 +2795,7 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 	// multi-select containment is not part of the stored Search union.
 	select: ["text", "single_select"],
 	"multi-select": ["text", "single_select"],
+	checkboxes: ["text", "single_select"],
 };
 
 /**
@@ -2173,13 +2820,15 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
  * read from this table.
  */
 export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
-	Record<Exclude<SearchInputType, "date-range">, CasePropertyDataType>
+	Record<SearchInputType, CasePropertyDataType>
 > = {
 	text: "text",
 	date: "date",
+	"date-range": "text",
 	barcode: "text",
 	select: "text",
 	"multi-select": "text",
+	checkboxes: "text",
 };
 
 /**
@@ -2212,6 +2861,7 @@ export const SEARCH_INPUT_RUNTIME_VALUE_TYPES: Readonly<
 	// A choice binds its value token; several choices bind the `#,#`-joined tokens.
 	select: "text",
 	"multi-select": "text",
+	checkboxes: "text",
 };
 
 /**
@@ -2241,6 +2891,7 @@ export const DEFAULT_SEARCH_MODE_KIND: Readonly<
 	barcode: "exact",
 	select: "exact",
 	"multi-select": "exact",
+	checkboxes: "exact",
 };
 
 /** The effective mode for a simple input after applying its widget default. */
@@ -2261,6 +2912,181 @@ export function simpleSearchInputHasCoherentRangeWidget(
 	return (
 		(effectiveSimpleSearchModeKind(input) === "range") ===
 		(input.type === "date-range")
+	);
+}
+
+/** The ordinary dynamic properties a direct parent Search field can match. */
+export function isDirectParentSearchProperty(property: string): boolean {
+	return (
+		/^[A-Za-z][A-Za-z0-9_]*$/.test(property) &&
+		authoredCasePropertyNameSchema.safeParse(property).success &&
+		!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, property) &&
+		!isDeviceOnlyCaseProperty(property) &&
+		!["name", "case_type", "closed_on", "commcare_search_score"].includes(
+			property,
+		)
+	);
+}
+
+function directParentSearchProperty(
+	input: Pick<SimpleSearchInputDef, "property" | "via" | "type" | "mode">,
+): string | undefined {
+	const path = input.via;
+	return input.type === "text" &&
+		(input.mode === undefined || input.mode.kind === "exact") &&
+		path?.kind === "ancestor" &&
+		path.via.length === 1 &&
+		path.via[0].identifier === "parent" &&
+		path.via[0].throughCaseType === undefined &&
+		isDirectParentSearchProperty(input.property)
+		? input.property
+		: undefined;
+}
+
+/** The worker and project space use the typed parent path as the key.
+ * The field's Nova name remains a separate authoring alias for its UUID. */
+export function directParentSearchRequestKey(
+	input: SearchInputDef,
+): string | undefined {
+	if (input.kind !== "simple" || input.matching !== "project-space")
+		return undefined;
+	const property = directParentSearchProperty(input);
+	return property === undefined ? undefined : `parent/${property}`;
+}
+
+/** Settings that would give the parent text field another runtime use. */
+export function directParentSearchSettingsFit(
+	input: SimpleSearchInputDef,
+): boolean {
+	return (
+		input.group === undefined &&
+		input.default === undefined &&
+		!input.hidden &&
+		input.required === undefined &&
+		input.validation === undefined &&
+		!input.allowBlank &&
+		input.addressReceiver === undefined &&
+		input.label.trim() !== ""
+	);
+}
+
+export function searchInputRequestKey(input: SearchInputDef): string {
+	return directParentSearchRequestKey(input) ?? input.name;
+}
+
+/**
+ * Whether a simple field can take the project space's own matching
+ * (`matching: "project-space"`): its prompt rides the bare key CommCare HQ
+ * matches by its own rule. The key names this case's own property, or an
+ * ordinary property across the direct parent link for a text field. HQ then matches the answer whatever the property's type, so a field
+ * whose widget doesn't fit the property's type can still search it there.
+ * Shared by the commit gate and the builder so the builder offers the
+ * matching, and the widgets it admits, exactly where the gate does.
+ */
+export function projectSpaceMatchingFits(
+	input: Pick<
+		SimpleSearchInputDef,
+		"name" | "property" | "via" | "type" | "mode"
+	>,
+): boolean {
+	if (directParentSearchProperty(input) !== undefined) return true;
+	return (
+		(input.via === undefined || input.via.kind === "self") &&
+		(input.name === "name" ? "case_name" : input.name) === input.property &&
+		(input.mode === undefined ||
+			input.mode.kind === "exact" ||
+			(input.type === "date-range" && input.mode.kind === "range"))
+	);
+}
+
+/**
+ * Whether a simple field can let the worker search for blank. The blank rides
+ * beside the answer as one more value of the prompt's own request key
+ * (`query.js::encodeValue` joins `#,#` before the answer), and only CommCare
+ * HQ's match of that key against the property it names reads a blank value
+ * as "the property is blank" (`case_search/utils.py::_get_case_property_query`).
+ * So the field rides the bare prompt: it searches this case's own property,
+ * under the property's own name, with exact matching or a date range, or with
+ * the project space's matching. A field Nova matches through a condition reads
+ * the blank as part of its answer and finds nothing.
+ *
+ * A field with the project space's matching already rides the bare prompt key
+ * on its own property (`nativeSearchFilters.ts` holds it to that), including
+ * the keys HQ matches by its own rule: `name` is the case's name, `case_id` its
+ * id and `status` a property of that name (`case_search/utils.py::_apply_filter`).
+ * The owner is the exception: HQ refuses any second value beside it
+ * (`SearchCriteria._validate_multiple_terms`), so a blank sent with an owner
+ * stops the search.
+ *
+ * Returns the reason a shape is refused, or `undefined` when it can. Shared
+ * by the commit gate and the builder so the builder never offers a choice the
+ * gate refuses.
+ */
+export function searchForBlankRefusal(
+	input: Pick<
+		SimpleSearchInputDef,
+		"name" | "property" | "via" | "type" | "mode" | "matching"
+	>,
+): string | undefined {
+	if (input.via !== undefined && input.via.kind !== "self")
+		return "Searching for blank works on this case's own properties, not a linked case's.";
+	if (input.matching === "project-space")
+		return input.name === "owner_id"
+			? "CommCare HQ stops a search that sends a blank beside the case owner, so searching for blank doesn't work on the owner."
+			: undefined;
+	if (input.name !== input.property)
+		return "Searching for blank needs the field's name to be the property it searches.";
+	if (CASE_NODE_ATTRIBUTE_PROPERTIES.has(input.property))
+		return "Searching for blank works on ordinary properties, not on case information the device stores differently.";
+	const mode = input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
+	if (mode === "exact" && input.type === "date")
+		return "A single date searches a whole day, so searching for blank needs the project space's own date matching.";
+	if (mode !== "exact" && mode !== "range")
+		return "Searching for blank works with exact matching or a date range.";
+	return undefined;
+}
+
+/**
+ * Why a Search field Web Apps does not draw (`hidden: true`) cannot be one,
+ * or `undefined` where it can. Shared by the commit gate and the builder so
+ * the builder never offers a choice the gate refuses.
+ *
+ * Web Apps hides the prompt's row whole, so nobody there reads a hint,
+ * answers a requirement, fixes a failed check or ticks the box to search for
+ * blank, and CommCare HQ's Case List page blanks a hidden prompt's
+ * requirement and checks on a save.
+ *
+ * A hidden prompt with no widget that leaves its key out of the request
+ * (`exclude`) is a value the search never matches by its name, the `hidden`
+ * arm. So a hidden text field rides the bare prompt CommCare HQ matches by
+ * its own key: a simple field over its own case's property of its name,
+ * matched exactly, or by the project space's own rule. Any other match runs
+ * through `_xpath_query`, which writes `exclude` on the prompt
+ * (`suite/case-search/simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`).
+ */
+export function hiddenSearchFieldRefusal(
+	input: VisibleSearchInputDef,
+): string | undefined {
+	if (input.hint !== undefined)
+		return "A field Web Apps hides can't show a hint. Remove the hint, or leave the field shown.";
+	if (input.required !== undefined || input.validation !== undefined)
+		return "Nobody in Web Apps can answer a field it hides, so a hidden field can't be required or checked. Remove the requirement and the check, or leave the field shown.";
+	if (input.allowBlank === true)
+		return "Nobody in Web Apps can tick the box to also find blank on a field it hides. Turn off Also find blank, or leave the field shown.";
+	if (input.type === "text" && !textRidesItsOwnName(input))
+		return "A hidden text field can only search the property of its own name exactly. Change how it matches, or use a hidden value that a condition reads.";
+	return undefined;
+}
+
+/** Whether a text field rides the bare prompt CommCare HQ matches by its own key. */
+function textRidesItsOwnName(input: VisibleSearchInputDef): boolean {
+	if (input.kind !== "simple") return false;
+	if (input.matching === "project-space") return true;
+	return (
+		(input.via === undefined || input.via.kind === "self") &&
+		input.name === input.property &&
+		effectiveSimpleSearchModeKind(input) === "exact" &&
+		!CASE_NODE_ATTRIBUTE_PROPERTIES.has(input.property)
 	);
 }
 
@@ -2397,12 +3223,13 @@ export const caseTileGroupingSchema = z.strictObject({
 	 * — so an omitted attribute silently halves or doubles the
 	 * header depending on which side reads it.
 	 *
-	 * The bound here is the grid; the real constraint is
-	 * layout-relative (strictly less than the tile's occupied row
-	 * extent, and never splitting a cell) and lives in
-	 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`.
+	 * The constraint is layout-relative (strictly less than the tile's
+	 * occupied row extent, and never splitting a cell) and lives in
+	 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`; a
+	 * tile's rows follow its fields (`tileRowLimit`), so no fixed bound
+	 * stands here.
 	 */
-	headerRows: persistableJsonPositiveIntegerSchema.max(TILE_GRID_ROWS - 1),
+	headerRows: persistableJsonPositiveIntegerSchema,
 });
 export type CaseTileGrouping = z.infer<typeof caseTileGroupingSchema>;
 
@@ -2469,7 +3296,49 @@ export function tileGroupHeaderRowChoices(
 	return choices;
 }
 
+export const NAMED_TILE_SLOTS = [
+	"topLeftImage",
+	"topLeftText",
+	"topRightImage",
+	"topRightText",
+	"middleLeftImage",
+	"middleLeftText",
+	"middleRightImage",
+	"middleRightText",
+	"bottomLeftImage",
+	"bottomLeftText",
+] as const;
+export type NamedTileSlot = (typeof NAMED_TILE_SLOTS)[number];
+export const namedTileSlotsSchema = z.record(
+	z
+		.enum(NAMED_TILE_SLOTS)
+		.describe(
+			"a named tile position: topLeftImage, topLeftText, topRightImage, topRightText, middleLeftImage, middleLeftText, middleRightImage, middleRightText, bottomLeftImage or bottomLeftText, each holding the field placed there",
+		),
+	uuidSchema,
+);
+
+export function namedTileCell(slot: NamedTileSlot): TileCell {
+	const i = NAMED_TILE_SLOTS.indexOf(slot);
+	const image = i % 2 === 0;
+	const x = (Math.floor(i / 2) % 2) * 6;
+	return tileCell(
+		x + (image ? 0 : 1),
+		Math.floor(i / 4),
+		image ? 1 : 5,
+		1,
+		image
+			? { fontSize: "small", horizontalAlign: "center", verticalAlign: "top" }
+			: {
+					fontSize: "medium",
+					horizontalAlign: "left",
+					verticalAlign: "middle",
+				},
+	);
+}
 export const caseTileLayoutSchema = z.strictObject({
+	namedSlots: namedTileSlotsSchema.optional(),
+	rawSlots: z.array(z.enum(NAMED_TILE_SLOTS)).min(1).optional(),
 	/**
 	 * Keep the tile on screen once a case is chosen from this list: above
 	 * the menu its case opens, the forms and every screen after it while the
@@ -2524,10 +3393,327 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
 export const caseSelectionSchema = z.strictObject({
 	kind: z.literal("multiple"),
 	maximum: persistableJsonPositiveIntegerSchema.max(100),
+	autoSelect: z.literal(true).optional(),
 });
 export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 
 export type CaseSelectionCardinality = "single" | "multiple";
+
+/** The text an empty case list shows where the list holds none of its own,
+ *  HQ's model default (`models/case_list.py::Detail.no_items_text`). */
+export const CASE_LIST_EMPTY_TEXT_DEFAULT = "List is empty.";
+
+/** The label of the button that carries chosen cases forward where the list
+ *  holds none of its own, HQ's model default
+ *  (`models/case_list.py::Detail.select_text`). */
+export const CASE_LIST_SELECT_TEXT_DEFAULT = "Continue";
+
+/** A case list's own wording: a worker-facing text with no blank spelling. */
+export const caseListWordingSchema = z.string().trim().min(1);
+
+/** An independent rule of Default order. Its value never becomes a Results
+ * or Details column. Its optional name is the entry workers can choose in Sort by. */
+export const calculatedSortSchema = z
+	.strictObject({
+		uuid: uuidSchema,
+		expression: valueSchema,
+		direction: columnSortShape.direction,
+		priority: columnSortShape.priority,
+		comparator: z
+			.enum(["text", "integer", "decimal"])
+			.optional()
+			.describe(
+				"How to compare the values. Leave it out to use the calculation’s own type. Text orders 10 before 2. A whole-number or decimal comparison orders 2 before 10.",
+			),
+		blanks: columnSortShape.blanks,
+		label: columnSortShape.label,
+	})
+	.superRefine((rule, ctx) => {
+		if (
+			rule.label !== undefined &&
+			(rule.label.trim() === "" ||
+				[...rule.label].every((char) => (char.codePointAt(0) ?? 0) <= 32))
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["label"],
+				message:
+					"Give the calculation a name workers can read, or leave it unnamed.",
+			});
+		}
+		if (rule.blanks === defaultSortBlanks(rule.direction)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["blanks"],
+				message: "Leave out the ordinary blank placement for this direction.",
+			});
+		}
+	});
+export type CalculatedSort = z.infer<typeof calculatedSortSchema>;
+
+/** A request evaluated on the Search screen before any record is chosen. */
+export const searchFilterTargetSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("property"),
+		property: authoredCasePropertyNameSchema,
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({ kind: z.literal("record-id") }),
+	z.strictObject({ kind: z.literal("include-related-records") }),
+	z.strictObject({
+		kind: z.literal("record-name"),
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({
+		kind: z.literal("attribute"),
+		attribute: z.enum(["id", "type", "owner", "status"]),
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({ kind: z.literal("owner") }),
+	/**
+	 * Owners whose records the online search leaves out, named by the space
+	 * separated value (HQ's `commcare_blacklisted_owner_ids` request key,
+	 * `case_search/utils.py::CaseSearchQueryBuilder._apply_filter`). It applies
+	 * to the server search alone, never to the device list. `search-setting`
+	 * is the dedicated Case Search setting HQ's editor saves as
+	 * `blacklisted_owner_ids_expression`; without it the rule is one of the
+	 * default filters, in their order. Both send the same request key, so a
+	 * search holds one.
+	 */
+	z.strictObject({
+		kind: z.literal("excluded-owners"),
+		placement: z.literal("search-setting").optional(),
+	}),
+	z.strictObject({ kind: z.literal("project-space") }),
+	z.strictObject({
+		kind: z.literal("link"),
+		identifier: z.string().regex(XML_ELEMENT_NAME_PATTERN),
+	}),
+]);
+export type SearchFilterTarget = z.infer<typeof searchFilterTargetSchema>;
+
+/**
+ * The order the server chooses its matches in before it caps them: each term
+ * a property, how its indexed value compares (text, number or date) and a
+ * direction, the later terms breaking ties of the earlier
+ * (`case_search/utils.py::CaseSearchQueryBuilder._apply_sort`). The device
+ * list may still show the returned records in its own order.
+ */
+export const searchRequestOrderSchema = z
+	.array(
+		z
+			.strictObject({
+				property: authoredCasePropertyNameSchema,
+				/** The record name read by HQ's `name` key rather than `case_name`. */
+				recordName: z.literal(true).optional(),
+				comparison: z.enum(["text", "number", "date"]),
+				direction: z.enum(["ascending", "descending"]),
+				/** A default filter brought in from HQ that left these to HQ's
+				 *  defaults (text, ascending) keeps leaving them. */
+				implicitComparison: z.literal(true).optional(),
+				implicitDirection: z.literal(true).optional(),
+			})
+			.refine((term) => !term.recordName || term.property === "case_name", {
+				error: "Choose the record name.",
+			})
+			.refine(
+				(term) => !term.implicitComparison || term.comparison === "text",
+				{
+					error: "Choose a comparison for this property.",
+				},
+			)
+			.refine(
+				(term) => !term.implicitDirection || term.direction === "ascending",
+				{ error: "Choose a direction for this property." },
+			),
+	)
+	.min(1);
+export type SearchRequestOrder = z.infer<typeof searchRequestOrderSchema>;
+
+export const searchValueFilterSchema = z.strictObject({
+	uuid: uuidSchema,
+	target: searchFilterTargetSchema,
+	value: valueSchema,
+});
+/** An order among the default filters: HQ's `commcare_sort` request key, sent
+ *  in the filters' order and before the dedicated `requestOrder`. */
+export const searchOrderFilterSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("order"),
+	order: searchRequestOrderSchema,
+});
+export const searchRecordTypeRowSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("request-record-type"),
+	caseType: caseTypeNameSchema,
+});
+export const searchRelatedIdRowSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("related-record-id"),
+	property: authoredCasePropertyNameSchema,
+});
+
+export const searchFilterSchema = z.union([
+	searchValueFilterSchema,
+	searchOrderFilterSchema,
+	searchRecordTypeRowSchema,
+	searchRelatedIdRowSchema,
+]);
+export type SearchFilter = z.infer<typeof searchFilterSchema>;
+export type SearchValueFilter = z.infer<typeof searchValueFilterSchema>;
+export function searchFilterUsesValue(
+	filter: SearchFilter,
+): filter is SearchValueFilter {
+	return "target" in filter;
+}
+
+/** Case type names are identities in the app catalog. HQ reads the menu
+ * roster as a set. Retain request-only types separately: their primary hits
+ * consume the search limit and can be read by a form without being choices. */
+export const otherRecordTypesSchema = z
+	.array(caseTypeNameSchema)
+	.min(1)
+	.refine(
+		(types) => new Set(types).size === types.length,
+		"Choose each record type once.",
+	);
+
+export function menuRecordTypes(
+	primary: string,
+	config?: Pick<CaseListConfig, "additionalCaseTypes">,
+): string[] {
+	return [
+		primary,
+		...[...new Set(config?.additionalCaseTypes)]
+			.filter((type) => type !== primary)
+			.sort(),
+	];
+}
+
+/** Primary hits sent by search, including those a form can read even when the
+ * menu offers no choice of that type. */
+export function requestedRecordTypes(
+	primary: string,
+	config?: CaseListConfig,
+): string[] {
+	return [
+		...new Set([
+			...menuRecordTypes(primary, config),
+			...(config?.searchFilters ?? []).flatMap((filter) =>
+				"kind" in filter && filter.kind === "request-record-type"
+					? [filter.caseType]
+					: [],
+			),
+		]),
+	];
+}
+
+/** Whether the selected physical record can supply an ordinary menu datum. */
+export function menuOffersRecordType(
+	module: Pick<Module, "caseType" | "caseListConfig"> | undefined,
+	type: string,
+): boolean {
+	return (
+		!!module?.caseType &&
+		(module.caseType === type ||
+			!!module.caseListConfig?.additionalCaseTypes?.includes(type))
+	);
+}
+
+/** A case list can open a companion on Android and use its returned text to search. */
+const deviceLookupName = z.string().trim().min(1);
+const deviceLookupExtraName = deviceLookupName.refine(
+	(name) => name !== "force_xpath_parsing",
+);
+export const CASE_LIST_LOOKUP_WORKER_FIELDS = ["username", "userid"] as const;
+export type CaseListLookupWorkerField =
+	(typeof CASE_LIST_LOOKUP_WORKER_FIELDS)[number];
+const deviceLookupExtraSchema = z.union([
+	z.strictObject({ name: deviceLookupExtraName, value: z.string() }),
+	z.strictObject({
+		name: deviceLookupExtraName,
+		expression: z.strictObject({
+			kind: z.literal("term"),
+			term: z.strictObject({
+				kind: z.literal("session-context"),
+				field: z.enum(CASE_LIST_LOOKUP_WORKER_FIELDS),
+			}),
+		}),
+	}),
+]);
+export type DeviceLookupExtra = z.infer<typeof deviceLookupExtraSchema>;
+export const caseListDeviceLookupSchema = z
+	.strictObject({
+		action: deviceLookupName,
+		label: deviceLookupName,
+		icon: mediaAssetIdSchema.optional(),
+		resultHeading: caseListWordingSchema.optional(),
+		automatic: z.literal(true).optional(),
+		extras: z.array(deviceLookupExtraSchema).min(1),
+		responses: z.array(deviceLookupName).min(1),
+	})
+	.superRefine(({ extras, responses }, ctx) => {
+		const names = extras.map(({ name }) => name);
+		if (new Set(names).size !== names.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["extras"],
+				message: "Give each value sent to the app a different name.",
+			});
+		if (new Set(responses).size !== responses.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["responses"],
+				message: "Use each response name once.",
+			});
+	});
+export type CaseListDeviceLookup = z.infer<typeof caseListDeviceLookupSchema>;
+
+export function searchAddressReceiverProblem(
+	input: VisibleSearchInputDef,
+	inputs: readonly SearchInputDef[],
+): string | undefined {
+	const receiver = input.addressReceiver;
+	if (receiver === undefined) return undefined;
+	if (
+		input.hidden === true ||
+		(input.type !== "text" &&
+			input.type !== "select" &&
+			input.type !== "multi-select")
+	)
+		return "An address can fill a visible text or multiple-choice field.";
+	if (input.type === "select" && receiver.kind === "address")
+		return "Web Apps can select a different lookup value when an address fills a single-choice Search field. Link a text or multiple-choice field instead.";
+	const active = inputs.some(
+		(source) =>
+			source.kind === "address" &&
+			(receiver.kind === "address"
+				? source.uuid === receiver.source
+				: source.name === receiver.topic),
+	);
+	if (active !== (receiver.kind === "address"))
+		return "Choose an address field from this Search screen or clear the link.";
+	if (receiver.kind === "address") {
+		const parts = receiver.parts.join("||");
+		if (
+			inputs.some(
+				(other) =>
+					other.uuid !== input.uuid &&
+					isVisibleSearchInput(other) &&
+					other.hidden !== true &&
+					(other.type === "text" ||
+						other.type === "select" ||
+						other.type === "multi-select") &&
+					other.addressReceiver?.kind === "address" &&
+					other.addressReceiver.source === receiver.source &&
+					other.addressReceiver.parts.join("||") === parts &&
+					(input.type !== "text" || other.type !== "text"),
+			)
+		)
+			return "Choose different address parts or a different address field for each linked choice field.";
+	}
+	return undefined;
+}
 
 export const caseListConfigSchema = z
 	.strictObject({
@@ -2537,6 +3723,7 @@ export const caseListConfigSchema = z
 		 * sequences over these same columns and one array cannot hold both.
 		 */
 		columns: z.array(columnSchema),
+		calculatedSorts: z.array(calculatedSortSchema).min(1).optional(),
 		/**
 		 * The Results sequence, and the Details sequence — each a complete
 		 * permutation of `columns` by uuid.
@@ -2548,8 +3735,15 @@ export const caseListConfigSchema = z
 		 */
 		listColumnOrder: z.array(uuidSchema),
 		detailColumnOrder: z.array(uuidSchema),
+		detailTabs: detailTabsSchema.optional(),
+		detailTile: detailTileSchema.optional(),
+		contextAboveForm: caseFormContextSchema.optional(),
 		filter: conditionSchema.optional(),
+		searchCondition: conditionSchema.optional(),
+		additionalCaseTypes: otherRecordTypesSchema.optional(),
+		searchFilters: z.array(searchFilterSchema).min(1).optional(),
 		searchInputs: z.array(searchInputDefSchema),
+		searchInputGroups: z.array(searchInputGroupSchema).min(1).optional(),
 		/**
 		 * How many cases a worker can carry forward from Results. Absence is the
 		 * ordinary single-case flow; the stored arm is multiple-only so one intent
@@ -2557,12 +3751,123 @@ export const caseListConfigSchema = z
 		 */
 		selection: caseSelectionSchema.optional(),
 		/**
+		 * What Results says when it holds no case, in the source language;
+		 * absent is `CASE_LIST_EMPTY_TEXT_DEFAULT`. Its other languages are the
+		 * translations of its unit (`module:<uuid>:list-empty-text`). Web Apps
+		 * shows it; Android keeps its own empty-list wording.
+		 */
+		emptyText: caseListWordingSchema.optional(),
+		/**
+		 * The label of the button that carries a worker's chosen cases forward
+		 * from Results, in the source language; absent is
+		 * `CASE_LIST_SELECT_TEXT_DEFAULT`. Its other languages are the
+		 * translations of its unit (`module:<uuid>:list-select-text`). Web Apps
+		 * labels only its several-case Continue with it; Android keeps its own.
+		 */
+		selectButtonText: caseListWordingSchema.optional(),
+		/**
+		 * Faster loading is on: a calculated or link column may say how a
+		 * phone loads its value (`loadBehavior`). HQ's
+		 * `Module.show_case_list_optimization_options`, which the project
+		 * space's `CASE_LIST_OPTIMIZATIONS` gates.
+		 */
+		optimizations: z.literal(true).optional(),
+		deviceLookup: caseListDeviceLookupSchema.optional(),
+		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.
 		 */
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		for (const [index, input] of config.searchInputs.entries()) {
+			if (!isVisibleSearchInput(input)) continue;
+			const problem = searchAddressReceiverProblem(input, config.searchInputs);
+			if (problem !== undefined)
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputs", index, "addressReceiver"],
+					message: problem,
+				});
+		}
+		if (config.searchInputGroups && !config.searchInputs.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["searchInputGroups"],
+				message: "Add a Search field before adding headings.",
+			});
+		const groupOrder = new Map<Uuid, number>();
+		for (const [index, group] of (config.searchInputGroups ?? []).entries()) {
+			if (groupOrder.has(group.uuid)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputGroups", index, "uuid"],
+					message: "Each Search heading needs its own identity.",
+				});
+			}
+			groupOrder.set(group.uuid, index);
+		}
+		let lastGroup = -1;
+		for (const [index, input] of config.searchInputs.entries()) {
+			if (!groupOrder.size && input.group === undefined) continue;
+			const position =
+				input.group === undefined ? undefined : groupOrder.get(input.group);
+			if (position === undefined || position < lastGroup) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputs", index, "group"],
+					message:
+						position === undefined
+							? "Choose a heading in this Search for every field."
+							: "Keep each heading's fields together and in heading order.",
+				});
+			} else {
+				lastGroup = position;
+			}
+		}
+		if (
+			config.deviceLookup?.resultHeading !== undefined &&
+			config.tile !== undefined
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup", "resultHeading"],
+				message: "Show lookup confidence in a case list with rows.",
+			});
+		if (config.deviceLookup && config.tile?.namedSlots)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup"],
+				message:
+					"Use a list or a custom case tile to look up cases with an Android app.",
+			});
+		if (
+			config.tile?.rawSlots &&
+			(!config.tile.namedSlots ||
+				new Set(config.tile.rawSlots).size !== config.tile.rawSlots.length)
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["tile", "rawSlots"],
+				message: "Choose a raw value only once for a named tile position.",
+			});
+		for (const [index, column] of config.columns.entries())
+			if ("loadBehavior" in column && column.loadBehavior !== undefined) {
+				if (!columnSupportsLoadBehavior(column))
+					ctx.addIssue({
+						code: "custom",
+						path: ["columns", index, "loadBehavior"],
+						message:
+							"Only a calculated value or a link can choose how a phone loads it. Clear its loading choice first.",
+					});
+				else if (config.optimizations !== true)
+					ctx.addIssue({
+						code: "custom",
+						path: ["columns", index, "loadBehavior"],
+						message:
+							"Turn on faster loading for this case list before choosing how a phone loads a value.",
+					});
+			}
 		const columnUuids = config.columns.map((column) => column.uuid);
 		const columnSet = new Set(columnUuids);
 		if (columnSet.size !== columnUuids.length) {
@@ -2571,6 +3876,16 @@ export const caseListConfigSchema = z
 				path: ["columns"],
 				message: "Case-list column UUIDs must be unique.",
 			});
+		}
+		const memberIds = new Set(columnUuids);
+		for (const [index, rule] of (config.calculatedSorts ?? []).entries()) {
+			if (memberIds.has(rule.uuid))
+				ctx.addIssue({
+					code: "custom",
+					path: ["calculatedSorts", index, "uuid"],
+					message: "Each default order rule needs its own identity.",
+				});
+			memberIds.add(rule.uuid);
 		}
 		const checkOrder = (
 			order: readonly Uuid[],
@@ -2606,8 +3921,116 @@ export const caseListConfigSchema = z
 		};
 		checkOrder(config.listColumnOrder, "listColumnOrder");
 		checkOrder(config.detailColumnOrder, "detailColumnOrder");
+		if (config.tile?.namedSlots) {
+			const assignments = Object.values(config.tile.namedSlots);
+			const eligible = new Set(
+				config.columns
+					.filter(
+						(column) =>
+							column.visibleInList !== false && column.notOnList !== true,
+					)
+					.map((column) => column.uuid),
+			);
+			if (
+				new Set(assignments).size !== assignments.length ||
+				assignments.some((id) => !eligible.has(id))
+			)
+				ctx.addIssue({
+					code: "custom",
+					path: ["tile", "namedSlots"],
+					message:
+						"Choose a different Results field for each image and text position.",
+				});
+		}
+		if (config.detailTile) {
+			const shown = config.columns.filter(
+				(column) => column.visibleInDetail !== false,
+			);
+			const printed = new Set(shown.map((column) => column.uuid));
+			const cells = Object.keys(config.detailTile.cells) as Uuid[];
+			if (
+				!cells.length ||
+				cells.length !== shown.length ||
+				cells.some((id) => !printed.has(id))
+			)
+				ctx.addIssue({
+					code: "custom",
+					path: ["detailTile", "cells"],
+					message: "Give each field shown in Details a place on its tile.",
+				});
+		}
+		if (config.detailTabs) {
+			const shown = new Set(
+				config.columns
+					.filter((col) => col.visibleInDetail !== false)
+					.map((col) => col.uuid),
+			);
+			const fields = config.detailColumnOrder
+				.filter((uuid) => shown.has(uuid))
+				.map((uuid) => ({ uuid }));
+			const spans = detailTabSpans(config.detailTabs, fields);
+			if (!spans)
+				ctx.addIssue({
+					code: "custom",
+					path: ["detailTabs"],
+					message:
+						"Each tab needs a different first field in Details order, starting with the first field shown.",
+				});
+			for (const { tab, start, end } of spans ?? []) {
+				if (!tab.orderFields) continue;
+				const own = fields
+					.slice(start, end)
+					.filter(({ uuid }) => tab.orderFields?.includes(uuid));
+				if (
+					!tab.rowSource ||
+					own.length !== tab.orderFields.length ||
+					own.some((field, i) => field.uuid !== tab.orderFields?.[i]) ||
+					own.some(
+						({ uuid }) =>
+							!config.columns.some(
+								(c) =>
+									c.uuid === uuid &&
+									(c.kind === "plain" || c.kind === "calculated"),
+							),
+					)
+				)
+					ctx.addIssue({
+						code: "custom",
+						path: ["detailTabs"],
+						message:
+							"A tab of records can order its rows by text or calculated fields in that tab, in Details order.",
+					});
+			}
+		}
 	});
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
+
+/** Group definitions and their fields in Search display order. */
+export function searchInputGroupsWithMembers(config: {
+	searchInputGroups?: readonly SearchInputGroup[];
+	searchInputs: readonly SearchInputDef[];
+}): Array<SearchInputGroup & { inputs: SearchInputDef[] }> {
+	const groups = (config.searchInputGroups ?? []).map((group) => ({
+		...group,
+		inputs: [] as SearchInputDef[],
+	}));
+	const byUuid = new Map(groups.map((group) => [group.uuid, group]));
+	for (const input of config.searchInputs)
+		if (input.group !== undefined) byUuid.get(input.group)?.inputs.push(input);
+	return groups;
+}
+
+/** Whether HQ keeps a load behavior on this column: one it reads through an
+ *  expression as plain text or markdown (a calculation without translated
+ *  text, or a link), `DetailColumn.supports_optimizations`. */
+export function columnSupportsLoadBehavior(column: Column): boolean {
+	return (
+		(column.kind === "calculated" &&
+			column.texts === undefined &&
+			column.rowField !== true) ||
+		column.kind === "link"
+	);
+}
 
 /**
  * A case list with no columns and no search — the shape a config is BORN with.
@@ -2665,7 +4088,10 @@ export function caseSelectionCanFlowBetweenModules(
 ): boolean {
 	if (
 		sourceModule.caseType === undefined ||
-		sourceModule.caseType !== targetModule.caseType
+		sourceModule.caseType !== targetModule.caseType ||
+		!menuRecordTypes(sourceModule.caseType, sourceModule.caseListConfig).every(
+			(type) => menuOffersRecordType(targetModule, type),
+		)
 	) {
 		return false;
 	}
@@ -2795,6 +4221,25 @@ export type SearchScreenTitle = z.infer<typeof searchScreenTitleSchema>;
 
 export const ordinaryCaseSearchConfigSchema = z
 	.strictObject({
+		/** Uses the search supplied by this connected project space. The extra
+		 * inputs are named values, evaluated when the worker submits the search. */
+		projectSearch: z
+			.strictObject({
+				searchUuid: uuidSchema,
+				defaults: z.array(
+					z.strictObject({
+						uuid: uuidSchema,
+						name: z.string().min(1),
+						value: valueSchema,
+					}),
+				),
+			})
+			.optional(),
+		/** One additional record whose ID each match carries. */
+		relatedRecordIdProperty: authoredCasePropertyNameSchema.optional(),
+		/** Absent follows the information displayed by the list. */
+		relatedRecords: z.enum(["hierarchy", "details"]).optional(),
+
 		// Owner-availability slot.
 		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
 		// space-separated list of owner ids whose cases are excluded from every
@@ -2812,6 +4257,7 @@ export const ordinaryCaseSearchConfigSchema = z
 		// authoring vocabulary is `excludedOwnerIds`. The translation
 		// lives at `lib/commcare/suite/case-search/searchSession.ts`.
 		excludedOwnerIds: valueSchema.optional(),
+		requestOrder: searchRequestOrderSchema.optional(),
 
 		// Display labels for the search screen. The runtime renders the
 		// subtitle through a markdown formatter; the title is plain text.
@@ -2840,9 +4286,13 @@ export const ordinaryCaseSearchConfigSchema = z
 		 * the case list. `skipToResults` runs the search as the menu opens and
 		 * shows its matches; `listFirst` shows the worker's case list with a
 		 * Search action, admitted only where Web Apps is not declared
-		 * (`platforms.ts`, `list-first`). `searchWorkflow` is the one reader.
+		 * (`platforms.ts`, `list-first`). `listFirstWithDefaultResults` also
+		 * requests default results for the Search action. Android opens its
+		 * prompts and waits for submission with either list-first setting.
 		 */
-		workflow: z.enum(["listFirst", "skipToResults"]).optional(),
+		workflow: z
+			.enum(["listFirst", "listFirstWithDefaultResults", "skipToResults"])
+			.optional(),
 		/**
 		 * The search runs as each case form of the menu opens, so the forms read
 		 * what the worker searched for (`#search/`) and what it found
@@ -2851,10 +4301,12 @@ export const ordinaryCaseSearchConfigSchema = z
 		 * (`forms-read-search`). `moduleFormsReadSearch` is the one reader.
 		 */
 		formsReadSearch: z.literal(true).optional(),
+		/** Clearing the search on a wide Web Apps screen requests its cleared answers. */
+		searchOnClear: z.literal(true).optional(),
 	})
 	.refine(
 		(config) =>
-			!(config.workflow === "listFirst" && config.formsReadSearch === true),
+			!(searchOpensOnList(config.workflow) && config.formsReadSearch === true),
 		{
 			path: ["formsReadSearch"],
 			error:
@@ -2894,11 +4346,16 @@ export function caseSearchConfigHasAuthoredSettings(
 	if (isOwnerOnlyCaseSearchConfig(config)) return true;
 	return (
 		config.excludedOwnerIds !== undefined ||
+		config.requestOrder !== undefined ||
+		config.relatedRecordIdProperty !== undefined ||
+		config.relatedRecords !== undefined ||
 		config.searchScreenTitle !== undefined ||
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||
 		config.workflow !== undefined ||
-		config.formsReadSearch !== undefined
+		config.formsReadSearch !== undefined ||
+		config.searchOnClear !== undefined ||
+		config.projectSearch !== undefined
 	);
 }
 
@@ -2922,6 +4379,37 @@ export function isOrdinaryCaseSearchConfig(
 	return config !== undefined && !isOwnerOnlyCaseSearchConfig(config);
 }
 
+/**
+ * The search's own owner exclusion, which replaces `excludedOwnerIds` for the
+ * online search alone: the assigned list keeps that rule. A search sends one
+ * `commcare_blacklisted_owner_ids` value, so one rule wins.
+ */
+export function searchOwnerOverride(
+	config: Pick<CaseListConfig, "searchFilters"> | undefined,
+): SearchValueFilter | undefined {
+	return config?.searchFilters?.find(
+		(row): row is SearchValueFilter =>
+			searchFilterUsesValue(row) && row.target.kind === "excluded-owners",
+	);
+}
+
+/** The owner exclusion HQ's editor holds as `blacklisted_owner_ids_expression`. */
+export function isDedicatedOwnerFilter(filter: SearchFilter): boolean {
+	return (
+		searchFilterUsesValue(filter) &&
+		filter.target.kind === "excluded-owners" &&
+		filter.target.placement === "search-setting"
+	);
+}
+
+/** The connected project space runs this menu’s search. */
+export function projectSearchOf(
+	module: Pick<Module, "caseSearchConfig"> | undefined,
+) {
+	const config = module?.caseSearchConfig;
+	return isOrdinaryCaseSearchConfig(config) ? config.projectSearch : undefined;
+}
+
 /** The title a worker reads: the authored text, "Search" where none is
  *  authored, or null for a search with no title. The one reader. */
 export function searchScreenTitleText(
@@ -2939,13 +4427,14 @@ export function searchScreenTitleText(
  *
  * Title and subtitle belong to the input screen and therefore disappear with
  * that screen. Action settings remain valid on a zero-input manual action, and
- * an effective Cases available rule retains the action for automatic Results.
- * Assigned-case availability alone remains independent and carries the
- * internal no-action marker instead of manufacturing Search.
+ * search content that remains (`searchConditions.ts::searchContentWithoutInputs`:
+ * an effective search condition or a search filter) retains the action for
+ * automatic Results. Assigned-case availability alone remains independent and
+ * carries the internal no-action marker instead of manufacturing Search.
  */
 export function caseSearchConfigAfterFinalInputRemoval(
 	config: CaseSearchConfig | undefined,
-	hasCasesAvailableCondition: boolean,
+	searchContentRemains: boolean,
 ): CaseSearchConfig | undefined {
 	if (config === undefined) return undefined;
 	if (isOwnerOnlyCaseSearchConfig(config)) return config;
@@ -2957,10 +4446,13 @@ export function caseSearchConfigAfterFinalInputRemoval(
 	// The workflow and Forms read the search survive the last input: the
 	// menu keeps opening as the author chose.
 	const hasSearchActionSetting =
+		action.requestOrder !== undefined ||
 		action.searchButtonDisplayCondition !== undefined ||
 		action.workflow !== undefined ||
-		action.formsReadSearch !== undefined;
-	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
+		action.formsReadSearch !== undefined ||
+		action.searchOnClear !== undefined ||
+		action.projectSearch !== undefined;
+	if (searchContentRemains || hasSearchActionSetting) return action;
 	if (action.excludedOwnerIds !== undefined) {
 		return { ...action, searchActionEnabled: false };
 	}
@@ -2975,6 +4467,9 @@ export const caseListMenuItemSchema = z.strictObject({
 	label: z.string().min(1).optional(),
 	/** The entry's image in the menu. */
 	icon: moduleIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(moduleIconRefSchema).optional(),
+	mediaByFormerCode:
+		formerNavigationMediaSchema(moduleIconRefSchema).optional(),
 	/** The entry's spoken label, played in audio-prompt mode. */
 	audioLabel: mediaAssetIdSchema.optional(),
 });
@@ -2990,21 +4485,43 @@ export type CaseListRegistrationReturn =
 
 const afterEmptySearchRegistrationSchema = z.strictObject({
 	kind: z.literal("after-empty-search"),
+	/** Continue in the menu with the newly registered case. Absent returns to the list. */
+	afterSubmit: z.literal("new-case").optional(),
 	/** A registration form of this module, on no menu. */
 	formUuid: uuidSchema,
 	/** The Register action's label. Absent is the form's name. */
 	label: z.string().min(1).optional(),
 });
 
+export const caseListActionTargetSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("created-case"),
+		operationUuid: uuidSchema,
+	}),
+	z.strictObject({ kind: z.literal("chosen-parent"), moduleUuid: uuidSchema }),
+]);
+export type CaseListActionTarget = z.infer<typeof caseListActionTargetSchema>;
+
+export const caseListActionVisibilitySchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("empty-search") }),
+	z.strictObject({ kind: z.literal("condition"), condition: conditionSchema }),
+]);
+
 const alwaysOfferedRegistrationSchema = z.strictObject({
 	kind: z.literal("always"),
-	/** A registration form of this module's case type in another menu. It
-	 *  stays on its own menu. */
+	/** A form held in its own menu, also offered on this list. */
 	formUuid: uuidSchema,
+	/** Absent registers the form's own case. Other targets name the created case
+	 * or the menu which supplies the selected parent, independently of their names. */
+	target: caseListActionTargetSchema.optional(),
+	/** The action is offered whenever the list opens unless the list narrows it. */
+	showWhen: caseListActionVisibilitySchema.optional(),
 	/** The Register action's label. Absent is the form's name. */
 	label: z.string().min(1).optional(),
 	/** The action's image. Web Apps shows the label alone. */
 	icon: formIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(formIconRefSchema).optional(),
+	mediaByFormerCode: formerNavigationMediaSchema(formIconRefSchema).optional(),
 	/** The action's spoken label, played in audio-prompt mode. */
 	audioLabel: mediaAssetIdSchema.optional(),
 	/** Back to the list, or on to this menu with the new case chosen. Applies
@@ -3028,7 +4545,40 @@ export type AlwaysOfferedRegistration = z.infer<
 	typeof alwaysOfferedRegistrationSchema
 >;
 
+const menuFormSourceSchema = z.strictObject({
+	menuUuid: uuidSchema,
+	excludedFormUuids: z.array(uuidSchema).min(1).optional(),
+	entryPoints: z
+		.array(
+			z.strictObject({ formUuid: uuidSchema, entryPoint: entryPointSchema }),
+		)
+		.min(1)
+		.optional(),
+});
+export type MenuFormSource = z.infer<typeof menuFormSourceSchema>;
+/** HQ's Case List editor accepts an ASCII initial letter followed by Python word
+ * characters (letters, numbers and underscore). Its suite loader recognizes
+ * certain built-in instances by substring and cannot host them as search names. */
+export const searchResultsNameSchema = z
+	.string()
+	.refine(
+		(name) => /^[A-Za-z][\p{L}\p{N}_]*$/u.test(name),
+		"Choose a name that starts with A to Z or a to z. The rest can use letters, numbers and underscores.",
+	)
+	.refine(
+		(name) =>
+			!["casedb", "ledgerdb", "fixture", "session"].some((word) =>
+				name.includes(word),
+			),
+		"This name overlaps a reserved name. You can use another name, such as FamilySearch.",
+	);
+
 export const moduleSchema = z.strictObject({
+	/** A second route to the source menu's actual forms. The menu owns its appearance,
+	 * case views and links. Its source owns each form and its XForm namespace. */
+	formsFromMenu: menuFormSourceSchema.optional(),
+	/** A manual choice from this list continues automatically when exactly one row is available. */
+	autoSelectSingle: z.literal(true).optional(),
 	entryPoint: entryPointSchema.optional(),
 	caseListEntryPoint: entryPointSchema.optional(),
 	uuid: uuidSchema,
@@ -3059,6 +4609,7 @@ export const moduleSchema = z.strictObject({
 	 * case row, so validator context rules admit only global/session terms.
 	 */
 	displayCondition: conditionSchema.optional(),
+	badge: menuBadgeSchema.optional(),
 	/**
 	 * Present when the module is off the menu: no menu lists it or any of
 	 * its forms, whatever `displayCondition` says. The condition keeps
@@ -3077,10 +4628,17 @@ export const moduleSchema = z.strictObject({
 	 * `menuScreens.ts` is the one reader of what lists where.
 	 */
 	formsInMenuAbove: z.literal(true).optional(),
+	/** The menu contributes a grid when form menus use individual layouts. */
+	menuLayout: z.literal("grid").optional(),
 	caseListConfig: caseListConfigSchema.optional(),
+	/** Which set of answers this menu keeps when a worker runs more than one search. */
+	searchResultsName: searchResultsNameSchema.optional(),
 	caseSearchConfig: caseSearchConfigSchema.optional(),
 	/** Image shown on the module's home-screen tile. */
 	icon: moduleIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(moduleIconRefSchema).optional(),
+	mediaByFormerCode:
+		formerNavigationMediaSchema(moduleIconRefSchema).optional(),
 	/**
 	 * Audio version of the module's home-screen label, played by
 	 * audio-prompt mode — an accessibility affordance for
@@ -3113,7 +4671,10 @@ export type Module = z.infer<typeof moduleSchema>;
 export function effectiveCaseSearchConfig(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
 ): OrdinaryCaseSearchConfig | undefined {
-	const hasInputs = (module.caseListConfig?.searchInputs.length ?? 0) > 0;
+	const hasInputs = Boolean(
+		module.caseListConfig?.searchInputs.length ||
+			module.caseListConfig?.searchFilters?.length,
+	);
 	const stored = module.caseSearchConfig;
 	if (stored === undefined) return hasInputs ? {} : undefined;
 	if (!isOwnerOnlyCaseSearchConfig(stored)) return stored;
@@ -3125,12 +4686,21 @@ export function effectiveCaseSearchConfig(
 
 export const SEARCH_WORKFLOWS = [
 	"listFirst",
+	"listFirstWithDefaultResults",
 	"searchFirst",
 	"skipToResults",
 ] as const;
 export type SearchWorkflow = (typeof SEARCH_WORKFLOWS)[number];
 
-/** What a worker sees first when this search runs; absent is search first. */
+/** The two workflows that open on the worker's own case list. They differ
+ * in the saved default-results preference for the separate Search action. */
+export function searchOpensOnList(
+	workflow: SearchWorkflow | undefined,
+): workflow is "listFirst" | "listFirstWithDefaultResults" {
+	return workflow === "listFirst" || workflow === "listFirstWithDefaultResults";
+}
+
+/** The authored workflow of this search; absent is search first. */
 export function searchWorkflow(
 	config: OrdinaryCaseSearchConfig,
 ): SearchWorkflow {

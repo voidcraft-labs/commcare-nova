@@ -13,6 +13,8 @@ export const endpointScenarios = [
 	"multiple",
 	"inline",
 	"registration",
+	"registration-supplied",
+	"first-menu",
 	"child",
 	"module",
 	"case-list",
@@ -22,6 +24,8 @@ export const ENDPOINT_MODULE = testUuid("endpoint-module"),
 export function endpointWireFixture(
 	scenario: (typeof endpointScenarios)[number] = "single",
 ) {
+	const registration =
+		scenario === "registration" || scenario === "registration-supplied";
 	const child = scenario === "child",
 		type = child ? "baby" : "patient";
 	const doc = buildDoc({
@@ -73,12 +77,12 @@ export function endpointWireFixture(
 					{
 						uuid: ENDPOINT_FORM,
 						name: "Visit",
-						type: scenario === "registration" ? "registration" : "followup",
+						type: registration ? "registration" : "followup",
 						fields: [
 							f({
 								kind: "text",
 								id: "notes",
-								...(scenario === "registration"
+								...(registration
 									? { caseWrite: { caseType: type, property: "case_name" } }
 									: {}),
 							}),
@@ -86,6 +90,25 @@ export function endpointWireFixture(
 					},
 				],
 			},
+			...(scenario === "first-menu"
+				? [
+						{
+							uuid: testUuid("endpoint-second-patient-menu"),
+							name: "Checks",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									name: "Check",
+									type: "followup" as const,
+									fields: [f({ kind: "text", id: "note" })],
+								},
+							],
+						},
+					]
+				: []),
 		],
 	});
 	const module = doc.modules[ENDPOINT_MODULE],
@@ -96,10 +119,16 @@ export function endpointWireFixture(
 	else
 		form.entryPoint = {
 			...entryPoint,
-			...(scenario === "registration"
-				? { ignoreDisplayConditions: true as const }
-				: {}),
+			...(registration ? { ignoreDisplayConditions: true as const } : {}),
 		};
+	if (scenario === "first-menu") module.formsInMenuAbove = true;
+	if (scenario === "registration-supplied") {
+		const own = form.caseOperations?.find(
+			(operation) => operation.action === "own",
+		);
+		if (!own) throw new Error("Missing registration case creation");
+		form.entryCaseCreations = [own.uuid];
+	}
 	if (child) {
 		module.parentModuleUuid = testUuid("endpoint-parent");
 		module.parentCaseModuleUuid = testUuid("endpoint-parent");

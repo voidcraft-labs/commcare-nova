@@ -12,6 +12,7 @@ import {
 	useLocalizedValues,
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import {
 	choosePreviewMenuTile,
 	previewModuleAsksParentCase,
@@ -24,6 +25,7 @@ import {
 	usePinnedCaseTile,
 } from "@/components/preview/shared/PinnedCaseTile";
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
+import { Badge } from "@/components/shadcn/badge";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -43,12 +45,14 @@ import {
 	moduleParent,
 	reachableCaseTypes,
 } from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
 import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
 import {
 	type NavigationItemVisibility,
 	navigationSelectedCase,
 } from "@/lib/preview/engine/displayConditionEvaluation";
+import { entryWalksChoices } from "@/lib/preview/engine/entrySessionData";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { previewParentCaseBeforeMenu } from "@/lib/preview/engine/parentCaseSelection";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
@@ -74,7 +78,7 @@ import {
 	previewModuleOwnVisibility,
 	previewModuleScreenIsBareCaseList,
 	previewScreenEntries,
-	previewScreenEntryVisibility,
+	previewScreenWithBadges,
 } from "@/lib/preview/menuProjection";
 import { parentCaseSelectorLocation } from "@/lib/preview/screenProjection";
 import {
@@ -96,6 +100,7 @@ import {
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { showToast } from "@/lib/ui/toastStore";
+import { PreviewMenuChoice, PreviewMenuChoices } from "./MenuLayout";
 import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
 
 /** No entry's place, while the screen shows a refusal in place of its list. */
@@ -125,7 +130,8 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	const previewParentCaseRequest = usePreviewParentCaseRequest();
-	const menuSource = usePreviewMenuSource();
+	const language = useBuilderLanguage();
+	const menuSource = usePreviewMenuSource(language.language);
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const taskContinuation = usePreviewTaskContinuation();
 	const setTaskContinuation = useSetPreviewTaskContinuation();
@@ -138,7 +144,6 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 	const moduleUuid = screen.moduleUuid;
 
 	const mod = useModuleEntity(moduleUuid);
-	const language = useBuilderLanguage();
 	const localizedValues = useLocalizedValues();
 	const moduleNameUnitId = makeTranslationUnitId(
 		"module",
@@ -225,7 +230,9 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		() =>
 			readPreviewScreen(() => {
 				ownModuleVisibility.get(moduleUuid);
-				return previewScreenEntryVisibility({
+				return previewScreenWithBadges({
+					platform: device.platform,
+					localizedValues,
 					doc: menuSource.doc,
 					entries,
 					ownModuleVisibility,
@@ -251,6 +258,8 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 				});
 			}),
 		[
+			device.platform,
+			localizedValues,
 			moduleUuid,
 			entries,
 			ownModuleVisibility,
@@ -263,7 +272,11 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		],
 	);
 	const entryVisibility =
-		screenRead.kind === "read" ? screenRead.value : NO_ENTRY_VISIBILITY;
+		screenRead.kind === "read"
+			? screenRead.value.visibility
+			: NO_ENTRY_VISIBILITY;
+	const badges =
+		screenRead.kind === "read" ? screenRead.value.badges : undefined;
 	const hiddenItemsOf = useCallback(
 		(listed: readonly MenuScreenEntry[]) =>
 			previewHiddenScreenEntries({
@@ -398,19 +411,20 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		cases: NonNullable<typeof selectedMenuCase>["cases"],
 	) => {
 		const formModule = menuSource.modules[formModuleUuid];
-		const claimIds =
+		const choices =
 			formModule !== undefined && moduleFormsReadSearch(formModule)
-				? claimableCaseIds([
+				? [
 						...cases,
 						...parentSelectClaimChoices(
 							menuSource.doc,
 							formModuleUuid,
 							menuCaseSelections,
 						),
-					])
+					]
 				: [];
+		const claimIds = claimableCaseIds(choices);
 		if (claimIds.length > 0) {
-			const outcome = await claimSearchedCases(claimIds);
+			const outcome = await claimSearchedCases(claimIds, choices);
 			if (outcome.kind === "superseded") return;
 			if (outcome.kind !== "claimed") {
 				showToast(
@@ -481,42 +495,56 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 			menuCaseSelections,
 		);
 		return (
-			<motion.button
+			<PreviewMenuChoice
 				key={key}
-				type="button"
-				initial={{ opacity: 0, y: 12 }}
-				animate={{ opacity: 1, y: 0 }}
-				transition={{ delay: index * 0.06, duration: 0.3 }}
-				onClick={() =>
-					choosePreviewMenuTile(
-						{ setPreviewCaseTarget, setPreviewParentCaseRequest, navigate },
-						{
-							source: menuSource,
-							moduleUuid: child.uuid,
-							selections: menuCaseSelections,
-							cancelLocation: { kind: "module", moduleUuid },
-							landing: moduleLanding({
-								isCaseFirst: caseFirstModules.has(child.uuid),
-								isBareCaseList: previewModuleScreenIsBareCaseList(
-									menuSource.doc,
-									child.uuid,
-								),
-								hasChildren: moduleHasChildren(menuSource, child.uuid),
-								hasSelectedCase: childCase.selectedCase !== undefined,
-							}),
-						},
-					)
-				}
-				className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
+				audioLabel={child.audioLabel}
+				label={childName}
 			>
-				<Icon
-					icon={tablerGridDots}
-					width="18"
-					height="18"
-					className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
-				/>
-				<div className="text-sm font-medium text-nova-text">{childName}</div>
-			</motion.button>
+				<motion.button
+					type="button"
+					initial={{ opacity: 0, y: 12 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ delay: index * 0.06, duration: 0.3 }}
+					onClick={() =>
+						choosePreviewMenuTile(
+							{ setPreviewCaseTarget, setPreviewParentCaseRequest, navigate },
+							{
+								source: menuSource,
+								moduleUuid: child.uuid,
+								selections: menuCaseSelections,
+								cancelLocation: { kind: "module", moduleUuid },
+								landing: moduleLanding({
+									isCaseFirst: caseFirstModules.has(child.uuid),
+									isBareCaseList: previewModuleScreenIsBareCaseList(
+										menuSource.doc,
+										child.uuid,
+									),
+									hasChildren: moduleHasChildren(menuSource, child.uuid),
+									hasSelectedCase: childCase.selectedCase !== undefined,
+								}),
+							},
+						)
+					}
+					className="nova-focusable w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
+				>
+					{child.icon ? (
+						<ProjectMediaImage
+							assetId={child.icon}
+							alt=""
+							className="size-7 rounded-lg object-cover shrink-0"
+						/>
+					) : (
+						<Icon
+							icon={tablerGridDots}
+							width="18"
+							height="18"
+							className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
+						/>
+					)}
+					<div className="text-sm font-medium text-nova-text">{childName}</div>
+					{badges?.get(key) && <Badge variant="muted">{badges.get(key)}</Badge>}
+				</motion.button>
+			</PreviewMenuChoice>
 		);
 	};
 
@@ -570,7 +598,10 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 				{/* One list in the projection's order, as a device lists the
 				 *  screen: a submenu's tile stands where its module stands among
 				 *  the forms of the menus that show them here. */}
-				<div className="space-y-2">
+				<PreviewMenuChoices
+					doc={menuSource.doc}
+					screen={{ kind: "menu", moduleUuid }}
+				>
 					{entries.map((entry, fIdx) => {
 						if (entry.kind === "menu") return renderTile(entry, fIdx);
 						const key = menuScreenEntryKey(entry);
@@ -590,9 +621,9 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 									entry={caseListEntry}
 									index={fIdx}
 									label={
-										(localizedValues.get(caseListEntry.labelUnitId) as
-											| string
-											| undefined) ?? caseListEntry.label
+										(localizedValues.get(
+											generatedWordingId(entry.moduleUuid, "caseListEntry"),
+										) as string | undefined) ?? caseListEntry.label
 									}
 									onClick={() => chooseCaseListEntry(entry.moduleUuid)}
 								/>
@@ -603,7 +634,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 						const formModuleUuid = entry.moduleUuid;
 						const localizedFormName =
 							(localizedValues.get(
-								makeTranslationUnitId("form", form.uuid, "name"),
+								generatedWordingId(form.uuid, "formTitle"),
 							) as string | undefined) ?? form.name;
 
 						const handleClick = () => {
@@ -678,13 +709,24 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 								}
 								return;
 							}
-							if (launch.kind === "select-case-first") {
+							if (form.shadowOf || form.caseSelections !== undefined) {
+								setPreviewCaseTarget({ formUuid: form.uuid, entryChoices: [] });
+								navigate.openForm(formModuleUuid, form.uuid);
+							} else if (launch.kind === "select-case-first") {
 								if (formMenuCase) {
 									void openFormWithMenuCase(
 										formModuleUuid,
 										form.uuid,
 										formMenuCase.cases,
 									);
+								} else if (entryWalksChoices(menuSource.doc, form.uuid)) {
+									/* A datum that opens its single match automatically
+									 * is walked step by step, as the entry asks for it. */
+									setPreviewCaseTarget({
+										formUuid: form.uuid,
+										entryChoices: [],
+									});
+									navigate.openForm(formModuleUuid, form.uuid);
 								} else {
 									setPreviewCaseTarget({ formUuid: form.uuid });
 									navigate.openCaseList(formModuleUuid);
@@ -699,6 +741,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 
 						return (
 							<PreviewFormRow
+								badge={badges?.get(key)}
 								key={key}
 								form={form}
 								index={fIdx}
@@ -707,7 +750,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 							/>
 						);
 					})}
-				</div>
+				</PreviewMenuChoices>
 				<HiddenItemsReveal items={hiddenEntries} />
 			</ContentFrame>
 		</>

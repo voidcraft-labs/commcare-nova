@@ -16,6 +16,7 @@
 
 import { sql } from "kysely";
 import { describe } from "vitest";
+import { lookupAppFixture } from "@/lib/commcare/__tests__/lookupAppFixtures";
 import type { CaseType } from "@/lib/domain";
 import {
 	and,
@@ -29,12 +30,23 @@ import {
 import {
 	type LookupColumnId,
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import type { LookupRead } from "@/lib/domain/lookupRead";
 import { proseText } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import type {
+	LookupFixtureRow,
+	LookupTableDefinition,
+} from "@/lib/lookup/types";
+import { previewLookupData } from "@/lib/preview/engine/lookupEvaluation";
+import { lookupXPathInstances } from "@/lib/preview/engine/xpathInstances";
+import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { compileExpression } from "../compileExpression";
 import type { LookupTableSchemas } from "../compileLookup";
+import { workerLookupSchemas } from "../compileLookup";
 import {
 	compilePredicate,
 	expressionContextFor,
@@ -470,5 +482,199 @@ describe("compileLookup — round-trip — case-list predicate integration", () 
 			.select(expr.as("out"))
 			.execute();
 		expect(rows).toEqual([{ out: "north" }, { out: null }]);
+	});
+});
+
+test("SQL reads only one worker’s ordered rows, including row details, qualified repeated values and missing details", async ({
+	db,
+}) => {
+	const { table, rows } = lookupAppFixture(false, true);
+	const attr = table.attributes?.[0];
+	const label = table.columns[1];
+	const lang = label.properties?.[0];
+	if (!attr || !lang)
+		throw new Error("The rich witness has no row or field details.");
+	const schemas = workerLookupSchemas(PROJECT_ID, {
+		definitions: [table],
+		rowsByTable: new Map([[table.id, [rows[1]]]]),
+	});
+	const context = expressionContextFor(
+		makeCtx(db, { lookupTableSchemas: schemas }),
+	);
+	const byRegion = (read: LookupRead, code: string) =>
+		compileExpression(
+			tableLookup(
+				table.id,
+				read,
+				eq(tableColumn(table.id, { attributeId: attr.id }), literal(code)),
+			),
+			context,
+		);
+	const fr = {
+		columnId: label.id,
+		where: { propertyId: lang.id, equals: "fr" },
+		occurrence: 1,
+	};
+	expect(await selectScalar(db, byRegion(fr, "south"))).toBe("Choix Southland");
+	expect(
+		await selectScalar(db, byRegion({ ...fr, propertyId: lang.id }, "south")),
+	).toBe("fr");
+	expect(await selectScalar(db, byRegion(fr, "north"))).toBeNull();
+	expect(
+		await selectScalar(db, byRegion({ ...fr, occurrence: 2 }, "south")),
+	).toBeNull();
+	await expect(selectScalar(db, byRegion(label.id, "south"))).rejects.toThrow(
+		/more than one row/,
+	);
+});
+
+describe("compileLookup — a cell's text read as a device reads it", () => {
+	// commcare-core `TreeElementParser.parse` sets an element's value to
+	// `parser.getText().trim()` and keeps each attribute as written, so a
+	// device reads a padded cell or repeated value trimmed and a row detail
+	// or value detail untrimmed. The SQL that decides a list's rows reads them
+	// the same way, and so does Preview's form engine.
+	test("a padded cell compared with a case property lists the case, as a device does", async ({
+		db,
+	}) => {
+		await seedRegions(db);
+		await sql`
+			INSERT INTO lookup_rows
+				(project_id, table_id, id, order_key, values, created_by, updated_by)
+			VALUES (${PROJECT_ID}, ${REGIONS}, '01920000-0000-7000-8000-0000000000e4', 'c1',
+				${JSON.stringify({ [COL_CODE]: " 007 ", [COL_LABEL]: "\t Seven\n" })}::jsonb,
+				'tester', 'tester')
+		`.execute(db);
+		await db
+			.insertInto("cases")
+			.values(
+				["007", " 007 "].map((code, index) =>
+					makeCaseRow({
+						case_id: `40000000-0000-0000-0000-00000000010${index}`,
+						case_type: "patient",
+						app_id: APP_ID,
+						project_id: PROJECT_ID,
+						properties: JSON.stringify({ region_code: code }),
+					}),
+				),
+			)
+			.execute();
+		const pred = eq(
+			tableLookup(
+				REGIONS,
+				COL_LABEL,
+				eq(tableColumn(REGIONS, COL_CODE), prop("patient", "region_code")),
+			),
+			literal("Seven"),
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.where(compilePredicate(pred, makeCtx(db)))
+			.where("c.app_id", "=", APP_ID)
+			.where("c.project_id", "=", PROJECT_ID)
+			.select("c.case_id")
+			.execute();
+		expect(rows).toEqual([{ case_id: "40000000-0000-0000-0000-000000000100" }]);
+	});
+
+	test("SQL and Preview's form read a worker's padded cell, repeated value, row detail and value detail alike", async ({
+		db,
+	}) => {
+		const tableId = lookupTableIdSchema.parse(
+			"01920000-0000-7000-8000-0000000000f1",
+		);
+		const plainId = lookupColumnIdSchema.parse(
+			"01920000-0000-7000-8000-0000000000f2",
+		);
+		const nameId = lookupColumnIdSchema.parse(
+			"01920000-0000-7000-8000-0000000000f3",
+		);
+		const codeId = lookupMemberIdSchema.parse(
+			"01920000-0000-7000-8000-0000000000f4",
+		);
+		const langId = lookupMemberIdSchema.parse(
+			"01920000-0000-7000-8000-0000000000f5",
+		);
+		const table: LookupTableDefinition = {
+			id: tableId,
+			name: "T",
+			tag: "t",
+			definitionRevision: parseLookupRevision("1"),
+			attributes: [{ id: codeId, wireName: "code", label: "Code" }],
+			columns: [
+				{ id: plainId, wireName: "plain", label: "Plain", dataType: "text" },
+				{
+					id: nameId,
+					wireName: "name",
+					label: "Name",
+					dataType: "text",
+					repeated: true,
+					properties: [{ id: langId, wireName: "lang", label: "Lang" }],
+				},
+			],
+		};
+		const row: LookupFixtureRow = {
+			id: lookupRowIdSchema.parse("01920000-0000-7000-8000-0000000000f6"),
+			values: { [plainId]: " 007 " },
+			attributes: { [codeId]: " east " },
+			occurrences: {
+				[nameId]: [{ text: "\t Est\n", properties: { [langId]: " fr " } }],
+			},
+		};
+		const snapshot = {
+			projectRevision: "1",
+			definitions: [table],
+			rowsByTable: new Map([[tableId, [row]]]),
+		};
+		const context = expressionContextFor(
+			makeCtx(db, {
+				lookupTableSchemas: workerLookupSchemas(PROJECT_ID, snapshot),
+			}),
+		);
+		const sqlRead = (
+			read: LookupRead,
+			where: Parameters<typeof eq>[0],
+			value: string,
+		) =>
+			selectScalar(
+				db,
+				compileExpression(
+					tableLookup(tableId, read, eq(where, literal(value))),
+					context,
+				),
+			);
+		const byCode = tableColumn(tableId, { attributeId: codeId });
+		const first = { columnId: nameId, occurrence: 1 };
+		const fromSql = {
+			code: await sqlRead(
+				{ attributeId: codeId },
+				tableColumn(tableId, plainId),
+				"007",
+			),
+			name: await sqlRead(first, byCode, " east "),
+			lang: await sqlRead({ ...first, propertyId: langId }, byCode, " east "),
+		};
+		const instance = lookupXPathInstances(previewLookupData(snapshot), {
+			includeFixtureAliases: true,
+		}).get("item-list:t");
+		if (instance === undefined)
+			throw new Error("Preview built no instance for t.");
+		const rows = "instance('item-list:t')/t_list/t";
+		const preview = (expression: string) =>
+			evaluate(expression, {
+				contextPath: "/data",
+				position: undefined,
+				getValue: () => undefined,
+				mainInstance: instance,
+				resolveXPathInstance: (id: string) =>
+					id === "item-list:t" ? instance : undefined,
+			});
+		const fromPreview = {
+			code: preview(`${rows}[plain = '007']/@code`),
+			name: preview(`${rows}[@code = ' east ']/name[1]`),
+			lang: preview(`${rows}[@code = ' east ']/name[1]/@lang`),
+		};
+		expect(fromSql).toEqual({ code: " east ", name: "Est", lang: " fr " });
+		expect(fromPreview).toEqual(fromSql);
 	});
 });

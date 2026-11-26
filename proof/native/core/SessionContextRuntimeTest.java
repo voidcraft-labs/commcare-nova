@@ -4,6 +4,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Hashtable;
 import java.util.Iterator;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.commcare.core.process.CommCareInstanceInitializer;
 import org.commcare.session.SessionFrame;
 import org.commcare.session.SessionInstanceBuilder;
@@ -20,6 +22,7 @@ import org.javarosa.core.model.instance.TreeElement;
 import org.javarosa.core.model.instance.TreeReference;
 import org.javarosa.core.model.instance.utils.InstanceUtils;
 import org.javarosa.core.test.FormParseInit;
+import org.javarosa.core.util.OrderedHashtable;
 import org.javarosa.test_utils.ExprEvalUtils;
 import org.javarosa.xpath.XPathTypeMismatchException;
 import org.javarosa.xpath.expr.FunctionUtils;
@@ -143,6 +146,38 @@ public class SessionContextRuntimeTest {
             assertEquals(context + ": the guarded window width a case list column prints", width == null ? "" : width,
                 String.valueOf(ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(" + field + ")")));
         }
+    }
+
+    @Test public void caseListLookupCountsOmitAbsentSuppliersAndKeepDefinedZero() {
+        OrderedHashtable<String, String> two = new OrderedHashtable<>();
+        two.put("chosen-parent", "4");
+        two.put("outside-eligible-list", "2");
+        two.put("chosen-parent", "5");
+        OrderedHashtable<String, String> one = new OrderedHashtable<>();
+        one.put("chosen-child", "3");
+
+        assertEquals(List.of(), lookupCounts(null, null));
+        assertEquals(List.of("0"), lookupCounts(new OrderedHashtable<>(), null));
+        assertEquals(List.of("2"), lookupCounts(two, null));
+        assertEquals(lookupCounts(two, null), lookupCounts(null, two));
+        assertEquals(List.of("2", "1"), lookupCounts(two, one));
+        assertEquals(List.of("1", "2"), lookupCounts(one, two));
+    }
+
+    private static List<String> lookupCounts(OrderedHashtable<String, String> parent,
+                                             OrderedHashtable<String, String> child) {
+        StackFrameStep first = new StackFrameStep(SessionFrame.STATE_DATUM_VAL, "parent", "chosen-parent");
+        StackFrameStep second = new StackFrameStep(SessionFrame.STATE_DATUM_VAL, "child", "chosen-child");
+        first.addExtra(SessionInstanceBuilder.KEY_LAST_QUERY_STRING, "typed search");
+        if (parent != null) first.addExtra(SessionInstanceBuilder.KEY_ENTITY_LIST_EXTRA_DATA, parent);
+        if (child != null) second.addExtra(SessionInstanceBuilder.KEY_ENTITY_LIST_EXTRA_DATA, child);
+        SessionFrame frame = new SessionFrame();
+        frame.pushStep(first);
+        frame.pushStep(second);
+        TreeElement root = SessionInstanceBuilder.getSessionInstance(frame, "device", "1", 0L,
+                "worker", "worker-id", new Hashtable<>(), null, "en");
+        return root.getChildrenWithName("data").firstElement().getChildrenWithName("fingerprintquery")
+                .stream().map(node -> String.valueOf(node.getValue().getValue())).collect(Collectors.toList());
     }
 
     @Test public void caseListSearchTextReadsItsFirstNodeOrBlank() throws Exception {

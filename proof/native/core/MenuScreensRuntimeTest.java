@@ -14,6 +14,7 @@ import org.commcare.util.mocks.*;
 import org.commcare.xml.SuiteParser;
 import org.javarosa.core.model.Constants;
 import org.javarosa.core.model.User;
+import org.javarosa.core.services.locale.*;
 import org.javarosa.core.model.condition.EvaluationContext;
 import org.javarosa.core.model.instance.ExternalDataInstance;
 import org.json.JSONArray;
@@ -47,7 +48,7 @@ import static org.junit.Assert.*;
  * them, and on a list's own details, what Android's details draw. Core's in-memory case storage stands in for a
  * device's; no form is entered and no search or claim reaches a server. */
 public class MenuScreensRuntimeTest {
- private static final String[] DOCUMENTS={"forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings"};
+ private static final String[] DOCUMENTS={"first-menu-previous","first-menu-link","first-menu-static","first-menu-registration","forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings","listed-source-forms"};
  /** The documents walked for the pinned tile (`<document>.tiles.json`). */
  private static final String[] TILE_DOCUMENTS={"pinned-tile"};
  /** The documents read for a list of workers' data, each refusing some screen for a worker who lacks a field. */
@@ -207,6 +208,65 @@ public class MenuScreensRuntimeTest {
  @Test public void aScreenThatReadsAUserFieldTheDeviceLacksFailsWhereNovaSays()throws Exception{
   for(String document:WORKER_DOCUMENTS)for(boolean hq:new boolean[]{false,true})
    assertTrue(document+" hq="+hq+" refuses no screen",listEachScreen(document,hq)[1]>0);
+ }
+ /** Read both kinds of badge from the installed suite and the publisher's locale table
+  * as the signed-in worker moves between the home screen and each menu. */
+ @Test public void signedInWorkersReadBadgesOnMenusAndCommands() throws Exception {
+  String document="menu-badge-readings";
+  // The publisher's table goes in a localizer of this thread alone, so the static
+  // localizer the other tests of the run read is left as it was.
+  LocalizerManager.setUseThreadLocalStrategy(true);
+  try {
+  for (boolean hq : new boolean[]{false,true}) {
+   LocalizerManager.init(true);
+   try (InputStream input=getClass().getResourceAsStream("/menu-screens/"+document+(hq?".hq":"")+".properties")) {
+    assertNotNull(document,input);
+    Localizer localizer=LocalizerManager.getGlobalLocalizer();
+    localizer.addAvailableLocale("en");
+    localizer.registerLocaleResource("en",new TableLocaleSource(LocalizationUtils.parseLocaleInput(input)));
+    localizer.setLocale("en");
+    for(int size : new int[]{1,2}) {
+     String[][] held=new String[size][];
+     for(int row=0;row<size;row++) held[row]=new String[]{"visit-"+row,"visit"};
+     SessionWrapper session=session(suite(document,hq),MockDataUtils.getStaticStorage(),held);
+     MenuLoader root=new MenuLoader(session.getPlatform(),session,"root",FAIL,false,false,true);
+     assertNull(root.getLoadException());
+     assertArrayEquals(new String[]{Integer.toString(size),"New"},root.getBadgeText());
+     for(int i=0;i<2;i++) {
+      String menuId=root.getMenus()[i].getCommandID();
+      MenuLoader menu=new MenuLoader(session.getPlatform(),session,menuId,FAIL,false,false,true);
+      assertNull(menu.getLoadException());
+      assertArrayEquals(new String[]{i==0?"Ready":Integer.toString(size)},menu.getBadgeText());
+     }
+    }
+   }
+  }
+  } finally {
+   LocalizerManager.init(true);
+   LocalizerManager.setUseThreadLocalStrategy(false);
+  }
+ }
+ @Test public void aFormsFirstScreenReadsTheSignedInWorkersOwnRestoredCase() throws Exception {
+  for (boolean hq : new boolean[]{false,true}) {
+   for(String district : new String[]{"north","south"}) {
+    JSONArray cases = new JSONArray();
+    for(String worker : new String[]{"worker-id","another-worker"}) {
+     JSONObject properties = new JSONObject().put("hq_user_id",worker)
+       .put("district",worker.equals("worker-id") ? district : "north");
+     cases.put(new JSONObject().put("id",worker+"-case").put("type","commcare-user").put("properties",properties));
+    }
+    SessionWrapper session=session(suite("worker-record-menu-readings",hq),MockDataUtils.getStaticStorage(),
+      new JSONObject().put("district",district.equals("north") ? "south" : "north"),cases);
+    for(String screen : new String[]{"root","m1"}) {
+     MenuLoader loader=new MenuLoader(session.getPlatform(),session,screen,FAIL,false,false,false);
+     assertNull(loader.getLoadException());
+     List<String> shown=new ArrayList<>();
+     for(MenuDisplayable item : loader.getMenus()) shown.add(item.getCommandID());
+     assertTrue(shown.contains(screen.equals("root") ? "m1" : "m1-f0"));
+     assertEquals(district.equals("north"),shown.contains(screen.equals("root") ? "m0" : "m1-f1"));
+    }
+   }
+  }
  }
  /** Steps back from where the session stands, as a device's Back reaches the case list, until the session asks for a
   * case (`CommCareSession.stepBack`), chooses `caseId` there, and returns the command the session then opens, or null
@@ -434,15 +494,63 @@ public class MenuScreensRuntimeTest {
    else fail(label+" needs "+needed+" before its search's request finishes");
   }
  }
+ /** With an explicit Previous on a form listed directly on Home, Android's
+  * Core session leaves a datum before any command. A second menu therefore
+  * offers its form directly. Entering that menu on a fresh session asks
+  * for a new case. Exercise both Nova's local suite and HQ's own build. */
+ @Test public void previousOnFirstMenuKeepsThePatientForTheNextCommand()throws Exception{
+  for(boolean hq:new boolean[]{false,true}){
+   Suite suite=suite("first-menu-previous",hq);
+   String label="first-menu-previous hq="+hq;
+   SessionWrapper session=session(suite,MockDataUtils.getStaticStorage(),new String[]{"patient-a","patient"});
+   session.setCommand("m0-f0");
+   assertEquals(label,SessionFrame.STATE_DATUM_VAL,session.getNeededData(session.getEvaluationContext()));
+   session.setEntityDatum(session.getNeededDatum().getDataId(),"patient-a");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
+   assertTrue(label,session.finishExecuteAndPop(session.getEvaluationContext()));
+   assertNull(label,session.getCommand());
+   assertEquals(label,"patient-a",session.getData().get("case_id"));
+   session.setCommand("m1");
+   assertEquals(label,SessionFrame.STATE_COMMAND_ID,session.getNeededData(session.getEvaluationContext()));
+   session.setCommand("m1-f0");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
+   assertEquals(label,"patient-a",session.getData().get("case_id"));
+   SessionWrapper fresh=session(suite,MockDataUtils.getStaticStorage(),new String[]{"patient-a","patient"});
+   fresh.setCommand("m1");
+   assertEquals(label,SessionFrame.STATE_DATUM_VAL,fresh.getNeededData(fresh.getEvaluationContext()));
+  }
+ }
+ /** The submenu's explicit module return copies the patient before its command. After
+  * stepping back, the other form on Home opens on precisely that patient. */
+ @Test public void returningToTheSubmenuKeepsThePatientUnderItsCommand()throws Exception{
+  for(boolean hq:new boolean[]{false,true}){
+   String label="first-menu-static hq="+hq;
+   SessionWrapper session=session(suite("first-menu-static",hq),MockDataUtils.getStaticStorage(),new String[]{"patient-a","patient"});
+   session.setCommand("m1");
+   assertEquals(label,SessionFrame.STATE_DATUM_VAL,session.getNeededData(session.getEvaluationContext()));
+   session.setEntityDatum(session.getNeededDatum().getDataId(),"patient-a");
+   session.setCommand("m1-f0");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
+   assertTrue(label,session.finishExecuteAndPop(session.getEvaluationContext()));
+   assertEquals(label,"m1",session.getCommand());
+   assertEquals(label,SessionFrame.STATE_COMMAND_ID,session.getNeededData(session.getEvaluationContext()));
+   session.stepBack(session.getEvaluationContext());
+   assertNull(label,session.getCommand());
+   assertEquals(label,"patient-a",session.getData().get("case_id"));
+   session.setCommand("m0-f0");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
+   assertEquals(label,"patient-a",session.getData().get("case_id"));
+  }
+ }
  /** Two top-level menus show their follow-up forms on the first menu, of case types alpha and beta, so every
   * form there opens one chosen case; an ordinary alpha menu's form links to the alpha form above. The link's
   * frame holds the alpha case ahead of the form's command, and once the worker steps back from that form, Core
   * keeps the case: choosing the ordinary beta menu asks for a form and never for a beta case, and the beta form
   * opens on the alpha case. Nova's gate refuses the link (`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`). */
  @Test public void aFrameThroughAFirstMenuThatSharesOneCaseLeavesItsCaseForTheNextForm()throws Exception{
-  for(boolean hq:new boolean[]{false,true}){
-   String label="step-back-control hq="+hq;
-   SessionWrapper session=session(suite("step-back-control",hq),MockDataUtils.getStaticStorage(),new String[]{"alpha-case","alpha"},new String[]{"beta-case","beta"});
+  for(boolean hq:new boolean[]{false,true}) for(String scenario:new String[]{"first-menu-link","step-back-control"}){
+   String label=scenario+" hq="+hq;
+   SessionWrapper session=session(suite(scenario,hq),MockDataUtils.getStaticStorage(),new String[]{"alpha-case","alpha"},new String[]{"beta-case","beta"});
    // The ordinary alpha menu asks for its case first, then for its one form (`CommCareSession.getNeededData`: a menu
    // command names no entry of its own).
    session.setCommand("m2");

@@ -18,14 +18,9 @@ import type {
 } from "@/lib/deployment/workerProvisionPlan";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
-import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
-import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import type { PendingIdentityMove } from "@/lib/doc/pendingIdentityMove";
 import { docHasData } from "@/lib/doc/predicates";
-import { BlueprintEditableContext } from "@/lib/doc/provider";
-import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import type { Event } from "@/lib/log/types";
@@ -38,6 +33,7 @@ import {
 	type PreviewPlatformRules,
 	previewPlatformRules,
 } from "@/lib/preview/platform";
+import { usePreviewSearchConfiguration } from "@/lib/preview/searchConfigurationContext";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	deriveAgentError,
@@ -124,8 +120,28 @@ export function usePreviewPlatformRules(): PreviewPlatformRules {
 }
 
 /** Preview on Android is showing the device's home screen. */
+export function usePreviewFormRecords() {
+	return useBuilderSession((state) => state.previewFormRecords);
+}
+
+export function usePreviewResumedDraft() {
+	return useBuilderSession((state) => state.previewResumedDraft);
+}
+
 export function usePreviewAtDeviceHome(): boolean {
 	return useBuilderSession((s) => s.previewAtDeviceHome);
+}
+
+export function usePreviewInstalledAndroidApps() {
+	return useBuilderSession((s) => s.previewInstalledAndroidApps);
+}
+
+export function useSetPreviewAndroidAppInstalled() {
+	return useBuilderSession((s) => s.setPreviewAndroidAppInstalled);
+}
+
+export function useSetPreviewSearchRevision() {
+	return useBuilderSession((s) => s.setPreviewSearchRevision);
 }
 
 export function useSetPreviewPlatform(): (platform: Platform) => void {
@@ -134,6 +150,17 @@ export function useSetPreviewPlatform(): (platform: Platform) => void {
 
 export function useSetPreviewAtDeviceHome(): (atHome: boolean) => void {
 	return useBuilderSession((s) => s.setPreviewAtDeviceHome);
+}
+
+export function usePreviewLocationFix() {
+	return useBuilderSession((state) => state.previewLocationFix);
+}
+export function usePreviewSubmissionLocation() {
+	return useBuilderSession((state) => state.previewSubmissionLocation);
+}
+
+export function useSetPreviewLocationFix() {
+	return useBuilderSession((state) => state.setPreviewLocationFix);
 }
 
 /** When this Preview run last synced on Android, epoch milliseconds. */
@@ -154,14 +181,23 @@ export function useMarkPreviewDeviceSynced(): (at: number) => void {
  */
 export function usePreviewDevice(): PreviewDevice {
 	const platform = usePreviewPlatform();
+	const { catalog, target, facts } = usePreviewSearchConfiguration();
+	const revision = catalog === null ? undefined : facts.revision;
 	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
 	const androidDeviceId = useStore(store, (s) => s.previewAndroidDeviceId);
 	const localization = useBlueprintDoc((s) => s.localization);
 	const language = useContext(BlueprintAuthoringLanguageContext);
 	const appLanguage = previewAppLanguage(localization, language);
 	return useMemo(
-		() => ({ platform, androidDeviceId, appLanguage }),
-		[platform, androidDeviceId, appLanguage],
+		() => ({
+			platform,
+			androidDeviceId,
+			appLanguage,
+			...(revision !== undefined && {
+				searchConfiguration: { target, revision },
+			}),
+		}),
+		[platform, androidDeviceId, appLanguage, target, revision],
 	);
 }
 
@@ -319,7 +355,7 @@ export function usePreviewParentCaseRequest():
 	return useBuilderSession((s) => s.previewParentCaseRequest);
 }
 
-export function useClearPreviewNavigation(): () => void {
+export function useClearPreviewNavigation() {
 	return useBuilderSession((s) => s.clearPreviewNavigation);
 }
 
@@ -381,65 +417,6 @@ export function useSetSidebarOpen(): (
 	open: boolean,
 ) => void {
 	return useBuilderSession((s) => s.setSidebarOpen);
-}
-
-// ── Connect stash ────────────────────────────────────────────────────────
-
-/** Composite action: switch the app-level connect mode — one gated batch
- *  (`setConnectType` + each participating form's block), stash lifecycle
- *  included. Returns the commit outcome so the caller's UI can react to
- *  a rejection. Binds the builder's live Project lookup context into the
- *  gate, the same context every other builder write runs under, so a doc
- *  that carries a lookup-backed select can still switch modes. See
- *  `BuilderSessionState.switchConnectMode`. */
-export function useSwitchConnectMode(): (
-	type: ConnectType | null,
-	stagedBlocks?: Record<string, ConnectConfig>,
-	opts?: { announce?: boolean },
-) => CommitOutcome {
-	const switchConnectMode = useBuilderSession((s) => s.switchConnectMode);
-	const canEdit = useContext(BlueprintEditableContext);
-	const lookupCommitState = useLookupCommitState();
-	return useCallback(
-		(type, stagedBlocks, opts) => {
-			const announce = opts?.announce !== false;
-			/* The same admission every gated dispatch runs first — a viewer's
-			 * switch and a switch while the lookup catalog is loading or failed
-			 * refuse here, in the builder's voice, before the store plans and
-			 * verdicts anything. */
-			const admission = builderWriteAdmission({ canEdit, lookupCommitState });
-			if (!admission.ok) {
-				if (announce) notifyRejectedCommit(admission.messages);
-				return { ok: false, messages: admission.messages };
-			}
-			return switchConnectMode({
-				type,
-				blocks: stagedBlocks,
-				lookupContext: lookupCommitState.lookupContext,
-				announce,
-			});
-		},
-		[switchConnectMode, canEdit, lookupCommitState],
-	);
-}
-
-/** The last Connect mode the app was in before Connect was toggled off —
- *  what a bare re-enable resolves to (falling back to `'learn'`). The
- *  enable flow reads it to know which mode's blocks to collect BEFORE
- *  committing. */
-export function useLastConnectType(): ConnectType | undefined {
-	return useBuilderSession((s) => s.lastConnectType);
-}
-
-/** Read a single form's stashed connect config. Returns `undefined` when
- *  no config is stashed for that form+mode combination. Subscribes with
- *  a narrow selector so the component only re-renders when this specific
- *  stash entry changes. */
-export function useFormConnectStash(
-	mode: ConnectType,
-	formUuid: string,
-): ConnectConfig | undefined {
-	return useBuilderSession((s) => s.connectStash[mode]?.[formUuid]);
 }
 
 // ── Staged media uploads ──────────────────────────────────────────────────
@@ -1032,4 +1009,10 @@ export function useClearPendingIdentityMove(): () => void {
 /** The verified endpoint launch, scoped to one running destination. */
 export function usePreviewEntryPointLaunch() {
 	return useBuilderSession((s) => s.previewEntryPointLaunch);
+}
+
+/** Whether an Android visit an entry point opened is waiting for its first
+ *  form to end, which returns the phone to its home screen. */
+export function usePreviewEntryPointVisit() {
+	return useBuilderSession((s) => s.previewEntryPointVisit);
 }

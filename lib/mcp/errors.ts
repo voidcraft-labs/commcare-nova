@@ -74,7 +74,7 @@ import {
 	ProjectPermissionError,
 } from "@/lib/projects/manage";
 import { McpAccessError } from "./ownership";
-import { McpScopeError } from "./scopes";
+import { McpCredentialInactiveError, McpScopeError } from "./scopes";
 
 /**
  * Thrown when an MCP tool's input arguments fail a handler-level contract
@@ -214,12 +214,14 @@ export type UploadErrorType =
 	| "hq_managed_data_changed"
 	| "managed_table_handed_back"
 	| "hq_organization_mismatch"
+	| "hq_place_ids_need_setup"
 	| "project_space_incompatible"
 	| "hq_app_state_unknown"
 	| "hq_changed"
 	| "hq_confirmation_needed"
 	| "hq_web_apps_change"
 	| "hq_app_version_below_floor"
+	| "hq_installation_profile_review"
 	| "hq_build_profile_language_missing"
 	| "hq_plan_lacks_web_apps"
 	| "app_changed_while_publishing"
@@ -752,6 +754,16 @@ export function toMcpErrorResult(
 		};
 	}
 
+	if (err instanceof McpCredentialInactiveError)
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("permission_denied", err.message)),
+				},
+			],
+		};
 	if (err instanceof McpScopeError) {
 		/* Scope-gate failure short-circuits the classifier the same way
 		 * `McpInvalidInputError` does: the failure shape is deterministic

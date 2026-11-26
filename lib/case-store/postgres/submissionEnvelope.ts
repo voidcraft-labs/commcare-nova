@@ -50,20 +50,25 @@
 // transaction rolls the whole envelope back, so partial success is
 // unobservable.
 
-import type { Transaction } from "kysely";
+import type { Expression as SqlExpression, Transaction } from "kysely";
 import { expressionBuilder, sql } from "kysely";
 import { v7 as uuidv7 } from "uuid";
+import { caseOperationDependencyUuids } from "@/lib/doc/caseOperationOrder";
 import {
 	type CasePropertyDataType,
 	type CaseWriteVia,
 	caseOperationRunsPerSelectedCase,
 	casePropertyDataTypes,
 	deriveAuthoredCaseId,
+	isFacetWriteThroughIndex,
 	prepareCaseScalarTextValue,
+	RESERVED_CASE_OPERATION_TYPES,
 	type TargetedCaseOperation,
+	USERCASE_BUILT_IN_KEYS,
 	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
+import { MAX_AUTHORED_CASE_ID_LENGTH } from "@/lib/domain/caseOperationIdentity";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	compilerBugMessage,
@@ -71,10 +76,15 @@ import {
 } from "@/lib/domain/expression/errors";
 import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
-import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import {
+	walkExpressionNodes,
+	walkExpressionTerms,
+} from "@/lib/domain/expression/walk";
 import {
 	caseDatetimeValue,
 	caseInstantText,
+	instantDatetimeValue,
+	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
 import {
@@ -83,6 +93,7 @@ import {
 	validateResolvedCaseOperationTypeSequence,
 } from "../caseOperationTargets";
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	SubmissionRejectedError,
@@ -94,6 +105,10 @@ import {
 	expressionContextFor,
 	type PredicateCompileContext,
 } from "../sql";
+import {
+	buildRestoreScope,
+	type RestoreScopeQuery,
+} from "../sql/compileRestoreScope";
 import type { FormFieldBindingValue, TermBindings } from "../sql/compileTerm";
 import type { Database, JsonObject, JsonValue } from "../sql/database";
 import type { CaseUpdate } from "../store";
@@ -104,6 +119,7 @@ import type {
 	OperationEffectRecord,
 	SubmissionEnvelopeResult,
 } from "../submission";
+import { replaceCaseIndex } from "./caseIndexWrites";
 
 /**
  * The store internals the executor borrows — narrow closures so the
@@ -137,6 +153,7 @@ export interface SubmissionEnvelopeHost {
 				caseType: string;
 				caseName: string;
 				externalId?: string;
+				locationId?: string;
 				properties: JsonObject;
 				parentCaseId?: string;
 				parentRelationship?: "child" | "extension";
@@ -178,11 +195,10 @@ interface ProgramStep extends Omit<EnvelopeCaseOperation, "operation"> {
 	/** The step is the form's own case. */
 	readonly own: boolean;
 	/**
-	 * The own arm closes its case after its writes: on a registration when
-	 * the form has a close condition, on a close form always. `condition`
-	 * absent closes on every submission.
+	 * A close leaf runs after the block's writes. If its independent
+	 * condition is absent it closes every time the block runs.
 	 */
-	readonly ownClose?: { readonly condition?: DomainExpression };
+	readonly closeLeaf?: { readonly condition?: DomainExpression };
 	/**
 	 * A several-case form's own arm saves one shared answer to every
 	 * selected case, so a blank answer saves nothing rather than clearing
@@ -199,11 +215,13 @@ function programSteps(
 	return program.operations.map((entry): ProgramStep => {
 		const stored = entry.operation;
 		if (stored.action !== "own") {
+			const closes = stored.action === "close" || stored.closeAfter === true;
 			return {
 				...entry,
 				operation: stored,
 				recordAction: stored.action,
 				own: false,
+				...(closes && { closeLeaf: { condition: stored.closeCondition } }),
 				blankSavesNothing: false,
 			};
 		}
@@ -223,6 +241,9 @@ function programSteps(
 			id: stored.id,
 			caseType: own.caseType,
 			...(stored.owner === undefined ? {} : { owner: stored.owner }),
+			...(stored.ownerOnlyIfChanged === undefined
+				? {}
+				: { ownerOnlyIfChanged: stored.ownerOnlyIfChanged }),
 			...(stored.writes === undefined ? {} : { writes: stored.writes }),
 			...(stored.links === undefined ? {} : { links: stored.links }),
 		};
@@ -242,7 +263,7 @@ function programSteps(
 				own: true,
 				...(own.closeCondition === undefined
 					? {}
-					: { ownClose: { condition: own.closeCondition } }),
+					: { closeLeaf: { condition: own.closeCondition } }),
 				blankSavesNothing: false,
 			};
 		}
@@ -253,12 +274,15 @@ function programSteps(
 				action: "update",
 				target: { kind: "session" },
 				...(stored.name === undefined ? {} : { rename: stored.name }),
+				...(stored.nameOnlyIfChanged === undefined
+					? {}
+					: { renameOnlyIfChanged: stored.nameOnlyIfChanged }),
 			},
 			recordAction: "own",
 			own: true,
 			...(own.formType === "close"
 				? {
-						ownClose:
+						closeLeaf:
 							own.closeCondition === undefined
 								? {}
 								: { condition: own.closeCondition },
@@ -295,114 +319,134 @@ interface PhysicalInstance {
  * (`caseOperationRunsPerSelectedCase`: the own arm, a session-targeted update
  * or close, a create linked to the loaded case) for a batch form.
  * Batch admission puts form-level operations before the selected-case phase.
- * The caller supplies scopes in wire order (root first, repeats in
- * post-order traversal); the executor trusts the ORDER but verifies the
- * structure so a malformed program fails loudly instead of silently dropping
- * operations.
+ * The caller supplies nested rows in wire order, with their definition-local
+ * iteration numbers intact. The executor verifies the schedule covers the
+ * live rows exactly once and keeps each operation's repeat binding.
  */
 function expandPhysicalInstances(
 	program: CaseOperationProgram,
 	steps: readonly ProgramStep[],
 	ordinary: ApplySubmissionArgs["ordinary"],
 ): PhysicalInstance[] {
-	const seenScopes = new Set<string>();
-	for (const scope of program.scopes) {
-		const key = scope.repeat ?? "";
-		if (seenScopes.has(key)) {
-			throw new Error(
-				compilerBugMessage({
-					where: "case-store.submissionEnvelope.expandPhysicalInstances",
-					invariant: `the operation program carries two scope entries for ${scope.repeat === undefined ? "the root scope" : `repeat \`${scope.repeat}\``}`,
-					detail:
-						"Each multiplicity scope appears exactly once, carrying every live iteration. Hint: the caller assembles scopes from the form's repeat structure. Deduplicate before building the program.",
-				}),
-			);
-		}
-		seenScopes.add(key);
-	}
+	const scopes = new Map(program.scopes.map((scope) => [scope.repeat, scope]));
+	const malformed = () =>
+		new Error(
+			compilerBugMessage({
+				where: "case-store.submissionEnvelope.expandPhysicalInstances",
+				invariant:
+					"the operation program must schedule each live row once in a declared scope",
+				detail:
+					"The committed form orders each repeat row and the operations inside it. Its program must keep every scope, even a repeat with no live rows.",
+			}),
+		);
+	if (
+		scopes.size !== program.scopes.length ||
+		steps.some(({ operation }) => !scopes.has(operation.forEach?.repeat))
+	)
+		throw malformed();
 
-	const instances: PhysicalInstance[] = [];
-	// The authored selection mode matters even when a batch selects one row.
-	// An operation-only envelope has no module selection contract; its explicit
-	// session list supplies the multiplicity instead.
+	const operationsByScope = new Map(
+		program.scopes.map(({ repeat }) => [
+			repeat,
+			steps.filter((entry) => entry.operation.forEach?.repeat === repeat),
+		]),
+	);
+	const defaultOrder =
+		program.scopeOrder ??
+		program.scopes.flatMap((scope) =>
+			scope.iterations.map((_, iteration) => ({
+				repeat: scope.repeat,
+				iteration,
+			})),
+		);
+	const expectedRows = program.scopes.reduce(
+		(count, scope) => count + scope.iterations.length,
+		0,
+	);
+	if (defaultOrder.length !== expectedRows) throw malformed();
+
+	const byOperation = new Map(steps.map((step) => [step.operation.uuid, step]));
+	const seenRows = new Set<string>();
+	const seenEffects = new Set<string>();
+	const order =
+		program.effectOrder ??
+		defaultOrder.map(({ repeat, iteration }) => {
+			const key = JSON.stringify([repeat, iteration]);
+			if (seenRows.has(key)) throw malformed();
+			seenRows.add(key);
+			return {
+				repeat,
+				iteration,
+				operationUuids: (operationsByScope.get(repeat) ?? []).map(
+					({ operation }) => operation.uuid,
+				),
+			};
+		});
+	const expectedEffects = program.scopes.reduce(
+		(count, scope) =>
+			count +
+			scope.iterations.length *
+				(operationsByScope.get(scope.repeat)?.length ?? 0),
+		0,
+	);
+
+	// A batch form keeps its selected-case phase even when just one case was chosen.
 	const multiple =
 		ordinary.kind === "followup" || ordinary.kind === "close"
 			? ordinary.selection.kind === "multiple"
 			: (program.sessionCaseIds?.length ?? 0) > 1;
-	const selectedCases =
-		program.sessionCaseIds === undefined
-			? [{ selection: 0, caseId: undefined }]
-			: program.sessionCaseIds.map((caseId, selection) => ({
-					selection,
-					caseId,
-				}));
-	for (const scope of program.scopes) {
-		const scopeOperations = steps.filter(
-			(entry) => entry.operation.forEach?.repeat === scope.repeat,
-		);
-		if (scopeOperations.length === 0) continue;
-		const formLevelOperations = scopeOperations.filter(
-			(entry) => !caseOperationRunsPerSelectedCase(entry.operation),
-		);
-		const selectedCaseOperations = scopeOperations.filter((entry) =>
-			caseOperationRunsPerSelectedCase(entry.operation),
-		);
-		for (const [iteration, bindings] of scope.iterations.entries()) {
-			if (!multiple) {
-				for (const entry of scopeOperations) {
-					instances.push({
-						envelope: entry,
-						scopeRepeat: scope.repeat,
-						iteration,
-						selection: 0,
-						perSelectedCase: false,
-						sessionCaseId: program.sessionCaseIds?.[0],
-						formFields: bindings.formFields,
-					});
-				}
-				continue;
-			}
-			for (const entry of formLevelOperations) {
+	const selectedCases = program.sessionCaseIds ?? [];
+	const instances: PhysicalInstance[] = [];
+	for (const slot of order) {
+		const { repeat, iteration, operationUuids } = slot;
+		const bindings = scopes.get(repeat)?.iterations[iteration];
+		if (!bindings) throw malformed();
+		const operations = operationUuids.map((uuid) => {
+			const step = byOperation.get(uuid);
+			const key = JSON.stringify([repeat, iteration, uuid]);
+			if (
+				!step ||
+				step.operation.forEach?.repeat !== repeat ||
+				seenEffects.has(key)
+			)
+				throw malformed();
+			seenEffects.add(key);
+			return step;
+		});
+		if ("absent" in slot && slot.absent === true) continue;
+
+		const append = (
+			operations: readonly ProgramStep[],
+			sessionCaseId: string | undefined,
+			selection: number,
+			perSelectedCase: boolean,
+		): void => {
+			for (const envelope of operations) {
 				instances.push({
-					envelope: entry,
-					scopeRepeat: scope.repeat,
+					envelope,
+					scopeRepeat: repeat,
 					iteration,
-					selection: 0,
-					perSelectedCase: false,
-					sessionCaseId: undefined,
+					selection,
+					perSelectedCase,
+					sessionCaseId,
 					formFields: bindings.formFields,
 				});
 			}
-			for (const selected of selectedCases) {
-				for (const entry of selectedCaseOperations) {
-					instances.push({
-						envelope: entry,
-						scopeRepeat: scope.repeat,
-						iteration,
-						selection: selected.selection,
-						perSelectedCase: true,
-						sessionCaseId: selected.caseId,
-						formFields: bindings.formFields,
-					});
-				}
-			}
-		}
-	}
-
-	const covered = new Set(program.scopes.map((scope) => scope.repeat ?? ""));
-	for (const entry of steps) {
-		const key = entry.operation.forEach?.repeat ?? "";
-		if (!covered.has(key)) {
-			throw new Error(
-				compilerBugMessage({
-					where: "case-store.submissionEnvelope.expandPhysicalInstances",
-					invariant: `operation \`${entry.operation.uuid}\` names ${key === "" ? "the root scope" : `repeat \`${key}\``}, but the program carries no matching scope entry`,
-					detail:
-						"Every operation's multiplicity scope must arrive with its iteration bindings, even when zero iterations are live (an empty `iterations` array). Hint: the caller derives scopes from `caseOperationMultiplicityScopes` plus the engine's live repeat counts.",
-				}),
+		};
+		if (multiple) {
+			const formOperations = operations.filter(
+				({ operation }) => !caseOperationRunsPerSelectedCase(operation),
 			);
-		}
+			const selectedOperations = operations.filter(({ operation }) =>
+				caseOperationRunsPerSelectedCase(operation),
+			);
+			append(formOperations, undefined, 0, false);
+			for (const [selection, caseId] of selectedCases.entries())
+				append(selectedOperations, caseId, selection, true);
+		} else append(operations, selectedCases[0], 0, false);
 	}
+	if (seenEffects.size !== expectedEffects) throw malformed();
+
 	return instances;
 }
 
@@ -412,7 +456,7 @@ function expandPhysicalInstances(
 
 interface CreateAllocation {
 	readonly caseId: string;
-	readonly authored: boolean;
+	readonly identity: "fresh" | "derived" | "exact";
 	/** The id the entry's session minted for this case (`entryCaseKeys`):
 	 * a row already holding it refuses the submission, never merges. */
 	readonly entryNamed?: boolean;
@@ -442,6 +486,14 @@ function allocateCreateIdentities(
 		if (operation.action !== "create" || operation.target.kind !== "new") {
 			continue;
 		}
+		if (operation.target.expr !== undefined) {
+			if (instance.scopeRepeat === undefined) {
+				const caseId = program.openingCreateIds?.get(operation.uuid);
+				if (caseId !== undefined)
+					allocations.set(index, { caseId, identity: "exact" });
+			}
+			continue;
+		}
 		// A case the entry's session names takes the id the form read as
 		// `session/data/<datum>` while it ran, whatever its placement: every
 		// create the form's wire plan gives a datum. Each has its own key, and
@@ -450,14 +502,21 @@ function allocateCreateIdentities(
 		const entryCaseKey = program.entryCaseKeys?.get(operation.uuid);
 		if (entryCaseKey !== undefined) {
 			allocations.set(index, {
-				caseId: entryDatumCaseId(appId, entryKey, entryCaseKey),
-				authored: false,
+				caseId:
+					program.suppliedCaseIds?.get(operation.uuid) ??
+					entryDatumCaseId(appId, entryKey, entryCaseKey),
+				identity: "fresh",
 				entryNamed: true,
 			});
 			continue;
 		}
 		if (operation.target.idFrom === undefined) {
-			allocations.set(index, { caseId: uuidv7(), authored: false });
+			const initialized = program.openingCreateIds?.get(operation.uuid);
+			allocations.set(index, {
+				caseId: initialized ?? uuidv7(),
+				identity: "fresh",
+				...(initialized !== undefined && { entryNamed: true }),
+			});
 			continue;
 		}
 		const rawKey = instance.formFields.get(operation.target.idFrom);
@@ -474,10 +533,10 @@ function allocateCreateIdentities(
 		allocations.set(
 			index,
 			derived.ok
-				? { caseId: derived.caseId, authored: true }
+				? { caseId: derived.caseId, identity: "derived" }
 				: {
 						caseId: "",
-						authored: true,
+						identity: "derived",
 						keyFailure: {
 							reason: derived.reason,
 							maxKeyLength: derived.maxKeyLength,
@@ -486,6 +545,121 @@ function allocateCreateIdentities(
 		);
 	}
 	return allocations;
+}
+
+/** Batch repeated calculate expressions whose earlier case IDs are already
+ * available. Keep the guard verdict beside each identity so the main pass
+ * cannot evaluate it again. A skipped block never reads its ID expression. */
+async function allocateRepeatedExactIdentities(
+	trx: Transaction<Database>,
+	host: SubmissionEnvelopeHost,
+	appId: string,
+	program: CaseOperationProgram,
+	instances: readonly PhysicalInstance[],
+	allocations: Map<number, CreateAllocation>,
+	sessionFor: (index: number) => SessionAnchor | undefined,
+	bindingsFor: (index: number) => TermBindings,
+): Promise<ReadonlyMap<number, boolean>> {
+	const executing = new Map<number, boolean>();
+	let pending = instances.flatMap(({ envelope, scopeRepeat }, index) => {
+		const { operation } = envelope;
+		if (
+			scopeRepeat === undefined ||
+			operation.action !== "create" ||
+			operation.target.kind !== "new" ||
+			operation.target.expr === undefined
+		)
+			return [];
+		const conditions = [
+			...envelope.guardConditions,
+			...(operation.condition === undefined ? [] : [operation.condition]),
+		];
+		const [first, ...rest] = conditions;
+		const predicate: DomainExpression | undefined =
+			first === undefined || rest.length === 0
+				? first
+				: { kind: "and", clauses: [first, ...rest] };
+		const dependencies = new Set(caseOperationDependencyUuids(operation));
+		for (const condition of envelope.guardConditions)
+			walkExpressionNodes(condition, (node) => {
+				if (node.kind === "id-of") dependencies.add(node.opUuid);
+			});
+		return [
+			{
+				request: {
+					instance: index,
+					operationUuid: operation.uuid,
+					operationId: operation.id,
+					expression: operation.target.expr,
+					slot: "case ID",
+				},
+				dependencies,
+				predicate,
+			},
+		];
+	});
+	while (pending.length > 0) {
+		const unready = new Set(
+			pending.map(({ request }) => request.operationUuid),
+		);
+		const ready = pending.filter(({ dependencies }) =>
+			[...dependencies].every((uuid) => !unready.has(uuid)),
+		);
+		if (ready.length === 0)
+			throw new Error(
+				"Repeated exact case IDs must depend on earlier creates.",
+			);
+		const guards = ready.flatMap(({ request, predicate }) =>
+			predicate === undefined
+				? []
+				: [
+						{
+							instance: request.instance,
+							operationUuid: request.operationUuid,
+							operationId: request.operationId,
+							predicate,
+							slot: "condition",
+						},
+					],
+		);
+		const results = await evaluateBatch(
+			trx,
+			host,
+			appId,
+			program,
+			sessionFor,
+			bindingsFor,
+			guards,
+		);
+		for (const [index, guard] of guards.entries())
+			executing.set(guard.instance, results[index] === true);
+		const requests = ready.flatMap(({ request, predicate }) => {
+			if (predicate === undefined) executing.set(request.instance, true);
+			if (executing.get(request.instance)) return [request];
+			allocations.set(request.instance, { caseId: "", identity: "exact" });
+			return [];
+		});
+		const values = await evaluateBatch(
+			trx,
+			host,
+			appId,
+			program,
+			sessionFor,
+			bindingsFor,
+			requests,
+		);
+		for (const [offset, request] of requests.entries()) {
+			allocations.set(request.instance, {
+				caseId: evaluatedText(values[offset]),
+				identity: "exact",
+			});
+		}
+		const resolved = new Set(ready.map(({ request }) => request.operationUuid));
+		pending = pending.filter(
+			({ request }) => !resolved.has(request.operationUuid),
+		);
+	}
+	return executing;
 }
 
 /**
@@ -552,6 +726,38 @@ interface EvalRequest {
 	readonly savedAsText?: true;
 }
 
+/** Execute the normal expression compiler against the signed entry's device rows.
+ * The CTEs only exist in this SELECT. The later locks and DML use current tables. */
+async function readOpeningValues(
+	trx: Transaction<Database>,
+	program: CaseOperationProgram,
+	projectId: string,
+	query: SqlExpression<Record<string, unknown>>,
+): Promise<Record<string, unknown> | undefined> {
+	const opening = program.openingReads;
+	if (!opening)
+		return (await sql<Record<string, unknown>>`${query}`.execute(trx)).rows[0];
+	const statement = sql<Record<string, unknown>>`
+		WITH cases AS (
+			SELECT opening_case.*, ${projectId}::text AS project_id
+			FROM jsonb_to_recordset(${JSON.stringify(opening.cases.rows)}::jsonb) AS opening_case(
+				case_id text, app_id text, case_type text, owner_id text, status text,
+				opened_on timestamptz, modified_on timestamptz, closed_on timestamptz,
+				case_name text, external_id text, location_id text, parent_case_id text,
+				properties jsonb)
+		), case_indices AS (
+			SELECT * FROM jsonb_to_recordset(${JSON.stringify(opening.cases.indices)}::jsonb)
+			AS opening_index(case_id text, ancestor_id text, target_case_type text, identifier text, relationship text, depth int)
+		), parked_case_values AS (
+			SELECT null::uuid AS id, null::text AS case_id, null::timestamptz AS dismissed_at WHERE false
+		), lookup_rows AS (
+			SELECT opening_lookup.*, ${projectId}::text AS project_id
+			FROM jsonb_to_recordset(${JSON.stringify(opening.lookupRows)}::jsonb)
+			AS opening_lookup(id uuid, table_id uuid, order_key bigint, values jsonb)
+		) ${query}`;
+	return (await statement.execute(trx)).rows[0];
+}
+
 /**
  * Evaluate a batch of expressions/predicates in one SELECT anchored on
  * the pre-submission session row (or anchor-free when the form loads
@@ -594,6 +800,9 @@ async function evaluateBatch(
 				...(program.organizationLevels === undefined
 					? {}
 					: { organizationLevels: program.organizationLevels }),
+				...(program.openingReads && {
+					workerPlaceLineage: program.openingReads.locations ?? [],
+				}),
 				...(program.workerPlaceIds === undefined
 					? {}
 					: { workerPlaceIds: program.workerPlaceIds }),
@@ -642,7 +851,12 @@ async function evaluateBatch(
 		await sql`SAVEPOINT submission_expression`.execute(trx);
 		let row: Record<string, unknown> | undefined;
 		try {
-			row = await trx.selectNoFrom(selections).executeTakeFirst();
+			row = await readOpeningValues(
+				trx,
+				program,
+				host.projectId,
+				trx.selectNoFrom(selections),
+			);
 		} catch (error) {
 			const reasonFor = (failure: unknown) => {
 				const code =
@@ -663,7 +877,12 @@ async function evaluateBatch(
 			// the same pre-effect transaction and bindings to identify the exact slot.
 			for (const [offset, selection] of selections.entries()) {
 				try {
-					await trx.selectNoFrom(selection).executeTakeFirst();
+					await readOpeningValues(
+						trx,
+						program,
+						host.projectId,
+						trx.selectNoFrom(selection),
+					);
 				} catch (cause) {
 					const reason = reasonFor(cause);
 					if (!reason) throw cause;
@@ -757,6 +976,13 @@ export function storageValueFromEvaluation(
 	switch (dataType) {
 		case "multi_select": {
 			if (Array.isArray(value)) return value.map((entry) => String(entry));
+			// One choice saved to a list of choices (`ruleSets.ts::
+			// isValueStorageAssignable`): the list a device reads from the
+			// text it stores, its values split on spaces.
+			if (typeof value === "string") {
+				const tokens = value.split(/\s+/).filter((token) => token !== "");
+				return tokens.length === 0 ? undefined : tokens;
+			}
 			throw new Error(
 				compilerBugMessage({
 					where: "case-store.submissionEnvelope.storageValueFromEvaluation",
@@ -772,7 +998,7 @@ export function storageValueFromEvaluation(
 		}
 		case "date": {
 			if (value instanceof Date) return localDayText(value);
-			return String(value);
+			return dayText(String(value), zone);
 		}
 		case "datetime": {
 			// A date and time on a case is the text CommCare HQ stores, UTC
@@ -795,8 +1021,9 @@ export function storageValueFromEvaluation(
 		case "text":
 		case "single_select":
 		case "geopoint": {
-			// A number or a date saved to text is the text a device submits for
-			// it (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`): a number read
+			// A number, a date or a location saved to text is the text a device
+			// submits for it (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`; a
+			// location is already its four numbers' text): a number read
 			// back as a double (`compileSubmittedTextValue`) as
 			// `Recalculate.wrapData` holds it, and a date, which a `date`
 			// column gives in the process's local time, as its day. A date and
@@ -818,6 +1045,22 @@ export function storageValueFromEvaluation(
 			);
 		}
 	}
+}
+
+/**
+ * The day a `date` property keeps of a value's text. A date and time (a
+ * date-and-time question's answer saved to a day,
+ * `ruleSets.ts::isAnswerWriteAssignable`) keeps the day of its moment where
+ * the device is: Core wraps it as `DateData` (`Recalculate.java::wrapData`),
+ * which a device writes as its day in its own zone, the viewer's here
+ * (`zone`). Any other text is kept as it is, for the schema to judge.
+ */
+function dayText(text: string, zone: string): string {
+	const trimmed = text.trim();
+	if (!trimmed.includes("T")) return text;
+	const instant = Date.parse(storageDatetimeValue(trimmed, zone));
+	if (Number.isNaN(instant)) return text;
+	return instantDatetimeValue(instant, zone).slice(0, 10);
 }
 
 /** node-postgres parses a `date` column in LOCAL time; read the local
@@ -884,10 +1127,13 @@ interface ResolvedInstance {
 	/** Pre-submission type of an existing target row, absent for a
 	 * fresh create. */
 	readonly snapshotCaseType?: string;
+	/** Holds the submitted id for HQ history without changing device state. */
+	readonly childlessBlock?: true;
 	/** True when an authored-key create resolved to an existing row —
 	 * the create-of-existing merge arm. */
 	readonly mergesExisting: boolean;
 	/** A create with the id the entry's session minted for it. */
+	readonly exactCreateId?: boolean;
 	readonly entryNamed?: boolean;
 	readonly preparedName?: string;
 	readonly preparedRename?: string;
@@ -926,6 +1172,10 @@ export interface ResolvedLink {
 }
 
 const MAX_SELECTED_CASES = 100;
+
+/** The owner CommCare HQ's build gives a case it creates beside an
+ *  `owner_id` update (`const.py::UNOWNED_EXTENSION_OWNER_ID`). */
+const UNOWNED_OWNER_ID = "-";
 
 function rejectSelection(
 	rejection: Extract<
@@ -1034,7 +1284,8 @@ function validatedSelectedCaseIds(
 			if (
 				entry.operation.action === "create" &&
 				entry.operation.target.kind === "new" &&
-				entry.operation.target.idFrom !== undefined
+				(entry.operation.target.idFrom !== undefined ||
+					entry.operation.target.expr !== undefined)
 			) {
 				rejectSelection({
 					kind: "selection",
@@ -1064,7 +1315,13 @@ export async function executeSubmissionEnvelope(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	args: ApplySubmissionArgs,
-): Promise<SubmissionEnvelopeResult> {
+): Promise<
+	SubmissionEnvelopeResult & {
+		readonly deviceExternalIds: DeviceExternalIds;
+		readonly reachedWriteCaseIds: readonly string[];
+	}
+> {
+	const deviceExternalIds: DeviceExternalIds = new Map();
 	const steps =
 		args.operations === undefined
 			? []
@@ -1081,6 +1338,8 @@ export async function executeSubmissionEnvelope(
 			.where("project_id", "=", host.projectId)
 			.where("case_type", "=", USERCASE_CASE_TYPE)
 			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId)
+			.orderBy("case_id")
+			.forUpdate()
 			.limit(2)
 			.execute();
 		if (rows.length > 1)
@@ -1094,14 +1353,25 @@ export async function executeSubmissionEnvelope(
 		workerRecordCaseId = rows[0].case_id;
 	}
 	const selectedCaseIds = validatedSelectedCaseIds(args);
+	const opening = args.operations?.openingReads;
+	const currentAccess =
+		opening &&
+		buildRestoreScope(trx, {
+			appId: args.appId,
+			projectId: host.projectId,
+			ownerIds: opening.currentOwnerIds,
+		});
 	const sessionAnchors = await loadSelectedCaseAnchors(
 		trx,
 		host,
 		args.appId,
 		args.ordinary,
 		selectedCaseIds,
+		currentAccess,
+		opening?.submittedCaseIds,
 	);
 	const operationRecords: OperationEffectRecord[] = [];
+	const reachedWriteCaseIds = new Set<string>();
 	let registeredCaseId: string | undefined;
 
 	if (args.operations !== undefined && steps.length > 0) {
@@ -1116,6 +1386,8 @@ export async function executeSubmissionEnvelope(
 		);
 		registeredCaseId = program.registeredCaseId;
 		for (const entry of program.resolved) {
+			for (const write of entry.viaWrites)
+				reachedWriteCaseIds.add(write.caseId);
 			operationRecords.push({
 				operationUuid: entry.instance.envelope.operation.uuid,
 				iteration: entry.instance.iteration,
@@ -1123,6 +1395,7 @@ export async function executeSubmissionEnvelope(
 				action: entry.instance.envelope.recordAction,
 				caseId: entry.caseId,
 				executed: entry.executed,
+				...(entry.childlessBlock && { childlessBlock: true }),
 			});
 		}
 		await applyOperationEffects(
@@ -1131,6 +1404,7 @@ export async function executeSubmissionEnvelope(
 			args.appId,
 			program.resolved,
 			args.ordinary,
+			deviceExternalIds,
 		);
 	}
 
@@ -1144,6 +1418,8 @@ export async function executeSubmissionEnvelope(
 					: [registeredCaseId],
 		createdChildren: [],
 		operations: operationRecords,
+		reachedWriteCaseIds: [...reachedWriteCaseIds],
+		deviceExternalIds,
 	};
 }
 
@@ -1165,6 +1441,30 @@ async function resolveOperationProgram(
 }> {
 	const appId = args.appId;
 	const ordinary = args.ordinary;
+	const revisions = program.groupDefaults?.revisions;
+	if (revisions) {
+		// A zero revision can mean no prior writer. Materialize both clock rows
+		// before locking so the first concurrent membership or place edit also waits.
+		await sql`INSERT INTO lookup_project_state(project_id) VALUES (${host.projectId}) ON CONFLICT DO NOTHING`.execute(
+			trx,
+		);
+		await sql`INSERT INTO app_organization_state(app_id) VALUES (${appId}) ON CONFLICT DO NOTHING`.execute(
+			trx,
+		);
+		const current = await sql<{
+			project: string;
+			places: string;
+		}>`SELECT COALESCE((SELECT revision FROM lookup_project_state WHERE project_id=${host.projectId} FOR SHARE),0)::text project,
+   COALESCE((SELECT revision FROM app_organization_state WHERE app_id=${appId} FOR SHARE),0)::text places`.execute(
+			trx,
+		);
+		const [row] = current.rows;
+		if (row.project !== revisions.project || row.places !== revisions.places)
+			throw new CaptureSubmissionRejectedError(
+				"The worker’s groups or places changed. You can reopen the form with their current assignments.",
+			);
+	}
+
 	// Lookup writers take the table FOR UPDATE before changing definitions or
 	// rows. Hold each referenced table in UUID order across every evaluation
 	// phase, so a guard and its value cannot observe different generations.
@@ -1190,7 +1490,28 @@ async function resolveOperationProgram(
 			);
 		}
 	}
-	const instances = expandPhysicalInstances(program, steps, ordinary);
+	const instances = expandPhysicalInstances(program, steps, ordinary).map(
+		(instance) => {
+			// HQ's own follow-up block writes the ID chosen by the datum. It
+			// does not assert or retype the selected record to the menu's primary type.
+			const row =
+				instance.sessionCaseId && sessions.get(instance.sessionCaseId);
+			if (
+				!row ||
+				!instance.envelope.own ||
+				instance.envelope.operation.action !== "update" ||
+				instance.envelope.operation.caseType === row.caseType
+			)
+				return instance;
+			return {
+				...instance,
+				envelope: {
+					...instance.envelope,
+					operation: { ...instance.envelope.operation, caseType: row.caseType },
+				},
+			};
+		},
+	);
 	const allocations = allocateCreateIdentities(
 		appId,
 		args.submissionReceipt.entryKey,
@@ -1226,6 +1547,7 @@ async function resolveOperationProgram(
 			formFields: instance.formFields,
 			operationIds: operationIdsFor(instances, allocations, index),
 			actingUserId: host.actingUserId,
+			...(program.entryDatums && { entryDatums: program.entryDatums }),
 			...(program.sessionUser === undefined
 				? {}
 				: { sessionUser: program.sessionUser }),
@@ -1244,6 +1566,17 @@ async function resolveOperationProgram(
 		};
 	};
 
+	const repeatedExactExecution = await allocateRepeatedExactIdentities(
+		trx,
+		host,
+		appId,
+		program,
+		instances,
+		allocations,
+		sessionFor,
+		bindingsFor,
+	);
+
 	// Phase: conditions. Inherited guards AND the operation's own
 	// condition, each evaluated with the INSTANCE's bindings — a
 	// consumer inside a repeat evaluates its producer's guard against
@@ -1251,6 +1584,7 @@ async function resolveOperationProgram(
 	const conditionRequests: EvalRequest[] = [];
 	const conditionSlots: Array<{ instance: number; count: number }> = [];
 	for (const [index, instance] of instances.entries()) {
+		if (repeatedExactExecution.has(index)) continue;
 		const predicates = [
 			...instance.envelope.guardConditions,
 			...(instance.envelope.operation.condition === undefined
@@ -1277,7 +1611,9 @@ async function resolveOperationProgram(
 		bindingsFor,
 		conditionRequests,
 	);
-	const executing: boolean[] = [];
+	const executing = instances.map(
+		(_, index) => repeatedExactExecution.get(index) === true,
+	);
 	{
 		let cursor = 0;
 		for (const slot of conditionSlots) {
@@ -1304,39 +1640,78 @@ async function resolveOperationProgram(
 		});
 	}
 
-	// Resolve write guards before requesting values. An omitted write must
+	for (const [index, instance] of instances.entries()) {
+		const { operation } = instance.envelope;
+		if (
+			!executing[index] ||
+			operation.target.kind !== "new" ||
+			operation.target.expr === undefined
+		)
+			continue;
+		const allocation = allocations.get(index);
+		if (!allocation)
+			throw new CaptureSubmissionRejectedError(
+				"This form is missing the case ID it opened with. You can reopen the form and submit it again.",
+			);
+		if (
+			allocation.caseId === "" ||
+			allocation.caseId.length > MAX_AUTHORED_CASE_ID_LENGTH
+		)
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "not-found-or-out-of-scope",
+			});
+	}
+
+	// Resolve leaf guards before requesting values. An omitted leaf must
 	// not evaluate blank numeric answers or other unused expressions. These
 	// reads share the operation guards' pre-effect view under the app lock.
-	const writeGuardRequests: EvalRequest[] = [];
-	const writeGuardSlots: Array<{ instance: number; write: number }> = [];
+	const leafGuardRequests: EvalRequest[] = [];
+	const leafGuardSlots: Array<{ instance: number; write?: number }> = [];
 	for (const [index, instance] of instances.entries()) {
 		if (!executing[index]) continue;
-		for (const [writeIndex, write] of (
-			instance.envelope.operation.writes ?? []
-		).entries()) {
+		const operation = instance.envelope.operation;
+		if (operation.ownerCondition !== undefined) {
+			leafGuardSlots.push({ instance: index });
+			leafGuardRequests.push({
+				instance: index,
+				predicate: operation.ownerCondition,
+				operationUuid: operation.uuid,
+				operationId: operation.id,
+				slot: "owner condition",
+			});
+		}
+		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (write.condition === undefined) continue;
-			writeGuardSlots.push({ instance: index, write: writeIndex });
-			writeGuardRequests.push({
+			leafGuardSlots.push({ instance: index, write: writeIndex });
+			leafGuardRequests.push({
 				instance: index,
 				predicate: write.condition,
-				operationUuid: instance.envelope.operation.uuid,
-				operationId: instance.envelope.operation.id,
+				operationUuid: operation.uuid,
+				operationId: operation.id,
 				slot: `write condition: ${write.property}`,
 			});
 		}
 	}
-	const writeGuardResults = await evaluateBatch(
+	const leafGuardResults = await evaluateBatch(
 		trx,
 		host,
 		appId,
 		program,
 		sessionFor,
 		bindingsFor,
-		writeGuardRequests,
+		leafGuardRequests,
 	);
+	const skippedOwners = new Set<number>();
 	const skippedWrites = new Map<number, Set<number>>();
-	for (const [slotIndex, slot] of writeGuardSlots.entries()) {
-		if (writeGuardResults[slotIndex] === true) continue;
+	for (const [slotIndex, slot] of leafGuardSlots.entries()) {
+		if (leafGuardResults[slotIndex] === true) continue;
+		if (slot.write === undefined) {
+			skippedOwners.add(slot.instance);
+			continue;
+		}
 		let writes = skippedWrites.get(slot.instance);
 		if (writes === undefined) {
 			writes = new Set();
@@ -1354,6 +1729,7 @@ async function resolveOperationProgram(
 			| "owner"
 			| "target"
 			| "close"
+			| "case type"
 			| { write: number }
 			| { link: number };
 	}
@@ -1389,10 +1765,15 @@ async function resolveOperationProgram(
 		if (operation.name !== undefined) {
 			request(index, "name", { expression: operation.name });
 		}
+		if (operation.action === "create" && operation.typeChoice !== undefined) {
+			request(index, "case type", {
+				predicate: operation.typeChoice.condition,
+			});
+		}
 		if (operation.rename !== undefined) {
 			request(index, "rename", { expression: operation.rename });
 		}
-		if (operation.owner !== undefined) {
+		if (operation.owner !== undefined && !skippedOwners.has(index)) {
 			request(index, "owner", { expression: operation.owner });
 		}
 		if (
@@ -1408,7 +1789,7 @@ async function resolveOperationProgram(
 				{ write: writeIndex },
 				{
 					expression: write.value,
-					...(write.property !== "external_id" &&
+					...(!isScalarColumnWrite(write.property) &&
 						writeDataType(program, instance.envelope, writeIndex) ===
 							"text" && { savedAsText: true as const }),
 				},
@@ -1419,9 +1800,7 @@ async function resolveOperationProgram(
 				request(index, { link: linkIndex }, { expression: link.target.expr });
 			}
 		}
-		// The own close's condition reads the same pre-submission snapshot
-		// and answers as every other value, before any effect.
-		const closeCondition = instance.envelope.ownClose?.condition;
+		const closeCondition = instance.envelope.closeLeaf?.condition;
 		if (closeCondition !== undefined) {
 			request(index, "close", { predicate: closeCondition });
 		}
@@ -1443,6 +1822,7 @@ async function resolveOperationProgram(
 			owner?: unknown;
 			target?: unknown;
 			close?: unknown;
+			caseTypeChoice?: unknown;
 			writes: Map<number, unknown>;
 			links: Map<number, unknown>;
 		}
@@ -1462,6 +1842,7 @@ async function resolveOperationProgram(
 		else if (slot.kind === "owner") bag.owner = value;
 		else if (slot.kind === "target") bag.target = value;
 		else if (slot.kind === "close") bag.close = value;
+		else if (slot.kind === "case type") bag.caseTypeChoice = value;
 		else if ("write" in slot.kind) bag.writes.set(slot.kind.write, value);
 		else bag.links.set(slot.kind.link, value);
 	}
@@ -1472,9 +1853,17 @@ async function resolveOperationProgram(
 	// unreachable, exactly as it is invisible to every other runtime
 	// read; the already-selected session case does not re-check it.
 	const authoredIds = [...allocations.entries()]
-		.filter(([index, allocation]) => executing[index] && allocation.authored)
+		.filter(
+			([index, allocation]) =>
+				executing[index] && allocation.identity === "derived",
+		)
 		.map(([, allocation]) => allocation.caseId);
-	const expressionIds: string[] = [];
+	const expressionIds = [...allocations.entries()]
+		.filter(
+			([index, allocation]) =>
+				executing[index] && allocation.identity === "exact",
+		)
+		.map(([, allocation]) => allocation.caseId);
 	for (const [index] of instances.entries()) {
 		if (!executing[index]) continue;
 		const bag = valuesByInstance.get(index);
@@ -1485,15 +1874,51 @@ async function resolveOperationProgram(
 			expressionIds.push(evaluatedText(value));
 		}
 	}
-	const knownRows = await loadTargetRows(trx, host, appId, {
-		unheldIds: expressionIds.filter((id) => id !== ""),
-		anyIds: [...authoredIds, ...(program.sessionCaseIds ?? [])],
-	});
+	const opening = program.openingReads;
+	const currentAccess =
+		opening &&
+		buildRestoreScope(trx, {
+			appId,
+			projectId: host.projectId,
+			ownerIds: opening.currentOwnerIds,
+		});
+	const knownRows = await loadTargetRows(
+		trx,
+		host,
+		appId,
+		{
+			unheldIds: expressionIds.filter((id) => id !== ""),
+			anyIds: [...authoredIds, ...(program.sessionCaseIds ?? [])],
+		},
+		currentAccess,
+		opening?.submittedCaseIds,
+	);
+
+	// A case id supplied by an entry can also appear as an independently
+	// resolved expression target or another create's allocation. Each
+	// executing create named by the entry requires a fresh row.
+	const entryNamedByCaseId = new Map<string, boolean>();
+	for (const [index, allocation] of allocations) {
+		if (!executing[index]) continue;
+		const entryNamed = allocation.entryNamed === true;
+		const prior = entryNamedByCaseId.get(allocation.caseId);
+		if (
+			(entryNamed &&
+				(knownRows.has(allocation.caseId) || prior !== undefined)) ||
+			prior === true
+		)
+			rejectTakenCaseId(allocation.caseId);
+		entryNamedByCaseId.set(allocation.caseId, entryNamed);
+	}
 
 	// Resolve every executing instance's target + links.
+	const openingCaseTypes =
+		opening &&
+		new Map(opening.cases.rows.map((row) => [row.case_id, row.case_type]));
 	const resolvedInstances: ResolvedInstance[] = [];
-	for (const [index, instance] of instances.entries()) {
-		const operation = instance.envelope.operation;
+	for (const [index, openedInstance] of instances.entries()) {
+		let instance = openedInstance;
+		let operation = instance.envelope.operation;
 		if (!executing[index]) {
 			resolvedInstances.push({
 				instance,
@@ -1509,6 +1934,41 @@ async function resolveOperationProgram(
 			continue;
 		}
 		const bag = valuesByInstance.get(index);
+		if (operation.action === "create" && operation.typeChoice !== undefined) {
+			const branch = bag?.caseTypeChoice;
+			if (
+				typeof branch !== "boolean" ||
+				allocations.get(index)?.identity !== "fresh" ||
+				program.entryCaseKeys?.has(operation.uuid) === true ||
+				operation.caseType === operation.typeChoice.otherwise ||
+				[operation.caseType, operation.typeChoice.otherwise].some(
+					(type) =>
+						RESERVED_CASE_OPERATION_TYPES.has(type) ||
+						!program.caseTypeSchemas.has(type),
+				)
+			)
+				throw new SubmissionRejectedError({
+					kind: "expression",
+					reason: "invalid-value",
+					operationUuid: operation.uuid,
+					operationId: operation.id,
+					slot: "case type",
+					fieldUuids: [],
+				});
+			operation = {
+				...operation,
+				caseType: branch ? operation.caseType : operation.typeChoice.otherwise,
+			};
+			instance = { ...instance, envelope: { ...instance.envelope, operation } };
+		}
+		const closeLeaf = instance.envelope.closeLeaf;
+		const closes =
+			closeLeaf !== undefined &&
+			(closeLeaf.condition === undefined || bag?.close === true);
+		const childlessClose =
+			operation.action === "close" &&
+			!closes &&
+			(operation.writes?.length ?? 0) === 0;
 		const resolveTargetId = (): {
 			caseId: string;
 			snapshotCaseType?: string;
@@ -1529,6 +1989,17 @@ async function resolveOperationProgram(
 						);
 					}
 					const existing = knownRows.get(allocation.caseId);
+					if (
+						allocation.identity === "exact" &&
+						existing &&
+						openingCaseTypes?.get(allocation.caseId) !== operation.caseType
+					)
+						throw new SubmissionRejectedError({
+							kind: "target",
+							operationUuid: operation.uuid,
+							slot: "target",
+							reason: "not-found-or-out-of-scope",
+						});
 					return {
 						caseId: allocation.caseId,
 						...(existing === undefined
@@ -1601,6 +2072,23 @@ async function resolveOperationProgram(
 						instance.envelope.expressionSnapshotTypes.target ??
 						operation.caseType;
 					const row = evaluated === "" ? undefined : knownRows.get(evaluated);
+					if (childlessClose) {
+						if (!row || evaluated.length > MAX_AUTHORED_CASE_ID_LENGTH)
+							throw new SubmissionRejectedError({
+								kind: "target",
+								operationUuid: operation.uuid,
+								slot: "target",
+								reason: "not-found-or-out-of-scope",
+							});
+						// Core does not load a childless block's ID. HQ still
+						// records a transaction and can create an untyped row
+						// for an unknown ID. Accept only an authorized row.
+						return {
+							caseId: evaluated,
+							snapshotCaseType: row.caseType,
+							mergesExisting: false,
+						};
+					}
 					const verdict = validateCaseOperationTargetDescriptor(
 						{ caseId: evaluated },
 						row === undefined
@@ -1649,6 +2137,51 @@ async function resolveOperationProgram(
 			}
 		};
 		const target = resolveTargetId();
+		if (
+			target.snapshotCaseType === USERCASE_CASE_TYPE &&
+			(operation.action !== "update" ||
+				closes ||
+				operation.retype ||
+				operation.owner ||
+				operation.rename ||
+				operation.links?.length)
+		) {
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "managed-worker-record",
+			});
+		}
+
+		if (childlessClose) {
+			resolvedInstances.push({
+				...target,
+				instance,
+				index,
+				executed: false,
+				childlessBlock: true,
+				writes: [],
+				links: [],
+				viaWrites: [],
+				closes: false,
+			});
+			continue;
+		}
+		if (
+			openingCaseTypes &&
+			operation.action !== "create" &&
+			operation.target.kind === "expression" &&
+			(operation.closeCondition || operation.closeAfter) &&
+			!openingCaseTypes.has(target.caseId)
+		) {
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "not-found-or-out-of-scope",
+			});
+		}
 
 		const links: ResolvedLink[] = [];
 		for (const [linkIndex, link] of (operation.links ?? []).entries()) {
@@ -1780,17 +2313,37 @@ async function resolveOperationProgram(
 			// guard rejects it — same rejection here.
 			preparedName = prepareText("name", evaluatedText(bag?.name));
 		}
+		// An owner saved only when changed (`CaseFacetOnlyIfChanged`) is
+		// compared with the case's `owner_id` leaf, which a case holds as an
+		// attribute, so the comparison reads "" and a blank answer saves
+		// nothing. On a case the form creates, CommCare HQ's build then leaves
+		// the create block's own owner `-` (`autoset_owner_id_for_*`).
+		const ownerKept =
+			operation.ownerOnlyIfChanged === true &&
+			blankText(evaluatedText(bag?.owner));
 		let preparedOwner: string | undefined;
 		if (operation.action === "create") {
-			preparedOwner = prepareText(
-				"owner",
-				operation.owner === undefined
-					? host.actingUserId
-					: evaluatedText(bag?.owner),
-			);
+			const groupOwner =
+				operation.ownerCondition === undefined &&
+				program.groupDefaults?.operations.includes(operation.uuid)
+					? program.groupDefaults.owner
+					: undefined;
+			// HQ and Core default an omitted create/owner_id to this
+			// submitting user for a fresh case. The group's default is an
+			// HQ case-action feature; it does not own this Save to Case leaf.
+			const ownerValue =
+				skippedOwners.has(index) || operation.owner === undefined
+					? (groupOwner ?? host.actingUserId)
+					: (groupOwner ?? evaluatedText(bag?.owner));
+			preparedOwner =
+				ownerKept && operation.ownerCondition === undefined
+					? UNOWNED_OWNER_ID
+					: prepareText("owner", ownerValue);
 		} else if (
 			operation.action === "update" &&
 			operation.owner !== undefined &&
+			!skippedOwners.has(index) &&
+			!ownerKept &&
 			!(
 				instance.envelope.blankSavesNothing &&
 				blankText(evaluatedText(bag?.owner))
@@ -1798,7 +2351,7 @@ async function resolveOperationProgram(
 		) {
 			preparedOwner = prepareText("owner", evaluatedText(bag?.owner));
 		}
-		const preparedRename =
+		let preparedRename =
 			operation.rename === undefined ||
 			(instance.envelope.blankSavesNothing &&
 				blankText(evaluatedText(bag?.rename)))
@@ -1822,6 +2375,19 @@ async function resolveOperationProgram(
 		const storedValuesOf = async (
 			caseId: string,
 		): Promise<StoredCaseValues | undefined> => {
+			if (program.openingReads) {
+				const row = program.openingReads.cases.rows.find(
+					(row) => row.case_id === caseId,
+				);
+				return (
+					row && {
+						caseName: row.case_name,
+						externalId: row.external_id,
+						locationId: row.location_id ?? null,
+						properties: row.properties,
+					}
+				);
+			}
 			if (!snapshots.has(caseId)) {
 				snapshots.set(
 					caseId,
@@ -1830,26 +2396,89 @@ async function resolveOperationProgram(
 			}
 			return snapshots.get(caseId);
 		};
+		// A rename saved only when changed is compared with the case's name
+		// when the form opened, as HQ's `case/update/case_name` relevance
+		// compares the casedb `case_name` with the trimmed answer.
+		if (
+			operation.renameOnlyIfChanged === true &&
+			preparedRename !== undefined &&
+			(await storedValuesOf(target.caseId))?.caseName === preparedRename
+		)
+			preparedRename = undefined;
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (skippedWrites.get(index)?.has(writeIndex)) continue;
-			// A write through an index saves to the case the chain reaches in
-			// the pre-submission snapshot. CommCare HQ names that case through
-			// the index's id, which is empty where no case is indexed, and case
-			// processing drops a block with an empty id, so nothing is saved.
+			// HQ calculates the linked case ID from the entry snapshot. A
+			// missing link produces an empty ID, which Core rejects. Preserve the
+			// legacy unsigned fallback for old parent and host submissions.
 			let destinationCaseId = target.caseId;
+			let actualType = target.snapshotCaseType;
 			if (write.via !== undefined) {
-				const reached = await ancestorCaseId(
+				const reached = opening
+					? openedAncestorId(opening.cases.indices, target.caseId, write.via)
+					: await ancestorCaseId(trx, host, appId, target.caseId, write.via);
+				const slot = `write:${writeIndex}` as const;
+				if (!reached) {
+					if (!opening && !write.via.some((step) => step.identifier === "user"))
+						continue;
+					throw new SubmissionRejectedError({
+						kind: "target",
+						operationUuid: operation.uuid,
+						slot,
+						reason: "missing-connection",
+					});
+				}
+				const current = await loadTargetRows(
 					trx,
 					host,
 					appId,
-					target.caseId,
-					write.via,
+					{ unheldIds: [reached], anyIds: [] },
+					currentAccess,
+					opening?.submittedCaseIds,
 				);
-				if (reached === undefined) continue;
+				const destination = current.get(reached);
+				const expected = instance.envelope.viaCaseTypes?.get(writeIndex);
+				if (
+					!destination ||
+					(expected !== undefined && destination.caseType !== expected)
+				) {
+					throw new SubmissionRejectedError({
+						kind: "target",
+						operationUuid: operation.uuid,
+						slot,
+						reason: destination
+							? "case-type-mismatch"
+							: "not-found-or-out-of-scope",
+					});
+				}
+				actualType = destination.caseType;
 				destinationCaseId = reached;
 			}
+			if (
+				actualType === USERCASE_CASE_TYPE &&
+				(USERCASE_BUILT_IN_KEYS.includes(write.property) ||
+					!program.caseTypeSchemas
+						.get(USERCASE_CASE_TYPE)
+						?.properties?.some((property) => property.name === write.property))
+			) {
+				throw new SubmissionRejectedError({
+					kind: "target",
+					operationUuid: operation.uuid,
+					slot: `write:${writeIndex}`,
+					reason: "managed-worker-record",
+				});
+			}
 			let value: JsonValue | undefined;
-			if (write.property === "external_id") {
+			if (isFacetWriteThroughIndex(write)) {
+				// The name or owner of the case above, prepared as the
+				// operation's own rename and owner are: CommCare HQ writes the
+				// key into that case's block as its `case_name` or `owner_id`.
+				const raw = evaluatedText(bag?.writes.get(writeIndex));
+				if (instance.envelope.blankSavesNothing && blankText(raw)) continue;
+				value = prepareText(
+					write.property === "case_name" ? "rename" : "owner",
+					raw,
+				);
+			} else if (isScalarColumnWrite(write.property)) {
 				const prepared = prepareCaseScalarTextValue(
 					evaluatedText(bag?.writes.get(writeIndex)),
 					"allow",
@@ -1858,7 +2487,7 @@ async function resolveOperationProgram(
 					throw new SubmissionRejectedError({
 						kind: "text-value",
 						operationUuid: operation.uuid,
-						facet: "external_id",
+						facet: write.property,
 						reason: prepared.reason,
 					});
 				}
@@ -1869,6 +2498,19 @@ async function resolveOperationProgram(
 					writeDataType(program, instance.envelope, writeIndex),
 					program.viewerTimeZone ?? "UTC",
 				);
+				// CommCare HQ copies a saved `hq_user_id` into the case's
+				// external id, a 255-character column, so the text it copies
+				// holds to that column's bound as an external id does.
+				if (write.property === "hq_user_id") {
+					const copied = prepareCaseScalarTextValue(storedText(value), "allow");
+					if (!copied.ok)
+						throw new SubmissionRejectedError({
+							kind: "text-value",
+							operationUuid: operation.uuid,
+							facet: "hq_user_id",
+							reason: copied.reason,
+						});
+				}
 			}
 			if (instance.envelope.blankSavesNothing && blankText(storedText(value)))
 				continue;
@@ -1877,12 +2519,18 @@ async function resolveOperationProgram(
 			// `case/update` relevance compares the casedb value with the answer.
 			if (write.onlyIfChanged === true) {
 				const stored = await storedValuesOf(destinationCaseId);
+				// CommCare Core unpacks each side of `!=` to one value, and an
+				// empty node set unpacks to "" (`XPathNodeset.unpack`). So a case
+				// the opening never held, or a leaf it never saved, compares as
+				// "", and a non-blank answer is saved, as on a device.
 				const before =
 					write.property === "case_name"
 						? (stored?.caseName ?? "")
 						: write.property === "external_id"
 							? (stored?.externalId ?? "")
-							: storedText(stored?.properties[write.property]);
+							: write.property === "location_id"
+								? (stored?.locationId ?? "")
+								: storedText(stored?.properties[write.property]);
 				if (before === storedText(value)) continue;
 			}
 			if (write.via !== undefined) {
@@ -1896,12 +2544,6 @@ async function resolveOperationProgram(
 			}
 		}
 
-		const ownClose = instance.envelope.ownClose;
-		const closes =
-			operation.action === "close" ||
-			(ownClose !== undefined &&
-				(ownClose.condition === undefined || bag?.close === true));
-
 		resolvedInstances.push({
 			instance,
 			index,
@@ -1911,6 +2553,9 @@ async function resolveOperationProgram(
 				? {}
 				: { snapshotCaseType: target.snapshotCaseType }),
 			mergesExisting: target.mergesExisting,
+			...(allocations.get(index)?.identity === "exact" && {
+				exactCreateId: true,
+			}),
 			...(allocations.get(index)?.entryNamed === true
 				? { entryNamed: true }
 				: {}),
@@ -2005,21 +2650,48 @@ async function resolveOperationProgram(
 	};
 }
 
+/** Every route to a worker record uses the same eligibility as its direct
+ * worker-record supply. A typed list, a raw ID or an earlier connection
+ * can supply an ID but cannot grant access to another worker's record. */
+function workerRowAvailable(actingUserId: string) {
+	return sql<boolean>`(c.case_type <> ${USERCASE_CASE_TYPE} or
+		(c.status = 'open' and c.owner_id = ${actingUserId} and c.properties->>'hq_user_id' = ${actingUserId}))`;
+}
+
 async function loadSelectedCaseAnchors(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	appId: string,
 	ordinary: ApplySubmissionArgs["ordinary"],
 	caseIds: readonly string[],
+	currentAccess?: RestoreScopeQuery,
+	submittedCaseIds: readonly string[] = [],
 ): Promise<ReadonlyMap<string, SessionAnchor>> {
 	if (caseIds.length === 0) return new Map();
-	const rows = await trx
-		.selectFrom("cases as c")
-		.select(["c.case_id", "c.case_type"])
-		.where("c.app_id", "=", appId)
-		.where("c.case_id", "in", caseIds)
-		.where("c.project_id", "=", host.projectId)
-		.execute();
+	const select = (ids: readonly string[], restrict: boolean) => {
+		const selected = (currentAccess?.creator ?? trx)
+			.selectFrom("cases as c")
+			.select(["c.case_id", "c.case_type"])
+			.where("c.app_id", "=", appId)
+			.where("c.case_id", "in", ids)
+			.where("c.project_id", "=", host.projectId)
+			.where(workerRowAvailable(host.actingUserId))
+			.orderBy("c.case_id")
+			.forUpdate("c");
+		return (
+			(restrict ? currentAccess?.restrict(selected, "c") : undefined) ??
+			selected
+		).execute();
+	};
+	// A case the device holds from this actor's own unsynced submission is
+	// its to write though the current restore omits it (one it closed).
+	const held = new Set(submittedCaseIds);
+	const restricted = caseIds.filter((id) => !held.has(id));
+	const exempt = caseIds.filter((id) => held.has(id));
+	const rows = [
+		...(restricted.length ? await select(restricted, true) : []),
+		...(exempt.length ? await select(exempt, false) : []),
+	];
 	const byId = new Map(
 		rows.map((row) => [
 			row.case_id,
@@ -2037,7 +2709,8 @@ async function loadSelectedCaseAnchors(
 		}
 		if (
 			(ordinary.kind === "followup" || ordinary.kind === "close") &&
-			row.caseType !== ordinary.caseType
+			row.caseType !== ordinary.caseType &&
+			!ordinary.additionalCaseTypes?.includes(row.caseType)
 		) {
 			rejectSelection({
 				kind: "selection",
@@ -2062,20 +2735,32 @@ async function loadTargetRows(
 	host: SubmissionEnvelopeHost,
 	appId: string,
 	ids: { unheldIds: readonly string[]; anyIds: readonly string[] },
+	currentAccess?: RestoreScopeQuery,
+	submittedCaseIds: readonly string[] = [],
 ): Promise<ReadonlyMap<string, { caseId: string; caseType: string }>> {
 	const rows = new Map<string, { caseId: string; caseType: string }>();
+	// A case the device holds from this actor's own unsynced submission is
+	// its to write though the current restore omits it (one it closed).
+	const submitted = new Set(submittedCaseIds);
 	const load = async (
 		caseIds: readonly string[],
 		excludeHeld: boolean,
+		restrict = true,
 	): Promise<void> => {
-		const distinct = [...new Set(caseIds)];
+		const distinct = [...new Set(caseIds)].filter(
+			(id) => submitted.has(id) !== restrict,
+		);
 		if (distinct.length === 0) return;
-		let qb = trx
+		let qb = (currentAccess?.creator ?? trx)
 			.selectFrom("cases as c")
 			.select(["c.case_id", "c.case_type"])
 			.where("c.app_id", "=", appId)
 			.where("c.project_id", "=", host.projectId)
-			.where("c.case_id", "in", distinct);
+			.where(workerRowAvailable(host.actingUserId))
+			.where("c.case_id", "in", distinct)
+			.orderBy("c.case_id")
+			.forUpdate("c");
+		if (currentAccess && restrict) qb = currentAccess.restrict(qb, "c");
 		if (excludeHeld) {
 			qb = qb.where(({ not, exists, selectFrom }) =>
 				not(
@@ -2094,6 +2779,8 @@ async function loadTargetRows(
 	};
 	await load(ids.unheldIds, true);
 	await load(ids.anyIds, false);
+	await load(ids.unheldIds, true, false);
+	await load(ids.anyIds, false, false);
 	return rows;
 }
 
@@ -2107,6 +2794,7 @@ async function applyOperationEffects(
 	appId: string,
 	resolved: readonly ResolvedInstance[],
 	ordinary: ApplySubmissionArgs["ordinary"],
+	device: DeviceExternalIds,
 ): Promise<void> {
 	// Ids this envelope has already created: a later duplicate-key
 	// create of the SAME submission (duplicate repeat values) merges
@@ -2118,7 +2806,11 @@ async function applyOperationEffects(
 		(ordinary.kind === "followup" || ordinary.kind === "close") &&
 		ordinary.selection.kind === "single";
 	for (const entry of resolved) {
-		if (!entry.executed) continue;
+		if (!entry.executed) {
+			if (entry.childlessBlock && entry.snapshotCaseType !== undefined)
+				await stampModified(trx, host, appId, entry.caseId);
+			continue;
+		}
 		const operation = entry.instance.envelope.operation;
 
 		if (operation.action === "create") {
@@ -2129,9 +2821,10 @@ async function applyOperationEffects(
 				entry,
 				operation,
 				createdInEnvelope,
+				device,
 			);
 		} else {
-			await applyMutationEffect(trx, host, appId, entry, operation);
+			await applyMutationEffect(trx, host, appId, entry, operation, device);
 		}
 
 		if (entry.closes) {
@@ -2142,96 +2835,186 @@ async function applyOperationEffects(
 			await applyLinkEffect(trx, host, appId, entry.caseId, link);
 		}
 
-		// Every emitted case block advances `@date_modified`, including a
-		// pure index write. A link-only update touches no other stamping
-		// path, so stamp it here; every other arm (create, writes,
-		// rename, owner, retype, a genuine close transition) already
-		// stamps. A re-close deliberately keeps its repair semantics. A
-		// one-case form's own case is named by its block whatever it
-		// writes, and HQ's case processing moves its `modified_on` for it;
-		// a several-case form's own arm stamps only what it writes.
+		// A recognized targeted action advances its timestamp even when
+		// every update leaf is irrelevant. The submitted update element
+		// remains present in Core, and a separate close can be idempotent.
+		// Preserve the existing own-case behavior: one selected case gets
+		// HQ's history timestamp; a several-case form stamps what it saves.
 		const writesNothing =
 			entry.writes.length === 0 &&
 			entry.preparedRename === undefined &&
 			entry.preparedOwner === undefined &&
 			(operation.retype === undefined ||
 				operation.retype === operation.caseType);
+		const own = entry.instance.envelope.own;
 		if (
-			operation.action === "update" &&
 			writesNothing &&
-			!entry.closes &&
-			(entry.links.length > 0 || (entry.instance.envelope.own && oneCaseForm))
+			(!own ||
+				(operation.action === "update" &&
+					!entry.closes &&
+					(entry.links.length > 0 || oneCaseForm)))
 		) {
 			await stampModified(trx, host, appId, entry.caseId);
 		}
 
-		// The writes through an index, each on the case its chain reached,
-		// after the block of the case they start from.
+		// The writes through an index, after the block of the case they start
+		// from. CommCare HQ's build gathers the writes reaching one case into
+		// one block (`xform.py::_add_case_updates`), whose known keys it
+		// applies before its other keys, so each reached case takes its writes
+		// as one partition, whatever their authored order.
+		const byCase = new Map<string, (typeof entry.viaWrites)[number][]>();
 		for (const write of entry.viaWrites) {
-			const { patch, removals, externalId } = partitionWrites([
-				{ property: write.property, value: write.value },
-			]);
+			const writes = byCase.get(write.caseId);
+			if (writes) writes.push(write);
+			else byCase.set(write.caseId, [write]);
+		}
+		for (const [caseId, writes] of byCase) {
+			const named = writes.findLast((write) => write.property === "case_name");
+			const owned = writes.findLast((write) => write.property === "owner_id");
+			const part = partitionWrites(
+				writes
+					.filter(
+						(write) =>
+							write.property !== "case_name" && write.property !== "owner_id",
+					)
+					.map((write) => ({ property: write.property, value: write.value })),
+			);
+			const { patch, removals, scalars } = part;
+			await noteDeviceExternalId(trx, host, appId, caseId, part, device);
 			if (
 				Object.keys(patch).length > 0 ||
-				externalId !== undefined ||
-				write.property === "case_name"
+				Object.keys(scalars).length > 0 ||
+				named !== undefined
 			) {
 				await host.updateCase(trx, {
 					appId,
-					caseId: write.caseId,
-					patch:
-						write.property === "case_name"
-							? { case_name: storedText(write.value) }
-							: {
-									...(externalId === undefined
-										? {}
-										: { external_id: externalId }),
-									...(Object.keys(patch).length > 0
-										? { properties: patch }
-										: {}),
-								},
+					caseId,
+					patch: {
+						...(named !== undefined && {
+							case_name: storedText(named.value),
+						}),
+						...scalars,
+						...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
+					},
 				});
-			} else if (removals.length > 0) {
-				await removeProperties(trx, host, appId, write.caseId, removals);
 			}
+			if (removals.length > 0)
+				await removeProperties(trx, host, appId, caseId, removals);
+			if (owned !== undefined)
+				await setOwner(trx, host, appId, caseId, storedText(owned.value));
 		}
 	}
 }
 
-/** Split resolved writes into the additive patch and the blank-write
- * key removals (the wire's `''` write projected onto typed storage). */
+/**
+ * Split resolved writes into the additive patch, the blank-write key removals
+ * (the wire's `''` write projected onto typed storage) and the row's scalar
+ * columns, as CommCare HQ's server applies one block's `<update>`
+ * (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`):
+ * `external_id` to its column, `location_id` to the case's location column and
+ * not its properties, and `hq_user_id` to its property and, copied, to the
+ * external id. HQ applies the block's known keys before its other keys, so a
+ * block writing both keeps the copy as the external id.
+ *
+ * `deviceExternalId` is what a device holds of the external id where it
+ * differs from the server's: a device applies `hq_user_id` as a property alone
+ * (`CaseXmlParser.updateCase`) until its next sync, so it keeps the block's own
+ * `external_id` (`explicit`) or, with none, the one the case held (`kept`).
+ */
 function partitionWrites(writes: ResolvedInstance["writes"]): {
 	patch: JsonObject;
 	removals: string[];
-	externalId?: string;
+	scalars: { external_id?: string; location_id?: string };
+	deviceExternalId?: "kept" | { readonly explicit: string };
 } {
 	const patch: JsonObject = {};
 	const removals: string[] = [];
-	let externalId: string | undefined;
+	const scalars: { external_id?: string; location_id?: string } = {};
+	let copied: string | undefined;
 	for (const write of writes) {
-		if (write.property === "external_id") {
+		if (isScalarColumnWrite(write.property)) {
 			if (typeof write.value !== "string") {
 				throw new Error(
 					compilerBugMessage({
 						where: "case-store.submissionEnvelope.partitionWrites",
-						invariant:
-							"an admitted external_id write did not carry its prepared scalar string",
+						invariant: `an admitted ${write.property} write did not carry its prepared scalar string`,
 						detail:
-							"Resolution normalizes external_id separately before generic JSON conversion; blank is a real empty-string scalar write and must never become a JSONB removal.",
+							"Resolution normalizes a scalar column's write separately before generic JSON conversion; blank is a real empty-string scalar write and must never become a JSONB removal.",
 					}),
 				);
 			}
-			externalId = write.value;
+			scalars[write.property] = write.value;
 			continue;
 		}
+		if (write.property === "hq_user_id") copied = storedText(write.value);
 		if (write.value === undefined) removals.push(write.property);
 		else patch[write.property] = write.value;
 	}
+	const explicit = scalars.external_id;
+	if (copied === undefined) return { patch, removals, scalars };
+	scalars.external_id = copied;
 	return {
 		patch,
 		removals,
-		...(externalId === undefined ? {} : { externalId }),
+		scalars,
+		deviceExternalId: explicit === undefined ? "kept" : { explicit },
 	};
+}
+
+/**
+ * The external id a device holds for each case whose external id this
+ * submission set only through CommCare HQ's `hq_user_id` copy: the id it held
+ * before the submission, or the one a later block of the submission wrote
+ * explicitly. The case store holds HQ's copy; the submission's device patch
+ * holds this until the device's next sync reads the server's.
+ */
+export type DeviceExternalIds = Map<string, string | null>;
+
+/** Note, before a block's write lands, what a device keeps of its case's
+ *  external id (`DeviceExternalIds`). */
+async function noteDeviceExternalId(
+	trx: Transaction<Database>,
+	host: SubmissionEnvelopeHost,
+	appId: string,
+	caseId: string,
+	part: ReturnType<typeof partitionWrites>,
+	device: DeviceExternalIds,
+): Promise<void> {
+	const held = part.deviceExternalId;
+	if (held !== undefined && held !== "kept") {
+		device.set(caseId, held.explicit);
+		return;
+	}
+	if (held === "kept") {
+		if (device.has(caseId)) return;
+		const row = await trx
+			.selectFrom("cases as c")
+			.select("c.external_id")
+			.where("c.app_id", "=", appId)
+			.where("c.project_id", "=", host.projectId)
+			.where("c.case_id", "=", caseId)
+			.executeTakeFirst();
+		device.set(caseId, row?.external_id ?? null);
+		return;
+	}
+	if (part.scalars.external_id !== undefined && device.has(caseId))
+		device.set(caseId, part.scalars.external_id);
+}
+
+/** A write CommCare HQ keeps in a column of the case rather than among its
+ *  properties: the external id and the case's own location. */
+function isScalarColumnWrite(
+	property: string,
+): property is "external_id" | "location_id" {
+	return property === "external_id" || property === "location_id";
+}
+
+function rejectTakenCaseId(caseId: string): never {
+	throw new SubmissionRejectedError({
+		kind: "new-case",
+		reason: "case-id-taken",
+		caseId,
+	});
 }
 
 async function applyCreateEffect(
@@ -2241,16 +3024,19 @@ async function applyCreateEffect(
 	entry: ResolvedInstance,
 	operation: TargetedCaseOperation,
 	createdInEnvelope: Set<string>,
+	device: DeviceExternalIds,
 ): Promise<void> {
-	const { patch, removals, externalId } = partitionWrites(entry.writes);
+	const part = partitionWrites(entry.writes);
+	const { patch, removals, scalars } = part;
 	if (entry.mergesExisting || createdInEnvelope.has(entry.caseId)) {
+		await noteDeviceExternalId(trx, host, appId, entry.caseId, part, device);
 		// Create-of-existing merges (duplicate authored key, a retry of
 		// the same definition): the create block's facets apply over the
 		// existing row, exactly as Core/HQ accept a create for a known
 		// id. The rolling proof already refused a stored-type mismatch.
 		if (
 			entry.preparedName !== undefined ||
-			externalId !== undefined ||
+			Object.keys(scalars).length > 0 ||
 			Object.keys(patch).length > 0
 		) {
 			await host.updateCase(trx, {
@@ -2260,7 +3046,7 @@ async function applyCreateEffect(
 					...(entry.preparedName === undefined
 						? {}
 						: { case_name: entry.preparedName }),
-					...(externalId === undefined ? {} : { external_id: externalId }),
+					...scalars,
 					...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
 				},
 			});
@@ -2285,12 +3071,23 @@ async function applyCreateEffect(
 	}
 	// Blank writes on a fresh create simply never mint the key — the
 	// two-state collapse (absent reads as blank) every storage write keeps.
+	// A fresh case has no external id on the device until its next sync.
+	if (part.deviceExternalId !== undefined)
+		device.set(
+			entry.caseId,
+			part.deviceExternalId === "kept" ? null : part.deviceExternalId.explicit,
+		);
 	await host.insertCase(trx, {
 		appId,
 		seed: {
 			caseType: operation.caseType,
 			caseName: entry.preparedName,
-			...(externalId === undefined ? {} : { externalId }),
+			...(scalars.external_id === undefined
+				? {}
+				: { externalId: scalars.external_id }),
+			...(scalars.location_id === undefined
+				? {}
+				: { locationId: scalars.location_id }),
 			properties: patch,
 		},
 		caseId: entry.caseId,
@@ -2301,14 +3098,17 @@ async function applyCreateEffect(
 		// read. A row already holding it, in any tenant, refuses the whole
 		// submission inside this transaction rather than merging; an exact
 		// retry of a saved entry replays its receipt before reaching here.
-		...(entry.entryNamed
+		...(entry.entryNamed || entry.exactCreateId
 			? {
 					caseIdTaken: () => {
-						throw new SubmissionRejectedError({
-							kind: "new-case",
-							reason: "case-id-taken",
-							caseId: entry.caseId,
-						});
+						if (entry.exactCreateId)
+							throw new SubmissionRejectedError({
+								kind: "target",
+								operationUuid: operation.uuid,
+								slot: "target",
+								reason: "not-found-or-out-of-scope",
+							});
+						rejectTakenCaseId(entry.caseId);
 					},
 				}
 			: {}),
@@ -2322,6 +3122,7 @@ async function applyMutationEffect(
 	appId: string,
 	entry: ResolvedInstance,
 	operation: TargetedCaseOperation,
+	device: DeviceExternalIds,
 ): Promise<void> {
 	if (
 		operation.retype !== undefined &&
@@ -2331,13 +3132,15 @@ async function applyMutationEffect(
 		// change as ONE unit — the wire emits them in a single <update>
 		// block that Core/HQ apply together, so the writes are
 		// destination-typed and land on the destination-typed row.
-		await applyRetypeEffect(trx, host, appId, entry, operation.retype);
+		await applyRetypeEffect(trx, host, appId, entry, operation.retype, device);
 	} else {
-		const { patch, removals, externalId } = partitionWrites(entry.writes);
+		const part = partitionWrites(entry.writes);
+		const { patch, removals, scalars } = part;
+		await noteDeviceExternalId(trx, host, appId, entry.caseId, part, device);
 		if (
 			Object.keys(patch).length > 0 ||
 			entry.preparedRename !== undefined ||
-			externalId !== undefined
+			Object.keys(scalars).length > 0
 		) {
 			await host.updateCase(trx, {
 				appId,
@@ -2346,7 +3149,7 @@ async function applyMutationEffect(
 					...(entry.preparedRename === undefined
 						? {}
 						: { case_name: entry.preparedRename }),
-					...(externalId === undefined ? {} : { external_id: externalId }),
+					...scalars,
 					...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
 				},
 			});
@@ -2382,6 +3185,7 @@ async function applyRetypeEffect(
 	appId: string,
 	entry: ResolvedInstance,
 	toCaseType: string,
+	device: DeviceExternalIds,
 ): Promise<void> {
 	const operationUuid = entry.instance.envelope.operation.uuid;
 	const row = await trx
@@ -2422,7 +3226,9 @@ async function applyRetypeEffect(
 		throw err;
 	}
 
-	const { patch, removals, externalId } = partitionWrites(entry.writes);
+	const part = partitionWrites(entry.writes);
+	const { patch, removals, scalars } = part;
+	await noteDeviceExternalId(trx, host, appId, entry.caseId, part, device);
 	const finalDocument: JsonObject = { ...retained, ...patch };
 	for (const key of removals) delete finalDocument[key];
 	if (Object.keys(patch).length > 0) {
@@ -2440,7 +3246,7 @@ async function applyRetypeEffect(
 			...(entry.preparedRename === undefined
 				? {}
 				: { case_name: entry.preparedRename }),
-			...(externalId === undefined ? {} : { external_id: externalId }),
+			...scalars,
 			modified_on: sql<Date>`now()`,
 		})
 		.where("c.app_id", "=", appId)
@@ -2531,24 +3337,19 @@ export async function applyLinkEffect(
 	caseId: string,
 	link: ResolvedLink,
 ): Promise<void> {
-	await trx
-		.deleteFrom("case_indices")
-		.where("case_indices.case_id", "=", caseId)
-		.where("case_indices.identifier", "=", link.identifier)
-		.execute();
-	if (link.targetCaseId !== null) {
-		await trx
-			.insertInto("case_indices")
-			.values({
-				case_id: caseId,
-				ancestor_id: link.targetCaseId,
-				target_case_type: link.targetType,
-				identifier: link.identifier,
-				relationship: link.relationship,
-				depth: 1,
-			})
-			.execute();
-	}
+	await replaceCaseIndex(
+		trx,
+		{ appId, projectId: host.projectId },
+		caseId,
+		link.identifier,
+		link.targetCaseId === null
+			? null
+			: {
+					id: link.targetCaseId,
+					caseType: link.targetType,
+					relationship: link.relationship,
+				},
+	);
 	if (link.identifier === "parent") {
 		await trx
 			.updateTable("cases as c")
@@ -2587,7 +3388,8 @@ function storedText(value: JsonValue | undefined): string {
 
 interface StoredCaseValues {
 	readonly caseName: string;
-	readonly externalId: string;
+	readonly externalId: string | null;
+	readonly locationId: string | null;
 	readonly properties: JsonObject;
 }
 
@@ -2600,7 +3402,7 @@ async function readStoredCaseValues(
 ): Promise<StoredCaseValues | undefined> {
 	const row = await trx
 		.selectFrom("cases as c")
-		.select(["c.case_name", "c.external_id", "c.properties"])
+		.select(["c.case_name", "c.external_id", "c.location_id", "c.properties"])
 		.where("c.app_id", "=", appId)
 		.where("c.project_id", "=", host.projectId)
 		.where("c.case_id", "=", caseId)
@@ -2608,7 +3410,8 @@ async function readStoredCaseValues(
 	if (row === undefined) return undefined;
 	return {
 		caseName: row.case_name,
-		externalId: row.external_id ?? "",
+		externalId: row.external_id,
+		locationId: row.location_id,
 		properties: row.properties,
 	};
 }
@@ -2620,6 +3423,27 @@ async function readStoredCaseValues(
  * Undefined where a step finds no index, or an index to no case of this app
  * and Project.
  */
+function openedAncestorId(
+	indices: NonNullable<
+		CaseOperationProgram["openingReads"]
+	>["cases"]["indices"],
+	caseId: string,
+	via: CaseWriteVia,
+): string | undefined {
+	let current = caseId;
+	for (const step of via) {
+		const edge = indices.find(
+			(row) =>
+				row.case_id === current &&
+				row.identifier === step.identifier &&
+				row.depth === 1,
+		);
+		if (!edge) return undefined;
+		current = edge.ancestor_id;
+	}
+	return current;
+}
+
 async function ancestorCaseId(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,

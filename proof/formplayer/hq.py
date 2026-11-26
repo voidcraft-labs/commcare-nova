@@ -118,6 +118,7 @@ class Search:
 
     path: str
     params: tuple[tuple[str, tuple[str, ...]], ...]
+    fixture: bytes | None = None
 
     def values(self, key: str) -> tuple[str, ...]:
         return dict(self.params).get(key, ())
@@ -305,6 +306,8 @@ class HqViews:
     exchanges: list = field(default_factory=list)
     submissions: list = field(default_factory=list)
     searches: list = field(default_factory=list)
+    # A focused native witness can retain the raw service response alongside the request.
+    capture_search_fixtures: bool = False
     claims: list = field(default_factory=list)
     # Each restore HQ answered, whole: the ids it holds are the app's and HQ's, never Formplayer's.
     restores: list = field(default_factory=list)
@@ -351,7 +354,7 @@ class HqViews:
             # Whether Formplayer asks for an archive again depends on what the same Formplayer process installed
             # before, so a walk's record of what a step asked HQ leaves the download out (``exchanges`` keeps it).
             self.asked.append((url_name or "unresolved", str(answer.status)))
-        self._kept(request, url_name, asked)
+        self._kept(request, url_name, asked, answer.body)
         if url_name == RESTORE and answer.status == 200:
             self.restores.append(answer.body)
         return answer
@@ -393,7 +396,7 @@ class HqViews:
         headers += [("Set-Cookie", morsel.OutputString()) for morsel in response.cookies.values()]
         return HqAnswer(response.status_code, body, tuple(headers)), asked
 
-    def _kept(self, request: HqRequest, url_name, asked=None) -> None:
+    def _kept(self, request: HqRequest, url_name, asked=None, response_body=None) -> None:
         """What a walk records of a request beside HQ's answer: a submission's instance, a search's parameters."""
         if request.method != "POST":
             return
@@ -411,7 +414,8 @@ class HqViews:
             )
         elif url_name in SEARCHES or url_name == CLAIM:
             read = parse_qs(request.body.decode("utf-8"), keep_blank_values=True)
-            kept = Search(path=request.path, params=tuple((key, tuple(values)) for key, values in sorted(read.items())))
+            kept = Search(path=request.path, params=tuple((key, tuple(values)) for key, values in sorted(read.items())),
+                          fixture=response_body if self.capture_search_fixtures and url_name in SEARCHES else None)
             (self.claims if url_name == CLAIM else self.searches).append(kept)
 
     def failures(self) -> list:
@@ -843,11 +847,17 @@ def serve(
     from proof.hq import redis as hq_redis
     from proof.hq.seams import build_seams
 
+    from proof.hq.project_search_database import served_visit_rows
+
     operation = operation or unit.operation
     database = database or casedata.document_case_database(document)
     if platforms is None:
         platforms = BOTH if document is None else document.platforms()
-    with hq_redis.shared(None if runner is None else runner.redis_address), unit.fork():
+    with (
+        hq_redis.shared(None if runner is None else runner.redis_address),
+        unit.fork(),
+        served_visit_rows(unit.project_visit_table, unit.domain, database),
+    ):
         hq_redis.flush()
         with unit.committing():
             people = casedata.database_digest(database).encode()

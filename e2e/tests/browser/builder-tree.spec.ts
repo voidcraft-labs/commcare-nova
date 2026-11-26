@@ -323,3 +323,66 @@ test("native viewer and unfinished-build states withhold write actions and lock 
 		page.getByRole("button", { name: /Module actions for/ }),
 	).toHaveCount(0);
 });
+
+test("opening a shared form and its question keeps the chosen tree route and the single source identity", async ({
+	page,
+}) => {
+	await page.goto(peer.origin);
+	const before = await saved(page);
+	const owner = Object.values(before.modules).find(
+		(menu) => menu.name === "Outreach",
+	);
+	const form = Object.values(before.forms).find(
+		(source) => source.name === "Screening",
+	);
+	const question = Object.values(before.fields).find(
+		(field) => field.id === "contact_name",
+	);
+	if (!owner || !form || !question)
+		throw new Error("Missing Outreach screening fixture.");
+	await page.getByRole("button", { name: "Add module", exact: true }).click();
+	const popup = page.getByRole("dialog", { name: "Add module", exact: true });
+	await popup.getByRole("button", { name: /Forms from another menu/ }).click();
+	await popup.getByRole("button", { name: "Outreach", exact: true }).click();
+	const after = await saved(page);
+	const route = Object.values(after.modules).find(
+		(menu) => menu.formsFromMenu?.menuUuid === owner.uuid,
+	);
+	if (!route) throw new Error("The second route was not saved.");
+	expect(after.formOrder[route.uuid]).toEqual([]);
+	expect(after.forms).toEqual(before.forms);
+	const original = page.getByRole("list", {
+		name: "Outreach forms",
+		exact: true,
+	});
+	const shared = page.getByRole("list", {
+		name: `${route.name} forms`,
+		exact: true,
+	});
+	const sharedForm = shared.getByRole("button", {
+		name: "Screening",
+		exact: true,
+	});
+	await sharedForm.click();
+	await expect(page).toHaveURL(
+		new RegExp(`/${route.uuid}/forms/${form.uuid}$`),
+	);
+	await expect(sharedForm).toHaveAttribute("aria-current", "page");
+	await expect(
+		original.getByRole("button", { name: "Screening", exact: true }),
+	).not.toHaveAttribute("aria-current", "page");
+	await shared
+		.getByRole("button", { name: "Contact name", exact: true })
+		.click();
+	await expect(page).toHaveURL(
+		new RegExp(`/${route.uuid}/forms/${question.uuid}$`),
+	);
+	await expect(
+		original.getByRole("button", { name: "Contact name", exact: true }),
+	).not.toHaveAttribute("aria-current", "page");
+	await original
+		.getByRole("button", { name: "Contact name", exact: true })
+		.click();
+	await expect(page).not.toHaveURL(new RegExp(`/${route.uuid}/forms/`));
+	await expect(page).toHaveURL(new RegExp(`/${question.uuid}$`));
+});

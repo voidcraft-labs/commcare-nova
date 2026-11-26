@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { DEEP_LINKS_SEED } from "../../lib/deepLinksSeed";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
@@ -238,3 +239,88 @@ test(
 		});
 	},
 );
+
+test("a deep link creates its case at the supplied ID and refuses reuse", {
+	tag: "@seed:deep-links",
+}, async ({ scenario, page }) => {
+	const { deepLinks: fixture } = seedFor(scenario, "deep-links");
+	if (!fixture) throw new Error("Deep-link fixture missing");
+	const { registration, caseType } = DEEP_LINKS_SEED;
+	await openBuilder(page, fixture.route);
+	await page
+		.getByRole("button", { name: "Add deep link", exact: true })
+		.click();
+	await page
+		.getByRole("button", {
+			name: `${registration.moduleName} · ${registration.formName}`,
+			exact: true,
+		})
+		.click();
+	await expect(page.getByLabel("Link ID", { exact: true })).toBeVisible();
+	const detailRoute = new URL(page.url()).pathname;
+
+	const supply = page.getByRole("checkbox", {
+		name: `Supply the new ${caseType} ID`,
+		exact: true,
+	});
+	const input = page.getByRole("textbox", {
+		name: `New ${caseType} case ID`,
+		exact: true,
+	});
+	const launch = page.getByRole("button", {
+		name: "Test in Preview",
+		exact: true,
+	});
+	await expect(supply).not.toBeChecked();
+	await expect(input).toHaveCount(0);
+	await expect(launch).toBeEnabled();
+	const saved = page.waitForResponse(
+		(response) =>
+			new URL(response.url()).pathname === `/api/apps/${fixture.appId}` &&
+			response.request().method() === "PUT" &&
+			(response.request().postData() ?? "").includes('"entryCaseCreations"'),
+	);
+	const [response] = await Promise.all([saved, supply.click()]);
+	expect(response.ok()).toBe(true);
+
+	await reloadBuilder(page);
+	await expect(supply).toBeChecked();
+	await expect(input).toBeVisible();
+	await expect(launch).toBeDisabled();
+
+	const collision = page
+		.getByRole("alert")
+		.filter({ hasText: "A new case ID is already in use." });
+	await input.fill(fixture.selectedCaseId);
+	await launch.click();
+	await expect(collision).toBeVisible();
+	await expect(page).toHaveURL(new RegExp(`${detailRoute}$`));
+
+	const newId = randomUUID();
+	await input.fill(newId);
+	await launch.click();
+	const registrationPath = `/build/${fixture.appId}/${registration.formUuid}`;
+	await expect
+		.poll(async () => ({
+			path: new URL(page.url()).pathname,
+			alerts: (await page.getByRole("alert").allTextContents())
+				.map((text) => text.trim())
+				.filter(Boolean),
+		}))
+		.toEqual({ path: registrationPath, alerts: [] });
+	const form = page.locator("main");
+	const name = form.getByRole("textbox", { name: registration.fieldLabel });
+	await expect(name).toBeVisible();
+	await name.fill("Patient from the deep link");
+	const submit = form.getByRole("button", { name: "Submit", exact: true });
+	await expect(submit).toBeEnabled();
+	await submit.click();
+	await expect(name).toHaveCount(0);
+	await expect(page).toHaveURL(new RegExp(`/build/${fixture.appId}$`));
+
+	await openBuilder(page, detailRoute);
+	await input.fill(newId);
+	await launch.click();
+	await expect(collision).toBeVisible();
+	await expect(page).toHaveURL(new RegExp(`${detailRoute}$`));
+});

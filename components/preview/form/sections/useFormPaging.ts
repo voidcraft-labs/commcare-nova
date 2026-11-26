@@ -369,16 +369,27 @@ export function useFormPaging({
 		[enterPage, formUuid, identityOf, ownsNavigation, remember],
 	);
 
+	/* Saving the displayed screen can make another page relevant before
+	 * React renders that change. Page turns use the engine's settled pages. */
+	const readPages = useCallback((): ReadonlyArray<FormScreenPage> => {
+		if (!liveRef.current || controller.formUuid !== formUuid) return NO_PAGES;
+		if (mode === "sections") return controller.sectionScreens();
+		if (mode === "screens") return controller.formScreens();
+		return NO_PAGES;
+	}, [controller, formUuid, mode]);
+
 	const showPage = useCallback(
 		(id: string) => {
 			retireTurn();
 			setPrompt(null);
-			const page = pages.find((candidate) => identityOf(candidate) === id);
+			const page = availablePages(readPages()).find(
+				(candidate) => identityOf(candidate) === id,
+			);
 			if (formUuid === undefined || page === undefined) return;
 			setFinishedAt(null);
 			remember(page);
 		},
-		[formUuid, identityOf, pages, remember, retireTurn],
+		[formUuid, identityOf, readPages, remember, retireTurn],
 	);
 
 	const showPageOf = useCallback(
@@ -388,12 +399,12 @@ export function useFormPaging({
 				if (first !== undefined) showPage(first);
 				return;
 			}
-			const page = pages.find((candidate) =>
+			const page = availablePages(readPages()).find((candidate) =>
 				screenHolds(candidate, target.instancePath),
 			);
 			if (page !== undefined) showPage(identityOf(page));
 		},
-		[identityOf, mode, pages, showPage],
+		[identityOf, mode, readPages, showPage],
 	);
 
 	const showFirst = useCallback(() => {
@@ -403,18 +414,13 @@ export function useFormPaging({
 	}, [identityOf, pages, retireTurn, showPage]);
 
 	/** Validate one page; on failure refuse, turn to it if needed, reveal. */
-	const pagePasses = useCallback(
+	const validatePage = useCallback(
 		async (
 			page: FormScreenPage,
 			entryKey: string | undefined,
 			version: number,
 		): Promise<boolean> => {
-			if (
-				!ownsNavigation(entryKey, version) ||
-				!(await enterPage(page)) ||
-				!ownsNavigation(entryKey, version)
-			)
-				return false;
+			if (!ownsNavigation(entryKey, version)) return false;
 			const validation =
 				mode === "sections"
 					? await controller.validateSectionAsync(page.uuid)
@@ -434,7 +440,6 @@ export function useFormPaging({
 		},
 		[
 			controller,
-			enterPage,
 			identityOf,
 			mode,
 			ownsNavigation,
@@ -444,17 +449,16 @@ export function useFormPaging({
 		],
 	);
 
-	/** The relevant repeat prompts between the current screen and the next
-	 *  visible one (Android, a form without sections). */
-	const promptsAfter = useCallback(
-		(from: FormScreenPage, next: FormScreenPage | undefined) => {
-			if (mode !== "screens") return [];
-			const fromIndex = allPages.indexOf(from);
-			const toIndex =
-				next === undefined ? allPages.length : allPages.indexOf(next);
-			return repeatPromptsBetween(promptPoints, fromIndex, toIndex);
-		},
-		[allPages, mode, promptPoints],
+	const pagePasses = useCallback(
+		async (
+			page: FormScreenPage,
+			entryKey: string | undefined,
+			version: number,
+		) =>
+			ownsNavigation(entryKey, version) &&
+			(await enterPage(page)) &&
+			(await validatePage(page, entryKey, version)),
+		[enterPage, ownsNavigation, validatePage],
 	);
 
 	/* The relevant prompts before the first visible screen (every screen
@@ -495,56 +499,158 @@ export function useFormPaging({
 
 	const goNext = useCallback(async () => {
 		if (current === undefined) return;
-		const next = pages[index + 1];
-		const queue = promptsAfter(current, next);
-		if (next === undefined && queue.length === 0) return;
 		const entryKey = controller.entryKey;
 		const version = ++navigationVersionRef.current;
-		if (!(await pagePasses(current, entryKey, version))) return;
-		if (queue.length > 0) {
-			if (ownsNavigation(entryKey, version))
-				setPrompt({ entryKey, queue, from: current, next });
-			return;
+		if (!(await controller.leaveScreenAsync(current.path))) return;
+		const source = identityOf(current);
+		while (ownsNavigation(entryKey, version)) {
+			const livePages = readPages();
+			const fromIndex = livePages.findIndex(
+				(page) => identityOf(page) === source,
+			);
+			if (
+				fromIndex === -1 ||
+				!(await pagePasses(livePages[fromIndex], entryKey, version))
+			)
+				return;
+			const settledPages = readPages();
+			const settledFrom = settledPages.findIndex(
+				(page) => identityOf(page) === source,
+			);
+			if (settledFrom === -1) return;
+			const next = availablePages(settledPages.slice(settledFrom + 1))[0];
+			const queue =
+				mode === "screens"
+					? repeatPromptsBetween(
+							controller.repeatPromptPoints(),
+							settledFrom,
+							next === undefined
+								? settledPages.length
+								: settledPages.indexOf(next),
+						)
+					: [];
+			if (queue.length > 0) {
+				if (ownsNavigation(entryKey, version))
+					setPrompt({ entryKey, queue, from: current, next });
+				return;
+			}
+			if (next === undefined) return;
+			if (!next.needsEntry) {
+				await turnTo(next, entryKey, version);
+				return;
+			}
+
+			// Starting deferred rows can change the page just validated, or
+			// reveal a nearer page. Validate against the new route before turning.
+			if (!(await enterPage(next)) || !ownsNavigation(entryKey, version))
+				return;
+			if (
+				readPages().some(
+					(page) => identityOf(page) === identityOf(next) && page.needsEntry,
+				)
+			)
+				return;
 		}
-		if (next !== undefined) await turnTo(next, entryKey, version);
 	}, [
 		controller,
 		current,
-		pages,
-		index,
-		pagePasses,
-		promptsAfter,
+		enterPage,
+		identityOf,
+		mode,
 		ownsNavigation,
+		pagePasses,
+		readPages,
 		turnTo,
 	]);
 
 	const goBack = useCallback(async () => {
-		if (current === undefined) return;
-		const previous = pages[index - 1];
-		if (previous === undefined) return;
+		if (current === undefined || index <= 0) return;
 		const entryKey = controller.entryKey;
 		const version = ++navigationVersionRef.current;
-		await turnTo(previous, entryKey, version);
-	}, [controller, current, pages, index, turnTo]);
+		if (
+			!(await controller.leaveScreenAsync(current.path)) ||
+			!ownsNavigation(entryKey, version)
+		)
+			return;
+		const livePages = readPages();
+		const fromIndex = livePages.findIndex(
+			(page) => identityOf(page) === identityOf(current),
+		);
+		if (fromIndex < 1) return;
+		const previous = availablePages(livePages.slice(0, fromIndex)).at(-1);
+		if (previous !== undefined) await turnTo(previous, entryKey, version);
+	}, [
+		controller,
+		current,
+		index,
+		identityOf,
+		ownsNavigation,
+		readPages,
+		turnTo,
+	]);
 
 	const goTo = useCallback(
 		async (id: string) => {
 			if (current === undefined || id === identityOf(current)) return;
-			const target = pages.find((page) => identityOf(page) === id);
-			if (target === undefined) return;
+			if (!pages.some((page) => identityOf(page) === id)) return;
 			const entryKey = controller.entryKey;
 			const version = ++navigationVersionRef.current;
-			for (const page of pagesToValidate(
-				pages,
-				identityOf(current),
-				id,
-				identityOf,
-			)) {
-				if (!(await pagePasses(page, entryKey, version))) return;
+			if (
+				!(await controller.leaveScreenAsync(current.path)) ||
+				!ownsNavigation(entryKey, version)
+			)
+				return;
+			const source = identityOf(current);
+			const checked = new Set<string>();
+			// Entering a section can materialize its deferred repeats, changing
+			// even earlier answers' relevance and validation. Recheck the route
+			// after each such entry, including entry to the destination.
+			while (ownsNavigation(entryKey, version)) {
+				const livePages = readPages();
+				if (!livePages.some((page) => identityOf(page) === source)) return;
+				const target = availablePages(livePages).find(
+					(page) => identityOf(page) === id,
+				);
+				if (target === undefined) return;
+				const next = pagesToValidate(livePages, source, id, identityOf).find(
+					(page) => !checked.has(identityOf(page)),
+				);
+				const page = next ?? target;
+				if (next === undefined && !page.needsEntry) {
+					await turnTo(target, entryKey, version);
+					return;
+				}
+				if (!(await enterPage(page)) || !ownsNavigation(entryKey, version))
+					return;
+				if (page.needsEntry) {
+					// An entry that left its own deferred work pending made no
+					// progress. Leave the worker on the current visible page.
+					if (
+						readPages().some(
+							(candidate) =>
+								identityOf(candidate) === identityOf(page) &&
+								candidate.needsEntry,
+						)
+					)
+						return;
+					checked.clear();
+					continue;
+				}
+				if (!(await validatePage(page, entryKey, version))) return;
+				checked.add(identityOf(page));
 			}
-			await turnTo(target, entryKey, version);
 		},
-		[controller, current, identityOf, pages, pagePasses, turnTo],
+		[
+			controller,
+			current,
+			enterPage,
+			identityOf,
+			pages,
+			readPages,
+			turnTo,
+			ownsNavigation,
+			validatePage,
+		],
 	);
 
 	const openPrompt =
@@ -613,7 +719,13 @@ export function useFormPaging({
 		finishedAt.entryKey === entry.entryKey &&
 		finishedAt.path === current?.path;
 	const promptsFollow =
-		current !== undefined && promptsAfter(current, undefined).length > 0;
+		mode === "screens" &&
+		current !== undefined &&
+		repeatPromptsBetween(
+			promptPoints,
+			allPages.indexOf(current),
+			allPages.length,
+		).length > 0;
 	const isLast =
 		current === undefined ||
 		(index === count - 1 && (finished || !promptsFollow));

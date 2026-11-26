@@ -225,6 +225,7 @@ describe("a form answer read where a condition belongs", () => {
 		held: ScalarHeld | undefined,
 		type?: "int" | "text",
 		negated = false,
+		explicit = false,
 	): Promise<boolean> {
 		await db
 			.insertInto("cases")
@@ -238,7 +239,10 @@ describe("a form answer read where a condition belongs", () => {
 			)
 			.onConflict((conflict) => conflict.doNothing())
 			.execute();
-		const read = term(formField(FLAG as never));
+		const bare = term(formField(FLAG as never));
+		const read: Expression = explicit
+			? { kind: "call", fn: "boolean", args: [bare] }
+			: bare;
 		const ctx = context(db, "casedb", {
 			bindings: { formFields: new Map([[FLAG, value]]) },
 			formFieldTypes: new Map([[FLAG as never, type]]),
@@ -269,5 +273,21 @@ describe("a form answer read where a condition belongs", () => {
 		expect(await holds(db, "", "string")).toBe(false);
 		expect(await holds(db, "0", undefined, "int")).toBe(false);
 		expect(await holds(db, "2", "number")).toBe(true);
+	});
+
+	test("boolean(...) of an answer, a case change's condition over a question alone, reads it as a bare read does", async ({
+		db,
+	}) => {
+		const explicit = (
+			value: string,
+			held: ScalarHeld | undefined,
+			type?: "int" | "text",
+		) => holds(db, value, held, type, false, true);
+		expect(await explicit("false", undefined, "text")).toBe(true);
+		expect(await explicit("0", "string")).toBe(true);
+		expect(await explicit("", "string")).toBe(false);
+		expect(await explicit("0", undefined, "int")).toBe(false);
+		expect(await explicit("2", "number")).toBe(true);
+		expect(await explicit("false", "boolean")).toBe(false);
 	});
 });

@@ -1,5 +1,6 @@
 "use client";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { AlternateDatePicker } from "@/components/preview/shared/AlternateDatePicker";
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { TimeField as ClockTimeField } from "@/components/shadcn/time-field";
 import type {
@@ -7,6 +8,7 @@ import type {
 	DatetimeField,
 	TimeField,
 } from "@/lib/domain";
+import { hasOtherDisplay } from "@/lib/domain/questionDisplay";
 import {
 	paddedTimeOfDay,
 	storageDatetimeValue,
@@ -15,6 +17,8 @@ import {
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { androidCalendarCanBeEmpty } from "@/lib/preview/workerCalendar";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { ValidationError } from "./ValidationError";
 
@@ -107,6 +111,8 @@ export function DateField({
 	onChange,
 	onBlur,
 }: DateFieldProps) {
+	const rules = usePreviewPlatformRules();
+	const clearable = rules.datePicker === "clearable";
 	const { language } = useBuilderLanguage();
 	const showError = state.touched && !state.valid;
 	const stored = state.value;
@@ -115,11 +121,41 @@ export function DateField({
 	);
 
 	if (field.kind === "date") {
+		const calendar = field.calendar;
+		const displayed = stored || state.androidPickerDay || "";
+		const usesCalendar =
+			calendar === "ethiopian"
+				? rules.alternateCalendar === "ethiopian" ||
+					!hasOtherDisplay(field, "calendar")
+				: !!calendar && rules.alternateCalendar === "authored";
+		if (usesCalendar && calendar)
+			return (
+				<div>
+					<AlternateDatePicker
+						calendar={
+							calendar === "gregorian-with-clear" ? "gregorian" : calendar
+						}
+						showClearButton={calendar === "gregorian-with-clear"}
+						canClearInCalendar={
+							clearable || androidCalendarCanBeEmpty(calendar)
+						}
+						value={displayed}
+						onChange={onChange}
+						onBlur={onBlur}
+						invalid={!!showError}
+						labelledBy={labelledBy}
+					/>
+					{errorSlot}
+				</div>
+			);
+
 		return (
 			<div>
 				<WorkerDatePicker
-					value={stored}
+					clearable={clearable}
+					value={displayed}
 					onValueChange={(next) => {
+						if (!next && !clearable) return;
 						onChange(next);
 						onBlur();
 					}}
@@ -137,7 +173,17 @@ export function DateField({
 		return (
 			<div>
 				<ClockTimeField
-					value={formatClockTime(stored) ?? stored}
+					placeholder={
+						rules.timeClock === "as-authored" && !field.clock
+							? "14:30"
+							: "2:30 PM"
+					}
+					value={
+						formatClockTime(
+							stored,
+							rules.timeClock === "device" || field.clock === "twelve-hour",
+						) ?? stored
+					}
 					onValueChange={onChange}
 					onBlur={(text) => {
 						onChange(storageTimeValue(parseClockTime(text) ?? text));

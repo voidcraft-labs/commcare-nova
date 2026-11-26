@@ -38,6 +38,7 @@ import {
 	type PredicateEditContext,
 	tableRowInScope,
 } from "../editorSchemas";
+import { editorLookupReads } from "../lookupTablePresentation";
 import { appendSlot, type EditorPath } from "../path";
 import {
 	calculatedPatternSeed,
@@ -62,7 +63,7 @@ export function matchesPatternDefault(
 	ctx: PredicateEditContext,
 ): ExpressionOfKind<"matches-pattern"> {
 	if (tableRowInScope(ctx)) {
-		const column = ctx.tableScope?.columns[0];
+		const column = editorLookupReads(ctx.tableScope)[0];
 		if (ctx.tableScope === undefined || column === undefined) {
 			throw new Error(
 				"A table-row pattern condition requires one active-table column.",

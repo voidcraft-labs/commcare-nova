@@ -168,7 +168,7 @@ BASE = Base(
     id="hq-menus",
     build=build,
     configuration=Configuration(
-        flags=frozenset({"SESSION_ENDPOINTS"}), privileges=frozenset({"CLOUDCARE", "FORM_LINK_WORKFLOW"})
+        flags=frozenset({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM", "SESSION_ENDPOINTS"}), privileges=frozenset({"CLOUDCARE", "FORM_LINK_WORKFLOW"})
     ),
     exhibits=(
         "application-and-settings/40-hq-cloudcare-enabled",

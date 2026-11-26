@@ -20,6 +20,7 @@ import {
 	CONSOLE_TRIGGER_CLS,
 	InspectorSection,
 } from "@/components/builder/inspector/inspectorChrome";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { EditorVocabularyProvider } from "@/components/builder/shared/editorContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import {
@@ -38,6 +39,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContextBuilder } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
 	EXPRESSION_PLATFORM_FEATURES,
@@ -52,7 +54,12 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { columnKindPropertyRequirement } from "@/lib/domain";
-import type { PlatformFeatureId } from "@/lib/domain/platforms";
+import { bindWorkerColumn } from "@/lib/domain/columnRelation";
+import {
+	type PlatformFeatureId,
+	platformPickerLine,
+	platformRefusal,
+} from "@/lib/domain/platforms";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { PlatformNoteRow } from "../shared/PlatformNoteRow";
 import {
@@ -67,6 +74,7 @@ import {
 	columnCardSchemas,
 	resolveColumnProperty,
 } from "./columnEditorSchemas";
+import { caseViewWorkerRecord } from "./columnSources";
 import { NO_SEARCH_INPUTS } from "./searchInputResolution";
 
 /**
@@ -110,10 +118,16 @@ interface ColumnEditorProps {
 }
 
 /** What a column's platform note can state: a link's text, a column left off
- *  Results, and the expression-leaf features of its value. */
+ *  Results, formatted text, an image's description, the map's locations and
+ *  layers, and the expression-leaf features of its value. */
 const COLUMN_NOTE_FEATURES: readonly PlatformFeatureId[] = [
 	"link-column",
 	"column-hidden-from-results",
+	"formatted-case-text",
+	"case-image-descriptions",
+	"case-map-location",
+	"case-map-fallback-locations",
+	"case-map-layers",
 	...EXPRESSION_PLATFORM_FEATURES,
 ];
 
@@ -131,6 +145,16 @@ export function ColumnEditor({
 	ordersByMapping = false,
 	onValidityChange,
 }: ColumnEditorProps) {
+	const changeColumn = (next: Column) => {
+		if (
+			next.kind !== "calculated" &&
+			value.kind !== "calculated" &&
+			(next.field !== value.field || next.readFrom !== value.readFrom)
+		) {
+			const { workerPropertyUuid: _old, ...changed } = next;
+			onChange(bindWorkerColumn(changed, userProperties));
+		} else onChange(bindWorkerColumn(next, userProperties));
+	};
 	const projectProse = useProseProjection();
 	const buildContext = useExpressionSlotContextBuilder();
 	const noteFeatures = useOwnerPlatformFeatures(
@@ -154,11 +178,15 @@ export function ColumnEditor({
 					),
 		[moduleUuid, buildContext],
 	);
+	const sourceCaseTypes = useMemo(
+		() => [...caseTypes, caseViewWorkerRecord(userProperties)],
+		[caseTypes, userProperties],
+	);
 	const ctx = useMemo<ColumnEditContext>(
 		() => ({
 			moduleUuid,
 			expressionContextForColumn,
-			caseTypes,
+			caseTypes: sourceCaseTypes,
 			currentCaseType,
 			userProperties,
 			searchIsEffective,
@@ -167,7 +195,7 @@ export function ColumnEditor({
 		[
 			moduleUuid,
 			expressionContextForColumn,
-			caseTypes,
+			sourceCaseTypes,
 			currentCaseType,
 			userProperties,
 			searchIsEffective,
@@ -182,7 +210,12 @@ export function ColumnEditor({
 	// mismatches surface inline next to the field picker.
 	const applicabilityErrors = useMemo(() => {
 		if (value.kind === "calculated") return [] as const;
-		const property = resolveColumnProperty(ctx, value.field, value.via);
+		const property = resolveColumnProperty(
+			ctx,
+			value.field,
+			value.via,
+			value.readFrom,
+		);
 		const schema = columnCardSchemas[value.kind];
 		if (schema.applicableForProperty(property)) return [] as const;
 		const information =
@@ -230,7 +263,7 @@ export function ColumnEditor({
 
 	return (
 		<EditorVocabularyProvider
-			caseTypes={caseTypes}
+			caseTypes={sourceCaseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={NO_SEARCH_INPUTS}
 			userProperties={userProperties}
@@ -240,17 +273,18 @@ export function ColumnEditor({
 				<KindPicker
 					key={`kind:${value.uuid}`}
 					currentValue={value}
-					onChange={onChange}
+					onChange={changeColumn}
 					ctx={ctx}
 				/>
 				<Component
 					key={`card:${value.uuid}`}
 					value={value}
-					onChange={onChange}
+					onChange={changeColumn}
 					ctx={ctx}
 					errors={applicabilityErrors}
 				/>
 				<PlatformNoteRow features={noteFeatures} />
+				{moduleUuid && <ControlWording owner={value.uuid} />}
 			</InspectorSection>
 		</EditorVocabularyProvider>
 	);
@@ -291,9 +325,21 @@ function KindPicker({
 	const property =
 		currentValue.kind === "calculated"
 			? undefined
-			: resolveColumnProperty(ctx, currentValue.field, currentValue.via);
+			: resolveColumnProperty(
+					ctx,
+					currentValue.field,
+					currentValue.via,
+					currentValue.readFrom,
+				);
 	const currentKind = currentValue.kind;
 	const currentSchema = columnCardSchemas[currentKind];
+	/* A worker's distance needs their location, which only Android knows:
+	 * where the app runs elsewhere too, the choice stays visible with the
+	 * platform's reason, as the gate refuses it. */
+	const distanceRefusal = platformRefusal(
+		"worker-distance",
+		useDeclaredPlatforms(),
+	);
 
 	const nextFor = (targetKind: ColumnKind): Column | undefined =>
 		nextColumnDisplay(currentValue, targetKind, ctx, draftsByKindRef.current);
@@ -348,6 +394,8 @@ function KindPicker({
 				>
 					{columnCardSchemaList.map((s) => {
 						const isCurrent = s.kind === currentKind;
+						const refusal =
+							s.kind === "worker-distance" ? distanceRefusal : undefined;
 						const isApplicable =
 							currentValue.kind === "calculated"
 								? canSeedColumnKind(ctx, s.kind)
@@ -356,7 +404,7 @@ function KindPicker({
 							<DropdownMenuItem
 								key={s.kind}
 								onClick={() => replaceWith(s)}
-								disabled={isCurrent || !isApplicable}
+								disabled={isCurrent || !isApplicable || refusal !== undefined}
 								className={`${CONSOLE_MENU_ITEM_CLS} ${
 									isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
 								}`}
@@ -380,9 +428,11 @@ function KindPicker({
 												: "text-nova-text-muted"
 										}`}
 									>
-										{isApplicable
-											? s.description
-											: `Choose ${s.applicabilityRequirement ?? "different information"}`}
+										{refusal !== undefined && !isCurrent
+											? platformPickerLine(refusal)
+											: isApplicable
+												? s.description
+												: `Choose ${s.applicabilityRequirement ?? "different information"}`}
 									</div>
 								</span>
 								{isCurrent && (

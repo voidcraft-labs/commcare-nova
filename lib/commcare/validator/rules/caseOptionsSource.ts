@@ -31,10 +31,7 @@ export function validateCaseOptionsSources(
 		for (const uuid of orderedFieldUuids(doc, parent)) {
 			const field = doc.fields[uuid];
 			if (doc.fieldOrder[uuid]) walk(uuid);
-			if (
-				(field.kind !== "single_select" && field.kind !== "multi_select") ||
-				field.optionsSource.kind !== "cases"
-			)
+			if (field.kind !== "single_select" && field.kind !== "multi_select")
 				continue;
 			const source = field.optionsSource;
 			const finding = (
@@ -57,15 +54,29 @@ export function validateCaseOptionsSources(
 						details,
 					),
 				);
+			if (source.kind === "available-cases" && field.kind === "multi_select")
+				finding(
+					"CASE_SELECT_SOURCE_INVALID",
+					`Choices for "${field.id}" can offer all restored cases only in a single-select question.`,
+					{ part: "single-select" },
+				);
+			if (source.kind !== "cases") continue;
 			const type = caseTypes.find((type) => type.name === source.caseType);
-			if (
-				!type?.properties.some(
-					(property) => property.name === source.labelProperty,
-				)
-			)
+			const hasProperty = (name: string) =>
+				type?.properties.some((property) => property.name === name) ?? false;
+			if (!hasProperty(source.labelProperty))
 				finding(
 					"CASE_SELECT_SOURCE_INVALID",
 					`Choices for "${field.id}" need a declared record type and label property.`,
+				);
+			if (
+				source.sortProperty !== undefined &&
+				!hasProperty(source.sortProperty)
+			)
+				finding(
+					"CASE_SELECT_SOURCE_INVALID",
+					`Choices for "${field.id}" need a sort property on their record type.`,
+					{ part: "sort" },
 				);
 			if (!source.filter) continue;
 			const context = slotContext(

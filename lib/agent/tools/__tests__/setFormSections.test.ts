@@ -12,6 +12,7 @@ import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { connectSectionForm } from "@/lib/__tests__/connectSectionForm";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { generateToolSchemas } from "@/lib/agent/toolSchemaGenerator";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
@@ -150,6 +151,36 @@ describe("section at the tool boundary", () => {
 });
 
 describe("setFormSections", () => {
+	it("changes only the requested page title and returns the actual root activity order to shared-tool callers", async () => {
+		const doc = expectAdmittedDoc(connectSectionForm("shared-tool-pages"));
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const [lesson, practice, review, follow, completion] =
+			doc.fieldOrder[formUuid];
+		const [reflection, rehearsal] = doc.fieldOrder[practice];
+		const h = makeToolWorkspaceHarness(doc);
+		const response = await h.runTool(setFormSectionsTool, {
+			moduleUuid,
+			formUuid,
+			sections: [
+				{
+					sectionUuid: practice,
+					label: proseText("Practice together"),
+					fields: [reflection],
+				},
+				{ sectionUuid: follow, fields: doc.fieldOrder[follow] },
+			],
+		});
+		expect(response.mutations.map((m) => m.kind)).toEqual(["updateField"]);
+		expect(response.result).toMatchObject({
+			rootFieldUuids: [lesson, practice, review, follow, completion],
+			sections: [
+				{ sectionUuid: practice, fieldUuids: [reflection, rehearsal] },
+				{ sectionUuid: follow, fieldUuids: doc.fieldOrder[follow] },
+			],
+		});
+	});
+
 	it("pages a single-page form, reports the pages, and getForm then nests them", async () => {
 		const h = makeToolWorkspaceHarness(flat());
 		const result = await h.runTool(setFormSectionsTool, {

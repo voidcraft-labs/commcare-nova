@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * A lookup table CommCare HQ manages, through a publish and through the
  * services a person reaches it by (Refresh, Manage in Nova, the hand-back),
@@ -9,6 +10,7 @@
  */
 
 import { sql } from "kysely";
+import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -21,7 +23,6 @@ import {
 	updateLookupRow,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
-import { driftDate } from "@/lib/publish/driftReference";
 import {
 	CONNECT_TO_REFRESH_TABLE,
 	cannotReadManagedTables,
@@ -34,11 +35,11 @@ import {
 	managedColumnGoneItem,
 	managedDataPassed,
 	managedDataUnreadablePermission,
-	managedTableFromElsewhereItem,
+	managedHandBackPastInlineRead,
 	managedTableGone,
-	managedTableOverCap,
+	managedTablePastInlineRead,
 	managedTableUnrepresentable,
-	managedTableUnsupported,
+	managedTakeOverPastInlineRead,
 } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import {
@@ -48,7 +49,7 @@ import {
 	manageLookupTableInNova,
 	refreshManagedLookupTable,
 } from "../managedData";
-import { type PublishOutcome, publishAppToHq } from "../service";
+import type { PublishOutcome } from "../service";
 import type { DeploymentConfirmationKey } from "../types";
 import {
 	acceptImport,
@@ -65,6 +66,7 @@ import {
 	serveRows,
 	serveSource,
 	serveTableList,
+	serveTransferEvidence,
 	sourcePath,
 	tablesPath,
 	takeWorkbook,
@@ -103,7 +105,7 @@ const IMPORT = "/a/clinic/apps/api/import_app/";
 const WORKBOOK = workbookPath(DOMAIN);
 
 const facilities: ServedTable = {
-	id: "hq-facilities",
+	id: "a".repeat(32),
 	tag: "facilities",
 	fields: ["code", "name"],
 	rows: [
@@ -128,7 +130,7 @@ async function members(): Promise<void> {
 	await h.seedProjectMember(PUBLISHER, PROJECT, "editor");
 	await h.seedProjectMember(ADMIN, PROJECT, "admin");
 	await connect(h, PUBLISHER, "india", [DOMAIN]);
-	await connect(h, ADMIN, "india", [DOMAIN]);
+	await connect(h, ADMIN, "india", [DOMAIN, "north"]);
 }
 
 /** The app, reading a copy CommCare HQ manages in the target, made from `served`. */
@@ -159,7 +161,26 @@ async function manageAsReviewed(
 	scope: LookupScope,
 	tableId: LookupTableId,
 ): Promise<ManagedTableOutcome> {
-	return manageLookupTableInNova(scope, tableId, await reviewDigestOf(tableId));
+	if (scope.role !== "admin" && scope.role !== "owner")
+		return manageLookupTableInNova(
+			scope,
+			tableId,
+			await reviewDigestOf(tableId),
+		);
+	const stored = await h
+		.db()
+		.selectFrom("lookup_tables")
+		.select("hq_domain")
+		.where("id", "=", tableId)
+		.executeTakeFirstOrThrow();
+	return withManagedPeer(async (peer) => {
+		serveTransferEvidence(peer, stored.hq_domain ?? DOMAIN, facilities);
+		return manageLookupTableInNova(
+			scope,
+			tableId,
+			await reviewDigestOf(tableId),
+		);
+	});
 }
 
 /** Let CommCare HQ manage it again, confirmed over the table as it stands now. */
@@ -569,9 +590,13 @@ describe("Manage in Nova, and the publish after it", () => {
 });
 
 describe("a publish of a table another project space manages", () => {
-	it("says the publish puts Nova's copy there, and sends it in the workbook", async () => {
-		// The publisher's connection is approved for the target alone, so the
-		// table's own project space can't be read: the copy goes as it is.
+	it("stops before sending anything while Nova hasn't seen which of its columns are indexed", async () => {
+		/* The publisher's connection is approved for the target alone, so the
+		 * table's own project space can't be read. Nova's copy came from HQ's
+		 * table list, which never says which fields are indexed, and a workbook
+		 * must say so for each one
+		 * (`fixtures/upload/workbook.py::_get_field_is_indexed`), so a guess
+		 * would make a different table there. */
 		await members();
 		const copy = await makeManagedCopy(h, EDITOR_LOOKUP, facilities, {
 			server: "india",
@@ -585,25 +610,19 @@ describe("a publish of a table another project space manages", () => {
 		});
 		const refreshedAt = (await copyOf(copy)).hq?.refreshedAt ?? "";
 		await withManagedPeer(async (peer) => {
-			createPushingTable(peer, facilities);
-			const outcome = await publish(doc);
-			expect(outcome.landed, JSON.stringify(outcome)).toBe(true);
-			expect(
-				outcome.checks.find((check) => check.id === "managed-data"),
-			).toMatchObject({
-				status: "passed",
-				detail: managedDataPassed({ domain: DOMAIN, here: 0, elsewhere: 1 }),
-				items: [
-					managedTableFromElsewhereItem(
-						"facilities",
-						"north",
-						driftDate(refreshedAt),
-						DOMAIN,
-					),
-				],
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "app_not_ready",
+					details: [
+						"“facilities” needs a verified data source for this destination. You can prepare its table in the project space, or create a separate table on its page in Project data.",
+					],
+				},
 			});
-			expect(publishRequests(peer)).toContain(`POST ${WORKBOOK}`);
+			expect(publishRequests(peer)).toEqual([]);
 		});
+		expect(await copyOf(copy)).toMatchObject({ hq: { refreshedAt } });
 	});
 });
 
@@ -623,7 +642,7 @@ describe("Refresh from CommCare HQ, through its service", () => {
 		expect((await copyOf(copy)).rows).toHaveLength(3);
 	});
 
-	it("answers a table CommCare HQ grew past Nova's row cap as over a cap after one page, the copy as it was", async () => {
+	it("answers a table CommCare HQ grew past one inline read after one page with the paged refresh it needs, the copy as it was", async () => {
 		const { copy } = await seedApp();
 		const before = await copyOf(copy);
 		const outcome = await withManagedPeer(async (peer) => {
@@ -650,10 +669,12 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			).toHaveLength(1);
 			return answered;
 		});
+		/* No sign-in grant rode the request, so the paged refresh that reads
+		 * a table this size cannot start; nothing names a size as too large. */
 		expect(outcome).toEqual({
 			ok: false,
-			reason: "over-cap",
-			message: managedTableOverCap(["5,001 rows (Nova takes 5,000)"]),
+			reason: "needs-paged-refresh",
+			message: managedTablePastInlineRead,
 		});
 		expect(await copyOf(copy)).toEqual(before);
 	});
@@ -720,17 +741,9 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			{ reason: "table-gone", message: managedTableGone("facilities", DOMAIN) },
 		],
 		[
-			"a field property",
-			{ ...facilities, fieldProperties: { name: ["lang"] } },
-			{
-				reason: "unsupported",
-				message: managedTableUnsupported("field properties"),
-			},
-		],
-		[
-			"a table over a cap",
+			"a value past one inline copy, with no grant for the paged refresh",
 			{ ...facilities, rows: [{ code: "001", name: "n".repeat(70_000) }] },
-			{ reason: "over-cap", message: expect.stringContaining("in one cell") },
+			{ reason: "needs-paged-refresh", message: managedTablePastInlineRead },
 		],
 		[
 			"a table with no columns",
@@ -777,6 +790,58 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			ok: false,
 			reason: "unsupported",
 			message: MANAGED_TABLE_NO_COLUMNS,
+		});
+		expect(await copyOf(copy)).toEqual(before);
+	});
+
+	/** CommCare HQ's first page of `facilities`' rows, naming more rows than one inline read takes. */
+	function servePastInlineRead(peer: MockAgent) {
+		serveTableList(peer, DOMAIN, [facilities]);
+		peer
+			.get(HOST)
+			.intercept({ path: ROWS, method: "GET" })
+			.reply(200, {
+				objects: facilities.rows.map((fields, index) => ({
+					id: `row-${index}`,
+					fixture_type: facilities.tag,
+					fields,
+				})),
+				meta: { next: "more", offset: 0, total_count: 5_001 },
+			});
+	}
+
+	it("refuses the hand-back of a table past one inline read in CommCare HQ without sending the person to sign in or refresh", async () => {
+		const { copy } = await seedApp();
+		const taken = await manageAsReviewed(ADMIN_LOOKUP, copy.tableId);
+		if (!taken.ok) throw new Error(taken.message);
+		const before = await copyOf(copy);
+		const outcome = await withManagedPeer(async (peer) => {
+			servePastInlineRead(peer);
+			return handBackAsReviewed(ADMIN_LOOKUP, copy.tableId);
+		});
+		expect(outcome).toEqual({
+			ok: false,
+			reason: "unsupported",
+			message: managedHandBackPastInlineRead,
+		});
+		expect(await copyOf(copy)).toEqual(before);
+	});
+
+	it("refuses a takeover of a copy whose table grew past one inline read by sending the person to refresh it first", async () => {
+		const { copy } = await seedApp();
+		const before = await copyOf(copy);
+		const outcome = await withManagedPeer(async (peer) => {
+			servePastInlineRead(peer);
+			return manageLookupTableInNova(
+				ADMIN_LOOKUP,
+				copy.tableId,
+				await reviewDigestOf(copy.tableId),
+			);
+		});
+		expect(outcome).toEqual({
+			ok: false,
+			reason: "needs-paged-refresh",
+			message: managedTakeOverPastInlineRead,
 		});
 		expect(await copyOf(copy)).toEqual(before);
 	});

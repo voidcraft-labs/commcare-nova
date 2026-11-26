@@ -249,7 +249,8 @@ def apply_upload(state, upload: Upload) -> Published:
     from corehq.apps.app_manager.views.app_import_api import _handle_import_app
 
     request = hq_requests.raw_post(state, f"/a/{state.domain}/apps/api/import_app/", upload.body, upload.content_type)
-    response = _handle_import_app(request, state.domain)
+    with state.app_save():
+        response = _handle_import_app(request, state.domain)
     return Published(response.status_code, json.loads(response.content), hq_requests.messages(request))
 
 
@@ -265,7 +266,7 @@ class MediaUploaded:
 def apply_media_upload(state, app_id, upload: Upload) -> MediaUploaded:
     """Apply one media upload of Nova's publish through HQ's bulk multimedia API view body, to the app ``app_id``.
 
-    Nova's publish sends every asset the app's export carries as one ZIP
+    Nova's publish sends one bounded batch of its remaining assets per ZIP
     once its import landed (``lib/deployment/service.ts::uploadMediaBytes``
     -> ``lib/commcare/client.ts::uploadAppMediaBundle``, ``POST
     /a/<domain>/apps/api/<app id>/multimedia/``). The view
@@ -724,9 +725,38 @@ def fixture_rows_read(state, table_id, credential: ApiCredential, *, query="") -
     return api_request(state, "GET", f"{path}{query or f'?fixture_type_id={table_id}'}", credential=credential)
 
 
+def lookup_detail_targets(table, rows):
+    """The detail reads a first reading makes of one listed table whose definition or rows a plain row list cannot
+    carry: a field with properties, a row attribute, or a row the list serves with its fields' values in the detailed
+    form (``lib/commcare/hq/lookupSource.ts::readSelectedHqLookupRows`` and ``hasRichDefinition``). Returns ``[(kind,
+    resource, remote id)]``: the table's definition (``lookupDefinition``, ``lookup_table``) and then each row in the
+    list's order (``fixtureDetail``, ``lookup_table_item``), and nothing for a plain table. ``retain.py`` makes these
+    reads of a base it retains and the unit of a document made in HQ, so both hand the reader the same answers."""
+    if not (
+        table.get("item_attributes")
+        or any(field.get("properties") for field in table["fields"])
+        or any(not isinstance(value, str) for row in rows for value in row["fields"].values())
+    ):
+        return []
+    return [("lookupDefinition", "lookup_table", table["id"])] + [
+        ("fixtureDetail", "lookup_table_item", row["id"]) for row in rows
+    ]
+
+
+def lookup_detail_read(state, resource, remote_id, credential: ApiCredential) -> HqAnswer:
+    """One of ``fixtures/resources/v0_1.py``'s detail resources (``lookup_detail_targets``), as Nova's reader reads it."""
+    return api_request(state, "GET", f"/a/{state.domain}/api/{resource}/v1/{remote_id}/", credential=credential)
+
+
 def locations_read(state, credential: ApiCredential) -> HqAnswer:
     """``locations/resources/v0_6.py::LocationResource``'s list, as Nova's ``listHqLocations`` reads it."""
     return api_request(state, "GET", f"/a/{state.domain}/api/location/v2/?limit=1000", credential=credential)
+
+
+
+def location_external_ids_read(state, credential: ApiCredential) -> HqAnswer:
+    """The v1 LocationResource exposes external_id, which v2 omits."""
+    return api_request(state, "GET", f"/a/{state.domain}/api/location/v1/?limit=1000", credential=credential)
 
 
 @contextmanager
@@ -909,6 +939,78 @@ def api_access_read(state, credential: ApiCredential) -> HqAnswer:
         return api_request(state, "GET", f"/a/{state.domain}/api/lookup_table/v1/?limit=1", credential=credential)
 
 
+def _working_suite_expressions(source):
+    """Source slots that can consume declarations from HQ's generated suite."""
+    for module in source.get("modules") or []:
+        forms = module.get("forms") or []
+        yield module.get("module_filter")
+        for form in forms:
+            yield form.get("form_filter")
+        for owner in (module, *forms):
+            icons = owner.get("custom_icons") or []
+            if icons and isinstance(icons[0], dict):
+                yield icons[0].get("xpath")
+        for screen in ("short", "long"):
+            columns = ((module.get("case_details") or {}).get(screen) or {}).get("columns") or []
+            for column in columns:
+                # HQ keeps null entries in the column list.
+                if isinstance(column, dict) and column.get("useXpathExpression"):
+                    yield column.get("field")
+
+
+def source_factory_answers(state, app_id, credential, source):
+    """Actual source-project facts and working resources potentially consumed by the reader.
+    The retained base keeps only requests the production reader made."""
+    from urllib.parse import urlencode
+
+    from corehq import toggles
+
+    if source.status != 200:
+        return
+    supplied = json.loads(source.body)
+    # Production resolves references on a reached detail, menu or form
+    # command from HQ's actual suite. The harness collects candidate answers;
+    # retain.py keeps only the requests the client made.
+    suite_reads = not supplied.get("use_custom_suite") and any(
+        isinstance(text, str) and ("instance" in text or "&" in text)
+        for text in _working_suite_expressions(supplied)
+    )
+    resources = set()
+    if suite_reads:
+        for profile in (None, *(supplied.get("build_profiles") or {})):
+            resources.add(("suite.xml", profile or ""))
+    encoded = "&#" in source.body
+    for flag, required in (
+        (toggles.HIERARCHICAL_LOCATION_FIXTURE, "locations" in source.body),
+        (toggles.MOBILE_UCR, "commcare:reports" in source.body or "commcare-reports" in source.body),
+    ):
+        if not encoded and not required:
+            continue
+        yield f"membership:{flag.slug}", project_spaces_read(state, credential)
+        path = f"/api/user_domains/v1/?limit=100&feature_flag={flag.slug}"
+        response = api_request(state, "GET", path, credential=credential)
+        yield path, response
+        if flag is not toggles.HIERARCHICAL_LOCATION_FIXTURE or response.status != 200:
+            continue
+        if not any(row.get("domain_name") == state.domain for row in json.loads(response.body)["objects"]):
+            continue
+        resources.add(("suite.xml", ""))
+        for menu, module in enumerate(supplied.get("modules") or []):
+            for index, form in enumerate(module.get("forms") or []):
+                xml = (supplied.get("_attachments") or {}).get(f"{form.get('unique_id')}.xml")
+                if isinstance(xml, str) and ("locations" in xml or "&#" in xml):
+                    for profile in (None, *(supplied.get("build_profiles") or {})):
+                        resources.add((f"modules-{menu}/forms-{index}.xml", profile or ""))
+    for resource, profile in sorted(resources):
+        query = "?" + urlencode({"profile": profile}) if profile else ""
+        path = f"/a/{state.domain}/apps/download/{app_id}/{resource}{query}"
+        # An edited app can fail HQ's suite generation while its source is
+        # still readable. Retain Django's actual response to the client.
+        yield path, client_request(state, "GET", path, credential=credential)
+    if resources:
+        yield "source-check", source_read(state, app_id, credential)
+
+
 def project_spaces_read(state, credential: ApiCredential, *, feature_flag: str | None = None) -> HqAnswer:
     """``api/resources/v0_5.py::UserDomainsResource``, as Nova's ``listDomainsMatching`` reads it:
     ``GET /api/user_domains/v1/?limit=100``, with ``&feature_flag=<slug>`` where one is named, through
@@ -927,9 +1029,8 @@ def client_request(state, method: str, path: str, *, credential: ApiCredential |
     exception is answered by HQ's ``handler500``, and what the middleware
     leaves on the thread (the request field audit keeps, the active language)
     is put back after it, as a server's next request would replace it. The
-    answer is built as ``api_request`` builds one. Used for the one read whose
-    answer may depend on what the middleware does with the key: a superuser's
-    read without the plan's API access."""
+    answer is built as ``api_request`` builds one. Use the full path for reads
+    whose response depends on middleware or on HQ's HTTP error handlers."""
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer.client import HqRequest
 
@@ -1319,17 +1420,29 @@ def served_lookup_tables(state):
     }
 
 
-def served_lookup_rows(state, tag):
-    """The rows of the table under ``tag`` as ``fixtures/resources/v0_1.py::FixtureResource`` serves them filtered
-    to that table, in order, each its ``fields`` alone."""
+def served_lookup_rows(state, tag, *, details=False):
+    """Read the selected table in native fixture order. The fixture list drops singleton properties and row
+    attributes; where Nova read selected row details, use the same detail resource on the listed row IDs."""
     from corehq.apps.fixtures.models import LookupTable
-    from corehq.apps.fixtures.resources.v0_1 import FixtureResource
+    from corehq.apps.fixtures.resources.v0_1 import FixtureResource, LookupTableItemResource
 
     table = LookupTable.objects.get(domain=state.domain, tag=tag)
     resource = FixtureResource()
     request = hq_requests.get(state, f"/a/{state.domain}/api/fixture/v1/", {"fixture_type_id": table.id.hex})
     rows = resource.obj_get_list(resource.build_bundle(request=request), domain=state.domain)
-    return [{"fields": served["fields"]} for served in _dehydrated(resource, request, rows)]
+    if not details:
+        return [{"fields": served["fields"]} for served in _dehydrated(resource, request, rows)]
+    items = LookupTableItemResource()
+    result = []
+    for row in rows:
+        pk = row.id.hex
+        detail_request = hq_requests.get(state, f"/a/{state.domain}/api/lookup_table_item/v1/{pk}/")
+        item = items.obj_get(items.build_bundle(request=detail_request), pk=pk, domain=state.domain)
+        detail, = _dehydrated(items, detail_request, [item])
+        if detail["id"] != pk or detail["data_type_id"] != table.id.hex:
+            raise CapturedResourcesNotHeld(f"The selected row did not belong to the lookup table {tag}.")
+        result.append({"fields": detail["fields"], "item_attributes": detail["item_attributes"]})
+    return result
 
 
 def resource_differences(state, assumed):
@@ -1350,8 +1463,11 @@ def resource_differences(state, assumed):
         if held != table["table"]:
             differences.append((tag, "definition", table["table"], held))
             continue
-        if "rows" in table and (rows := served_lookup_rows(state, tag)) != table["rows"]:
-            differences.append((tag, "rows", table["rows"], rows))
+        if "rows" in table:
+            detailed = any("item_attributes" in row for row in table["rows"])
+            rows = served_lookup_rows(state, tag, details=detailed)
+            if rows != table["rows"]:
+                differences.append((tag, "rows", table["rows"], rows))
     return differences
 
 
@@ -1429,7 +1545,8 @@ def save_authored_app(state, document: dict, media) -> str:
     source = json.loads(json.dumps(document))
     attachments = source.pop("_attachments", None) or {}
     app = get_correct_app_class(source).from_source(source, state.domain)
-    app.save_attachments(dict(sorted(attachments.items())))
+    with state.app_save():
+        app.save_attachments(dict(sorted(attachments.items())))
     for item in media:
         held = app.multimedia_map.get(item.path)
         if held is None:

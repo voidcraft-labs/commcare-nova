@@ -26,8 +26,8 @@
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every attachment must
  * resolve (field exists, slot supported) and every set slot must pass the
- * at-source asset verdict (exists / owned / ready / kind-matched / inside
- * the export ceiling) before the single gated commit; any failure returns
+ * at-source asset verdict (exists / owned / ready / kind-matched / plays
+ * where the app runs) before the single gated commit; any failure returns
  * `{ error }` naming every offending attachment and nothing is written.
  * Two attachments addressing the same (field, slot) apply in order — the
  * later one wins.
@@ -39,7 +39,11 @@
 import { z } from "zod";
 import type { Field, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
-import { setFieldMediaMutations } from "../../blueprintHelpers";
+import {
+	appLanguageIdentitySchema,
+	effectiveAppLocalization,
+	languageTag,
+} from "@/lib/domain/localization";
 import type { ToolInvocationContext } from "../../workspace/types";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
@@ -52,7 +56,7 @@ import {
 	commitMediaBatch,
 	FIELD_MEDIA_SLOTS,
 	type FieldMediaSlot,
-	mediaBundleInput,
+	fieldMediaBundleInput,
 	mediaKeyForSlot,
 	type ResolvedMediaBatchItem,
 } from "./shared";
@@ -66,10 +70,21 @@ const fieldMediaAttachmentSchema = fieldAddressSchema
 					"field but a group or repeat) or `help` (input fields). The media " +
 					"shows alongside that message's text.",
 			),
-		media: mediaBundleInput(
+		language: appLanguageIdentitySchema
+			.optional()
+			.describe(
+				"The app language whose files to change. Leave this out to edit the " +
+					"shared files. In another language, a role left out of `media`, or " +
+					"an empty `{}`, goes back to the shared file: a language can't hide " +
+					"a shared file.",
+			),
+		media: fieldMediaBundleInput(
 			"The image/audio/video to attach. Supply any subset of `image`, " +
-				"`audio`, `video` as asset ids (discover them with list_media_assets). " +
-				"Pass an empty object `{}` to clear every reference on this slot.",
+				"`audio`, `video` as asset ids (discover them with list_media_assets), " +
+				"and on a `label` a `videoInline`: a video Android plays inside the " +
+				"question in place of its image (Web Apps shows none). " +
+				"Pass an empty object `{}` to clear every reference on this slot; " +
+				"in another language it goes back to the shared files.",
 		),
 	})
 	.strict();
@@ -92,13 +107,14 @@ export type AttachFieldMediaResult = MutationSuccess | { error: string };
 
 export const attachFieldMediaTool = {
 	description:
-		"Set or clear image/audio/video on a field's label or help. Fields may span forms. Asset ids come from list_media_assets; an empty media object clears. The slot must exist on the field's kind.",
+		"Set or clear image/audio/video on a field's label or help, and an inline video on a label. Fields may span forms. Asset ids come from list_media_assets; an empty media object clears the shared files, and in another language goes back to them. The slot must exist on the field's kind.",
 	inputSchema: attachFieldMediaInputSchema,
 	async execute(
 		input: AttachFieldMediaInput,
 		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AttachFieldMediaResult>> {
 		const doc = ctx.snapshot.doc;
+		const languages = effectiveAppLocalization(doc.localization);
 		const { attachments } = input;
 		try {
 			// Resolve every attachment before writing anything, collecting
@@ -118,6 +134,15 @@ export const attachFieldMediaTool = {
 				}
 
 				const { field } = found;
+				const language = attachment.language
+					? languageTag(attachment.language)
+					: languages.sourceLanguage;
+				if (!languages.languageOrder.includes(language)) {
+					failures.push(
+						`attachments[${i}]: This language is not in the app. Choose one of the app’s languages or add it first.`,
+					);
+					continue;
+				}
 				const mediaKey = mediaKeyForSlot(slot);
 				// Slot availability is per-KIND, asked of the schema — not of
 				// this field instance. An unset optional `<slot>_media` is absent
@@ -134,6 +159,13 @@ export const attachFieldMediaTool = {
 					continue;
 				}
 
+				if (slot !== "label" && media.videoInline !== undefined) {
+					failures.push(
+						`attachments[${i}]: Only a question's label plays an inline video, and this attachment puts one on the ${slot} of field "${field.id}". You can attach it to the label instead, or as the help's \`video\`.`,
+					);
+					continue;
+				}
+
 				// Empty bundle clears the slot; a populated bundle sets it. An
 				// all-empty bundle becomes a `null` payload so the reducer drops
 				// the slot (rather than storing an empty object). `null` survives
@@ -142,11 +174,15 @@ export const attachFieldMediaTool = {
 					.filter(([, v]) => v !== undefined)
 					.map(([k]) => k);
 				resolved.push({
-					mutations: setFieldMediaMutations(
-						field.uuid,
-						slot,
-						setKinds.length > 0 ? media : null,
-					),
+					mutations: [
+						{
+							kind: "setFieldMedia",
+							fieldUuid: field.uuid,
+							slot,
+							language,
+							media: setKinds.length ? media : null,
+						},
+					],
 					expectations: bundleExpectations(
 						media,
 						`the ${slot} media on field "${field.id}"`,

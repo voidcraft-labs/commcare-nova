@@ -1,4 +1,11 @@
-import { caseOptionsSourceSchema as storedCaseOptionsSourceSchema } from "@/lib/domain/fields/selectOptionsSource";
+import { singleChoiceLayoutSchema } from "@/lib/domain/choicePresentation";
+import { androidAppAnswerSchema } from "@/lib/domain/fields/androidApp";
+import { connectActivitySchema } from "@/lib/domain/fields/connectActivity";
+import {
+	availableCasesOptionsSourceSchema,
+	caseOptionsSourceSchema as storedCaseOptionsSourceSchema,
+} from "@/lib/domain/fields/selectOptionsSource";
+import { displaySchemas } from "@/lib/domain/questionDisplaySchemas";
 
 const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
 	labelProperty:
@@ -72,12 +79,13 @@ import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
 import {
 	authoredCasePropertyNameSchema,
+	fieldDisplaySettingsFor,
 	fieldKindDeclaresKey,
 	fieldKinds,
+	fieldPatchSchemaByKind,
 	fieldRegistry,
 	formLogicSchema,
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
-	hiddenFieldCarriesBothValueSources,
+	imageDimensionSchema,
 	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
@@ -85,6 +93,8 @@ import {
 	TEXT_KEYPADS,
 	uuidSchema,
 } from "@/lib/domain";
+import { HIDDEN_ANSWER_TYPES } from "@/lib/domain/fields/hidden";
+import { rowTimingSchema } from "@/lib/domain/queryRepeatPlacement";
 import { caseWriteViaInputSchema } from "./tools/case-operations/shared";
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
@@ -108,11 +118,27 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 // strings still apply — they carry the per-property guidance, not the
 // per-kind shape.
 
+/** What the model needs to place a Connect activity, the one rule that admits a
+ *  delivery in each row a worker adds among it (`connectRecipientRule.ts`). */
+const CONNECT_ACTIVITY_DOC =
+	"The Connect activity this position submits. Replacing an activity replaces all of its settings. A delivery value left out submits empty text. A delivery inside a repeat the worker adds rows to needs each row to ask for a person or place ID no other row repeats: a required text question in that row, with no condition or default, whose validate expr is string-length(join('|', #form/<repeat>[true()]/<id>)) = string-length(join('|', distinct-values(#form/<repeat>[true()]/<id>))), and the delivery's entityId ../../../<id>, read from the delivery's own value.";
+
 const FIELD_DOCS = {
 	id: "Question identifier: lowercase words joined by underscores, starting with a letter and never with XML. Not one of meta, case, registration, script, instance, bind, parsererror. Independent of its saved record property.",
 	label: "Visible wording. Empty labels hide group chrome or repeat titles.",
 	hint: "Short guidance below the question.",
 	help: "Longer guidance opened on demand.",
+	extended_hint: "Alternate hint shown in place of the ordinary hint.",
+	extended_help:
+		"Alternate help shown in Web Apps. Android uses it when Format text is off for the help.",
+	extended_validate_msg:
+		"Alternate message shown when this question's validation fails.",
+	extended_text:
+		"Text shown in place of the label where the label shows exactly as typed (plain_label, or a form with plain_text). Android also reads it aloud where the worker turned text to speech on and the question has no spoken_text. A formatted label shows itself instead. null removes it.",
+	qr_code:
+		"Text Android draws as a QR code beside the question, in place of the label's image. Web Apps shows no QR code. null removes it.",
+	spoken_text:
+		"Text Android reads aloud from a speaker button beside the question, when the label has no audio. Web Apps shows no speaker button. null removes it.",
 	required: "Require an answer when this condition holds.",
 	validate: "Answer validation; . refers to this question's value.",
 	validate_msg: "Explanation shown when validation fails.",
@@ -122,7 +148,7 @@ const FIELD_DOCS = {
 	default_value:
 		"Starting value evaluated when the form opens. Use calculate for a value that should keep updating.",
 	optionsSource:
-		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs; labelProperty defaults to case_name. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record.",
+		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs. labelProperty defaults to case_name. sortProperty orders choices by a property of the chosen case type. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record. A single-select can use available-cases to show all case types restored for the worker by name. Set status to open to show only open cases. The answer is an exact ID without a named case type.",
 	caseWrite:
 		"Save this answer to a case property. The module's case type saves it to this form's case, and with via to a case above it; a declared child type saves it to a new child case, which needs a question saving its case_name; commcare-user saves it to the worker's own record. A capture saves a link to its file. A value replaces every place this question saves to, and null stops it saving anywhere; when it saves to several places, change them with updateCaseOperation instead. On a follow-up or close form that opens one case, a question saving to this form's case is given a default_value reading that case's value, which you can replace or remove. Use recordName for the case's name.",
 	field_list:
@@ -131,8 +157,12 @@ const FIELD_DOCS = {
 		"true shows the label exactly as typed, so *, #, numbered lines and links stay as written instead of formatting. Labels are formatted as Markdown by default; false or null returns the label to Markdown. A help text takes plain_help the same way; a hint and a validation message have no such setting.",
 	plain_help:
 		"true shows the help text exactly as typed on Android. Web Apps formats every help text either way. false or null returns it to Markdown.",
+	answerType:
+		"Hidden questions only. Choose the type of answer an assignment holds. Omit to infer it, or use null to return to automatic.",
+	maxDimension:
+		"Image questions only. Longest side in pixels for JPEG and PNG photos on Android. Web Apps keeps the original file. Leave out for no change, or set null to keep original size.",
 	keypad:
-		'Text questions only. "numbers" gives the worker a number keypad and keeps the answer as text, for a phone number or an ID that may start with 0 or +. Use int or decimal for a quantity. null returns the full keyboard.',
+		'Text, password and barcode questions. "android-numbers" limits the keypad to Android on text or password questions. "numbers" gives the worker a number keypad and keeps the answer as text, for a phone number or an ID that may start with 0 or +. Use int or decimal for a quantity. null returns the full keyboard.',
 	repeat_mode:
 		"Worker-added rows, a number of rows from a whole-number question or expression, or one row per case a query finds. Counts grow live during entry; lowering a count keeps created rows, answers and case operations. A query's rows are set when the form opens where the repeat has no condition of its own, its query reads no answer, it sits in no other repeat and no group around it shows on a condition that can change during entry; otherwise its rows follow the query as answers change, each row keeping its place. Once published, a query repeat keeps that choice, and an edit that would change it says so in identityMoves.",
 	repeat_count:
@@ -194,8 +224,39 @@ const hintField = () =>
 	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.hint);
 const helpField = () =>
 	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.help);
+const labelTextFields = () => ({
+	extended_text: proseTemplateSchema
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.extended_text),
+	qr_code: proseTemplateSchema
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.qr_code),
+	spoken_text: proseTemplateSchema
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.spoken_text),
+});
 const relevantField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.relevant);
+const questionLockField = () =>
+	z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe(
+			"Protect this question against changes in the CommCare HQ form designer. An authorized Nova editor may still edit it. The destination project space must support question locking.",
+		);
+const namespaceField = () =>
+	z
+		.string()
+		.min(1)
+		.nullable()
+		.optional()
+		.describe(
+			"A Hidden Value may use a separate namespace that a receiving service expects. Leave it out to inherit the form namespace. On an edit, null restores inheritance.",
+		);
 const calculateField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
@@ -206,6 +267,28 @@ const plainLabelField = () =>
 	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_label);
 const plainHelpField = () =>
 	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_help);
+const hiddenAnswerTypeField = () =>
+	z
+		.enum(HIDDEN_ANSWER_TYPES)
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.answerType);
+
+const confirmationField = () =>
+	z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe(
+			"On a label, show a confirmation checkbox on Android. Web Apps confirms the message when the worker submits.",
+		);
+const androidAppField = () =>
+	androidAppAnswerSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Open an Android app to answer a text question, or use another question's app on a text, integer, decimal, date, time, date-and-time, barcode or location question. With open-app, action is the external action ID, send maps names to form expressions, and receive maps returned names to questions in this form. A result can fill more than one question. With use-question, question names the text question that opens the app. The app must run on Android. null removes the interaction.",
+		);
 const keypadField = () =>
 	z.enum(TEXT_KEYPADS).nullable().optional().describe(FIELD_DOCS.keypad);
 /**
@@ -228,6 +311,12 @@ export const projectedSelectOptionSchema = z.strictObject({
 	label: proseTemplateSchema.describe(
 		"What people read for this choice. Put the wording here, never in `value`.",
 	),
+	extended_text: proseTemplateSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Alternate wording on platforms that read a choice's extended text. Omit to keep it on an existing choice. Null clears it.",
+		),
 	plain_label: z
 		.boolean()
 		.optional()
@@ -249,6 +338,7 @@ export const projectedOptionsSourceSchema = z
 		}),
 		lookupOptionsSourceSchema,
 		caseOptionsSourceSchema,
+		availableCasesOptionsSourceSchema,
 	])
 	.describe(FIELD_DOCS.optionsSource);
 
@@ -298,7 +388,7 @@ export const fieldCaseWriteInputSchema = z.strictObject({
 		.literal(true)
 		.optional()
 		.describe(
-			"Save only when the worker changed the answer from the case's value. Only on a follow-up or close form, and refused where CommCare HQ keeps the change in Save to Case.",
+			"Save only when the answer differs from the case's value; on a case the form creates, and on an owner_id, only a non-blank answer. Not on a new case's case_name, and refused where CommCare HQ keeps the change in Save to Case.",
 		),
 });
 export type FieldCaseWriteInput = z.infer<typeof fieldCaseWriteInputSchema>;
@@ -310,11 +400,11 @@ const caseWriteField = () =>
 		.describe(FIELD_DOCS.caseWrite);
 
 /**
- * Whether a kind holds an answer a case can save: every kind but a label
- * and the three containers.
+ * A message can submit an answer like any other leaf. Case placement decides
+ * which editable location can save it.
  */
 function kindSavesAnswer(kind: FieldKind): boolean {
-	return kind !== "label" && !fieldRegistry[kind].isContainer;
+	return !fieldRegistry[kind].isContainer;
 }
 
 /**
@@ -392,6 +482,12 @@ function repeatConfigDiscriminated() {
 				.object({
 					mode: z.literal("query_bound"),
 					ids_query: formLogicSchema.describe(FIELD_DOCS.ids_query),
+					when: rowTimingSchema
+						.nullable()
+						.optional()
+						.describe(
+							"When to choose the rows. on-open keeps the records found as the form opens. as-answers-change follows the query during entry. Omit to keep the current timing.",
+						),
 				})
 				.describe("One row per case the query finds; provide ids_query."),
 		])
@@ -406,16 +502,54 @@ function repeatConfigDiscriminated() {
  * no single declared key to ask the registry about.
  */
 const ADD_GATED_KEYS = [
+	"inputWidth",
+	"addressLookup",
+	"sendTopics",
+	"receiveFrom",
+	"hintPlacement",
+	"scanOnOpen",
+	"canEditScan",
+	"calendar",
+	"clock",
+	"locationPicker",
+	"captureSource",
+	"overlaySize",
+	"recorder",
+	"pauseRecording",
+	"selectableText",
+	"banner",
+	"compact",
+	"collapse",
+	"border",
+	"itemsPerRow",
+	"repeatsPerRow",
+	"textAlignment",
+	"webSignature",
+	"choiceLayout",
 	"label",
+	"extended_text",
+	"extended_hint",
+	"extended_help",
+	"extended_validate_msg",
+	"qr_code",
+	"spoken_text",
 	"hint",
 	"help",
 	"required",
 	"relevant",
 	"validate",
 	"calculate",
+	"answerNamespace",
 	"default_value",
+	"addFirstLabel",
+	"addLabel",
 	"optionsSource",
 	"keypad",
+	"answerType",
+	"askForConfirmation",
+	"maxDimension",
+	"activity",
+	"androidApp",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -448,35 +582,6 @@ function gateRepeatSlot(
 }
 
 /**
- * A hidden field carries at most ONE value source: Nova doesn't yet write a
- * Hidden Value's default beside its calculate
- * (`HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). Refuse the pair at the tool boundary, on the `default_value` path,
- * so the model learns the fix in the rejection: keep the one that matches
- * what the value should do and leave the other out (or, on an edit, pass
- * it as null). `editField` normalizes the cross-call case, where the field
- * already holds one slot and the patch sets the other.
- */
-function gateHiddenValueSources(
-	ctx: z.RefinementCtx,
-	kind: FieldKind,
-	calculate: unknown,
-	default_value: unknown,
-): void {
-	if (!hiddenFieldCarriesBothValueSources({ kind, calculate, default_value })) {
-		return;
-	}
-	ctx.addIssue({
-		code: "custom",
-		path: ["default_value"],
-		message:
-			`${HIDDEN_VALUE_ONE_SOURCE_SENTENCE} ` +
-			"Keep `calculate` for a value that tracks other fields, or " +
-			"`default_value` for a value fixed when the form opens, and leave " +
-			"the other out.",
-	});
-}
-
-/**
  * The `addFields` item shape. Each item carries an optional stable `fieldUuid`
  * plus a `parentUuid`, so same-call construction uses the final identity
  * vocabulary. The kind policy enforces per-kind requiredness the
@@ -486,6 +591,166 @@ function gateHiddenValueSources(
  * config on `repeat` —
  * and rejects any slot the kind doesn't declare.
  */
+/** Shared add and edit surface for Worker display. A null on an edit clears the setting. */
+function questionDisplayFields() {
+	return {
+		inputWidth: displaySchemas.inputWidth
+			.nullable()
+			.optional()
+			.describe(
+				"Width of a Web Apps entry box. Short also changes the keyboard action for a text or number question on Android.",
+			),
+		addressLookup: displaySchemas.addressLookup
+			.nullable()
+			.optional()
+			.describe(
+				"Search for an address in Web Apps and save the one the worker chooses. Web Apps runs it only where the project space has advanced case search and the Geocoder plan feature, which publishing checks and asks to confirm; elsewhere the question saves Not Supported by Web Entry. Android workers type the answer.",
+			),
+		sendTopics: displaySchemas.sendTopics
+			.nullable()
+			.optional()
+			.describe(
+				"Names of channels that receive updates from the Web Apps address or attachment question, in delivery order.",
+			),
+		receiveFrom: displaySchemas.receiveFrom
+			.nullable()
+			.optional()
+			.describe(
+				"Fill this answer when an address or attachment on the same Web Apps form sends that channel and returned field. For attachments use filename.",
+			),
+		hintPlacement: displaySchemas.hintPlacement
+			.nullable()
+			.optional()
+			.describe(
+				"Placeholder shows the hint inside an empty entry box: on a text, barcode, integer or decimal question, a password with the number keypad, or a dropdown or search-box choice. On any other question, hidden-on-web hides the Web Apps hint. Android keeps its ordinary hint.",
+			),
+		scanOnOpen: displaySchemas.scanOnOpen
+			.nullable()
+			.optional()
+			.describe(
+				"Open the Android scanner when the worker reaches an unanswered barcode question.",
+			),
+		canEditScan: displaySchemas.canEditScan
+			.nullable()
+			.optional()
+			.describe("Allow the worker to change a scanned barcode on Android."),
+		calendar: displaySchemas.calendar
+			.nullable()
+			.optional()
+			.describe(
+				"Calendar workers use to choose a date. Each choice stores a civil date. The Nepali and alternate Gregorian calendars apply on Android.",
+			),
+		clock: displaySchemas.clock
+			.nullable()
+			.optional()
+			.describe(
+				"Use a 12-hour clock in Web Apps. Android uses the phone setting.",
+			),
+		locationPicker: displaySchemas.locationPicker
+			.nullable()
+			.optional()
+			.describe("Open the map to choose a location on Android."),
+		captureSource: displaySchemas.captureSource
+			.nullable()
+			.optional()
+			.describe(
+				"On Android, camera takes a picture or video, face-camera frames and crops a face on an image question, and record-or-choose lets the worker record or attach audio. Web Apps attaches a file.",
+			),
+		overlaySize: displaySchemas.overlaySize
+			.nullable()
+			.optional()
+			.describe("Show a small overlay when taking a picture on Android."),
+		recorder: displaySchemas.recorder
+			.nullable()
+			.optional()
+			.describe("Use the classic Android audio recorder."),
+		pauseRecording: displaySchemas.pauseRecording
+			.nullable()
+			.optional()
+			.describe(
+				"Allow the worker to pause and resume a recording on supported Android phones.",
+			),
+		selectableText: displaySchemas.selectableText
+			.nullable()
+			.optional()
+			.describe("Let Android workers select and copy text from this label."),
+		banner: displaySchemas.banner
+			.nullable()
+			.optional()
+			.describe(
+				"Show question text in a colored Android banner. Hidden applies only to a label.",
+			),
+		compact: displaySchemas.compact
+			.nullable()
+			.optional()
+			.describe(
+				"On Android, show each question in this group with its label beside its answer. Android still shows one question per screen.",
+			),
+		collapse: displaySchemas.collapse
+			.nullable()
+			.optional()
+			.describe(
+				"Let workers open and close this named group in Web Apps, starting in the chosen state.",
+			),
+		border: displaySchemas.border
+			.nullable()
+			.optional()
+			.describe("Draw a border around the group in Web Apps."),
+		itemsPerRow: displaySchemas.itemsPerRow
+			.nullable()
+			.optional()
+			.describe(
+				"Desired number of questions across a Web Apps row, as whole decimal digits.",
+			),
+		repeatsPerRow: displaySchemas.repeatsPerRow
+			.nullable()
+			.optional()
+			.describe(
+				"Desired number of immediate repeat entries per Web Apps row, as whole decimal digits.",
+			),
+		textAlignment: displaySchemas.textAlignment
+			.nullable()
+			.optional()
+			.describe("Align question text in Web Apps."),
+		webSignature: displaySchemas.webSignature
+			.nullable()
+			.optional()
+			.describe(
+				"Collect a drawn signature on a Web Apps picture question while keeping the picture control on Android. Requires another compatible display setting.",
+			),
+		keypad: keypadField(),
+		choiceLayout: singleChoiceLayoutSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Choice layout. Choose a grid with optional columns, a searchable list, a table row or a dropdown. Single choices may advance on selection. Null restores the ordinary choices.",
+			),
+	};
+}
+
+/** The flat schema sent to tools carries the union of the options. The
+ * chosen kind narrows each non-null setting to the same schema Builder uses. */
+function checkQuestionDisplay(
+	kind: FieldKind,
+	values: Readonly<Record<string, unknown>>,
+	ctx: z.RefinementCtx,
+) {
+	if (kind === "repeat") return;
+	const shape: Readonly<Record<string, z.ZodType>> =
+		fieldPatchSchemaByKind[kind].shape;
+	for (const { key, label } of fieldDisplaySettingsFor(kind)) {
+		const value = values[key];
+		if (value == null) continue;
+		const parsed = shape[key].safeParse(value);
+		if (!parsed.success)
+			ctx.addIssue({
+				code: "custom",
+				path: [key],
+				message: `${label} does not offer this option on a ${fieldRegistry[kind].label} question. Choose a compatible option or clear the setting.`,
+			});
+	}
+}
+
 function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 	// Strict, so a key outside the shape is REJECTED at the boundary — the SA
 	// is told and retries, rather than the stray key being silently stripped.
@@ -497,14 +762,49 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			parentUuid: parentUuidField(),
 			label: labelField(),
 			plain_label: plainLabelField(),
-			keypad: keypadField(),
+			...labelTextFields(),
+			...questionDisplayFields(),
+			answerType: hiddenAnswerTypeField(),
+			askForConfirmation: confirmationField(),
+			maxDimension: imageDimensionSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.maxDimension),
+			activity: connectActivitySchema.optional().describe(CONNECT_ACTIVITY_DOC),
+			androidApp: androidAppField(),
 			hint: hintField(),
 			help: helpField(),
+			extended_hint: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_hint),
+			extended_help: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_help),
+			extended_validate_msg: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_validate_msg),
+			addFirstLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding the first entry in a repeating group.",
+				),
+			addLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding another entry in a repeating group. Also used for the first when no separate text is set.",
+				),
 			plain_help: plainHelpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
+			answerNamespace: namespaceField(),
+			lockedInHq: questionLockField(),
 			default_value: defaultValueField(),
 			optionsSource: optionsSourceField().nullable().optional(),
 			caseWrite: caseWriteField(),
@@ -512,6 +812,13 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			repeat: repeatConfigDiscriminated().nullable().optional(),
 		})
 		.superRefine((item, ctx) => {
+			checkQuestionDisplay(item.kind, item, ctx);
+			if (item.kind === "connect_activity" && item.activity === undefined)
+				ctx.addIssue({
+					code: "custom",
+					path: ["activity"],
+					message: "Choose the Connect activity this part of the form records.",
+				});
 			for (const key of ADD_GATED_KEYS) {
 				if (item[key] != null && !fieldKindDeclaresKey(item.kind, key)) {
 					undeclaredSlotIssue(ctx, item.kind, key);
@@ -572,12 +879,6 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 				});
 			}
 			gateRepeatSlot(ctx, item.kind, item.repeat);
-			gateHiddenValueSources(
-				ctx,
-				item.kind,
-				item.calculate,
-				item.default_value,
-			);
 		});
 }
 
@@ -616,14 +917,49 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				.describe("New id to rename to; leave it out to keep the current id."),
 			label: labelField(),
 			plain_label: plainLabelField(),
-			keypad: keypadField(),
+			...labelTextFields(),
+			...questionDisplayFields(),
+			answerType: hiddenAnswerTypeField(),
+			askForConfirmation: confirmationField(),
+			maxDimension: imageDimensionSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.maxDimension),
+			activity: connectActivitySchema.optional().describe(CONNECT_ACTIVITY_DOC),
+			androidApp: androidAppField(),
 			hint: hintField(),
 			help: helpField(),
+			extended_hint: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_hint),
+			extended_help: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_help),
+			extended_validate_msg: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_validate_msg),
+			addFirstLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding the first entry in a repeating group.",
+				),
+			addLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding another entry in a repeating group. Also used for the first when no separate text is set.",
+				),
 			plain_help: plainHelpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
+			answerNamespace: namespaceField(),
+			lockedInHq: questionLockField(),
 			default_value: defaultValueField(),
 			field_list: fieldListField(),
 			// A select source is required state and cannot be cleared. Omission
@@ -633,6 +969,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			repeat: repeatConfigDiscriminated().optional(),
 		})
 		.superRefine((patch, ctx) => {
+			checkQuestionDisplay(patch.kind, patch, ctx);
 			for (const key of EDIT_GATED_KEYS) {
 				// Any PRESENT value — null included — on a slot the kind
 				// doesn't declare rejects: there's nothing there to set OR
@@ -653,12 +990,6 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				plainHelp: patch.plain_help !== undefined,
 			});
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
-			gateHiddenValueSources(
-				ctx,
-				patch.kind,
-				patch.calculate,
-				patch.default_value,
-			);
 		});
 }
 

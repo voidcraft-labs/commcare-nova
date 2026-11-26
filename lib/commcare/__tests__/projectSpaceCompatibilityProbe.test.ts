@@ -25,11 +25,13 @@ import { probeHqProjectSpaceCompatibility } from "../client";
 import { expandDoc } from "../expander";
 import {
 	type HqProjectSpaceCompatibilityProbePlan,
+	hqPrivateFeatureFlag,
 	projectSpaceCompatibilityProbePlan,
 } from "../projectSpaceCompatibility";
 import { parser } from "../xpath/parser";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
+import { tileFixture } from "./tileFixture";
 import { blueprintDocArbitrary } from "./xformDocArbitrary";
 
 const CREDS = {
@@ -393,6 +395,47 @@ it.each([
 	});
 });
 
+it.each([
+	[visible, empty, "available"],
+	[empty, visible, "available"],
+	[empty, empty, "missing"],
+	[empty, null, "unverified"],
+] as const)(
+	"supports the Android case lookup when either editor flag is on",
+	async (lookup, biometric, expected) => {
+		await withHttpPeer(async (peer) => {
+			request(peer, DOMAINS).reply(200, visible);
+			request(peer, `${DOMAINS}&feature_flag=case_list_lookup`).reply(
+				200,
+				lookup,
+			);
+			request(peer, `${DOMAINS}&feature_flag=biometric_integration`).reply(
+				biometric === null ? 503 : 200,
+				biometric ?? "Unavailable",
+			);
+			const capability = projectSpaceCapabilityUse("case-list-android-lookup", [
+				"The case list opens a companion Android app.",
+			]);
+			const result = await probeHqProjectSpaceCompatibility(CREDS, "clinic", {
+				capabilities: [
+					{
+						capability,
+						featureFlags: [],
+						featureFlagsOff: [],
+						featureFlagsAny: [
+							hqPrivateFeatureFlag("case-list-lookup"),
+							hqPrivateFeatureFlag("case-list-biometric-lookup"),
+						],
+						runtimeProbes: [],
+					},
+				],
+				advisories: [],
+			});
+			expect(result.capabilities).toEqual([{ capability, state: expected }]);
+		});
+	},
+);
+
 it("no requirements and an invalid target issue no HTTP requests", async () => {
 	await withHttpPeer(async (peer) => {
 		const none = await probeHqProjectSpaceCompatibility(CREDS, "clinic", {
@@ -449,13 +492,25 @@ function holdsWire(doc: BlueprintDoc): void {
 			advanced ||
 			hq.modules.some((module) => module.case_details.short.multi_select),
 	});
-	expect({
-		tiles: flags.has("case-tiles") && flags.has("custom-case-tiles"),
-	}).toEqual({
-		tiles: hq.modules.some(
-			(module) => module.case_details.short.case_tile_template === "custom",
+	const menus = hq.modules.map((module) => module.case_details);
+	expect(flags.has("case-tiles")).toBe(
+		menus.some(({ short, long }) =>
+			Boolean(short.case_tile_template || long.case_tile_template),
 		),
-	});
+	);
+	expect(flags.has("custom-case-tiles")).toBe(
+		menus.some(
+			({ short, long }) =>
+				short.case_tile_template === "custom" ||
+				long.case_tile_template === "custom",
+		),
+	);
+	expect(flags.has("detail-tab-rows")).toBe(
+		menus.some(({ long }) => long.tabs.some((tab) => tab.has_nodeset)),
+	);
+	expect(flags.has("case-form-context")).toBe(
+		menus.some(({ short }) => short.persist_case_context === true),
+	);
 	expect({ related: flags.has("related-case-lookups") }).toEqual({
 		related: searched.some(
 			(module) =>
@@ -590,4 +645,22 @@ it("asks for each flag exactly where Nova's emitted wire holds what HQ's editors
 		seed: 20261016,
 		numRuns: 100,
 	});
+});
+
+it("probes the capabilities required by each case layout on the wire", () => {
+	for (const scenario of [
+		"plain",
+		"detail-tabs",
+		"detail-layout",
+		"named-layout",
+		"persistent-line",
+		"persistent-inline",
+		"persistent-external",
+	] as const)
+		holdsWire(tileFixture(scenario));
+	const doc = tileFixture("detail-tabs");
+	const first = doc.modules[doc.moduleOrder[0]].caseListConfig?.detailTabs?.[0];
+	if (!first) throw new Error("The detail-tabs fixture has no first tab.");
+	first.rowSource = { kind: "children", caseType: "visit" };
+	holdsWire(doc);
 });

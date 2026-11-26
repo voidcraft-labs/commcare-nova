@@ -164,7 +164,29 @@ def _archive(build) -> bytes:
 
 
 @contextmanager
-def project(document, configuration="minimum", *, web_apps=True):
+def authored_project(document, publication, *, configure=None):
+    """Release the app Vellum saved (A) or Nova's captured adoption republish over it (B)."""
+    from proof.hq.check import hq_check
+    from proof.observe import publish
+
+    assert document.authored is not None and publication in ("A", "B")
+    export = document.exports["minimum"]
+    held = export.configuration.hq()
+    if configure is not None:
+        held = configure(held)
+    with hq_check(held) as (unit, _):
+        with unit.operation("authored-project:a", document.id.encode()):
+            app_id, _, _ = publish.create_authored(unit, document)
+        if publication == "B":
+            assert export.republish is not None, f"{document.id} holds no republish over A"
+            with unit.operation("authored-project:b", document.id.encode()):
+                refusal, _ = publish.update(unit, app_id, export.republish, "B")
+                assert refusal is None, refusal
+        yield Project(document, export, unit, app_id)
+
+
+@contextmanager
+def project(document, configuration="minimum", *, web_apps=True, case_list_map=None):
     """``document`` as Nova's first publish leaves it in a project space that has Web Apps.
 
     With ``web_apps`` false the project space is the document's
@@ -192,6 +214,9 @@ def project(document, configuration="minimum", *, web_apps=True):
         )
     export = document.exports[configuration]
     held = export.configuration.hq()
+    if case_list_map is not None:
+        flags = held.flags | {"CASE_LIST_MAP"} if case_list_map else held.flags - {"CASE_LIST_MAP"}
+        held = replace(held, flags=flags)
     if WEB_APPS_PRIVILEGE not in held.privileges:
         raise AssertionError(
             f"{document.id}'s configuration {configuration} grants no {WEB_APPS_PRIVILEGE}, which the configuration"
@@ -207,7 +232,7 @@ def project(document, configuration="minimum", *, web_apps=True):
             app_id, refusal, lookups = publish.create(unit, export, plan_without_web_apps=not web_apps)
             assert refusal is None, refusal
             assert lookups is None or lookups["errors"] == [], lookups
-            if export.content.media is not None:
-                media = operations.apply_media_upload(unit, app_id, export.content.media.upload())
+            for request, _ in export.content.media_uploads():
+                media = operations.apply_media_upload(unit, app_id, request.upload())
                 assert media.status == 200, media.response
         yield Project(document, export, unit, app_id)

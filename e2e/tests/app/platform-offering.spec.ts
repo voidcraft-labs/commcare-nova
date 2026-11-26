@@ -54,6 +54,11 @@ test("a change that strands forms that read the search lists it", {
 	const fixture = seed.formsReadSearch;
 	await openBuilder(page, fixture.routes.results);
 	await page.getByRole("button", { name: "App settings", exact: true }).click();
+	const connect = page.getByRole("group", { name: "CommCare Connect" });
+	await expect(connect.getByRole("switch", { name: "Learn" })).toBeDisabled();
+	await expect(connect).toContainText(
+		"Nova will check that your forms and media work on Android.",
+	);
 	await page.locator('[data-platform-choice="both"]').click();
 	const block = page.locator("[data-platform-refusal]");
 	await expect(block).toContainText(/Android can't run/);

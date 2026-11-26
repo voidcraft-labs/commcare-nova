@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { copyAssetObjectIfAbsent, deleteAsset } from "@/lib/storage/media";
 /**
  * `read_hq_changes` and `bring_in_hq_changes` through the real SDK client
  * and server, over real Postgres, with an app brought in through the
@@ -16,10 +19,12 @@
  */
 
 import type { Client } from "@modelcontextprotocol/client";
+import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HqSaveCounter, withHqPeer } from "@/__tests__/helpers/hqSaveCounter";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import {
 	type RetainedHqAnswer,
 	retainedBodyText,
@@ -42,12 +47,14 @@ import {
 	seedFixtureConnection,
 	serveAnswer,
 	serveFixtureTables,
+	withIcons,
 } from "@/lib/deployment/reading/__tests__/adoptionFixture";
 import { readDeploymentNovaRevisions } from "@/lib/deployment/store";
 import { log } from "@/lib/logger";
 import { driftDate } from "@/lib/publish/driftReference";
 import {
 	broughtInLine,
+	HQ_CHANGES_OWNER_RULE_NOT_OFFERED,
 	hqChangesLead,
 	hqChangesMovedLine,
 	hqChangesUnavailableLine,
@@ -72,6 +79,7 @@ import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
 
 const observed = vi.hoisted(() => ({
+	beforeInstallationCommit: null as null | (() => Promise<void>),
 	/** Each review the read tool started, to wait on once its call is cancelled. */
 	reviews: [] as Promise<unknown>[],
 	/** Each stage the reviews and bring-ins named, in order. */
@@ -119,12 +127,36 @@ vi.mock("@/lib/deployment/hqChanges", async (importOriginal) => {
 		},
 	};
 });
+vi.mock("@/lib/storage/media", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/storage/media")>()),
+	stageAssetBytes: vi.fn(
+		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+			gcsObjectKey,
+			generation: "1",
+			checksum: "staged",
+		}),
+	),
+	copyAssetObjectIfAbsent: vi.fn(async () => ({
+		destinationGeneration: "1",
+		replay: false,
+	})),
+	deleteAssetGeneration: vi.fn(async () => undefined),
+	deleteAsset: vi.fn(),
+}));
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 /* Passed through, so a test can make the read after a landed write fault. */
 vi.mock("@/lib/deployment/store", async (importOriginal) => {
 	const store = await importOriginal<typeof import("@/lib/deployment/store")>();
 	return {
 		...store,
+		recordHqChangesTaken: async (
+			...args: Parameters<typeof store.recordHqChangesTaken>
+		) => {
+			const before = observed.beforeInstallationCommit;
+			observed.beforeInstallationCommit = null;
+			await before?.();
+			return store.recordHqChangesTaken(...args);
+		},
 		readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
 	};
 });
@@ -150,10 +182,13 @@ const UUID_V7 =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 beforeEach(() => {
+	observed.beforeInstallationCommit = null;
 	observed.reviews.length = 0;
 	observed.stages.length = 0;
 	observed.reviewOptions.length = 0;
 	observed.bringInOptions.length = 0;
+	vi.mocked(copyAssetObjectIfAbsent).mockClear();
+	vi.mocked(deleteAsset).mockClear();
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
 });
@@ -171,12 +206,13 @@ async function broughtIn(): Promise<string> {
 }
 
 /** The two tools and `get_deployment`, called as `userId`. */
-function withTools<T>(
+async function withTools<T>(
 	run: (client: Client) => Promise<T>,
 	userId = MEMBER,
+	scopes = SCOPES,
 ): Promise<T> {
+	const ctx = await installationCredential(h.db(), userId, scopes);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes: SCOPES, authKind: "api-key" as const };
 		registerReadHqChanges(server, ctx);
 		registerBringInHqChanges(server, ctx);
 		registerGetDeployment(server, ctx);
@@ -190,6 +226,7 @@ async function call(
 	args: Json,
 ): Promise<{ readonly isError: boolean; readonly body: Json }> {
 	const result = await client.callTool({ name, arguments: args });
+	expect(JSON.stringify(result).length).toBeLessThanOrEqual(80_000);
 	return {
 		isError: result.isError === true,
 		body: JSON.parse(resultContentText(result)) as Json,
@@ -271,6 +308,136 @@ async function readChanges(client: Client, appId: string) {
 }
 
 describe("read_hq_changes and bring_in_hq_changes", () => {
+	it("guards changed-app ready media at the same transaction as its live install authority", async () => {
+		const appId = await broughtIn();
+		const before = await head(appId);
+		const source = withIcons(
+			changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				build_profiles: { visits: { name: "Training", langs: ["en"] } },
+			})),
+			["menuicon"],
+		);
+		await withHttpPeer(async (peer) => {
+			serveRead(peer, source, { tables: true, times: 2 });
+			peer
+				.get(FIXTURE_HOST)
+				.intercept({ path: FIXTURE_PATHS.media("menuicon"), method: "GET" })
+				.reply(
+					200,
+					readFileSync(
+						join(
+							import.meta.dirname,
+							"../../media/__tests__/fixtures/pattern.png",
+						),
+					),
+					{ headers: { "content-type": "image/png" } },
+				)
+				.persist();
+			await withTools(async (client) => {
+				const listed = await readChanges(client, appId);
+				vi.mocked(copyAssetObjectIfAbsent).mockImplementationOnce(async () => {
+					await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${MEMBER}`.execute(
+						h.db(),
+					);
+					return { destinationGeneration: "1", replay: false };
+				});
+				expect(
+					await call(client, "bring_in_hq_changes", {
+						app_id: appId,
+						reading_id: listed.reading_id,
+						review_digest: listed.review_digest,
+						discard_nova_changes: false,
+						table_choices: {},
+						owner_rule_choices: {},
+					}),
+				).toMatchObject({
+					isError: true,
+					body: { error_type: "permission_denied" },
+				});
+				expect(copyAssetObjectIfAbsent).toHaveBeenCalledOnce();
+				expect(deleteAsset).toHaveBeenCalledWith(
+					vi.mocked(copyAssetObjectIfAbsent).mock.lastCall?.[0]
+						.destinationGcsObjectKey,
+				);
+				expect(await head(appId)).toEqual(before);
+				expect(
+					await h.db().selectFrom("media_assets").select("id").execute(),
+				).toEqual([]);
+			});
+		});
+	});
+	it("requires both grants to accept an installation review and keeps read access with import alone", async () => {
+		const appId = await broughtIn();
+		const source = changedAnswer(fixtureSource(), (body) => ({
+			...body,
+			build_profiles: {
+				visits: {
+					name: "Visits",
+					langs: ["en"],
+					practice_mobile_worker_id: "training-user",
+				},
+			},
+		}));
+		await withHttpPeer(async (peer) => {
+			serveRead(peer, source, { tables: true, times: 4 });
+			const onlyImport = SCOPES.filter((s) => s !== "nova.hq.write");
+			const listed = await withTools(
+				(client) => readChanges(client, appId),
+				MEMBER,
+				onlyImport,
+			);
+			const accept = (scopes: string[]) =>
+				withTools(
+					(client) =>
+						call(client, "bring_in_hq_changes", {
+							app_id: appId,
+							reading_id: listed.reading_id,
+							review_digest: listed.review_digest,
+							discard_nova_changes: false,
+							table_choices: {},
+							owner_rule_choices: {},
+						}),
+					MEMBER,
+					scopes,
+				);
+			for (const missing of ["nova.hq.import", "nova.hq.write"]) {
+				expect(await accept(SCOPES.filter((s) => s !== missing))).toMatchObject(
+					{
+						isError: true,
+						body: { error_type: "scope_missing", required_scope: missing },
+					},
+				);
+			}
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_profiles")
+					.select("profile_key")
+					.execute(),
+			).toHaveLength(0);
+			observed.beforeInstallationCommit = async () => {
+				await sql`UPDATE public.auth_apikey SET enabled=false WHERE "referenceId"=${MEMBER}`.execute(
+					h.db(),
+				);
+			};
+			expect(await accept(SCOPES)).toMatchObject({
+				isError: true,
+				body: { error_type: "permission_denied" },
+			});
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_profiles")
+					.select("profile_key")
+					.execute(),
+			).toHaveLength(0);
+			expect(await accept(SCOPES)).toMatchObject({
+				isError: false,
+				body: { kind: "brought-in" },
+			});
+		});
+	});
 	it("lists every line of what changed, brings it in, and a second read finds nothing", async () => {
 		const appId = await broughtIn();
 		const before = await head(appId);
@@ -299,6 +466,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					nova_changes_total: 0,
 					renamed_in_nova_total: 0,
 					tables_total: 0,
+					owner_rules: [],
 					made_by_total: 0,
 					next_page: null,
 					cut_line: null,
@@ -327,6 +495,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					review_digest: listed.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(brought.isError).toBe(false);
 				expect(brought.body).toMatchObject({
@@ -413,6 +582,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					review_digest: listed.body.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(recorded.isError).toBe(false);
 				expect(recorded.body).toMatchObject({
@@ -462,6 +632,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 						review_digest: listed.review_digest,
 						discard_nova_changes: true,
 						table_choices: {},
+						owner_rule_choices: {},
 					}),
 				).toEqual({
 					isError: true,
@@ -470,6 +641,35 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 						message: NOTHING_TO_DISCARD,
 						app_id: appId,
 					},
+				});
+			});
+		});
+		expect(await head(appId)).toEqual(before);
+		expect(await hqChangeRows(appId)).toEqual([]);
+	});
+
+	it("hands owner_rule_choices to the bring-in, which refuses an answer the review does not ask for and takes nothing", async () => {
+		const appId = await broughtIn();
+		const before = await head(appId);
+		await withHttpPeer(async (peer) => {
+			serveRead(peer, renamed(), { tables: true, times: 2 });
+			await withTools(async (client) => {
+				const listed = await readChanges(client, appId);
+				expect(listed.owner_rules).toEqual([]);
+				/* Dropped on the way, the answer would leave a review that asks nothing, and the
+				 * changes would come in. */
+				expect(
+					await call(client, "bring_in_hq_changes", {
+						app_id: appId,
+						reading_id: listed.reading_id,
+						review_digest: listed.review_digest,
+						discard_nova_changes: false,
+						table_choices: {},
+						owner_rule_choices: { clinic: "worker" },
+					}),
+				).toEqual({
+					isError: false,
+					body: { kind: "refused", message: HQ_CHANGES_OWNER_RULE_NOT_OFFERED },
 				});
 			});
 		});
@@ -491,6 +691,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					reading_id: listed.reading_id,
 					review_digest: listed.review_digest,
 					table_choices: {},
+					owner_rule_choices: {},
 				};
 				expect(
 					await call(client, "bring_in_hq_changes", {
@@ -548,6 +749,230 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 		expect(await head(appId)).toEqual({ seq: edited.seq + 1, name: RENAMED });
 	});
 
+	it("returns mixed rename recovery through the registered stale apply and read tools", async () => {
+		const appId = await broughtIn();
+		const moves = Array.from({ length: 355 }, (_, i) => ({
+			caseType: "a".repeat(90),
+			from: `p${i}`,
+			to: `q${i}`,
+		}));
+		moves.push({ caseType: "b", from: "last", to: "newlast" });
+		moves.push({ caseType: "b", from: '"'.repeat(28000), to: "newlast" });
+		const review: Extract<HqChangesReview, { kind: "changes" }> = {
+			kind: "changes",
+			since: { kind: "published" },
+			readingId: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+			reviewDigest: "a".repeat(64),
+			observedDigest: "b".repeat(64),
+			requiresReview: true,
+			hqChanges: [],
+			novaChanges: [],
+			caseData: [],
+			publishChanges: [],
+			madeBy: [],
+			renamedInNova: moves,
+			tables: [],
+			ownerRules: [],
+			projectName: "Field team",
+		};
+		// This adapter control starts with an exact review and stale write result.
+		// The adjacent physical-file test obtains both from the real HQ reader.
+		const service = await import("@/lib/deployment/hqChanges");
+		const read = vi.spyOn(service, "reviewHqChanges").mockResolvedValue(review);
+		const apply = vi
+			.spyOn(service, "bringInHqChanges")
+			.mockResolvedValue({ kind: "changed", now: review, editedBy: null });
+		try {
+			await withTools(async (client) => {
+				const nested = await call(client, "bring_in_hq_changes", {
+					app_id: appId,
+					reading_id: review.readingId,
+					review_digest: "e".repeat(64),
+					discard_nova_changes: false,
+					table_choices: {},
+					owner_rule_choices: {},
+				});
+				expect(nested.body).toMatchObject({
+					kind: "changed",
+					now: { kind: "changes", review_digest: null },
+				});
+				type Page = {
+					renamed_in_nova: { case_type: string; from: string; to: string }[];
+					rename_parts?: {
+						item: number;
+						part: number;
+						parts: number;
+						text: string;
+					}[];
+					renamed_in_nova_line: string;
+					review_digest: string | null;
+					observed_digest: string | null;
+					next_page: string | null;
+				};
+				let page = nested.body.now as Page;
+				const rows: Page["renamed_in_nova"] = [];
+				let parts: string[] = [];
+				for (;;) {
+					expect(page.renamed_in_nova_line).toContain("wrong case values");
+					rows.push(...page.renamed_in_nova);
+					for (const part of page.rename_parts ?? []) {
+						expect(part.part).toBe(parts.length + 1);
+						parts.push(part.text);
+						if (part.part === part.parts) {
+							rows.push(JSON.parse(parts.join("")));
+							parts = [];
+						}
+					}
+					expect(page.observed_digest).toBeNull();
+					if (!page.next_page) break;
+					expect(page.review_digest).toBeNull();
+					const result = await call(client, "read_hq_changes", {
+						app_id: appId,
+						page: page.next_page,
+					});
+					expect(result.isError).toBe(false);
+					page = result.body as Page;
+				}
+				expect(parts).toHaveLength(0);
+				expect(page.review_digest).toBe(review.reviewDigest);
+				expect(rows).toEqual(
+					moves.map(({ caseType, from, to }) => ({
+						case_type: caseType,
+						from,
+						to,
+					})),
+				);
+			});
+		} finally {
+			apply.mockRestore();
+			read.mockRestore();
+		}
+	});
+
+	it("shows all 600 quoted file removals through the changed apply receipt and the later-read SDK before accepting a decision", async () => {
+		const appId = await broughtIn();
+		const before = await head(appId);
+		const files = Array.from(
+			{ length: 600 },
+			(_, i) =>
+				[`jr://file/visits/${'"'.repeat(145)}${i}.png`, `remote${i}`] as const,
+		);
+		const source = changedAnswer(renamed(), (body) => ({
+			...body,
+			multimedia_map: {
+				...(body.multimedia_map as object),
+				...Object.fromEntries(
+					files.map(([path, id]) => [
+						path,
+						{ media_type: "CommCareImage", multimedia_id: id },
+					]),
+				),
+			},
+		}));
+		await withHttpPeer(async (peer) =>
+			withTools(async (client) => {
+				serveRead(peer, renamed(), { tables: true });
+				const earlier = await readChanges(client, appId);
+				const args = {
+					app_id: appId,
+					reading_id: earlier.reading_id,
+					review_digest: earlier.review_digest,
+					discard_nova_changes: false,
+					table_choices: {},
+					owner_rule_choices: {},
+				};
+				type Changes = {
+					kind: string;
+					hq_changes: string[];
+					reading_id: string;
+					review_digest: string | null;
+					observed_digest: string | null;
+					requires_review?: true;
+					next_page: string | null;
+				};
+				serveRead(peer, source, { tables: true });
+				const nested = await call(client, "bring_in_hq_changes", args);
+				expect(nested.isError).toBe(false);
+				expect(nested.body).toMatchObject({
+					kind: "changed",
+					next: expect.any(String),
+					now: { kind: "changes", review_digest: null, observed_digest: null },
+				});
+				let review = nested.body.now as Changes;
+				if (!review.next_page)
+					throw new Error("The first page did not name its continuation.");
+				serveRead(peer, source, { tables: true });
+				const attempt = await call(client, "bring_in_hq_changes", {
+					...args,
+					review_digest: review.next_page.split(":")[1],
+				});
+				expect(attempt.body).toMatchObject({
+					kind: "changed",
+					now: { review_digest: null, observed_digest: null },
+				});
+				await sql`UPDATE auth_organization SET name = ${"New field team"} WHERE id = ${PROJECT}`.execute(
+					h.db(),
+				);
+				serveRead(peer, source, { tables: true });
+				const restart = await call(client, "read_hq_changes", {
+					app_id: appId,
+					page: review.next_page,
+				});
+				expect(restart.body).toMatchObject({
+					kind: "changes",
+					restarted: true,
+					review_digest: null,
+					observed_digest: null,
+				});
+				expect((restart.body.hq_changes as string[])[0]).toBe(
+					review.hq_changes[0],
+				);
+				review = restart.body as Changes;
+				const lines: string[] = [];
+				const seen = new Set<string>();
+				for (;;) {
+					lines.push(...review.hq_changes);
+					// Taking and overwriting remove the very same 600 references. Both
+					// decisions become available once every reference has been disclosed.
+					expect(review.requires_review).toBeUndefined();
+					if (!review.next_page) break;
+					expect(review.observed_digest).toBeNull();
+					expect(review.review_digest).toBeNull();
+					expect(seen.has(review.next_page)).toBe(false);
+					seen.add(review.next_page);
+					serveRead(peer, source, { tables: true });
+					const reply = await call(client, "read_hq_changes", {
+						app_id: appId,
+						page: review.next_page,
+					});
+					expect(reply.isError).toBe(false);
+					expect(reply.body).toMatchObject({
+						kind: "changes",
+						restarted: false,
+					});
+					review = reply.body as Changes;
+				}
+				expect(review.review_digest).toMatch(/^[0-9a-f]{64}$/);
+				expect(review.observed_digest).toMatch(/^[0-9a-f]{64}$/);
+				expect(seen.size).toBeGreaterThan(1);
+				const offered = lines.filter((line) =>
+					line.includes(
+						"from the app in CommCare HQ. This app doesn't use it.",
+					),
+				);
+				expect(offered).toHaveLength(files.length);
+				for (const [path] of files)
+					expect(
+						offered.filter((line) =>
+							line.includes(`“${path.slice("jr://file/".length)}”`),
+						),
+					).toHaveLength(1);
+			}),
+		);
+		expect(await head(appId)).toEqual(before);
+		expect(await hqChangeRows(appId)).toEqual([]);
+	}, 60_000);
+
 	it("answers changed with the review as it now stands where CommCare HQ moved since the read, and takes nothing", async () => {
 		const appId = await broughtIn();
 		const before = await head(appId);
@@ -564,6 +989,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					review_digest: listed.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(isError).toBe(false);
 				expect(body).toMatchObject({
@@ -712,6 +1138,7 @@ describe("what a call is handed", () => {
 					review_digest: read.body.review_digest,
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				expect(brought.body.kind).toBe("brought-in");
 				expect(observed.stages).toContain("bringing-in");
@@ -795,6 +1222,7 @@ describe("what a call is handed", () => {
 					review_digest: "ab".repeat(32),
 					discard_nova_changes: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				}),
 			);
 			expect(elsewhere).toEqual({

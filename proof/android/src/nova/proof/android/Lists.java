@@ -2,6 +2,10 @@ package nova.proof.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.ViewGroup;
@@ -9,12 +13,15 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 
+import androidx.appcompat.widget.PopupMenu;
+
 import org.commcare.CommCareApplication;
 import org.commcare.activities.EntityDetailActivity;
 import org.commcare.activities.EntitySelectActivity;
 import org.commcare.adapters.EntityListAdapter;
 import org.commcare.dalvik.R;
 import org.commcare.preferences.MainConfigurablePreferences;
+import org.commcare.suite.model.Callout;
 import org.commcare.suite.model.Detail;
 import org.commcare.suite.model.EntityDatum;
 import org.commcare.util.DatumUtil;
@@ -22,10 +29,13 @@ import org.commcare.views.dialogs.DialogChoiceItem;
 import org.commcare.views.dialogs.PaneledChoiceDialog;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
+import org.robolectric.android.controller.ActivityController;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowListView;
 import org.robolectric.shadows.ShadowLooper;
+import org.robolectric.shadows.ShadowToast;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -61,6 +71,8 @@ final class Lists {
     private static final String FUZZY = "cc-fuzzy-search-enabled";
     /** Terms the request names for every list, beside each list's own; null where it names none. */
     static JSONArray searches;
+    /** Controlled companion returns to read on the first case lookup list in this request. */
+    static JSONArray lookupReturns;
     /** Set where a request reads lists only to pass them (a form saved before an update): no Sort, no search. */
     static boolean brief;
     /** Set by the walk for the list it is about to read: the list's action to take there, or null. */
@@ -173,6 +185,11 @@ final class Lists {
 
         // The list's own actions (a search behind the list), each as its menu item names it.
         Detail shortSelect = (Detail)Screens.field(activity, "shortSelect");
+        if (!passing && lookupReturns != null && shortSelect != null && shortSelect.getCallout() != null) {
+            JSONArray commands = lookupReturns;
+            lookupReturns = null;
+            list.put("lookupReturns", lookupReturns(activity, shadow, adapter, listView, shortSelect.getCallout(), commands));
+        }
         List<org.commcare.suite.model.Action> actions = shortSelect == null
                 ? new ArrayList<>() : shortSelect.getCustomActions(activity.evalContext());
         JSONArray named = new JSONArray();
@@ -279,6 +296,89 @@ final class Lists {
         return shadow.getResultCode() == Activity.RESULT_OK;
     }
 
+    private static JSONArray lookupReturns(EntitySelectActivity activity, ShadowActivity shadow,
+                                           EntityListAdapter adapter, ListView listView, Callout callout,
+                                           JSONArray commands) throws Exception {
+        // Open the actual case-list toolbar. It wires Android's search view to the adapter
+        // and routes a press on the scan item through the installed callout.
+        Menu menu = new PopupMenu(activity, new View(activity)).getMenu();
+        activity.onCreateOptionsMenu(menu);
+        MenuItem launch = menu.findItem(R.id.barcode_scan_action_bar);
+        if (launch == null || !launch.isVisible()) {
+            throw new IllegalStateException("The case list does not offer the lookup action.");
+        }
+        JSONArray observations = new JSONArray();
+        for (int i = 0; i < commands.length(); i++) {
+            JSONObject command = commands.getJSONObject(i);
+            JSONObject sample = new JSONObject().put("before", firstCells(adapter, listView));
+            observations.put(sample);
+            if (command.optBoolean("inspectIcon")) {
+                sample.put("lookupName", callout.getDisplayName());
+                sample.put("toolbarTitle", launch.getTitle().toString());
+                if (!(launch.getIcon() instanceof BitmapDrawable)) {
+                    throw new IllegalStateException("The case list lookup toolbar has no loaded bitmap.");
+                }
+                Bitmap image = ((BitmapDrawable)launch.getIcon()).getBitmap();
+                sample.put("iconCenterARGB", String.format("%08x", image.getPixel(image.getWidth() / 2,
+                        image.getHeight() / 2)));
+            }
+            ShadowToast.reset();
+            boolean missing = command.optBoolean("missingHandler");
+            boolean automatic = command.optBoolean("automatic");
+            if (missing) {
+                Shadows.shadowOf(activity.getApplication()).checkActivities(true);
+            }
+            try {
+                if (!automatic && !activity.onOptionsItemSelected(launch)) {
+                    throw new IllegalStateException("Android did not handle the lookup action.");
+                }
+                ShadowLooper.idleMainLooper();
+            } finally {
+                if (missing) {
+                    Shadows.shadowOf(activity.getApplication()).checkActivities(false);
+                }
+            }
+            ShadowActivity.IntentForResult opened = shadow.getNextStartedActivityForResult();
+            if (missing) {
+                if (opened != null || ShadowToast.getTextOfLatestToast() == null) {
+                    throw new IllegalStateException("Android did not refuse the missing lookup companion.");
+                }
+            } else {
+                if (opened == null || opened.requestCode != EntitySelectActivity.CALLOUT) {
+                    throw new IllegalStateException(automatic
+                            ? "The case list did not open its lookup companion automatically."
+                            : "The case list did not open its lookup companion.");
+                }
+                ActivityController<AndroidAppAnswers.MeterActivity> provider = Robolectric.buildActivity(
+                        AndroidAppAnswers.MeterActivity.class, new Intent(opened.intent));
+                try {
+                    AndroidAppAnswers.MeterActivity other = provider.setup().get();
+                    other.complete(command, sample);
+                    ShadowActivity completed = Shadows.shadowOf((Activity)other);
+                    shadow.receiveResult(opened.intent, completed.getResultCode(), completed.getResultIntent());
+                } finally {
+                    provider.close();
+                }
+                ShadowLooper.idleMainLooper();
+                settle(adapter);
+            }
+            sample.put("after", firstCells(adapter, listView));
+            if (command.optBoolean("inspectScores")) {
+                View header = (View)Screens.field(activity, "header");
+                sample.put("scoreHeader", Views.describe(header));
+                JSONArray rows = new JSONArray();
+                for (int row = 0; row < adapter.getCurrentCount(); row++) {
+                    rows.put(Views.describe(adapter.getView(row, null, listView)));
+                }
+                sample.put("scoreRows", rows);
+            }
+            sample.put("searchText", adapter.getSearchQuery());
+            sample.put("isIdentification", adapter.isFilteringByCalloutResult());
+            sample.put("toast", Screens.orNull(ShadowToast.getTextOfLatestToast()));
+        }
+        return observations;
+    }
+
     /**
      * The list as it opened, into {@code list}: the alert it holds, its header row and every row, measured and
      * drawn. Returns every word its rows show.
@@ -296,6 +396,13 @@ final class Lists {
         }
         list.put("header", headers);
         list.put("count", adapter.getCurrentCount());
+        EntityDatum datum = org.commcare.gis.EntityMapUtils.getNeededEntityDatum();
+        if (datum != null) {
+            Detail detail = CommCareApplication.instance().getCurrentSession().getDetail(datum.getShortDetail());
+            if (detail != null && java.util.Arrays.asList(detail.getTemplateForms()).contains("address")) {
+                list.put("caseMap", CaseMaps.read(datum, detail));
+            }
+        }
         JSONArray shown = new JSONArray();
         // The words searched for are the list's own, whatever order it shows its rows in: every word of every
         // row, in the words' own order.

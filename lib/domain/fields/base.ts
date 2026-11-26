@@ -48,13 +48,18 @@
 
 import { z } from "zod";
 import { type Expression, formLogicSchema } from "../expression/types";
-import { type Media, mediaSchema } from "../multimedia";
+import {
+	helpOrChoiceMediaSchema,
+	type Media,
+	mediaSchema,
+} from "../multimedia";
 import {
 	type ProseTemplate,
 	proseTemplateSchema,
 	proseTemplateText,
 	proseText,
 } from "../prose";
+import { displaySchemas } from "../questionDisplaySchemas";
 import { type Uuid, uuidSchema } from "../uuid";
 
 // Re-exported so the per-kind schema files (which extend the bases
@@ -66,17 +71,24 @@ export { formLogicSchema, proseTemplateSchema };
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
  * fields extend this directly (they have no label and no input wiring).
- * Sibling position belongs only to the owning `fieldOrder` membership array;
- * fields carry no parallel ordering property.
+ * Screen position belongs to fieldOrder. A question whose answer is
+ * submitted under another group than its own on screen names that group;
+ * its place among the group's values follows the order CommCare HQ's form
+ * designer writes (`lib/domain/submissionLayout.ts`), never a position of
+ * its own.
  */
 export type StructuralFieldBase = {
 	uuid: Uuid;
 	id: string;
+	submissionPlacement?: { parent: Uuid };
+	lockedInHq?: boolean;
 };
 
 export const structuralFieldBase = z.strictObject({
 	uuid: uuidSchema,
 	id: z.string(),
+	submissionPlacement: z.strictObject({ parent: uuidSchema }).optional(),
+	lockedInHq: z.boolean().optional(),
 });
 
 /**
@@ -88,13 +100,31 @@ export type FieldBase = StructuralFieldBase & {
 	label: ProseTemplate;
 	label_media?: Media;
 	plainLabel?: true;
+	extended_text?: ProseTemplate;
+	qr_code?: ProseTemplate;
+	spoken_text?: ProseTemplate;
 };
 
 export const fieldBaseSchema = structuralFieldBase.extend({
+	banner: displaySchemas.banner.exclude(["hidden"]).optional(),
+	itemsPerRow: displaySchemas.itemsPerRow.optional(),
+	textAlignment: displaySchemas.textAlignment.optional(),
+	hintPlacement: displaySchemas.hintPlacement.optional(),
 	label: proseTemplateSchema,
 	label_media: mediaSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel: z.literal(true).optional(),
+	/** Text shown in place of the label where the label has no markdown form
+	 *  (`plainLabel`, or a form whose text formatting is off), and read aloud on
+	 *  Android in place of the label: the label's `long` form. See
+	 *  `labelForms.ts`. */
+	extended_text: proseTemplateSchema.optional(),
+	/** Text Android draws as a QR code beside the label, in place of the label
+	 *  image: the label's `qrcode` form. Web Apps ignores it. */
+	qr_code: proseTemplateSchema.optional(),
+	/** Text Android reads aloud from a speaker button beside the label where
+	 *  the label has no audio: the label's `tts` form. Web Apps ignores it. */
+	spoken_text: proseTemplateSchema.optional(),
 });
 
 /**
@@ -112,6 +142,7 @@ export const fieldBaseSchema = structuralFieldBase.extend({
  */
 export const containerFieldBase = structuralFieldBase.extend({
 	label: proseTemplateSchema.optional(),
+	extended_text: proseTemplateSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel: z.literal(true).optional(),
 });
@@ -135,7 +166,9 @@ export const containerFieldBase = structuralFieldBase.extend({
  */
 export type InputFieldBase = FieldBase & {
 	hint?: ProseTemplate;
+	extended_hint?: ProseTemplate;
 	help?: ProseTemplate;
+	extended_help?: ProseTemplate;
 	help_media?: Media;
 	plainHelp?: true;
 	required?: Expression; // an expression, or the "true()" sentinel
@@ -144,13 +177,25 @@ export type InputFieldBase = FieldBase & {
 
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
+	extended_hint: proseTemplateSchema.optional(),
 	help: proseTemplateSchema.optional(),
-	help_media: mediaSchema.optional(),
+	extended_help: proseTemplateSchema.optional(),
+	/** No inline video: only a question's label plays one. */
+	help_media: helpOrChoiceMediaSchema.optional(),
 	/** The help text shows exactly as written on Android, with no markdown form on the wire.
 	 *  Absent: markdown. */
 	plainHelp: z.literal(true).optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
+});
+
+/** Questions whose collected or attached answer can start with a value and
+ * be checked by an expression when the worker leaves the screen. */
+export const checkedInputFieldBaseSchema = inputFieldBaseSchema.extend({
+	validate: formLogicSchema.optional(),
+	validate_msg: proseTemplateSchema.optional(),
+	extended_validate_msg: proseTemplateSchema.optional(),
+	default_value: formLogicSchema.optional(),
 });
 
 /**
@@ -166,6 +211,7 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 export type SelectOption = {
 	value: string;
 	label: ProseTemplate;
+	extended_text?: ProseTemplate;
 	media?: Media;
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel?: true;
@@ -175,7 +221,9 @@ export type SelectOption = {
 export const selectOptionSchema = z.strictObject({
 	value: z.string(),
 	label: proseTemplateSchema,
-	media: mediaSchema.optional(),
+	extended_text: proseTemplateSchema.optional(),
+	/** No inline video: only a question's label plays one. */
+	media: helpOrChoiceMediaSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel: z.literal(true).optional(),
 	uuid: uuidSchema,

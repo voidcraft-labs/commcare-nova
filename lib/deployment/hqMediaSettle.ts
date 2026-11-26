@@ -1,3 +1,5 @@
+import { hqMediaStandings } from "./hqMedia";
+import { removedHqFiles } from "./hqSourceBaseline";
 /**
  * Settling a published path whose file CommCare HQ's id alone cannot vouch
  * for, by the file's content: the one place a publish, or a review of
@@ -6,7 +8,16 @@
 
 import "server-only";
 import { createHash } from "node:crypto";
-import type { HqMediaType } from "@/lib/commcare/hq/appSource";
+import {
+	type HqAppSource,
+	type HqMediaType,
+	unreadableMediaIdentity,
+} from "@/lib/commcare/hq/appSource";
+import {
+	type HqAppSourceAtVersionRead,
+	readHqAppSaveCounter,
+	readHqAppSourceAtVersion,
+} from "@/lib/commcare/hq/appSourceAtVersion";
 import type {
 	CommCareApiError,
 	CommCareCredentials,
@@ -15,11 +26,18 @@ import {
 	HQ_MEDIA_IN_FLIGHT_MAX_BYTES,
 	HQ_MEDIA_READ_CONCURRENCY,
 	type HqMediaFileRead,
+	readHqMediaDigest,
 	readHqMediaFile,
 } from "@/lib/commcare/hq/media";
 import { giveBackHeld } from "@/lib/commcare/hq/memoryMeter";
 import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain";
-import type { HqMediaPath, HqMediaRecord, HqMediaStanding } from "./hqMedia";
+import {
+	type HqMediaPath,
+	type HqMediaRecord,
+	type HqMediaStanding,
+	mediaMovedBetween,
+	type PublishedMediaFile,
+} from "./hqMedia";
 
 /**
  * What CommCare HQ answered for one file, kept for a later step of the same
@@ -58,16 +76,26 @@ interface FileRequest {
 	readonly mediaType: HqMediaType;
 	/** The largest limit among the kinds of the paths that name it. */
 	readonly maxBytes: number;
+	readonly streamSize?: number;
 }
 
 /**
  * Asks CommCare HQ for the file of each `moved` and each `unrecorded` path,
- * once per id, and hashes its bytes with SHA-256:
+ * once per id, and hashes its bytes with SHA-256. A `recorded` path is never
+ * read: CommCare HQ keys a file document by the hash of its bytes and never
+ * replaces the attachment of one it holds (`hqmedia/models.py::
+ * CommCareMultimedia.get_by_data`, `attach_data`), so the id Nova recorded
+ * still names the bytes it recorded. A path whose published file states its
+ * size is hashed as it streams, never held whole, unless the caller retains
+ * it within the kind's limit:
  *
  * - bytes of the path's own `contentHash`: `recorded`, and `learned` gains
  *   the path under that id;
- * - bytes of another hash, or a file over Nova's limit for the kind:
- *   `replaced`, since no file of this app's is either;
+ * - bytes of another hash: `replaced`;
+ * - a file over Nova's limit for the kind read without its size: `replaced`.
+ *   A file of this app's can be past that limit (one brought in from CommCare
+ *   HQ), so a caller settling such a file passes each published file's
+ *   `sizeBytes`, and it is hashed as it streams;
  * - CommCare HQ serving no file there: `absent`, and an upload puts the
  *   file back.
  *
@@ -86,7 +114,10 @@ interface FileRequest {
 export async function settleHqMedia(
 	creds: CommCareCredentials,
 	paths: readonly HqMediaPath[],
-	options: { readonly cancel?: AbortSignal; readonly retain?: boolean },
+	options: {
+		readonly cancel?: AbortSignal;
+		readonly retain?: boolean;
+	},
 ): Promise<SettledHqMedia> {
 	const requests = new Map<string, FileRequest>();
 	for (const path of paths) {
@@ -97,6 +128,10 @@ export async function settleHqMedia(
 			multimediaId: path.hq.multimediaId,
 			mediaType: held?.mediaType ?? path.hq.mediaType,
 			maxBytes: Math.max(held?.maxBytes ?? 0, cap),
+			streamSize:
+				path.sizeBytes === undefined
+					? held?.streamSize
+					: Math.max(held?.streamSize ?? 0, path.sizeBytes),
 		});
 	}
 
@@ -112,6 +147,27 @@ export async function settleHqMedia(
 	let thrown: { readonly error: unknown } | null = null;
 
 	const ask = async (request: FileRequest): Promise<void> => {
+		if (
+			request.streamSize !== undefined &&
+			(!options.retain || request.streamSize > request.maxBytes)
+		) {
+			const result = await readHqMediaDigest(
+				creds,
+				request.mediaType,
+				request.multimediaId,
+				request.streamSize,
+				signal,
+			);
+			if ("success" in result) {
+				failure ??= result;
+				stop.abort();
+				return;
+			}
+			verdicts.set(request.multimediaId, result);
+			if (options.retain && result.kind === "missing")
+				reads.set(request.multimediaId, { kind: "missing" });
+			return;
+		}
 		const read: HqMediaFileRead = await readHqMediaFile(
 			creds,
 			request.mediaType,
@@ -212,4 +268,89 @@ export async function settleHqMedia(
 /** A standing an id alone cannot settle. */
 function isCandidate(standing: HqMediaStanding): boolean {
 	return standing === "moved" || standing === "unrecorded";
+}
+
+/** Include the physical identity of two undecodable entries. Their typed
+ * projections both lack an id, without establishing they name the same file. */
+export function filesMovedSinceSource(
+	compared: HqAppSource,
+	current: HqAppSource,
+	files: readonly PublishedMediaFile[],
+) {
+	return mediaMovedBetween(
+		compared.multimediaMap ?? [],
+		current.multimediaMap ?? [],
+		files,
+		(path) =>
+			unreadableMediaIdentity(compared.raw, path) !==
+			unreadableMediaIdentity(current.raw, path),
+	);
+}
+
+/** The app content was accepted before its media. A deferred batch uses the
+ * source compared for that import, the import's verified read-back, and the HQ
+ * save counter at dispatch. If the counter advanced after read-back, the new
+ * reading must itself stay at that counter. Newly occupied paths are settled
+ * by their bytes. An unread or foreign mapping cannot authorize a bundle. */
+export async function verifyHqMediaBatch(
+	creds: CommCareCredentials,
+	domain: string,
+	appId: string,
+	compared: HqAppSource,
+	readBack: HqAppSourceAtVersionRead | null,
+	files: readonly PublishedMediaFile[],
+): Promise<Extract<SettledHqMedia, { kind: "settled" }> | null> {
+	if (
+		compared.multimediaMap === null ||
+		!readBack ||
+		"success" in readBack ||
+		readBack.kind !== "source-at"
+	)
+		return null;
+	const counter = await readHqAppSaveCounter(creds, domain, appId);
+	if (typeof counter !== "number" || counter < readBack.version) return null;
+	const read =
+		counter === readBack.version
+			? readBack
+			: await readHqAppSourceAtVersion(creds, domain, appId, counter);
+	if (
+		"success" in read ||
+		read.kind !== "source-at" ||
+		read.source.multimediaMap === null
+	)
+		return null;
+	const moved = filesMovedSinceSource(compared, read.source, files);
+	if (moved.some((file) => file.standing === "replaced")) return null;
+	const settled = await settleHqMedia(creds, moved, {});
+	if (
+		settled.kind !== "settled" ||
+		settled.paths.some((file) => file.standing === "replaced")
+	)
+		return null;
+	// Authenticated file reads can span another save. The evidence then
+	// belongs to the earlier map, and the next publish can read again.
+	if (
+		moved.some((file) => file.standing === "unrecorded") &&
+		(await readHqAppSaveCounter(creds, domain, appId)) !== read.version
+	)
+		return null;
+	return settled;
+}
+
+/** The shell was just created, so preflight could not have shown any files on
+ * it. If HQ already holds an affected mapping, park the shell. The next
+ * publish compares its files through the usual target preflight. */
+export function freshShellHasAffectedFiles(
+	source: HqAppSource,
+	published: readonly PublishedMediaFile[],
+): boolean {
+	if (!source.multimediaMap?.length) return false;
+	return (
+		removedHqFiles(source.raw, { published, recorded: null }).length > 0 ||
+		hqMediaStandings({
+			published,
+			record: null,
+			now: source.multimediaMap,
+		}).some((file) => file.standing !== "absent")
+	);
 }

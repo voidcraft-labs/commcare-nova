@@ -44,10 +44,10 @@ import {
 	buildCaseTypeMap,
 	CasePropertyHasSavedValuesError,
 	type MigrationReport,
+	removalRetiresCaseProperty,
 	withSchemaContext,
 } from "@/lib/case-store";
 import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
-import { isStandardCaseListProperty } from "@/lib/domain";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
@@ -191,7 +191,7 @@ export const PERSISTED_BLUEPRINT_APP_COLUMNS = [
 	"project_id",
 	"app_name",
 	"app_name_lower",
-	"connect_type",
+	"connect_roles",
 	"logo",
 	"module_count",
 	"form_count",
@@ -229,7 +229,7 @@ export function rowToAppDoc(
 			row.mutation_seq,
 			`apps.mutation_seq for app ${row.id}`,
 		),
-		connect_type: row.connect_type,
+		connect_roles: blueprint.connectRoles,
 		module_count: row.module_count,
 		form_count: row.form_count,
 		status: parsePersistedAppLifecycleStatus(row.status),
@@ -337,7 +337,7 @@ export async function loadSchemaAdmittedAppSnapshotFromRowInTransaction(
 		row.id,
 		{
 			app_name: row.app_name,
-			connect_type: row.connect_type,
+			connect_roles: row.connect_roles,
 			case_types_text: row.case_types_text,
 			localization_text: row.localization_text,
 			app_settings_text: row.app_settings_text,
@@ -412,7 +412,24 @@ export async function loadAppInTransaction(
 	tx: Transaction<AppDatabase>,
 	appId: string,
 ): Promise<AppDoc | null> {
-	const row = (await tx
+	return readStableApp(tx, appId, "shared-lock");
+}
+
+/** The caller owns a REPEATABLE READ snapshot. PostgreSQL already holds the
+ * root row and entities at one revision for the duration of that snapshot. */
+export function loadAppInRepeatableReadSnapshot(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<AppDoc | null> {
+	return readStableApp(tx, appId, "repeatable-read");
+}
+
+async function readStableApp(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	consistency: "shared-lock" | "repeatable-read",
+): Promise<AppDoc | null> {
+	const query = tx
 		.selectFrom("apps")
 		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
 		.select(
@@ -430,9 +447,11 @@ export async function loadAppInTransaction(
 				"app_settings_text",
 			),
 		)
-		.where("id", "=", appId)
-		.forShare()
-		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
+		.where("id", "=", appId);
+	const row = (await (consistency === "shared-lock"
+		? query.forShare()
+		: query
+	).executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
 	if (!row) return null;
 	return (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app;
 }
@@ -448,7 +467,7 @@ export function denormalize(doc: PersistableDoc) {
 	return {
 		app_name: doc.appName,
 		app_name_lower: doc.appName.toLowerCase(),
-		connect_type: doc.connectType ?? null,
+		connect_roles: doc.connectRoles,
 		case_types: doc.caseTypes === null ? null : JSON.stringify(doc.caseTypes),
 		localization:
 			doc.localization === undefined ? null : JSON.stringify(doc.localization),
@@ -1192,13 +1211,7 @@ export async function commitCanonicalBatch(
 			// Removing a catalog annotation can leave a writer-derived or
 			// built-in property effective. Its storage contract survives; whole-type
 			// retirement also has its own retained schema.
-			if (
-				!effectiveType ||
-				isStandardCaseListProperty(mutation.property) ||
-				effectiveType.properties.some(
-					(property) => property.name === mutation.property,
-				)
-			)
+			if (!removalRetiresCaseProperty(effectiveType, mutation.property))
 				continue;
 			// Inspect the freshly admitted result, so a concurrent writer or read
 			// cannot be erased using a stale tool snapshot.

@@ -40,6 +40,11 @@ import type {
 } from "@/lib/deployment";
 import { authorizeBringIn, type BringInActor } from "@/lib/deployment/reading";
 import { READING_REFUSAL_STATUS } from "@/lib/deployment/reading/types";
+import {
+	DeploymentSessionEndedError,
+	sessionManagementGrant,
+} from "@/lib/deployment/sessionManagementGrant";
+import type { HqManagementGrant } from "@/lib/deployment/store";
 import { log } from "@/lib/logger";
 import { READING_REFUSAL_COPY } from "@/lib/publish/hqReadingCopy";
 
@@ -57,6 +62,7 @@ export interface BringInRoute<
 		actor: BringInActor,
 		body: Body,
 		onEvent: (event: ReadingEvent) => void,
+		requireInstallationManagement: HqManagementGrant,
 	) => Promise<ReadingAnswer | CreateAnswer>;
 }
 
@@ -87,6 +93,7 @@ export async function answerBringIn<
 	let userId: string;
 	let body: Body;
 	let actor: BringInActor;
+	let grant: HqManagementGrant;
 	try {
 		const session = await requireSession(req);
 		userId = session.user.id;
@@ -107,7 +114,11 @@ export async function answerBringIn<
 		body = parsed.data;
 		const authorized = await authorizeBringIn(userId, body.projectId);
 		if (authorized === null) return refused("no_project_access");
-		actor = authorized;
+		actor = {
+			...authorized,
+			requireOperation: sessionManagementGrant(userId, session.session.id),
+		};
+		grant = sessionManagementGrant(userId, session.session.id);
 	} catch (err) {
 		const response = handleApiError(
 			err instanceof Error ? err : new Error("Bring-in request failed"),
@@ -129,15 +140,27 @@ export async function answerBringIn<
 			};
 			let running: ReadingStage | null = null;
 			try {
-				const answer = await route.run(actor, body, (event) => {
-					/* The last line is this shell's alone, so a service's own can never
-					 * make a second one. */
-					if (event.type !== "stage" && event.type !== "files") return;
-					if (event.type === "stage") running = event.stage;
-					write(event);
-				});
+				const answer = await route.run(
+					actor,
+					body,
+					(event) => {
+						/* The last line is this shell's alone, so a service's own can never
+						 * make a second one. */
+						if (event.type !== "stage" && event.type !== "files") return;
+						if (event.type === "stage") running = event.stage;
+						write(event);
+					},
+					grant,
+				);
 				write({ type: "done", answer });
 			} catch (error) {
+				if (error instanceof DeploymentSessionEndedError) {
+					write({
+						type: "done",
+						answer: { kind: "refused", refusal: "session_ended" },
+					});
+					return;
+				}
 				log.error("[reading] failed", error, {
 					...(appId !== null && { appId }),
 					projectId: body.projectId,

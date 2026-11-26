@@ -321,13 +321,19 @@ jobs:
     # reinstalling extensions and replaying migrations for each behavior test.
     name: Test shard ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The deadline also covers npm and Docker setup and the timing upload.
+    # The largest shard can take over nine minutes inside Vitest alone.
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v7
+      # The released-reader PostgreSQL witness builds from this one immutable
+      # source object. The checkout of the PR remains the code under test.
+      - name: Make the released deployment reader source available
+        run: git fetch --no-tags --depth=1 origin 3e16e43f8cfa56e485860f3345c81f5f9a68aec9
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc

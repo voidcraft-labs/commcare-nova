@@ -52,6 +52,7 @@ import {
 	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
+import { reachedPropertyType } from "@/lib/domain/columnRelation";
 import {
 	type RecordQueryContext,
 	recordQueryContext,
@@ -69,6 +70,7 @@ import {
 } from "@/lib/domain/expression/temporalType";
 import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { RelationPath, Term } from "@/lib/domain/expression/types";
+import { datumRefKey } from "@/lib/domain/expression/types";
 import { AbsentWorkerFieldError } from "../errors";
 import { compileLiteral } from "./compileLiteral";
 import {
@@ -128,6 +130,8 @@ type RuntimeBindingValue = TermBindingValue | FormFieldBindingValue;
  * must thread runtime values before calling the term compiler.
  */
 export interface TermBindings {
+	/** Values actually reached on the server-verified form entry. */
+	entryDatums?: ReadonlyMap<string, string>;
 	/** Search-input values keyed by immutable authored identity. */
 	searchInputs?: ReadonlyMap<Uuid, TermBindingValue>;
 
@@ -201,6 +205,8 @@ export interface TermBindings {
 	 * not. Validated at the compile site, never trusted raw.
 	 */
 	viewerTimeZone?: string;
+	/** Confirmed destination clock for search-only reads. */
+	projectTimeZone?: string;
 
 	/**
 	 * The case chosen in each menu the list's entry passes through, keyed by
@@ -220,6 +226,12 @@ export interface TermBindings {
  * and forwards the rest unchanged into downstream calls.
  */
 export interface TermCompileContext {
+	readonly showColumnOwnerName?: boolean;
+	readonly restrictWorkerToRestore?: <QB>(query: QB, alias: string) => QB;
+	readonly workerGroupNames?: string;
+	/** Lower or upper bound on native index membership. A negative
+	 * predicate exchanges the bounds before it compiles its operand. */
+	readonly searchBound?: "certain" | "possible";
 	/**
 	 * What the anchor row stands for (`CaseReading`): it decides the class
 	 * `date_opened` and `last_modified` read in, whether `closed_on` is
@@ -282,6 +294,13 @@ export interface TermCompileContext {
 	 * owner.
 	 */
 	workerPlaceIds?: readonly string[];
+	/** The worker fixture an already-open form read. Each row contains only
+	 * ancestor IDs available in that particular authorized fixture. */
+	workerPlaceLineage?: readonly {
+		readonly id: string;
+		readonly levelUuid: string;
+		readonly lineage: Readonly<Record<string, string>>;
+	}[];
 	/**
 	 * Rows-free lookup-table definitions (table id → column id →
 	 * declared data type) for the lookup-table carriers. Optional —
@@ -356,6 +375,10 @@ export function compileTerm(
 	switch (term.kind) {
 		case "case-type":
 			return eb.val(term.caseType);
+		case "search-result-field":
+			throw new Error(
+				"A project-space result field requires a search run in its project space.",
+			);
 		case "case-row-type":
 			return (eb as DynamicExprBuilder).ref(`${ctx.anchorAlias}.case_type`);
 		case "choice":
@@ -373,6 +396,7 @@ export function compileTerm(
 		case "case-index":
 		case "repeat-row":
 		case "location-level":
+		case "worker-group-field":
 		case "location-field":
 		case "form-case":
 			throw new Error(
@@ -393,7 +417,11 @@ export function compileTerm(
 				}),
 			);
 		case "prop":
-			return compilePropertyRef(term, ctx);
+			return displayedCaseProperty(
+				term.property,
+				compilePropertyRef(term, ctx),
+				ctx,
+			);
 		case "literal":
 			return compileLiteral(term);
 		case "input":
@@ -404,7 +432,11 @@ export function compileTerm(
 			);
 		case "session-user":
 			if (term.source === "worker-record")
-				return compileWorkerProperty(term.field, ctx);
+				return displayedCaseProperty(
+					term.field,
+					compileWorkerProperty(term.field, ctx),
+					ctx,
+				);
 			return compileBoundRef(
 				term.field,
 				ctx.bindings.sessionUser,
@@ -497,6 +529,21 @@ export function compileTerm(
 						invariant: `organization level '${term.levelUuid}' has no resolvable case-owning ancestor`,
 					}),
 				);
+			}
+			if (ctx.workerPlaceLineage !== undefined) {
+				const rows = ctx.workerPlaceLineage
+					.filter(
+						(place) =>
+							place.levelUuid === destination.uuid &&
+							place.lineage[source.uuid] !== undefined,
+					)
+					.map((place) => ({
+						place: place.id,
+						owner: place.lineage[source.uuid],
+					}));
+				return sql<string>`(SELECT entry.place FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb)
+					AS entry(place text, owner text)
+					WHERE entry.owner = ${sql.ref(`${ctx.anchorAlias}.owner_id`)} LIMIT 1)`;
 			}
 			const places = ctx.workerPlaceIds;
 			if (places === undefined) {
@@ -631,6 +678,8 @@ function chosenCaseBinding(
 	ctx: TermCompileContext,
 ): string | undefined {
 	const { datum } = term;
+	if (ctx.bindings.entryDatums)
+		return ctx.bindings.entryDatums.get(datumRefKey(datum));
 	const ids = ctx.bindings.chosenCaseIds;
 	if (datum.kind !== "selected-case" || ids === undefined) return undefined;
 	return Object.hasOwn(ids, datum.module) ? ids[datum.module] : undefined;
@@ -739,14 +788,23 @@ function compileWorkerProperty(
 			const value: AliasableExpression<unknown> =
 				scalar === undefined
 					? builder.ref("worker_case.properties", "->>").key(field)
-					: eb.cast(scalarColumnRef("worker_case", scalar.column), "text");
+					: eb.cast(
+							compileReadingDate(
+								scalarColumnRef("worker_case", scalar.column),
+								field,
+								{ ...ctx, reading: "casedb" },
+							),
+							"text",
+						);
 			// Inside the row's select, so only a missing row reaches the outer
 			// fallback.
 			return eb.fn("coalesce", [value, eb.val("")]).as("value");
 		})
 		.limit(1);
-	if (ctx.restrictToRestoreScope !== undefined)
-		query = ctx.restrictToRestoreScope(query, "worker_case");
+	const restrictWorker =
+		ctx.restrictWorkerToRestore ?? ctx.restrictToRestoreScope;
+	if (restrictWorker !== undefined)
+		query = restrictWorker(query, "worker_case");
 	const derived = ctx.bindings.workerRecordWithoutRow;
 	const withoutRow =
 		derived !== undefined && Object.hasOwn(derived, field)
@@ -766,6 +824,16 @@ function compileWorkerProperty(
  * originating scope per the AST contract on
  * `propertyRefSchema.caseType`).
  */
+function displayedCaseProperty(
+	field: string,
+	value: AliasableExpression<unknown>,
+	ctx: TermCompileContext,
+): AliasableExpression<unknown> {
+	if (!ctx.showColumnOwnerName || field !== "owner_id") return value;
+	const worker = ctx.bindings.sessionContext;
+	return sql<string>`coalesce((select g.name from jsonb_to_recordset(${ctx.workerGroupNames ?? "[]"}::jsonb) as g(id text, name text) where g.id = (${value})::text), case when (${value})::text = ${worker?.get("userid") ?? null} then ${String(worker?.get("username") ?? "")} else '' end)`;
+}
+
 function compilePropertyRef(
 	term: Extract<Term, { kind: "prop" }>,
 	ctx: TermCompileContext,
@@ -790,6 +858,7 @@ function compilePropertyRef(
 			})
 		: compileNonSelfViaPropertyRef({
 				via,
+				readReached: term.readReached,
 				anchorAlias: ctx.anchorAlias,
 				caseType,
 				property,
@@ -908,12 +977,26 @@ function compileNonSelfViaPropertyRef(args: {
 	property: string;
 	ctx: TermCompileContext;
 	read?: PropertyRead;
+	readReached?: boolean;
 }): AliasableExpression<unknown> {
 	const { via, anchorAlias, caseType, property, ctx, read = "typed" } = args;
-	const canonical = canonicalizeRelationPath(via, {
-		caseTypes: [...ctx.caseTypeSchemas.values()],
-		currentCaseType: ctx.currentCaseType ?? caseType,
-	});
+	const types = [...ctx.caseTypeSchemas.values()];
+	const native = args.readReached && via.kind === "ancestor" ? via : undefined;
+	const canonical =
+		native === undefined
+			? canonicalizeRelationPath(via, {
+					caseTypes: types,
+					currentCaseType: ctx.currentCaseType ?? caseType,
+				})
+			: {
+					via: {
+						kind: "ancestor" as const,
+						via: native.via.map(({ identifier }) => ({
+							identifier,
+						})) as typeof native.via,
+					},
+					destinationCaseType: caseType,
+				};
 
 	const lookupCaseType =
 		canonical.destinationCaseType ??
@@ -941,19 +1024,25 @@ function compileNonSelfViaPropertyRef(args: {
 
 	const leafAlias = compiledPath.leafAlias;
 	const leafReserved = reservedColumnFor(property, ctx);
-	const innerRead =
-		leafReserved !== undefined
-			? reservedColumnRead(leafAlias, leafReserved, property, read)
-			: jsonbColumnRead({
-					sourceAlias: leafAlias,
-					property,
-					dataType: lookupDataType(
-						lookupCaseType,
-						property,
-						ctx.caseTypeSchemas,
-					),
-					read,
-				});
+	let innerRead: AliasableExpression<unknown>;
+	if (leafReserved !== undefined) {
+		innerRead = reservedColumnRead(leafAlias, leafReserved, property, read);
+	} else {
+		const dataType =
+			native === undefined
+				? lookupDataType(lookupCaseType, property, ctx.caseTypeSchemas)
+				: reachedPropertyType(
+						{ field: property, via: native.via },
+						caseType,
+						types,
+					);
+		// Historical links can reach a property outside the current type catalog.
+		// Preserve the device's space-delimited rendering of any stored list.
+		innerRead =
+			native !== undefined && dataType === "text"
+				? storedJsonbText(`${leafAlias}.properties`, property, true)
+				: jsonbColumnRead({ sourceAlias: leafAlias, property, dataType, read });
+	}
 
 	// `LIMIT 1` keeps the subquery scalar — the term compiler's
 	// contract is "value-bearing expression". Without it, a
@@ -997,7 +1086,11 @@ function jsonbColumnRead(args: {
 	const { sourceAlias, property, dataType, read = "typed" } = args;
 	const propertiesRef = `${sourceAlias}.properties` as const;
 	if (read === "stored-text")
-		return storedJsonbText(propertiesRef, property, dataType);
+		return storedJsonbText(
+			propertiesRef,
+			property,
+			dataType === "multi_select",
+		);
 	const cast = POSTGRES_CAST_FOR_DATA_TYPE[dataType];
 	const readOperator = JSONB_READ_OPERATOR_FOR_DATA_TYPE[dataType];
 	// Type-erased: the runtime alias prefix can't be enumerated
@@ -1064,12 +1157,12 @@ type PropertyRead = "typed" | "stored-text";
 function storedJsonbText(
 	propertiesRef: string,
 	property: string,
-	dataType: CasePropertyDataType,
+	readArray: boolean,
 ): AliasableExpression<unknown> {
 	const text = (eb as DynamicExprBuilder)
 		.ref(propertiesRef, "->>")
 		.key(property);
-	if (dataType !== "multi_select") return text;
+	if (!readArray) return text;
 	const json = (eb as DynamicExprBuilder)
 		.ref(propertiesRef, "->")
 		.key(property);
@@ -1138,6 +1231,7 @@ export function compileStoredText(
 			})
 		: compileNonSelfViaPropertyRef({
 				via,
+				readReached: term.readReached,
 				anchorAlias: ctx.anchorAlias,
 				caseType,
 				property,
@@ -1160,6 +1254,10 @@ export function storedTextDataType(
 	if (reservedColumnFor(property, ctx) !== undefined) return undefined;
 	const caseType = term.caseType ?? ctx.currentCaseType;
 	if (caseType === undefined) return undefined;
+	if (term.readReached && via?.kind === "ancestor")
+		return reachedPropertyType({ field: property, via: via.via }, caseType, [
+			...ctx.caseTypeSchemas.values(),
+		]);
 	if (via === undefined || via.kind === "self")
 		return lookupDataType(caseType, property, ctx.caseTypeSchemas);
 	const canonical = canonicalizeRelationPath(via, {

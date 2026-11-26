@@ -74,7 +74,7 @@ def test_web_apps_omits_both_blank_headers_for_a_zero_width_sort_column(
                         *steps.run_search(),
                         steps.SCREEN,
                         *steps.click("#case-list-config-button", visible=True),
-                        {"call": "webapps/configurable-columns"},
+                        {"call": "webapps/configurable_columns"},
                     ]
                 )
                 assert not run.page_errors

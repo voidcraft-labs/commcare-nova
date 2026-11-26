@@ -10,7 +10,14 @@ export type AuthorableIdentityFamily =
 	| "field"
 	| "select-option"
 	| "case-list-column"
+	| "case-list-sort"
+	| "case-detail-tab"
+	| "case-mapping-row"
+	| "installation-profile"
+	| "project-search"
+	| "project-search-parameter"
 	| "search-input"
+	| "search-input-group"
 	| "worker-property"
 	| "user-type"
 	| "persona"
@@ -19,6 +26,8 @@ export type AuthorableIdentityFamily =
 	| "location"
 	| "case-operation"
 	| "form-link"
+	| "form-entry-supply"
+	| "form-opening-assignment"
 	| "entry-point"
 	| "automation"
 	| "automation-criterion"
@@ -27,10 +36,16 @@ export type AuthorableIdentityFamily =
 	| "automation-recipient"
 	| "automation-event"
 	| "automation-user-data-filter"
+	| "search-filter"
 	| "media-asset"
 	| "lookup-table"
 	| "lookup-column"
-	| "lookup-row";
+	| "lookup-attribute"
+	| "lookup-value-property"
+	| "lookup-row"
+	| "project-worker"
+	| "project-place"
+	| "worker-group";
 
 export interface AuthorableIdentityPointer {
 	readonly tool: string;
@@ -107,9 +122,86 @@ export function classifyIdentity(
 		discriminators,
 		logicalPointer: pointer,
 	} = occurrence;
+	// A directory identity can belong to a different application in the same
+	// Project. Its exact ID and owning app come from the authorized directory.
+	if (
+		(tool === "get_worker_groups" || tool === "edit_worker_group") &&
+		property === "groupId"
+	)
+		return "worker-group";
+	if (tool === "edit_worker_group" && property === "personaId")
+		return "project-worker";
+	if (
+		tool === "edit_lookup_rows" &&
+		property === "id" &&
+		pointer.endsWith("/assignments/*/id")
+	) {
+		if (discriminators.includes("group")) return "worker-group";
+		if (discriminators.includes("worker")) return "project-worker";
+		if (discriminators.includes("place")) return "project-place";
+	}
 	if (tool === "start_app_test" && pointer === "/places/*/uuid")
 		return "location";
+	if (
+		(property === "selection" &&
+			(tool === "edit_form_entry" ||
+				discriminators.includes("form-selection"))) ||
+		(property === "datum" && discriminators.includes("entry-value"))
+	)
+		return "form-entry-supply";
+	if (
+		(tool === "create_form" && property === "shared_form_uuid") ||
+		(tool === "edit_form_entry" && property === "parentFormUuid")
+	)
+		return "form";
+	if (pointer.endsWith("/source/under/relationship/question")) return "field";
+	if (pointer.endsWith("/addressReceiver/source")) return "search-input";
+	if (tool === "edit_form_entry") {
+		if (
+			(property === "uuid" || property === "after") &&
+			discriminators.some((tag) => tag.endsWith("-assignment"))
+		)
+			return "form-opening-assignment";
+		if (property === "field") return "field";
+		if (property === "uuid" || property === "after") return "form-entry-supply";
+		if (property === "module") return "module";
+		if (property === "table") return "lookup-table";
+		if (property === "column") return "lookup-column";
+	}
+	if (
+		(tool === "updateApp" || tool === "update_app") &&
+		pointer === "/installation_profile/uuid"
+	)
+		return "installation-profile";
+	if (tool === "configure_project_search") {
+		if (pointer === "/change/search/uuid" || pointer === "/change/uuid")
+			return "project-search";
+		if (pointer === "/change/parameters/*/uuid")
+			return "project-search-parameter";
+		if (pointer === "/change/fields/*/fieldUuid") return "search-input";
+	}
+	if (property === "question" && pointer.includes("/androidApp/"))
+		return "field";
 	if (property === "tableId") return "lookup-table";
+	if (tool.includes("lookup")) {
+		if (
+			property === "attributeId" ||
+			property === "attributeIds" ||
+			/\/attributes\/\*\/id$/.test(pointer)
+		)
+			return "lookup-attribute";
+		if (property === "propertyId" || /\/properties\/\*\/id$/.test(pointer))
+			return "lookup-value-property";
+	}
+	if (
+		/(?:^|\/)(?:columnId|valueColumnId|labelColumnId|sortColumnId|resultColumnId|slot)\/(?:where\/)?(?:attributeId|propertyId)$/.test(
+			pointer,
+		)
+	) {
+		return property === "attributeId"
+			? "lookup-attribute"
+			: "lookup-value-property";
+	}
 	if (
 		property === "columnId" ||
 		property === "columnIds" ||
@@ -150,11 +242,21 @@ export function classifyIdentity(
 	) {
 		return "module";
 	}
+	/* A menu listing another menu's forms names its source menu. */
+	if (
+		(property === "menuUuid" ||
+			property === "previousMenuUuid" ||
+			property === "sourceMenuUuid") &&
+		(tool === "create_module" || tool === "update_module")
+	) {
+		return "module";
+	}
 	/* `move_module` anchors on the module it now follows. The slot is named
 	 * for the mutation it emits, so the family comes from the tool. */
 	if (property === "after" && tool === "move_module") return "module";
 	if (
 		property === "formUuid" ||
+		(property === "excludedFormUuids" && tool === "create_module") ||
 		(property === "form" &&
 			discriminators.some((kind) =>
 				[
@@ -167,6 +269,19 @@ export function classifyIdentity(
 			))
 	)
 		return "form";
+	/* A Connect activity's part names the activity, a field of the form. */
+	if (
+		property === "activity" &&
+		discriminators.some((kind) =>
+			[
+				"connect-learn",
+				"connect-assessment",
+				"connect-delivery",
+				"connect-task",
+			].includes(kind),
+		)
+	)
+		return "field";
 	if (property === "entryPointUuid") return "entry-point";
 	if (property === "automationUuid" || property === "afterAutomationUuid") {
 		return "automation";
@@ -179,7 +294,8 @@ export function classifyIdentity(
 		(tool === "create_location" ||
 			tool === "update_location" ||
 			tool === "start_app_test" ||
-			tool === "move_location")
+			tool === "move_location" ||
+			(tool === "get_organization" && property === "parentId"))
 	) {
 		return "location";
 	}
@@ -205,12 +321,16 @@ export function classifyIdentity(
 	if (
 		property === "optionUuid" ||
 		(property === "options" && discriminators.includes("choice")) ||
-		(property === "option" && discriminators.includes("itext"))
+		(property === "option" && discriminators.includes("itext")) ||
+		// A form behavior's carrier or shared text names its choice.
+		(property === "option" && tool === "update_form")
 	)
 		return "select-option";
 	if (
 		property === "columnUuid" ||
 		property === "columnUuids" ||
+		// A named tile position holds the field placed there.
+		property === "namedSlots" ||
 		property === "resultsColumnOrder" ||
 		property === "detailsColumnOrder"
 	) {
@@ -223,7 +343,19 @@ export function classifyIdentity(
 	) {
 		return "search-input";
 	}
-	if (property === "userPropertyUuid") return "worker-property";
+	if (
+		property === "sortUuid" ||
+		property === "calculatedSortUuids" ||
+		property === "removeCalculatedSorts"
+	)
+		return "case-list-sort";
+	if (property === "tabUuid") return "case-detail-tab";
+	if (tool === "configure_case_list" && property === "groupUuid")
+		return "search-input-group";
+	if (property === "orderFields" && tool === "set_case_detail_tabs")
+		return "case-list-column";
+	if (property === "userPropertyUuid" || property === "workerPropertyUuid")
+		return "worker-property";
 	if (property === "userTypeUuid") return "user-type";
 	if (property === "personaUuid") return "persona";
 	if (
@@ -254,6 +386,7 @@ export function classifyIdentity(
 	}
 	if (
 		property === "operationUuid" ||
+		property === "caseCreationUuids" ||
 		property === "afterOperationUuid" ||
 		property === "opUuid"
 	) {
@@ -267,6 +400,7 @@ export function classifyIdentity(
 		property === "image" ||
 		property === "audio" ||
 		property === "video" ||
+		property === "videoInline" ||
 		property === "icon" ||
 		property === "audioLabel" ||
 		property === "logo"
@@ -274,7 +408,20 @@ export function classifyIdentity(
 		return "media-asset";
 	}
 
+	// A column's ordered display rule and a calculation's translated text are
+	// anonymous items of their column, each named by its stable id.
+	if (property === "textUuid") return "case-mapping-row";
+	/* `edit_search_filter` names one filter of a menu's online search, and
+	 * anchors a move or an add on the filter it follows. */
+	if (
+		tool === "edit_search_filter" &&
+		(property === "uuid" || property === "after") &&
+		pointer.startsWith("/change/")
+	)
+		return "search-filter";
 	if (property === "uuid") {
+		if (pointer.includes("/mapping/") || pointer.includes("/texts/"))
+			return "case-mapping-row";
 		if (tool === "add_automations" || tool === "update_automation") {
 			if (pointer.includes("/criteria/")) return "automation-criterion";
 			if (pointer.includes("/setupOnlyCriteria/")) {
@@ -367,7 +514,10 @@ export function collectIdentitySchemaPointers(
 
 		let nestedDiscriminators = discriminators;
 		const properties = schema.properties as JsonNode | undefined;
-		const kind = properties?.kind as JsonNode | undefined;
+		const kind = (properties?.kind ??
+			(tool === "edit_form_entry" ? properties?.operation : undefined)) as
+			| JsonNode
+			| undefined;
 		if (kind !== undefined) {
 			const values: string[] = [];
 			if (typeof kind.const === "string") values.push(kind.const);

@@ -1,5 +1,11 @@
 /** Create a module in the private candidate; forms and list refinements are separate operations. */
+
 import { z } from "zod";
+import {
+	declareCaseTypeMutations,
+	listedFormMenuMutations,
+} from "@/lib/doc/scaffolds";
+import { withListedMenuHierarchy } from "@/lib/doc/sharedMenuHierarchy";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
@@ -26,6 +32,22 @@ import type {
 
 export const createModuleInputSchema = z
 	.strictObject({
+		forms_from_menu: z
+			.strictObject({
+				menuUuid: uuidSchema.describe(
+					"The menu that owns the forms to list here.",
+				),
+				excludedFormUuids: z
+					.array(uuidSchema)
+					.optional()
+					.describe(
+						"Forms to leave off this menu. New forms in the source appear here automatically.",
+					),
+			})
+			.optional()
+			.describe(
+				"A second way to reach the same forms. The source supplies the case type; each menu keeps its own case details and deep links.",
+			),
 		moduleUuid: uuidSchema
 			.optional()
 			.describe(
@@ -48,7 +70,7 @@ export const createModuleInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Record type for this module. A new name declares the type; null for surveys.",
+				"Record type this module lists. Use commcare-user for the worker’s own record, a new name to declare a business record type, or null for surveys.",
 			),
 		purpose: z
 			.string()
@@ -65,6 +87,16 @@ export const createModuleInputSchema = z
 			),
 	})
 	.superRefine((input, ctx) => {
+		if (
+			input.forms_from_menu &&
+			(input.case_type != null || input.case_list_menu_item !== undefined)
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["forms_from_menu"],
+				message:
+					"A menu listing another menu’s forms uses its source’s case type and opens the list through a form.",
+			});
 		if (input.case_list_menu_item !== undefined && input.case_type == null) {
 			ctx.addIssue({
 				code: "custom",
@@ -120,6 +152,22 @@ export const createModuleTool = {
 					},
 				};
 			}
+			const shared =
+				input.forms_from_menu &&
+				listedFormMenuMutations(doc, {
+					...input.forms_from_menu,
+					uuid: moduleUuid,
+					name,
+					parentModuleUuid,
+					parentCaseModuleUuid,
+					purpose: purpose ?? undefined,
+				});
+			if (shared && !shared.ok)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: shared.message },
+				};
 			const columns = case_type
 				? [
 						stampColumnUuid(
@@ -129,31 +177,40 @@ export const createModuleTool = {
 					]
 				: [];
 			const mutations: Mutation[] = [
-				...(case_type && !doc.caseTypes?.some((type) => type.name === case_type)
-					? [{ kind: "declareCaseType" as const, caseType: case_type }]
-					: []),
-				...addModuleMutations({
-					uuid: moduleUuid,
-					name,
-					...(parentModuleUuid !== undefined && { parentModuleUuid }),
-					...(parentCaseModuleUuid !== undefined && { parentCaseModuleUuid }),
-					...(case_type && { caseType: case_type }),
-					...(case_list_menu_item !== undefined && {
-						caseListMenuItem: caseListMenuItemFromInput(case_list_menu_item),
-					}),
-					...(purpose != null && { purpose }),
-					...(columns.length > 0 && {
-						caseListConfig: {
-							columns,
-							listColumnOrder: columns.map((column) => column.uuid),
-							detailColumnOrder: columns.map((column) => column.uuid),
-							searchInputs: [],
+				...(case_type ? declareCaseTypeMutations(doc, case_type) : []),
+				...(shared?.mutations ??
+					addModuleMutations(
+						{
+							uuid: moduleUuid,
+							name,
+							...(parentModuleUuid !== undefined && { parentModuleUuid }),
+							...(parentCaseModuleUuid !== undefined && {
+								parentCaseModuleUuid,
+							}),
+							...(case_type && { caseType: case_type }),
+							...(case_list_menu_item !== undefined && {
+								caseListMenuItem:
+									caseListMenuItemFromInput(case_list_menu_item),
+							}),
+							...(purpose != null && { purpose }),
+							...(columns.length > 0 && {
+								caseListConfig: {
+									columns,
+									listColumnOrder: columns.map((column) => column.uuid),
+									detailColumnOrder: columns.map((column) => column.uuid),
+									searchInputs: [],
+								},
+							}),
 						},
-					}),
-				}),
+						doc,
+					)),
 			];
 
-			const commit = await guardedMutate(ctx, mutations, "module:create");
+			const commit = await guardedMutate(
+				ctx,
+				withListedMenuHierarchy(doc, mutations),
+				"module:create",
+			);
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,
@@ -173,7 +230,9 @@ export const createModuleTool = {
 						newDoc.modules[moduleUuid]?.parentModuleUuid ?? null,
 					childModuleUuids: childModuleUuids(newDoc, moduleUuid),
 					moduleOrder: [...newDoc.moduleOrder],
-					columns: columns.map((column) => ({ uuid: column.uuid })),
+					columns: (
+						newDoc.modules[moduleUuid]?.caseListConfig?.columns ?? []
+					).map((column) => ({ uuid: column.uuid })),
 					summary: { subject: name } satisfies ToolCallSummary,
 				},
 			};

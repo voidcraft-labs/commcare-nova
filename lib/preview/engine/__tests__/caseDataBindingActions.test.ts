@@ -10,6 +10,7 @@ import {
 	CasePropertiesValidationError,
 	type CasePropertyFailure,
 	type CaseRow,
+	type CaseRowWithCalculated,
 	type CaseStore,
 	type JsonObject,
 	SchemaNotSyncedError,
@@ -32,8 +33,6 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
 import {
-	and,
-	between,
 	dateAdd,
 	dateLiteral,
 	double,
@@ -64,6 +63,7 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
+import { loadCasesAction as readCasesForSavedRange } from "../caseDataBinding";
 import {
 	buildSubmissionOperationProgram,
 	buildSubmissionReceiptIdentity,
@@ -76,6 +76,7 @@ import type {
 	SubmissionWireMutation,
 } from "../caseDataBindingTypes";
 import { previewAsMe } from "../identity";
+import { openSearchRangesAction } from "../openSearchRangesAction";
 
 type CaseQuery = CaseStore["query"];
 
@@ -84,6 +85,31 @@ function appCaseQuery(...pages: ReadonlyArray<Awaited<ReturnType<CaseQuery>>>) {
 	return vi.fn<CaseQuery>(async (args) =>
 		args.caseType === USERCASE_CASE_TYPE ? [] : (remaining.shift() ?? []),
 	);
+}
+
+/** A completed search's reader that finds no record. */
+function emptySearchResults() {
+	return vi.fn<CaseStore["querySearchResults"]>(async () => ({
+		primaryCount: 0,
+		totalRows: 0,
+		offset: 0,
+		rows: [],
+	}));
+}
+
+/** A completed search's reader that returns each page in turn, the page
+ * starting at the offset its request names. */
+function searchResultPages(
+	total: number,
+	...pages: ReadonlyArray<CaseRowWithCalculated[]>
+) {
+	const remaining = [...pages];
+	return vi.fn<CaseStore["querySearchResults"]>(async (args) => ({
+		primaryCount: total,
+		totalRows: total,
+		offset: args.offset ?? 0,
+		rows: remaining.shift() ?? [],
+	}));
 }
 
 function appCaseQueryArg<T extends { readonly caseType: string }>(mock: {
@@ -155,13 +181,13 @@ vi.mock("@/lib/db/formAttachments", async () => {
 });
 
 const {
-	getLookupDefinitionsMock,
+	readWorkerLookupProjectionMock,
 	loadAppMock,
 	materializeMock,
 	resolveAppScopeMock,
 	resolveAuthorizedAppSnapshotMock,
 } = vi.hoisted(() => ({
-	getLookupDefinitionsMock: vi.fn(),
+	readWorkerLookupProjectionMock: vi.fn(),
 	loadAppMock: vi.fn(),
 	materializeMock: vi.fn(),
 	resolveAppScopeMock: vi.fn(),
@@ -174,11 +200,32 @@ vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 	materializeCaseStoreSchemas: materializeMock,
 }));
 
-vi.mock("@/lib/lookup/service", async () => {
-	const actual = await vi.importActual<typeof import("@/lib/lookup/service")>(
-		"@/lib/lookup/service",
-	);
-	return { ...actual, getLookupDefinitions: getLookupDefinitionsMock };
+// A persona's places and classic groups are read from Postgres; these
+// fixtures give a persona neither, so its restore scope is its own id.
+vi.mock("../restoreScope", async () => {
+	const actual =
+		await vi.importActual<typeof import("../restoreScope")>("../restoreScope");
+	return {
+		...actual,
+		resolveRestoreScope: vi.fn(
+			async (args: Parameters<typeof actual.resolveRestoreScope>[0]) => ({
+				ownerIds: [args.identity.ownerId],
+				groups: [],
+			}),
+		),
+	};
+});
+
+// A signed-in preview reads Project data as the worker, under the session's
+// grant: the worker projection is the Postgres boundary these actions meet.
+vi.mock("@/lib/deployment/workerLookupProjection", async () => {
+	const actual = await vi.importActual<
+		typeof import("@/lib/deployment/workerLookupProjection")
+	>("@/lib/deployment/workerLookupProjection");
+	return {
+		...actual,
+		readWorkerLookupProjection: readWorkerLookupProjectionMock,
+	};
 });
 
 vi.mock("@/lib/db/appAccess", async () => {
@@ -374,8 +421,12 @@ const EMPTY_CASE_DATABASE_PATCH = { rows: [], indices: [] } as const;
 function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 	return {
 		query: appCaseQuery(),
+		querySearchResults: vi.fn(),
+		readSearchResultInstance: vi.fn(),
+		holdsDeviceCases: vi.fn(async () => true),
 		readDeviceCaseDatabase: vi.fn(async () => ({ rows: [], indices: [] })),
 		readCaseDatabasePatch: vi.fn(async () => ({ rows: [], indices: [] })),
+		readSubmittedCaseDatabasePatch: vi.fn(async () => undefined),
 		queryGrouped: vi.fn(),
 		count: vi.fn(),
 		insert: vi.fn(),
@@ -452,6 +503,7 @@ function caseListCandidate(
 	config: CaseListConfig,
 	blueprint: BlueprintDoc = buildBlueprint([PATIENT_CASE_TYPE]),
 	excludedOwnerIdsExpression?: Expression,
+	lookup?: Parameters<typeof assertAdmittedPreviewDoc>[1],
 ) {
 	const module = Object.values(blueprint.modules).find(
 		(candidate) => candidate.caseType === "patient",
@@ -468,10 +520,13 @@ function caseListCandidate(
 		}),
 	};
 	return {
-		blueprint: assertAdmittedPreviewDoc({
-			...blueprint,
-			modules: { ...blueprint.modules, [module.uuid]: candidateModule },
-		}),
+		blueprint: assertAdmittedPreviewDoc(
+			{
+				...blueprint,
+				modules: { ...blueprint.modules, [module.uuid]: candidateModule },
+			},
+			lookup,
+		),
 		moduleUuid: module.uuid,
 		caseListConfig: config,
 		...(excludedOwnerIdsExpression !== undefined && {
@@ -632,6 +687,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 			// The action only reads `session.user.id`; the rest of the
 			// shape is irrelevant for this assertion. Cast through
 			// `unknown` because Better Auth's `Session` type carries
@@ -692,6 +748,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const { submitFormAction } = await import("../caseDataBinding");
@@ -718,6 +775,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -754,6 +812,10 @@ describe("submitFormAction", () => {
 				},
 			],
 		});
+		// Without the follow-up's generated starting value the form reads no
+		// record when it opens, so it submits without a signed opening.
+		for (const field of Object.values(committedBlueprint.fields))
+			if ("default_value" in field) delete field.default_value;
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
 			kind: "current",
 			projectId: PROJECT_A,
@@ -792,6 +854,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -959,6 +1022,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const committedBlueprint = buildDoc({
 			appName: "Open followup tab",
@@ -1059,6 +1123,7 @@ describe("submitFormAction", () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const mutation: SubmissionWireMutation = {
 			kind: "close",
@@ -1114,6 +1179,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const doc = registrationDoc();
@@ -1186,6 +1252,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const doc = registrationDoc();
@@ -1240,6 +1307,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
 			kind: "current",
@@ -1378,6 +1446,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAuthorizedFormSubmissionSnapshotMock.mockRejectedValueOnce(
 			new AppAccessError("not_member"),
@@ -1400,6 +1469,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -1436,6 +1506,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid } = operationSurveyDoc();
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
@@ -1478,6 +1549,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid, noteUuid } = operationSurveyDoc();
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
@@ -1528,7 +1600,7 @@ describe("submitFormAction", () => {
 		expect(envelope.operations?.operations).toHaveLength(1);
 		expect(envelope.operations?.lookupTableSchemas).toBeUndefined();
 		// Carrier-free operation programs keep the common path read-free.
-		expect(getLookupDefinitionsMock).not.toHaveBeenCalled();
+		expect(readWorkerLookupProjectionMock).not.toHaveBeenCalled();
 		// The authorized snapshot is established before the store opens its
 		// fresh mutation-boundary membership gate.
 		expect(
@@ -1536,11 +1608,15 @@ describe("submitFormAction", () => {
 		).toBeLessThan(resolveAppScopeMock.mock.invocationCallOrder[0] ?? Infinity);
 	});
 
-	it("loads the exact Project-scoped definitions once and attaches them to the submitted program", async () => {
+	it("refuses a form whose operations read a table when it arrives without its signed opening", async () => {
+		// The opening a form starts from carries the table definitions and
+		// rows its operations read (`formOpeningSnapshot.ts`); a submission
+		// that lost it is refused before any definition is read or written.
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid, noteUuid } = operationSurveyDoc({
 			lookupCondition: true,
@@ -1574,33 +1650,7 @@ describe("submitFormAction", () => {
 				project_id: PROJECT_A,
 			},
 		});
-		getLookupDefinitionsMock.mockResolvedValueOnce({
-			projectId: PROJECT_A,
-			projectRevision: "1",
-			definitions: [
-				{
-					id: OPERATION_LOOKUP_TABLE,
-					name: "Status",
-					tag: "status",
-					definitionRevision: "1",
-					columns: [
-						{
-							id: OPERATION_LOOKUP_COLUMN,
-							wireName: "status",
-							label: "Status",
-							dataType: "text",
-						},
-					],
-				},
-			],
-		});
-		const applySubmission = vi.fn().mockResolvedValueOnce({
-			primaryCaseIds: [],
-			createdChildren: [],
-			operations: [],
-			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
-		});
+		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
@@ -1622,33 +1672,12 @@ describe("submitFormAction", () => {
 				canonicalJsonDigest(toPersistableDoc(doc)),
 			),
 		).toEqual({
-			kind: "survey",
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+			kind: "error",
+			message:
+				"Reopen this form to load its opening records before submitting.",
 		});
-
-		// Exactly the tables the program's own operations reference, read once
-		// under the same Project scope the membership gate resolved.
-		expect(getLookupDefinitionsMock).toHaveBeenCalledTimes(1);
-		expect(getLookupDefinitionsMock).toHaveBeenCalledWith(
-			{ projectId: PROJECT_A, actorId: OWNER_A, role: "owner" },
-			[OPERATION_LOOKUP_TABLE],
-		);
-		const envelope = applySubmission.mock.calls[0]?.[0];
-		expect(
-			envelope.operations?.lookupTableSchemas
-				?.get(OPERATION_LOOKUP_TABLE)
-				?.get(OPERATION_LOOKUP_COLUMN),
-		).toBe("text");
-
-		// Authorized snapshot, then definitions, then the apply — the
-		// definition read must never precede the membership proof.
-		const snapshotOrder =
-			loadAuthorizedFormSubmissionSnapshotMock.mock.invocationCallOrder[0];
-		const definitionsReadOrder =
-			getLookupDefinitionsMock.mock.invocationCallOrder[0];
-		const applyOrder = applySubmission.mock.invocationCallOrder[0];
-		expect(snapshotOrder).toBeLessThan(definitionsReadOrder);
-		expect(definitionsReadOrder).toBeLessThan(applyOrder);
+		expect(readWorkerLookupProjectionMock).not.toHaveBeenCalled();
+		expect(applySubmission).not.toHaveBeenCalled();
 	});
 
 	it("keeps one lookup-schema map on the same envelope across a schema-heal retry", async () => {
@@ -1656,6 +1685,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid, noteUuid } = operationSurveyDoc({
 			lookupCondition: true,
@@ -1689,26 +1719,59 @@ describe("submitFormAction", () => {
 				project_id: PROJECT_A,
 			},
 		});
-		getLookupDefinitionsMock.mockResolvedValueOnce({
-			projectId: PROJECT_A,
-			projectRevision: "1",
-			definitions: [
-				{
-					id: OPERATION_LOOKUP_TABLE,
-					name: "Status",
-					tag: "status",
-					definitionRevision: "1",
-					columns: [
+		const { signFormOpening } = await import("../signedFormOpening");
+		const device = webAppsDevice();
+		const run = testUuid("retry-opening");
+		const module = Object.values(doc.modules)[0].uuid;
+		const blueprintDigest = canonicalJsonDigest(toPersistableDoc(doc));
+		const secret = "synthetic-submission-retry-test";
+		const evidence = await signFormOpening(
+			secret,
+			{
+				app: APP_ID,
+				project: PROJECT_A,
+				actor: OWNER_A,
+				worker: OWNER_A,
+				persona: null,
+				session: "preview-session",
+				device,
+				run,
+				module,
+				form: formUuid,
+				entry: FINAL_ENTRY_KEY,
+				revision: 8,
+				blueprintDigest,
+			},
+			{
+				cases: EMPTY_CASE_DATABASE_PATCH,
+				lookup: {
+					projectRevision: "1",
+					rowsByTable: {},
+					definitions: [
 						{
-							id: OPERATION_LOOKUP_COLUMN,
-							wireName: "status",
-							label: "Status",
-							dataType: "text",
+							id: OPERATION_LOOKUP_TABLE,
+							name: "Status",
+							tag: "status",
+							definitionRevision: parseLookupRevision("1"),
+							columns: [
+								{
+									id: OPERATION_LOOKUP_COLUMN,
+									wireName: "status",
+									label: "Status",
+									dataType: "text",
+								},
+							],
 						},
 					],
 				},
-			],
-		});
+				choices: [],
+				primaryCaseIds: [],
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+			},
+		);
 		materializeMock.mockResolvedValueOnce(undefined);
 		const applySubmission = vi
 			.fn()
@@ -1725,30 +1788,38 @@ describe("submitFormAction", () => {
 		);
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		expect(
-			await submitFormAction(
-				{
-					kind: "survey",
-					formUuid,
-					entryKey: FINAL_ENTRY_KEY,
-					attachmentRefs: [],
-					operationAnswers: {
-						root: [{ fieldUuid: noteUuid, value: "first" }],
-						repeats: [],
+		vi.stubEnv("BETTER_AUTH_SECRET", secret);
+		try {
+			expect(
+				await submitFormAction(
+					{
+						kind: "survey",
+						formUuid,
+						entryKey: FINAL_ENTRY_KEY,
+						attachmentRefs: [],
+						formOpening: { run, module, evidence },
+						operationAnswers: {
+							root: [{ fieldUuid: noteUuid, value: "first" }],
+							repeats: [],
+						},
 					},
-				},
-				APP_ID,
-				canonicalJsonDigest(toPersistableDoc(doc)),
-			),
-		).toEqual({
-			kind: "survey",
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
-		});
+					APP_ID,
+					blueprintDigest,
+					undefined,
+					undefined,
+					undefined,
+					device,
+				),
+			).toEqual({
+				kind: "survey",
+				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+			});
+		} finally {
+			vi.unstubAllEnvs();
+		}
 
-		// The heal retries the WHOLE envelope, so the compiler context the
-		// second attempt runs against must be the same object, not a second
-		// definition read that could observe a changed schema mid-submission.
-		expect(getLookupDefinitionsMock).toHaveBeenCalledTimes(1);
+		// Both attempts use the signed opening's schema without consulting live definitions.
+		expect(readWorkerLookupProjectionMock).not.toHaveBeenCalled();
 		expect(materializeMock).toHaveBeenCalledTimes(1);
 		expect(applySubmission).toHaveBeenCalledTimes(2);
 		const firstEnvelope = applySubmission.mock.calls[0]?.[0];
@@ -1764,6 +1835,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const doc = buildDoc({
@@ -1878,6 +1950,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -1949,6 +2022,7 @@ describe("submitFormAction", () => {
 			const { getSession } = await import("@/lib/auth-utils");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const mutation: SubmissionMutation = {
 				kind: "survey",
@@ -1998,6 +2072,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -2037,6 +2112,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -2191,6 +2267,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = {
@@ -2236,6 +2313,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = buildBlueprint([PATIENT_CASE_TYPE]);
 		doc.userProperties = {
@@ -2298,6 +2376,7 @@ describe("loadCasesAction", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const store = actionStore({ query: appCaseQuery() });
 			vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -2334,6 +2413,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const store = actionStore({ query: appCaseQuery() });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -2371,6 +2451,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAppMock.mockResolvedValueOnce({
 			blueprint: finalSubmissionDoc(),
@@ -2399,6 +2480,7 @@ describe("loadCasesAction", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			loadAppMock.mockResolvedValueOnce({
 				blueprint: finalSubmissionDoc(),
@@ -2422,6 +2504,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = Object.fromEntries([
@@ -2454,6 +2537,7 @@ describe("loadCasesAction", () => {
 		const { AppAccessError } = await import("@/lib/db/appAccess");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_B },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
 			new AppAccessError("not_member"),
@@ -2476,6 +2560,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const legacyRows = Array.from({ length: 51 }, (_, index) => ({
 			...buildSyntheticRow({ name: `Patient ${index + 1}` }),
@@ -2515,47 +2600,64 @@ describe("loadCasesAction", () => {
 		);
 	});
 
-	it("answers a read of a worker key the device lacks with the list's refusal, and reports nothing", async () => {
-		const { getSession } = await import("@/lib/auth-utils");
-		const { AbsentWorkerFieldError, withProjectContext } = await import(
-			"@/lib/case-store"
-		);
-		const { log } = await import("@/lib/logger");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const stubStore = {
-			...actionStore(),
-			query: vi.fn(async () => {
-				throw new AbsentWorkerFieldError("commcare_location_id");
-			}),
-			applySubmission: vi.fn(),
-		} satisfies CaseStore;
-		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
-		const reported = vi.spyOn(log, "error");
-		try {
-			const { loadCasesAction } = await import("../caseDataBinding");
-			await expect(
-				loadCasesAction({
-					appId: APP_ID,
-					caseType: "patient",
-					caseTypes: [PATIENT_CASE_TYPE],
+	it.each([
+		{ reason: { kind: "empty-instance", instanceId: "commcaresession" } },
+		{ reason: { kind: "invalid-case-location" } },
+	])(
+		"returns the worker's list refusal for $reason.kind without logging it",
+		async ({ reason }) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { AbsentWorkerFieldError, withProjectContext } = await import(
+				"@/lib/case-store"
+			);
+			const { log } = await import("@/lib/logger");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+				session: { id: "preview-session" },
+			} as unknown as Awaited<ReturnType<typeof getSession>>);
+			const stubStore = {
+				...actionStore(),
+				query: vi.fn(async () => {
+					if (reason.kind === "empty-instance")
+						throw new AbsentWorkerFieldError("commcare_location_id");
+					throw Object.assign(
+						new Error(
+							'invalid input syntax for type double precision: "nova_invalid_case_location"',
+						),
+						{
+							code: "22P02",
+						},
+					);
 				}),
-			).resolves.toEqual({
-				kind: "data-refused",
-				reason: { kind: "empty-instance", instanceId: "commcaresession" },
-			});
-			expect(reported).not.toHaveBeenCalled();
-		} finally {
-			reported.mockRestore();
-		}
-	});
+				applySubmission: vi.fn(),
+			} satisfies CaseStore;
+			vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+			const reported = vi.spyOn(log, "error");
+			try {
+				const { loadCasesAction } = await import("../caseDataBinding");
+				await expect(
+					loadCasesAction({
+						appId: APP_ID,
+						caseType: "patient",
+						caseTypes: [PATIENT_CASE_TYPE],
+					}),
+				).resolves.toEqual({
+					kind: "data-refused",
+					reason,
+				});
+				expect(reported).not.toHaveBeenCalled();
+			} finally {
+				reported.mockRestore();
+			}
+		},
+	);
 
 	it("caps only an explicit new-client page request", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2587,6 +2689,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = actionStore({ query: appCaseQuery() });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
@@ -2653,6 +2756,7 @@ describe("loadCasesAction", () => {
 				name: "Owner A",
 				email: "owner-a@example.org",
 			},
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2693,6 +2797,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2732,10 +2837,13 @@ describe("loadCasesAction", () => {
 				name: "Owner A",
 				email: "owner-a@example.org",
 			},
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		// A list with a Search action reads the completed search, on the server.
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery([]),
+			querySearchResults: emptySearchResults(),
 			applySubmission: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
@@ -2772,23 +2880,31 @@ describe("loadCasesAction", () => {
 			excludedOwnerIdsExpression,
 		});
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			kind: "empty",
 			constraintSource: "worker-search",
+			searchMatchCount: 0,
 		});
-		expect(stubStore.query).toHaveBeenCalledWith(
+		// The range is the request's own criterion, which the server matches; the
+		// owner exclusion, worked out with the range answered, narrows the results.
+		expect(stubStore.querySearchResults).toHaveBeenCalledWith(
 			expect.objectContaining({
-				predicate: and(
-					between(prop("patient", "dob"), {
-						lower: dateLiteral("2025-01-02"),
-						upper: dateLiteral("2025-03-04"),
-					}),
-					or(
-						isBlank(prop("patient", "owner_id")),
-						not(isIn(prop("patient", "owner_id"), literal("range-owner"))),
-					),
+				predicate: or(
+					isBlank(prop("patient", "owner_id")),
+					not(isIn(prop("patient", "owner_id"), literal("range-owner"))),
 				),
+				searchPopulation: expect.objectContaining({
+					request: expect.objectContaining({
+						parameters: [
+							expect.objectContaining({
+								key: "dob",
+								values: ["__range__2025-01-02__2025-03-04"],
+							}),
+						],
+					}),
+				}),
 			}),
+			undefined,
 		);
 	});
 
@@ -2812,10 +2928,12 @@ describe("loadCasesAction", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const query = appCaseQuery([]);
+			const querySearchResults = emptySearchResults();
 			vi.mocked(withProjectContext).mockResolvedValueOnce(
-				actionStore({ query }),
+				actionStore({ query, querySearchResults }),
 			);
 
 			const { loadCasesAction } = await import("../caseDataBinding");
@@ -2840,7 +2958,11 @@ describe("loadCasesAction", () => {
 				search,
 			});
 
-			const queryArg = appCaseQueryArg(query);
+			// A search's Results are the completed search's own read; a browse
+			// list reads the restore.
+			const queryArg = search
+				? querySearchResults.mock.calls[0]?.[0]
+				: appCaseQueryArg(query);
 			expect(queryArg?.reading).toEqual(reading);
 			expect(queryArg).toHaveProperty(population);
 		},
@@ -2851,6 +2973,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2891,6 +3014,386 @@ describe("loadCasesAction", () => {
 		);
 	});
 
+	it.each([
+		{
+			savedValue: "saved value",
+			candidateValue: "saved value",
+			submitted: "another value",
+			admitted: false,
+		},
+		{
+			savedValue: "saved value",
+			candidateValue: "saved value",
+			submitted: "__range__2025-02-01__2025-01-01",
+			admitted: false,
+		},
+		{
+			savedValue: "saved value",
+			candidateValue: "another value",
+			submitted: "another value",
+			admitted: false,
+		},
+		{
+			savedValue: "saved value",
+			candidateValue: "saved value",
+			submitted: "saved value",
+			admitted: true,
+		},
+		{
+			savedValue: "2024-01-01__2024-02-01__2024-03-01",
+			candidateValue: "2024-01-01__2024-02-01__2024-03-01",
+			submitted: "2024-01-01__2024-02-01__2024-03-01",
+			admitted: true,
+		},
+		{
+			savedValue: "2024-01-01__2024-02-01__2024-03-01",
+			candidateValue: "2024-01-01__2024-02-01__2024-03-01",
+			submitted: "__range__2024-01-01__2024-02-01__2024-03-01",
+			admitted: false,
+			expectedMessage: "Choose valid start and end dates",
+		},
+		{
+			savedValue: "2024-01-01",
+			candidateValue: "2024-01-01",
+			submitted: "__range__2024-01-01",
+			admitted: false,
+			expectedMessage: "Choose valid start and end dates",
+		},
+		{
+			savedValue: "2024-01-01T00:00:00+00:00",
+			candidateValue: "2024-01-01T00:00:00+00:00",
+			submitted: "__range__2023-12-31",
+			viewerTimeZone: "America/Los_Angeles",
+			admitted: false,
+			expectedMessage: "Choose valid start and end dates",
+		},
+		{
+			savedValue: "2024-01-01",
+			candidateValue: "2024-01-01",
+			submitted: "__range__2024-03-01",
+			admitted: false,
+			expectedMessage:
+				"The starting dates changed. You can reopen Search or choose both dates.",
+		},
+	])(
+		"reads matching cases only for the committed starting answer $savedValue and its submitted value $submitted",
+		async ({
+			savedValue,
+			candidateValue,
+			submitted,
+			admitted,
+			expectedMessage,
+			viewerTimeZone,
+		}) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { withProjectContext } = await import("@/lib/case-store");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+				session: { id: "preview-session" },
+			} as Awaited<ReturnType<typeof getSession>>);
+			const store = {
+				...actionStore(),
+				query: appCaseQuery(),
+				querySearchResults: searchResultPages(1, [
+					{ ...buildSyntheticRow({ dob: "2024-01-01" }), calculated: {} },
+				]),
+			} satisfies CaseStore;
+			vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+			const blueprint = buildBlueprint([FORMATTED_PROPS_CASE_TYPE]);
+			const appWithDefault = (value: string) => {
+				const range = simpleSearchInputDef(
+					testUuid("range-action"),
+					"dob",
+					"Visit dates",
+					"date-range",
+					"dob",
+					{ default: term(literal(value)) },
+				);
+				return caseListCandidate(
+					resolveCaseListConfig({
+						columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+						searchInputs: [range],
+					}),
+					blueprint,
+				);
+			};
+			const candidate = appWithDefault(candidateValue);
+			const saved = appWithDefault(savedValue);
+			loadAppMock.mockResolvedValueOnce({
+				blueprint: saved.blueprint,
+				mutation_seq: 1,
+				project_id: PROJECT_A,
+			});
+			const result = await readCasesForSavedRange({
+				viewerTimeZone,
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypes: [FORMATTED_PROPS_CASE_TYPE],
+				...candidate,
+				inputValues: { "dob:starting": submitted },
+			});
+			if (admitted) {
+				expect(result).toMatchObject({ kind: "rows" });
+				expect(store.querySearchResults).toHaveBeenCalledWith(
+					expect.objectContaining({ caseType: "patient" }),
+					undefined,
+				);
+			} else {
+				expect(result).toMatchObject({
+					kind: "invalid-search",
+					repair: "inputs",
+					...(expectedMessage && { message: expectedMessage }),
+				});
+				expect(store.querySearchResults).not.toHaveBeenCalled();
+			}
+		},
+	);
+
+	it("holds one opening revision for two tables and the clock across Search and paging", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValue({
+			user: { id: OWNER_A },
+			session: { id: "preview-session" },
+		} as Awaited<ReturnType<typeof getSession>>);
+		const first = {
+			...buildSyntheticRow({}),
+			case_id: "first-page",
+			calculated: {},
+		};
+		const second = {
+			...buildSyntheticRow({}),
+			case_id: "second-page",
+			calculated: {},
+		};
+		const store = {
+			...actionStore(),
+			query: appCaseQuery(),
+			querySearchResults: searchResultPages(51, [first], [second]),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValue(store);
+		const tables = [
+			OPERATION_LOOKUP_TABLE,
+			"00000000-0000-7000-8000-000000000099" as LookupTableId,
+		];
+		const column = OPERATION_LOOKUP_COLUMN;
+		const definitions = tables.map((id, index) => ({
+			id,
+			name: `Dates ${index}`,
+			tag: `dates_${index}`,
+			definitionRevision: parseLookupRevision("1"),
+			columns: [
+				{
+					id: column,
+					wireName: "dates",
+					label: "Dates",
+					dataType: "text" as const,
+				},
+			],
+		}));
+		const where = (table: LookupTableId) =>
+			eq(tableColumn(table, column), tableColumn(table, column));
+		const fromTable = (table: LookupTableId) =>
+			tableLookup(table, column, where(table));
+		const fields = [
+			simpleSearchInputDef(
+				testUuid("range-opening-one"),
+				"dob",
+				"Birth dates",
+				"date-range",
+				"dob",
+				{ default: fromTable(tables[0]) },
+			),
+			simpleSearchInputDef(
+				testUuid("range-opening-two"),
+				"last_seen",
+				"Visit dates",
+				"date-range",
+				"last_seen",
+				{
+					default: ifExpr(
+						eq(today(), dateLiteral("2024-05-03")),
+						fromTable(tables[1]),
+						term(literal("later date")),
+					),
+				},
+			),
+		];
+		const candidate = caseListCandidate(
+			resolveCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+				searchInputs: fields,
+			}),
+			{
+				...buildBlueprint([FORMATTED_PROPS_CASE_TYPE]),
+				localization: {
+					sourceLanguage: "eng",
+					defaultLanguage: "eng",
+					languageOrder: ["eng", "fra"],
+					translations: { fra: {} },
+					wireCodes: { eng: "en", fra: "fr" },
+				},
+			},
+			undefined,
+			{
+				kind: "available",
+				projectId: PROJECT_A,
+				projectRevision: parseLookupRevision("1"),
+				definitions,
+			},
+		);
+		loadAppMock.mockResolvedValue({
+			blueprint: candidate.blueprint,
+			mutation_seq: 1,
+			project_id: PROJECT_A,
+		});
+		let revision = 1;
+		readWorkerLookupProjectionMock.mockImplementation(
+			async (_scope, ids: LookupTableId[]) => ({
+				projectId: PROJECT_A,
+				projectRevision: String(revision),
+				workerBinding: "preview-worker",
+				definitions: definitions.filter((table) => ids.includes(table.id)),
+				rowsByTable: new Map(
+					ids.map((id) => [
+						id,
+						[
+							{
+								id: testUuid("range-opening-row"),
+								values: {
+									[column]: `opening ${revision} ${tables.indexOf(id)}`,
+								},
+							},
+						],
+					]),
+				),
+			}),
+		);
+		vi.stubEnv("BETTER_AUTH_SECRET", "synthetic-range-opening-test");
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const projectLookup = vi.spyOn(
+			await import("@/lib/lookup/service"),
+			"getLookupFixtureData",
+		);
+		try {
+			vi.setSystemTime(new Date("2024-05-02T12:00:00Z"));
+			const target = {
+				appId: APP_ID,
+				moduleUuid: candidate.moduleUuid,
+				device: webAppsDevice(),
+				viewerTimeZone: "Pacific/Kiritimati",
+			};
+			const opened = await openSearchRangesAction(target);
+			expect(opened.kind).toBe("opened");
+			if (opened.kind !== "opened") throw new Error("Search did not open");
+			const held = Object.assign(
+				{},
+				...opened.fields.map((field) => field.answers),
+			) as Record<string, string>;
+			expect(held).toMatchObject({
+				"dob:starting": "opening 1 0",
+				"last_seen:starting": "opening 1 1",
+			});
+			expect(readWorkerLookupProjectionMock).toHaveBeenCalledExactlyOnceWith(
+				{
+					scope: { appId: APP_ID, projectId: PROJECT_A, actorUserId: OWNER_A },
+					grant: { kind: "session", sessionId: "preview-session" },
+					personaUuid: undefined,
+				},
+				tables,
+			);
+			expect(projectLookup).not.toHaveBeenCalled();
+			revision = 2;
+			vi.setSystemTime(new Date("2024-05-03T12:00:00Z"));
+			const request = {
+				...candidate,
+				...target,
+				caseType: "patient",
+				caseTypes: [FORMATTED_PROPS_CASE_TYPE],
+				inputValues: held,
+			};
+			expect(await readCasesForSavedRange(request)).toMatchObject({
+				kind: "rows",
+				rows: [first],
+			});
+			expect(
+				await readCasesForSavedRange({
+					...request,
+					device: { ...target.device, windowWidth: 912 },
+					page: { offset: 50, limit: 50 },
+				}),
+			).toMatchObject({ kind: "rows", rows: [second], pageOffset: 50 });
+			expect(
+				await readCasesForSavedRange({
+					...request,
+					inputValues: { ...held, "last_seen:starting": "later date" },
+				}),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			expect(
+				await readCasesForSavedRange({
+					...request,
+					inputValues: { ...held, "last_seen:opening": held["dob:opening"] },
+				}),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			expect(
+				await readCasesForSavedRange({
+					...request,
+					inputValues: { ...held, "dob:from": "2024-05-01" },
+				}),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			expect(
+				await readCasesForSavedRange({ ...request, appId: "another-app" }),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+
+			expect(readWorkerLookupProjectionMock).toHaveBeenCalledTimes(1);
+			const again = await openSearchRangesAction(target);
+			expect(
+				again.kind === "opened" &&
+					again.fields.map(
+						({ field, answers }) => answers[`${field.name}:starting`],
+					),
+			).toEqual(["opening 2 0", "later date"]);
+			if (again.kind !== "opened")
+				throw new Error("The next Search did not open.");
+			expect(
+				await readCasesForSavedRange({ ...request, viewerTimeZone: "UTC" }),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			const frenchDevice = webAppsDevice("fr");
+			expect(
+				await openSearchRangesAction({ ...target, device: frenchDevice }),
+			).toMatchObject({ kind: "opened" });
+			expect(
+				await readCasesForSavedRange({ ...request, device: frenchDevice }),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+			const utc = await openSearchRangesAction({
+				...target,
+				viewerTimeZone: "UTC",
+			});
+			expect(
+				utc.kind === "opened" && utc.fields[1].answers["last_seen:starting"],
+			).toBe("opening 2 1");
+			const { LookupError } = await import("@/lib/lookup/errors");
+			readWorkerLookupProjectionMock.mockRejectedValueOnce(
+				new LookupError(
+					"storage_limit",
+					"This app references more lookup data than Preview can load at once.",
+				),
+			);
+			expect(await openSearchRangesAction(target)).toMatchObject({
+				kind: "unavailable",
+				message: expect.stringContaining("more lookup data"),
+			});
+			const mixed = { ...held, ...again.fields[1].answers };
+			expect(
+				await readCasesForSavedRange({ ...request, inputValues: mixed }),
+			).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+		} finally {
+			projectLookup.mockRestore();
+			vi.useRealTimers();
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("collapses a Project-membership denial to the not-found arm without binding a store", async () => {
 		// The IDOR gate: a non-member / absent / under-privileged request
 		// rejects with `AppAccessError` (here from a non-member), which the
@@ -2905,6 +3408,7 @@ describe("loadCasesAction", () => {
 		const { AppAccessError } = await import("@/lib/db/appAccess");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_B },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
 			new AppAccessError("not_member"),
@@ -2926,6 +3430,7 @@ describe("loadCaseCountAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2962,6 +3467,7 @@ describe("loadCaseCountAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const store = actionStore({ count: vi.fn().mockResolvedValueOnce(0) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -3009,6 +3515,7 @@ describe("countCasesOwnedByAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = {
@@ -3045,6 +3552,7 @@ describe("countCasesOwnedByAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAppMock.mockResolvedValueOnce({
 			blueprint: finalSubmissionDoc(),
@@ -3064,14 +3572,47 @@ describe("countCasesOwnedByAction", () => {
 describe("claimSearchedCasesAction", () => {
 	/** A signed-in member previewing as a saved persona, with `store` as the
 	 *  Project store the action binds. */
-	async function asPersona(store: CaseStore) {
+	async function asPersona(store: CaseStore, defaultSearch = false) {
 		const personaUuid = testUuid("persona-claims");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = finalSubmissionDoc();
+		const list = caseListConfig([{ field: "case_name", header: "Name" }]);
+		if (defaultSearch) {
+			list.searchInputs = [
+				simpleSearchInputDef(
+					testUuid("claim-client-name"),
+					"case_name",
+					"Name",
+					"text",
+					"case_name",
+				),
+			];
+		}
+		const doc = buildDoc({
+			caseTypes: [{ name: "client", properties: [] }],
+			modules: [
+				{
+					uuid: testUuid("claim-menu"),
+					name: "Clients",
+					caseType: "client",
+					caseSearchConfig: defaultSearch ? { workflow: "skipToResults" } : {},
+					caseListConfig: list,
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "visit_note", label: "Visit note" }),
+							],
+						},
+					],
+				},
+			],
+		});
 		doc.personas = { [personaUuid]: { uuid: personaUuid, name: "Asha" } };
 		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
 		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
@@ -3084,26 +3625,73 @@ describe("claimSearchedCasesAction", () => {
 	it("claims for the persona the server resolves, as the worker", async () => {
 		const claimCases = vi
 			.fn<CaseStore["claimCases"]>()
-			.mockResolvedValueOnce({ created: ["c-1"], alreadyClaimed: ["c-2"] });
+			.mockResolvedValueOnce({ created: ["c-1"], alreadyClaimed: [] });
 		const personaUuid = await asPersona(actionStore({ claimCases }));
 		const { withProjectContext } = await import("@/lib/case-store");
 		const { claimSearchedCasesAction } = await import("../caseDataBinding");
 		expect(
 			await claimSearchedCasesAction({
 				appId: APP_ID,
-				caseIds: ["c-1", "c-2"],
+				caseIds: ["c-1"],
+				sources: [
+					{ moduleUuid: testUuid("claim-menu"), caseIds: ["c-1"], answers: [] },
+				],
+				prior: [],
 				personaUuid,
 			}),
-		).toEqual({ kind: "claimed", created: ["c-1"], alreadyClaimed: ["c-2"] });
+		).toEqual({ kind: "claimed", created: ["c-1"], alreadyClaimed: [] });
 		expect(claimCases).toHaveBeenCalledWith({
 			appId: APP_ID,
-			caseIds: ["c-1", "c-2"],
+			caseIds: ["c-1"],
+			expectedAppMutationSeq: 0,
+			fromSearches: [
+				{
+					caseIds: ["c-1"],
+					query: expect.objectContaining({
+						appId: APP_ID,
+						caseType: "client",
+						searchPopulation: expect.objectContaining({
+							request: expect.any(Object),
+						}),
+					}),
+				},
+			],
 		});
 		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
 			PROJECT_A,
 			OWNER_A,
 			personaUuid,
 		);
+	});
+
+	it("replays the menu’s automatic search with the prompt omitted", async () => {
+		const claimCases = vi.fn<CaseStore["claimCases"]>().mockResolvedValueOnce({
+			created: ["chosen"],
+			alreadyClaimed: [],
+		});
+		const personaUuid = await asPersona(actionStore({ claimCases }), true);
+		const { claimSearchedCasesAction } = await import("../caseDataBinding");
+		expect(
+			await claimSearchedCasesAction({
+				appId: APP_ID,
+				caseIds: ["chosen"],
+				sources: [
+					{
+						moduleUuid: testUuid("claim-menu"),
+						caseIds: ["chosen"],
+						answers: [{ name: "case_name", value: "North" }],
+						defaultSearch: true,
+					},
+				],
+				prior: [],
+				personaUuid,
+			}),
+		).toMatchObject({ kind: "claimed", created: ["chosen"] });
+		const request =
+			claimCases.mock.calls[0]?.[0].fromSearches?.[0].query.searchPopulation
+				?.request;
+		expect(request?.parameters).toEqual([]);
+		expect(request?.unsentPrompts).toEqual(["case_name"]);
 	});
 
 	it("says a chosen case is gone when the store finds none by its id", async () => {
@@ -3117,12 +3705,20 @@ describe("claimSearchedCasesAction", () => {
 			await claimSearchedCasesAction({
 				appId: APP_ID,
 				caseIds: ["c-gone"],
+				sources: [
+					{
+						moduleUuid: testUuid("claim-menu"),
+						caseIds: ["c-gone"],
+						answers: [],
+					},
+				],
+				prior: [],
 				personaUuid,
 			}),
 		).toEqual({
 			kind: "case-gone",
 			message:
-				"This case was removed from the app's case data, so it can't be opened. You can search again to see what's there now.",
+				"This case is no longer available from this search. Search again to see the records you can open.",
 		});
 	});
 
@@ -3136,6 +3732,10 @@ describe("claimSearchedCasesAction", () => {
 		const result = await claimSearchedCasesAction({
 			appId: APP_ID,
 			caseIds: ["c-1"],
+			sources: [
+				{ moduleUuid: testUuid("claim-menu"), caseIds: ["c-1"], answers: [] },
+			],
+			prior: [],
 			personaUuid,
 		});
 		expect(result).toMatchObject({ kind: "refused" });
@@ -3152,6 +3752,10 @@ describe("claimSearchedCasesAction", () => {
 			await claimSearchedCasesAction({
 				appId: APP_ID,
 				caseIds: ["c-1"],
+				sources: [
+					{ moduleUuid: testUuid("claim-menu"), caseIds: ["c-1"], answers: [] },
+				],
+				prior: [],
 				personaUuid,
 			}),
 		).toEqual({
@@ -3176,6 +3780,7 @@ describe("releaseClaimedCasesAction and countClaimedCasesAction", () => {
 			const personaUuid = testUuid("persona-release");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const doc = finalSubmissionDoc();
 			doc.personas = { [personaUuid]: { uuid: personaUuid, name: "Asha" } };
@@ -3224,6 +3829,7 @@ describe("resetSampleCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -3251,6 +3857,7 @@ describe("resetSampleCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = {
@@ -3302,6 +3909,7 @@ describe("resetSampleCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const failures: ReadonlyArray<CasePropertyFailure> = [
 			{ path: "/age", message: "must be integer" },
@@ -3341,6 +3949,7 @@ describe("resetSampleCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		// The heal re-materializes from the persisted blueprint, so it reads
@@ -3378,6 +3987,7 @@ describe("loadCaseDataAction session projection", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Owner A", email: "owner-a@example.org" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -3452,6 +4062,7 @@ describe("loadCaseDataAction session projection", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const query = appCaseQuery([
 				{
@@ -3507,6 +4118,7 @@ describe("loadCaseDataAction session projection", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const store = actionStore({ query: appCaseQuery() });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -3557,6 +4169,7 @@ describe("loadCaseDataAction session projection", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = {
@@ -3602,6 +4215,7 @@ describe("loadCaseDataAction session projection", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = buildBlueprint([PATIENT_CASE_TYPE]);
 		doc.userProperties = {
@@ -3671,6 +4285,7 @@ describe("loadFilterPreviewAction", () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const { loadFilterPreviewAction } = await import("../caseDataBinding");
@@ -3694,6 +4309,7 @@ describe("loadFilterPreviewAction", () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const { loadFilterPreviewAction } = await import("../caseDataBinding");
@@ -3703,7 +4319,7 @@ describe("loadFilterPreviewAction", () => {
 			blueprint: {
 				appId: 42,
 				appName: "Test app",
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [],
 				modules: {},
@@ -3758,6 +4374,7 @@ describe("loadFilterPreviewAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -3831,6 +4448,7 @@ describe("loadFilterPreviewAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const candidate = buildBlueprint([
 			{
@@ -3895,6 +4513,7 @@ describe("loadFilterPreviewAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const { loadFilterPreviewAction } = await import("../caseDataBinding");

@@ -1,3 +1,4 @@
+import type { Uuid } from "@/lib/domain/uuid";
 import type { JavaRosaFunction } from "../functionCapabilities";
 import type { InstanceDecl } from "./instances";
 
@@ -47,6 +48,12 @@ export type WireExpr =
 	| { readonly k: "case-id-var" | "next-input-var" | "calculated-property-var" }
 	| { readonly k: "enum-label-var" | "hq-enum-var"; readonly index: number }
 	| { readonly k: "image-alt-var"; readonly value: string }
+	| {
+			readonly k: "case-text-variable";
+			readonly textUuid: Uuid;
+			readonly variant?: number;
+	  }
+	| { readonly k: "image-mapping-variable"; readonly key: string }
 	| { readonly k: "endpoint-argument-var"; readonly name: string };
 
 export interface WirePath {
@@ -61,8 +68,12 @@ export interface WirePath {
 }
 
 export type WireRoot =
-	| { readonly k: "form"; readonly spelling: "hashtag" | "absolute" }
-	| { readonly k: "context" | "current" | "hq-case" }
+	| {
+			readonly k: "form";
+			readonly name?: string;
+			readonly spelling: "hashtag" | "absolute";
+	  }
+	| { readonly k: "context" | "current" | "hq-case" | "hq-worker" }
 	| { readonly k: "instance"; readonly decl: InstanceDecl }
 	/** The chosen cases a multi-select list's auto-launch condition reads,
 	 * `instance('next_input')`. Core builds it into the condition's own
@@ -76,7 +87,7 @@ export interface WireStep {
 	readonly predicates: readonly WireExpr[];
 }
 
-export type WireMode =
+export type WireMode = { readonly formRootName?: string } & (
 	| { readonly target: "xform"; readonly constraint: boolean }
 	| { readonly target: "vellum"; readonly constraint: boolean }
 	| { readonly target: "suite" | "preview" }
@@ -88,7 +99,8 @@ export type WireMode =
 				| "no-case"
 				| "no-dots"
 				| "enum-key";
-	  };
+	  }
+);
 
 export type NonShadowWireMode = Exclude<
 	WireMode,

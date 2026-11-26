@@ -26,21 +26,29 @@ import {
 	type CaseOperation,
 	caseDataTypeForFieldKind,
 	caseWriteValueField,
+	childModuleUuids,
 	type Expression,
 	type Form,
 	type FormType,
 	formTypeLabels,
 	humanizeId,
 	type Module,
+	menuFormUuidsOf,
 	type OwnCaseOperation,
 	ownCaseOperationId,
 	plainColumn,
 	proseText,
 	type TextField,
+	USERCASE_CASE_TYPE,
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
+import {
+	formCaseSelections,
+	menuEmittedAdvanced,
+} from "@/lib/domain/advancedEntryDatums";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import { sharedEntryValues } from "@/lib/domain/formEntryCases";
 import { addModuleMutation } from "./addModuleMutation";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
 import { orderedFormUuids } from "./fieldWalk";
@@ -48,6 +56,8 @@ import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
 } from "./modulePatchMutations";
+import { offeredSearchResultsName } from "./searchResultsNaming";
+import { initialSharedChild, sharedChildUuid } from "./sharedFormChildren";
 import type { Mutation } from "./types";
 
 /** The form a new one inserted at `index` (default append) should follow within
@@ -185,7 +195,11 @@ export function declareCaseTypeMutations(
 	caseType: string,
 ): Mutation[] {
 	const existing = doc.caseTypes ?? [];
-	if (existing.some((ct) => ct.name === caseType)) return [];
+	if (
+		caseType === USERCASE_CASE_TYPE ||
+		existing.some((ct) => ct.name === caseType)
+	)
+		return [];
 	return [{ kind: "declareCaseType", caseType }];
 }
 
@@ -229,7 +243,7 @@ export function catalogMutationsForOperations(
 	);
 	const mutations: Mutation[] = [];
 	const ensureType = (caseType: string) => {
-		if (declared.has(caseType)) return;
+		if (caseType === USERCASE_CASE_TYPE || declared.has(caseType)) return;
 		declared.set(caseType, new Set());
 		mutations.push({ kind: "declareCaseType", caseType });
 	};
@@ -251,7 +265,8 @@ export function catalogMutationsForOperations(
 				writtenType,
 				caseTypes,
 			);
-			if (!destination.ok) continue;
+			if (!destination.ok || destination.caseType === USERCASE_CASE_TYPE)
+				continue;
 			ensureType(destination.caseType);
 			const properties = declared.get(destination.caseType) as Set<string>;
 			if (properties.has(write.property)) continue;
@@ -295,6 +310,7 @@ export function caseTypeCatalogMutations(
 	const existing = doc.caseTypes ?? [];
 	const isNew =
 		typeof nextCaseType === "string" &&
+		nextCaseType !== USERCASE_CASE_TYPE &&
 		!existing.some((ct) => ct.name === nextCaseType);
 	const mutations: Mutation[] = [];
 	if (retirement.kind === "retire") {
@@ -336,9 +352,130 @@ export function caseListModuleMutations(
 	return {
 		mutations: [
 			...declareCaseTypeMutations(doc, caseType),
-			addModuleMutation(module, after),
+			addModuleMutation(
+				{
+					...module,
+					...(offeredSearchResultsName(doc, module) && {
+						searchResultsName: offeredSearchResultsName(doc, module),
+					}),
+				},
+				after,
+			),
 		],
 		moduleUuid,
+	};
+}
+
+/** A second way to reach the same forms. Each route has its own editable case
+ * detail and extends to the source's children. No form or question is copied. */
+export function listedFormMenuMutations(
+	doc: BlueprintDoc,
+	args: {
+		menuUuid: Uuid;
+		uuid?: Uuid;
+		name?: string;
+		purpose?: string;
+		parentCaseModuleUuid?: Uuid;
+		parentModuleUuid?: Uuid;
+		after?: Uuid | null;
+		excludedFormUuids?: readonly Uuid[];
+	},
+):
+	| { ok: true; moduleUuid: Uuid; mutations: Mutation[] }
+	| { ok: false; message: string } {
+	const owner = doc.modules[args.menuUuid];
+	if (!owner || owner.formsFromMenu)
+		return {
+			ok: false,
+			message: "Choose the menu where the forms are edited.",
+		};
+	if (
+		args.parentModuleUuid !== undefined &&
+		args.parentModuleUuid !== owner.parentModuleUuid
+	)
+		return {
+			ok: false,
+			message: `Choose a source that belongs under the same parent as “${owner.name}”.`,
+		};
+	const available = new Set(menuFormUuidsOf(doc, owner.uuid));
+	if (args.excludedFormUuids?.some((uuid) => !available.has(uuid)))
+		return {
+			ok: false,
+			message: `Choose forms that belong to “${owner.name}”.`,
+		};
+	const moduleUuid = args.uuid ?? asUuid(uuidv4());
+	const ids = existingModuleIds(doc);
+	const mutations: Mutation[] = [];
+	const add = (
+		source: Module,
+		uuid: Uuid,
+		name: string,
+		parent: Uuid | undefined,
+		after?: Uuid | null,
+		excluded?: readonly Uuid[],
+	) => {
+		const id = uniqueSlug(name, "module", ids);
+		ids.add(id);
+		const module: Module = {
+			uuid,
+			id,
+			name,
+			...(parent && { parentModuleUuid: parent }),
+			...(uuid === moduleUuid && args.purpose && { purpose: args.purpose }),
+			...(uuid === moduleUuid &&
+				args.parentCaseModuleUuid && {
+					parentCaseModuleUuid: args.parentCaseModuleUuid,
+				}),
+			formsFromMenu: {
+				menuUuid: source.uuid,
+				...(excluded?.length && { excludedFormUuids: [...new Set(excluded)] }),
+			},
+			...(source.caseType && { caseListConfig: caseListConfigWithName() }),
+		};
+		const translations =
+			uuid === moduleUuid ? [] : initialSharedChild(doc, source, module);
+		mutations.push(addModuleMutation(module, after), ...translations);
+	};
+	add(
+		owner,
+		moduleUuid,
+		args.name ?? `${owner.name} forms`,
+		owner.parentModuleUuid,
+		args.after,
+		args.excludedFormUuids,
+	);
+	for (const uuid of childModuleUuids(doc, owner.uuid)) {
+		const child = doc.modules[uuid];
+		if (child && !child.formsFromMenu)
+			add(
+				child,
+				sharedChildUuid(moduleUuid, child.uuid),
+				child.name,
+				moduleUuid,
+			);
+	}
+	return { ok: true, moduleUuid, mutations };
+}
+
+/** One form's visibility, addressed by both menu identities so a stale edit
+ * cannot affect a replacement source. A saved deep link pauses while hidden. */
+export function listedFormVisibilityMutation(
+	doc: BlueprintDoc,
+	routeUuid: Uuid,
+	sourceUuid: Uuid,
+	formUuid: Uuid,
+	included: boolean,
+): Mutation | undefined {
+	if (
+		doc.modules[routeUuid]?.formsFromMenu?.menuUuid !== sourceUuid ||
+		!menuFormUuidsOf(doc, sourceUuid).includes(formUuid)
+	)
+		return;
+	return {
+		kind: "updateModule",
+		uuid: routeUuid,
+		patch: {},
+		listedForm: { sourceUuid, formUuid, included },
 	};
 }
 
@@ -391,7 +528,15 @@ export function surveyModuleMutations(
 	const field: TextField = defaultQuestion();
 	return {
 		mutations: [
-			addModuleMutation(module, after),
+			addModuleMutation(
+				{
+					...module,
+					...(offeredSearchResultsName(doc, module) && {
+						searchResultsName: offeredSearchResultsName(doc, module),
+					}),
+				},
+				after,
+			),
 			{ kind: "addForm", moduleUuid, form },
 			{ kind: "addField", parentUuid: formUuid, field },
 		],
@@ -421,7 +566,7 @@ export function emptyBlueprintDoc(appId: string): BlueprintDoc {
 	return {
 		appId,
 		appName: APP_GENESIS_FALLBACK_NAME,
-		connectType: null,
+		connectRoles: [],
 		caseTypes: null,
 		appSettings: { ...NEW_APP_SETTINGS },
 		modules: {},
@@ -627,5 +772,87 @@ export function caseTypeClearPatch(): ModuleAuthoringPatch {
 		caseListMenuItem: undefined,
 		caseListConfig: undefined,
 		caseSearchConfig: undefined,
+	};
+}
+
+/** Create a second entry with the parent's opening choices. The entry stores
+ * only replacements, so editing the parent changes every shared question. */
+/**
+ * Why `parentUuid` can't be opened by a new entry in `menu`, said to the
+ * person choosing, or `undefined` where it can: the form exists and is an
+ * ordinary form, and both its menu and `menu` have advanced form settings.
+ */
+export function sharedFormRefusal(
+	doc: BlueprintDoc,
+	menu: Uuid,
+	parentUuid: Uuid,
+): string | undefined {
+	const parent = doc.forms[parentUuid];
+	if (!parent)
+		return `No form ${parentUuid} is in this app. You can read the menu's forms with get_module and choose one of them.`;
+	if (parent.shadowOf) {
+		const opened = doc.forms[parent.shadowOf.form];
+		return `“${parent.name}” is itself an entry that opens “${opened?.name ?? "another form"}”. You can share “${opened?.name ?? "that form"}” instead (${parent.shadowOf.form}).`;
+	}
+	const owner = doc.moduleOrder.find((module) =>
+		doc.formOrder[module]?.includes(parentUuid),
+	);
+	if (!owner)
+		return `“${parent.name}” is in no menu yet. You can share it once a menu holds it.`;
+	if (!menuEmittedAdvanced(doc, owner))
+		return `“${parent.name}” needs to be in a menu with advanced form settings before it can be shared. You can choose another form or change “${doc.modules[owner]?.name}” first.`;
+	if (!menuEmittedAdvanced(doc, menu))
+		return `This entry needs a menu with advanced form settings, and “${doc.modules[menu]?.name ?? "this menu"}” has none yet. You can add the entry to a menu that has them.`;
+	return undefined;
+}
+
+export function sharedFormMutations(
+	doc: BlueprintDoc,
+	menu: Uuid,
+	parentUuid: Uuid,
+	options: {
+		uuid?: Uuid;
+		name?: string;
+		index?: number;
+		purpose?: string;
+		postSubmit?: Form["postSubmit"];
+	} = {},
+): { mutations: Mutation[]; formUuid: Uuid } | undefined {
+	const parent = doc.forms[parentUuid];
+	if (!parent || sharedFormRefusal(doc, menu, parentUuid) !== undefined)
+		return undefined;
+	const formUuid = options.uuid ?? asUuid(uuidv4());
+	const name = options.name ?? `${parent.name} (another entry)`;
+	const computedDatums = sharedEntryValues(parent, formUuid);
+	const form: Form = {
+		uuid: formUuid,
+		name,
+		id: uniqueSlug(name, "form", existingFormIds(doc)),
+		type: parent.type,
+		...(options.purpose && { purpose: options.purpose }),
+		...(options.postSubmit && { postSubmit: options.postSubmit }),
+		...(computedDatums?.length && { computedDatums }),
+		shadowOf: {
+			form: parent.uuid,
+			selections: formCaseSelections(doc, parentUuid).map((row) => ({
+				kind: "replace",
+				selection: row.uuid,
+				caseType: row.caseType,
+				source: row.source,
+			})),
+		},
+	};
+	const after = anchorForIndex(doc.formOrder[menu] ?? [], options.index);
+	return {
+		formUuid,
+		mutations: [
+			...moduleFormHostMutations(doc, menu),
+			{
+				kind: "addForm",
+				moduleUuid: menu,
+				form,
+				...(after !== undefined && { after }),
+			},
+		],
 	};
 }

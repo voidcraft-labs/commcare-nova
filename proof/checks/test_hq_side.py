@@ -10,15 +10,19 @@ failures: a save the harness makes that HQ's view refuses or reads otherwise
 over it would be the harness's), a refusal the harness swallows, a stop the
 capture does not record, and a publish that writes over a value the target
 owns (defect 4): Nova's next publish carries back the UI
-translation, keeps Auto Capture Location, which it leaves out of the body of
-an app that is not a Connect app, and keeps the add-ons and the setting a
-person saved, which Nova's own part of ``add_ons`` and ``profile`` leaves to
-the target.
+translation, and keeps the add-ons and the setting a person saved, which
+Nova's own part of ``add_ons`` and ``profile`` leaves to the target. A
+setting Nova owns and writes on every publish, Auto Capture Location and the
+required Android apps, is the other way round: a person's save of it is a
+change Nova's next publish stops on, and once they confirm the discard it
+writes Nova's value back.
 
 ``targeted-hq-side-state`` and ``targeted-hq-side-lookup`` are each published as Nova's first publish leaves
 them (a workbook where the document has lookup tables, then the create) and their saves made over it: the first
-holds the UI translation, location capture, build profile, add-ons and app settings saves, and its next publish is
-applied over them; the second holds the lookup table a person keeps, over which Nova's next publish stops.
+holds the UI translation, build profile, add-ons and app settings saves, and its next publish is applied over them;
+the second holds the lookup table a person keeps, over which Nova's next publish stops.
+``targeted-hq-side-owned`` holds a person's Auto Capture Location, case sharing and required Android app, settings
+Nova owns, and its next publish is the one sent once the person confirmed discarding them.
 ``targeted-kept-values`` holds every value a ``.ccz`` made for the project space mirrors, secure submissions among
 them, which HQ takes only through the app settings page's one save (``views/settings.py::edit_commcare_settings``)
 and answers with 400 at the attribute's own URL (``views/apps.py::edit_app_attr``). A project space without
@@ -42,6 +46,7 @@ from proof.hq.check import hq_check
 STATE = "targeted-hq-side-state"
 LOOKUP = "targeted-hq-side-lookup"
 KEPT = "targeted-kept-values"
+OWNED = "targeted-hq-side-owned"
 RESAVE = "targeted-hq-changes-resave"
 FORMS = "targeted-hq-changes-forms"
 
@@ -91,7 +96,6 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
         def kept(app):
             return {
                 "home.start": app.translations["en"].get("home.start"),
-                "auto_gps_capture": app.auto_gps_capture,
                 "add_ons": {slug: app.add_ons.get(slug) for slug in saves["addOns"]},
                 "properties": {key: app.profile["properties"].get(key) for key in saves["profileProperties"]},
                 "build_profiles": {key: list(profile.langs) for key, profile in app.build_profiles.items()},
@@ -99,7 +103,6 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
 
         saved = {
             "home.start": saves["uiTranslations"]["en"]["home.start"],
-            "auto_gps_capture": True,
             "add_ons": saves["addOns"],
             "properties": saves["profileProperties"],
             "build_profiles": {"mandarin-only": ["zho"]},
@@ -109,6 +112,39 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
         refusal, lookups = publish.update(unit, app_id, export.republish, "B")
         assert _landed(refusal, lookups), (refusal, lookups)
         assert kept(operations.held_app(unit, app_id)) == saved
+
+
+def test_a_form_keeps_its_independent_location_choice_after_the_app_switch_is_cleared(hq, core_runner):
+    """HQ's two authentic settings saves and its build distinguish both choices from a geopoint answer."""
+    from lxml import etree
+    from proof.hq import operations
+    from proof.observe import hqside
+
+    document = _document("targeted-gps-question")
+    export = document.exports["minimum"]
+    with hq_check(export.configuration.hq()) as (unit, _):
+        app_id = _created(unit, export)
+
+        def held():
+            app = operations.held_app(unit, app_id)
+            form = app.get_module(0).get_form(0)
+            xml = etree.fromstring(form.render_xform())
+            model = xml.xpath("//*[local-name()='model']")[0]
+            sensors = model.xpath("./*[local-name()='pollsensor']")
+            meta = model.xpath("./*[local-name()='instance'][1]/*/*[local-name()='meta']/*[local-name()='location']")
+            binds = model.xpath("./*[local-name()='bind' and @nodeset='/data/meta/location' and @type='geopoint']")
+            return (app.auto_gps_capture, form.auto_gps_capture, bool(meta), bool(binds),
+                    [sensor.get("ref") for sensor in sensors])
+
+        target = {"module": 0, "form": 0}
+        assert held() == (False, False, False, False, [None])
+        hqside.form_attribute(unit, app_id, {**target, "attributes": {"auto_gps_capture": "true"}})
+        hqside.app_attributes(unit, app_id, {"auto_gps_capture": True})
+        assert held() == (True, True, True, True, ["/data/meta/location"])
+        hqside.app_attributes(unit, app_id, {"auto_gps_capture": False})
+        assert held() == (False, True, True, True, ["/data/meta/location"])
+        hqside.form_attribute(unit, app_id, {**target, "attributes": {"auto_gps_capture": "false"}})
+        assert held() == (False, False, False, False, [None])
 
 
 def test_every_value_a_local_archive_mirrors_lands_in_hq_and_novas_next_publish_keeps_it(hq, core_runner):
@@ -147,6 +183,43 @@ def test_every_value_a_local_archive_mirrors_lands_in_hq_and_novas_next_publish_
         refusal, lookups = publish.update(unit, app_id, export.republish, "B")
         assert _landed(refusal, lookups), (refusal, lookups)
         assert kept(operations.held_app(unit, app_id)) == saved
+
+
+def test_novas_confirmed_publish_writes_its_own_value_over_a_setting_a_person_changed_that_nova_owns(hq, core_runner):
+    """Auto Capture Location and a required Android app saved in HQ land there; Nova's next publish, sent once the
+    person confirmed discarding them, leaves HQ holding Nova's values: location off, no required app."""
+    from proof.hq import operations
+    from proof.observe import hqside, publish
+
+    document = _document(OWNED)
+    export = document.exports["minimum"]
+    saves = document.hq_side
+    assert saves["republish"] == "discards"
+    assert export.republish is not None, "The capture holds no republish the person confirmed"
+    with hq_check(export.configuration.hq()) as (unit, _):
+        app_id = _created(unit, export)
+
+        def owned(app):
+            features = (app.profile or {}).get("features") or {}
+            return {
+                "auto_gps_capture": app.auto_gps_capture,
+                "case_sharing": app.case_sharing,
+                "dependencies": features.get("dependencies") or [],
+            }
+
+        unshared = {"auto_gps_capture": False, "case_sharing": False, "dependencies": []}
+        assert owned(operations.held_app(unit, app_id)) == unshared
+        held = hqside.save(unit, _ops(unit), app_id, saves)
+        assert sorted(held) == sorted(set(saves) - set(hqside.STATEMENTS))
+        assert owned(operations.held_app(unit, app_id)) == {
+            "auto_gps_capture": True,
+            "case_sharing": True,
+            "dependencies": saves["profileFeatures"]["dependencies"],
+        }
+
+        refusal, lookups = publish.update(unit, app_id, export.republish, "B")
+        assert _landed(refusal, lookups), (refusal, lookups)
+        assert owned(operations.held_app(unit, app_id)) == unshared
 
 
 def test_novas_next_publish_stops_over_a_table_a_person_keeps_and_leaves_it_as_it_is(hq, core_runner):

@@ -7,15 +7,24 @@ import {
 } from "@/lib/commcare";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { moduleUuidOfForm } from "@/lib/domain";
-import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import { menuOffersRecordType } from "@/lib/domain/modules";
+import type {
+	PreviewEntryChoice,
+	PreviewMenuCaseSelection,
+} from "@/lib/session/types";
 import { previewMenuCaseContext } from "../menuProjection";
+import { previewPlatformRules } from "../platform";
 import { caseRowToFormPreload } from "./caseDataBindingClient";
-import { screenOfFrame } from "./frameLanding";
+import type { SessionDatumValue } from "./formLinkEvaluation";
+import { moduleFirstMenuCases, screenOfFrame } from "./frameLanding";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 export interface PreviousTask {
 	readonly destination: PreviousTaskProjection["destination"];
 	readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+	/** The submitting entry's own choices the preceding frame keeps, in
+	 *  frame order: the walk resumes from them at the next list. */
+	readonly entryChoices: readonly PreviewEntryChoice[];
 	readonly caseDatabase: CaseDatabaseSnapshot;
 }
 
@@ -34,6 +43,53 @@ export function selectionsForModuleTask(
 	const next = { ...selections };
 	delete next[moduleUuid];
 	return next;
+}
+
+/** A static return to this menu takes the shared first-menu datum from the
+ * submitting entry. Root and leaf can be two distinct menus of the same type. */
+export function selectionsForStaticModuleTask(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	datums: ReadonlyMap<string, SessionDatumValue> | undefined,
+	cases: CaseDatabaseSnapshot,
+): Readonly<Record<string, PreviewMenuCaseSelection>> {
+	const prefix = moduleFirstMenuCases(doc, moduleUuid);
+	if (prefix.length === 0)
+		return selectionsForModuleTask(doc, moduleUuid, selections);
+	const next = { ...selections };
+	for (const binding of prefix) {
+		const held = datums?.get(binding.datumId);
+		if (!held?.value) {
+			delete next[binding.moduleUuid];
+			continue;
+		}
+		const row = cases.rows.find(
+			(item) =>
+				item.case_id === held.value && item.case_type === binding.caseType,
+		);
+		next[binding.moduleUuid] = {
+			caseType: binding.caseType,
+			cases: [
+				{
+					caseId: held.value,
+					caseName: row?.case_name || held.caseName,
+					...(row && {
+						caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
+					}),
+				},
+			],
+		};
+	}
+	const landed = { ...selectionsForModuleTask(doc, moduleUuid, next) };
+	for (const binding of prefix) {
+		for (const recipient of binding.destinationConsumers) {
+			if (next[binding.moduleUuid])
+				landed[recipient] = next[binding.moduleUuid];
+			else delete landed[recipient];
+		}
+	}
+	return landed;
 }
 
 /** Selecting a fresh form on a retained menu preserves its device world,
@@ -69,15 +125,44 @@ export function resolvePreviousTask(args: {
 	readonly doc: BlueprintDoc;
 	readonly formUuid: Uuid;
 	readonly submittedCaseIds: readonly string[];
+	readonly platform: "android" | "web-apps";
 	readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+	/** The choices the submitting entry walked, when it walked its own. */
+	readonly entryChoices?: readonly PreviewEntryChoice[];
 	readonly caseDatabase: CaseDatabaseSnapshot;
 }): PreviousTask {
 	const plan = projectPreviousTask(args.doc, args.formUuid);
 	const selections: Record<string, PreviewMenuCaseSelection> = {};
+	const entryChoices: PreviewEntryChoice[] = [];
 	const rowById = new Map(
 		args.caseDatabase.rows.map((row) => [row.case_id, row]),
 	);
-	for (const retained of plan.retainedSelections) {
+	// Formplayer resets and replays choices from the first menu. Without a
+	// command on the frame it stays there and never consumes a case datum.
+	const retainedSelections =
+		plan.destination.kind === "home" &&
+		previewPlatformRules(args.platform).poppedEntrySelections === "address"
+			? []
+			: plan.retainedSelections;
+	for (const retained of retainedSelections) {
+		// A choice the entry walked is the entry's, held by its identity:
+		// two choices from one list are two records, never one menu's.
+		const walked = args.entryChoices?.find((choice) =>
+			retained.selectionUuids?.includes(choice.selectionUuid),
+		);
+		if (walked !== undefined) {
+			const row = rowById.get(walked.caseId);
+			if (!row || row.case_type !== retained.caseType)
+				throw new Error(
+					"The preceding task requires a record absent from the saved device state.",
+				);
+			entryChoices.push({
+				selectionUuid: walked.selectionUuid,
+				caseId: walked.caseId,
+				caseName: row.case_name || "Case",
+			});
+			continue;
+		}
 		const current =
 			retained.source === "form-records"
 				? {
@@ -99,21 +184,31 @@ export function resolvePreviousTask(args: {
 			caseType: retained.caseType,
 			cases: current.cases.map((choice) => {
 				const row = rowById.get(choice.caseId);
-				if (!row || row.case_type !== retained.caseType)
+				if (
+					!row ||
+					!menuOffersRecordType(
+						args.doc.modules[retained.moduleUuid],
+						row.case_type,
+					)
+				)
 					throw new Error(
 						"The preceding task requires a record absent from the saved device state.",
 					);
 				return {
 					caseId: choice.caseId,
+					caseType: row.case_type,
 					caseName: row.case_name || "Case",
 					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 				};
 			}),
 		};
+		for (const recipient of retained.alsoSupplies ?? [])
+			selections[recipient] = selections[retained.moduleUuid];
 	}
 	return {
 		destination: previousTaskDestination(args.doc, args.formUuid, plan),
 		selections,
+		entryChoices,
 		caseDatabase: args.caseDatabase,
 	};
 }

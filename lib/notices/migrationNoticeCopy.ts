@@ -339,6 +339,7 @@ function expressionCount(
 export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"datetime-question": "date-and-time questions",
 	"case-list-here": "case-list columns that read the worker's location",
+	"case-list-lookup-count": "reads of the companion lookup count",
 	"case-list-search-text": "reads of the case list's search text",
 	"forms-read-search": "menus whose forms read the search",
 	"list-first": "menus that open on their case list first",
@@ -346,7 +347,13 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"search-field-single-date": "date search fields",
 	"search-field-multiple-choice": "multiple-choice search fields",
 	"window-width": "reads of the window's width",
+	"worker-distance": "distances from the worker",
+	"sort-by-distance": "case lists ordered by distance",
 	"connect-app": "CommCare Connect",
+	"auto-select-confirm":
+		"lists that choose their one record by themselves before a confirmation screen",
+	"answer-name-requires-android":
+		"answers whose IDs Web Apps reads as instructions",
 };
 
 /** Cause ids a stored notice row may carry that no current feature reads
