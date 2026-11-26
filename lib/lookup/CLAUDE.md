@@ -518,12 +518,15 @@ definitions-plus-rows read: the same definitions projection plus every present
 table's complete rows in authored `(order_key, id)` order, from one read-only
 `REPEATABLE READ` transaction (`fixtureSnapshot.ts`). Its consumers must not
 loop `getLookupTable`, whose per-call snapshots could mix generations: EVERY
-export mode validates and emits one generation (the `.ccz` embeds it as
-fixtures, the two CommCare HQ modes turn it into the fixapi workbook, leaving
-out a table CommCare HQ manages in the project space the upload is for, and
-putting such tables in the HQ app file in one workbook per project space
-that manages a table (`lookup-tables-managed-in-<domain>.xlsx`) — so the
-generation Nova pushes is provably the generation it validated), and the
+export mode validates and emits one generation. The `.ccz` embeds fixtures.
+HQ delivery uses fixapi workbooks where they keep the values. A direct publish
+or an editor's explicit manual installer sends eligible global unindexed data
+as bounded JSON with durable row identities when the workbook would change it.
+The installer reviews the exact generation and destination before writing.
+Direct publish leaves out a table managed by the destination. The HQ app file
+groups HQ-managed copies in one workbook per source space
+(`lookup-tables-managed-in-<domain>.xlsx`). Each carried value fits JavaRosa's
+65,535-byte modified UTF-8 format before Nova sends or archives it. The
 preview's builder-session cache
 (`lib/preview/engine/lookupDataBinding.ts`) evaluates carriers over one.
 Missing and foreign ids are absent from both the definitions and the rows map. Device reads by Preview and form checks use

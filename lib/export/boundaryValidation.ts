@@ -100,6 +100,7 @@ import {
 	type PagedLookupJsonRow,
 	stagePagedLookupJson,
 } from "@/lib/commcare/lookup/pagedJsonRows";
+import { lookupRuntimeValueFinding } from "@/lib/commcare/lookup/runtimeStrings";
 import {
 	measureStreamedLookupFixtures,
 	plannedLookupFixtureBudget,
@@ -111,6 +112,8 @@ import type {
 } from "@/lib/lookup/archiveRows";
 
 export interface PrepareExportBoundaryInput {
+	/** Include an authenticated data-install manifest in an HQ import package. */
+	readonly manualLookupInstaller?: boolean;
 	readonly mode: ExportMode;
 	readonly installTarget?: { server: string; domain: string; appId: string };
 	readonly streamMedia?: boolean;
@@ -474,6 +477,7 @@ async function prepareWithRegistry(
 		exportCarrierFindings({
 			doc: input.doc,
 			mode: input.mode,
+			manualLookupInstaller: input.manualLookupInstaller,
 			fixtureData,
 			assignments: assignment?.owners,
 			restoreTableIds: new Set(restoreIds),
@@ -543,10 +547,11 @@ async function prepareWithRegistry(
 	let remainingRows = PAGED_LOOKUP_JSON_ROWS;
 	let remainingBytes = PAGED_LOOKUP_JSON_BYTES;
 	const blocked: ValidationError[] = [];
-	for (const { table, carrier } of [
+	for (const { table, carrier, runtimeValueTooLong } of [
 		...workbookPlan.alternatives,
 		...continuedJson.map((table) => ({
 			table,
+			runtimeValueTooLong: undefined,
 			carrier: alternativeLookupCarrier(
 				table.definition,
 				"This table already uses the destination’s JSON resources.",
@@ -559,10 +564,16 @@ async function prepareWithRegistry(
 			!input.jsonDestinationTableIds?.has(definition.id) &&
 			input.workbookLookupTags?.get(definition.id)?.has(tableNaming.tag);
 		const direct = input.mode === "hq-upload";
+		const jsonAllowed =
+			direct || (input.mode === "hq-json" && input.manualLookupInstaller);
 		let issue: string;
 		let code: ValidationError["code"] = "LOOKUP_WORKER_SOURCE_UNAVAILABLE";
 		let delivery: string = carrier.kind;
-		if (direct && carrier.kind === "json" && !inWorkbook) {
+		if (runtimeValueTooLong) {
+			blocked.push(lookupRuntimeValueFinding(definition));
+			continue;
+		}
+		if (jsonAllowed && carrier.kind === "json" && !inWorkbook) {
 			const staged = await stagePagedLookupJson(table, tableNaming, {
 				rows: remainingRows,
 				bytes: remainingBytes,
@@ -572,6 +583,10 @@ async function prepareWithRegistry(
 				pagedJsonRows.set(definition.id, staged);
 				remainingRows -= staged.rows.length;
 				remainingBytes -= staged.bytes;
+				continue;
+			}
+			if (staged.problem === "runtime-value-length") {
+				blocked.push(lookupRuntimeValueFinding(definition));
 				continue;
 			}
 			issue = staged.issue;
@@ -631,10 +646,17 @@ async function prepareWithRegistry(
 	}
 
 	if (ccZBudget) {
-		const { budget, incomplete } = await measureStreamedLookupFixtures(
-			ccZBudget,
-			[...streamed.tables.values()],
-		);
+		const { budget, incomplete, runtimeValueTable } =
+			await measureStreamedLookupFixtures(
+				ccZBudget,
+				[...streamed.tables.values()],
+				true,
+			);
+		if (runtimeValueTable)
+			return {
+				ok: false,
+				violations: [lookupRuntimeValueFinding(runtimeValueTable)],
+			};
 		const findings = lookupFixtureBudgetFindings(budget, incomplete);
 		if (findings.length) return { ok: false, violations: findings };
 	}

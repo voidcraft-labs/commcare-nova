@@ -2388,6 +2388,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		return `The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "this data table"))} has leading or trailing whitespace that CommCare HQ would remove. ${domain ? changedByHqManagedRemedy(domain) : "You can remove that whitespace in Project data."}`;
 	},
 	LOOKUP_CELL_TEXT_UNREPRESENTABLE: (e) => {
+		if (e.details?.problem === "runtime-value-length") return e.message;
 		const domain = e.details?.managedInDomain;
 		return `The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. ${domain ? unrepresentableManagedRemedy(domain) : "You can remove them or retype the affected values in Project data."}`;
 	},

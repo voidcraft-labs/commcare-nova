@@ -3987,6 +3987,7 @@ export async function admitLookupJsonWrite(
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
 		readonly firstContentGeneration?: string;
+		readonly manualInstall?: boolean;
 		readonly tableId: LookupTableId;
 		readonly authority: WorkbookAuthority;
 		readonly entry: LookupJsonJournalEntry;
@@ -4006,7 +4007,7 @@ export async function admitLookupJsonWrite(
 		scope,
 		target,
 		{
-			ensure: false,
+			ensure: input.manualInstall === true,
 			expectedEndings: input.expectedEndings,
 			searchConnections: input.searchConnections,
 		},

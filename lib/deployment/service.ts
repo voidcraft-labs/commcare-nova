@@ -34,6 +34,7 @@ import {
 	patchHqLocations,
 	readHqPlaceExternalId,
 } from "@/lib/commcare/hq/locations";
+import { checkHqLookupJsonWrite } from "@/lib/commcare/hq/lookupJson";
 import {
 	FIXTURE_UPLOAD_PARTIAL_CODE,
 	type FixtureUploadRefusal,
@@ -1224,6 +1225,21 @@ export async function publishAppToHq(
 			...preflight.ready,
 			prepared: { ...preflight.ready.prepared, doc, compiledAtSeq: seq },
 		};
+
+		if (ready.lookupJsonPush !== null) {
+			const authorization = await checkHqLookupJsonWrite(
+				ready.creds,
+				ready.domain,
+			);
+			if (authorization !== "confirmed")
+				return refuseBeforeSending(
+					lookupJsonWritePermissionFailure(authorization, ready.domain),
+					{
+						checks: preflight.checks,
+						projectSpaceCompatibility: preflight.projectSpaceCompatibility,
+					},
+				);
+		}
 
 		const usedSearches = projectSearchDependencies(ready.prepared.doc);
 		fence = {
@@ -4120,7 +4136,7 @@ async function pushLookupTables(
  * partial so a refusal later in the publish supersedes nothing; the
  * resources phase's complete record retains it (`mapped`).
  */
-async function pushLookupTablesJson(
+export async function pushLookupTablesJson(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	creds: CommCareCredentials,
@@ -4128,8 +4144,9 @@ async function pushLookupTablesJson(
 	plan: LookupJsonPushPlan,
 	createdApp: boolean,
 	fence: DeploymentFence,
-	contentGeneration: string,
+	contentGeneration: string | undefined,
 	letOut: string[],
+	manualInstall = false,
 ): Promise<{
 	readonly failure: DeploymentFailure | null;
 	readonly recorded: RecordAnswer | null;
@@ -4138,13 +4155,13 @@ async function pushLookupTablesJson(
 	const db = await getAppDb();
 	const mapped: { novaResourceId: string; remoteId: string }[] = [];
 	const pagedWave = { requests: 200, until: Date.now() + 150_000 };
-	const pagedDeadline = plan.tables.some(
-		(table) => table.pagedBytes !== undefined,
-	)
-		? AbortSignal.timeout(240_000)
-		: undefined;
+	const waveDeadline =
+		manualInstall || plan.tables.some((table) => table.pagedBytes !== undefined)
+			? AbortSignal.timeout(240_000)
+			: undefined;
 	let recorded: RecordAnswer | null = null;
 	for (const table of plan.tables) {
+		const bounded = manualInstall || table.pagedBytes !== undefined;
 		const key: LookupJsonDestinationKey = {
 			projectId: scope.projectId,
 			server: target.server,
@@ -4159,7 +4176,7 @@ async function pushLookupTablesJson(
 					creds,
 					domain,
 					table.rows.length,
-					table.pagedBytes === undefined ? undefined : pagedDeadline,
+					bounded ? waveDeadline : undefined,
 					table.pagedBytes,
 				),
 				journal: {
@@ -4170,6 +4187,7 @@ async function pushLookupTablesJson(
 							...(letOut.length === 0 && {
 								firstContentGeneration: contentGeneration,
 							}),
+							manualInstall,
 							tableId: table.tableId,
 							authority: plan.authority,
 							entry,
@@ -4187,9 +4205,9 @@ async function pushLookupTablesJson(
 				definition: table.definition,
 				rows: table.rows,
 				holdMs: LOOKUP_JSON_HOLD_MS,
-				...(table.pagedBytes !== undefined && { writeBudget: pagedWave }),
+				...(bounded && { writeBudget: pagedWave }),
 			});
-			if (table.pagedBytes !== undefined) pagedWave.requests -= result.writes;
+			if (bounded) pagedWave.requests -= result.writes;
 		} catch (error) {
 			if (!(error instanceof LookupError)) throw error;
 			return {
@@ -4243,6 +4261,7 @@ async function pushLookupTablesJson(
 					table.name,
 					domain,
 					createdApp,
+					manualInstall,
 				),
 				recorded,
 				mapped,
@@ -4251,21 +4270,44 @@ async function pushLookupTablesJson(
 	return { failure: null, recorded, mapped };
 }
 
+export function lookupJsonWritePermissionFailure(
+	verdict: "denied" | "unavailable",
+	domain: string,
+): DeploymentFailure {
+	return {
+		code:
+			verdict === "denied"
+				? "domain_not_authorized"
+				: "hq_resource_state_unknown",
+		message:
+			verdict === "denied"
+				? `Your CommCare HQ connection needs permission to edit data on “${domain}”. You can use a connection with that permission and try again.`
+				: `Nova could not confirm permission to edit lookup data on “${domain}”. You can check your CommCare HQ connection and try again.`,
+		details: [],
+	};
+}
+
 /** Why a table's JSON publish stopped, in Nova's voice. */
 function lookupJsonStopFailure(
 	stop: LookupJsonStop,
 	name: string,
 	domain: string,
 	createdApp: boolean,
+	manualInstall: boolean,
 ): DeploymentFailure {
-	const stopped = stoppedBeforeContent(createdApp, "’");
+	const stopped = manualInstall
+		? "so the lookup install stopped."
+		: stoppedBeforeContent(createdApp, "’");
+	const retry = manualInstall ? "review the install again" : "publish again";
+	const retryFromNewFile = manualInstall ? "download a new import file" : retry;
+	const operation = manualInstall ? "request" : "publish";
 	switch (stop.kind) {
 		case "review":
 			switch (stop.reason) {
 				case "tag-held-elsewhere":
 					return {
 						code: "hq_resource_conflict",
-						message: `“${domain}” already has a lookup table under the export tag of “${name}”, and Nova didn't make it, ${stopped} You can give the table another export tag in Project data, then publish again.`,
+						message: `“${domain}” already has a lookup table under the export tag of “${name}”, and Nova didn't make it, ${stopped} You can give the table another export tag in Project data, then ${retryFromNewFile}.`,
 						details: [name],
 					};
 				case "schema-change":
@@ -4283,21 +4325,21 @@ function lookupJsonStopFailure(
 				default:
 					return {
 						code: "hq_resource_state_unknown",
-						message: `The table Nova put on “${domain}” for “${name}” changed in CommCare HQ since Nova last published it, ${stopped} Nova won't write over that change. You can look at the table in CommCare HQ, then publish again.`,
+						message: `The table Nova put on “${domain}” for “${name}” changed in CommCare HQ since Nova last sent it, ${stopped} Nova won't write over that change. You can look at the table in CommCare HQ, then ${retry}.`,
 						details: [name],
 					};
 			}
 		case "refused":
 			return {
 				code: "hq_rejected_resource_push",
-				message: `CommCare HQ refused a change to the lookup table “${name}”, ${stopped} Nothing after that change was sent, so publishing again carries on from there.`,
+				message: `CommCare HQ refused a change to the lookup table “${name}”, ${stopped} You can ${retry} to continue from that change.`,
 				details: [name],
 			};
 		case "unknown-outcome":
 		case "read-failed":
 			return {
 				code: "hq_resource_state_unknown",
-				message: `Nova couldn't confirm a change it sent to the lookup table “${name}” on “${domain}”, ${stopped} It sends nothing more to that table until it can read what CommCare HQ holds. Publishing again in a few minutes picks up from there.`,
+				message: `Nova couldn't confirm a change it sent to the lookup table “${name}” on “${domain}”, ${stopped} It sends nothing more to that table until it can read what CommCare HQ holds. You can ${retry} in a few minutes.`,
 				details: [name],
 			};
 		case "unexpected-outcome":
@@ -4305,19 +4347,19 @@ function lookupJsonStopFailure(
 		case "not-verified":
 			return {
 				code: "hq_resource_state_unknown",
-				message: `The lookup table “${name}” on “${domain}” doesn't hold what Nova's last change should have left there, ${stopped} Nova won't write to it again on its own. You can look at the table in CommCare HQ, then publish again.`,
+				message: `The lookup table “${name}” on “${domain}” doesn't hold what Nova's last change should have left there, ${stopped} Nova won't write to it again on its own. You can look at the table in CommCare HQ, then ${retry}.`,
 				details: [name],
 			};
 		case "checkpoint":
 			return {
 				code: "hq_lookup_publish_checkpoint",
-				message: `Nova saved its progress sending “${name}” to “${domain}”, ${stopped} You can publish again to send the remaining rows.`,
+				message: `Nova saved its progress sending “${name}” to “${domain}”, ${stopped} ${manualInstall ? "Choose Continue installing to send the remaining rows." : "You can publish again to send the remaining rows."}`,
 				details: [name],
 			};
 		case "busy":
 			return {
 				code: "hq_resource_state_unknown",
-				message: `Another publish is writing the lookup table “${name}” to “${domain}” right now, ${stopped} You can publish again once it finishes.`,
+				message: `Another ${operation} is writing the lookup table “${name}” to “${domain}” right now, ${stopped} You can ${retry} once it finishes.`,
 				details: [name],
 			};
 		case "admission":
@@ -4331,8 +4373,7 @@ function lookupJsonStopFailure(
 					}
 				: {
 						code: "app_not_ready",
-						message:
-							"The lookup data or its audience changed while Nova was publishing it. You can review the table in Project data and publish again.",
+						message: `The lookup data or its audience changed. You can review the table in Project data and ${retryFromNewFile}.`,
 						details: [name],
 					};
 	}

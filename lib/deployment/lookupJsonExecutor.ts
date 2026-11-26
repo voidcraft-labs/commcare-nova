@@ -32,6 +32,7 @@ import type {
 	CommCareCredentials,
 } from "@/lib/commcare/hq/http";
 import {
+	checkHqLookupJsonWrite,
 	createHqLookupRowJson,
 	createHqLookupTableJson,
 	deleteHqLookupRowJson,
@@ -779,6 +780,17 @@ export function hqLookupJsonPort(
 	expectedBytes = 0,
 ): LookupJsonHq {
 	const rowsBound = Math.max(expectedRows, 1) * 2 + 1_000;
+	const write = async <T>(
+		send: () => Promise<HqLookupJsonWrite<T>>,
+	): Promise<HqLookupJsonWrite<T>> => {
+		const access = await checkHqLookupJsonWrite(creds, domain, cancel);
+		return access === "confirmed"
+			? send()
+			: {
+					kind: "not-applied",
+					error: { success: false, status: access === "denied" ? 403 : 503 },
+				};
+	};
 	return {
 		listTables: () => listHqLookupTables(creds, domain, { cancel }),
 		async readRows(table) {
@@ -825,11 +837,14 @@ export function hqLookupJsonPort(
 			return remote ?? { success: false, status: 502, cause: "malformed" };
 		},
 		createTable: (definition) =>
-			createHqLookupTableJson(creds, domain, definition, cancel),
+			write(() => createHqLookupTableJson(creds, domain, definition, cancel)),
 		createRow: (tableId, row) =>
-			createHqLookupRowJson(creds, domain, tableId, row, cancel),
+			write(() => createHqLookupRowJson(creds, domain, tableId, row, cancel)),
 		updateRow: (tableId, rowId, row) =>
-			updateHqLookupRowJson(creds, domain, tableId, rowId, row, cancel),
-		deleteRow: (rowId) => deleteHqLookupRowJson(creds, domain, rowId, cancel),
+			write(() =>
+				updateHqLookupRowJson(creds, domain, tableId, rowId, row, cancel),
+			),
+		deleteRow: (rowId) =>
+			write(() => deleteHqLookupRowJson(creds, domain, rowId, cancel)),
 	};
 }

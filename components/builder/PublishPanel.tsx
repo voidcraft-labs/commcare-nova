@@ -95,6 +95,7 @@ async function downloadArtifact(opts: {
 	/** The project space a CCZ is made for; the import file takes none. */
 	domain?: string;
 	privateData?: boolean;
+	manualLookupInstaller?: boolean;
 	endpoint: string;
 	/** Noun for the failure toast, e.g. `"the .ccz file"` / `"the JSON file"`. */
 	fileLabel: string;
@@ -122,6 +123,7 @@ async function downloadArtifact(opts: {
 				...(opts.server ? { server: opts.server } : {}),
 				...(opts.domain ? { domain: opts.domain } : {}),
 				...(opts.privateData && { privateData: true }),
+				...(opts.manualLookupInstaller && { manualLookupInstaller: true }),
 			}),
 			signal: opts.signal,
 		});
@@ -367,6 +369,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				server: downloadServer,
 				domain,
 				...(privateData && { privateData: true }),
+				manualLookupInstaller: canEdit,
 				endpoint: "/api/compile/json",
 				fileLabel: "the CommCare HQ import file",
 				// The import file is always a ZIP: the app, its companions, and the
@@ -374,7 +377,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				filename: `${s.appName || "app"}.zip`,
 			});
 		},
-		[docStore, runDownload],
+		[canEdit, docStore, runDownload],
 	);
 
 	const loadProjectSpaceCompatibility = useCallback(

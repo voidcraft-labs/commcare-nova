@@ -235,6 +235,7 @@ function managedWorkbookMembers(
  * Dimagi turns off, so they get a step of their own.
  */
 export function hqImportFileGuide(input: {
+	readonly manualLookupTables?: readonly string[];
 	readonly appName: string;
 	readonly doc: BlueprintDoc;
 	readonly assets: AssetManifest;
@@ -254,6 +255,7 @@ export function hqImportFileGuide(input: {
 }): readonly ManualImportStep[] {
 	const logo = logoMember(input.doc, input.assets);
 	return manualImportGuide({
+		manualLookupTables: input.manualLookupTables,
 		practiceInstallations: Object.values(
 			input.doc.appSettings.installationProfiles ?? {},
 		)
