@@ -158,7 +158,9 @@ def test_android_search_default_reads_only_its_request(hq, request, has_sibling)
         if not has_sibling:
             assert queries, search_walks
             for query in queries:
-                assert query["opened"] is False and MISSING in query.get("openingError", ""), query
+                assert query["opened"] is False, query
+                alert = query.get("openingAlert", {})
+                assert alert.get("class") == "StandardAlertDialog" and MISSING in alert.get("msg", ""), query
             assert served.hq.searches == []
             return
 
