@@ -54,7 +54,10 @@ import {
 	repeatForLanguages,
 } from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import {
+	type AssetManifest,
+	requireAssetRef,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { localizedNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
 import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
@@ -85,6 +88,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { projectSearchOf } from "@/lib/domain/modules";
+import type { NavigationMedia } from "@/lib/domain/navigationMedia";
 import { advancedActionsWithEntry } from "./advancedEntryValues";
 import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
 import {
@@ -1047,6 +1051,50 @@ function advancedActions(
 	);
 }
 
+/** The stored locale override follows the carrier's current emitted position. */
+function navigationMediaOverrides(
+	plan: EmissionPlan,
+	localization: CommCareLocalization,
+	assets: AssetManifest | undefined,
+): ReadonlyMap<string, Record<string, string>> {
+	const byLanguage = new Map<string, Record<string, string>>();
+	if (!assets) return byLanguage;
+	const add = (prefix: string, carrier: NavigationMedia | undefined) => {
+		if (!carrier?.mediaByLanguage) return;
+		for (const language of localization.languages) {
+			const { icon, audioLabel } = localization.menuMediaOverride(
+				language,
+				carrier,
+			);
+			if (icon === undefined && audioLabel === undefined) continue;
+			const values = byLanguage.get(language) ?? {};
+			if (icon !== undefined)
+				values[`${prefix}.icon`] = requireAssetRef(
+					icon,
+					assets,
+					"navigation icon translation",
+				);
+			if (audioLabel !== undefined)
+				values[`${prefix}.audio`] = requireAssetRef(
+					audioLabel,
+					assets,
+					"navigation audio translation",
+				);
+			byLanguage.set(language, values);
+		}
+	};
+	const doc = plan.doc;
+	for (const [index, uuid] of projectedModulePreorder(doc).entries()) {
+		const menu = doc.modules[uuid];
+		add(`modules.m${index}`, menu);
+		add(`case_lists.m${index}`, menu.caseListMenuItem);
+		add(`case_list_form.m${index}`, alwaysOfferedRegistrationOf(doc, uuid));
+		for (const [at, form] of orderedFormUuids(doc, uuid).entries())
+			add(`forms.m${index}f${at}`, doc.forms[form]);
+	}
+	return byLanguage;
+}
+
 /**
  * The app-level values `expandDoc` and `expandAppShell` both write: the
  * languages, each language's strings, and GPS capture for a Connect app.
@@ -1081,6 +1129,14 @@ function appLevelValues(
 					: appNameWordingKeys(doc),
 			)
 		: {};
+	const mediaOverrides =
+		projection === undefined
+			? undefined
+			: navigationMediaOverrides(
+					projection.plan,
+					localization,
+					projection.options.assets,
+				);
 	const appNameByLanguage = localization.textMap(
 		makeTranslationUnitId("app", "name"),
 	);
@@ -1115,6 +1171,7 @@ function appLevelValues(
 							]),
 						),
 						...overrides[language],
+						...mediaOverrides?.get(language),
 					},
 				];
 			}),

@@ -24,6 +24,7 @@ import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain";
 import { effectiveAppLocalization, proseText } from "@/lib/domain";
 import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
+import { manifestFor } from "../../../__tests__/fixtureMediaManifest";
 import { localAppStringTable } from "../../../appStrings";
 import { expandDoc } from "../../../expander";
 import {
@@ -39,6 +40,7 @@ import { type AppJson, formNamed, inSpanish, moduleNamed } from "./menuReading";
 const MENU_ICON = "jr://file/commcare/image/menu.png";
 const OTHER_ICON = "jr://file/commcare/image/other.png";
 const FORM_AUDIO = "jr://file/commcare/audio/visit.mp3";
+const OTHER_AUDIO = "jr://file/commcare/audio/translated.mp3";
 
 const ASSETS: Readonly<Record<string, ReaderMediaResolution>> = {
 	[MENU_ICON]: {
@@ -50,6 +52,11 @@ const ASSETS: Readonly<Record<string, ReaderMediaResolution>> = {
 		kind: "asset",
 		assetId: testMediaAssetId("other-icon"),
 		mediaKind: "image",
+	},
+	[OTHER_AUDIO]: {
+		kind: "asset",
+		assetId: testMediaAssetId("other-audio"),
+		mediaKind: "audio",
 	},
 	[FORM_AUDIO]: {
 		kind: "asset",
@@ -547,33 +554,72 @@ describe("an override of a generated media key in `translations`", () => {
 		);
 	});
 
-	it("refuses an override showing another file than the menu's in one language", async () => {
+	it("keeps a menu's generated icon and original map independently", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
-			(json.modules[0] as AppJson["modules"][number]).media_image = {
-				en: MENU_ICON,
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON };
+			(menu.forms[0] as Record<string, unknown>).media_image = {
+				en: OTHER_ICON,
 			};
 			overriding(json, { "modules.m0.icon": OTHER_ICON });
 		});
-		expect(findings(outcome)).toEqual([
-			"application-and-settings/translations-generated-key-anything-else",
-		]);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		const doc = outcome.draft.doc;
+		const menu = doc.modules[doc.moduleOrder[0]];
+		expect(menu.icon).toBe(testMediaAssetId("menu-icon"));
+		expect(menu.mediaByLanguage?.eng?.iconOverride).toBe(
+			testMediaAssetId("other-icon"),
+		);
+		const appLanguages = effectiveAppLocalization(doc.localization);
 		expect(
-			outcome.kind === "account"
-				? outcome.findings.map((one) => one.detail.name)
-				: [],
-		).toEqual(["modules.m0.icon"]);
+			navigationFilesInLanguage(menu, appLanguages.sourceLanguage, appLanguages)
+				.icon,
+		).toBe(testMediaAssetId("other-icon"));
+		expect(translationEntries(outcome)).toContain(
+			"translations-generated-navigation-file",
+		);
+		const assets = new Map(manifestFor(doc));
+		for (const [path, ref] of Object.entries(ASSETS)) {
+			if (ref.kind !== "asset") continue;
+			const asset = assets.get(ref.assetId);
+			if (asset)
+				assets.set(ref.assetId, {
+					...asset,
+					wirePath: path.replace("jr://file/", ""),
+				});
+		}
+		const body = expandDoc(doc, { assets });
+		expect(body.modules[0].media_image.en).toBe(MENU_ICON);
+		expect(body.translations.en["modules.m0.icon"]).toBe(OTHER_ICON);
 	});
 
-	it("refuses an override of a form's audio label naming another file", async () => {
+	it("keeps a form's generated spoken label on that form and locale", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
 			const menu = json.modules[0] as AppJson["modules"][number];
 			(menu.forms[0] as Record<string, unknown>).media_audio = {
 				en: FORM_AUDIO,
 			};
-			overriding(json, { "forms.m0f0.audio": OTHER_ICON });
+			menu.media_audio = { en: OTHER_AUDIO };
+			overriding(json, { "forms.m0f0.audio": OTHER_AUDIO });
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The form did not read.");
+		const doc = outcome.draft.doc;
+		const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+		expect(form.audioLabel).toBe(testMediaAssetId("form-audio"));
+		expect(form.mediaByLanguage?.eng?.audioLabelOverride).toBe(
+			testMediaAssetId("other-audio"),
+		);
+	});
+
+	it("refuses an override whose file HQ leaves out of the installation", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			json.modules[0].media_image = { en: MENU_ICON };
+			overriding(json, { "modules.m0.icon": OTHER_ICON });
 		});
 		expect(findings(outcome)).toEqual([
-			"application-and-settings/translations-generated-key-anything-else",
+			"application-and-settings/translations-generated-navigation-file-not-packaged",
 		]);
 	});
 

@@ -33,6 +33,7 @@ import {
 import {
 	type NavigationMedia,
 	navigationFilesInLanguage,
+	navigationMediaOverride,
 	storedNavigationFile,
 } from "@/lib/domain/navigationMedia";
 import { planLanguageWire } from "./languageWire";
@@ -47,6 +48,10 @@ export interface CommCareLocalization {
 		code: string,
 		carrier: NavigationMedia<T>,
 	): Pick<NavigationMedia<T>, "icon" | "audioLabel">;
+	menuMediaOverride(
+		code: string,
+		carrier: NavigationMedia,
+	): Pick<NavigationMedia, "icon" | "audioLabel">;
 	storedMenuMedia(
 		code: string,
 		carrier: NavigationMedia,
@@ -165,6 +170,13 @@ export function commCareLocalization(
 		defaultLanguage: plan.defaultLanguage,
 		navigationMedia(code, carrier) {
 			return navigationFilesInLanguage(carrier, tagFor(code), effective);
+		},
+		menuMediaOverride(code, carrier) {
+			const tag = tagFor(code);
+			return {
+				icon: navigationMediaOverride(carrier, "icon", tag),
+				audioLabel: navigationMediaOverride(carrier, "audioLabel", tag),
+			};
 		},
 		storedMenuMedia(code, carrier) {
 			const tag = tagFor(code);

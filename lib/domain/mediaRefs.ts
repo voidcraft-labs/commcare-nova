@@ -87,6 +87,7 @@ export type FieldMediaBundleKey = "label_media" | "help_media";
 export type MediaRefLocation = {
 	readonly language?: string;
 	readonly formerLanguage?: true;
+	readonly translationOverride?: true;
 } & (
 	| { readonly kind: "app_logo" }
 	| {
@@ -218,6 +219,22 @@ function* menuFiles(
 					location: { ...audio, ...place },
 				};
 		}
+	}
+	for (const [language, slots] of Object.entries(
+		carrier.mediaByLanguage ?? {},
+	)) {
+		if (slots.iconOverride)
+			yield {
+				assetId: slots.iconOverride,
+				slotKind: "image",
+				location: { ...icon, language, translationOverride: true },
+			};
+		if (slots.audioLabelOverride)
+			yield {
+				assetId: slots.audioLabelOverride,
+				slotKind: "audio",
+				location: { ...audio, language, translationOverride: true },
+			};
 	}
 }
 
@@ -620,6 +637,12 @@ export function remapAssetRefs(
 		if (carrier.icon) carrier.icon = remapIcon(carrier.icon) as Icon;
 		if (carrier.audioLabel)
 			carrier.audioLabel = remapUploaded(carrier.audioLabel);
+		for (const slots of Object.values(carrier.mediaByLanguage ?? {})) {
+			if (slots.iconOverride)
+				slots.iconOverride = remapIcon(slots.iconOverride) as Icon;
+			if (slots.audioLabelOverride)
+				slots.audioLabelOverride = remapUploaded(slots.audioLabelOverride);
+		}
 		for (const slots of [
 			...Object.values(carrier.mediaByLanguage ?? {}),
 			...Object.values(carrier.mediaByFormerCode ?? {}),

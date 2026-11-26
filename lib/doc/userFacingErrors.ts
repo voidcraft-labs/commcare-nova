@@ -230,6 +230,8 @@ function formMediaLanguageCopy(e: ValidationError): string {
 			return `A file on ${where} follows a language the app no longer has. You can choose a shared file for it.`;
 		case "language-outside-app":
 			return `A file on ${where} is set for a language the app doesn't have. You can choose the file in one of the app's languages.`;
+		case "override-needs-package":
+			return `CommCare needs the translated file on an ordinary menu or form in the same language before it can show it on ${where}. You can keep that file available or choose a different translation.`;
 		case "needs-shared":
 			return `${where} has a translated ${role} but no shared ${role}. You can choose the shared ${role} first, or remove the translated one.`;
 		default:

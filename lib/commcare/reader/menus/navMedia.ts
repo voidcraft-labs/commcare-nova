@@ -6,11 +6,11 @@
 import type { MediaKind } from "@/lib/domain";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { applicationReading } from "../appShell";
-import { type Claim, defineClaims, derived, take } from "../claims";
+import { applicationReading, type HeldTranslationKey } from "../appShell";
+import { type Claim, defineClaims, derived, refuse, take } from "../claims";
 import type { ReadContext } from "../context";
 import { compareCodePoints } from "../hqText";
-import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { isJsonObject, type JsonCursor, pointerToken } from "../jsonCursor";
 
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
@@ -269,6 +269,114 @@ function recordRespelling(
 		});
 }
 
+const generatedMediaClaim = take(
+	"application-and-settings/translations-generated-navigation-file",
+	"schema:Application.translations",
+);
+const generatedMediaNotPackaged = refuse(
+	"application-and-settings/translations-generated-navigation-file-not-packaged",
+	"schema:Application.translations",
+);
+defineClaims("menus.navMedia", {
+	generatedMediaClaim,
+	generatedMediaNotPackaged,
+});
+const acceptedOverrides = new WeakSet<HeldTranslationKey>();
+
+export function acceptedNavigationMediaOverride(
+	key: HeldTranslationKey,
+): boolean {
+	return acceptedOverrides.has(key);
+}
+
+function navigationLocale(
+	node: JsonCursor,
+	place: HqPlace,
+): string | undefined {
+	if (place.kind === "form") return `forms.m${place.menu}f${place.form}`;
+	if (!("menu" in place)) return undefined;
+	if (node.cls === "CaseList") return `case_lists.m${place.menu}`;
+	if (node.cls === "CaseListForm") return `case_list_form.m${place.menu}`;
+	return `modules.m${place.menu}`;
+}
+
+/** Resolve authored locale overrides separately from the map whose default
+ * remains active when the installation omits the override's language. */
+function readOverrides(
+	ctx: ReadContext,
+	locale: string,
+	shown: Readonly<Record<string, string>>,
+	mediaKind: MediaKind,
+	slot: string,
+	place: HqPlace,
+): Map<string, string> {
+	const overrides = new Map<string, string>();
+	if (!Object.values(shown).some(Boolean)) return overrides;
+	const app = applicationReading(ctx);
+	const key = `${locale}.${mediaKind === "image" ? "icon" : "audio"}`;
+	for (const held of app?.generatedKeys ?? []) {
+		if (
+			held.key !== key ||
+			typeof held.value !== "string" ||
+			!held.value ||
+			held.value === shown[held.language]
+		)
+			continue;
+		const tag = app?.languages.tagOf.get(held.language);
+		if (tag === undefined) continue;
+		const path = held.value;
+		const rawModules = ctx.input.source.raw.modules;
+		const map = mediaKind === "image" ? "media_image" : "media_audio";
+		const declares = (block: unknown) => {
+			if (!isJsonObject(block)) return false;
+			const media = block[map];
+			return isJsonObject(media) && media[held.language] === path;
+		};
+		if (
+			!Array.isArray(rawModules) ||
+			!rawModules.some(
+				(module) =>
+					declares(module) ||
+					(isJsonObject(module) &&
+						Array.isArray(module.forms) &&
+						module.forms.some(declares)),
+			)
+		) {
+			held.json.refuse(key, generatedMediaNotPackaged, { name: key });
+			acceptedOverrides.add(held);
+			continue;
+		}
+		const resolution = ctx.input.media.resolve(path);
+		const occurrence = {
+			path,
+			mediaKind,
+			place,
+			pointer: `${held.json.pointer}/${pointerToken(held.key)}`,
+			slot,
+		};
+		if (resolution.kind === "asset") {
+			overrides.set(tag, resolution.assetId);
+			ctx.facts.mediaReferences.push({
+				...occurrence,
+				assetId: resolution.assetId,
+			});
+		} else {
+			ctx.accounting.handOffAt(
+				{ json: held.json, key },
+				"media-reference",
+				path,
+			);
+			ctx.facts.pendingMedia.push({
+				...occurrence,
+				resolution: resolution.kind,
+			});
+		}
+		held.json.take(key, generatedMediaClaim, () => path).value;
+		acceptedOverrides.add(held);
+	}
+	return overrides;
+}
+
 /** Resolve every visible file through the Project index, keeping a missing
  * or blank language separate when a named installation's default can differ. */
 function readMap(
@@ -283,6 +391,7 @@ function readMap(
 ): {
 	asset?: string;
 	translations?: Map<string, string | null>;
+	overrides?: Map<string, string>;
 	former?: [string, string];
 } {
 	if (!node.used(key)) return {};
@@ -293,6 +402,11 @@ function readMap(
 	const shown = shownBlockMedia((one) => node.peek(one), key, codes);
 	if (!shown || !isJsonObject(stored)) return {}; // The cursor retains the unreadable map for its close.
 	const all = node.peek(FOR_ALL[key]) === true;
+	const locale = navigationLocale(node, place);
+	const overrides =
+		locale === undefined
+			? undefined
+			: readOverrides(ctx, locale, shown, mediaKind, slot, place);
 	const resolved = new Map<string, string>();
 	const missing = new Set<string>();
 	for (const path of new Set(Object.values(shown))) {
@@ -368,7 +482,7 @@ function readMap(
 	return node.take(
 		key,
 		new Set(resolved.values()).size > 1 ? differs : same,
-		() => ({ asset, translations, former }),
+		() => ({ asset, translations, overrides, former }),
 	).value;
 }
 
@@ -384,7 +498,12 @@ export function readNavMedia(
 	readonly audioLabel?: string;
 	readonly mediaByLanguage?: Record<
 		string,
-		{ icon?: string | null; audioLabel?: string | null }
+		{
+			icon?: string | null;
+			audioLabel?: string | null;
+			iconOverride?: string;
+			audioLabelOverride?: string;
+		}
 	>;
 	readonly mediaByFormerCode?: Record<
 		string,
@@ -422,6 +541,8 @@ export function readNavMedia(
 	const byLanguage = recordFromEntries<{
 		icon?: string | null;
 		audioLabel?: string | null;
+		iconOverride?: string;
+		audioLabelOverride?: string;
 	}>([]);
 	for (const [tag, file] of icon.translations ?? []) {
 		byLanguage[tag] = { icon: file };
@@ -429,6 +550,10 @@ export function readNavMedia(
 	for (const [tag, file] of audioLabel.translations ?? []) {
 		byLanguage[tag] = { ...byLanguage[tag], audioLabel: file };
 	}
+	for (const [tag, file] of icon.overrides ?? [])
+		byLanguage[tag] = { ...byLanguage[tag], iconOverride: file };
+	for (const [tag, file] of audioLabel.overrides ?? [])
+		byLanguage[tag] = { ...byLanguage[tag], audioLabelOverride: file };
 	const former = recordFromEntries<{ icon?: string; audioLabel?: string }>([]);
 	if (icon.former) {
 		const [code, file] = icon.former;

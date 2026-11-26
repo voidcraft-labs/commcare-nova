@@ -98,7 +98,7 @@ function localizedMenuMedia(
 			? mod.caseListRegistrationForm
 			: undefined,
 	]) {
-		const problem = navigationMediaProblem(carrier, app);
+		const problem = navigationMediaProblem(carrier, app, doc);
 		if (problem)
 			return [
 				validationError(

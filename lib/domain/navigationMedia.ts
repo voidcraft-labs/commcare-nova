@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BlueprintDoc } from "./blueprint";
 import type { IconRef } from "./builtinIcons";
 import {
 	type EffectiveAppLocalization,
@@ -22,6 +23,8 @@ export function navigationLanguageEntrySchema<T extends IconRef>(
 	icon: z.ZodType<T>,
 ) {
 	return z.strictObject({
+		iconOverride: icon.optional(),
+		audioLabelOverride: mediaAssetIdSchema.optional(),
 		icon: z
 			.union([icon, z.literal("blank")])
 			.nullable()
@@ -46,7 +49,12 @@ export interface NavigationMedia<T extends IconRef = IconRef> {
 	audioLabel?: MediaAssetId;
 	mediaByLanguage?: Record<
 		string,
-		{ icon?: T | "blank" | null; audioLabel?: MediaAssetId | "blank" | null }
+		{
+			icon?: T | "blank" | null;
+			audioLabel?: MediaAssetId | "blank" | null;
+			iconOverride?: T;
+			audioLabelOverride?: MediaAssetId;
+		}
 	>;
 	mediaByFormerCode?: Record<
 		string,
@@ -60,6 +68,21 @@ export function storedNavigationFile<
 >(carrier: NavigationMedia<T>, key: K, language: string) {
 	const localized = ownRecordValue(carrier.mediaByLanguage, language)?.[key];
 	return localized === undefined ? carrier[key] : localized;
+}
+
+/** A generated locale string can select a translated file independently
+ * of the carrier's ordinary media map. */
+export function navigationMediaOverride<
+	T extends IconRef,
+	K extends "icon" | "audioLabel",
+>(
+	carrier: NavigationMedia<T>,
+	key: K,
+	language: string,
+): NavigationMedia<T>[K] {
+	return ownRecordValue(carrier.mediaByLanguage, language)?.[
+		`${key}Override`
+	] as NavigationMedia<T>[K];
 }
 
 /** Choose the files a worker sees for one installation. An explicitly empty
@@ -81,7 +104,8 @@ export function navigationFilesInLanguage<T extends IconRef>(
 		const file = (raw: ReturnType<typeof read>) =>
 			raw == null || raw === "blank" ? undefined : raw;
 		if (!installed.some((tag) => file(read(tag)))) return undefined;
-		const direct = file(read(language));
+		const direct =
+			navigationMediaOverride(carrier, key, language) ?? file(read(language));
 		if (direct) return direct as NavigationMedia<T>[K];
 		const choices = new Map<string, ReturnType<typeof read>>();
 		if (!profileLanguages)
@@ -101,7 +125,8 @@ export function navigationFilesInLanguage<T extends IconRef>(
 		const loose =
 			firstCode === undefined ? undefined : file(choices.get(firstCode));
 		for (const tag of installed) {
-			const value = file(read(tag)) ?? loose;
+			const value =
+				navigationMediaOverride(carrier, key, tag) ?? file(read(tag)) ?? loose;
 			if (value) return value as NavigationMedia<T>[K];
 		}
 		return undefined;
@@ -123,6 +148,7 @@ export function editNavigationInLanguage<T extends IconRef>(
 	for (const role of ["icon", "audioLabel"] as const) {
 		const file = files[role];
 		if (file !== null && file === previous[role]) continue;
+		delete translated[`${role}Override`];
 		if (language === sourceLanguage) {
 			if (file === null) delete carrier[role];
 			else if (role === "icon") carrier.icon = files.icon ?? undefined;
@@ -147,11 +173,16 @@ export function editNavigationInLanguage<T extends IconRef>(
 
 export type NavigationMediaProblem =
 	| { readonly kind: "language-outside-app" }
-	| { readonly kind: "needs-shared"; readonly role: "icon" | "audioLabel" };
+	| { readonly kind: "needs-shared"; readonly role: "icon" | "audioLabel" }
+	| {
+			readonly kind: "override-needs-package";
+			readonly role: "icon" | "audioLabel";
+	  };
 
 export function navigationMediaProblem(
 	carrier: NavigationMedia | undefined,
 	app: EffectiveAppLocalization,
+	doc?: BlueprintDoc,
 ): NavigationMediaProblem | undefined {
 	if (!carrier) return;
 	for (const [language, slots] of Object.entries(
@@ -159,11 +190,41 @@ export function navigationMediaProblem(
 	)) {
 		if (!app.languageOrder.includes(language))
 			return { kind: "language-outside-app" };
-		for (const role of ["icon", "audioLabel"] as const)
-			if (slots[role] !== undefined && !carrier[role])
+		for (const role of ["icon", "audioLabel"] as const) {
+			const override = slots[`${role}Override`];
+			if (
+				(slots[role] !== undefined || override !== undefined) &&
+				!carrier[role]
+			)
 				return { kind: "needs-shared", role };
+			if (
+				override !== undefined &&
+				doc !== undefined &&
+				!ordinaryNavigationAsset(doc, role, language, override)
+			)
+				return { kind: "override-needs-package", role };
+		}
 	}
 	return undefined;
+}
+
+/** HQ installs only files referenced by its ordinary media surfaces. A locale
+ * string alone does not cause the file to be added to the media resources. */
+function ordinaryNavigationAsset(
+	doc: BlueprintDoc,
+	role: "icon" | "audioLabel",
+	language: string,
+	asset: IconRef,
+): boolean {
+	const used = (carrier: NavigationMedia | undefined) =>
+		carrier !== undefined &&
+		storedNavigationFile(carrier, role, language) === asset;
+	return doc.moduleOrder.some((uuid) => {
+		const module = doc.modules[uuid];
+		return (
+			used(module) || doc.formOrder[uuid]?.some((form) => used(doc.forms[form]))
+		);
+	});
 }
 
 /** The author-facing sentence for a menu file problem. */
@@ -172,6 +233,8 @@ export function navigationMediaProblemText(
 ): string {
 	if (problem.kind === "language-outside-app")
 		return "This menu file names a language outside the app. Choose a language the app includes.";
+	if (problem.kind === "override-needs-package")
+		return "CommCare needs this translated file on an ordinary menu or form in the same language to include it in installations.";
 	return problem.role === "icon"
 		? "Choose a shared icon before adding an icon in another language, or clear the translated icon."
 		: "Choose a shared spoken label before adding audio in another language, or clear its translated audio.";
