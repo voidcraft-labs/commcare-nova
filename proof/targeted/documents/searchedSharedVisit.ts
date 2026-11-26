@@ -156,19 +156,27 @@ export function searchedSharedVisit() {
 		wireCodes: { eng: "en", fra: "fra" },
 		translations: { fra: {} },
 	};
-	const header = makeTranslationUnitId("column", region.uuid, "header");
-	const unit = units.get(header);
-	if (!unit)
-		throw new Error(
-			"The district result is missing a header translation unit.",
-		);
-	doc.localization.translations.fra[header] = {
-		value: "Région du district",
-		sourceFingerprint: unit.sourceFingerprint,
-		origin: "human",
-		review: "reviewed",
-		translatedFrom: "eng",
-	};
+	for (const [id, value] of [
+		[
+			makeTranslationUnitId("column", region.uuid, "header"),
+			"Région du district",
+		],
+		[
+			makeTranslationUnitId("search-input", uuid("search-name"), "label"),
+			"Cohorte",
+		],
+	] as const) {
+		const unit = units.get(id);
+		if (!unit)
+			throw new Error("The Search fixture is missing a translation unit.");
+		doc.localization.translations.fra[id] = {
+			value,
+			sourceFingerprint: unit.sourceFingerprint,
+			origin: "human",
+			review: "reviewed",
+			translatedFrom: "eng",
+		};
+	}
 	const edit = structuredClone(doc);
 	edit.moduleOrder = [households, clinic, visits];
 	return targetedDocument({

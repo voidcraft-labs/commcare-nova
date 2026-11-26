@@ -21,6 +21,8 @@ from proof.observe.casedata import document_case_database
 DOCUMENT = "targeted-searched-shared-visit"
 SEARCH_INPUT = "cohort"
 NEW_LABEL = "Household cohort"
+ORIGINAL_SEARCH_LABELS = {"en": "Cohort", "fra": "Cohorte"}
+EDITED_SEARCH_LABELS = {**ORIGINAL_SEARCH_LABELS, "en": NEW_LABEL}
 CASE_NS = "{http://commcarehq.org/case/transaction/v2}"
 DISTRICT_HEADERS = {"en": "District region", "fra": "Région du district"}
 SEARCH_ROWS = [
@@ -54,7 +56,7 @@ def _choose(screen, label):
     return [*map(str, screen["selections"]), str(labels.index(label))]
 
 
-def _worker_visits(published, runner, label, child_order, search_label):
+def _worker_visits(published, runner, label, child_order, search_labels):
     from corehq.form_processor.models import CommCareCase
 
     records = {locale: {} for locale in DISTRICT_HEADERS}
@@ -75,6 +77,7 @@ def _worker_visits(published, runner, label, child_order, search_label):
                 query = web.navigate(path)
                 assert screen_kind(query) == "query", query
                 (prompt,) = query["displays"]
+                search_label = search_labels[locale]
                 assert prompt["id"] == SEARCH_INPUT and prompt["text"] == search_label, prompt
                 query_data = {query["queryKey"]: {"inputs": {SEARCH_INPUT: "Pilot"}, "execute": True}}
                 results = web.navigate(path, query_data=query_data)
@@ -176,6 +179,13 @@ def _read_back(published, evidence):
     expected = copy.deepcopy(stored["doc"])
     household, *_ = expected["moduleOrder"]
     expected["modules"][household]["caseListConfig"]["searchInputs"][0]["label"] = NEW_LABEL
+    # The HQ edit changes the English source and leaves its French translation in place.
+    translated, = (
+        translation for translation in expected["localization"]["translations"]["fra"].values()
+        if translation["value"] == ORIGINAL_SEARCH_LABELS["fra"]
+    )
+    assert translated["sourceFingerprint"] == 'source-v1:text:"Cohort"'
+    translated["sourceFingerprint"] = f"source-v1:text:{json.dumps(NEW_LABEL)}"
     (answer,) = readerbundle.run_reader([{
         "id": DOCUMENT,
         "mode": "read-back",
@@ -195,15 +205,15 @@ def test_a_visit_after_a_parent_search_keeps_both_listed_visit_routes(
 ):
     document = formplayer_documents[DOCUMENT]
     with apps.published(document, core_runner) as published:
-        before = _worker_visits(published, formplayer_runner, "original", ["Visits", "Clinic"], "Cohort")
+        before = _worker_visits(published, formplayer_runner, "original", ["Visits", "Clinic"], ORIGINAL_SEARCH_LABELS)
         with published.unit.operation("reorder-child-menus", DOCUMENT.encode()):
             refusal, lookups = publish.update(
                 published.unit, published.app_id, document.edit.exports["minimum"].update, "B-edit"
             )
             assert refusal is None and (lookups is None or lookups["errors"] == []), (refusal, lookups)
-        reordered = _worker_visits(published, formplayer_runner, "reordered", ["Clinic", "Visits"], "Cohort")
+        reordered = _worker_visits(published, formplayer_runner, "reordered", ["Clinic", "Visits"], ORIGINAL_SEARCH_LABELS)
         _save_search_in_hq(published)
-        after = _worker_visits(published, formplayer_runner, "edited", ["Clinic", "Visits"], NEW_LABEL)
+        after = _worker_visits(published, formplayer_runner, "edited", ["Clinic", "Visits"], EDITED_SEARCH_LABELS)
         evidence("searched-shared-visit", {"before": before, "reordered": reordered, "after": after})
         _read_back(published, evidence)
     namespaces = {
