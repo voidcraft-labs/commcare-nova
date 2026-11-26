@@ -320,6 +320,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}address-picker-receiver-on-a-search-screen`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
+	addressReceiverDuplicate: refuse(
+		`${S}address-receiver-shared-with-a-choice-field`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
 	receiver: refuse(
 		`${S}receiver-expression`,
 		"schema:CaseSearchProperty.receiver_expression",
@@ -486,6 +490,64 @@ const RECEIVER_REFUSED_APPEARANCES = new Set([
 	"daterange",
 	"checkbox",
 ]);
+
+function receiverSelector(source: unknown): RegExpExecArray | null {
+	return typeof source === "string"
+		? /^([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*)$/.exec(
+				source,
+			)
+		: null;
+}
+
+function addressPartsHeld(parts: readonly string[]): boolean {
+	return parts.every((part) =>
+		(SEARCH_ADDRESS_PARTS as readonly string[]).includes(part),
+	);
+}
+
+/** Web Apps updates every DOM field with the same receive selector together.
+ * Only a group of plain text receivers can share it safely. */
+function addressReceiverDuplicates(
+	prompts: readonly JsonCursor[],
+	sourceNames: ReadonlySet<string>,
+): ReadonlySet<JsonCursor> {
+	const selectors = new Map<
+		string,
+		{ prompts: JsonCursor[]; hasChoice: boolean }
+	>();
+	for (const prompt of prompts) {
+		if (prompt.peek("is_group") === true || prompt.peek("hidden") === true)
+			continue;
+		const wire = receiverSelector(prompt.peek("receiver_expression"));
+		if (
+			!wire ||
+			!sourceNames.has(wire[1]) ||
+			!addressPartsHeld(wire[2].split("||"))
+		)
+			continue;
+		const input = prompt.peek("input_");
+		const appearance = editorAppearance(prompt);
+		const itemset = prompt.peek("itemset");
+		const choice =
+			appearance === "lookup_table_fixture" &&
+			isJsonObject(itemset) &&
+			typeof itemset.nodeset === "string" &&
+			itemset.nodeset !== "";
+		if (!choice && (appearance !== "" || Boolean(input))) continue;
+		const previous = selectors.get(wire[0]);
+		if (previous === undefined)
+			selectors.set(wire[0], { prompts: [prompt], hasChoice: choice });
+		else {
+			previous.prompts.push(prompt);
+			previous.hasChoice ||= choice;
+		}
+	}
+	return new Set(
+		[...selectors.values()].flatMap(({ prompts, hasChoice }) =>
+			hasChoice && prompts.length > 1 ? prompts : [],
+		),
+	);
+}
 
 /** Whether a prompt carries a widget: an itemset, an input type, or an appearance that gives one
  *  (a barcode scan, an address); a blank input type is none, and any other appearance dresses no
@@ -670,6 +732,7 @@ export function readSearchPrompts(
 				return typeof name === "string" ? [name] : [];
 			}),
 	);
+	const receiverDuplicates = addressReceiverDuplicates(prompts, sourceNames);
 	const out: PromptReading[] = [];
 	for (const prompt of prompts) {
 		if (prompt.peek("is_group") === true) continue;
@@ -684,6 +747,7 @@ export function readSearchPrompts(
 			suiteSources,
 			projectService,
 			sourceNames,
+			receiverDuplicates.has(prompt),
 		);
 		if (reading !== undefined) out.push(reading);
 	}
@@ -757,6 +821,7 @@ function readPrompt(
 	suiteSources: ReadonlyMap<string, string>,
 	projectService: boolean,
 	addressSources: ReadonlySet<string>,
+	receiverDuplicate: boolean,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
@@ -900,12 +965,7 @@ function readPrompt(
 		| Exclude<SearchAddressReceiver, { kind: "address" }>
 		| undefined;
 	if (holds("receiver_expression")) {
-		const wire =
-			typeof sourceReceiver === "string"
-				? /^([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*)$/.exec(
-						sourceReceiver,
-					)
-				: null;
+		const wire = receiverSelector(sourceReceiver);
 		const parts = wire?.[2].split("||") ?? [];
 		const validSource = wire !== null && addressSources.has(wire[1]);
 		if (
@@ -915,14 +975,10 @@ function readPrompt(
 			refuseWith("receiver_expression", P.receiverOther);
 		else if (validSource && prompt.peek("input_") === "select1")
 			refuseWith("receiver_expression", P.receiverSingleChoice);
-		else if (
-			wire === null ||
-			(validSource &&
-				!parts.every((part) =>
-					(SEARCH_ADDRESS_PARTS as readonly string[]).includes(part),
-				))
-		)
+		else if (wire === null || (validSource && !addressPartsHeld(parts)))
 			refuseWith("receiver_expression", P.receiver);
+		else if (receiverDuplicate)
+			refuseWith("receiver_expression", P.addressReceiverDuplicate);
 		else {
 			prompt.take("receiver_expression", P.addressReceiver, String).value;
 			addressReceiver = {

@@ -3563,8 +3563,35 @@
 		"subject": "search-fields",
 		"reasons": [
 			{
-				"kind": "untypeable",
-				"named": "a single-choice receiver may substitute a different lookup value"
+				"kind": "broken-at-runtime",
+				"named": "Web Apps can clear the choice or fill a different lookup value by assigning an option's position instead of its key."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/address-receiver-shared-with-a-choice-field",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "Identical address subscriptions shared by Search fields including a lookup choice",
+		"surfaceKeys": ["schema:CaseSearchProperty.receiver_expression"],
+		"valueClass": "address-receiver-shared-with-a-choice-field",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps sets every field sharing the subscription as one control, which can lose the selected choice.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps updates all fields with the same receive selector together, so a lookup choice can be cleared instead of filled."
 			}
 		],
 		"platforms": {
