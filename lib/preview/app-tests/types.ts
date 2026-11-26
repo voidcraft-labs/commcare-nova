@@ -447,6 +447,7 @@ export type AppTestScreen =
 			 * of it, as a device's session keeps its query step. A new entry
 			 * takes its own. */
 			searchResults?: SearchResultsSnapshot;
+			searches?: readonly import("../engine/xpathInstances").CompletedFormSearch[];
 			/** The record list whose Register action opened this form, which
 			 * it always offers; set by that action alone. */
 			caseListRegistrationLaunch?: PreviewCaseListRegistrationLaunch;

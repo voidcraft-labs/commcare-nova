@@ -880,6 +880,27 @@ export interface AppDeploymentMediaPathsTable {
  * deleted with the deployment's identity rows, never changed and never
  * row-locked.
  */
+export interface AppDeploymentInstallationReviewTable {
+	deployment_id: string;
+	actor_id: string;
+	checkpoint: JSONColumnType<
+		import("@/lib/deployment/installationProfileReview").InstallationProfileCheckpoint
+	>;
+}
+
+export interface AppDeploymentInstallationProfileTable {
+	deployment_id: string;
+	nova_profile_uuid: string;
+	profile_key: string;
+	practice_worker_id: string | null;
+	practice_witness: JSONColumnType<
+		| import("@/lib/deployment/installationProfileReview").InstallationPracticeWitness
+		| null,
+		string | null | undefined,
+		string | null
+	>;
+}
+
 export interface AppDeploymentColumnFieldWordsTable {
 	deployment_id: string;
 	nova_column_uuid: string;
@@ -980,6 +1001,16 @@ export interface HqRemoteWritesTable {
 		never
 	>;
 	accepted_remote_revision: ColumnType<string | number | null, never, number>;
+	import_acknowledged_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	import_acknowledged_version: ColumnType<
+		string | null,
+		number | null | undefined,
+		number | null
+	>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
 	server: string;
@@ -1062,6 +1093,11 @@ export interface AppDeploymentBaselinesTable {
 	>;
 	reference_source_digest: ColumnType<
 		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	installation_review: JSONColumnType<
+		Record<string, unknown> | null,
 		string | null | undefined,
 		string | null
 	>;
@@ -2082,6 +2118,13 @@ export interface AppDatabase {
 	app_deployment_media_paths: AppDeploymentMediaPathsTable;
 	app_deployment_keyed_case_ids: AppDeploymentKeyedCaseIdsTable;
 	app_deployment_column_field_words: AppDeploymentColumnFieldWordsTable;
+	app_deployment_search_bindings: {
+		deployment_id: string;
+		search_uuid: string;
+		endpoint_id: number;
+	};
+	app_deployment_installation_profiles: AppDeploymentInstallationProfileTable;
+	app_deployment_installation_reviews: AppDeploymentInstallationReviewTable;
 	hq_remote_writes: HqRemoteWritesTable;
 	app_deployment_confirmations: AppDeploymentConfirmationsTable;
 	app_deployment_baselines: AppDeploymentBaselinesTable;
@@ -2105,6 +2148,27 @@ export interface AppDatabase {
 	authoring_sessions: AuthoringSessionsTable;
 	authoring_session_requests: AuthoringSessionRequestsTable;
 	authoring_workspaces: AuthoringWorkspacesTable;
+	authoring_workspace_folds: {
+		change_set_id: string;
+		project_id: string;
+		app_id: string;
+		source_base_seq: BigIntColumn | null;
+		effective_base_seq: BigIntColumn | null;
+		source_base_digest: string;
+		effective_base_digest: string;
+		source_digest: string;
+		candidate_digest: string;
+		source_step_count: BigIntColumn;
+		base_snapshot: ColumnType<unknown, string | null, never>;
+	};
+	authoring_step_folds: {
+		change_set_id: string;
+		ordinal: BigIntColumn;
+		source_mutation_digest: string;
+		mutation_digest: string;
+		mutations: ColumnType<unknown, string, never>;
+		mutation_lengths: ColumnType<unknown, string, never>;
+	};
 	organization_authoring_receipts: {
 		app_id: string;
 		request_id: string;

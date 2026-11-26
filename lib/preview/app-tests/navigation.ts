@@ -1,10 +1,12 @@
-import { workerWording } from "@/lib/doc/localizationWorkspace";
+import {
+	workerLocalizedValues,
+	workerWording,
+} from "@/lib/doc/localizationWorkspace";
 import {
 	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
 	formLaunch,
-	localizeTranslationUnit,
 	type MenuScreen,
 	type MenuScreenEntry,
 	menuFormUuidsOf,
@@ -12,7 +14,6 @@ import {
 	moduleDestination,
 	moduleIsBareCaseList,
 	screenChoosesCaseFirst,
-	snapshotTranslationUnits,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -97,6 +98,7 @@ export function appTestBackScreen(
 		caseListRegistrationLaunch: _ended,
 		entry: _retired,
 		searchResults: _reread,
+		searches: _searches,
 		...screen
 	} = prior;
 	return { ...screen, entryCases: deviceCases };
@@ -185,15 +187,7 @@ function appTestBadge(
 		entry,
 		platform: state.platform,
 		selectedCase,
-		localizedValues: {
-			get: (id) => {
-				const unit = snapshotTranslationUnits(context.doc).get(id);
-				return (
-					unit &&
-					localizeTranslationUnit(context.doc, context.language, unit).effective
-				);
-			},
-		},
+		localizedValues: workerLocalizedValues(context.doc, context.language),
 	});
 	return badge ? { badge } : {};
 }
@@ -755,6 +749,13 @@ export function selectAppTestRecords(
 		caseType: mod.caseType,
 		cases: rows.map((row) => ({
 			...previewCaseChoiceOf(row),
+			...(screen.searchAnswers !== undefined &&
+				row.heldOnDevice !== undefined && {
+					searchSource: {
+						moduleUuid: screen.moduleUuid,
+						answers: screen.searchAnswers,
+					},
+				}),
 			caseName: row.case_name || "Case",
 			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 		})),

@@ -86,7 +86,7 @@ beforeEach(async () => {
 	});
 	// The live browser session every Project data read locks.
 	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
-		VALUES ('running-app-session','running-app-token',${OWNER_ID},now()+interval '1 hour',now(),now())
+		VALUES (${AUTH_SESSION},'running-app-token',${OWNER_ID},now()+interval '1 hour',now(),now())
 		ON CONFLICT (id) DO NOTHING`.execute(h.db());
 });
 afterEach(async () => {

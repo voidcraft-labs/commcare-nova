@@ -77,6 +77,7 @@ import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import type { AndroidAppReturn } from "./androidAppReturn";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import {
@@ -936,6 +937,13 @@ export class EngineController {
 			: undefined;
 	}
 
+	private resumeOptions(formUuid: Uuid) {
+		const checkpoint = this.sessionFor(formUuid)?.resumedCheckpoint;
+		return checkpoint === undefined
+			? undefined
+			: { checkpoint, preserveAllValues: true };
+	}
+
 	/** Build the mounted entry's session map. Without a session input (an
 	 * entry no running app opened) no datum is valued. */
 	private mountEntrySession(
@@ -968,7 +976,7 @@ export class EngineController {
 		session: EntrySessionData | undefined,
 	): Pick<
 		FormEngineRuntimeOptions,
-		"sessionData" | "selectedCases" | "searchResults" | "device"
+		"sessionData" | "selectedCases" | "searches" | "searchResults" | "device"
 	> {
 		const doc = this.docStore?.getState();
 		const device =
@@ -978,6 +986,7 @@ export class EngineController {
 			...device,
 			sessionData: session.data,
 			selectedCases: session.selectedCases,
+			...(session.searches === undefined ? {} : { searches: session.searches }),
 			...(session.searchResults === undefined
 				? {}
 				: { searchResults: session.searchResults }),
@@ -1616,6 +1625,52 @@ export class EngineController {
 		);
 	}
 
+	/** Freeze the entry the Android save used. Context belongs to its original
+	 * restore, while a later mutation still uses current write authorization. */
+	async snapshotAndroidSave(
+		entryKey: string,
+		kind: "incomplete" | "completed",
+	) {
+		if (!(await this.awaitSettled(entryKey)) || !this.entryReady) return;
+		const engine = this.engine;
+		const formUuid = this.activeFormUuid;
+		if (!engine || !formUuid) return;
+		const freeze = async (evaluate?: FormEngineAsyncEvaluator) => {
+			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
+			if (kind === "incomplete") {
+				// Android saves the displayed widget values before writing the
+				// incomplete instance, without enforcing required answers.
+				if (evaluate) await engine.saveScreenDatesAsync(evaluate);
+				else engine.saveScreenDates();
+			}
+			const descriptor = await engine.savedFormDescriptor(evaluate);
+			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
+			const documentState = this.reconciledDocumentState;
+			if (!documentState || this.docStore?.getState() !== documentState) return;
+			if (kind === "incomplete") this.syncAllPathsSelectively();
+			return {
+				descriptor,
+				documentState,
+				checkpoint: engine.entryCheckpoint(),
+				caseDatabase: this.previewCaseDatabaseSnapshot,
+				caseData: this.activeCaseData,
+				searchAnswers: this.searchAnswersFor(formUuid),
+				entrySession: this.sessionFor(formUuid),
+			};
+		};
+		if (!this.xpathRuntime) return freeze();
+		return this.runAsyncRevision(
+			"validation",
+			formUuid,
+			(revision, generation, signal) =>
+				freeze(
+					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				),
+			undefined,
+			{ atomic: true },
+		);
+	}
+
 	/** Form-level repeat ownership subscriber. The engine stays UI-agnostic;
 	 * FormScreen binds this event to the attachment coordinator. */
 	subscribeRepeatCompaction(
@@ -2107,6 +2162,7 @@ export class EngineController {
 				caseData,
 				this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
 				caseDatabase,
+				this.resumeOptions(formUuid),
 			);
 		});
 	}
@@ -2161,7 +2217,7 @@ export class EngineController {
 			formUuid,
 			caseData,
 			this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
-			undefined,
+			this.resumeOptions(formUuid),
 			caseDatabase,
 		);
 	}
@@ -2883,6 +2939,88 @@ export class EngineController {
 			];
 			this.syncPathsToStore(affectedPaths);
 		});
+	}
+
+	async openAndroidApp(entryKey: string, path: string, signal: AbortSignal) {
+		const engine = this.engine;
+		if (
+			!engine ||
+			!(await this.awaitSettled(entryKey)) ||
+			signal.aborted ||
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey
+		)
+			return undefined;
+		const evaluator =
+			this.xpathRuntime &&
+			this.evaluatorFor(
+				engine,
+				entryKey,
+				this.runtimeRevision,
+				this.lifecycleGeneration,
+				signal,
+			);
+		return engine.openAndroidApp(path, evaluator);
+	}
+
+	androidAppResult(
+		entryKey: string,
+		path: string,
+		signature: string,
+		result: AndroidAppReturn,
+	) {
+		if (
+			!this.entryReady ||
+			this.rebuilding ||
+			this.atomicRevisionsPending ||
+			this.runtimeFault ||
+			entryKey !== this.currentEntryKey ||
+			this.caseDatabaseWait() !== undefined
+		)
+			return undefined;
+		return this.engine?.androidAppResult(path, signature, result);
+	}
+
+	/** All returned answers belong to one native result. Stage every destination
+	 * before asking the ordinary engine to recalculate relevance and validation. */
+	async commitAndroidAppResult(
+		entryKey: string,
+		path: string,
+		signature: string,
+		result: AndroidAppReturn,
+		captures: ReadonlyMap<string, string>,
+		accepted: () => void,
+	): Promise<boolean> {
+		const engine = this.engine;
+		const form = this.activeFormUuid;
+		if (!engine || !form) return false;
+		const writes = this.androidAppResult(entryKey, path, signature, result);
+		if (!writes) return false;
+		const changed = new Set<string>();
+		for (const write of writes) {
+			const value =
+				write.kind === "answer"
+					? write.value
+					: (captures.get(write.path) ?? "");
+			// The device writes the returned data directly to the form instance.
+			if (engine.setValue(write.path, value, "android-app")) {
+				changed.add(write.path);
+				if (this.xpathRuntime) this.pendingValuePaths.add(write.path);
+			}
+		}
+		accepted();
+		this.syncPathsToStore(
+			[...changed].flatMap((p) => [p, ...engine.getAffectedPaths(p)]),
+		);
+		return (
+			this.xpathRuntime === undefined ||
+			this.runAsyncRevision(
+				"value-change",
+				form,
+				async () => engine === this.engine && this.currentEntryKey === entryKey,
+				false,
+			)
+		);
 	}
 
 	async onValueChangeAsync(uuid: string, value: string): Promise<boolean> {

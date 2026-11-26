@@ -26,6 +26,7 @@ import {
 	derivedFormXmlns,
 	derivedUniqueId,
 	targetWireIdentity,
+	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
 import {
 	authoredBlueprintIdentities,
@@ -68,8 +69,11 @@ function movedKeys(
 	);
 }
 
-function holdsTheProjectionContract(doc: BlueprintDoc): void {
-	const entries = externalIdentityMap(doc, DERIVED_WIRE_IDENTITY);
+function holdsTheProjectionContract(
+	doc: BlueprintDoc,
+	identity: WireIdentity = DERIVED_WIRE_IDENTITY,
+): void {
+	const entries = externalIdentityMap(doc, identity);
 	const expected = authoredBlueprintIdentities(doc)
 		.filter((identity) => EXTERNAL.has(identity.kind))
 		.map((identity) => `${identity.kind} ${identity.uuid}`)
@@ -82,24 +86,34 @@ function holdsTheProjectionContract(doc: BlueprintDoc): void {
 	expect(texts).toEqual(
 		[...texts].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
 	);
-	expect(externalIdentityMap(doc, DERIVED_WIRE_IDENTITY)).toEqual(entries);
+	expect(externalIdentityMap(doc, identity)).toEqual(entries);
 }
 
 describe("externalIdentityMap over admitted documents", () => {
 	// Drawing an admitted document, which runs the commit gate over it, is
 	// each case's cost; the projection itself takes a few milliseconds.
 	it("maps every entity of an external kind once, and nothing else, over the expression corpus", () => {
-		fc.assert(fc.property(expressionDocArbitrary, holdsTheProjectionContract), {
-			seed: 20261113,
-			numRuns: 25,
-		});
+		fc.assert(
+			fc.property(expressionDocArbitrary, (doc) =>
+				holdsTheProjectionContract(doc),
+			),
+			{
+				seed: 20261113,
+				numRuns: 25,
+			},
+		);
 	});
 
 	it("maps every entity of an external kind once, and nothing else, over the advanced corpus", () => {
-		fc.assert(fc.property(advancedDocArbitrary, holdsTheProjectionContract), {
-			seed: 20261114,
-			numRuns: 25,
-		});
+		fc.assert(
+			fc.property(advancedDocArbitrary, (doc) =>
+				holdsTheProjectionContract(doc),
+			),
+			{
+				seed: 20261114,
+				numRuns: 25,
+			},
+		);
 	});
 });
 
@@ -110,6 +124,10 @@ const USER_TYPE = testUuid("map-user-type");
 const VISIT_CHOICE = testUuid("map-visit-choice");
 const VISIT_DAY = testUuid("map-visit-day");
 const VISIT_ASSIGNMENT = testUuid("map-visit-assignment");
+const SEARCH_GROUP = testUuid("map-search-group");
+const PROJECT_SEARCH = testUuid("map-project-search");
+const SEARCH_PARAMETER = testUuid("map-search-parameter");
+const INSTALLATION = testUuid("map-installation");
 
 /** The placement fixture with one entity of every external kind, and a user
  *  type, which has none. */
@@ -177,11 +195,13 @@ function everyKindDoc(): BlueprintDoc {
 					uuid: testUuid("map-search-name"),
 					kind: "simple",
 					name: "patient_name",
+					group: SEARCH_GROUP,
 					label: "Name",
 					property: "case_name",
 					mode: { kind: "exact" },
 				},
 			] as unknown as CaseListConfig["searchInputs"],
+			searchInputGroups: [{ uuid: SEARCH_GROUP, label: "Patient" }],
 			searchFilters: [
 				{
 					uuid: testUuid("map-filter-owner"),
@@ -197,6 +217,21 @@ function everyKindDoc(): BlueprintDoc {
 		},
 	};
 	const kidsModule = doc.moduleOrder[1];
+	doc.modules[kidsModule] = {
+		...doc.modules[kidsModule],
+		caseSearchConfig: {
+			projectSearch: {
+				searchUuid: PROJECT_SEARCH,
+				defaults: [
+					{
+						uuid: SEARCH_PARAMETER,
+						name: "district",
+						value: term(literal("north")),
+					},
+				],
+			},
+		},
+	};
 	doc.forms[formUuid] = {
 		...doc.forms[formUuid],
 		entryPoint: { uuid: testUuid("map-form-entry"), id: "follow-up" },
@@ -245,6 +280,20 @@ function everyKindDoc(): BlueprintDoc {
 	};
 	return {
 		...doc,
+		appSettings: {
+			...doc.appSettings,
+			projectSearches: {
+				[PROJECT_SEARCH]: { name: "Children in this Project" },
+			},
+			installationProfiles: {
+				[INSTALLATION]: {
+					uuid: INSTALLATION,
+					name: "Regular workers",
+					languages: ["eng"],
+					requiresPracticeWorker: false,
+				},
+			},
+		},
 		userProperties: {
 			[USER_PROPERTY]: {
 				uuid: USER_PROPERTY,
@@ -277,11 +326,16 @@ describe("externalIdentityMap's keys", () => {
 		const doc = everyKindDoc();
 		const formUuid = testUuid("form-under-test");
 		const moduleUuid = doc.moduleOrder[0];
-		const entries = externalIdentityMap(doc, DERIVED_WIRE_IDENTITY);
+		const identity = targetWireIdentity(
+			[],
+			[],
+			[{ searchUuid: PROJECT_SEARCH, endpointId: 17 }],
+		);
+		const entries = externalIdentityMap(doc, identity);
 		expect(new Set(entries.map((entry) => entry.kind))).toEqual(
 			new Set<ExternalEntityKind>(EXTERNAL_ENTITY_KINDS),
 		);
-		holdsTheProjectionContract(doc);
+		holdsTheProjectionContract(doc, identity);
 
 		const keys = keysByUuid(entries);
 		const xmlns = derivedFormXmlns(formUuid);
@@ -313,6 +367,23 @@ describe("externalIdentityMap's keys", () => {
 		expectKey(
 			testUuid("map-search-name"),
 			externalKey.searchInput(menu, "patient_name"),
+		);
+		expectKey(
+			SEARCH_GROUP,
+			externalKey.searchInputGroup(menu, ["patient_name"], 0),
+		);
+		expectKey(PROJECT_SEARCH, externalKey.projectSearch(17));
+		expectKey(
+			SEARCH_PARAMETER,
+			externalKey.projectSearchParameter(
+				derivedUniqueId(doc.moduleOrder[1]),
+				"district",
+				0,
+			),
+		);
+		expectKey(
+			INSTALLATION,
+			externalKey.installationProfile(derivedUniqueId(INSTALLATION)),
 		);
 		// Two filters on one request key count apart, in their order.
 		expectKey(

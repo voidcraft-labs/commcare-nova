@@ -61,15 +61,36 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 from dataclasses import dataclass
 
 from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
+from proof.checks.manifest_value_classes import (
+    _guarded_lookup_count,
+    direct_parent_text_prompt_key,
+    itemset_literal_row_index,
+    save_to_case_before_optional_own_update,
+    save_to_case_retype_property_types,
+    worker_record_save_to_case_shape,
+    guarded_owner_after_fresh_create,
+    two_parent_links_text_prompt_key,
+)
+from proof.observe.manifest import expression_tree
 
 CHECK = "parity"
 ARTIFACT = "claims@A"
 ALLOWING = frozenset({"HELD", "TARGET-OWNED", "INERT"})
 HQ_BUILD_REASON = "not-hq-buildable"
+DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
+LATER_OWNER_ON_FRESH_CREATE = "questions/savetocase-guarded-owner-after-fresh-create"
+CONDITIONAL_WORKER_UPDATE = "questions/savetocase-update-case-id-xpath"
+REPEATED_WORKER_UPDATE = "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat"
+TWO_PARENT_LINKS_PROMPT = "case-search/prompt-key-matching-two-parent-links"
+PARENT_PROMPT_SHAPES = {
+    DIRECT_PARENT_PROMPT: direct_parent_text_prompt_key,
+    TWO_PARENT_LINKS_PROMPT: two_parent_links_text_prompt_key,
+}
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
 
 
@@ -141,11 +162,11 @@ def _new_without_reader(held, key) -> bool:
     )
 
 
-def decides(held, use, standing) -> bool:
+def decides(held, use, standing, entries=()) -> bool:
     """Whether the lane's check decides a use of this standing (the module's docstring)."""
     if use.key.startswith("parser:") or standing in (manifest_usage.UNDECIDED, manifest_usage.SOURCE):
         return False
-    if standing == manifest_usage.HELD and _new_without_reader(held, use.key):
+    if standing == manifest_usage.HELD and not entries and _new_without_reader(held, use.key):
         return False
     return True
 
@@ -205,6 +226,76 @@ def _generated_case_title(use, held):
             yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/cchq.case")
 
 
+def _generated_detail_tab_title(use, held):
+    """A case detail's visible tabs receive one native locale key apiece. Decide plain
+    overrides on an actual tab. Unbuilt positions and separate Search variants need
+    other source evidence before this check can judge them."""
+    if use.key != "schema:Application.translations" or use.at is None:
+        return
+    translations = use.at.value
+    langs = use.at.owner.get("langs")
+    menus = use.at.owner.get("modules")
+    if not isinstance(translations, dict) or not isinstance(langs, list) or not isinstance(menus, list):
+        return
+    entry = next((entry for entry in held.entries[use.key]
+                  if entry.id == "application-and-settings/translations-generated-wording"), None)
+    if entry is None:
+        return
+    for code in langs:
+        if not isinstance(code, str) or not isinstance(translations.get(code), dict):
+            continue
+        for key, title in translations[code].items():
+            match = re.fullmatch(r"m(0|[1-9][0-9]*)\.case_long\.tab\.([1-9][0-9]*)\.title", key)
+            if match is None or not isinstance(title, str) or not title.isascii() or not title.isprintable():
+                continue
+            if title.strip() != title or "\\" in title:
+                continue
+            menu_index, tab_index = map(int, match.groups())
+            if menu_index >= len(menus) or not isinstance(menus[menu_index], dict):
+                continue
+            pair = menus[menu_index].get("case_details")
+            detail = pair.get("long") if isinstance(pair, dict) else None
+            tabs = detail.get("tabs") if isinstance(detail, dict) else None
+            if not isinstance(tabs, list) or tab_index > len(tabs) or not isinstance(tabs[tab_index - 1], dict):
+                continue
+            headers = tabs[tab_index - 1].get("header")
+            if isinstance(headers, dict) and isinstance(headers.get(code), str) and headers[code] != title:
+                yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
+
+
+def _generated_menu_badge(use, held):
+    """HQ's first ordinary text badge supplies the menu's own badge locale."""
+    if use.key != "schema:Application.translations" or use.at is None:
+        return
+    translations = use.at.value
+    langs = use.at.owner.get("langs")
+    menus = use.at.owner.get("modules")
+    if not isinstance(translations, dict) or not isinstance(langs, list) or not isinstance(menus, list):
+        return
+    entry = next((entry for entry in held.entries[use.key]
+                  if entry.id == "application-and-settings/translations-generated-wording"), None)
+    if entry is None:
+        return
+    for index, menu in enumerate(menus):
+        icons = menu.get("custom_icons") if isinstance(menu, dict) else None
+        if not isinstance(icons, list) or not icons or not isinstance(icons[0], dict):
+            continue
+        icon = icons[0]
+        text = icon.get("text")
+        if icon.get("form") != "badge" or icon.get("xpath") or not isinstance(text, dict):
+            continue
+        key = f"modules.m{index}.badge"
+        for code in langs:
+            if not isinstance(code, str) or not isinstance(translations.get(code), dict):
+                continue
+            base = text.get(code)
+            badge = translations[code].get(key)
+            if not isinstance(base, str) or not base or not isinstance(badge, str) or badge == base:
+                continue
+            if badge and badge.isascii() and badge.isprintable() and badge.strip() == badge and "\\" not in badge:
+                yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
+
+
 def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     """Each use of ``found`` (``manifest_usage.Uses``) the lane decides, with its standing, and the count of the
     others by key."""
@@ -213,7 +304,9 @@ def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     for use in found.uses:
         standing, entries = manifest_usage.standing(held, use)
         decided.extend(_generated_case_title(use, held))
-        if decides(held, use, standing):
+        decided.extend(_generated_detail_tab_title(use, held))
+        decided.extend(_generated_menu_badge(use, held))
+        if decides(held, use, standing, entries):
             decided.append(Decided(use, standing, tuple(entries)))
             if standing == manifest_usage.HELD:
                 decided.extend(_project_languages(use, held))
@@ -222,7 +315,9 @@ def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     return decided, dict(sorted(unjudged.items()))
 
 
-def source_uses(source: dict, held=None, *, readings=None, case_types=None, entry_suites=()):
+def source_uses(
+    source: dict, held=None, *, readings=None, case_types=None, entry_suites=(), keep_expressions=False
+):
     """The uses one app source answer holds (``manifest_usage.app_json_uses`` as artifact ``app.json``), its
     expressions, CSQL and questions read through ``readings`` where given, and each form opened by the entries of
     ``entry_suites`` (``Form.entry_suites``: the suites HQ built of the app, parsed), which the value classes that
@@ -240,16 +335,256 @@ def source_uses(source: dict, held=None, *, readings=None, case_types=None, entr
     if readings is not None:
         manifest_usage.read_observed(found, held, readings)
     else:
-        found.expressions, found.csql, found.questions = [], [], []
+        if not keep_expressions:
+            found.expressions = []
+        found.csql, found.questions = [], []
     return found
 
 
-def added_uses(base_source: dict, variant_source: dict) -> list[Decided]:
+AUTOMATIC_MULTI = "menus-and-case-lists/detail-auto-select-multi-select"
+LOCATION_WRITE = "forms-and-case-writes/update-keys-location-id-hq-user-id"
+HYPHEN_TAG = "forms-and-case-writes/case-tag-holding-a-hyphen"
+SHADOW_LOAD = "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent"
+LOOKUP_COUNT = "expressions-and-data/companion-lookup-count"
+SUPPLY_POINT = "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed"
+PARENT_FOLLOW_UP = "menus-and-case-lists/case-list-form-pointing-at-a-follow-up-form-of-the-parent-case"
+CHILD_REGISTRATION = (
+    "menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case"
+)
+ADVANCED_REGISTRATION = "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form"
+ITEMSET_FILTER = "questions/itemset-filter-outside-predicate"
+ITEMSET_NODESETS = frozenset({"xform:select1/itemset@nodeset", "xform:select/itemset@nodeset"})
+OWN_CASE_BESIDE = "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it"
+DATE_TO_TEXT = "questions/a-savetocase-retype-that-keeps-a-date-as-text"
+RETYPE_CONVERTS = "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type"
+RETYPE_ENTRIES = {DATE_TO_TEXT, RETYPE_CONVERTS}
+REGISTRATION_ENTRIES = {PARENT_FOLLOW_UP, CHILD_REGISTRATION, ADVANCED_REGISTRATION}
+REGISTRATION_KEYS = {"schema:Module.case_list_form", "schema:AdvancedModule.case_list_form"}
+ADVANCED_TAG_KEYS = frozenset({"schema:AdvancedOpenCaseAction.case_tag", "schema:LoadUpdateAction.case_tag"})
+CASE_TAG = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+SUPPLY_POINT_STEPS = [["child", step, 0] for step in ("session", "data", "supply_point_id")]
+
+
+def _location_write_uses(use, entry):
+    """The ordinary case's direct location and HQ-worker columns, at the update member the reader holds."""
+    at = use.at
+    form = at.nearest("Form")
+    if form is None or form.get("requires") != "case" or not isinstance(at.value, dict):
+        return
+    if (at.owner.get("condition") or {}).get("type") != "always":
+        return
+    for name in ("location_id", "hq_user_id"):
+        write = at.value.get(name)
+        if (isinstance(write, dict) and write.get("update_mode") == "always"
+                and isinstance(write.get("question_path"), str) and write["question_path"].strip()):
+            yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{name}")
+
+
+def _shadow_default_extra_actions(use, held, entry, places):
+    """An omitted or default-shaped extra-actions slot can still drop a datum needed by the visible source."""
+    where = f"{use.where}/extra_actions"
+    key = "schema:ShadowForm.extra_actions"
+    if (use.artifact, where, key) in places:
+        return
+    at = use.at
+    extra = manifest_usage.Use(key, use.artifact, where, manifest_usage.JsonAt(at.app, at.scope, "extra_actions"))
+    standing, reasons = manifest_usage.standing(held, extra)
+    if standing == manifest_usage.REFUSED and entry in reasons:
+        yield Decided(extra, standing, reasons)
+
+
+def _supply_point_path(tree, instances, held):
+    if not isinstance(tree, list) or not tree:
+        return False
+    if tree[0] == "path" and tree[4] == SUPPLY_POINT_STEPS and tree[1].startswith("instance:"):
+        instance = tree[1].removeprefix("instance:")
+        src = instances.get(instance, manifest_usage.preset_source(held, instance))
+        return src is not None and manifest_usage.instance_source(held, src) == "instance-source:session"
+    return any(_supply_point_path(node, instances, held) for node in tree)
+
+
+def _supplied_point_uses(found, held, entry):
+    """An advanced form's computed supply point read, through the actual session instance and a plain child path."""
+    for expression in found.expressions:
+        if "supply_point_id" not in expression.text or not isinstance(expression.at, manifest_usage.XmlAt):
+            continue
+        form = expression.at.document
+        if not isinstance(form, manifest_usage.Form) or form.app_form is None:
+            continue
+        _, source = form.app_form
+        if source.get("doc_type") != "AdvancedForm":
+            continue
+        supplies = [
+            datum for datum in source.get("arbitrary_datums") or ()
+            if isinstance(datum, dict) and datum.get("datum_id") == "supply_point_id"
+        ]
+        if len(supplies) != 1 or not supplies[0].get("datum_function"):
+            continue
+        if _supply_point_path(expression_tree(expression.text), dict(expression.instances), held):
+            use = manifest_usage.Use("session-path:session/data/*", expression.artifact, expression.where, expression.at)
+            yield Decided(use, manifest_usage.HELD, (entry,))
+
+
+def _companion_count_uses(found, entry):
+    """Find the numeric singleton guard on a retained direct basic lookup form."""
+    guards = (_guarded_lookup_count(), _guarded_lookup_count(indexed=False))
+    for expression in found.expressions:
+        if "fingerprintquery" not in expression.text or not isinstance(expression.at, manifest_usage.XmlAt):
+            continue
+        form = expression.at.document
+        if not isinstance(form, manifest_usage.Form) or form.app_form is None:
+            continue
+        app, source = form.app_form
+        menu = app.module_of(source)
+        if (
+            menu is None or menu.get("doc_type") != "Module" or menu.get("root_module_id")
+            or not menu.get("case_type") or app.doc.get("cloudcare_enabled") is not False
+            or source.get("doc_type") != "Form" or source.get("requires") != "case"
+        ):
+            continue
+        short = (menu.get("case_details") or {}).get("short") or {}
+        if short.get("lookup_enabled") is not True or short.get("multi_select"):
+            continue
+        if (tree := expression_tree(expression.text)) is not None and tree in guards:
+            use = manifest_usage.Use(
+                "session-path:session/data/fingerprintquery", expression.artifact, expression.where, expression.at
+            )
+            yield Decided(use, manifest_usage.HELD, (entry,))
+
+
+def _registration_target(use):
+    """A basic form reached from a list, with the particular selection or creation that supplies its case."""
+    at = use.at
+    listed = at.value
+    form_id = listed.get("form_id") if isinstance(listed, dict) else None
+    if not isinstance(form_id, str):
+        return
+    target = at.app.forms_by_id.get(form_id)
+    if target is None or target.get("doc_type") != "Form":
+        return
+    menu = at.owner
+    target_menu = at.app.module_of(target)
+    case_type = menu.get("case_type")
+    if not case_type or target_menu is None or not target_menu.get("case_type"):
+        return
+    actions = target.get("actions") or {}
+    open_case = ((actions.get("open_case") or {}).get("condition") or {}).get("type")
+    if use.key == "schema:AdvancedModule.case_list_form":
+        if target_menu.get("case_type") == case_type and target.get("requires") == "none" and open_case == "always":
+            return ADVANCED_REGISTRATION
+        return
+    if target_menu.get("case_type") == case_type:
+        return
+    parent = menu.get("parent_select") or {}
+    if (
+        parent.get("active") is True and parent.get("relationship") == "parent"
+        and parent.get("module_id") == target_menu.get("unique_id")
+        and target.get("requires") == "case"
+        and open_case == "never"
+    ):
+        return PARENT_FOLLOW_UP
+    if target.get("requires") not in {"case", "none"}:
+        return
+    children = [
+        subcase for subcase in actions.get("subcases") or ()
+        if isinstance(subcase, dict) and subcase.get("case_type") == case_type
+        and (subcase.get("condition") or {}).get("type") in {"if", "always"}
+    ]
+    if len(children) == 1 and not children[0].get("repeat_context") and children[0].get("relationship") == "child":
+        return CHILD_REGISTRATION
+
+
+def _automatic_multiple_case_selection(use):
+    at = use.at
+    if not isinstance(at, manifest_usage.JsonAt):
+        return False
+    menu = at.nearest("Module")
+    pair = at.nearest("DetailPair")
+    return (menu is not None and bool(menu.get("case_type")) and pair is not None
+            and pair.get("short") is at.owner and at.owner.get("multi_select") is True and at.value is True)
+
+
+def _forms_variant_uses(found, held, entries):
+    """Source facts retained variants can decide without the full corpus's runtime observations."""
+    wanted = {
+        AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT,
+        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
+        CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
+    }.intersection(entries)
+    if not wanted:
+        return
+    by_id = _entries_by_id(held)
+    places = {(use.artifact, use.where, use.key) for use in found.uses}
+    for use in found.uses:
+        at = use.at
+        if (LATER_OWNER_ON_FRESH_CREATE in wanted and use.key == "xform:model/bind@relevant"
+                and guarded_owner_after_fresh_create(use)):
+            yield Decided(use, manifest_usage.HELD, (by_id[LATER_OWNER_ON_FRESH_CREATE],))
+        if (AUTOMATIC_MULTI in wanted and use.key == "schema:Detail.auto_select"
+                and _automatic_multiple_case_selection(use)):
+            yield Decided(use, manifest_usage.HELD, (by_id[AUTOMATIC_MULTI],))
+        if wanted.intersection(RETYPE_ENTRIES) and use.key == "vellum-markup:model/instance//*@vellum:role":
+            types = save_to_case_retype_property_types(use)
+            block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
+            if types == ("date", "string") and DATE_TO_TEXT in wanted:
+                yield Decided(block, manifest_usage.HELD, (by_id[DATE_TO_TEXT],))
+            elif types == ("string", "date") and RETYPE_CONVERTS in wanted:
+                yield Decided(block, manifest_usage.HELD_NEW, (by_id[RETYPE_CONVERTS],))
+        if (OWN_CASE_BESIDE in wanted and use.key == "vellum-markup:model/instance//*@vellum:role"
+                and save_to_case_before_optional_own_update(use)):
+            block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
+            yield Decided(block, manifest_usage.HELD_NEW, (by_id[OWN_CASE_BESIDE],))
+        if wanted.intersection((CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE)) and use.key == "vellum-markup:model/instance//*@vellum:role":
+            shape = worker_record_save_to_case_shape(use)
+            block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
+            if shape == "condition" and CONDITIONAL_WORKER_UPDATE in wanted:
+                yield Decided(block, manifest_usage.HELD, (by_id[CONDITIONAL_WORKER_UPDATE],))
+            elif shape == "repeat" and REPEATED_WORKER_UPDATE in wanted:
+                yield Decided(block, manifest_usage.HELD_NEW, (by_id[REPEATED_WORKER_UPDATE],))
+        # This proves the literal retained shape alone. The inventory's
+        # broad outside-predicate class is not exhausted by a row ordinal.
+        if ITEMSET_FILTER in wanted and use.key in ITEMSET_NODESETS and itemset_literal_row_index(use):
+            yield Decided(use, manifest_usage.HELD_NEW, (by_id[ITEMSET_FILTER],))
+        if LOCATION_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
+            yield from _location_write_uses(use, by_id[LOCATION_WRITE])
+        if HYPHEN_TAG in wanted and use.key in ADVANCED_TAG_KEYS:
+            tag = at.value
+            if (isinstance(tag, str) and "-" in tag and CASE_TAG.fullmatch(tag)
+                    and manifest_usage.standing(held, use)[0] == manifest_usage.HELD):
+                yield Decided(use, manifest_usage.HELD, (by_id[HYPHEN_TAG],))
+        if SHADOW_LOAD in wanted and use.key == "schema:ShadowForm":
+            yield from _shadow_default_extra_actions(use, held, by_id[SHADOW_LOAD], places)
+        if wanted.intersection(REGISTRATION_ENTRIES) and use.key in REGISTRATION_KEYS:
+            if (entry := _registration_target(use)) in wanted:
+                yield Decided(use, manifest_usage.HELD, (by_id[entry],))
+    if SUPPLY_POINT in wanted:
+        yield from _supplied_point_uses(found, held, by_id[SUPPLY_POINT])
+    if LOOKUP_COUNT in wanted:
+        yield from _companion_count_uses(found, by_id[LOOKUP_COUNT])
+
+
+def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[Decided]:
     """The uses the lane decides in a variant's source answer that it does not decide alike in its base's: each use
     whose key, place, standing and entries the base's source holds none of."""
     held = manifest()
-    base, _ = decided_uses(source_uses(base_source, held), held)
-    variant, _ = decided_uses(source_uses(variant_source, held), held)
+
+    def decisions(source):
+        found = source_uses(source, held, keep_expressions=bool({SUPPLY_POINT, LOOKUP_COUNT}.intersection(entries)))
+        decided, _ = decided_uses(found, held)
+        decided.extend(_forms_variant_uses(found, held, entries))
+        for entry_id in PARENT_PROMPT_SHAPES.keys() & set(entries):
+            entry = _entries_by_id(held)[entry_id]
+            classifier = PARENT_PROMPT_SHAPES[entry_id]
+            # Ordinary HELD classes share the same standing. Record this
+            # affirmative stored shape, not an allowance for the whole key.
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:CaseSearchProperty.name" and classifier(use, held)
+            )
+        return decided
+
+    base, variant = decisions(base_source), decisions(variant_source)
     seen = {_identity(one) for one in base}
     return [one for one in variant if _identity(one) not in seen]
 
@@ -295,7 +630,7 @@ def row_uses(uses, claims, entries, held=None) -> list[Decided]:
 def variant_differences(base_source: dict, variant_source: dict, claims, entries, *, document: str = ""):
     """A variant's parity, as the lane judges one (the row's own uses, ``row_uses``, joined to its claim log): the
     uses judged, and the differences. A row whose judged uses are none is one the lane's check does not decide."""
-    uses = row_uses(added_uses(base_source, variant_source), claims, entries)
+    uses = row_uses(added_uses(base_source, variant_source, entries=entries), claims, entries)
     if lookup_parity.CONDITION_ENTRIES.intersection(entries):
         by_id = _entries_by_id(manifest())
         for key, where, entry in lookup_parity.changed_form_condition_refusals(base_source, variant_source):
@@ -331,6 +666,8 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "fix-in-hq", refused
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
+    if standing == manifest_usage.HELD and len(resting) == 1 and resting <= PARENT_PROMPT_SHAPES.keys():
+        return record.standing == "held", record.entry in resting
     if standing == manifest_usage.HELD and decided.at is not None:
         return record.standing == "held", record.entry in resting and record.at == decided.at
     if standing == manifest_usage.HELD:

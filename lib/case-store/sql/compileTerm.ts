@@ -375,6 +375,10 @@ export function compileTerm(
 	switch (term.kind) {
 		case "case-type":
 			return eb.val(term.caseType);
+		case "search-result-field":
+			throw new Error(
+				"A project-space result field requires a search run in its project space.",
+			);
 		case "case-row-type":
 			return (eb as DynamicExprBuilder).ref(`${ctx.anchorAlias}.case_type`);
 		case "choice":
@@ -1150,7 +1154,7 @@ type PropertyRead = "typed" | "stored-text";
  * scalar string under that key, from a row written before the property was a
  * multi-select, reads as itself).
  */
-function storedJsonbText(
+export function storedJsonbText(
 	propertiesRef: string,
 	property: string,
 	readArray: boolean,

@@ -6,6 +6,7 @@ import { MEDIA_ROLES, type Media, mediaInLanguage } from "./multimedia";
 import {
 	type NavigationMedia,
 	navigationFilesInLanguage,
+	navigationMediaOverride,
 	storedNavigationFile,
 } from "./navigationMedia";
 import { ownRecordValue, recordFromEntries } from "./records";
@@ -93,7 +94,15 @@ export function rebaseNavigationMedia(
 		if (!carrier?.mediaByLanguage) return;
 		const from = (tag: LanguageTag) =>
 			relabelFrom && tag === source ? relabelFrom : tag;
-		const shared = navigationFilesInLanguage(carrier, from(source), before);
+		const base = {
+			...carrier,
+			mediaByLanguage: recordFromEntries(
+				Object.entries(carrier.mediaByLanguage).map(
+					([tag, { icon, audioLabel }]) => [tag, { icon, audioLabel }],
+				),
+			),
+		};
+		const shared = navigationFilesInLanguage(base, from(source), before);
 		const shown = new Map(
 			remaining.map((tag) => [
 				tag,
@@ -105,8 +114,22 @@ export function rebaseNavigationMedia(
 		for (const tag of remaining) {
 			const icon = storedNavigationFile(carrier, "icon", from(tag));
 			const audioLabel = storedNavigationFile(carrier, "audioLabel", from(tag));
-			if (icon === shared.icon && audioLabel === shared.audioLabel) continue;
+			const iconOverride = navigationMediaOverride(carrier, "icon", from(tag));
+			const audioLabelOverride = navigationMediaOverride(
+				carrier,
+				"audioLabel",
+				from(tag),
+			);
+			if (
+				icon === shared.icon &&
+				audioLabel === shared.audioLabel &&
+				!iconOverride &&
+				!audioLabelOverride
+			)
+				continue;
 			next[tag] = {
+				...(iconOverride && { iconOverride }),
+				...(audioLabelOverride && { audioLabelOverride }),
 				...(icon !== shared.icon && { icon: icon ?? null }),
 				...(audioLabel !== shared.audioLabel && {
 					audioLabel: audioLabel ?? null,

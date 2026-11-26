@@ -46,6 +46,7 @@ import {
 	organizationLevelsOf,
 	ownRecordValue,
 } from "@/lib/domain";
+import { NATIVE_INSTALLATION_CHOICES } from "@/lib/domain/installationProfiles";
 import { menusUsingWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import type { OrganizationSnapshot } from "@/lib/organization/types";
 import {
@@ -125,6 +126,8 @@ export interface SetupArtifact {
 }
 
 export interface SetupArtifactInput {
+	/** Where the revision on this destination runs. Other setup sections use the current doc. */
+	readonly publishedPlatforms?: Pick<BlueprintDoc, "appSettings"> | null;
 	readonly doc: BlueprintDoc;
 	readonly server: CommCareServer;
 	readonly domain: string;
@@ -594,16 +597,32 @@ function buildAndReleaseSection(
 		caveats: [
 			"CommCare HQ only lets a signed-in person do this. Its build and release pages accept a browser session and not an API key, so Nova watches for it rather than doing it.",
 			"CommCare HQ validates the app again while it builds. If it reports errors there, they are about the version you just published, so fix them in Nova and publish again.",
-			...(declaresWebApps(input.doc)
+			...((
+				input.publishedPlatforms === null
+					? false
+					: declaresWebApps(input.publishedPlatforms ?? input.doc)
+			)
 				? [
 						"Web Apps serves the released version, so an app with a version but no released one still opens as whatever was released before.",
 					]
 				: []),
-			...(declaresAndroid(input.doc)
-				? []
-				: [
-						"This app runs in Web Apps only. CommCare HQ's release page still offers an install for phones, which this app isn't made for.",
-					]),
+			...(input.publishedPlatforms === null
+				? [
+						"Publish the app to record which platforms this version is intended for, then check its release.",
+					]
+				: declaresAndroid(input.publishedPlatforms ?? input.doc)
+					? [
+							"After releasing, choose Check status in Nova before using an offline Android installation. Nova checks which installation files this version has.",
+							...(Object.keys(
+								(input.publishedPlatforms ?? input.doc).appSettings
+									.installationProfiles ?? {},
+							).length
+								? [NATIVE_INSTALLATION_CHOICES]
+								: []),
+						]
+					: [
+							"This app runs in Web Apps only. CommCare HQ's release page still offers an install for phones, which this app isn't made for.",
+						]),
 		],
 	};
 }
@@ -616,7 +635,11 @@ function buildAndReleaseSection(
 function webAppsSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
-	if (!declaresWebApps(input.doc)) return null;
+	if (
+		input.publishedPlatforms === null ||
+		!declaresWebApps(input.publishedPlatforms ?? input.doc)
+	)
+		return null;
 	return {
 		id: "web-apps",
 		title: "Web Apps",

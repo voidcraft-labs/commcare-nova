@@ -8,12 +8,14 @@ import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { displaySchemas } from "../questionDisplaySchemas";
+import { androidAppQuestionSchema } from "./androidApp";
 import { checkedInputFieldBaseSchema } from "./base";
 
 export const geopointFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("geopoint"),
 	inputWidth: displaySchemas.inputWidth.optional(),
 	locationPicker: displaySchemas.locationPicker.optional(),
+	androidApp: androidAppQuestionSchema.optional(),
 });
 
 export type GeopointField = z.infer<typeof geopointFieldSchema>;

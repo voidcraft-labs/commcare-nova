@@ -242,6 +242,18 @@ describe("case-list author command boundaries", () => {
 		).toBe(false);
 	});
 
+	it("setCaseListTile: accepts a hyphen inside a grouping connection", () => {
+		const accepts = (identifier: string) =>
+			setCaseListTileTool.inputSchema.safeParse({
+				moduleUuid: MODULE_UUID,
+				tile: { grouping: { identifier, headerRows: 1 } },
+			}).success;
+		expect(accepts("my-parent")).toBe(true);
+		expect(accepts("-my-parent")).toBe(false);
+		expect(accepts("my.parent")).toBe(false);
+		expect(accepts("my/parent")).toBe(false);
+	});
+
 	it("setCaseListTile: both clears are expressible", () => {
 		// Turning the tile off and taking one field off it are different acts, and
 		// each needs its own explicit null — a tool that could not distinguish

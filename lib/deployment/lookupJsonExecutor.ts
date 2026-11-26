@@ -27,14 +27,17 @@ import "server-only";
  */
 
 import { HQ_LOOKUP_DETAIL_MAX_BYTES } from "@/lib/commcare/hq/bounds";
+import { withHqRequestDeadline } from "@/lib/commcare/hq/deadline";
 import type {
 	CommCareApiError,
 	CommCareCredentials,
 } from "@/lib/commcare/hq/http";
 import {
+	checkHqLookupJsonWrite,
 	createHqLookupRowJson,
 	createHqLookupTableJson,
 	deleteHqLookupRowJson,
+	HQ_LOOKUP_JSON_WRITE_DEADLINE_MS,
 	type HqLookupJsonDefinition,
 	type HqLookupJsonRow,
 	type HqLookupJsonWrite,
@@ -156,6 +159,7 @@ export type LookupJsonStop =
 	| { readonly kind: "read-failed"; readonly error: CommCareApiError }
 	/** Another publish of this table is writing. */
 	| { readonly kind: "busy" }
+	| { readonly kind: "checkpoint" }
 	| { readonly kind: "admission"; readonly reason: LookupJsonAdmissionRefusal }
 	/** The table CommCare HQ holds after the writes is not the ledger's. */
 	| { readonly kind: "not-verified" };
@@ -183,6 +187,8 @@ export interface LookupJsonPublishInput {
 	/** How long after its admission a request can no longer land. */
 	readonly holdMs: number;
 	readonly now?: () => number;
+	/** Paged publishes yield only between settled operations. */
+	readonly writeBudget?: { readonly requests: number; readonly until: number };
 }
 
 /** How many times a plan is made again because another publisher moved the ledger. */
@@ -214,9 +220,6 @@ export async function publishLookupTableJson(
 	const { hq, journal, definition, rows } = input;
 	const now = input.now ?? Date.now;
 	const definitionDigest = lookupJsonDefinitionDigest(definition);
-	const contentByRow = new Map(
-		rows.map((row) => [row.novaRowId, row.content] as const),
-	);
 	let writes = 0;
 	let remoteTableId: string | null = null;
 
@@ -294,7 +297,6 @@ export async function publishLookupTableJson(
 			hq,
 			journal,
 			definitionDigest,
-			contentByRow,
 			operations: plan.operations,
 			revision: destination.revision,
 			remoteTableId,
@@ -305,6 +307,10 @@ export async function publishLookupTableJson(
 			),
 			holdMs: input.holdMs,
 			now,
+			canWrite: (inRun) =>
+				input.writeBudget === undefined ||
+				(writes + inRun < input.writeBudget.requests &&
+					now() < input.writeBudget.until),
 		});
 		writes += ran.writes;
 		remoteTableId = ran.remoteTableId;
@@ -335,7 +341,6 @@ async function runOperations(input: {
 	readonly hq: LookupJsonHq;
 	readonly journal: LookupJsonJournal;
 	readonly definitionDigest: string;
-	readonly contentByRow: ReadonlyMap<string, HqLookupJsonContent>;
 	readonly operations: readonly LookupJsonOperation[];
 	readonly revision: string | null;
 	readonly remoteTableId: string | null;
@@ -347,6 +352,7 @@ async function runOperations(input: {
 	readonly ledgerRanks: ReadonlyMap<string, number>;
 	readonly holdMs: number;
 	readonly now: () => number;
+	readonly canWrite: (writes: number) => boolean;
 }): Promise<RunResult> {
 	const { hq, journal } = input;
 	let revision = input.revision;
@@ -364,10 +370,18 @@ async function runOperations(input: {
 		if (operation.kind === "create-row" || operation.kind === "update-row")
 			finalRank.set(operation.novaRowId, operation.row.sortKey);
 	const position = new Map(input.order.map((id, index) => [id, index]));
-	const queue = [...input.operations];
-
-	while (queue.length > 0) {
-		const operation = queue.shift() as LookupJsonOperation;
+	let index = 0;
+	let adjustment: LookupJsonOperation | undefined;
+	while (adjustment || index < input.operations.length) {
+		if (!input.canWrite(writes))
+			return {
+				kind: "stopped",
+				stop: { kind: "checkpoint" },
+				writes,
+				remoteTableId,
+			};
+		const operation = adjustment ?? input.operations[index++];
+		adjustment = undefined;
 		const entry = lookupJsonJournalEntry(
 			operation,
 			digestOf,
@@ -509,7 +523,7 @@ async function runOperations(input: {
 				finalRank.set(operation.novaRowId, created.sortKey);
 				continue;
 			}
-			queue.unshift({
+			adjustment = {
 				kind: "update-row",
 				novaRowId: operation.novaRowId,
 				remoteId: created.id,
@@ -518,7 +532,7 @@ async function runOperations(input: {
 					sortKey: created.sortKey,
 					digest: lookupJsonRowDigest(contentOf(operation.row)),
 				},
-			});
+			};
 			continue;
 		}
 
@@ -765,8 +779,28 @@ export function hqLookupJsonPort(
 	domain: string,
 	expectedRows: number,
 	cancel?: AbortSignal,
+	expectedBytes = 0,
 ): LookupJsonHq {
 	const rowsBound = Math.max(expectedRows, 1) * 2 + 1_000;
+	const write = <T>(
+		send: (signal: AbortSignal) => Promise<HqLookupJsonWrite<T>>,
+	): Promise<HqLookupJsonWrite<T>> =>
+		withHqRequestDeadline(
+			async (signal) => {
+				const access = await checkHqLookupJsonWrite(creds, domain, signal);
+				return access === "confirmed"
+					? send(signal)
+					: {
+							kind: "not-applied",
+							error: {
+								success: false,
+								status: access === "denied" ? 403 : 503,
+							},
+						};
+			},
+			HQ_LOOKUP_JSON_WRITE_DEADLINE_MS,
+			cancel,
+		);
 	return {
 		listTables: () => listHqLookupTables(creds, domain, { cancel }),
 		async readRows(table) {
@@ -778,7 +812,7 @@ export function hqLookupJsonPort(
 				table,
 				{
 					cancel,
-					maxBytes: rowsBound * READ_BYTES_PER_ROW * 2,
+					maxBytes: (rowsBound * READ_BYTES_PER_ROW + expectedBytes * 2) * 2,
 					maxRequests: rowsBound * 2 + 100,
 					deadlineMs: READ_DEADLINE_MS,
 					stage: async (page) => {
@@ -813,11 +847,18 @@ export function hqLookupJsonPort(
 			return remote ?? { success: false, status: 502, cause: "malformed" };
 		},
 		createTable: (definition) =>
-			createHqLookupTableJson(creds, domain, definition, cancel),
+			write((signal) =>
+				createHqLookupTableJson(creds, domain, definition, signal),
+			),
 		createRow: (tableId, row) =>
-			createHqLookupRowJson(creds, domain, tableId, row, cancel),
+			write((signal) =>
+				createHqLookupRowJson(creds, domain, tableId, row, signal),
+			),
 		updateRow: (tableId, rowId, row) =>
-			updateHqLookupRowJson(creds, domain, tableId, rowId, row, cancel),
-		deleteRow: (rowId) => deleteHqLookupRowJson(creds, domain, rowId, cancel),
+			write((signal) =>
+				updateHqLookupRowJson(creds, domain, tableId, rowId, row, signal),
+			),
+		deleteRow: (rowId) =>
+			write((signal) => deleteHqLookupRowJson(creds, domain, rowId, signal)),
 	};
 }

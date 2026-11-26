@@ -32,7 +32,10 @@ export const tileScenarios = [
 export type TileScenario = (typeof tileScenarios)[number];
 
 /** Saved hidden placement is intentionally wider than every visible cell. */
-export function tileFixture(scenario: TileScenario) {
+export function tileFixture(
+	scenario: TileScenario,
+	groupingIdentifier = "parent",
+) {
 	const grouped = scenario.startsWith("grouped-");
 	const headerRows = scenario === "grouped-two" ? 2 : 1;
 	const columns = [
@@ -86,7 +89,9 @@ export function tileFixture(scenario: TileScenario) {
 	}));
 	if (scenario !== "plain")
 		config.tile = {
-			...(grouped ? { grouping: { identifier: "parent", headerRows } } : {}),
+			...(grouped
+				? { grouping: { identifier: groupingIdentifier, headerRows } }
+				: {}),
 			...(["persistent", "persistent-inline"].includes(scenario)
 				? { persistOnForms: true }
 				: {}),

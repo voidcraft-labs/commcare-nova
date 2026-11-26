@@ -10,6 +10,8 @@ import {
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	projectSpaceCompatibilityForDownload,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import { textMember } from "@/lib/commcare/streamZip";
+import { manualLookupManifest } from "@/lib/deployment/manualLookupInstall";
 import { compileDownloadResponse } from "@/lib/export/artifacts/response";
 import {
 	EXPORT_ADVISORY_HEADER,
@@ -21,6 +23,7 @@ import {
 	MANUAL_IMPORT_GUIDE_HEADER,
 	renderManualImportGuide,
 } from "@/lib/publish/manualImportGuide";
+import { MANUAL_LOOKUP_MANIFEST } from "@/lib/publish/manualLookupManifest";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "../prepareCompileRequest";
 
@@ -37,10 +40,9 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  * `X-Nova-Manual-Import-Guide` header, so the publish dialog shows exactly
  * what the README says once the file has arrived.
  *
- * The file is made for no project space: it carries derived ids and no
- * runtime URL, because CommCare HQ writes its own when it builds the app, and
- * a `domain` in the request is refused. A reached deployment on the chosen
- * server scopes only its attachment links.
+ * HQ creates the app with derived entity IDs and supplies its runtime URL.
+ * A project-supplied search requires an explicit destination and its verified
+ * service IDs. Other files use a reached deployment only for attachment links.
  *
  * The workbook is the SAME artifact the direct upload pushes through CommCare
  * HQ's fixture API, built from the generation the boundary validated, so a
@@ -56,6 +58,7 @@ export async function POST(req: NextRequest) {
 			doc,
 			assets,
 			compiledAtSeq,
+			download,
 			attachmentTarget,
 			attachmentTargetState,
 			lookupNaming,
@@ -69,6 +72,7 @@ export async function POST(req: NextRequest) {
 		// empty manifest reducing to the same shape.
 		const hasMedia = assets.size > 0;
 		const hqJson = expandDoc(doc, {
+			...(download.identity && { identity: download.identity }),
 			attachmentTarget,
 			...(hasMedia && { assets }),
 			...(lookupNaming && { lookupNaming }),
@@ -81,19 +85,22 @@ export async function POST(req: NextRequest) {
 		const appName = sanitizeFilename(doc.appName);
 		const projectSpaceCompatibilityHeader =
 			encodeProjectSpaceCompatibilityReport(
-				projectSpaceCompatibilityForDownload(doc),
+				download.compatibility ?? projectSpaceCompatibilityForDownload(doc),
 			);
 		// The import file is complete and correct; the advisories say what it
 		// could not carry, so they ride beside it rather than replacing it.
 		const advisoryHeader = encodeExportAdvisories(
-			/* The import file is made for no project space, so nothing it
-			 * keeps is stated. */
+			/* A manual import creates a new app and inherits no remote app settings. */
 			exportAdvisories(doc, attachmentTargetState, null),
 		);
 
 		// The RAW name goes to the builder and the guide: the archive's
 		// Unicode-safe member sanitizer keeps non-Latin and accented names
 		// intact inside the ZIP, and the README names that same member.
+		const install =
+			(prepared.jsonLookupTables?.length ?? 0) > 0
+				? manualLookupManifest(prepared.appId, prepared)
+				: undefined;
 		const guide = hqImportFileGuide({
 			appName: doc.appName,
 			doc,
@@ -101,6 +108,7 @@ export async function POST(req: NextRequest) {
 			lookupWorkbook,
 			managedLookupWorkbooks,
 			extraWorkbooks: prepared.streamedWorkbooks,
+			manualLookupTables: prepared.jsonLookupTables?.map(({ tag }) => tag),
 			managedLookupTables,
 			attachmentTarget,
 			lookupNaming,
@@ -113,7 +121,17 @@ export async function POST(req: NextRequest) {
 			lookupWorkbook,
 			managedLookupWorkbooks,
 			renderManualImportGuide(guide),
-			prepared.streamedWorkbooks,
+			[
+				...(prepared.streamedWorkbooks ?? []),
+				...(install
+					? [
+							textMember(
+								MANUAL_LOOKUP_MANIFEST,
+								JSON.stringify(install, null, 2),
+							),
+						]
+					: []),
+			],
 		);
 		// The archive is the artifact the person hands to HQ, and HQ's importer
 		// owns its version slots. The blueprint's `mutation_seq` rides
