@@ -692,6 +692,101 @@ describe("engine → builder → executor acceptance", () => {
 		},
 	);
 
+	it("uses the captured answer to resolve a dynamic create type through the Preview program", async () => {
+		const answer = testUuid("case-type-answer");
+		const doc = buildDoc(
+			{
+				appId: APP_ID,
+				caseTypes: [
+					{ name: "person", properties: [] },
+					{ name: "visitor", properties: [] },
+				],
+				modules: [
+					{
+						name: "Intake",
+						forms: [
+							{
+								name: "Check in",
+								type: "survey",
+								fields: [f({ kind: "text", id: "selection", uuid: answer })],
+							},
+						],
+					},
+				],
+			},
+			(draft) => {
+				const form = Object.values(draft.forms)[0];
+				if (form === undefined) throw new Error("Expected the intake form.");
+				form.caseOperations = [
+					{
+						uuid: OP_ROOT,
+						id: "new_record",
+						action: "create",
+						caseType: "person",
+						target: { kind: "new" },
+						name: term(literal("Checked in")),
+						typeChoice: {
+							condition: eq(formField(answer), literal("person")),
+							otherwise: "visitor",
+						},
+						writes: [{ property: "selection", value: term(formField(answer)) }],
+					},
+				];
+			},
+		);
+		const formUuid = Object.keys(doc.forms)[0] as Uuid;
+		const store = makeStore();
+		const caseTypeSchemas = buildCaseTypeMap(doc);
+		for (const caseType of ["person", "visitor"])
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType,
+				caseTypeSchemas,
+			});
+		const input = buildEngineInput(doc, formUuid, null);
+		if (input === undefined) throw new Error("Expected the intake form.");
+		const engine = new FormEngine(input);
+		engine.setValue("/data/selection", "guest");
+		const mutation = engine.computeSubmissionMutation({ entryKey: ENTRY_KEY });
+		const projection = validateCaptureSubmissionProjection(mutation);
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection,
+			identity: IDENTITY,
+		});
+		await store.applySubmission(
+			submissionEnvelopeArgs(mutation, APP_ID, {
+				...built,
+				submissionReceipt: {
+					...buildSubmissionReceiptIdentity({
+						appId: APP_ID,
+						identity: IDENTITY,
+						mutation,
+						projection,
+					}),
+					expectedAppMutationSeq: 0,
+					blueprintDigest: "0".repeat(64),
+				},
+			}),
+		);
+		const readCases = (caseType: string) =>
+			store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType,
+			});
+		expect(await readCases("person")).toEqual([]);
+		expect(await readCases("visitor")).toEqual([
+			expect.objectContaining({
+				case_type: "visitor",
+				case_name: "Checked in",
+				properties: { selection: "guest" },
+			}),
+		]);
+	});
+
 	it("closes the complete ordered selection when the committed close condition holds", async () => {
 		const { doc, formUuid } = conditionalCloseDoc();
 		const store = makeStore();

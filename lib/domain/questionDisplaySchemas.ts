@@ -42,7 +42,7 @@ export const displaySchemas = {
 	]),
 	clock: z.literal("twelve-hour"),
 	locationPicker: z.literal("map"),
-	captureSource: z.enum(["camera", "record-or-choose"]),
+	captureSource: z.enum(["camera", "face-camera", "record-or-choose"]),
 	overlaySize: z.literal("small"),
 	recorder: z.literal("legacy"),
 	pauseRecording: z.literal(true),

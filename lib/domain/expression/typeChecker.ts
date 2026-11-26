@@ -1,3 +1,4 @@
+import { loadedSearchModules } from "../entryDatumSupplies";
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
 
@@ -43,6 +44,7 @@ import {
 	type RecordQueryContext,
 	type RecordQueryRowScope,
 	type RowScope,
+	readsProjectSearchResults,
 	type TypingContext,
 	withFormContextNode,
 } from "./context";
@@ -917,7 +919,7 @@ function repeatCountRefusal(
 				repeatCount: {
 					select: select.uuid,
 					selectId: select.id,
-					source: choices.kind,
+					source: choices.kind === "lookup" ? "lookup" : "cases",
 				},
 			};
 		const notWhole = choices.options.find(
@@ -1134,6 +1136,25 @@ function admission(
 		);
 
 	if (ctx.ruleSet === "record") {
+		// The no-argument position reads the current choice candidate. Core's
+		// one-argument form reads the first named node and fails if it is absent.
+		if (
+			expression.kind === "call" &&
+			expression.fn === "position" &&
+			choiceCandidatePositionAvailable(ctx)
+		) {
+			const argument = expression.args[0];
+			if (
+				argument === undefined ||
+				(expression.args.length === 1 &&
+					argument.kind === "term" &&
+					argument.term.kind === "field" &&
+					argument.term.role === undefined &&
+					argument.term.filters === undefined &&
+					choiceQuestionPositionAvailable(ctx, argument.term.uuid))
+			)
+				return undefined;
+		}
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
 		if (
@@ -1294,7 +1315,10 @@ function admission(
 	if (
 		expression.kind === "cases" &&
 		expression.source === "search-results" &&
-		ctx.supplies.searchResults === undefined
+		(ctx.supplies.searchResults === undefined ||
+			!loadedSearchModules(ctx.supplies).includes(
+				expression.supplier ?? ctx.supplies.searchResults.module,
+			))
 	)
 		return searchResultsNotSupplied(ctx);
 	if (
@@ -1345,6 +1369,29 @@ function caseListSearchTextAdmission(
  */
 export function caseListSearchTextReachable(ctx: ExpressionContext): boolean {
 	return caseListSearchTextAdmission(ctx) === undefined;
+}
+
+/** Whether the rule is evaluating the current choice candidate of a form question. */
+export function choiceCandidatePositionAvailable(
+	ctx: ExpressionContext,
+): boolean {
+	return (
+		ctx.slot.entity === "field" &&
+		ctx.slot.slot === "lookup_options_source" &&
+		ctx.rows.length === 1
+	);
+}
+
+/** A referenced question always has one primary-instance node when the
+ * choice filter runs. A question within a repeat can have no instances. */
+export function choiceQuestionPositionAvailable(
+	ctx: ExpressionContext,
+	uuid: Uuid,
+): boolean {
+	return (
+		choiceCandidatePositionAvailable(ctx) &&
+		ctx.form?.fields.get(uuid)?.repeats.length === 0
+	);
 }
 
 /**
@@ -1459,6 +1506,17 @@ function termAdmission(
 			"unknown-form-field",
 			"This choice no longer belongs to a question in this form.",
 		);
+	if (term.kind === "input") {
+		const input = profile.searchInputs.find(
+			(field) => field.uuid === term.searchInputUuid,
+		);
+		if (input?.supplier !== term.supplier)
+			return refusal(
+				"search-answer-unavailable",
+				"This form's entry does not run the search that supplies this answer.",
+				"supplier",
+			);
+	}
 	if (
 		term.kind === "input" &&
 		!profile.searchInputs.some((input) => input.uuid === term.searchInputUuid)
@@ -1602,9 +1660,16 @@ function termAdmission(
 		term.kind === "input" &&
 		ctx.ruleSet === "form" &&
 		!ctx.form?.caseListRegistrationForm &&
-		!(ctx.form?.formsReadSearchModule === true && profile.scope === "form")
+		!(
+			profile.scope === "form" &&
+			(ctx.form?.searchSuppliers?.some(
+				(search) => search.module === (term.supplier ?? ctx.form?.moduleUuid),
+			) ??
+				(term.supplier === undefined &&
+					ctx.form?.formsReadSearchModule === true))
+		)
 	)
-		return ctx.form?.formsReadSearchModule === true
+		return profile.scope !== "form" && ctx.form?.formsReadSearchModule === true
 			? refusal(
 					"search-answer-unavailable",
 					"A form link runs after the form closes, where its menu's Search answers are no longer available.",
@@ -1953,9 +2018,12 @@ function searchResultsRowFindings(
 	errors: CheckError[],
 ): void {
 	const searched =
-		ctx.supplies.searchResults === undefined
+		ctx.supplies.searchResults === undefined ||
+		readsProjectSearchResults(ctx, expression.supplier)
 			? undefined
-			: ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module);
+			: ctx.facts.moduleCaseTypes.get(
+					expression.supplier ?? ctx.supplies.searchResults.module,
+				);
 	for (const [index, where] of expression.where.entries()) {
 		const path: CheckPath = ["cases", "where", index];
 		const data = scalarDataType(whereTypes[index]?.data);
@@ -2101,8 +2169,11 @@ export function expressionRowScope(
 	const searched =
 		expression.source === "search-results" &&
 		"supplies" in ctx &&
+		!readsProjectSearchResults(ctx) &&
 		ctx.supplies.searchResults !== undefined
-			? ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module)
+			? ctx.facts.moduleCaseTypes.get(
+					expression.supplier ?? ctx.supplies.searchResults.module,
+				)
 			: undefined;
 	let caseType: string | undefined = searched;
 	if (caseType === undefined)
@@ -3563,6 +3634,27 @@ function inferTerm(
 			return ctx.facts.caseTypes.some((type) => type.name === term.caseType)
 				? scalar("text")
 				: fail("unknown-case-type", `Unknown case type '${term.caseType}'.`);
+		case "search-result-field": {
+			const row = activeRowScope(ctx);
+			if (
+				!("profile" in ctx) ||
+				!readsProjectSearchResults(ctx) ||
+				row?.kind !== "case" ||
+				!("root" in row) ||
+				row.root === "casedb"
+			)
+				return fail(
+					"row-scope",
+					"A returned field needs a row from this menu’s project-space search.",
+					"case",
+				);
+			const declared = row.caseType
+				? ctx.facts.caseTypes
+						.find((type) => type.name === row.caseType)
+						?.properties.find((field) => field.name === term.name)
+				: undefined;
+			return nodes(declared?.data_type ?? "text", "string");
+		}
 		case "case-row-type":
 			return activeRowScope(ctx)?.kind === "case"
 				? nodes("text", "string")

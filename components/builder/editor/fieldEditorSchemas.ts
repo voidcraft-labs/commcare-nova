@@ -64,13 +64,14 @@ import type {
 	TimeField,
 	VideoField,
 } from "@/lib/domain";
-import { fieldDisplaySettingsFor } from "@/lib/domain";
+import { fieldDisplaySettingsFor, fieldKindDeclaresKey } from "@/lib/domain";
 import type { ConnectActivityField } from "@/lib/domain/fields/connectActivity";
 import type {
 	FieldEditorComponentProps,
 	FieldEditorSchema,
 	FormExpressionKeys,
 } from "@/lib/domain/kinds";
+import { AndroidAppEditor } from "./fields/AndroidAppEditor";
 import { ChoiceLayoutEditor } from "./fields/ChoiceLayoutEditor";
 import type { ConnectActivityEditor as ConnectActivityEditorComponent } from "./fields/ConnectActivityEditor";
 import { HiddenAnswerNamespaceEditor } from "./fields/HiddenAnswerNamespaceEditor";
@@ -318,6 +319,15 @@ function caseWriteEntry<F extends Field>(): {
 	};
 }
 
+const androidAppEntry = {
+	key: "androidApp",
+	component: AndroidAppEditor,
+	label: "Answer from an Android app",
+	addable: true,
+	visible: (field: Field) =>
+		"androidApp" in field && field.androidApp !== undefined,
+} as const;
+
 // ── Per-kind schemas ────────────────────────────────────────────────────
 //
 // Each input kind's `ui` section carries the label media, the hint text and
@@ -334,7 +344,7 @@ function caseWriteEntry<F extends Field>(): {
 // never a pill: off is the full keyboard, a state to choose from. It writes
 // `keypad: "numbers"` on and `keypad: null` off.
 const textFieldEditorSchema: FieldEditorSchema<TextField> = {
-	data: [caseWriteEntry<TextField>()],
+	data: [androidAppEntry, caseWriteEntry<TextField>()],
 	logic: [
 		requiredEntry<TextField>(),
 		xpathEntry<TextField, "validate">("validate", "Validation"),
@@ -354,7 +364,7 @@ const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 };
 
 const intFieldEditorSchema: FieldEditorSchema<IntField> = {
-	data: [caseWriteEntry<IntField>()],
+	data: [androidAppEntry, caseWriteEntry<IntField>()],
 	logic: [
 		requiredEntry<IntField>(),
 		xpathEntry<IntField, "validate">("validate", "Validation"),
@@ -373,7 +383,7 @@ const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 };
 
 const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
-	data: [caseWriteEntry<DecimalField>()],
+	data: [androidAppEntry, caseWriteEntry<DecimalField>()],
 	logic: [
 		requiredEntry<DecimalField>(),
 		xpathEntry<DecimalField, "validate">("validate", "Validation"),
@@ -392,7 +402,7 @@ const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 };
 
 const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
-	data: [caseWriteEntry<DateField>()],
+	data: [androidAppEntry, caseWriteEntry<DateField>()],
 	logic: [
 		requiredEntry<DateField>(),
 		xpathEntry<DateField, "validate">("validate", "Validation"),
@@ -411,7 +421,7 @@ const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 };
 
 const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
-	data: [caseWriteEntry<TimeField>()],
+	data: [androidAppEntry, caseWriteEntry<TimeField>()],
 	logic: [
 		requiredEntry<TimeField>(),
 		xpathEntry<TimeField, "validate">("validate", "Validation"),
@@ -430,7 +440,7 @@ const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 };
 
 const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
-	data: [caseWriteEntry<DatetimeField>()],
+	data: [androidAppEntry, caseWriteEntry<DatetimeField>()],
 	logic: [
 		requiredEntry<DatetimeField>(),
 		xpathEntry<DatetimeField, "validate">("validate", "Validation"),
@@ -468,7 +478,7 @@ const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 };
 
 const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
-	data: [caseWriteEntry<BarcodeField>()],
+	data: [androidAppEntry, caseWriteEntry<BarcodeField>()],
 	logic: [
 		requiredEntry<BarcodeField>(),
 		xpathEntry<BarcodeField, "validate">("validate", "Validation"),
@@ -487,7 +497,7 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 };
 
 const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
-	data: [caseWriteEntry<GeopointField>()],
+	data: [androidAppEntry, caseWriteEntry<GeopointField>()],
 	logic: [
 		requiredEntry<GeopointField>(),
 		xpathEntry<GeopointField, "validate">("validate", "Validation"),
@@ -711,6 +721,7 @@ const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	data: [],
 	logic: [xpathEntry<GroupField, "relevant">("relevant", "Show when")],
 	ui: [
+		textEntry<GroupField, "extended_text">("extended_text", "Extended text"),
 		{
 			key: "fieldList",
 			component: FieldListEditor,
@@ -729,6 +740,7 @@ const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 	data: [{ key: "repeat_mode", component: RepeatRowsEditor, label: "Rows" }],
 	logic: [xpathEntry<RepeatField, "relevant">("relevant", "Show when")],
 	ui: [
+		textEntry<RepeatField, "extended_text">("extended_text", "Extended text"),
 		textEntry<RepeatField, "addFirstLabel">(
 			"addFirstLabel",
 			"First entry button",
@@ -795,6 +807,7 @@ const coreSchemas: {
 	signature: signatureFieldEditorSchema,
 	label: labelFieldEditorSchema,
 	hidden: hiddenFieldEditorSchema,
+	case_change: { data: [], logic: [], ui: [] },
 	connect_activity: {
 		data: [
 			{ key: "activity", label: "Activity", component: ConnectActivityEditor },
@@ -829,9 +842,19 @@ function withDisplay<K extends FieldKind>(kind: K) {
 			...(setting.input === "flag" && { valueOnAdd: true }),
 			visible: (field: F) => Object.hasOwn(field, setting.key),
 		}));
+	const extendedEntries = [
+		["extended_hint", "Extended hint"],
+		["extended_help", "Extended help"],
+		["extended_validate_msg", "Extended validation message"],
+	] as const;
+	const extended = extendedEntries
+		.filter(([key]) => fieldKindDeclaresKey(kind, key))
+		.map(([key, label]) =>
+			textEntry<F, typeof key & keyof F>(key as typeof key & keyof F, label),
+		);
 	return {
 		...base,
-		ui: [...base.ui, ...entries],
+		ui: [...base.ui, ...entries, ...extended],
 	} as unknown as FieldEditorSchema<F>;
 }
 export const fieldEditorSchemas = Object.fromEntries(

@@ -67,8 +67,8 @@ import { workerLocationFixture } from "@/lib/preview/engine/workerLocationFixtur
 import { readPreviewLookup } from "@/lib/preview/engine/workerLookupScope";
 import {
 	type CaseDatabaseSnapshot,
-	formReadsSearchResults,
 	formReadsSearchScore,
+	formSearchReads,
 } from "@/lib/preview/engine/xpathInstances";
 import {
 	effectivePreviewPlatform,
@@ -433,7 +433,8 @@ export async function formSearchContext(
 		moduleUuid === undefined ||
 		!module ||
 		!moduleFormsReadSearch(module) ||
-		!formReadsSearchResults(doc, form.formUuid)
+		!formSearchReads(doc, form.formUuid, moduleUuid).get(moduleUuid)
+			?.readsResults
 	) {
 		const searchAnswers = formsReadSearchFormAnswers(doc, form, world);
 		return searchAnswers === undefined ? {} : { searchAnswers };

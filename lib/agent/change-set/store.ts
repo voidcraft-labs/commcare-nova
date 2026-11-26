@@ -239,15 +239,29 @@ export async function loadChangeSetSteps(
 		const db = handle ?? (await getAppDb());
 		const [stepRows, stageRows] = await Promise.all([
 			db
-				.selectFrom("authoring_steps")
-				.select(["ordinal", "request_id", "tool_name", "mutation_digest"])
-				.select(
-					sql<string>`${sql.ref("authoring_steps.mutations")}::text`.as(
-						"mutations_text",
-					),
+				.selectFrom("authoring_steps as s")
+				.leftJoin("authoring_step_folds as f", (join) =>
+					join
+						.onRef("f.change_set_id", "=", "s.change_set_id")
+						.onRef("f.ordinal", "=", "s.ordinal"),
 				)
-				.where("change_set_id", "=", changeSetId)
-				.orderBy("ordinal", "asc")
+				.select([
+					"s.ordinal",
+					"s.request_id",
+					"s.tool_name",
+					"s.mutation_digest",
+					"f.source_mutation_digest",
+					"f.mutation_digest as folded_digest",
+				])
+				.select(sql<string | null>`f.mutations::text`.as("folded_text"))
+				.select(
+					sql<string | null>`f.mutation_lengths::text`.as("folded_lengths"),
+				)
+				.select(
+					sql<string>`${sql.ref("s.mutations")}::text`.as("mutations_text"),
+				)
+				.where("s.change_set_id", "=", changeSetId)
+				.orderBy("s.ordinal", "asc")
 				.execute(),
 			db
 				.selectFrom("authoring_step_stages")
@@ -292,14 +306,54 @@ export async function loadChangeSetSteps(
 			}
 			expectedOrdinal += 1;
 			const mutations = parsePersistedMutationBatchText(
-				row.mutations_text,
+				row.folded_text ?? row.mutations_text,
 				`authoring_steps.mutations for change set ${changeSetId}, ordinal ${ordinal}`,
 			);
 			const mutationDigest = canonicalJsonDigest(mutations);
-			if (mutationDigest !== row.mutation_digest) {
+			if (mutationDigest !== (row.folded_digest ?? row.mutation_digest)) {
 				throw new ChangeSetIntegrityError(
 					`Change set ${changeSetId} step ${ordinal} no longer matches its recorded mutation digest.`,
 				);
+			}
+			let stages = stagesByStep.get(ordinal) ?? [];
+			if (row.folded_text !== null) {
+				const original = parsePersistedJsonText(
+					row.mutations_text,
+					"original private step",
+				);
+				const lengths = parsePersistedJsonText(
+					row.folded_lengths ?? "",
+					"private step fold lengths",
+				);
+				if (
+					!Array.isArray(original) ||
+					canonicalJsonDigest(original) !== row.mutation_digest ||
+					row.source_mutation_digest !== row.mutation_digest ||
+					!Array.isArray(lengths) ||
+					lengths.length !== original.length ||
+					!lengths.every((n) => Number.isSafeInteger(n) && n >= 0)
+				) {
+					throw new ChangeSetIntegrityError(
+						"A converted private step no longer matches its admitted source.",
+					);
+				}
+				const offsets = [0];
+				for (const length of lengths)
+					offsets.push(offsets[offsets.length - 1] + length);
+				if (offsets.at(-1) !== mutations.length) {
+					throw new ChangeSetIntegrityError(
+						"A converted private step has inconsistent stage boundaries.",
+					);
+				}
+				stages = stages.map((stage) => {
+					const start = offsets[stage.mutationStart];
+					const end = offsets[stage.mutationStart + stage.mutationCount];
+					if (start === undefined || end === undefined)
+						throw new ChangeSetIntegrityError(
+							"A private stage is outside its admitted step.",
+						);
+					return { ...stage, mutationStart: start, mutationCount: end - start };
+				});
 			}
 			return {
 				ordinal,
@@ -307,7 +361,7 @@ export async function loadChangeSetSteps(
 				toolName: row.tool_name,
 				mutations,
 				mutationDigest,
-				stages: stagesByStep.get(ordinal) ?? [],
+				stages,
 			};
 		});
 	});

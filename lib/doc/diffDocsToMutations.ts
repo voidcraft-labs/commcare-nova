@@ -798,6 +798,71 @@ function* diffGranularSteps(
 	if (prev.logo !== next.logo) {
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
 	}
+	const oldSearches = prev.appSettings.projectSearches ?? {};
+	const searches = next.appSettings.projectSearches ?? {};
+	for (const [key, search] of Object.entries(searches)) {
+		const uuid = asUuid(key);
+		const old = oldSearches[uuid];
+		if (old?.name !== search.name)
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: {
+					projectSearch: {
+						operation: old ? "rename" : "add",
+						uuid,
+						name: search.name,
+					},
+				},
+			});
+	}
+	for (const key of Object.keys(oldSearches)) {
+		if (!Object.hasOwn(searches, key))
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: { projectSearch: { operation: "remove", uuid: asUuid(key) } },
+			});
+	}
+	const previousProfiles = prev.appSettings.installationProfiles ?? {};
+	const nextProfiles = next.appSettings.installationProfiles ?? {};
+	for (const profile of Object.values(previousProfiles)) {
+		if (!Object.hasOwn(nextProfiles, profile.uuid))
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: { operation: "remove", uuid: profile.uuid },
+				},
+			});
+	}
+	for (const profile of Object.values(nextProfiles)) {
+		const previous = previousProfiles[profile.uuid];
+		if (!previous) {
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: { installationProfile: { operation: "add", profile } },
+			});
+		} else if (!deepEqual(previous, profile)) {
+			const patch = {
+				...(previous.name !== profile.name && { name: profile.name }),
+				...(!deepEqual(previous.languages, profile.languages) && {
+					languages: profile.languages,
+				}),
+				...(previous.requiresPracticeWorker !==
+					profile.requiresPracticeWorker && {
+					requiresPracticeWorker: profile.requiresPracticeWorker,
+				}),
+			};
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: {
+						operation: "update",
+						uuid: profile.uuid,
+						patch,
+					},
+				},
+			});
+		}
+	}
 	const settingsPatch = appSettingsPatch(prev.appSettings, next.appSettings);
 	if (settingsPatch !== undefined) {
 		appLevel.push({ kind: "setAppSettings", settings: settingsPatch });
@@ -3129,7 +3194,9 @@ function diffCaseListMeta(
 ): Mutation[] {
 	const patch: {
 		filter?: CaseListConfig["filter"] | null;
+		additionalCaseTypes?: CaseListConfig["additionalCaseTypes"] | null;
 		listCondition?: CaseListConfig["filter"] | null;
+		searchInputGroups?: CaseListConfig["searchInputGroups"] | null;
 		searchCondition?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
 		tile?: CaseListConfig["tile"] | null;
@@ -3139,7 +3206,14 @@ function diffCaseListMeta(
 		emptyText?: string | null;
 		selectButtonText?: string | null;
 		optimizations?: true | null;
+		deviceLookup?: CaseListConfig["deviceLookup"] | null;
 	} = {};
+	if (!deepEqual(prev.searchInputGroups, next.searchInputGroups))
+		patch.searchInputGroups = next.searchInputGroups
+			? cloneEntity(next.searchInputGroups)
+			: null;
+	if (!deepEqual(prev.deviceLookup, next.deviceLookup))
+		patch.deviceLookup = next.deviceLookup ?? null;
 	if (prev.optimizations !== next.optimizations)
 		patch.optimizations = next.optimizations ?? null;
 	for (const key of ["emptyText", "selectButtonText"] as const)
@@ -3174,24 +3248,13 @@ function diffCaseListMeta(
 			});
 			continue;
 		}
-		// An order row has no target or value: its terms change in place, and a
-		// row that changes between an order and a value filter is a new row.
-		if (!("target" in row) || !("target" in old)) {
-			if (!("target" in row) && !("target" in old)) {
-				if (!deepEqual(old.order, row.order))
-					addFilterEdit({
-						operation: "edit",
-						uuid: row.uuid,
-						patch: { order: cloneEntity(row.order) },
-					});
-			} else {
-				addFilterEdit({ operation: "remove", uuid: old.uuid });
+		if (!("target" in old) || !("target" in row)) {
+			if (!deepEqual(old, row))
 				addFilterEdit({
-					operation: "add",
+					operation: "replace",
+					uuid: row.uuid,
 					filter: cloneEntity(row),
-					after: predecessorIn(afterIds, row.uuid),
 				});
-			}
 			continue;
 		}
 		const changedTarget = !deepEqual(old.target, row.target);
@@ -3214,6 +3277,8 @@ function diffCaseListMeta(
 	for (const id of beforeIds)
 		if (!afterIds.includes(id))
 			addFilterEdit({ operation: "remove", uuid: id });
+	if (!deepEqual(prev.additionalCaseTypes, next.additionalCaseTypes))
+		patch.additionalCaseTypes = cloneEntity(next.additionalCaseTypes ?? null);
 	const listChanged = !deepEqual(prev.filter, next.filter);
 	const searchChanged = !deepEqual(
 		searchConditionOf(prev),

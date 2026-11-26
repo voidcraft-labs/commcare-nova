@@ -58,6 +58,7 @@ export function BarcodeField({
 	const support = useBarcodeScanSupport();
 	const platform = usePreviewPlatform();
 	const project = useProseProjection();
+	const hint = field.extended_hint ?? field.hint;
 	const showError = state.touched && !state.valid;
 	return (
 		<div>
@@ -68,8 +69,8 @@ export function BarcodeField({
 					placeholder={
 						rules.hintPlacement === "as-authored" &&
 						field.hintPlacement === "placeholder" &&
-						field.hint
-							? (state.resolvedHint ?? project(field.hint))
+						hint
+							? (state.resolvedHint ?? project(hint))
 							: undefined
 					}
 					readOnly={

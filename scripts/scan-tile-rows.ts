@@ -35,9 +35,15 @@ runMain(async () => {
 		for (const { id } of apps) {
 			try {
 				const inspected = await inspectTileRows(id);
+				if (inspected.left.length > 0) {
+					unrepaired.push(id);
+					console.log(
+						JSON.stringify({ appId: id, manualRepair: inspected.left }),
+					);
+					continue;
+				}
 				if (inspected.plan === null) continue;
 				plans.push(inspected.plan);
-				if (inspected.left?.length) unrepaired.push(id);
 				console.log(
 					JSON.stringify({
 						appId: id,
@@ -60,7 +66,7 @@ runMain(async () => {
 							],
 							how: move.how,
 						})),
-						leftAfterRepair: inspected.left?.length ?? 0,
+						leftAfterRepair: inspected.left.length,
 					}),
 				);
 			} catch (error) {
@@ -80,7 +86,7 @@ runMain(async () => {
 		console.log(
 			JSON.stringify({
 				scanned: apps.length,
-				affected: plans.length,
+				affected: plans.length + unrepaired.length,
 				unrepaired: unrepaired.length,
 				unreadable: unreadable.length,
 			}),

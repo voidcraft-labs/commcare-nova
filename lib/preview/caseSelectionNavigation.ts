@@ -79,8 +79,12 @@ export function parentCaseConstraint(
 ): ParentCaseSelection | undefined {
 	if (parentCase === undefined) return undefined;
 	const index = parentCaseIndex(doc, moduleUuid);
+	const parentUuid = doc.modules[moduleUuid]?.parentCaseModuleUuid;
+	const additionalCaseTypes =
+		parentUuid && doc.modules[parentUuid]?.caseListConfig?.additionalCaseTypes;
 	return {
 		caseType: parentCase.caseType,
+		...(additionalCaseTypes?.length && { additionalCaseTypes }),
 		caseIds: parentCase.cases.map((choice) => choice.caseId),
 		...(index !== undefined && { index }),
 	};

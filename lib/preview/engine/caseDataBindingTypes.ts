@@ -68,6 +68,7 @@ export type {
  */
 export interface ParentCaseSelection {
 	readonly caseType: string;
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseIds: readonly string[];
 	/** The index name a menu emitted advanced follows to the parent
 	 *  (`caseSelectionNavigation.ts::parentCaseIndex`); absent, any direct
@@ -491,6 +492,8 @@ export interface SubmissionOperationAnswers {
 	readonly repeats: ReadonlyArray<{
 		readonly repeat: string;
 		readonly iterations: ReadonlyArray<ReadonlyArray<SubmissionAnswerEntry>>;
+		/** For each nested row, the zero-based live row of its enclosing repeat. */
+		readonly parentIterations?: readonly number[];
 	}>;
 }
 

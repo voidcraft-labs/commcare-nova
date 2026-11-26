@@ -74,7 +74,7 @@ export function columnKindPropertyType(
 			if (columnKindAcceptsPropertyType(col.kind, resolvedType)) continue;
 			errors.push(
 				buildMismatchError(
-					mod,
+					{ ...mod, caseType: caseType ?? origin },
 					moduleUuid,
 					index,
 					col,

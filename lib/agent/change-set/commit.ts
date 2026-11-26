@@ -101,7 +101,10 @@ export async function commitDesignChangeSet(
 	if (deadlineExpired(args.deadlineAt)) return deadlineRejection(0);
 	const { changeSet, steps } = await withAppTx(async (tx) => {
 		const changeSet = await authorizeChangeSet(args, tx);
-		const steps = await loadChangeSetSteps(args.changeSetId, tx);
+		const steps =
+			changeSet?.status === "open"
+				? await loadChangeSetSteps(args.changeSetId, tx)
+				: [];
 		return { changeSet, steps };
 	});
 	if (changeSet === undefined) {

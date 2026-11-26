@@ -76,6 +76,16 @@ export class MediaPublishPermissionError extends Error {
 	}
 }
 
+type PublicationGrant = (tx: Transaction<AppDatabase>) => void | Promise<void>;
+type PublicationAuthority =
+	| PublicationGrant
+	| {
+			/** Source ownership locks precede the Project membership gate. */
+			readonly lockSource: (tx: Transaction<AppDatabase>) => Promise<boolean>;
+			readonly grant: PublicationGrant;
+			readonly operation?: PublicationGrant;
+	  };
+
 /**
  * Publish validated bytes as one ready file of a Project, or return the ready
  * file that already holds them. Proves `edit` on the Project inside each
@@ -89,6 +99,7 @@ export async function publishReadyMedia(
 		readonly originalFilename: string;
 		/** The id a new row takes. */
 		readonly assetId: MediaAssetId;
+		readonly authorizePublication?: PublicationAuthority;
 	} & ReadyMediaBytes,
 ): Promise<ReadyMediaPublication> {
 	const { actorUserId, projectId, validated, assetId } = input;
@@ -110,6 +121,7 @@ export async function publishReadyMedia(
 					lockedDb,
 					actorUserId,
 					projectId,
+					input.authorizePublication,
 					(tx) =>
 						findReadyAssetByProjectAndHash(
 							projectId,
@@ -142,6 +154,7 @@ export async function publishReadyMedia(
 					lockedDb,
 					actorUserId,
 					projectId,
+					input.authorizePublication,
 					(tx) =>
 						insertReadyAssetInTransaction(tx, {
 							assetId,
@@ -176,6 +189,8 @@ export async function publishReadyMedia(
 				gcsObjectKey,
 				projectId,
 				contentHash: validated.contentHash,
+				attemptId: assetId,
+				authorizePublication: input.authorizePublication,
 				actorUserId,
 			}).catch((cleanupError: unknown) => {
 				if (cleanupError instanceof MediaPublishPermissionError)
@@ -204,18 +219,29 @@ function withUploadPermission<T>(
 	db: Kysely<AppDatabase>,
 	actorUserId: string,
 	projectId: string,
+	authorize: PublicationAuthority | undefined,
 	body: (tx: Transaction<AppDatabase>) => Promise<T>,
 ): Promise<T> {
 	return db.transaction().execute(async (tx) => {
+		const grant =
+			typeof authorize === "function"
+				? authorize
+				: authorize && (await authorize.lockSource(tx))
+					? authorize.grant
+					: undefined;
 		const role = await projectRoleForInTransaction(tx, actorUserId, projectId);
 		if (role === null) throw new MediaPublishPermissionError("not-a-member");
 		if (!roleAllowsApp(role, "edit"))
 			throw new MediaPublishPermissionError("cannot-edit");
+		if (typeof authorize !== "function") await authorize?.operation?.(tx);
+		await grant?.(tx);
 		return body(tx);
 	});
 }
 
 async function recoverFailedPublication(args: {
+	attemptId: MediaAssetId;
+	authorizePublication?: PublicationAuthority;
 	gcsObjectKey: string;
 	projectId: string;
 	contentHash: string;
@@ -247,6 +273,7 @@ async function recoverFailedPublication(args: {
 				lockedDb,
 				args.actorUserId,
 				args.projectId,
+				ready.id === args.attemptId ? undefined : args.authorizePublication,
 				async (tx) => {
 					const current = await findReadyAssetByProjectAndHash(
 						args.projectId,
