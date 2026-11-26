@@ -931,6 +931,12 @@
 				"kind": "changed"
 			},
 			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+				"kind": "changed"
+			},
+			{
 				"check": "proof3",
 				"artifact": "trace@B",
 				"path": "/runs/*/trace/*/params/commcare_sort/*",

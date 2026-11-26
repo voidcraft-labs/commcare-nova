@@ -927,11 +927,12 @@ def _built(artifact, path, at, kind="changed"):
     return Difference("proof2", "hq-planted", artifact, path, at, kind, None, None)
 
 
-def test_repeated_search_order_change_covers_original_filter_and_exact_built_and_sent_values():
+@pytest.mark.parametrize("build_element", ("remote-request", "entry"))
+def test_repeated_search_order_change_covers_original_filter_and_exact_built_and_sent_values(build_element):
     change = "search-order-direction-signs-respelled"
     document = _document(RESIDUE, (change, ["/menu/0/search_config/default_properties/0/defaultValue"]))
     sites = changes.Sites(
-        builds={("suite.xml", "remote-request[1]"): ("menu", "0")},
+        builds={("suite.xml", f"{build_element}[1]"): ("menu", "0")},
         steps={(0, 0): ("menu", "0", "search_config")},
     )
 
@@ -947,10 +948,10 @@ def test_repeated_search_order_change_covers_original_filter_and_exact_built_and
 
     def suite(first, second):
         return (
-            '<suite><remote-request><session><query>'
+            f'<suite><{build_element}><session><query>'
             f'<data key="commcare_sort" ref="{first}"/><data key="commcare_sort" ref="{second}"/>'
             '<data key="region" ref="&apos;north&apos;"/>'
-            '</query></session></remote-request></suite>'
+            f'</query></session></{build_element}></suite>'
         )
 
     def run(first, second):
@@ -970,7 +971,7 @@ def test_repeated_search_order_change_covers_original_filter_and_exact_built_and
         check="proof2", document="hq-planted", artifact="suite.xml",
     )
     assert [item.path for item in built] == [
-        "/suite/remote-request[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+        f"/suite/{build_element}[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
     ]
     assert _held_by(document, built[0], sites) == {change}
 
