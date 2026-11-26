@@ -49,6 +49,7 @@ export function readSuiteDetailSources(
 	xml: string,
 	reads: SuiteDetailReads,
 	signal?: AbortSignal,
+	menuInstances = true,
 ): SuiteDetailSources | undefined {
 	return underMeter(
 		new WorkMeter({
@@ -56,13 +57,14 @@ export function readSuiteDetailSources(
 			parent: currentWorkMeter(),
 			signal,
 		}),
-		() => sourcesIn(xml, reads),
+		() => sourcesIn(xml, reads, menuInstances),
 	);
 }
 
 function sourcesIn(
 	xml: string,
 	reads: SuiteDetailReads,
+	menuInstances: boolean,
 ): SuiteDetailSources | undefined {
 	const parsed = tryParseXml(xml);
 	if ("issue" in parsed) return;
@@ -84,6 +86,55 @@ function sourcesIn(
 			if (details.has(n.element.attribs.id)) return;
 			details.add(n.element.attribs.id);
 		}
+	const commandIds = (owned: readonly Node[]) =>
+		owned.flatMap(({ element }) =>
+			element.name === "command" && element.attribs.id
+				? [element.attribs.id]
+				: [],
+		);
+	const contributor = (commands: readonly string[]) => {
+		const owners = new Set(
+			commands
+				.map((id) => /^(m[0-9]+)-/.exec(id)?.[1])
+				.filter((owner): owner is string => owner !== undefined),
+		);
+		return owners.size === 1 ? `menu:${[...owners][0]}` : undefined;
+	};
+
+	// Before 2.54 HQ puts menu declarations on the entries reached by all
+	// contributors that share the displayed menu ID.
+	const menuScopesByCommand = new Map<string, Set<string>>();
+	if (!menuInstances) {
+		const menus = new Map<
+			string,
+			{ scopes: Set<string>; commands: string[] }
+		>();
+		for (const menu of top) {
+			const {
+				name,
+				attribs: { id },
+			} = menu.element;
+			if (name !== "menu" || !id) continue;
+			const commands = commandIds(children(menu));
+			const record = menus.get(id) ?? {
+				scopes: new Set<string>(),
+				commands: [],
+			};
+			const scope = contributor(commands);
+			if (scope && reads.has(scope)) record.scopes.add(scope);
+			for (const command of commands) record.commands.push(command);
+			menus.set(id, record);
+		}
+		for (const { scopes, commands } of menus.values()) {
+			if (!scopes.size) continue;
+			chargeWork("compare", commands.length * scopes.size);
+			for (const id of commands) {
+				const reached = menuScopesByCommand.get(id) ?? new Set<string>();
+				for (const scope of scopes) reached.add(scope);
+				menuScopesByCommand.set(id, reached);
+			}
+		}
+	}
 	const output = new Map<string, ReadonlyMap<string, string | null> | null>();
 	const result = new Map<string, Map<string, string> | null>(
 		Array.from(reads.keys(), (id) => [id, null]),
@@ -95,24 +146,21 @@ function sourcesIn(
 		const owned = children(entry);
 		const used = new Set<string>();
 		if (kind === "menu") {
-			const owners = new Set(
-				owned.flatMap((node) => {
-					if (node.element.name !== "command") return [];
-					const owner = /^(m[0-9]+)-/.exec(node.element.attribs.id ?? "")?.[1];
-					return owner ? [owner] : [];
-				}),
-			);
+			if (!menuInstances) continue;
 			// A training or custom menu that mixes contributors supplies no
 			// declaration for an ordinary module's expressions.
-			if (owners.size === 1) {
-				const key = `menu:${[...owners][0]}`;
-				if (reads.has(key)) used.add(key);
+			const scope = contributor(commandIds(owned));
+			if (scope && reads.has(scope)) used.add(scope);
+		} else {
+			const [command] = commandIds(owned);
+			if (command) {
+				const key = `entry:${command}`;
+				if (kind === "entry" && reads.has(key)) used.add(key);
+				for (const scope of menuScopesByCommand.get(command) ?? [])
+					used.add(scope);
 			}
-		} else if (kind === "entry") {
-			const command = owned.find((node) => node.element.name === "command");
-			const key = `entry:${command?.element.attribs.id ?? ""}`;
-			if (reads.has(key)) used.add(key);
 		}
+
 		for (const session of owned)
 			if (session.element.name === "session") {
 				for (const datum of children(session)) {

@@ -263,6 +263,29 @@ describe("the instance declarations available to navigation", () => {
 		},
 	);
 
+	it("reads a pre-2.54 module condition on the entries of its displayed menu", () => {
+		const contents = (second: string) => `<suite>
+			<menu id="m0"><command id="m0-f0"/></menu>
+			<menu id="m0"><command id="m1-f0"/></menu>
+			<entry><command id="m0-f0"/>${hosted}</entry>
+			<entry><command id="m1-f0"/>${second}</entry>
+		</suite>`;
+		const key = suiteMenuScope(0);
+		expect(
+			readSuiteDetailSources(contents(hosted), requested, undefined, false)
+				?.get(key)
+				?.get(id),
+		).toBe("jr://fixture/item-list:zones");
+		expect(
+			readSuiteDetailSources(contents(""), requested, undefined, false)
+				?.get(key)
+				?.get(id),
+		).toBeNull();
+		expect(
+			readSuiteDetailSources(contents(hosted), requested)?.get(key)?.get(id),
+		).toBeNull();
+	});
+
 	it("observes physical copies and requires the same source on each listed entry", async () => {
 		const contents = (second: string) => `<suite>
 			<entry><command id="m0-f0"/>${hosted}</entry>
