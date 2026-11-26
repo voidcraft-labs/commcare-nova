@@ -6,6 +6,8 @@ import type { Client } from "@modelcontextprotocol/client";
 import AdmZip from "adm-zip";
 import { getElementsByTagName, textContent } from "domutils";
 import { parseDocument } from "htmlparser2";
+import { sql } from "kysely";
+import { v7 } from "uuid";
 import { beforeEach, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
@@ -20,6 +22,7 @@ import type { HqApplication } from "@/lib/commcare/types";
 import { derivedFormXmlns } from "@/lib/commcare/wireIdentity";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch } from "@/lib/db/apps";
+import { withAppTx } from "@/lib/db/pg";
 import { readable } from "@/lib/deployment/__tests__/readableRecord";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import { WEB_APPS_ONLY_HAS_NO_CCZ } from "@/lib/deployment/runtimeTarget";
@@ -32,8 +35,18 @@ import {
 } from "@/lib/deployment/store";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
+import {
+	createManagedLookupTablesInTransaction,
+	type ManagedOriginWrite,
+} from "@/lib/lookup/managed";
+import type { ManagedLookupContent } from "@/lib/lookup/managedRules";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { streamAsset } from "@/lib/storage/media";
 import { registerCompileApp } from "../tools/compileApp";
 import { withMcpClient } from "./client";
@@ -71,6 +84,37 @@ function asUser<T>(run: (client: Client) => Promise<T>, userId = ACTOR) {
 				userId,
 				scopes: ["nova.read"],
 				authKind: "oauth",
+			}),
+		run,
+	);
+}
+/**
+ * `asUser` with a signed-in grant over Nova's floor scopes: the grant a
+ * table read a page at a time is held to (`lib/lookup/archiveRows.ts`).
+ */
+async function asGrantedUser<T>(run: (client: Client) => Promise<T>) {
+	const clientId = "compile-fixture";
+	const scopes = ["nova.read", "nova.write"];
+	const issuedAt = Math.floor(Date.now() / 1000);
+	await sql`INSERT INTO auth_oauth_client(id,"clientId","redirectUris","createdAt","updatedAt") VALUES (${clientId},${clientId},'[]'::jsonb,now(),now()) ON CONFLICT DO NOTHING`.execute(
+		h.db(),
+	);
+	await sql`INSERT INTO auth_oauth_consent(id,"clientId","userId",scopes,"createdAt","updatedAt")
+ SELECT ${`${ACTOR}-consent`},${clientId},id,${JSON.stringify(scopes)}::jsonb,now(),now() FROM auth_user WHERE id=${ACTOR}
+ ON CONFLICT(id) DO UPDATE SET scopes=excluded.scopes`.execute(h.db());
+	return withMcpClient(
+		(server) =>
+			registerCompileApp(server, {
+				userId: ACTOR,
+				scopes,
+				authKind: "oauth",
+				grant: {
+					kind: "oauth",
+					clientId,
+					issuedAt,
+					expiresAt: issuedAt + 3600,
+					scopes,
+				},
 			}),
 		run,
 	);
@@ -551,6 +595,132 @@ it.each([false, true])(
 		expect(streamAsset).toHaveBeenCalledTimes(withMedia ? 2 : 0);
 	},
 );
+
+it("walks complete copies of tables CommCare HQ manages into a CCZ a page at a time, past what one app once held in memory", async () => {
+	/* Two copies of 5,000 rows and 11 fields: 110,000 values together, past
+	 * the 100,000 an archive once held in memory (`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`).
+	 * Each is past what a snapshot holds inline, so the downloadable app reads
+	 * it in pages, as it reads a table of Nova's own. */
+	const fields = [
+		"code",
+		"name",
+		...Array.from({ length: 9 }, (_, at) => `f${at}`),
+	];
+	const copy = (tag: string) => {
+		const content: ManagedLookupContent = {
+			fields,
+			rows: Array.from({ length: 5_000 }, (_, at) =>
+				Object.fromEntries(
+					fields.map((field) => [
+						field,
+						field === "code" ? String(at).padStart(4, "0") : `${tag} ${at}`,
+					]),
+				),
+			),
+		};
+		const canonicalContent = {
+			fields: fields.map((name) => ({ name, properties: [] })),
+			rowCount: content.rows.length,
+			rows: content.rows,
+		};
+		const origin: ManagedOriginWrite = {
+			server: "india",
+			domain: "clinic",
+			remoteId: `hq-${tag}`,
+			canonical: {
+				remoteId: `hq-${tag}`,
+				...canonicalContent,
+				digest: createHash("sha256")
+					.update(JSON.stringify(canonicalContent))
+					.digest("hex"),
+			},
+		};
+		const tableId = lookupTableIdSchema.parse(v7());
+		const columns = Object.fromEntries(
+			fields.map((field) => [field, lookupColumnIdSchema.parse(v7())]),
+		);
+		return {
+			binding: { tag, tableId, columns },
+			name: tag,
+			content,
+			origin,
+		};
+	};
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	const tables = [copy("clinics"), copy("wards")];
+	await withAppTx(async (tx) =>
+		createManagedLookupTablesInTransaction(
+			tx,
+			await authorizeLookupWriteInTransaction(
+				tx,
+				{ projectId: PROJECT, actorId: "creator" },
+				"edit",
+			),
+			tables,
+			new Date(AT),
+		),
+	);
+	await seed(
+		buildDoc({
+			appName: "Clinic intake",
+			modules: [
+				{
+					uuid: MODULE,
+					name: "Survey",
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: tables.map(({ binding }) =>
+								f({
+									id: binding.tag,
+									kind: "single_select",
+									label: proseText(binding.tag),
+									optionsSource: {
+										kind: "lookup",
+										tableId: binding.tableId,
+										valueColumnId: binding.columns.code,
+										labelColumnId: binding.columns.name,
+									},
+								}),
+							),
+						},
+					],
+				},
+			],
+		}),
+	);
+	await publish("india", "clinic");
+	const before = await snapshot();
+	await asGrantedUser(async (client) => {
+		const ccz = archive(await call(client, "ccz"), "ccz");
+		const suite = ccz.readAsText("suite.xml");
+		for (const tag of ["clinics", "wards"]) {
+			const fixture = elements(suite, "fixture").filter(
+				(node) => node.attribs.id === `item-list:${tag}`,
+			);
+			expect(fixture).toHaveLength(1);
+			const items = getElementsByTagName(tag, fixture[0].children, true);
+			expect(items).toHaveLength(5_000);
+			expect(
+				[items[0], items[4_999]].map((node) =>
+					textContent(getElementsByTagName("code", node.children, true)[0]),
+				),
+			).toEqual(["0000", "4999"]);
+		}
+
+		/* The import file keeps each copy to its own rule for a table CommCare
+		 * HQ manages, never in a workbook of Nova's own tables. */
+		const zip = archive(await call(client, "json"), "zip");
+		expect(
+			zip
+				.getEntries()
+				.map((entry) => entry.entryName)
+				.filter((name) => name.startsWith("lookup-data-")),
+		).toEqual([]);
+	});
+	expect(await snapshot()).toEqual(before);
+}, 120_000);
 
 it("refuses missing, foreign and pending media before fetching any bytes in either format", async () => {
 	const doc = document(

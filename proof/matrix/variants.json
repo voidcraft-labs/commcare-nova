@@ -22003,15 +22003,11 @@
 		"id": "hq-media/picture-over-nova-s-cap",
 		"base": "hq-media",
 		"entry": "expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
-		"standing": "not-yet",
-		"place": {
-			"kind": "media",
-			"path": "jr://file/commcare/image/data/place_note_large.png"
-		},
 		"change": {
 			"op": "named",
 			"name": "picture_over_nova_s_cap"
-		}
+		},
+		"holds": []
 	},
 	{
 		"id": "hq-media/question-image-without-map-entry",

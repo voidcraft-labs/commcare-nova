@@ -21,7 +21,9 @@ import {
 	setGlobalDispatcher,
 } from "undici";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
+import { KIND_OF_MEDIA_TYPE } from "@/lib/commcare/hq/mediaType";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
+import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain/multimedia";
 import type { RetainedHqAnswer } from "@/proof/corpus/hqAuthored";
 import type { LaneReadInput } from "./laneReading";
 
@@ -130,7 +132,14 @@ function answerFor(
 	answers: Answers,
 	path: string,
 	asked: readonly string[],
-): { readonly name: string; readonly answer: Served } | undefined {
+):
+	| {
+			readonly name: string;
+			readonly answer: Served;
+			/** How many times the reading may ask for it: once, unless said here. */
+			readonly times?: number;
+	  }
+	| undefined {
 	const url = new URL(path, ORIGIN);
 	const at = url.pathname;
 	const space = `/a/${LANE_TARGET.domain}`;
@@ -218,13 +227,23 @@ function answerFor(
 			(one) => one.mediaType === mediaType && one.multimediaId === multimediaId,
 		);
 		if (read === undefined) return undefined;
+		const body =
+			read.base64 === undefined
+				? Buffer.alloc(0)
+				: Buffer.from(read.base64, "base64");
+		const kind = Object.hasOwn(KIND_OF_MEDIA_TYPE, mediaType)
+			? KIND_OF_MEDIA_TYPE[mediaType as keyof typeof KIND_OF_MEDIA_TYPE]
+			: undefined;
 		return {
 			name: `media:${read.path}`,
+			/* A file past its kind's upload cap is read twice: within the cap, then
+			 * streamed into staging (`mediaStore.ts::judgeReadingMedia`). */
+			...(kind !== undefined &&
+				body.byteLength > ASSET_SIZE_CAPS_BYTES[kind] && { times: 2 }),
 			answer: {
 				status: read.status,
 				headers: {},
-				body:
-					read.base64 === undefined ? "" : Buffer.from(read.base64, "base64"),
+				body,
 			},
 		};
 	}
@@ -244,6 +263,7 @@ export async function withRetainedHq<T>(
 	run: (peer: RetainedHqPeer) => Promise<T>,
 ): Promise<T> {
 	const asked: string[] = [];
+	const times = new Map<string, number>();
 	let missing: string | undefined;
 	const previous: Dispatcher = getGlobalDispatcher();
 	const agent = new MockAgent();
@@ -262,8 +282,11 @@ export async function withRetainedHq<T>(
 					: undefined;
 			const path = new URL(request.path, ORIGIN).pathname;
 			if (found === undefined) return refuse(path);
+			const count = (times.get(found.name) ?? 0) + 1;
+			times.set(found.name, count);
 			if (asked.includes(found.name)) {
-				if (!REREAD_ANSWER.test(found.name)) return refuse(path);
+				if (!REREAD_ANSWER.test(found.name) && count > (found.times ?? 1))
+					return refuse(path);
 			} else asked.push(found.name);
 			return {
 				statusCode: found.answer.status,

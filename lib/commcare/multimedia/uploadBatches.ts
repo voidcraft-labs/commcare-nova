@@ -1,7 +1,8 @@
 import type { IconRef } from "@/lib/domain/builtinIcons";
 import type { AssetManifest, ResolvedMediaAsset } from "./assetWirePath";
 
-const TARGET_BATCH_BYTES = 24 * 1024 * 1024;
+/** The bytes an ordinary batch stays within; one file larger travels alone. */
+export const TARGET_BATCH_BYTES = 24 * 1024 * 1024;
 const TARGET_BATCH_FILES = 200;
 
 /** One indivisible file travels alone when it is larger than the ordinary

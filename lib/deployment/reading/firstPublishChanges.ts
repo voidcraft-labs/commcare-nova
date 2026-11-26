@@ -51,6 +51,7 @@ import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Platform } from "@/lib/domain/platforms";
 import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import {
+	ANSWERED_FIRST_PUBLISH_CHANGES,
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
@@ -81,6 +82,10 @@ import {
 	sortedPlaces,
 } from "./firstPublishPlaces";
 import type { HqMediaClaim } from "./projectData/media";
+import {
+	ownerGivenToWorker,
+	reverseHopOwnerChanges,
+} from "./projectData/ownerRules";
 
 // ── The generated difference ────────────────────────────────────────────
 
@@ -261,6 +266,13 @@ export interface FirstPublishFacts {
 		readonly runsOnlyOn: Platform | null;
 		readonly split: boolean;
 	};
+	/**
+	 * The reading's own document under the choice, where the person's answers
+	 * to the review made `doc` of it (`withAnsweredChanges`); absent where
+	 * `doc` is the reading's own. Only an entry a reading never gives alone
+	 * reads it.
+	 */
+	readonly read?: BlueprintDoc;
 }
 
 export interface FirstPublishChange {
@@ -443,6 +455,10 @@ export const RESPELLED_FORM_PARTS = [
 	"/_attachments/*/data/*/:control/@vellum:jr__count",
 	"/_attachments/*/data/*/:control/itemset/@nodeset/:respelled",
 	"/_attachments/*/data/*/:control/itemset/@vellum:nodeset",
+	// The read of a row an itemset's label names, printed from its lookup read
+	// (`buildLookupItemset`), where it is the same expression over the row: Core
+	// parses it as one (`XFormParser.parseItemset`'s `labelRef`).
+	"/_attachments/*/data/*/:control/itemset/label/@ref/:respelled",
 	// A hint writes no markdown form (`buildXFormSource`'s itext); Core reads a
 	// hint's text alone (`FormEntryPrompt.getHintText`).
 	"/_attachments/*/data/*/:itext/hint/*/markdown",
@@ -1884,6 +1900,45 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/_attachments/*"],
 	},
+	/**
+	 * A case owner rule the places CommCare HQ holds cannot satisfy, given to
+	 * the worker who fills in the form by the person's answer to the review
+	 * (`projectData/ownerRules.ts::workerOwnerMutations`). No reading gives it
+	 * alone: it applies where the document committed (`doc`) gives such a case
+	 * change to that worker and the reading (`read`) gives it to a place
+	 * (`withAnsweredChanges`, only where an answer stands behind it). It stands at each such change's owner in the
+	 * form's case block, and the stored owner update.
+	 */
+	"owner-rule-given-to-worker": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: (facts) =>
+			facts.read !== undefined && ownerGivenToWorker(facts.read, facts.doc),
+		at: {
+			kinds: ["form-part"],
+			places: (facts) =>
+				reverseHopOwnerChanges(facts.read ?? facts.doc).flatMap(
+					({ formUuid, operation }) => {
+						const position = facts.formPositions.get(formUuid);
+						return position === undefined
+							? []
+							: [
+									blockWritePlace(
+										position,
+										operation.action === "create" ? "create" : "update",
+										"owner_id",
+									),
+								];
+					},
+				),
+		},
+		paths: [
+			"/_attachments/*",
+			"/modules/*/forms/*/actions/update_case/update/owner_id",
+			"/modules/*/forms/*/actions/load_update_cases/*/case_properties/owner_id",
+			"/modules/*/forms/*/actions/open_cases/*/case_properties/owner_id",
+		],
+	},
 };
 
 /**
@@ -1989,6 +2044,47 @@ export function firstPublishListToStore(
 		ids,
 		touchesWorkers: ids.some((id) => FIRST_PUBLISH_TOUCHES_WORKERS[id]),
 		of: chosen.of,
+	};
+}
+
+/**
+ * `view`, the list of a reading worked out from `facts`, with each change in
+ * `answered` that `committed`, the document the birth or the bring-in
+ * commits, makes of the reading's own (`facts.doc`). In registry order.
+ *
+ * `answered` names the changes the person's answers stand behind: those the
+ * answers of this request make, and those the list a take replaces already
+ * holds. A change no answer stands behind is never inferred from the two
+ * documents alone, since an author's own edit in Nova can make the same
+ * difference (an owner rule set to the worker in the builder) with no
+ * question asked.
+ */
+export function withAnsweredChanges(
+	view: FirstPublishView,
+	facts: FirstPublishFacts,
+	committed: BlueprintDoc,
+	answered: readonly FirstPublishChangeId[],
+): FirstPublishView {
+	if (committed === facts.doc) return view;
+	const asked: FirstPublishFacts = {
+		...facts,
+		read: facts.doc,
+		doc: committed,
+	};
+	const added = ANSWERED_FIRST_PUBLISH_CHANGES.filter(
+		(id) =>
+			answered.includes(id) &&
+			!view.ids.includes(id) &&
+			FIRST_PUBLISH_CHANGES[id].applies(asked),
+	);
+	if (added.length === 0) return view;
+	const ids = new Set<FirstPublishChangeId>([...view.ids, ...added]);
+	return {
+		...view,
+		ids: FIRST_PUBLISH_CHANGE_IDS.filter((id) => ids.has(id)),
+		touchesWorkers:
+			view.touchesWorkers ||
+			added.some((id) => FIRST_PUBLISH_CHANGES[id].touchesWorkers),
 	};
 }
 

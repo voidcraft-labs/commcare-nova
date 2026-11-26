@@ -45,8 +45,10 @@ import "server-only";
  *     or `item_attributes` is named; it answers a missing row 404 through
  *     `api/util.py::not_found`, so tastypie's `put_detail` never falls back
  *     to creating one.
- *   * `obj_delete` deletes the row of that id in the project space and
- *     answers 202; a row that is not there is 404.
+ *   * `obj_delete` deletes the row of that id in the project space; it
+ *     returns its `HttpAccepted` rather than raising it, so tastypie's
+ *     `delete_detail` answers 204 (seen in `proof/hq/test_lookup_json.py`);
+ *     a row that is not there is 404.
  */
 
 import { recordFromEntries } from "@/lib/domain/records";
@@ -121,7 +123,8 @@ function validSortKey(value: number): boolean {
 	);
 }
 
-function definitionBody(
+/** The body a table create or update sends (`LookupTableResource`). */
+export function lookupTableJsonBody(
 	definition: HqLookupJsonDefinition,
 ): Record<string, unknown> {
 	return {
@@ -135,7 +138,8 @@ function definitionBody(
 	};
 }
 
-function rowBody(
+/** The body a row create or update sends (`v0_6.LookupTableItemResource`). */
+export function lookupRowJsonBody(
 	tableId: string,
 	row: HqLookupJsonRow,
 ): Record<string, unknown> {
@@ -255,7 +259,7 @@ export async function createHqLookupTableJson(
 		"lookup table create",
 		`${root(domain)}/lookup_table/v1/`,
 		"POST",
-		definitionBody(definition),
+		lookupTableJsonBody(definition),
 		async (answer) =>
 			answer.status === 201 ? emptyAcknowledgement(answer) : null,
 		cancel,
@@ -276,7 +280,7 @@ export async function updateHqLookupTableJson(
 		"lookup table update",
 		`${root(domain)}/lookup_table/v1/${tableId}/`,
 		"PUT",
-		definitionBody(definition),
+		lookupTableJsonBody(definition),
 		async (answer) =>
 			answer.status === 204 || answer.status === 200
 				? emptyAcknowledgement(answer)
@@ -309,7 +313,7 @@ export async function createHqLookupRowJson(
 		"lookup row create",
 		`${root(domain)}/lookup_table_item/v2/`,
 		"POST",
-		rowBody(tableId, row),
+		lookupRowJsonBody(tableId, row),
 		async (answer) => {
 			if (answer.status !== 201) {
 				await answer.discard();
@@ -354,7 +358,7 @@ export async function updateHqLookupRowJson(
 		"lookup row update",
 		`${root(domain)}/lookup_table_item/v2/${rowId}/`,
 		"PUT",
-		rowBody(tableId, row),
+		lookupRowJsonBody(tableId, row),
 		async (answer) =>
 			answer.status === 200 || answer.status === 204
 				? emptyAcknowledgement(answer)

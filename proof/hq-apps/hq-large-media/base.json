@@ -1,0 +1,17 @@
+{
+	"id": "hq-large-media",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app"
+	]
+}

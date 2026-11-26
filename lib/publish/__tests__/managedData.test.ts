@@ -759,10 +759,6 @@ const READINGS: Record<
 				{ offered: false, why: "fails-a-project-space-rule", name: null },
 				"Kenya rollout",
 			),
-			choiceNotOffered(
-				{ offered: false, why: "too-many-columns", name: "312" },
-				"Kenya rollout",
-			),
 		],
 	},
 	CHOICE_OTHER_PROJECT: { kind: "sentence", texts: [CHOICE_OTHER_PROJECT] },
@@ -1132,14 +1128,6 @@ describe("the review's choice about a table that meets a Project table", () => {
 			),
 		).toBe(
 			"This app reads the column region, which Kenya rollout's table doesn't have.",
-		);
-		expect(
-			choiceNotOffered(
-				{ offered: false, why: "too-many-columns", name: "1,312" },
-				"Kenya rollout",
-			),
-		).toBe(
-			"Kenya rollout's table would have 1,312 columns with the ones its apps still read, and Nova takes 250.",
 		);
 		expect(() =>
 			choiceNotOffered(

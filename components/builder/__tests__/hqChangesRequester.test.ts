@@ -28,6 +28,7 @@ const BRING_IN: HqChangesRequest = {
 	readingId: "reading-1",
 	reviewDigest: "d".repeat(64),
 	tableChoices: {},
+	ownerRuleChoices: {},
 };
 const NOTHING: HqChangesReview = {
 	kind: "nothing",
@@ -158,6 +159,7 @@ describe("the panel's requests", () => {
 			readingId: "reading-1",
 			reviewDigest: "d".repeat(64),
 			tableChoices: {},
+			ownerRuleChoices: {},
 		});
 		expect(beforeBringIn).toEqual(["d".repeat(64)]);
 		await bringIns[0].answer({ kind: "done", answer: BROUGHT_IN });

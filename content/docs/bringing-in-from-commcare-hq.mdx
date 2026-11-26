@@ -58,6 +58,14 @@ copies that CommCare HQ keeps managing. [Project data](/docs/project-data) and
 If your Project already has a lookup table by the same name, Nova asks which one
 this app should use and says what each answer does to your other apps.
 
+If a case change gives each case to the place at a level below its owner, that
+rule needs exactly one such place below each owner. Where the places in CommCare
+HQ have two, or none, the review names the level, the forms and the places it
+found, and asks who owns those cases. You can give them to the worker who fills
+in the form, which your first publish also changes in CommCare HQ and the
+Publishing card lists, or change the places in CommCare HQ and check again. Nova
+never picks one of the places for you.
+
 **Stays as it is in CommCare HQ** lists the settings Nova leaves alone when it
 publishes. [Publishing](/docs/publishing) shows the same list once the app is
 in.
@@ -126,13 +134,6 @@ app, the app comes in with the table's columns, and the table's page in Project
 data offers **Refresh**, which reads its rows in pages. Until then Nova has no
 copy of its rows to show or preview.
 
-The tables Nova does read while bringing in an app still have to fit what Nova
-carries in one app. An app whose tables together hold more lookup data than
-that is listed under **Nova can't hold this yet**, and so is a table already in
-your Project, managed in the same project space, that would keep more than 250
-columns once the columns your apps read are added. Those limits are Nova's, not
-the app's.
-
 Nova also gives each app only so much checking for its size. An app that takes
 more checking than that is listed under **Nova can't hold this yet** as an app
 that takes more checking than Nova gives one app. That limit is Nova's too, and
@@ -180,6 +181,14 @@ file that workers never see or hear there. When your app has references like
 these, the review explains that Nova removes them on the first publish. The
 files stay in CommCare HQ.
 A question or choice that shows the same file keeps showing it. If someone in CommCare HQ moves a missing picture to a different choice or adds it in another language, Nova asks you to review that change too.
+
+Pictures, sounds and videos come in at the size CommCare HQ holds them, even
+when a file is larger than one you could upload to Nova yourself. Nova brings
+in files up to 1 GB each, and pictures up to 64 MB. Nova names a larger file
+and the limit it passed, and once you save a smaller copy in CommCare HQ you
+can check again. When you publish, Nova sends each large file to CommCare HQ
+on its own. A picture of more than 178,956,970 pixels can't come in: CommCare
+HQ takes no new picture that large, so Nova names it for you to save smaller.
 
 If CommCare HQ no longer has the file for a menu or form icon, Nova can leave
 the icon out. Web Apps may show a default icon in place of an empty or broken

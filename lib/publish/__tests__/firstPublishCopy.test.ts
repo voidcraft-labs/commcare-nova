@@ -47,7 +47,7 @@ const SENTENCE_IDS = FIRST_PUBLISH_CHANGE_IDS.filter(
 
 describe("FIRST_PUBLISH_SENTENCES", () => {
 	it("holds exactly one sentence for each id that has a line of its own", () => {
-		expect(SENTENCE_IDS).toHaveLength(38);
+		expect(SENTENCE_IDS).toHaveLength(39);
 		expect(Object.keys(FIRST_PUBLISH_SENTENCES).sort()).toEqual(
 			[...SENTENCE_IDS].sort(),
 		);

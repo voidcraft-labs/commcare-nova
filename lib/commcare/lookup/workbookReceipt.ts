@@ -33,6 +33,13 @@ export function intendedHqRow(
 			value: child.value,
 			properties: child.attributes,
 		});
+	/* A repeated column a row holds no list of is a field CommCare HQ's row
+	 * does not hold at all. The worker fixture writes it as one empty element,
+	 * as HQ's restore does (`fixturegenerators.py::ItemListsProvider.to_xml`),
+	 * so the tree alone reads it as an empty value; HQ's row keeps no key. */
+	for (const col of naming.columns)
+		if (col.repeated && row.occurrences?.[col.id] === undefined)
+			delete fields[col.wireName];
 	return { id: row.id, fields, itemAttributes: tree.attributes };
 }
 

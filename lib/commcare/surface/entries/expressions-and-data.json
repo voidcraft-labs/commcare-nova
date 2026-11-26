@@ -4614,10 +4614,9 @@
 		"surfaceKeys": [
 			"media-code:corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only. An app's media total no longer bounds a reading (every export streams its files); one imported file over Nova's per-kind cap still stops it",
-		"subject": "media-files",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only. An app's media total bounds no reading (every export streams its files), and a file past its kind's cap streams from HQ into the receiving Project's staging and is judged there by range (`lib/deployment/reading/projectData/mediaStore.ts`, `lib/media/validate.ts::validateSniffedMediaBody`), up to 1 GiB a file and 64 MiB for a picture sharp reads whole; a publish sends such a file alone in its bulk upload, which bounds no file's bytes (HQ stores a 1 GiB sound and a 64 MiB picture through it, `proof/hq/test_media_bounds.py`). The base `hq-large-media` holds a picture and a sound each one byte past its cap through the round trip: read, first publish (the picture again through HQ's bulk upload at Nova's path, the sound kept and settled by its streamed digest), read back and walked by Core and Formplayer",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5228,10 +5227,9 @@
 		"item": "`tag` `types`",
 		"surfaceKeys": ["lookup-model:LookupTable.tag"],
 		"valueClass": "types",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no workbook can carry it (Nova refuses it, `lib/export/boundaryFindings.ts::lookupHqReservedTagFindings`, and a reading raises this entry, `lib/deployment/reading/projectData/lookupTables.ts::lookupTableFindings`), though HQ's table editor accepts the tag; the JSON resource carrier that would publish it is planned (`lib/deployment/lookupJsonPlan.ts`) but writes nothing yet",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table keeps its tag, and a reading holds a project space's table under it as any other (`lib/deployment/reading/projectData/lookupTables.ts::lookupTableFindings`, the base `hq-lookup-types`). CommCare HQ's workbook spends the sheet `types` on its own list of tables (`fixtures/upload/workbook.py::_FixtureWorkbook.get_types_sheet`), so no workbook carries the table: a direct publish puts a global table with no index under it through CommCare HQ's JSON resources (`lib/deployment/lookupJsonExecutor.ts`, chosen by `lib/export/boundaryFindings.ts::travelsAsJson`), every request of whose lifecycle, sent by the production publish, HQ's own resources answer as Nova's publish read them (`proof/hq/test_lookup_json_publish.py`), and whose rows HQ serves the worker as Nova's fixture does (`proof/hq/test_lookup_json.py`); a table CommCare HQ manages in the project space a publish goes to is never written there; the HQ app file, whose data is a workbook, refuses it (`lib/export/boundaryFindings.ts::lookupHqReservedTagFindings`) and names the direct publish.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5243,7 +5241,7 @@
 			}
 		},
 		"emission": {
-			"cell": "none (referenced)",
+			"cell": "the table tag in the fixture source, and in CommCare HQ's JSON table resources on a direct publish",
 			"markers": []
 		},
 		"gates": []
@@ -5288,10 +5286,9 @@
 			"lookup-workbook:field"
 		],
 		"valueClass": "field-properties",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: held in Project data as a column's value details (`LookupColumn.properties`) and repeated text columns with ordered occurrences (`lib/lookup`), read from CommCare HQ's row details (`lib/commcare/hq/lookupSource.ts::readSelectedHqLookupRows`), edited in the rich table editor and the shared tools, and written to the device fixture and to a workbook wherever HQ's workbook reader keeps every occurrence (`lib/commcare/lookup/workbookRows.ts`); it moves once an HQ-authored base with properties and repeated values passes proofs 1 to 6 and a native walk shows the worker's choices",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a column's value details (`LookupColumn.properties`) and repeated text columns with ordered occurrences (`lib/lookup`), read from CommCare HQ's row details (`lib/commcare/hq/lookupSource.ts::readSelectedHqLookupRows`), edited in the rich table editor and the shared tools, written to the device fixture one element a value with its details as attributes, as HQ's restore writes them (`fixturegenerators.py::ItemListsProvider.to_xml`), and to a workbook wherever HQ's workbook reader keeps every occurrence (`lib/commcare/lookup/workbookRows.ts`). The `hq-lookup-data` base holds a field with a property and two values a row; a choice labelled by the Hindi value shows it to a worker",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5319,10 +5316,9 @@
 			"lookup-workbook:property"
 		],
 		"valueClass": "row-attributes",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: held as a table's row details (`LookupTableDefinition.attributes`, every row's attribute text kept exactly), read from CommCare HQ's row details, edited in Project data and the shared tools, and written to the fixture and the workbook's `property:` columns; it moves once an HQ-authored base with row attributes passes proofs 1 to 6 and a native walk",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a table's row details (`LookupTableDefinition.attributes`, every row's attribute text kept exactly), read from CommCare HQ's row details, edited in Project data and the shared tools, written as attributes of each row's fixture element and to the workbook's `property:` columns. The `hq-lookup-data` base saves each choice as its row's attribute, which keeps a duplicate-looking pair of rows apart",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5466,10 +5462,9 @@
 			"lookup-code:corehq/apps/fixtures/fixturegenerators.py::ItemListsProvider.to_xml"
 		],
 		"valueClass": "cell-absence",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`). Project data keeps an absent field, an empty list and an empty string apart (`lib/lookup/rowContent.ts`), the reading takes a zero-occurrence field from its row detail, and the workbook refuses a row HQ's reader would not reconstruct; it moves once an HQ-authored base with each state passes proofs 1 to 6 and a native walk counts the elements",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`). Project data keeps an absent field, an empty list and an empty string apart (`lib/lookup/rowContent.ts`), the reading takes a zero-occurrence field from its row detail, the device fixture writes each as HQ's restore does, and the workbook refuses a row HQ's reader would not reconstruct. The `hq-lookup-data` base holds all three in one field, and its device fixture matches HQ's restore element for element (`proof/hq/test_lookup_fixtures.py`); Core compares a missing element and an empty one alike, so its choice list filtered on the empty value offers all three rows",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5520,7 +5515,7 @@
 			"lookup-code:corehq/apps/fixtures/upload/const.py::MAX_FIXTURE_ROWS"
 		],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: import-sized tables. HQ caps one workbook upload at 500,000 rows over all its sheets, the types sheet and header rows included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, `WorkbookJSONReader`); Nova splits a push into workbooks under that cap (today it refuses an over-cap workbook, `lib/export/boundaryValidation.ts`), which HQ allows because a workbook leaves tables it does not name alone (`run_upload.py` processes tables with `delete_missing=False`), and a table too large for one workbook can be referenced but not adopted",
+		"dispositionCell": "**HELD-NEW**: import-sized tables. A reading no longer stops on a size: a table past one inline read comes in as its definition for a paged Project data refresh, a copy holds any number of columns (HQ caps no table's field count: `fixtures/models.py::LookupTable.fields`), and a downloadable app walks every complete global table a page at a time. HQ caps one workbook upload at 500,000 rows over all its sheets, the types sheet and header rows included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, `WorkbookJSONReader`); Nova splits a push into workbooks under that cap, which HQ allows because a workbook leaves tables it does not name alone (`run_upload.py` processes tables with `delete_missing=False`). Still held: a table past one workbook (499,997 data rows), or one a workbook cannot carry exactly once it is read in pages, has no carrier to a direct publish yet, because the JSON resources take only a table held in memory (`lib/deployment/lookupJsonExecutor.ts`)",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {

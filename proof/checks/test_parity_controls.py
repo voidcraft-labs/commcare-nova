@@ -125,6 +125,85 @@ def test_lookup_names_claim_their_actual_fields_on_the_referenced_table():
     ]
 
 
+def _rich_reads(*, is_global=True, attribute_on_every_row=True, details=True):
+    """HQ's answers for one table ``crops`` shaped as ``hq-lookup-data``'s: ``name`` with the property ``lang``
+    and two values a row, the row attribute ``code``, and ``note`` held, held with no value, not held and empty."""
+    definition = {
+        "id": "a" * 32,
+        "tag": "crops",
+        "is_global": is_global,
+        "fields": [{"field_name": "id", "properties": []}, {"field_name": "name", "properties": ["lang"]},
+                   {"field_name": "note", "properties": []}],
+        "item_attributes": ["code"],
+    }
+
+    def values(*texts, lang=None):
+        return {"field_list": [{"field_value": text, "properties": {"lang": lang} if lang else {}} for text in texts]}
+
+    notes = (["Grows fast"], [], None, [""])
+    rows = []
+    for index, note in enumerate(notes):
+        fields = {"id": values(f"crop{index}"), "name": values("En", "Hi", lang="en")}
+        if note is not None:
+            fields["note"] = values(*note)
+        rows.append({"id": f"{index:032x}", "fixture_type": "crops", "fields": fields})
+    detail = {
+        row["id"]: {"status": 200, "body": json.dumps(
+            {"id": row["id"], "item_attributes": {"code": f"c{index}"} if attribute_on_every_row or index else {}}
+        )}
+        for index, row in enumerate(rows)
+    }
+    data = {
+        "lookupTables": {"status": 200, "body": json.dumps({"objects": [definition]})},
+        "fixtureRows": {"crops": {"status": 200, "body": json.dumps({"objects": rows})}},
+    }
+    if details:
+        data["fixtureDetails"] = detail
+    return {"projectData": data}
+
+
+RICH_CLAIMS = [
+    parity.Record("lookup-tables", "/crops/fields/1/properties", None, lookup_parity.FIELD_VALUES_ENTRY, "held"),
+    parity.Record("lookup-tables", "/crops/fields/2", None, lookup_parity.CELL_ABSENCE_ENTRY, "held"),
+    parity.Record("lookup-tables", "/crops/item_attributes", None, lookup_parity.ROW_ATTRIBUTES_ENTRY, "held"),
+]
+
+
+def test_a_rich_tables_content_classes_are_read_off_hqs_answers():
+    """The three content classes land where HQ's definition and rows put them, a missing or misplaced claim is one
+    difference, and a table the reading holds no rows of, or whose restore HQ cannot write, expects none."""
+    manifest = parity.manifest()
+    asked = {"crops"}
+    assert lookup_parity.differences("rich", manifest, asked, _rich_reads(), RICH_CLAIMS) == []
+    found = lookup_parity.differences("rich", manifest, asked, _rich_reads(), RICH_CLAIMS[:1] + [
+        parity.Record("lookup-tables", "/crops/fields/1", None, lookup_parity.CELL_ABSENCE_ENTRY, "held"),
+    ])
+    assert [one.at for one in found] == [
+        "/lookup-model:LookupTableRow.fields/unseen@lookup-tables/crops/fields/1",
+        "/lookup-model:LookupTableRow.fields/unclaimed@lookup-tables/crops/fields/2",
+        "/lookup-model:LookupTable.item_attributes/unclaimed@lookup-tables/crops/item_attributes",
+    ]
+    # Rows HQ keeps per owner are no rows the reading holds; a row without the attribute makes HQ's restore raise.
+    for reads in (_rich_reads(is_global=False), _rich_reads(attribute_on_every_row=False)):
+        assert lookup_parity.differences("rich", manifest, asked, reads, []) == []
+    with pytest.raises(observations.RecordIncomplete, match="detail of a crops row"):
+        lookup_parity.differences("rich", manifest, asked, _rich_reads(details=False), [])
+
+
+def test_a_plain_table_with_every_field_in_every_row_has_no_content_class():
+    manifest = parity.manifest()
+    tables = [{"tag": "plain", "is_global": True, "fields": [{"field_name": "code", "properties": []}]}]
+    reads = {"projectData": {
+        "lookupTables": {"status": 200, "body": json.dumps({"objects": tables})},
+        "fixtureRows": {"plain": {"status": 200, "body": json.dumps({"objects": [{"id": "1", "fields": {"code": ""}}]})}},
+    }}
+    assert lookup_parity.differences("plain", manifest, {"plain"}, reads, []) == []
+    reads["projectData"]["fixtureRows"]["plain"]["body"] = json.dumps({"objects": [{"id": "1", "fields": {}}]})
+    assert [one.at for one in lookup_parity.differences("plain", manifest, {"plain"}, reads, [])] == [
+        "/lookup-model:LookupTableRow.fields/unclaimed@lookup-tables/plain/fields/0",
+    ]
+
+
 def _use(standing=HELD, entries=()):
     return parity.Decided(Use(KEY, "app.json", WHERE), standing, tuple(entries))
 

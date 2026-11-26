@@ -18,7 +18,7 @@
  *
  *   { "id", "doc", "compiledAtSeq",
  *     "lookup"?: { "projectId", "projectRevision", "definitions", "rowsByTable": { <table id>: rows } },
- *     "media"?: { <asset id>: { "kind", "mimeType", "extension", "base64" } },
+ *     "media"?: { <asset id>: { "kind", "mimeType", "extension", "base64", "source"? } },
  *     "edited"?: { "doc", "compiledAtSeq", "lookup"?, "media"? } }
  *
  * where `doc` is the stored (persistable) document and `edited` is D′, the
@@ -32,7 +32,8 @@
  * - `media` holds each uploaded asset the document references, by its asset
  *   id: an accepted MIME type as Nova writes it (`image/png`), the kind and
  *   the dotted extension Nova stores for that type (`image`, `.png`), and
- *   the bytes in canonical base64. Built-in icons need no entry.
+ *   the bytes in canonical base64, and `"source": "commcare-hq"` for a file a
+ *   bring-in stored, which no upload cap bounds. Built-in icons need no entry.
  *
  * The Project holds no places, so no publish pushes any. A document Nova's
  * export boundary refuses (`./publish.ts::exportFindings`) stops the run
@@ -334,6 +335,7 @@ const uploadedMediaSchema = z.strictObject({
 	mimeType: z.string(),
 	extension: z.string(),
 	base64: z.string().min(1),
+	source: z.literal("commcare-hq").optional(),
 });
 
 function readMedia(
@@ -355,7 +357,7 @@ function readMedia(
 			const parsed = uploadedMediaSchema.safeParse(entry);
 			if (!parsed.success) {
 				fail(
-					`${where} needs exactly a kind (${MEDIA_KINDS.join(", ")}), mimeType, extension and base64 bytes: ${parsed.error.issues
+					`${where} needs exactly a kind (${MEDIA_KINDS.join(", ")}), mimeType, extension and base64 bytes, and a source of "commcare-hq" only for a file a bring-in stored: ${parsed.error.issues
 						.map(
 							(issue) =>
 								`${issue.path.join(".") || "entry"}: ${sentences([issue.message])}`,
@@ -374,6 +376,9 @@ function readMedia(
 				mimeType: parsed.data.mimeType,
 				extension: parsed.data.extension,
 				bytes,
+				...(parsed.data.source !== undefined && {
+					source: parsed.data.source,
+				}),
 			};
 			const problem = uploadedMediaProblem(asset);
 			if (problem !== undefined) {

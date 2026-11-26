@@ -13,7 +13,7 @@ import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { destinationOwnerDigestInTransaction } from "./destinationRowOwners";
 import type { DeploymentScope, DeploymentTargetKey } from "./store";
 
-type WorkbookTableIntent = {
+export type WorkbookTableIntent = {
 	tag: string;
 	definitionRevision: string;
 	rowsRevision: string;

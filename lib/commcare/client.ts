@@ -71,6 +71,7 @@ import {
 import { isHqObject, readHqCollection } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
 import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
+import { TARGET_BATCH_BYTES } from "./multimedia/uploadBatches";
 /** Project flag slugs are resolved from the pinned domain-scoped gate definitions. */
 import type {
 	HqPrivateFeatureFlagRequirement,
@@ -1080,6 +1081,21 @@ function matchedMediaFiles(
 const MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS = 60_000;
 const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
 const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
+/**
+ * The time a bundle past an ordinary batch's bytes adds to each deadline above,
+ * which are fitted to an ordinary batch (`uploadBatches.ts::TARGET_BATCH_BYTES`):
+ * the bytes past it sent at 1 MiB/s, and read whole by HQ's task
+ * (`hqmedia/tasks.py::process_bulk_upload_zip` reads each member into memory
+ * and stores it) at 4 MiB/s. Such a bundle is one file travelling alone: a
+ * video near its upload cap, or a file brought in from CommCare HQ past it.
+ */
+const MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND = 1024 * 1024;
+const MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND = 4 * 1024 * 1024;
+
+function millisecondsFor(bytes: number, perSecond: number): number {
+	const past = Math.max(0, bytes - TARGET_BATCH_BYTES);
+	return Math.ceil((past / perSecond) * 1000);
+}
 
 /**
  * Upload an app's media as one bulk ZIP to CommCare HQ's
@@ -1118,8 +1134,12 @@ export async function uploadAppMediaBundle(
 		 * the job may run, and the caller holds the id it is polled by.
 		 */
 		readonly onAccepted?: (processingId: string) => void | Promise<void>;
+		/** The bytes of the files in the bundle, which lengthen the upload's and the
+		 *  task's deadlines. */
+		readonly bytes?: number;
 	} = {},
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
+	const bytes = options.bytes ?? 0;
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
@@ -1127,7 +1147,8 @@ export async function uploadAppMediaBundle(
 	const controller = new AbortController();
 	const timer = setTimeout(
 		() => controller.abort(),
-		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS,
+		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS +
+			millisecondsFor(bytes, MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND),
 	);
 	let started: unknown;
 	try {
@@ -1177,7 +1198,8 @@ export async function uploadAppMediaBundle(
 		domain,
 		base,
 		started.processing_id,
-		MEDIA_BUNDLE_POLL_TIMEOUT_MS,
+		MEDIA_BUNDLE_POLL_TIMEOUT_MS +
+			millisecondsFor(bytes, MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND),
 	);
 }
 

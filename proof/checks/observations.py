@@ -260,6 +260,13 @@ def api_reads(records, name, part, label):
         for key in ("locationTypes", "locations", "locationsV1"):
             if data.get(key) is not None:
                 held[key] = _answer(data[key], blobs, f"{where}.projectData.{key}")
+        # The detail reads of a table a plain row list cannot carry (``proof/hq/operations.py::lookup_detail_targets``).
+        for key in ("lookupDefinitions", "fixtureDetails"):
+            if data.get(key):
+                held[key] = {
+                    remote_id: _answer(answer, blobs, f"{where}.projectData.{key}.{remote_id}")
+                    for remote_id, answer in sorted(data[key].items())
+                }
         found["projectData"] = held
     media = reads.get("media")
     found["media"] = None if media is None else list(media)

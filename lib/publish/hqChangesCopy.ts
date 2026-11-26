@@ -505,6 +505,14 @@ export const HQ_CHANGES_NOTHING_TAKEN_LINE = "Nova brought nothing in.";
 export const HQ_CHANGES_TABLE_CHOICE_MISSING =
 	"A lookup table these changes read needs your choice before Nova can bring them in. You can choose what to do with it in the list of changes.";
 
+/** A bring-in whose request left an owner rule the places cannot satisfy unanswered. */
+export const HQ_CHANGES_OWNER_RULE_MISSING =
+	"A case owner rule in these changes needs your choice before Nova can bring them in. You can choose who owns those cases in the list of changes, or change the places in CommCare HQ and check again.";
+
+/** A bring-in whose request answered an owner rule the review does not ask about. */
+export const HQ_CHANGES_OWNER_RULE_NOT_OFFERED =
+	"One of the owner rule choices sent isn't one this list of changes asks about. The list may have changed, so you can check again and choose again.";
+
 /** A bring-in whose request sent an answer the review does not offer. */
 export const HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED =
 	"One of the choices sent isn't one this list of changes offers. The list may have changed, so you can check again and choose again.";

@@ -624,7 +624,8 @@ def _implied_string(at: str, a, b) -> bool:
 
 
 # The parts that hold an expression, by the end of their path: a bind's conditions and calculation, a setvalue's
-# value, an itemset's rows.
+# value, an itemset's rows, and the label and value an itemset reads of each row (Core parses each as an XPath
+# expression over the row, ``XFormParser.parseItemset``'s ``labelRef`` and ``valueRef``).
 EXPRESSION_ENDS = (
     ("/:bind/@calculate",),
     ("/:bind/@relevant",),
@@ -632,6 +633,8 @@ EXPRESSION_ENDS = (
     ("/:bind/@required",),
     ("/:bind/@readonly",),
     ("/:control/itemset/@nodeset",),
+    ("/:control/itemset/label/@ref",),
+    ("/:control/itemset/value/@ref",),
 )
 
 

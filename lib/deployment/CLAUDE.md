@@ -739,6 +739,46 @@ no longer accepts gets HQ's own refusal whether or not a Nova app holds the
 app; the advice still comes before any table, place or file is read. `read.ts` answers a stop, an account or a
 review with its digest.
 
+A reading holds no file past its kind's upload cap in memory: it reads the
+file again, streamed into a create-only object under the receiving Project's
+`pending/` prefix, and judges it there by range
+(`projectData/mediaStore.ts::judgeReadingMedia`, `lib/media/CLAUDE.md` § One
+gate). A create or a bring-in of changes keeps a held streamed object as that
+content's staged object; a read and a changes review delete it once judged,
+as every request deletes one it does not keep, and every request discards what its staging wrote in a
+`finally`. Those writes come before `room.beginWrites()`: they are temporary
+objects no surface lists, under the bucket's `pending/` lifecycle rule. A file
+past `HQ_MEDIA_STREAM_MAX_BYTES` (1 GiB), or a picture past
+`WHOLE_PICTURE_MAX_BYTES` (64 MiB), is the `media-file-too-large`
+circumstance at its path (fix in HQ), whose name is the path and the bound it
+passed; `too-large` is the app source's own size alone, which the panel and
+`read_hq_changes` lead with. A publish sends such a file alone in its bulk upload
+(`uploadBatches.ts`), with the upload's and HQ's task's deadlines lengthened by
+its size (`client.ts::uploadAppMediaBundle`).
+
+An owner rule that gives a case to the place at a level below its owner, where
+the places read hold two such places or none below an owner, is no finding: it
+is a question of the review (`projectData/ownerRules.ts::managedPlacesOwnerRules`,
+`ReadingReview.ownerRules`, and the HQ-changes review's `ownerRules` over the
+document it would commit), named by level code, the forms and the zero or two
+places, and bound into the digest. The one answer offered, `worker`, sets the
+owner rule of each case change that uses that level to the worker who fills in
+the form (`workerOwnerMutations`), applied before the gate by `create.ts` and
+`hqChanges/bringIn.ts`; neither refuses less than an answer per question
+(`choice_missing`) or more (`choice_not_offered`). Nova never picks a candidate
+place; the other remedy is changing the places in CommCare HQ and reading again.
+No reading lists the change the answer makes, so the list the birth and the
+take store adds it (`owner-rule-given-to-worker`,
+`firstPublishChanges.ts::withAnsweredChanges` over the reading's document and
+the one committed), only where an answer stands behind it: this request's, or
+the stored list's (`AppBaseline.answeredPublishChanges`). A later take or
+reads-the-same record, and a later review's list, keep it while CommCare HQ's
+app still gives those cases to a place; only the request that answers adds it
+to what is new to the next publish. An author's own edit of such an owner in
+Nova, with no question asked, adds nothing. A change made in CommCare HQ that newly reads
+places, over an app whose document holds no level, reads the base without
+levels (`hqChanges/readings.ts`), so the levels come in with the change.
+
 HQ includes hint and validation media and group or repeat label media in its
 form media lists even though neither client draws it. A mapped file used only
 there takes an availability check at the same bounded HQ transport, with a
@@ -776,12 +816,13 @@ A reading's inline lookup rows are bounded per table
 request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read at most as far as
 what remains). Neither is a limit on what Nova holds: a table past either comes
 in as its confirmed definition with no row snapshot, and a Project data refresh
-reads it in pages (`managedInventory.ts`). Two lookup stops remain until
-managed generations stream into the archive: the tables read inline together
-are held to what one `.ccz` carries (`lookupFixtureBudgetFinding`, over
-`MAX_LOOKUP_FIXTURE_ROWS` / `_CELLS` / `_BYTES`, the same budget the export
-boundary applies), and a `same-managed` table that would keep more than
-`LOOKUP_MAX_COLUMNS` columns stops (`sameManagedColumnCapFinding`). No count or
+reads it in pages (`managedInventory.ts`). No total of the tables read inline
+stops a reading: a downloadable app walks every complete global copy a page at a
+time past what its snapshot holds inline (`lib/lookup/fixtureSnapshot.ts`,
+`download-archive`), so the in-memory fixture budget never meets them. Nor does a
+column count: CommCare HQ caps no table's field count, the copy holds CommCare HQ's
+fields and every column an app still reads however many that makes, and only what
+one inline copy writes (CommCare HQ's fields) is held to `LOOKUP_MAX_COLUMNS`. No count or
 total of media files stops a reading: the only media bound is the per-kind cap
 on one file. A create (and a bring-in of HQ changes) stages
 each distinct held content once, as it judges it, in a create-only object under
@@ -1763,6 +1804,14 @@ authority take too, for a live app whose caller may edit it
   handed back to CommCare HQ from this project space refuses it with
   `managed_table_handed_back`, nothing sent; a hand-back of a table an open
   workbook carries waits, refused with `handBackWhilePublishing`.
+- Each JSON request for a table (`store.ts::admitLookupJsonWrite`, write kind
+  `lookup-json`) takes the same locks as a workbook for its one table,
+  rechecks the publisher's grant and the table's revisions
+  (`workbookAuthorityMatches`), and journals the operation in the same
+  transaction. CommCare HQ's lookup resources check no lookup permission
+  (`fixtures/resources/v0_1.py` overrides `obj_*` without calling the
+  resource's authorization), so this admission is the only check on each
+  request.
 
 An admission stays open while HQ may still be finishing a write. A lost
 reply, a deadline or a 5xx that an intermediary could have sent leaves a
@@ -2665,6 +2714,81 @@ Global transfer obtains a full authenticated restore and independent details for
 
 Promoting a verified generation reconciles the current HQ field, row-attribute and value-property definitions through the same identity and reference governance as inline refresh. An admin transferring a complete global generation rechecks its exact active generation, original source grant, ordered administrative digest and two complete native fixture observations. Transfer binds index flags from those fixtures, materializes stable editable rows and lexical value slots under the table lock, and rechecks the grant before changing custody. The previous generation retires in the same transaction.
 
+
+### Lookup tables through CommCare HQ's JSON resources
+
+A direct publish sends a table through `lookup_table/v1/` and
+`lookup_table_item/v2/` (`lib/commcare/hq/lookupJson.ts`) where the workbook
+cannot carry it exactly and the table is global with no index
+(`lib/export/boundaryFindings.ts::travelsAsJson`): the tag `types`, a value
+CommCare HQ's workbook reader would trim, an occurrence count or empty
+occurrence it would lose. A table that already has a JSON destination on the
+target keeps going that way. A table the Project already has there through a
+workbook under its tag (a live mapping of any of its apps, or a takeover
+from there: `store.ts::readWorkbookLookupTags`) stays in the workbook, whose
+findings name what it cannot carry (`carriedBy: "workbook-there"`). The HQ
+app file cannot carry such a table and says so
+(`describeLookupCarrierAlternative`, `carriedBy: "file"`); a table held in a
+paged generation does not travel this way yet on either (`"too-large"`).
+A reading of that project space judges a Project table there by the carrier
+that keeps it there: a sibling mapping that is the table's JSON destination
+(`store.ts::readSiblingLookupMappings`, `jsonDestination`) is held to the JSON
+resources, not to a workbook's rules
+(`reading/projectData/lookupTables.ts::passesProjectSpaceRules`), so an equal
+table tagged `types` or holding a value a workbook would trim stands
+`same-equal`.
+
+The destination ledger (`lookupJsonLedger.ts`, tables
+`lookup_json_destinations`, `lookup_json_destination_rows`,
+`lookup_json_operations`) is keyed by Project, server, domain and Nova table
+UUID, shared by every app of the Project: the remote table id, the tag, the
+definition digest, each Nova row UUID's remote row id (unique per Project
+and project space), rank and content digest, and a revision every
+acknowledged write moves. The executor (`lookupJsonExecutor.ts`) reads the
+table list and every row's detail twice over, plans
+(`lookupJsonPlan.ts`), and sends one request at a time, each admitted over
+the revision it was planned against (a moved revision makes the plan again)
+and settled with its remote write and the ledger in one transaction
+(`store.ts::settleLookupJsonWrite`). At most one operation per destination
+is open (a unique index over `admitted`, `uncertain`, `review`), so a
+second publisher of the table, from any app of the Project, stops `busy`
+rather than sending over the first.
+
+CommCare HQ's row resource takes a full PUT or a DELETE with no precondition
+of its own, so the row an update or delete names is read again by its id once
+the request is admitted and just before it goes; a row no longer at the
+ledger's rank and content (a person edited or removed it in CommCare HQ since
+the plan's read) settles the request `not-applied` unsent and stops the table
+`rows-changed`. Every request the production publish sends over a table's
+lifecycle, with the peer's answers, is held to HQ's own resources by
+`proof/hq/test_lookup_json_publish.py` over the requests
+`publishSequence.postgres.test.ts` keeps (`proof/hq/fixtures/lookup-json-publish.json`);
+a change to what the executor sends or reads moves that fixture
+(`WRITE_LOOKUP_JSON_PUBLISH_FIXTURE=1`) and is run again there.
+
+An operation whose outcome is unknown is settled by reading what it named
+before anything else goes to that table: an update or delete by its row id,
+a table create by its tag (unique in a project space; the 201 names no
+id), a row create by any row the ledger does not know. The intended state
+advances the ledger; the state before, once the write's hold has passed
+(`LOOKUP_JSON_HOLD_MS`), lets it be sent again; anything else, and every
+row create that left a row Nova did not see acknowledged, stays open in
+`review`. Preflight never decides an open operation: each later publish's
+push reads it again first, which releases it once CommCare HQ holds the
+intended state or the state before (the stranger row removed), and
+otherwise stops before sending anything. A table create still open counts
+the table under its tag as Nova's own pending create, not a stranger's. No
+row is ever identified by its values or rank. A definition change of a table
+already there is never planned (a field PUT resets every index, which no
+read shows), nor is a table Nova put there through a workbook taken over.
+A new export tag is a new destination: preflight wants the tag free, the
+create is journaled over the old ledger's revision, and its applied
+settlement repoints the destination at the new table and forgets the old
+rows, leaving the table under the old tag as it is (its mapping is then
+superseded and named as left behind). After
+the writes the whole table is read back and held to the ledger in Nova's
+order. Each table found there gets a `nova-created` mapping, recorded
+`partial` and retained by the resources phase's complete record.
 
 ### Lookup workbooks, media receipts and device downloads
 

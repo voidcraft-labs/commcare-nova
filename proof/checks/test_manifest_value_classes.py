@@ -5616,6 +5616,14 @@ def _data_binds_and_itext():
             # one non-ASCII field or attribute step, which the form builder compares with the table's names as text
             accepted("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[3]/itemset[1]/label[1]/@ref"),
             accepted("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[3]/itemset[1]/value[1]/@ref"),
+            # a jr:itext label is questions/itemset-label-jr-itext-field's, never this class's
+            accepted(
+                "form",
+                itemsets,
+                "xform:select1/itemset/label@ref",
+                "select1[1]/itemset[1]/label[1]/@ref",
+                readings=True,
+            ),
         ),
         "questions/markdown-form-differing-from-the-default-text": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),

@@ -19,6 +19,7 @@ import type {
 	CreateAnswer,
 	HqAppPicker,
 	LookupTableChoice,
+	OwnerRuleChoice,
 	ReadingAnswer,
 	ReadingDeclarationChoice,
 	ReadingKey,
@@ -30,6 +31,7 @@ import type {
 import { accountOfOne } from "@/lib/deployment/reading/answers";
 import {
 	bringInInputSchema,
+	keptOwnerRuleChoices,
 	keptTableChoices,
 } from "@/lib/deployment/reading/types";
 import {
@@ -118,6 +120,8 @@ export interface ReviewAnswers {
 	readonly runsOnlyOn: Platform | null;
 	readonly splitDatetime: boolean;
 	readonly tableChoices: Readonly<Record<string, LookupTableChoice>>;
+	/** The answer for each owner rule the review asks about, by level code. */
+	readonly ownerRuleChoices: Readonly<Record<string, OwnerRuleChoice>>;
 }
 
 export interface PickerModel {
@@ -211,6 +215,11 @@ export interface BringInModel {
 	} | null;
 	/** The tag of the table choice focus was last sent to, with a counter so a second press moves it again. */
 	readonly needsChoice: { readonly tag: string; readonly nonce: number } | null;
+	/** The level of the owner rule focus was last sent to, with a counter as `needsChoice` has. */
+	readonly needsOwnerRule: {
+		readonly level: string;
+		readonly nonce: number;
+	} | null;
 	/**
 	 * A route answered 401: the session ended. Every request of the page would
 	 * answer the same until it is loaded again, so it holds until then,
@@ -270,6 +279,7 @@ export type BringInEvent =
 	| { readonly type: "retry" }
 	| { readonly type: "answers"; readonly answers: ReviewAnswers }
 	| { readonly type: "choice-needed"; readonly tag: string }
+	| { readonly type: "owner-rule-needed"; readonly level: string }
 	| {
 			readonly type: "landed";
 			readonly answer: "landed" | "leaving" | "unverified";
@@ -325,6 +335,7 @@ function withoutTheApp(model: BringInModel): BringInModel {
 		refusal: null,
 		failed: null,
 		needsChoice: null,
+		needsOwnerRule: null,
 		stage: null,
 		files: null,
 		waitingSince: null,
@@ -383,6 +394,7 @@ export function initialBringInModel(
 		refusal: null,
 		landing: null,
 		needsChoice: null,
+		needsOwnerRule: null,
 		signedOut: false,
 	};
 }
@@ -664,6 +676,7 @@ export function reduceBringIn(
 				refusal: null,
 				failed: null,
 				needsChoice: null,
+				needsOwnerRule: null,
 				lost: 0,
 			};
 		case "call":
@@ -734,7 +747,21 @@ export function reduceBringIn(
 				model.refusal !== null && ANSWER_REFUSALS.has(model.refusal)
 					? null
 					: model.refusal;
-			return { ...model, answers: event.answers, needsChoice, refusal };
+			const needsOwnerRule =
+				model.needsOwnerRule !== null &&
+				Object.hasOwn(
+					event.answers.ownerRuleChoices,
+					model.needsOwnerRule.level,
+				)
+					? null
+					: model.needsOwnerRule;
+			return {
+				...model,
+				answers: event.answers,
+				needsChoice,
+				needsOwnerRule,
+				refusal,
+			};
 		}
 		case "choice-needed":
 			return {
@@ -742,6 +769,14 @@ export function reduceBringIn(
 				needsChoice: {
 					tag: event.tag,
 					nonce: (model.needsChoice?.nonce ?? 0) + 1,
+				},
+			};
+		case "owner-rule-needed":
+			return {
+				...model,
+				needsOwnerRule: {
+					level: event.level,
+					nonce: (model.needsOwnerRule?.nonce ?? 0) + 1,
 				},
 			};
 		case "landed":
@@ -890,7 +925,18 @@ export function initialAnswers(answer: ReviewAnswer): ReviewAnswers {
 		runsOnlyOn: preselected.runsOnlyOn,
 		splitDatetime: preselected.splitDatetime,
 		tableChoices: {},
+		ownerRuleChoices: {},
 	};
+}
+
+/** The levels whose owner rule the review asks about and has no answer, in level order. */
+export function unansweredOwnerRules(
+	review: ReadingReview,
+	answers: ReviewAnswers,
+): readonly string[] {
+	return review.ownerRules
+		.map((rule) => rule.level)
+		.filter((level) => !Object.hasOwn(answers.ownerRuleChoices, level));
 }
 
 /** The tags whose review entry asks a choice and has no answer, in tag order. */
@@ -924,6 +970,7 @@ export function bringInInputOf(
 		runsOnlyOn: answers.runsOnlyOn,
 		splitDatetime: answers.splitDatetime,
 		tableChoices: { ...answers.tableChoices },
+		ownerRuleChoices: { ...answers.ownerRuleChoices },
 	};
 }
 
@@ -973,6 +1020,12 @@ export function carryAnswers(
 	);
 	if (tables.dropped) dropped = true;
 	const tableChoices = { ...tables.choices };
+	const owners = keptOwnerRuleChoices(
+		before.ownerRules,
+		now.ownerRules,
+		previous.ownerRuleChoices,
+	);
+	if (owners.dropped) dropped = true;
 	return {
 		answers: {
 			reviewDigest: digest,
@@ -981,6 +1034,7 @@ export function carryAnswers(
 			runsOnlyOn: declaration.runsOnlyOn,
 			splitDatetime: declaration.splitDatetime,
 			tableChoices,
+			ownerRuleChoices: { ...owners.choices },
 		},
 		dropped,
 	};
@@ -1829,13 +1883,15 @@ export type ReviewPress =
 	| { readonly kind: "name" }
 	/** The first table whose choice has no answer: its group says so. Nothing is sent. */
 	| { readonly kind: "choice"; readonly tag: string }
+	/** The first owner rule with no answer: its group says so. Nothing is sent. */
+	| { readonly kind: "owner-rule"; readonly level: string }
 	/** Every answer is given: the create to send. */
 	| { readonly kind: "create"; readonly input: BringInInput };
 
 /**
  * Bring it in, checked in the browser in the order the create checks it, so
  * nobody waits on a round trip to learn what the screen already knows: the
- * name, then each table's choice, then the create's body.
+ * name, then each table's choice, then each owner rule's, then the create's body.
  */
 export function reviewPress(
 	key: ReadingKey,
@@ -1847,5 +1903,7 @@ export function reviewPress(
 		return { kind: "name" };
 	const [tag] = unansweredChoices(answer.review, answers);
 	if (tag !== undefined) return { kind: "choice", tag };
+	const [level] = unansweredOwnerRules(answer.review, answers);
+	if (level !== undefined) return { kind: "owner-rule", level };
 	return { kind: "create", input: bringInInputOf(key, answer, answers) };
 }

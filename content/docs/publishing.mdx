@@ -174,6 +174,35 @@ when its upload finishes.
 If Nova cannot reliably read the tables already on your project space, it
 stops before sending data. Check your CommCare HQ connection, then publish again.
 
+Most tables go in one workbook upload. A table a workbook can't carry exactly,
+such as one whose export tag is `types`, a value that starts or ends with a
+space, or a value list with an empty entry, goes through CommCare HQ's table
+and row resources instead, one change at a time. That way works for a table
+shared with every worker that has no indexed columns. Nova remembers which row
+on CommCare HQ is which of yours, so publishing again sends only the rows you
+added, changed, moved or removed, and nothing at all when the table is
+unchanged. Every app in your Project that reads the table shares that record.
+
+If a change's answer gets lost on the way back, Nova reads that row in CommCare
+HQ before it sends anything else to the table, and waits a few minutes where
+the change could still arrive. If a row someone else added or changed is there,
+or a new row appeared that Nova can't name, the publish stops and names the
+table so nothing is written over it. Nova also reads each row again just before
+it changes or removes it, so an edit someone makes in CommCare HQ while Nova is
+publishing stops the publish instead of being replaced. Each later publish reads the table again
+first, so once the row is gone or put back in CommCare HQ, publishing again
+picks up from there. Changing a table's columns after it's there isn't
+something these resources can do safely, so Nova asks you to give the table a
+new export tag instead: the next publish puts it there as a new table and
+leaves the old one as it is. The CommCare HQ app file can't carry these
+tables, since it uploads a workbook: publish from Nova to put them there.
+
+A table that's already on the project space from a workbook stays in one
+there, since Nova can't tell its rows apart in those resources. If it now holds
+something a workbook can't carry, such as a value that starts or ends with a
+space, the publish names it, and you can change those rows in Project data or
+give the table a new export tag so it goes there as a new table.
+
 A publish stops before it sends anything when a lookup table with the same tag
 in CommCare HQ holds something Nova can't keep yet: field properties, row
 attributes or rows limited to certain users. Giving your table a new export tag
@@ -402,6 +431,13 @@ such as notes, personas and review marks on translations. The app reloads with
 the changes in, and the dialog opens again to say so. Your next publish then
 goes ahead as usual; if CommCare HQ's version holds a few things Nova writes
 its own way, the Publish dialog lists what that publish changes first.
+
+If the changes give cases to the place at a level below their owner and the
+places in CommCare HQ have two such places, or none, below an owner, the list
+asks who owns those cases, as [bringing an app in](/docs/bringing-in-from-commcare-hq)
+does. You can give them to the worker who fills in the form, or change the places
+in CommCare HQ and check again. Giving them to the worker is a change your next
+publish makes in CommCare HQ too, and the Publish dialog lists it.
 
 **When the app changed in both places, you choose one.** Nova shows a second
 list, **What changed in Nova since then**, and doesn't combine the two. **Use

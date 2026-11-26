@@ -43,6 +43,11 @@ import {
 	FINDING_NAME_MAX_LENGTH,
 	type Finding,
 } from "@/lib/publish/hqFindings";
+import {
+	OWNER_RULE_OTHERWISE,
+	OWNER_RULE_WORKER_DETAIL,
+	OWNER_RULE_WORKER_LABEL,
+} from "@/lib/publish/ownerRuleCopy";
 import { PAGE_LIMIT_CHARS, reviewedPageDigest } from "../paging";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import {
@@ -120,6 +125,7 @@ function changes(
 		observedDigest: "b".repeat(64),
 		renamedInNova: [],
 		tables: [],
+		ownerRules: [],
 		projectName: "Field team",
 		readingId: READING_ID,
 		reviewDigest: DIGEST,
@@ -161,6 +167,7 @@ describe("a review of changes made in CommCare HQ", () => {
 				nova_changes_total: 45,
 				renamed_in_nova_total: 0,
 				tables_total: 0,
+				owner_rules: [],
 				made_by_total: 5,
 				next_page: null,
 				cut_line: null,
@@ -186,6 +193,38 @@ describe("a review of changes made in CommCare HQ", () => {
 	 * under the limit, with each list's lines put back together from the
 	 * parts of a cut line.
 	 */
+	it("asks each owner-rule question in the changes by its level, with the one answer a client relays", () => {
+		const served = projected(
+			changes({
+				ownerRules: [
+					{
+						level: "clinic",
+						levelName: "Clinic",
+						conflict: {
+							kind: "two-places",
+							source: "East",
+							places: ["East A", "East B"],
+						},
+						forms: ["Transfer"],
+					},
+				],
+			}),
+		);
+		expect(served.owner_rules).toEqual([
+			{
+				level: "clinic",
+				title: "Who owns the cases for Clinic",
+				body: "The form “Transfer” gives each case to the Clinic below the place that owns it. In clinic, both East A and East B are below East, so the rule can't tell which one to use.",
+				answer: {
+					value: "worker",
+					label: OWNER_RULE_WORKER_LABEL,
+					detail: OWNER_RULE_WORKER_DETAIL,
+				},
+				otherwise: OWNER_RULE_OTHERWISE,
+			},
+		]);
+	});
+
 	it("explains how to recover an unread claimed target", () => {
 		const answer = projected({
 			kind: "unavailable",
@@ -1014,6 +1053,19 @@ describe("an account a page at a time", () => {
 			message:
 				"CommCare HQ's version of this app takes more checking than Nova gives one app, so Nova brought nothing in.",
 		});
+	});
+
+	it("leads with the account's count where its one finding is a file past what Nova reads, as the panel does", () => {
+		const file = circumstanceFinding(
+			"media-file-too-large",
+			{ kind: "media", path: "jr://file/commcare/video/visit.mp4" },
+			{
+				name: "jr://file/commcare/video/visit.mp4 (over 1 GB, the most Nova reads of a video)",
+			},
+		);
+		expect(
+			describeHqChangesReview(account([file], 0), HEAD, FIRST_PAGE),
+		).toMatchObject({ kind: "account", message: cannotBringInLead(1) });
 	});
 
 	it("links no place into CommCare HQ where the deployment names no app there", () => {

@@ -49,16 +49,26 @@ import {
 } from "@/lib/publish/hqFindings";
 import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
 import { birthAdoptedApp } from "../../__tests__/adoptedBirth";
+import { createFromReview } from "../create";
 import { sourceMayReadPlaces } from "../projectData/places";
 import { authorizeBringIn, readHqAppForReview } from "../read";
 import {
+	type BringInInput,
+	type CreateAnswer,
 	READING_ID_PATTERN,
 	type ReadingAnswer,
 	type ReadingEvent,
 	type ReadingKey,
 } from "../types";
-import { FIXTURE_PATHS, serveAnswer, serveFixtureApp } from "./adoptionFixture";
+import {
+	createInputFor,
+	FIXTURE_PATHS,
+	serveAnswer,
+	serveFixtureApp,
+} from "./adoptionFixture";
 import { servedExport } from "./novaReading";
+import { servedHqApp, serveHqApp } from "./servedHqApp";
+import { hqPlace, serveHqPlaces, serveLocationLevels } from "./servedPlaces";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 /* The reader runs as it is, a stage at a time as a request runs it; the spy
@@ -359,89 +369,6 @@ function withSiblingId(doc: BlueprintDoc): BlueprintDoc {
 		...doc,
 		fields: { ...doc.fields, [field.uuid]: { ...field, id: "name" } },
 	};
-}
-
-/** The levels `locationOwnerFixture` holds, region over district over clinic, each sharing
- *  cases, as `LocationTypeResource` serves them. */
-function serveLevels(peer: MockAgent): void {
-	const parentOf = (index: number) =>
-		index === 0 ? null : `/a/${DOMAIN}/api/location_type/v1/${index}/`;
-	serve(peer, PATHS.levels, {
-		status: 200,
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			meta: { next: null, total_count: LOCATION_LEVELS.length },
-			objects: LOCATION_LEVELS.map((level, index) => ({
-				id: index + 1,
-				name: level.name,
-				code: level.code,
-				parent: parentOf(index),
-				administrative: false,
-				shares_cases: true,
-				view_descendants: false,
-			})),
-		}),
-	});
-}
-
-/** One place as `LocationResource` v2 serves it. */
-function hqPlace(
-	siteCode: string,
-	level: string,
-	parent: string | null,
-): Record<string, unknown> {
-	return {
-		domain: DOMAIN,
-		last_modified: "2026-10-05T10:02:16",
-		latitude: null,
-		location_data: {},
-		location_id: `${siteCode}-id`,
-		location_type_code: level,
-		location_type_name: level,
-		longitude: null,
-		name: siteCode,
-		parent_location_id: parent === null ? "" : `${parent}-id`,
-		site_code: siteCode,
-	};
-}
-
-/** The place list, one page, `meta` changed where given. */
-function servePlaces(
-	peer: MockAgent,
-	places: readonly Record<string, unknown>[],
-	meta: Record<string, unknown> = {},
-): void {
-	const details = places.map((place) => ({
-		...place,
-		external_id: null,
-		location_type: `/a/${DOMAIN}/api/location_type/v1/${LOCATION_LEVELS.findIndex((level) => level.code === place.location_type_code) + 1}/`,
-		parent: place.parent_location_id
-			? `/a/${DOMAIN}/api/location/v1/${place.parent_location_id}/`
-			: null,
-	}));
-	serve(peer, `/a/${DOMAIN}/api/location/v1/?limit=1000`, {
-		status: 200,
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			meta: { next: null, total_count: details.length, ...meta },
-			objects: details,
-		}),
-	});
-	serve(peer, PATHS.places, {
-		status: 200,
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			meta: {
-				limit: 1000,
-				next: null,
-				offset: 0,
-				previous: null,
-				total_count: places.length,
-				...meta,
-			},
-			objects: places,
-		}),
-	});
 }
 
 /** The fixture's table list, the fields of `district` changed. */
@@ -848,27 +775,12 @@ describe("readHqAppForReview", () => {
 				serving: (peer) => {
 					serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
 					for (let read = 0; read < 2; read++) {
-						serveLevels(peer);
-						servePlaces(peer, [
+						serveLocationLevels(peer);
+						serveHqPlaces(peer, [
 							hqPlace("north", "region", null),
 							hqPlace("north_district", "district", "elsewhere"),
 						]);
 					}
-				},
-			},
-			{
-				/* Two clinics below one district: the owner rule that gives a case to the clinic
-				 * below its owner names no one place. */
-				code: "owner-rule-needs-one-place",
-				serving: (peer) => {
-					serveExport(peer, locationOwnerFixture("direct"));
-					serveLevels(peer);
-					servePlaces(peer, [
-						hqPlace("north", "region", null),
-						hqPlace("north_district", "district", "north"),
-						hqPlace("first_clinic", "clinic", "north_district"),
-						hqPlace("second_clinic", "clinic", "north_district"),
-					]);
 				},
 			},
 			{
@@ -977,8 +889,10 @@ describe("readHqAppForReview", () => {
 			 * CommCare HQ could not summarize beside the form's own finding. The ordinary
 			 * form reader in instanceSources.test.ts drives both data-source conflicts. A place field
 			 * the app cannot carry and one whose worker text HQ's answer sorted are driven where the
-			 * place plan is built, in projectData/places.test.ts and worldEntities.test.ts. A new code
-			 * with no case fails here. */
+			 * place plan is built, in projectData/places.test.ts and worldEntities.test.ts. A file past
+			 * what Nova reads of one file (a gigabyte, or a picture past 64 MB) and a picture of more
+			 * pixels than CommCare HQ stores are driven where their verdicts are worded, in
+			 * projectData/media.test.ts. A new code with no case fails here. */
 			const elsewhere: readonly ReadCircumstance[] = [
 				"too-large",
 				"too-intricate",
@@ -989,10 +903,134 @@ describe("readHqAppForReview", () => {
 				"unbuildable-data-source-name",
 				"place-field-unusable",
 				"place-value-order-unknown",
+				"media-file-too-large",
+				"media-picture-too-many-pixels",
 			];
 			const driven = new Set([...cases.map(({ code }) => code), ...elsewhere]);
 			expect(READ_CIRCUMSTANCES.filter((code) => !driven.has(code))).toEqual(
 				[],
+			);
+		});
+	});
+
+	describe("an owner rule the places cannot satisfy", () => {
+		it("is a question of the review, named by its level and both places, and never a choice of one", async () => {
+			const counts = await rowCounts();
+			/* Two clinics below one district: the owner rule that gives a case to the clinic
+			 * below its owner names no one place. */
+			const { answer } = await read((peer) => {
+				serveHqApp(peer, servedHqApp(locationOwnerFixture("direct"), 1));
+				serveLocationLevels(peer);
+				serveHqPlaces(peer, [
+					hqPlace("north", "region", null),
+					hqPlace("north_district", "district", "north"),
+					hqPlace("first_clinic", "clinic", "north_district"),
+					hqPlace("second_clinic", "clinic", "north_district"),
+				]);
+			});
+			if (answer.kind !== "review")
+				throw new Error(`The read answered ${answer.kind}, not a review`);
+			expect(answer.review.ownerRules).toEqual([
+				{
+					level: "clinic",
+					levelName: expect.any(String),
+					conflict: {
+						kind: "two-places",
+						source: "north_district",
+						places: ["first_clinic", "second_clinic"],
+					},
+					forms: ["Transfer"],
+				},
+			]);
+			expect(await rowCounts()).toEqual(counts);
+		});
+
+		/** The two-clinic app, read and then created with `choices`, in one peer. */
+		async function readThenCreate(
+			choices: BringInInput["ownerRuleChoices"],
+		): Promise<CreateAnswer> {
+			const actor = await authorizeBringIn(ACTOR, PROJECT);
+			if (actor === null) throw new Error("The editor holds no edit.");
+			/* One emission, served to both reads: the export mints its CommCare HQ ids. */
+			const app = servedHqApp(locationOwnerFixture("direct"), 1);
+			const serving = (peer: MockAgent) => {
+				serveHqApp(peer, app);
+				serveLocationLevels(peer);
+				serveHqPlaces(peer, [
+					hqPlace("north", "region", null),
+					hqPlace("north_district", "district", "north"),
+					hqPlace("first_clinic", "clinic", "north_district"),
+					hqPlace("second_clinic", "clinic", "north_district"),
+				]);
+			};
+			return withHttpPeer(async (peer) => {
+				serving(peer);
+				const answer = await readHqAppForReview(actor, KEY, {
+					onEvent: () => {},
+				});
+				if (answer.kind !== "review")
+					throw new Error(`The read answered ${answer.kind}, not a review`);
+				serving(peer);
+				return createFromReview(
+					actor,
+					{
+						...createInputFor(KEY, answer),
+						...(choices !== undefined && { ownerRuleChoices: choices }),
+					},
+					{ onEvent: () => {} },
+				);
+			});
+		}
+
+		it("refuses a create that leaves the question unanswered, and creates nothing", async () => {
+			const counts = await rowCounts();
+			expect(await readThenCreate(undefined)).toEqual({
+				kind: "refused",
+				refusal: "choice_missing",
+			});
+			expect(await rowCounts()).toEqual(counts);
+		});
+
+		it("refuses an answer for a level the review does not ask about", async () => {
+			expect(
+				await readThenCreate({ clinic: "worker", region: "worker" }),
+			).toEqual({ kind: "refused", refusal: "choice_not_offered" });
+		});
+
+		it("creates the app with the worker who fills in the form owning those cases", async () => {
+			const answer = await readThenCreate({ clinic: "worker" });
+			if (answer.kind !== "created")
+				throw new Error(`The create answered ${JSON.stringify(answer)}`);
+			const operations = Object.values(answer.receipt.blueprint.forms).flatMap(
+				(form) => form.caseOperations ?? [],
+			);
+			expect(operations.length).toBeGreaterThan(0);
+			/* Every case the rule gave to a place is the submitting worker's. */
+			expect(
+				operations.filter(
+					(operation) =>
+						operation.owner !== undefined &&
+						operation.owner.kind !== "acting-user",
+				),
+			).toEqual([]);
+			expect(
+				operations.some((operation) => operation.owner?.kind === "acting-user"),
+			).toBe(true);
+			/* The first publish gives those cases to the worker in CommCare HQ too, and its list
+			 * says so, though the reading's own list could not. */
+			const baseline = await h
+				.db()
+				.selectFrom("app_deployment_baselines as baseline")
+				.innerJoin(
+					"app_deployments as deployment",
+					"deployment.id",
+					"baseline.deployment_id",
+				)
+				.select("baseline.first_publish_changes")
+				.where("deployment.app_id", "=", answer.receipt.appId)
+				.executeTakeFirstOrThrow();
+			expect(baseline.first_publish_changes?.ids).toContain(
+				"owner-rule-given-to-worker",
 			);
 		});
 	});
@@ -1252,8 +1290,8 @@ describe("readHqAppForReview", () => {
 						body: JSON.stringify(body),
 					});
 				}
-				serveLevels(peer);
-				servePlaces(peer, []);
+				serveLocationLevels(peer);
+				serveHqPlaces(peer, []);
 			});
 			expect(asked(requests, resource)).toBe(2);
 			expect(missedLines()).toHaveLength(1);
@@ -1277,8 +1315,8 @@ describe("readHqAppForReview", () => {
 				serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
 				/* The read once more asks for the tables again. */
 				serve(peer, PATHS.tables, retainedGroupRead("lookups/lookup-tables"));
-				serveLevels(peer);
-				servePlaces(peer, [hqPlace("north", "region", null)]);
+				serveLocationLevels(peer);
+				serveHqPlaces(peer, [hqPlace("north", "region", null)]);
 			});
 			expect(answer.kind).not.toBe("stop");
 			expect(asked(requests, PATHS.tables)).toBe(2);

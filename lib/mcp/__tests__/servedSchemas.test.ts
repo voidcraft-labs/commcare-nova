@@ -554,6 +554,7 @@ it("serves bring_in_hq_app with every answer required and no default", () => {
 		"app_name",
 		"domain",
 		"hq_app_id",
+		"owner_rule_choices",
 		"project_id",
 		"reading_id",
 		"review_digest",
@@ -734,6 +735,7 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 	const answers = [
 		"app_id",
 		"discard_nova_changes",
+		"owner_rule_choices",
 		"reading_id",
 		"review_digest",
 		"table_choices",
@@ -749,6 +751,9 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 	const choices = validatorOf("bring_in_hq_changes", "table_choices");
 	expect(choices({ district: "use-project" })).toBe(true);
 	expect(choices({ district: "both" })).toBe(false);
+	const owners = validatorOf("bring_in_hq_changes", "owner_rule_choices");
+	expect(owners({ clinic: "worker" })).toBe(true);
+	expect(owners({ clinic: "first_clinic" })).toBe(false);
 	expect(
 		everyPosition("bring_in_hq_changes").filter(
 			(schema) => "default" in schema,
@@ -761,7 +766,7 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 
 it("tells a client an agent never chooses for the user", () => {
 	expect(served("bring_in_hq_app").description).toContain(
-		"never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them",
+		"never choose the name, where the app runs, the date-and-time split, a lookup table's answer or an owner rule's answer for them",
 	);
 	expect(served("read_hq_app").description).toContain(
 		"never choose it for them",

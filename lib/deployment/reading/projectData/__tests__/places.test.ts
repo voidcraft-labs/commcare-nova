@@ -18,10 +18,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { HqFailure } from "@/lib/commcare/hq/failure";
 import type { HqLocation, HqLocationType } from "@/lib/commcare/hq/locations";
-import {
-	LOCATION_LEVELS,
-	locationOwnerFixture,
-} from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
+import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { readHqApp } from "@/lib/commcare/reader";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import type { ReadOutcome } from "@/lib/commcare/reader/types";
@@ -42,7 +39,6 @@ import {
 } from "../index";
 import {
 	documentReadsPlaces,
-	managedPlacesOwnerFindings,
 	planManagedPlaces,
 	sourceMayReadPlaces,
 } from "../places";
@@ -196,7 +192,6 @@ describe("unreadPlacesFailure", () => {
 				definitions: [],
 				rowsByTable: {},
 				apps: {},
-				keptColumns: {},
 				siblings: [],
 				mayAdminister: true,
 			},
@@ -578,58 +573,6 @@ describe("planManagedPlaces at a level the app lacks", () => {
 	});
 });
 
-describe("managedPlacesOwnerFindings", () => {
-	// Regions own cases, districts do not, clinics do: a case a region owns
-	// goes to the clinic below it.
-	const doc = locationOwnerFixture("multirung");
-	const regionTree = [
-		place("east", "region", null),
-		place("east-lakes", "district", "hq-east"),
-	];
-	const planOf = (hqPlaces: readonly HqLocation[]) =>
-		planManagedPlaces({
-			hqPlaces,
-			levels: LOCATION_LEVELS,
-			properties: [],
-			mode: "birth",
-		});
-
-	it("finds a rule with two places at its level below one owner", () => {
-		const twoClinics = planOf([
-			...regionTree,
-			place("east-a", "clinic", "hq-east-lakes"),
-			place("east-b", "clinic", "hq-east-lakes"),
-		]);
-		expect(twoClinics.findings).toEqual([]);
-		expect(managedPlacesOwnerFindings(doc, twoClinics)).toEqual([
-			circumstanceFinding("owner-rule-needs-one-place", ORGANIZATION, {
-				name: "Both EAST-A and EAST-B match clinic under EAST.",
-			}),
-		]);
-	});
-
-	it("finds a rule with no place at its level below an owner", () => {
-		expect(managedPlacesOwnerFindings(doc, planOf(regionTree))).toEqual([
-			circumstanceFinding("owner-rule-needs-one-place", ORGANIZATION, {
-				name: "No clinic matches under EAST.",
-			}),
-		]);
-	});
-
-	it("finds nothing where one place stands at the level below each owner", () => {
-		const oneClinic = planOf([
-			...regionTree,
-			place("east-a", "clinic", "hq-east-lakes"),
-		]);
-		expect(managedPlacesOwnerFindings(doc, oneClinic)).toEqual([]);
-	});
-
-	it("finds nothing for an app with no owner rule at a level", () => {
-		const plain = locationOwnerFixture("plain");
-		expect(managedPlacesOwnerFindings(plain, planOf(regionTree))).toEqual([]);
-	});
-});
-
 const FINDINGS_APP_ID = "0b4f6a52-7c55-5a35-9d1e-3c2f8a1b4e6d";
 
 /** A level whose code Nova cannot hold: `place-field-unusable`, named "Region". */
@@ -663,7 +606,6 @@ function placeFindings(readsPlaces: boolean, inconsistent: boolean) {
 				definitions: [],
 				rowsByTable: {},
 				apps: {},
-				keptColumns: {},
 				siblings: [],
 				mayAdminister: true,
 			},

@@ -32,6 +32,7 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
@@ -41,8 +42,11 @@ import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
 import { MediaPublishPermissionError } from "@/lib/media/publishReadyMedia";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
+import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import {
 	HQ_CHANGES_FILES_NOT_PERMITTED,
+	HQ_CHANGES_OWNER_RULE_MISSING,
+	HQ_CHANGES_OWNER_RULE_NOT_OFFERED,
 	HQ_CHANGES_TABLE_CHOICE_MISSING,
 	HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED,
 	hqChangesPublishingStoppedLine,
@@ -64,7 +68,10 @@ import {
 import { removalLedgerPaths } from "../hqSourceBaseline";
 import { hqImportApplicationSteps } from "../importApplication";
 import { movedBindingCount } from "../reading/create";
-import { firstPublishListToStore } from "../reading/firstPublishChanges";
+import {
+	firstPublishListToStore,
+	withAnsweredChanges,
+} from "../reading/firstPublishChanges";
 import { Pieces } from "../reading/gather";
 import { resolveTableChoices, underTableChoices } from "../reading/projectData";
 import {
@@ -78,7 +85,11 @@ import {
 	projectMediaStaging,
 	publishStagedReadingMedia,
 } from "../reading/projectData/mediaStore";
-import type { ReviewTable } from "../reading/projectData/reviewTypes";
+import { workerOwnerMutations } from "../reading/projectData/ownerRules";
+import {
+	type ReviewTable,
+	resolveOwnerRuleChoices,
+} from "../reading/projectData/reviewTypes";
 import {
 	type BringInRoom,
 	holdChangesReadings,
@@ -95,6 +106,7 @@ import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	HqChangesBaselineMovedError,
+	type HqChangesFirstPublish,
 	type HqChangesTaken,
 	HqReviewWriteInFlightError,
 	readDeployment,
@@ -105,6 +117,7 @@ import {
 	withDeploymentReadSnapshot,
 } from "../store";
 import { exportIdentityOf } from "../targetIdentity";
+import type { AppBaseline } from "../types";
 import { hqChangesBatchId } from "./batchId";
 import { hqChangesGateRefusal } from "./gate";
 import {
@@ -130,6 +143,8 @@ export interface HqChangesBringInInput {
 	readonly readingId: string;
 	readonly reviewDigest: string;
 	readonly tableChoices: Readonly<Record<string, string>>;
+	/** The answer for each owner rule the review asks about, by level code. Absent is none. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	/**
 	 * Whether the person agreed to lose the changes made in Nova that the
 	 * review listed. A person presses a button under the list they read and
@@ -413,11 +428,7 @@ async function recordReadsTheSame(
 		 * the list, which then stays. */
 		...(checked !== null && {
 			nextPublish: {
-				accepted: firstPublishListToStore(
-					checked.declaration.firstPublish,
-					checked.draft.facts,
-				),
-				publishChanges: checked.plan.publishChanges,
+				...nextPublishLists(checked, basis.head.doc, basis.baseline, []),
 				removedFiles: {
 					compared: basis.baseline.approvedFileRemovals ?? [],
 					accepted: checked.removedFiles,
@@ -511,6 +522,18 @@ async function bringChangesIn(
 					? HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED
 					: HQ_CHANGES_TABLE_CHOICE_MISSING,
 		};
+	const ownerRules = resolveOwnerRuleChoices(
+		review.ownerRules,
+		input.ownerRuleChoices ?? NO_ENTRIES,
+	);
+	if (!ownerRules.ok)
+		return {
+			kind: "refused",
+			message:
+				ownerRules.notOffered.length > 0
+					? HQ_CHANGES_OWNER_RULE_NOT_OFFERED
+					: HQ_CHANGES_OWNER_RULE_MISSING,
+		};
 	const answeredData = underTableChoices(first.data, resolved.choices);
 	const moved = movedBindingCount(
 		first.data.gathered.tables,
@@ -596,6 +619,20 @@ async function bringChangesIn(
 	/* The tables the changed app newly reads, written in the commit below. */
 	const tables = newTableWrites(answeredData, checked.newTags, review.tables);
 
+	/* The explicit owner rule the person chose for each level the places cannot satisfy, and the
+	 * document the commit makes with it. */
+	const ownerAnswer = workerOwnerMutations(plan.target, ownerRules.levels);
+	const answer =
+		ownerAnswer.length === 0
+			? undefined
+			: {
+					committed: prepareMutationCandidate(
+						plan.target,
+						admitMutationBatch(ownerAnswer),
+					).nextDoc,
+					changes: ["owner-rule-given-to-worker" as const],
+				};
+
 	/* The ownership the next publish's body gives, and the record. */
 	onEvent({ type: "stage", stage: "bringing-in" });
 	const taking = await takenFor(
@@ -605,6 +642,7 @@ async function bringChangesIn(
 		checked,
 		newMediaFiles(checked, plan.target, fetched.head.doc),
 		pieces,
+		answer,
 	);
 	if (taking.kind === "refusal") return taking.outcome;
 
@@ -622,7 +660,11 @@ async function bringChangesIn(
 			}),
 			kind: "hq-changes",
 			expectedHeadSeq: fetched.head.seq,
-			guard: { mutations: admitMutationBatch(plan.batch) },
+			/* The explicit owner rule the person chose for each level the places cannot satisfy,
+			 * given in the same batch, so the commit's gate meets only rules that hold. */
+			guard: {
+				mutations: admitMutationBatch([...plan.batch, ...ownerAnswer]),
+			},
 			/* The tables the change newly reads are written in the commit's own
 			 * transaction, before its gate reads them: a change that is turned
 			 * back (a moved head, a refused gate, a moved baseline) creates,
@@ -792,9 +834,17 @@ async function takenFor(
 	checked: CheckedHqChanges,
 	mediaPaths: readonly AdoptedMediaFile[],
 	pieces: Pieces,
+	/** The person's answers to the review's questions, where they gave any: the document the
+	 *  commit makes with them over the target, and the changes they make. */
+	answer?: {
+		readonly committed: BlueprintDoc;
+		readonly changes: readonly FirstPublishChangeId[];
+	},
 ): Promise<Taking> {
 	const plan = checked.plan;
-	const doc = plan.kind === "changes" ? plan.target : basis.head.doc;
+	const doc =
+		answer?.committed ??
+		(plan.kind === "changes" ? plan.target : basis.head.doc);
 
 	/* Where CommCare HQ keeps everything once the record lands: what the next
 	 * publish prints under, and so what its body's ownership is computed over. */
@@ -878,11 +928,12 @@ async function takenFor(
 			},
 			targetIdentity: checked.targetIdentity,
 			firstPublish: {
-				accepted: firstPublishListToStore(
-					checked.declaration.firstPublish,
-					checked.draft.facts,
+				...nextPublishLists(
+					checked,
+					doc,
+					basis.baseline,
+					answer?.changes ?? [],
 				),
-				publishChanges: plan.publishChanges,
 				removedFiles: {
 					compared: basis.baseline.approvedFileRemovals ?? [],
 					accepted: checked.removedFiles,
@@ -890,6 +941,39 @@ async function takenFor(
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		},
+	};
+}
+
+/**
+ * The lists a take stores of what the next publish changes: the reading's own under the app's
+ * declaration, and the plan's. A change a person's answer to a review makes, which no reading
+ * gives alone (`firstPublishChanges.ts::withAnsweredChanges`), stands where `committed` still
+ * makes it of CommCare HQ's app and an answer stands behind it: `answeredNow`, the answers this
+ * request gives, or the stored list the take replaces. Only this request's answers are new to the
+ * next publish (`publishChanges`).
+ */
+function nextPublishLists(
+	checked: CheckedHqChanges,
+	committed: BlueprintDoc,
+	stored: AppBaseline,
+	answeredNow: readonly FirstPublishChangeId[],
+): Pick<HqChangesFirstPublish, "accepted" | "publishChanges"> {
+	const facts = checked.declaration.firstPublishFacts;
+	const accepted = firstPublishListToStore(
+		withAnsweredChanges(checked.declaration.firstPublish, facts, committed, [
+			...answeredNow,
+			...(stored.answeredPublishChanges ?? []),
+		]),
+		checked.draft.facts,
+	);
+	return {
+		accepted,
+		publishChanges: withAnsweredChanges(
+			{ ...accepted, ids: checked.plan.publishChanges },
+			facts,
+			committed,
+			answeredNow,
+		).ids,
 	};
 }
 

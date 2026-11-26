@@ -139,6 +139,7 @@ const TOOLS = [
 			runs_only_on: null,
 			split_datetime: false,
 			table_choices: {},
+			owner_rule_choices: {},
 		},
 	},
 	{
@@ -194,6 +195,7 @@ const TOOLS = [
 			review_digest: "ab".repeat(32),
 			discard_nova_changes: false,
 			table_choices: {},
+			owner_rule_choices: {},
 		},
 	},
 ] as const;
