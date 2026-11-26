@@ -335,6 +335,7 @@ export const searchEmissionScenarios = [
 	"named-parent",
 	"mixed-records",
 	"grouped-prompts",
+	"remote-grouped-prompts",
 	"registration-link",
 	"hidden-link",
 	"automatic",
@@ -377,7 +378,7 @@ export function searchEmissionFixture(
 	const module = doc.modules[doc.moduleOrder[0]];
 	const config = module.caseListConfig;
 	if (!config) throw new Error("Fixture has a case list");
-	if (scenario === "grouped-prompts") {
+	if (scenario === "grouped-prompts" || scenario === "remote-grouped-prompts") {
 		const first = testUuid("grouped-search-name");
 		const second = testUuid("grouped-search-place");
 		config.searchInputGroups = [

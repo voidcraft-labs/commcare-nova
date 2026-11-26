@@ -183,7 +183,8 @@ it.each(
 		(scenario) =>
 			scenario !== "named-parent" &&
 			scenario !== "mixed-records" &&
-			scenario !== "grouped-prompts",
+			scenario !== "grouped-prompts" &&
+			scenario !== "remote-grouped-prompts",
 	),
 )("exports the complete Search session for %s", (scenario) => {
 	const { suite, hq, zip } = exported(searchEmissionFixture(scenario));
