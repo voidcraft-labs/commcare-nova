@@ -68,6 +68,7 @@ import { readMidi } from "./midi";
 import { MP4_VIDEO_ADVICE, readMp4 } from "./mp4";
 import {
 	bufferBytes,
+	isBodyReadError,
 	type RandomAccessBytes,
 	RandomAccessTokenizer,
 } from "./randomAccess";
@@ -727,38 +728,49 @@ async function imageVerdict(
 			`The upload gate read a ${mime} image with no variant to name. Each image MIME in ACCEPTED_FORMATS needs its MEDIA_FORMATS key here.`,
 		);
 	}
-	try {
-		const meta = await body.withWhole((bytes) => sharp(bytes).metadata());
-		if (meta === null) {
-			return refused({
-				reason: "size-cap-exceeded",
-				message: `\`${filename}\` is larger than the most of a picture Nova reads at once. Saving it smaller fixes that.`,
-			});
+	/* Only sharp's own failure is the picture's: a failed read of the body, or a
+	 * refused charge for holding it whole, is thrown as itself. */
+	const parsed = await body.withWhole(async (bytes) => {
+		try {
+			return { kind: "read", meta: await sharp(bytes).metadata() } as const;
+		} catch (error) {
+			return { kind: "failed", error } as const;
 		}
-		if (!meta.width || !meta.height) {
-			return refused({
-				reason: "image-parse-failed",
-				message: `\`${filename}\` parsed as a \`${mime}\` image but has no readable dimensions. The file may be truncated or malformed. Try re-exporting from the source.`,
-			});
-		}
-		const dimensions = { width: meta.width, height: meta.height };
-		if (
-			mime === "image/avif" &&
-			(meta.format !== "heif" || meta.compression !== "av1")
-		) {
-			return refused({
-				reason: "image-parse-failed",
-				message: `\`${filename}\` holds HEIF images that are not AV1. Saving it as a PNG fixes that.`,
-			});
-		}
-		return { ok: true, key, dimensions };
-	} catch (err) {
-		const detail = err instanceof Error ? err.message : String(err);
+	});
+	if (parsed === null) {
+		return refused({
+			reason: "size-cap-exceeded",
+			message: `\`${filename}\` is larger than the most of a picture Nova reads at once. Saving it smaller fixes that.`,
+		});
+	}
+	if (parsed.kind === "failed") {
+		const detail =
+			parsed.error instanceof Error
+				? parsed.error.message
+				: String(parsed.error);
 		return refused({
 			reason: "image-parse-failed",
 			message: `Couldn't parse \`${filename}\` as a \`${mime}\` image (${detail}). The file may be truncated or malformed.`,
 		});
 	}
+	const meta = parsed.meta;
+	if (!meta.width || !meta.height) {
+		return refused({
+			reason: "image-parse-failed",
+			message: `\`${filename}\` parsed as a \`${mime}\` image but has no readable dimensions. The file may be truncated or malformed. Try re-exporting from the source.`,
+		});
+	}
+	const dimensions = { width: meta.width, height: meta.height };
+	if (
+		mime === "image/avif" &&
+		(meta.format !== "heif" || meta.compression !== "av1")
+	) {
+		return refused({
+			reason: "image-parse-failed",
+			message: `\`${filename}\` holds HEIF images that are not AV1. Saving it as a PNG fixes that.`,
+		});
+	}
+	return { ok: true, key, dimensions };
 }
 
 /** The audio and video body checks: the variant and its duration, or a refusal. */
@@ -831,6 +843,8 @@ async function streamVerdict(
 	try {
 		metadata = await parseMediaContainer(body, mime);
 	} catch (err) {
+		/* A failed read of the body is the store's, never the file's. */
+		if (isBodyReadError(err)) throw err;
 		const detail = err instanceof Error ? err.message : String(err);
 		return refused({
 			reason: "media-parse-failed",

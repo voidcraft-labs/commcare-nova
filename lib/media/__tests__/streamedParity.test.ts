@@ -15,7 +15,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain/multimedia";
-import { blockBytes, bufferBytes } from "../randomAccess";
+import { BodyReadError, blockBytes, bufferBytes } from "../randomAccess";
 import {
 	type MediaBody,
 	validateSniffedMediaBody,
@@ -108,6 +108,57 @@ describe("the gate over a file read by position", () => {
 		});
 		/* The free box is never read: what the ranges asked for is a few blocks. */
 		expect(asked.bytes).toBeLessThan(1024 * 1024);
+	});
+
+	/** `bytes` read by ranges, every range from `failFrom` on failing as a store's read can. */
+	function failingBody(bytes: Buffer, failFrom: () => number): MediaBody {
+		const memory = bufferBytes(bytes);
+		const source = blockBytes({
+			size: bytes.byteLength,
+			blockBytes: 61,
+			blocksKept: 3,
+			async range(start, length) {
+				if (start + length > failFrom())
+					throw new Error("The bucket answered 503 after its retries.");
+				return (await memory.read(start, length)).slice();
+			},
+		});
+		return {
+			source,
+			/* As a staged body holds a picture whole: one read of all of it. */
+			withWhole: async (use) =>
+				use(Buffer.from(await source.read(0, bytes.byteLength))),
+			parseTimeoutMs: 10_000,
+		};
+	}
+
+	it("throws a failed read of a picture held whole as the store's, never as the picture's", async () => {
+		const picture = readFileSync(join(FIXTURES, "pattern.png"));
+		let failFrom = Number.POSITIVE_INFINITY;
+		const body = failingBody(picture, () => failFrom);
+		await expect(
+			validateSniffedMediaBody({
+				body: {
+					...body,
+					withWhole: (use) => {
+						failFrom = 0;
+						return body.withWhole(use);
+					},
+				},
+				contentHash: sha256(picture),
+			}),
+		).rejects.toBeInstanceOf(BodyReadError);
+	});
+
+	it("throws a failed read in a sound's container parse as the store's, never as the sound's", async () => {
+		const sound = readFileSync(join(FIXTURES, "tone.mp3"));
+		/* The sniff reads the file's head; the parse reads on past it. */
+		await expect(
+			validateSniffedMediaBody({
+				body: failingBody(sound, () => 4400),
+				contentHash: sha256(sound),
+			}),
+		).rejects.toBeInstanceOf(BodyReadError);
 	});
 
 	it("refuses a picture larger than the body holds whole, by its size", async () => {

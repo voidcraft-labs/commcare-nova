@@ -22,6 +22,27 @@ export interface RandomAccessBytes {
 	read(at: number, length: number): Promise<Uint8Array>;
 }
 
+/**
+ * A read of a file's bytes failed where Nova holds them (a staged object's
+ * range read): the store's fault, never the file's. The gate throws it as
+ * itself, never as a verdict on the file.
+ */
+export class BodyReadError extends Error {
+	constructor(message: string, options?: { readonly cause?: unknown }) {
+		super(message, options);
+		this.name = "BodyReadError";
+	}
+}
+
+/** Whether `error`, or an error it was caused by, is a `BodyReadError`. */
+export function isBodyReadError(error: unknown): boolean {
+	for (let at = error, depth = 0; at instanceof Error && depth < 8; depth++) {
+		if (at instanceof BodyReadError) return true;
+		at = at.cause;
+	}
+	return false;
+}
+
 /** Bytes in memory, read in place. */
 export function bufferBytes(bytes: Uint8Array): RandomAccessBytes {
 	return {
@@ -47,7 +68,16 @@ export function blockBytes(input: {
 	readonly blocksKept: number;
 	readonly range: (start: number, length: number) => Promise<Uint8Array>;
 }): RandomAccessBytes {
-	const { size, blockBytes: blockSize, blocksKept, range } = input;
+	const { size, blockBytes: blockSize, blocksKept } = input;
+	/* A failed range is the store's, whatever reader asked for it. */
+	const range = (start: number, length: number): Promise<Uint8Array> =>
+		input.range(start, length).catch((error: unknown) => {
+			if (error instanceof BodyReadError) throw error;
+			throw new BodyReadError(
+				`Reading ${length} bytes at ${start} of a file Nova holds by range failed: ${error instanceof Error ? error.message : String(error)}`,
+				{ cause: error },
+			);
+		});
 	/* Least recently used first: a block read again moves to the end. */
 	const blocks = new Map<number, Promise<Uint8Array>>();
 	const block = (index: number): Promise<Uint8Array> => {
