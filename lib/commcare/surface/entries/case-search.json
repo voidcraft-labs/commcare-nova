@@ -3480,7 +3480,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`required` with a `test` and `validations[0]` with a `test`, whose `text` is blank in every app language (`{}` included), including a validation whose test already ends with the generated Search guard",
+		"item": "`required` with a `test` and `validations[0]` with a `test`, whose `text` is blank in every app language (`{}` included), including a validation whose test already ends with the generated Search guard or whose lowercase-only check of its own answer already excludes both quotes",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.required",
 			"schema:CaseSearchProperty.validations",
@@ -3488,7 +3488,7 @@
 		],
 		"valueClass": "check-without-a-message",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchInputs[].required.noMessage`, a requirement whose worker reads a blank message (HQ's build writes its text as a no-break space, `app_strings.py`, `commcare_translations.dumps`; Web Apps then draws the field invalid with no words under it, names it among the fields to check and sends no search, `query.js::getError`, `inputsHaveErrors`, `displayErrors`), and a `searchInputs[].validation` with no `message`, whose worker reads Core's own sentence, including when the authored check shares a native test with the generated Search guard (`remote_requests.py`, `validation.has_text`; `QueryPrompt.getValidationMessage`)",
+		"dispositionCell": "**HELD**: `searchInputs[].required.noMessage`, a requirement whose worker reads a blank message (HQ's build writes its text as a no-break space, `app_strings.py`, `commcare_translations.dumps`; Web Apps then draws the field invalid with no words under it, names it among the fields to check and sends no search, `query.js::getError`, `inputsHaveErrors`, `displayErrors`), and a `searchInputs[].validation` with no `message`, whose worker reads Core's own sentence, including when the authored check shares a native test with the generated Search guard or already rejects every answer its own quote guard rejects (`remote_requests.py`, `validation.has_text`; `QueryPrompt.getValidationMessage`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3511,11 +3511,11 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`validations[0]` whose `text` is blank in every language, on a field Nova's search guards where the native test lacks that guard or holds it alone with no authored rule",
+		"item": "`validations[0]` whose `text` is blank in every language, on a field Nova's search guards where a missing guard would add another rejection or where the native test holds the guard alone with no authored rule",
 		"surfaceKeys": ["schema:Assertion.text"],
 		"valueClass": "on-a-field-nova-s-search-guards",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: A check without the guard would gain a condition at publish. A guard-only check with no message would read as Nova's generated guard with its configured sentence.",
+		"dispositionCell": "**HELD-NEW**: A missing guard whose rejection the authored check does not cover would add a condition at publish. A guard-only check with no message would read as Nova's generated guard with its configured sentence.",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {

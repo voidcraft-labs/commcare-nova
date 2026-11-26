@@ -41970,6 +41970,54 @@
 	{
 		"id": "hq-search/check-with-no-message-on-a-guarded-field",
 		"base": "hq-search",
+		"entry": "case-search/a-required-or-validation-test-with-no-message-in-any-language",
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/0/validation/rule/kind",
+				"value": "matches-pattern"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/0/validation/rule/pattern",
+				"value": "^[a-z]+$"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/0/validation/message",
+				"value": null
+			}
+		],
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/0/validations",
+			"value": [
+				{
+					"test": "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'client_name'], ''), '^[a-z]+$')",
+					"text": {},
+					"doc_type": "Assertion"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-search/quote-guard-only-with-no-message",
+		"base": "hq-search",
 		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
 		"standing": "not-yet",
 		"place": {
@@ -41982,7 +42030,51 @@
 			"pointer": "/modules/0/search_config/properties/0/validations",
 			"value": [
 				{
-					"test": "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'client_name'], ''), '^[a-z]+$')",
+					"test": "not(count(instance('search-input:results')/input/field[@name = 'client_name']) and contains(instance('search-input:results')/input/field[@name = 'client_name'], \"'\") and contains(instance('search-input:results')/input/field[@name = 'client_name'], '\"'))",
+					"text": {},
+					"doc_type": "Assertion"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-search/guarded-name-checks-another-answer",
+		"base": "hq-search",
+		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/0/validations",
+			"value": [
+				{
+					"test": "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'village'], ''), '^[a-z]+$')",
+					"text": {},
+					"doc_type": "Assertion"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-search/guarded-name-check-allows-quotes",
+		"base": "hq-search",
+		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/0/validations",
+			"value": [
+				{
+					"test": "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'client_name'], ''), '^.+$')",
 					"text": {},
 					"doc_type": "Assertion"
 				}

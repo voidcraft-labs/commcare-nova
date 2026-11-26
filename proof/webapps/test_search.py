@@ -126,6 +126,90 @@ def test_authored_search_keeps_its_list_filter_out_of_the_request(
         assert [row["id"] for row in results["list"]["rows"]] == [f"row-{case_id}" for case_id in witness["rows"]]
 
 
+def test_retained_guarded_name_search_messages(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """Keep the retained Clients assertion in pinned native Web Apps, including its worker message."""
+    from proof.matrix import registry
+
+    variant = next(
+        variant for variant in registry.load_variants()
+        if variant.id == "hq-search/check-with-no-message-on-a-guarded-field"
+    )
+    [assertion] = variant.change["value"]
+    document = webapps_documents["hq-search"]
+    folder = Path(__file__).with_name("fixtures")
+    restore = (folder / "restore-search-filter.xml").read_bytes()
+    database = casedata.database_of_restore(restore.replace(b"Matching client", b"amina"))
+    guard_message = (
+        "This search can't use both single and double quotation marks. Remove one kind and try again"
+    )
+    observations = {}
+    for label in ("authored", "merged-without-message", "guard-only"):
+        publication = "A" if label == "authored" else "B"
+        with webapps_hq.authored_project(document, publication) as project:
+            def apply(app):
+                app["cloudcare_enabled"] = True
+                field = app["modules"][0]["search_config"]["properties"][0]
+                if label == "authored":
+                    field["validations"] = [dict(assertion)]
+                elif label == "merged-without-message":
+                    [guard] = field["validations"]
+                    # B supplies the actual compiler's guard and its protected
+                    # query wrapper. This reconstructs the narrow reader proof's
+                    # authorized change to the stored validation.
+                    field["validations"] = [{
+                        **assertion, "test": f"({assertion['test']}) and ({guard['test']})",
+                    }]
+            with project.released(formplayer_runner, change=apply, database=database, label=label) as release:
+                run = Session(release, editor_driver).run([
+                    *steps.open_app("Client search"),
+                    *steps.choose("Clients"),
+                    *steps.choose("Followup Form"),
+                    *steps.arrive(any_screen=True),
+                    steps.SCREEN,
+                    *steps.type_prompt(0, "Amina"),
+                    steps.SCREEN,
+                    *steps.type_prompt(0, "a'\""),
+                    steps.SCREEN,
+                    *steps.click(steps.SEARCH_BUTTON, visible=True, within=steps.WITHIN_MS),
+                    steps.SCREEN,
+                    *steps.type_prompt(0, ""),
+                    steps.SCREEN,
+                    *steps.type_prompt(0, "amina"),
+                    steps.SCREEN,
+                    *steps.run_search(),
+                    *steps.arrive(any_screen=True),
+                    steps.SCREEN,
+                ])
+                requests = [search.values("_xpath_query") for search in release.hq.searches]
+            observation = {
+                "requests": requests, "screens": run.screens, "queryAnswers": _query_answers(run),
+                "menuRequests": _menu_requests(run), "outcomes": run.outcomes,
+                "pageErrors": run.page_errors, "dialogs": run.dialogs,
+            }
+            evidence(f"retained-name-search-{label}", observation)
+            observations[label] = observation
+
+    for label, observed in observations.items():
+        assert observed["pageErrors"] == [] and observed["dialogs"] == [], observed
+        assert not any(outcome.get("missed") for outcome in observed["outcomes"]), observed
+        initial, upper, quotes, refused, blank, lower, results = observed["screens"]
+        assert initial["query"]["prompts"][0]["label"] == "Name", initial
+        errors = [screen["query"]["prompts"][0]["error"] for screen in (initial, upper, quotes, refused, blank, lower)]
+        assert not errors[0] and not errors[4] and not errors[5], errors
+        expected = guard_message if label == "guard-only" else "Sorry, this response is invalid!"
+        if label == "guard-only":
+            assert not errors[1], errors
+        else:
+            assert errors[1] == expected, errors
+        assert errors[2:4] == [expected, expected], errors
+        expected_clause = "case_name = 'amina'" if label == "authored" else 'case_name = "amina"'
+        [request] = observed["requests"]
+        assert expected_clause in request, request
+        assert [row["id"] for row in results["list"]["rows"]] == ["row-client-both"], results
+
+
 def _describe(doc):
     doc["modules"][0]["search_config"]["description"] = {"en": DESCRIPTION}
 
