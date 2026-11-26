@@ -116,6 +116,8 @@ export interface FormOpeningProjection {
 	readonly datums: Readonly<Record<string, string>>;
 	readonly resolvedEntries: Readonly<Record<string, string>>;
 	readonly sessionData: Readonly<Record<string, string>>;
+	/** Case IDs set by the form's root ready actions at its first opening. */
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
 	readonly complete: boolean;
 }
 

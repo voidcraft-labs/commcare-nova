@@ -63,6 +63,7 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
+	OpeningReadSet,
 	OperationScopeIterations,
 	OrdinarySubmissionAction,
 	RelatedRead,
@@ -2184,11 +2185,17 @@ function sameEnclosingOperationAnswers(
  * A carrier-free program takes the loader's empty-id fast path and performs no
  * lookup read.
  */
+interface AppTestCaseOpening {
+	readonly reads: OpeningReadSet;
+	readonly createIds?: Readonly<Record<string, string>>;
+}
+
 export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
 	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
 	readonly blueprintDigest: string;
 	readonly opening?: FormOpeningProjection;
+	readonly testOpening?: AppTestCaseOpening;
 	readonly identity: ResolvedPreviewIdentity;
 	/** The device the form ran on, whose session context values a case
 	 *  operation writing one writes. */
@@ -2251,6 +2258,7 @@ export async function buildSubmissionOperationProgram(args: {
 		identity: args.identity,
 		device: args.device,
 		opening: args.opening,
+		testOpening: args.testOpening,
 		...(args.opening && { currentOwnerIds: workerScope?.ownerIds }),
 		...(movesOwnerToPlace && {
 			workerPlaceIds:
@@ -2546,6 +2554,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly currentOwnerIds?: readonly string[];
 	readonly blueprint: PersistableDoc;
 	readonly opening?: FormOpeningProjection;
+	readonly testOpening?: AppTestCaseOpening;
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
@@ -2833,6 +2842,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 		throw new CaptureSubmissionRejectedError(
 			"This form needs one group to own its new cases. You can check this worker's groups and places, then open it again.",
 		);
+	const openingCreateIds =
+		args.opening?.caseCreateIds ?? args.testOpening?.createIds;
 	return {
 		...ordinaryStructure,
 		program: {
@@ -2848,6 +2859,14 @@ export function buildCaseOperationProgramFromDoc(args: {
 						revisions: args.workerScopeRevision,
 					},
 				}),
+			...(openingCreateIds && {
+				openingCreateIds: new Map(
+					Object.entries(openingCreateIds).map(([uuid, id]) => [
+						asUuid(uuid),
+						id,
+					]),
+				),
+			}),
 			...(suppliedCaseIds.size > 0 && { suppliedCaseIds }),
 			scopes,
 			...(scopeOrder && { scopeOrder }),
@@ -2893,6 +2912,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 					),
 				},
 			}),
+			...(!args.opening &&
+				args.testOpening && { openingReads: args.testOpening.reads }),
 			sessionUser: new Map(Object.entries(session.user)),
 			sessionUserAbsent: { readsBlank: PREVIEW_UNKNOWN_WORKER_KEYS },
 			userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),

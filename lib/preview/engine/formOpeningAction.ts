@@ -58,7 +58,7 @@ import { resolveAuthorizedPreviewContext } from "./previewAuthorization";
 import type { PreviewDevice } from "./previewDevice";
 import { signFormOpening, verifyFormOpening } from "./signedFormOpening";
 import {
-	evaluateWebFormActivityOpening,
+	evaluateFormOpeningActions,
 	InvalidWebActivityWindowError,
 	recordWebActivityOpening,
 } from "./webFormActivityOpening";
@@ -448,9 +448,9 @@ export async function readFormOpeningAction(
 		)
 			return reopen;
 		const primaryCaseIds = ownCaseId ? [ownCaseId] : bound;
-		const activity =
+		const actions =
 			!reached.nextSelection && !args.restore
-				? await evaluateWebFormActivityOpening({
+				? await evaluateFormOpeningActions({
 						secret,
 						doc,
 						audience,
@@ -461,6 +461,7 @@ export async function readFormOpeningAction(
 						lookup: lookupData,
 					})
 				: undefined;
+		const activity = actions?.activity;
 		const projection: FormOpeningProjection = {
 			...prior,
 			choices,
@@ -468,6 +469,7 @@ export async function readFormOpeningAction(
 			...(Object.keys(parentChoices).length && { parentChoices }),
 			primaryCaseIds,
 			...(activity && { webActivity: activity }),
+			...(actions?.caseCreateIds && { caseCreateIds: actions.caseCreateIds }),
 			...(submittedCaseIds.size > 0 && {
 				submittedCaseIds: [...submittedCaseIds],
 			}),

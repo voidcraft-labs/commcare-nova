@@ -453,6 +453,12 @@ export interface FormEngineInput {
 	 * the emitter reads too). Absent, no question is guarded.
 	 */
 	caseScalarTextGuards?: Readonly<Record<string, CaseScalarTextGuard>>;
+	/** The root case IDs whose setvalues run after authored field defaults. */
+	readonly rootCaseCreates?: readonly {
+		readonly uuid: Uuid;
+		readonly datum?: string;
+		readonly exact?: true;
+	}[];
 	/** The form's uuid — used as the root key into `fieldOrder`. */
 	formUuid: Uuid;
 	/** Entry that opened this content. Identifies the receipt and capture scope. */
@@ -529,6 +535,8 @@ export interface FormEngineRuntimeOptions {
 		readonly preserveAllValues: boolean;
 	};
 
+	/** Capture additional ID setvalues on the authoritative opening evaluation. */
+	readonly captureOpeningCaseIds?: boolean;
 	/** Construct only the immutable form world. `initializeAsync` performs the
 	 * structural/default/cascade stages before the controller publishes it. */
 	readonly stagedAsync?: boolean;
@@ -570,6 +578,7 @@ export interface FormEngineEntryCheckpoint {
 		string,
 		RepeatInitializationSnapshot,
 	])[];
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
 	readonly activeSectionUuid?: Uuid;
 	/** The screen the entry is on (`FormScreenPage.path`). */
 	readonly activeScreenPath?: string;
@@ -704,6 +713,9 @@ export class FormEngine {
 	>;
 	private readonly entryUuid: Uuid;
 	private requiresSelectedRecord: boolean;
+	readonly #rootCaseCreates: FormEngineInput["rootCaseCreates"];
+	private readonly openingCreateIds = new Map<Uuid, string>();
+	private readonly openingOperationIdBindings = new Map<Uuid, WireExpr>();
 	private expressions: FormExpressionRuntime;
 	/** The document a field's case writes and its bind type are read from. */
 	private caseWriteDoc: BlueprintDoc;
@@ -858,6 +870,9 @@ export class FormEngine {
 		);
 		this.caseData = caseData ?? new Map();
 		this.searchAnswers = runtimeOptions.searchAnswers ?? new Map();
+		this.#rootCaseCreates = runtimeOptions.captureOpeningCaseIds
+			? input.rootCaseCreates
+			: undefined;
 		this.sessionData = runtimeOptions.sessionData ?? {};
 		const ownerWithoutPlace = ownerMovesToNoPlace(
 			input.form.caseOperations,
@@ -993,6 +1008,13 @@ export class FormEngine {
 
 	/** Structured-clone projection for one evaluation: the world's instances
 	 * on its first request, then only the values and relevance that changed. */
+	/** The server signs this once with the authorized form opening. */
+	initialCreateIds(): Readonly<Record<string, string>> | undefined {
+		return this.openingCreateIds.size > 0
+			? Object.fromEntries(this.openingCreateIds)
+			: undefined;
+	}
+
 	/** Resolve the text Core reads as a pragma at the initialized form root. */
 	async readBehaviorText(
 		role: FormBehaviorRole,
@@ -1139,6 +1161,9 @@ export class FormEngine {
 			state: this.store.getState(),
 			repeatKeys: [...this.repeatInstanceKeys],
 			pendingSectionRepeats: [...this.pendingSectionRepeats],
+			...(this.openingCreateIds.size > 0 && {
+				caseCreateIds: this.initialCreateIds(),
+			}),
 			activeSectionUuid: this.activeSectionUuid,
 			activeScreenPath: this.activeScreenPath,
 			allSectionsEntered: this.allSectionsEntered,
@@ -1150,6 +1175,12 @@ export class FormEngine {
 	 * heal untouched defaults afterward; this is never a client submission input. */
 	restoreEntryCheckpoint(checkpoint: FormEngineEntryCheckpoint): void {
 		this.instance.restoreCheckpoint(checkpoint.instance);
+		this.openingCreateIds.clear();
+		this.openingOperationIdBindings.clear();
+		for (const [uuid, id] of Object.entries(checkpoint.caseCreateIds ?? {})) {
+			this.openingCreateIds.set(uuid as Uuid, id);
+			this.openingOperationIdBindings.set(uuid as Uuid, w.str(id));
+		}
 		this.pendingSectionRepeats = new Map(checkpoint.pendingSectionRepeats);
 		this.activeSectionUuid = checkpoint.activeSectionUuid;
 		this.activeScreenPath = checkpoint.activeScreenPath;
@@ -3064,6 +3095,7 @@ export class FormEngine {
 			this.lookupData ?? undefined,
 			{
 				searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID,
+				operationIds: this.openingOperationIdBindings,
 				workerProperty: this.workerProperty,
 				datumId: session.datumId,
 				formCaseProperty: this.formCaseProperty(session.formCaseProperty),
@@ -5546,6 +5578,30 @@ export class FormEngine {
 			}
 		}
 		if (prefix === this.rootPath && insertedPath === undefined && !healing) {
+			this.openingCreateIds.clear();
+			this.openingOperationIdBindings.clear();
+			for (const create of this.#rootCaseCreates ?? []) {
+				const source = create.exact
+					? this.expressions.source({
+							entity: "form",
+							uuid: this.inputFormUuid,
+							slot: "case_operation_target_expression",
+							member: { operationUuid: create.uuid },
+						})
+					: create.datum === undefined
+						? "uuid()"
+						: undefined;
+				let caseId = this.sessionData[create.datum ?? ""] ?? "";
+				if (source !== undefined) {
+					const value = yield { source, path: prefix };
+					if (isAsyncNodesetValues(value))
+						throw new Error("Expected one case ID.");
+					caseId = xpathToString(value);
+					this.openingCreateIds.set(create.uuid, caseId);
+				}
+				this.openingOperationIdBindings.set(create.uuid, w.str(caseId));
+			}
+
 			// HQ appends its case reads after the authored ready actions. At
 			// this event a repeat template alone does not supply a target.
 			// SetValueAction applies the answer cast and fires dependents before

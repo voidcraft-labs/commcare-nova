@@ -69,7 +69,7 @@ import {
 } from "@/lib/domain";
 import { MAX_AUTHORED_CASE_ID_LENGTH } from "@/lib/domain/caseOperationIdentity";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
-import { and, ifExpr, literal, term } from "@/lib/domain/expression/builders";
+import { ifExpr, literal, term } from "@/lib/domain/expression/builders";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
@@ -488,7 +488,7 @@ function allocateCreateIdentities(
 		}
 		if (operation.target.expr !== undefined) {
 			if (instance.scopeRepeat === undefined) {
-				const caseId = program.exactOpeningCreateIds?.get(operation.uuid);
+				const caseId = program.openingCreateIds?.get(operation.uuid);
 				if (caseId !== undefined)
 					allocations.set(index, { caseId, identity: "exact" });
 			}
@@ -511,7 +511,12 @@ function allocateCreateIdentities(
 			continue;
 		}
 		if (operation.target.idFrom === undefined) {
-			allocations.set(index, { caseId: uuidv7(), identity: "fresh" });
+			const initialized = program.openingCreateIds?.get(operation.uuid);
+			allocations.set(index, {
+				caseId: initialized ?? uuidv7(),
+				identity: "fresh",
+				...(initialized !== undefined && { entryNamed: true }),
+			});
 			continue;
 		}
 		const rawKey = instance.formFields.get(operation.target.idFrom);
@@ -568,10 +573,17 @@ async function allocateRepeatedExactIdentities(
 			...envelope.guardConditions,
 			...(operation.condition === undefined ? [] : [operation.condition]),
 		];
+		const [first, ...rest] = conditions;
 		const expression =
-			conditions.length > 0
-				? ifExpr(and(...conditions), operation.target.expr, term(literal("")))
-				: operation.target.expr;
+			first === undefined
+				? operation.target.expr
+				: ifExpr(
+						rest.length > 0
+							? { kind: "and", clauses: [first, ...rest] }
+							: first,
+						operation.target.expr,
+						term(literal("")),
+					);
 		const dependencies = new Set(caseOperationDependencyUuids(operation));
 		for (const condition of envelope.guardConditions)
 			walkExpressionNodes(condition, (node) => {
@@ -1827,8 +1839,9 @@ async function resolveOperationProgram(
 	);
 
 	// Resolve every executing instance's target + links.
-	const openingCaseIds =
-		opening && new Set(opening.cases.rows.map((row) => row.case_id));
+	const openingCaseTypes =
+		opening &&
+		new Map(opening.cases.rows.map((row) => [row.case_id, row.case_type]));
 	const resolvedInstances: ResolvedInstance[] = [];
 	for (const [index, instance] of instances.entries()) {
 		const operation = instance.envelope.operation;
@@ -1878,7 +1891,7 @@ async function resolveOperationProgram(
 					if (
 						allocation.identity === "exact" &&
 						existing &&
-						!openingCaseIds?.has(allocation.caseId)
+						openingCaseTypes?.get(allocation.caseId) !== operation.caseType
 					)
 						throw new SubmissionRejectedError({
 							kind: "target",
@@ -2055,11 +2068,11 @@ async function resolveOperationProgram(
 			continue;
 		}
 		if (
-			openingCaseIds &&
+			openingCaseTypes &&
 			operation.action !== "create" &&
 			operation.target.kind === "expression" &&
 			(operation.closeCondition || operation.closeAfter) &&
-			!openingCaseIds.has(target.caseId)
+			!openingCaseTypes.has(target.caseId)
 		) {
 			throw new SubmissionRejectedError({
 				kind: "target",

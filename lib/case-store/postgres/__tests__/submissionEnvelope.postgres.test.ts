@@ -1442,6 +1442,39 @@ describe("ordered selected-case batches", () => {
 		expect(await store.applySubmission(claim)).toEqual(saved);
 	});
 
+	it("commits a root's opening ID even after the answer changes", async () => {
+		const store = makeStore();
+		const exact = operation({
+			uuid: OP_A,
+			id: "opened_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new", expr: term(formField(KEY_FIELD)) },
+			name: term(literal("Opened patient")),
+		});
+		const program = rootProgram([envOp(exact)], {
+			sessionCaseId: null,
+			formFields: [[KEY_FIELD, "later-worker-answer"]],
+		});
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...program,
+				openingCreateIds: new Map([[OP_A, "opened-case-id"]]),
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const result = await store.applySubmission(claim);
+		expect(result.operations[0]).toMatchObject({
+			caseId: "opened-case-id",
+			operationUuid: OP_A,
+			executed: true,
+		});
+		expect(await patientRow(store, "later-worker-answer")).toBeUndefined();
+		expect(await store.applySubmission(claim)).toEqual(result);
+	});
+
 	it("evaluates exact create IDs for each live repeat row and reuses only authorized cases", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);

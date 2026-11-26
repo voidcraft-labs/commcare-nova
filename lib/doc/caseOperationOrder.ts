@@ -104,12 +104,12 @@ export function caseOperationDependencyUuids(
 			collectExpressionDependencies(link.target.expr, refs);
 		}
 	}
+	const target = operation.target;
 	if (
-		operation.target?.kind === "expression" ||
-		(operation.target?.kind === "new" && operation.target.expr !== undefined)
-	) {
-		collectExpressionDependencies(operation.target.expr, refs);
-	}
+		(target?.kind === "expression" || target?.kind === "new") &&
+		target.expr !== undefined
+	)
+		collectExpressionDependencies(target.expr, refs);
 	for (const expression of [
 		operation.name,
 		operation.owner,

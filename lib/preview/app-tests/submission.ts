@@ -99,6 +99,14 @@ export async function submitAppTest(
 		throw new AppTestActionError(
 			"Media capture needs a check in the running app. This test cannot submit attachment bytes.",
 		);
+	const form = context.doc.forms[formContentUuid(context.doc, screen.formUuid)];
+	const retainsExactId = form?.caseOperations?.some(
+		(operation) =>
+			operation.action === "create" &&
+			operation.target.kind === "new" &&
+			operation.target.expr !== undefined,
+	);
+
 	const built = await buildSubmissionOperationProgram({
 		appId: scope.appId,
 		committedApp: { blueprint: context.doc, mutation_seq: scope.blueprintSeq },
@@ -112,6 +120,25 @@ export async function submitAppTest(
 			role: scope.role,
 		},
 		testWorkerGroups: context.workerGroups,
+		...(retainsExactId && {
+			testOpening: {
+				createIds: screen.entry.checkpoint.caseCreateIds,
+				reads: {
+					cases: formContext.cases,
+					locations: formContext.cases.locations,
+					currentOwnerIds: context.restoreScope.ownerIds,
+					lookupRows: [...formContext.lookup.rowsByTable].flatMap(
+						([table, rows]) =>
+							rows.map((row, order) => ({
+								id: row.id,
+								table_id: table,
+								order_key: order,
+								values: row.values,
+							})),
+					),
+				},
+			},
+		}),
 		lookupTableSchemas: workerLookupSchemas(scope.projectId, context.lookup),
 		mutation,
 		projection,
