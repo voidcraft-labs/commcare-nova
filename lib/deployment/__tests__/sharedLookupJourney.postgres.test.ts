@@ -125,10 +125,14 @@ function appScope(appId: string) {
 async function publish(
 	appId: string,
 	target: typeof origin,
-	onUploadStarted?: () => void,
+	hooks: {
+		readonly afterHeadRead?: () => Promise<void>;
+		readonly onUploadStarted?: () => void;
+	} = {},
 ) {
 	const reloadHead = reloadHeadFor(appId, actorId);
 	const { doc, seq } = await reloadHead();
+	await hooks.afterHeadRead?.();
 	return publishFromSession({
 		...target,
 		scope: appScope(appId),
@@ -141,7 +145,7 @@ async function publish(
 			kind: "plan-feature",
 			subject,
 		})),
-		onUploadStarted,
+		onUploadStarted: hooks.onUploadStarted,
 	});
 }
 
@@ -357,24 +361,49 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 			return identities(held.source);
 		},
 	);
+	const publishedSource = await withTargetPeer(
+		targetPeer(origin.domain, remoteAppId),
+		async (peer) => {
+			peer.holdTables([nativeTable]);
+			peer.holdSource(reviewedSource);
+			const result = await publish(appId, origin);
+			if (!result.landed) throw new Error(JSON.stringify(result.refusal));
+			expect(result.hqAppAction).toBe("updated");
+			expect(result.sent.map((resource) => resource.kind)).toEqual(["app"]);
+			const held = peer.snapshot();
+			expect(held.tables).toEqual([nativeTable]);
+			expect(held.source?.langs).toEqual(["fra", "en"]);
+			if (!held.source) throw new Error("HQ needs the edited source.");
+			// HQ's source download remints form IDs. The application resource
+			// names the working form the publish must preserve.
+			expect(identities(held.source)).toEqual(
+				identities(body(retained.application)),
+			);
+			expect(identities(held.source)).not.toEqual(siblingIdentities);
+			expect(peer.unexpected).toEqual([]);
+			return held.source;
+		},
+	);
 	await withTargetPeer(targetPeer(origin.domain, remoteAppId), async (peer) => {
 		peer.holdTables([nativeTable]);
-		peer.holdSource(reviewedSource);
-		const result = await publish(appId, origin);
-		if (!result.landed) throw new Error(JSON.stringify(result.refusal));
-		expect(result.hqAppAction).toBe("updated");
-		expect(result.sent.map((resource) => resource.kind)).toEqual(["app"]);
-		const held = peer.snapshot();
-		expect(held.tables).toEqual([nativeTable]);
-		expect(held.source?.langs).toEqual(["fra", "en"]);
-		if (!held.source) throw new Error("HQ needs the edited source.");
-		// HQ's source download remints form IDs. The application resource
-		// names the working form the publish must preserve.
-		expect(identities(held.source)).toEqual(
-			identities(body(retained.application)),
-		);
-		expect(identities(held.source)).not.toEqual(siblingIdentities);
-		expect(peer.unexpected).toEqual([]);
+		peer.holdSource(publishedSource);
+		const started = vi.fn();
+		try {
+			await expect(
+				publish(appId, origin, {
+					afterHeadRead: () =>
+						h.seedProjectMember(actorId, projectId, "viewer"),
+					onUploadStarted: started,
+				}),
+			).rejects.toMatchObject({ code: "not_found" });
+			expect(started).not.toHaveBeenCalled();
+			expect(peer.requests.every(({ method }) => method === "GET")).toBe(true);
+			expect(peer.snapshot().tables).toEqual([nativeTable]);
+			expect(peer.snapshot().source).toEqual(publishedSource);
+			expect(peer.unexpected).toEqual([]);
+		} finally {
+			await h.seedProjectMember(actorId, projectId, "owner");
+		}
 	});
 	expect(await readTargetIdentity(appScope(appId), origin)).toEqual(
 		adoptedBefore,
@@ -415,7 +444,7 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 		// second project space still needs its own destination binding.
 		serveLookup(retained, `/a/${key.domain}`, answersFrom(peer, key.server));
 		const upload = vi.fn();
-		const refused = await publish(appId, overseas, upload);
+		const refused = await publish(appId, overseas, { onUploadStarted: upload });
 		if (refused.landed)
 			throw new Error("An incomplete destination accepted a direct publish.");
 		expect(refused.refusal).toMatchObject({

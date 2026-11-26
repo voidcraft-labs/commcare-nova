@@ -150,6 +150,8 @@ export interface HqAuthoredFacts {
 	 * writer writes into the document's `expected.json` and directory.
 	 */
 	readonly hand: string;
+	/** The worker journey installs the manual package from this base's saved edit. */
+	readonly editedImportFile?: true;
 }
 
 /** Independent compiler fuzz streams the corpus samples. */
