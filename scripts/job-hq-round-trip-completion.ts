@@ -34,7 +34,7 @@ runMain(async () => {
 			options.planGeneration,
 		);
 		const migration = await completionArtifacts(
-			"/app/step7-artifacts/manifest.json",
+			"/app/step7-artifacts/artifacts.json",
 			plan.conversionSettings,
 		);
 		if (migration.provenance !== plan.provenance)

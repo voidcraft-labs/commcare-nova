@@ -156,7 +156,7 @@ RUN npx esbuild scripts/job-hq-round-trip-completion.ts \
 FROM maintenance AS maintenance-step7
 COPY --from=maintenance-step7-build --chown=nextjs:nodejs /app/hq-round-trip-completion.cjs ./
 COPY --from=step7-artifacts --chown=nextjs:nodejs \
-    manifest.json reader.mjs converter.mjs ./step7-artifacts/
+    artifacts.json released.mjs convert.mjs ./step7-artifacts/
 
 # The registry seed is copied directly inside BuildKit into its writable cache
 # mount. It never passes through the build context or an application layer.
