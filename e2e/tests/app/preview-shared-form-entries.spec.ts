@@ -1,18 +1,71 @@
 import { Pool } from "pg";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openBuilder } from "../../lib/pageLoads";
+import { createSmokeContext } from "../../lib/smokeNetwork";
 
 test("a referral opens the shared questions and submits to the first chosen person", {
 	tag: "@seed:shared-form-entries",
-}, async ({ scenario, page }) => {
+}, async ({ scenario, page, browser, baseURL }) => {
 	const { appId, people, entryUuid, parentUuid } = seedFor(
 		scenario,
 		"shared-form-entries",
 	);
-	await openBuilder(page, `/build/${appId}/${entryUuid}`);
-	await page
-		.getByRole("button", { name: "Form settings", exact: true })
+	const parentRoute = `/build/${appId}/${parentUuid}`;
+	const sharedRoute = `/build/${appId}/${entryUuid}`;
+	const settingsButton = page.getByRole("button", {
+		name: "Form settings",
+		exact: true,
+	});
+	const settings = page
+		.getByRole("dialog")
+		.filter({ hasText: "Form settings" });
+	const rootInput = settings.getByRole("textbox", {
+		name: "Submitted answer root",
+	});
+	const root = "shared_visit";
+	await openBuilder(page, parentRoute);
+	await settingsButton.click();
+	await settings
+		.getByText("Submitted answer addresses", { exact: true })
 		.click();
+	await rootInput.fill(root);
+	const [savedRoot] = await Promise.all([
+		page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === `/api/apps/${appId}` &&
+				response.request().method() === "PUT" &&
+				response.request().postData()?.includes('"dataRootName"') === true,
+		),
+		rootInput.press("Enter"),
+	]);
+	expect(savedRoot.ok()).toBe(true);
+
+	await openBuilder(page, sharedRoute);
+	await settingsButton.click();
+	await expect(settings.getByText(root, { exact: true })).toBeVisible();
+	await expect(rootInput).toHaveCount(0);
+
+	const viewerContext = await createSmokeContext(browser, {
+		baseURL,
+		storageState: scenario.common.viewerStorageState,
+	});
+	try {
+		const viewer = await viewerContext.newPage();
+		await openBuilder(viewer, sharedRoute);
+		await viewer
+			.getByRole("button", { name: "Form settings", exact: true })
+			.click();
+		const viewerSettings = viewer
+			.getByRole("dialog")
+			.filter({ hasText: "Form settings" });
+		await expect(viewerSettings.getByText(root, { exact: true })).toBeVisible();
+		await expect(
+			viewerSettings.getByRole("textbox", { name: "Submitted answer root" }),
+		).toHaveCount(0);
+	} finally {
+		await viewerContext.close();
+	}
+
 	const finish = "Complete referral";
 	const label = page.getByRole("textbox", {
 		name: "Submit button in Web Apps",
@@ -58,6 +111,7 @@ test("a referral opens the shared questions and submits to the first chosen pers
 		await list.getByRole("button", { name: "Continue", exact: true }).click();
 	}
 	const value = "Follow up at home";
+	await expect(settingsButton).toHaveCount(0);
 	await main.getByRole("textbox", { name: "Visit note" }).fill(value);
 	await main.getByRole("button", { name: finish, exact: true }).click();
 	const connectionString = process.env.NOVA_DB_LOCAL_URL;

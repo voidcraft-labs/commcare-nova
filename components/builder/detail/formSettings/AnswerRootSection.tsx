@@ -12,9 +12,12 @@ import type { FormSettingsSectionProps } from "./types";
 export function AnswerRootSection({
 	formUuid,
 }: Pick<FormSettingsSectionProps, "formUuid">) {
-	const form = useForm(formUuid);
+	const entry = useForm(formUuid);
+	const sourceUuid = entry?.shadowOf?.form;
+	const source = useForm(sourceUuid);
+	const form = sourceUuid === undefined ? entry : source;
 	const { inline } = useBlueprintMutations();
-	const canEdit = useCanEdit();
+	const canEdit = useCanEdit() && sourceUuid === undefined;
 	const [message, setMessage] = useState<string | null>(null);
 	if (!form) return null;
 	return (
