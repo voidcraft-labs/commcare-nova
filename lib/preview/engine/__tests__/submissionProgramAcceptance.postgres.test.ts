@@ -230,7 +230,12 @@ describe("engine → builder → executor acceptance", () => {
 		const toggle = testUuid("datetime-external-id-toggle");
 		const seen = testUuid("datetime-external-id-seen");
 		const doc = buildDoc({
-			caseTypes: [{ name: "patient", properties: [] }],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
 			modules: [
 				{
 					name: "Patients",

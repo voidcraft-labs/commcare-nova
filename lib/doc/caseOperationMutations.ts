@@ -447,6 +447,10 @@ export function caseOperationChangesForUpdate(
 		if (prior.onlyIfChanged !== write.onlyIfChanged) {
 			writePatch.onlyIfChanged = write.onlyIfChanged ?? null;
 		}
+		if (prior.calendarDayInExternalId !== write.calendarDayInExternalId) {
+			writePatch.calendarDayInExternalId =
+				write.calendarDayInExternalId ?? null;
+		}
 		if (Object.keys(writePatch).length > 0) {
 			mutations.push(
 				operationMutation(formUuid, {
@@ -716,6 +720,11 @@ function rebaseCaseOperationEdit(
 		if (prior.onlyIfChanged !== write.onlyIfChanged) {
 			if (write.onlyIfChanged === undefined) delete currentWrite.onlyIfChanged;
 			else currentWrite.onlyIfChanged = write.onlyIfChanged;
+		}
+		if (prior.calendarDayInExternalId !== write.calendarDayInExternalId) {
+			if (write.calendarDayInExternalId === undefined)
+				delete currentWrite.calendarDayInExternalId;
+			else currentWrite.calendarDayInExternalId = write.calendarDayInExternalId;
 		}
 	}
 	applyDesiredOrder(rebasedWrites, base.writes, desired.writes, caseWriteIdOf);
