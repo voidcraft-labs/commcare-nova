@@ -11,6 +11,7 @@ import {
 	rebaseFormMediaLanguages,
 	rebaseNavigationMedia,
 } from "@/lib/domain/formMediaLanguages";
+import { DEFAULT_FORM_SUBMIT_LABEL } from "@/lib/domain/formSubmitLabel";
 import {
 	effectiveAppLocalization,
 	languageEntries,
@@ -441,8 +442,28 @@ export function rebaseSourceLanguage(
 		}
 		const write = sourceSlotWriter(unit);
 		const read = byLanguage.find(([language]) => language === target)?.[1];
-		const next = write === undefined || read === undefined ? unit.source : read;
-		if (write !== undefined && !deepEqual(next, unit.source))
+		const submitForm =
+			unit.role === "form-submit-label" && unit.owner.kind === "form"
+				? unit.owner.formUuid
+				: undefined;
+		const submitLabel =
+			submitForm === undefined ? undefined : doc.forms[submitForm]?.submitLabel;
+		const targetLabel = localization.translations[target]?.[unit.id]?.value;
+		const configuredTargetLabel =
+			typeof targetLabel === "string" ? targetLabel : undefined;
+		const next = submitLabel
+			? (configuredTargetLabel ?? DEFAULT_FORM_SUBMIT_LABEL)
+			: write === undefined || read === undefined
+				? unit.source
+				: read;
+		if (submitForm !== undefined && submitLabel) {
+			// Missing submit wording uses the native default independently in
+			// each language. Moving the source preserves presence as well as text.
+			draft.forms[submitForm].submitLabel =
+				configuredTargetLabel === undefined
+					? {}
+					: { text: configuredTargetLabel };
+		} else if (write !== undefined && !deepEqual(next, unit.source))
 			write(draft, next);
 		const sourceFingerprint = translationSourceFingerprint(
 			unit.valueKind,
@@ -452,6 +473,11 @@ export function rebaseSourceLanguage(
 			const into = translations[language];
 			if (into === undefined) continue;
 			const held = localization.translations[language]?.[unit.id];
+			const configuredLabel =
+				language === localization.sourceLanguage
+					? submitLabel?.text
+					: held?.value;
+			if (submitLabel && typeof configuredLabel !== "string") continue;
 			if (mode === "saved-document" && held !== undefined) {
 				if (translationIsOutOfDate(held, unit)) {
 					const { workerFallback: _oldFallback, ...saved } = held;
@@ -482,9 +508,12 @@ export function rebaseSourceLanguage(
 					continue;
 				}
 			}
-			if (deepEqual(value, next)) continue;
+			if (!submitLabel && deepEqual(value, next)) continue;
 			into[unit.id] = {
-				value,
+				value:
+					submitLabel && typeof configuredLabel === "string"
+						? configuredLabel
+						: value,
 				sourceFingerprint,
 				origin: "human",
 				review: "reviewed",
