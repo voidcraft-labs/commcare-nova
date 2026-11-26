@@ -815,6 +815,14 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 						),
 						slot.slot,
 					);
+					if (field.optionsSource.sortProperty !== undefined)
+						sink.edge(
+							casePropertyTargetKey(
+								field.optionsSource.caseType,
+								field.optionsSource.sortProperty,
+							),
+							slot.slot,
+						);
 				}
 				break;
 			// No field slot names a case property: what a field saves to is

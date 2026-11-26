@@ -82,13 +82,14 @@ export function rewriteFieldReferenceSlots(
 					field.optionsSource.kind === "cases"
 				) {
 					const source = field.optionsSource;
-					const next = ops.resolveCaseProperty(
-						source.caseType,
-						source.labelProperty,
-					);
-					if (next !== undefined && next !== source.labelProperty) {
-						source.labelProperty = next;
-						changed++;
+					for (const key of ["labelProperty", "sortProperty"] as const) {
+						const property = source[key];
+						if (property === undefined) continue;
+						const next = ops.resolveCaseProperty(source.caseType, property);
+						if (next !== undefined && next !== property) {
+							source[key] = next;
+							changed++;
+						}
 					}
 				}
 				break;

@@ -16,6 +16,11 @@ export const caseOptionsSourceSchema = z.strictObject({
 	labelProperty: authoredCasePropertyNameSchema.describe(
 		"Property name must use Nova's canonical case-property vocabulary.",
 	),
+	sortProperty: authoredCasePropertyNameSchema
+		.optional()
+		.describe(
+			"Order choices by this record property's text. Omit to keep the device's record order.",
+		),
 	filter: conditionSchema.optional(),
 });
 export type CaseOptionsSource = z.infer<typeof caseOptionsSourceSchema>;

@@ -6909,17 +6909,32 @@ export class FormEngine {
 		ids: readonly string[],
 	): readonly LookupChoice[] {
 		const labelPath = emitCasePropertyWirePath(source.labelProperty);
-		return ids.map((value) => {
+		const sortPath =
+			source.sortProperty === undefined
+				? undefined
+				: emitCasePropertyWirePath(source.sortProperty);
+		const choices = ids.map((value) => {
 			const node = this.choiceCaseNodes.get(value);
 			if (!node)
 				throw new Error(
 					`Case choice ${value} is missing from the captured case database.`,
 				);
-			const label = labelPath.startsWith("@")
-				? node.attributes(labelPath.slice(1))[0]
-				: node.children(labelPath)[0];
-			return { key: value, value, label: xpathToString(label?.value() ?? "") };
+			const readText = (path: string) => {
+				const leaf = path.startsWith("@")
+					? node.attributes(path.slice(1))[0]
+					: node.children(path)[0];
+				return xpathToString(leaf?.value() ?? "");
+			};
+			return {
+				choice: { key: value, value, label: readText(labelPath) },
+				sortText: sortPath === undefined ? "" : readText(sortPath),
+			};
 		});
+		if (sortPath !== undefined)
+			choices.sort((a, b) =>
+				a.sortText < b.sortText ? -1 : a.sortText > b.sortText ? 1 : 0,
+			);
+		return choices.map(({ choice }) => choice);
 	}
 
 	private computeCaseChoices(

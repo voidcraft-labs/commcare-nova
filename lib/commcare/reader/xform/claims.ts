@@ -830,8 +830,7 @@ export const X = {
 		},
 	),
 	itemsetCopy: one("refuse", Q("itemset-copy"), "xform:select1/itemset/copy"),
-	/** The `<sort>` of a lookup itemset and its `ref`, a column of the table
-	 *  (`options.ts::readItemset`). */
+	/** The `<sort>` of an itemset and its `ref`, a table column or case property. */
 	itemsetSort: one(
 		"take",
 		Q("itemset-sort-ref"),

@@ -1740,6 +1740,19 @@ function buildFieldParts(
 				context,
 			),
 			xel("value", { xpath: { ref: w.context([w.attr("case_id")]) } }, context),
+			...(caseSource.sortProperty === undefined
+				? []
+				: [
+						xel(
+							"sort",
+							{
+								xpath: {
+									ref: w.context([casePropertyStep(caseSource.sortProperty)]),
+								},
+							},
+							context,
+						),
+					]),
 		]);
 	}
 	const itemset =

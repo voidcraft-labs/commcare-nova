@@ -551,6 +551,18 @@ final class Forms {
     private static JSONObject control(QuestionWidget widget) throws Exception {
         JSONObject shown = new JSONObject();
         shown.put("visible", widget.getVisibility() == View.VISIBLE);
+        FormEntryPrompt prompt = widget.getPrompt();
+        if (prompt.getQuestion().getDynamicChoices() != null) {
+            JSONArray choices = new JSONArray();
+            var offered = prompt.getOldSelectChoices();
+            if (offered != null) {
+                for (var choice : offered) {
+                    choices.put(new JSONObject().put("value", choice.getValue())
+                            .put("label", prompt.getSelectChoiceText(choice)).put("index", choice.getIndex()));
+                }
+            }
+            shown.put("choices", choices);
+        }
         if (widget instanceof org.commcare.views.widgets.StringWidget) {
             android.widget.EditText input = box((org.commcare.views.widgets.StringWidget)widget);
             shown.put("masked", input.getTransformationMethod() instanceof android.text.method.PasswordTransformationMethod);

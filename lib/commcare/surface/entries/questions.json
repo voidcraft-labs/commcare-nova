@@ -3036,7 +3036,7 @@
 		"item": "itemset `<sort ref>`",
 		"surfaceKeys": ["vellum-feature:sorted_itemsets"],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource.sortColumnId` on a lookup source; absent keeps the table's row order",
+		"dispositionCell": "**HELD**: `sortColumnId` for table choices or `sortProperty` for case choices. Omit to keep the source row order",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

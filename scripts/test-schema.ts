@@ -290,7 +290,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setFieldOptionsSourceTool.description,
 		schema: setFieldOptionsSourceTool.inputSchema,
 		prompt:
-			'Use setFieldOptionsSource for the field patient in the form "Follow-up visit" in the module "Patients". Offer patient records, label each with case_name, and filter with the authored condition "#case/active = true()", with an inline choice whose label shows exactly as typed.',
+			'Use setFieldOptionsSource for the field patient in the form "Follow-up visit" in the module "Patients". Offer patient records, label each with case_name, order them by case_name with sortProperty, and filter with the authored condition "#case/active = true()", with an inline choice whose label shows exactly as typed.',
 	},
 	{
 		name: "updateModule",
