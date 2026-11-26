@@ -522,7 +522,7 @@ describe("a review of changes made in CommCare HQ", () => {
 				},
 				HEAD.domain,
 			),
-		).toBeNull();
+		).toEqual({ from: 0, restarted: true });
 	});
 
 	it("says nothing would be removed where Nova's list is empty, and names no one", () => {
