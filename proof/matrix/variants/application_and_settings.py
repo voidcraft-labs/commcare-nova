@@ -135,6 +135,50 @@ def translation_overrides_a_lookup_heading(authoring, app_id):
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Match score"
 
 
+def upload_commcare_translation(state, app_id, key, value, *, language="en"):
+    """Edit HQ's own Bulk CommCare Translations workbook and upload it through HQ's save view."""
+    import io
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
+    from django.urls import resolve, reverse
+    from openpyxl import load_workbook
+
+    from proof.hq import requests
+
+    def downloadable():
+        path = reverse("download_bulk_ui_translations", args=[state.domain, app_id])
+        view = resolve(path)
+        with requests.held_get(state, path) as request:
+            response = view.func(request, *view.args, **view.kwargs)
+            assert response.status_code == 200, response.status_code
+            content = b"".join(response.streaming_content) if response.streaming else response.content
+        return load_workbook(io.BytesIO(content))
+
+    download = downloadable()
+    sheet = download["translations"]
+    languages = [cell.value for cell in sheet[1]]
+    column = languages.index(language) + 1
+    row = next((cell.row for cell in sheet["A"] if cell.value == key), sheet.max_row + 1)
+    sheet.cell(row, 1, key)
+    sheet.cell(row, column, value)
+    output = io.BytesIO()
+    download.save(output)
+    path = reverse("upload_bulk_ui_translations", args=[state.domain, app_id])
+    body = encode_multipart(
+        BOUNDARY, {"bulk_upload_file": SimpleUploadedFile("translations.xlsx", output.getvalue())},
+    )
+    view = resolve(path)
+    request = requests.raw_post(state, path, body, MULTIPART_CONTENT)
+    response = view.func(request, *view.args, **view.kwargs)
+    assert response.status_code == 302, response.status_code
+    messages = requests.messages(request)
+    after = downloadable()["translations"]
+    [recorded] = [row[column - 1].value for row in after.iter_rows() if row[0].value == key]
+    assert recorded == value, messages
+    return messages
+
+
 def translation_overrides_a_search_group_heading(authoring, app_id):
     """A grouped Search heading has native generated wording of its own."""
     from lxml import etree
@@ -149,9 +193,8 @@ def translation_overrides_a_search_group_heading(authoring, app_id):
         app = operations.held_app(authoring.state, app_id)
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Local details"
         assert etree.fromstring(app.create_suite()).xpath(f"//group/display/text/locale[@id='{key}']")
-    translations = dict(app.translations)
-    translations["en"] = {**translations.get("en", {}), key: "Find a client"}
-    ops.set_json(authoring, app_id, "/translations", translations)
+    with authoring.step("variant:upload-search-group-heading"):
+        upload_commcare_translation(authoring.state, app_id, key, "Find a client")
     with authoring.step("variant:overridden-search-group-heading"):
         app = operations.held_app(authoring.state, app_id)
         assert app.get_module(0).search_config.properties[0].label["en"] == "Local details"
