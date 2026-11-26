@@ -10,6 +10,7 @@ from lxml import etree
 from proof.android import observe
 from proof.formplayer import apps
 from proof.formplayer import hq as hq_forms
+from proof.formplayer.receiving_answers import with_submitted_answer
 from proof.observe.record import Blobs
 
 pytestmark = pytest.mark.reader("android")
@@ -52,3 +53,25 @@ def test_android_keeps_the_answer_and_processes_the_household(android_documents,
     hq_root = etree.fromstring(kept["form"]["xml"].encode())
     assert {k: hq_root.findtext("{*}visit/{*}" + k) for k in expected} == expected
     assert kept["cases"] == {case.get("case_id"): {"name": "Chen", "type": "household", "forms": [kept["instanceID"]]}}
+
+
+@pytest.mark.parametrize("name", ["case", "Case"])
+def test_android_cannot_submit_the_ordinary_case_answer(android_documents, hq, core_runner, name):
+    """HQ can release this form. Android's local case processor refuses its ordinary text before it sends a form."""
+    document = android_documents["targeted-receiving-answers"]
+    with apps.published(document, core_runner, "maximum") as published:
+        change = apps.form_written(published, {"0.0": lambda source: with_submitted_answer(source, name)})
+        with hq_forms.serve(published.unit, document, published.app_id, change=change) as served:
+            blobs, sent = Blobs(), []
+            report = observe.app(
+                served, blobs, label=f"ordinary-{name}", archive=observe.release_archive(served),
+                commands=["m0-f0"], questions={"/data/visit/case_note": ["Chen"], f"/data/visit/{name}": ["Ordinary answer"]},
+                views=True, sent=sent,
+            )
+            walk = blobs.get_json(report["answer"])["walks"]["m0-f0"]
+    form, = [step["form"] for step in walk["steps"] if "form" in step and step["screen"] == "FormEntryActivity"]
+    saved = form["saved"]
+    assert saved["finishing"] is False and saved["casesAsTheFormOpened"] is True, saved
+    assert (saved.get("alert") or {}).get("title") == "Error Saving your Form", saved
+    assert any(record["status"] == "limbo" for record in saved["records"]), saved
+    assert sent == []
