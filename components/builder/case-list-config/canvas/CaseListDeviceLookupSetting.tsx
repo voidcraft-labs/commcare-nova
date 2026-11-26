@@ -103,7 +103,7 @@ export function CaseListDeviceLookupSetting({
 						});
 						if (!parsed.success) {
 							setError(
-								"Add an action and a label. Give each sent value and each response its own name.",
+								"Add an action and a lookup name. Give each sent value and each response its own name.",
 							);
 							return;
 						}
@@ -116,7 +116,7 @@ export function CaseListDeviceLookupSetting({
 						onChange={(action) => setDraft({ ...draft, action })}
 					/>
 					<LookupInput
-						label="Button label"
+						label="Lookup name"
 						value={draft.label}
 						onChange={(label) => setDraft({ ...draft, label })}
 					/>
