@@ -2571,6 +2571,40 @@ function identitiesByListOrder(
 	return renamed;
 }
 
+/** Named Results assignments follow the short fields. Details cells follow
+ * the long fields, which a join can attach to a different short field. */
+function remappedCaseTileRefs(
+	config: Pick<CaseListConfig, "tile" | "detailTile">,
+	short: (uuid: Uuid) => Uuid,
+	long: (uuid: Uuid) => Uuid,
+): Pick<CaseListConfig, "tile" | "detailTile"> {
+	const tile = config.tile;
+	const detailTile = config.detailTile;
+	return {
+		...(tile?.namedSlots !== undefined && {
+			tile: {
+				...tile,
+				namedSlots: recordFromEntries(
+					Object.entries(tile.namedSlots).map(([slot, uuid]) => [
+						slot,
+						short(uuid),
+					]),
+				) as NonNullable<typeof tile.namedSlots>,
+			},
+		}),
+		...(detailTile !== undefined && {
+			detailTile: {
+				cells: recordFromEntries(
+					Object.entries(detailTile.cells).map(([uuid, cell]) => [
+						long(uuid as Uuid),
+						cell,
+					]),
+				),
+			},
+		}),
+	};
+}
+
 /** `config`'s columns renamed by `renamed` in the draft, in both orders and with the
  *  translations each one's print holds. */
 function renameColumns(
@@ -2580,6 +2614,7 @@ function renameColumns(
 ): void {
 	if (renamed.size === 0) return;
 	const rename = (uuid: Uuid) => renamed.get(uuid) ?? uuid;
+	Object.assign(config, remappedCaseTileRefs(config, rename, rename));
 	for (const column of config.columns) column.uuid = rename(column.uuid);
 	config.listColumnOrder = config.listColumnOrder.map(rename);
 	config.detailColumnOrder = config.detailColumnOrder.map(rename);
@@ -2895,6 +2930,7 @@ export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
 				? at(shortAt.get(joined) ?? -1)
 				: at(longAt.get(uuid) ?? -1);
 		});
+		const newLong = new Map(long.map((uuid, index) => [uuid, onDetail[index]]));
 		const detail = [
 			...onDetail,
 			...list.filter((uuid) => !onDetail.includes(uuid)),
@@ -2902,6 +2938,14 @@ export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
 		next.set(moduleUuid, {
 			config: {
 				...config,
+				...remappedCaseTileRefs(
+					config,
+					(uuid) => {
+						const index = shortAt.get(uuid);
+						return index === undefined ? uuid : at(index);
+					},
+					(uuid) => newLong.get(uuid) ?? uuid,
+				),
 				columns: [...named, ...rest.map(column)],
 				listColumnOrder: list,
 				detailColumnOrder: detail,
