@@ -8,6 +8,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id": "patient-example"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/note",
@@ -22,5 +27,31 @@
 				"value": "Routine home visit"
 			}
 		]
+	},
+	{
+		"id": "published-related-column-title",
+		"entry": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "patient-example"
+			},
+			{
+				"pointer": "/caseList/headers/1",
+				"value": "Parent village"
+			}
+		],
+		"exports": ["local"]
 	}
 ]
