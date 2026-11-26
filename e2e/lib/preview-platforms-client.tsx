@@ -106,6 +106,18 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 						id: "address",
 						label: "Private meeting place",
 						addressLookup: true,
+						sendTopics: ["meeting-location"],
+					},
+					{
+						kind: "text",
+						id: "city",
+						label: "Meeting city",
+						receiveFrom: { channel: "meeting-location", field: "city" },
+					},
+					{
+						kind: "hidden",
+						id: "recorded_city",
+						calculate: "/data/questions/city",
 					},
 					{
 						kind: "text",
