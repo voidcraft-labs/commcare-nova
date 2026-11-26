@@ -8,6 +8,7 @@ import {
 	readHttpRequestBody,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { applicationAnswer } from "@/__tests__/helpers/retainedHqReads";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -83,16 +84,15 @@ const INPUT = {
 	entry_point_uuid: ENTRY,
 	selections: [{ module_uuid: MODULE, case_ids: ["hq-b /?", "hq-a"] }],
 };
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.hq.write"],
 ) {
-	return withMcpClient(
-		(server) =>
-			registerGetEntryPointLink(server, { userId, scopes, authKind: "oauth" }),
-		run,
-	);
+	const ctx = await installationCredential(h.db(), userId, [
+		...new Set([...scopes, "nova.read", "nova.write"]),
+	]);
+	return withMcpClient((server) => registerGetEntryPointLink(server, ctx), run);
 }
 async function call(client: Client, args: Record<string, unknown> = INPUT) {
 	return client.callTool({ name: "get_entry_point_link", arguments: args });

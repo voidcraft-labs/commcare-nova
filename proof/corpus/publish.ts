@@ -1,3 +1,4 @@
+import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 /**
  * What Nova's publish sends CommCare HQ for one corpus document, captured
  * from Nova's own client.
@@ -183,6 +184,7 @@ import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
 	type ColumnFieldWordRow,
 	DERIVED_WIRE_IDENTITY,
+	type ProjectSearchBinding,
 	targetWireIdentity,
 	type WireIdentity,
 	type WireIdentityOverride,
@@ -504,6 +506,7 @@ export interface NovaPublishVerdict {
 		readonly flags: readonly VerdictFlag[];
 		/** The flags the capability needs off, by symbol, sorted; absent where none is. */
 		readonly flagsOff?: readonly string[];
+		readonly flagsAny?: readonly string[];
 		readonly runtimeProbes: readonly string[];
 	}[];
 	readonly advisories: readonly {
@@ -531,6 +534,7 @@ export interface NovaPublishVerdict {
 		 * (a capability's `featureFlagsOff`); absent where none is.
 		 */
 		readonly flagsOff?: readonly string[];
+		readonly flagsAny?: readonly (readonly string[])[];
 	};
 	/**
 	 * The `corehq/privileges.py` constants of the plan privileges Nova's
@@ -688,16 +692,23 @@ export function novaPublishVerdict(
 	const confirmations = confirmationKinds(doc, source);
 	const capabilities = plan.capabilities.map((item) => {
 		const off = flagsOffSymbols(item.featureFlagsOff);
+		const any = verdictFlags(item.featureFlagsAny ?? []).map(
+			({ symbol }) => symbol,
+		);
 		return {
 			id: item.capability.id,
 			flags: verdictFlags(item.featureFlags),
 			...(off.length > 0 && { flagsOff: off }),
+			...(any.length > 0 && { flagsAny: any }),
 			runtimeProbes: [...item.runtimeProbes],
 		};
 	});
 	const flagsOff = [
 		...new Set(capabilities.flatMap((item) => item.flagsOff ?? [])),
 	].sort();
+	const flagsAny = capabilities.flatMap((item) =>
+		item.flagsAny ? [item.flagsAny] : [],
+	);
 	return {
 		capabilities,
 		advisories: plan.advisories.map((item) => ({
@@ -720,6 +731,7 @@ export function novaPublishVerdict(
 				commtrackEnabled: false as const,
 			}),
 			...(flagsOff.length > 0 && { flagsOff }),
+			...(flagsAny.length > 0 && { flagsAny }),
 		},
 		planPrivileges: planPrivileges(doc, source),
 	};
@@ -747,9 +759,21 @@ export function minimumConfiguration(
 			`Nova's publish requires ${both.join(", ")} on for one of these documents and off for another, so no project space takes them all; publish them to separate project spaces.`,
 		);
 	}
+	const selected = new Set(flags);
+	for (const alternatives of verdicts.flatMap(
+		(v) => v.minimumConfiguration.flagsAny ?? [],
+	)) {
+		if (alternatives.some((flag) => selected.has(flag))) continue;
+		const allowed = alternatives.find((flag) => !off.has(flag));
+		if (allowed === undefined)
+			throw new Error(
+				`Nova's publish needs at least one of ${alternatives.join(", ")} on and this set of apps requires them all off.`,
+			);
+		selected.add(allowed);
+	}
 	return {
 		id: "minimum",
-		flags,
+		flags: [...selected].sort(),
 		caseSearchEnabled: verdicts.some(
 			(v) => v.minimumConfiguration.caseSearchEnabled,
 		),
@@ -2732,6 +2756,8 @@ export interface BringInRecord {
 	readonly review: HqChangesReview;
 	/** Exact places in the current reading when the review newly lists the removal of unshown form media. */
 	readonly unshownMediaPlaces?: readonly string[];
+	/** Exact columns in the current reading with legacy related text whose generated keys change. */
+	readonly legacyRelatedCaseTextPlaces?: readonly string[];
 	/** `brought-in`: the change was committed; `recorded`: nothing in the app changed. */
 	readonly taken: "brought-in" | "recorded";
 	/** Whether the bring-in removed changes made in Nova (the plan applied to the published document). */
@@ -2968,6 +2994,9 @@ async function reviewOverPeer(input: {
 			`A review of ${prepared.source.id} could not read the app's source from the capture peer (${JSON.stringify(read)}).`,
 		);
 	}
+	const hqVersion = peer.saveCounter();
+	if (hqVersion === null)
+		throw new Error("The reviewed app is missing from the capture peer.");
 	const source = read.source;
 	const remoteRevision = peer.saveCounter();
 	if (remoteRevision === null)
@@ -3035,6 +3064,7 @@ async function reviewOverPeer(input: {
 		target,
 		readingId: CAPTURE_READING_ID,
 		deployment: CAPTURE_DEPLOYMENT,
+		workingVersion: remoteRevision,
 		live,
 		baseline,
 		since,
@@ -3150,7 +3180,7 @@ async function reviewOverPeer(input: {
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		reference,
-		overrides: input.targetIdentity.entities,
+		targetIdentity: input.targetIdentity,
 		media: { published, base: null, now: null },
 	});
 	if (first.kind === "no-base") {
@@ -3686,6 +3716,14 @@ async function bringInOverPeer(input: {
 					["unshown-form-media-removed"],
 				)[0].places,
 			}),
+			...(checked?.plan.publishChanges.includes(
+				"legacy-related-case-text-rekeyed",
+			) && {
+				legacyRelatedCaseTextPlaces: firstPublishChangePlaces(
+					checked.declaration.firstPublishFacts,
+					["legacy-related-case-text-rekeyed"],
+				)[0].places,
+			}),
 			taken: committed ? "brought-in" : "recorded",
 			discarded:
 				plan !== null &&
@@ -3758,6 +3796,8 @@ export interface HqAuthoredA {
 	readonly mediaPaths: ReadonlyMap<string, string>;
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 }
 
 /** The held paths an export boundary takes for `mediaPaths`: each without `jr://file/`. */
@@ -4101,7 +4141,12 @@ async function adoptedA(
 			},
 		),
 		target: { server: PROOF_SERVER, domain: peer.state.domain },
-		identity: targetWireIdentity(adopted.identity, adopted.columnWords),
+		identity: targetWireIdentity(
+			adopted.identity,
+			adopted.columnWords,
+			adopted.projectSearches,
+			adopted.installationProfiles,
+		),
 		novaRevision: prepared.source.compiledAtSeq,
 		mediaFiles,
 		observedAt: CAPTURE_OBSERVED_AT,
@@ -4206,7 +4251,12 @@ export async function capturePublish(
 	const adoptedIdentity: WireIdentity =
 		adopted === undefined
 			? DERIVED_WIRE_IDENTITY
-			: targetWireIdentity(adopted.identity, adopted.columnWords);
+			: targetWireIdentity(
+					adopted.identity,
+					adopted.columnWords,
+					adopted.projectSearches,
+					adopted.installationProfiles,
+				);
 	const heldMediaPaths =
 		adopted === undefined ? undefined : heldMediaPathsOf(adopted.mediaPaths);
 	const keyedCaseIds = adopted?.keyedCaseIds ?? [];
@@ -4222,6 +4272,10 @@ export async function capturePublish(
 						([assetId, wirePath]) => ({ assetId, wirePath }),
 					),
 					columnWords: adopted.columnWords,
+					...(adopted.projectSearches?.length && {
+						projectSearches: adopted.projectSearches,
+					}),
+					installationProfiles: adopted.installationProfiles,
 				});
 	const languageNames: LanguageNames =
 		adopted === undefined ? "nova" : "target";
@@ -4654,7 +4708,12 @@ export async function localCcz(
 		readonly targetIdentity?: TargetIdentity;
 		readonly adopted?: Pick<
 			HqAuthoredA,
-			"identity" | "mediaPaths" | "keyedCaseIds" | "columnWords"
+			| "identity"
+			| "mediaPaths"
+			| "keyedCaseIds"
+			| "columnWords"
+			| "projectSearches"
+			| "installationProfiles"
 		>;
 	} = {},
 ): Promise<Buffer | LocalCczRefused | null> {
@@ -4710,7 +4769,14 @@ export async function localCcz(
 				{ server: target.server, domain: target.domain, appId: target.hqAppId },
 				adopted === undefined
 					? exported.identity
-					: targetWireIdentity(adopted.identity, adopted.columnWords),
+					: targetWireIdentity(
+							adopted.identity,
+							adopted.columnWords,
+							options.targetIdentity
+								? record.projectSearches
+								: adopted.projectSearches,
+							adopted.installationProfiles,
+						),
 				{
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,
@@ -4742,6 +4808,7 @@ export async function localCcz(
 export async function importFile(
 	source: PublishDocument,
 	domain: string,
+	projectSearches: readonly ProjectSearchBinding[],
 ): Promise<Buffer> {
 	const choice = chooseDownloadTarget(
 		[
@@ -4769,6 +4836,7 @@ export async function importFile(
 		managedLookupWorkbooks,
 	} = prepared;
 	const hqJson = expandDoc(doc, {
+		identity: targetWireIdentity([], [], projectSearches),
 		attachmentTarget: prepared.attachmentTarget,
 		...(assets.size > 0 && { assets }),
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),

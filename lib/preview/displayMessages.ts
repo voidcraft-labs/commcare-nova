@@ -52,7 +52,7 @@ function receivedChoice(
 			? field.optionsSource.options.map((option) => ({
 					label:
 						state.resolvedOptionLabels?.[option.uuid] ??
-						proseTemplateText(option.label),
+						proseTemplateText(option.extended_text ?? option.label),
 					value: option.value,
 				}))
 			: (state.choices ?? []);

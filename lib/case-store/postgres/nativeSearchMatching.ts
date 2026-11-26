@@ -1,5 +1,8 @@
 import { type RawBuilder, sql } from "kysely";
-import type { CaseSearchCriterion } from "../searchRequest";
+import {
+	type CaseSearchCriterion,
+	CaseSearchUnavailableError,
+} from "../searchRequest";
 import type { PredicateCompileContext } from "../sql";
 import {
 	certifiedFuzzyMatch,
@@ -55,6 +58,51 @@ export function missingNativeProperty(key: string): Truth {
 		default:
 			return sql`coalesce(c.properties ->> ${key}, '') = ''`;
 	}
+}
+
+// HQ limits each set of matching parents before it follows their reverse links.
+const MAX_RELATED_CASES = 500_000;
+
+export async function checkDirectParentLookupLimit(
+	criterion: Extract<CaseSearchCriterion, { kind: "native" }>,
+	ctx: PredicateCompileContext,
+): Promise<void> {
+	const { target, values, field } = criterion.parameter;
+	if (!criterion.parameter.directParentPrompt || target.kind !== "property")
+		return;
+	const terms = values.filter((value) => value !== "");
+	const groups =
+		values.includes("") && terms.length > 0 ? [terms, [""]] : [values];
+	for (const group of groups) {
+		const value = sql`parent.properties ->> ${target.property}`;
+		const match = propertyMatches(value, group, false, ctx);
+		const result = await sql<{ exceeded: boolean }>`select exists (
+			select 1 from cases as parent
+			where parent.app_id = ${ctx.appId} and parent.project_id = ${ctx.projectId} and ${match}
+			offset ${MAX_RELATED_CASES} limit 1
+		) as exceeded`.execute(ctx.db);
+		if (result.rows[0]?.exceeded)
+			throw new CaseSearchUnavailableError({
+				kind: "parent-lookup-limit",
+				field,
+			});
+	}
+}
+
+/** Look for an unresolved edge on this candidate without reading the target
+ * outside the app and Project. A record without an edge is a known miss. */
+function unresolvedDirectParent(ctx: PredicateCompileContext) {
+	return sql<boolean>`exists (
+		select 1 from case_indices as edge
+		where edge.case_id = ${sql.ref(`${ctx.anchorAlias}.case_id`)}
+			and edge.depth = 1 and edge.identifier = 'parent'
+			and edge.ancestor_id <> ''
+			and not exists (
+				select 1 from cases as parent
+				where parent.case_id = edge.ancestor_id
+					and parent.app_id = ${ctx.appId} and parent.project_id = ${ctx.projectId}
+			)
+	)`;
 }
 
 export function nativeSearchTruth(
@@ -158,7 +206,10 @@ export function nativeSearchTruth(
 						);
 			// The native ancestor query looks up matching parents and then follows
 			// their reverse links. A record with no such ancestor never qualifies.
-			return sql`(select case when bool_or(accepted) then true when bool_or(accepted is null) then null else false end
+			const unresolved = criterion.parameter.directParentPrompt
+				? unresolvedDirectParent(ctx)
+				: sql`false`;
+			return sql`(select case when bool_or(accepted) then true when ${unresolved} or bool_or(accepted is null) then null else false end
 				from (select ${match} as accepted from ${path.buildLeafSubquery()}
 					where ${read(path.leafAlias, "anchor_case_id")} = ${read(ctx.anchorAlias, "case_id")}) as parents)`;
 		}

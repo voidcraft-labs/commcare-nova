@@ -348,6 +348,7 @@ export const MEDIA_REFERENCE_PATHS: readonly string[] = [
 	"/modules/*/forms/*/media_image/*",
 	"/modules/*/forms/*/media_audio/*",
 	"/modules/*/case_details/*/columns/*/enum/*/value/*",
+	"/modules/*/case_details/short/lookup_image",
 	"/logo_refs/*",
 ];
 
@@ -487,6 +488,8 @@ export const RESPELLED_FORM_PARTS = [
 
 /** A Search field's keys a reading takes as spelled another way (`search/prompts.ts`). */
 const SEARCH_FIELD_RESPELLED_KEYS: readonly string[] = [
+	"name",
+	"group_key",
 	"label",
 	"hint",
 	"receiver_expression",
@@ -1082,7 +1085,7 @@ function unshownMediaPlaces(facts: FirstPublishFacts): string[] {
 		const position = `${place.menu}.${place.form}` as const;
 		const places = [
 			nodePlace(position, `/data/${place.path}`) +
-				placeOf(":itext", ref.role, ref.languageCode, ref.mediaKind),
+				placeOf(":itext", ...ref.role, ref.languageCode, ref.form),
 		];
 		if (!retained.has(ref.path))
 			places.push(placeOf("app", "multimedia_map", ref.path));
@@ -1457,6 +1460,17 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/modules/*/search_config/default_properties"],
 	},
+	"search-order-direction-signs-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("search-order-direction-signs-respelled"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "search-order-direction-signs-respelled"),
+		},
+		paths: ["/modules/*/search_config/default_properties/*/defaultValue"],
+	},
 	/**
 	 * A sort rule over a property the list doesn't show, written as a hidden
 	 * column, recorded by `caseList/order.ts` where a sort element names a
@@ -1478,6 +1492,23 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/short/columns",
 			"/modules/*/case_details/short/sort_elements/*/field",
 			"/modules/*/case_details/short/sort_elements/*/display",
+		],
+	},
+	/** HQ accepts stored legacy related-property text, and its editor keeps
+	 * Translatable Text only on calculated columns. The worker's text and
+	 * ordering are the same with the calculation's generated keys. */
+	"legacy-related-case-text-rekeyed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("legacy-related-case-text-rekeyed"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "legacy-related-case-text-rekeyed"),
+		},
+		paths: [
+			"/modules/*/case_details/short/columns/*",
+			"/modules/*/case_details/long/columns/*",
 		],
 	},
 	/**
@@ -1525,6 +1556,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/*/columns/*/enum/*/value",
 			"/modules/*/case_details/*/no_items_text",
 			"/modules/*/case_details/*/select_text",
+			"/modules/*/case_details/short/lookup_field_header",
 			"/modules/*/search_config/search_button_label",
 			"/modules/*/case_details/*/columns/*/enum/*/alt_text",
 		],
@@ -2691,7 +2723,7 @@ function mediaSubjects(
 		} else subjects.set(base, place);
 	};
 	for (const ref of facts.facts.unheldMedia)
-		add("unshown-form-media-removed", ref, ref.mediaKind);
+		add("unshown-form-media-removed", ref, ref.form);
 	for (const claim of facts.mediaClaims)
 		add(
 			claim.brokenPicture

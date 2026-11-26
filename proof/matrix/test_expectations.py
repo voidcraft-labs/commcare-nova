@@ -83,9 +83,8 @@ def _held_entries():
 # The last step of a trace path that names a media reference Core read for a screen (a question's, a choice's or a
 # menu entry's picture, sound or video), not a value.
 MEDIA_REFERENCES = frozenset({"image", "audio", "video"})
-# The step of a trace path above a value a search sent HQ: one of its ``_xpath_query`` values, on the search's step
-# or one of its requests (``proof/checks/compare/trace.py::queries_as_multisets``).
-SEARCH_QUERY = "_xpath_query"
+# Trace paths to query and order values sent to HQ, on the Search step or its request.
+SEARCH_REQUEST_PARAMS = frozenset({"_xpath_query", "commcare_sort"})
 # The last step of a trace path that names how many cases HQ's search view answered one of a search's requests with
 # (``.../requests/*/answered``, ``ProofSessionUtils.java``'s count of HQ's answer).
 SEARCH_ANSWER = ("requests", "*", "answered")
@@ -161,11 +160,17 @@ def _shows_a_value(row):
     if _native_screen_only(row):
         return False
     steps = row.get("path", "").split("/")
+    search_request_parameter = (
+        steps[1:5] == ["runs", "*", "trace", "*"]
+        and steps[5:-2] in (["params"], ["requests", "*", "params"])
+        and steps[-2] in SEARCH_REQUEST_PARAMS
+        and steps[-1] == "*"
+    )
     return (
         row.get("check") == "proof3"
         and steps[-1] not in MEDIA_REFERENCES
         and tuple(steps[-len(FORM_TITLE) :]) != FORM_TITLE
-        and SEARCH_QUERY not in steps[-2:]
+        and not search_request_parameter
         and tuple(steps[-len(SEARCH_ANSWER) :]) != SEARCH_ANSWER
         and not (steps[1:5] == ["runs", "*", "trace", "*"] and len(steps) > 5 and steps[5] in SCREEN_ONLY)
     )
@@ -521,6 +526,9 @@ def test_a_change_shown_only_by_what_a_trace_read_or_a_search_sent_needs_no_valu
 
     assert not _shows_a_value(row("/runs/*/trace/*/params/_xpath_query/*"))
     assert not _shows_a_value(row("/runs/*/trace/*/requests/*/params/_xpath_query/*"))
+    assert not _shows_a_value(row("/runs/*/trace/*/params/commcare_sort/*"))
+    assert not _shows_a_value(row("/runs/*/trace/*/requests/*/params/commcare_sort/*"))
+    assert _shows_a_value(row("/runs/*/trace/*/rows/*/fields/commcare_sort/*"))
     assert not _shows_a_value(row("/runs/*/trace/*/requests/*/answered"))
     # A step's own key of that name, not a request's answer, still asks one.
     assert _shows_a_value(row("/runs/*/trace/*/answered"))

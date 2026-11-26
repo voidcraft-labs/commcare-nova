@@ -25,6 +25,10 @@ export async function POST(req: Request): Promise<Response> {
 		operation: "create",
 		schema: bringInInputSchema,
 		appIdOf: (userId, input) => broughtInAppId(userId, input, input.readingId),
-		run: (actor, input, onEvent) => createFromReview(actor, input, { onEvent }),
+		run: (actor, input, onEvent, requireInstallationManagement) =>
+			createFromReview(actor, input, {
+				onEvent,
+				requireInstallationManagement,
+			}),
 	});
 }

@@ -62,6 +62,35 @@ describe("updateApp", () => {
 		]);
 	});
 
+	it("accepts installation language identities and stores only canonical tags", async () => {
+		const harness = makeToolWorkspaceHarness(fixture());
+		const argumentsFor = (languages: unknown[]) => ({
+			installation_profile: {
+				operation: "create",
+				name: "Team",
+				requiresPracticeWorker: false,
+				languages,
+			},
+		});
+		expect(updateAppInputSchema.safeParse(argumentsFor(["eng"])).success).toBe(
+			false,
+		);
+		const input = updateAppInputSchema.parse(
+			argumentsFor([{ language: "eng", script: null, region: null }]),
+		);
+		const result = await harness.runTool(updateAppTool, input);
+		expect(result.mutations).toMatchObject([
+			{
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: {
+						operation: "add",
+						profile: { languages: ["eng"] },
+					},
+				},
+			},
+		]);
+	});
 	it("renames the app with one setAppName", async () => {
 		const harness = makeToolWorkspaceHarness(fixture());
 		const outcome = await harness.runTool(updateAppTool, {

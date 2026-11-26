@@ -1,3 +1,4 @@
+import { inlineSearchInstance } from "../../suite/case-search/types";
 /**
  * Registration from the case list (`case_list_form`), by the order in which
  * a block made in CommCare HQ falls into its row, the first that holds: a
@@ -27,7 +28,7 @@ import { caseListActionUndeclaredInstances } from "../../suite/case-list/actionC
 import { EMPTY_CASE_LIST_TEXT } from "../../suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
-	NO_MATCHES_RELEVANCY,
+	noMatchesRelevancy,
 } from "../../suite/case-search/noMatches";
 import { servedSchemaPropertyDefault } from "../../surface/schemaDefaults";
 import type { ValidationError } from "../../validator/errors";
@@ -253,10 +254,20 @@ function blank(value: unknown): boolean {
 }
 
 /** The Register action's relevancy Nova's emission writes, as HQ JSON text. */
-const NO_MATCHES_TEXT = serializeWire(NO_MATCHES_RELEVANCY, {
-	target: "hq-json",
-	interpolation: "none",
-}).text;
+function noMatchesText(host: JsonObject): string {
+	const config = isJsonObject(host.search_config)
+		? host.search_config
+		: NO_ENTRIES;
+	return serializeWire(
+		noMatchesRelevancy(
+			inlineSearchInstance(textOf(config.instance_name) || undefined),
+		),
+		{
+			target: "hq-json",
+			interpolation: "none",
+		},
+	).text;
+}
 
 type RegistrationSource =
 	| { kind: "own" }
@@ -496,7 +507,7 @@ function hiddenMenuShape(
 	return (
 		formsReadSearch(host) &&
 		typeof relevancy === "string" &&
-		sameXPathText(relevancy, NO_MATCHES_TEXT) &&
+		sameXPathText(relevancy, noMatchesText(host)) &&
 		(block.post_form_workflow === "case_list" ||
 			block.post_form_workflow === "default") &&
 		!holdsMedia(block)
@@ -849,7 +860,10 @@ function readAlways(
 	) {
 		if (
 			formsReadSearch(rawModules(ctx)[host.index] ?? NO_ENTRIES) &&
-			sameXPathText(text, NO_MATCHES_TEXT)
+			sameXPathText(
+				text,
+				noMatchesText(rawModules(ctx)[host.index] ?? NO_ENTRIES),
+			)
 		) {
 			cursor.take(
 				"relevancy_expression",

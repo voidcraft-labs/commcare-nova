@@ -9,6 +9,7 @@ import {
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import {
 	columnWordingRole,
+	detailTabWordingId,
 	type GeneratedWordingRole,
 	generatedWordingId,
 } from "@/lib/domain/generatedWording";
@@ -167,6 +168,16 @@ export function workerListDocument(
 	return module
 		? { ...doc, modules: { ...doc.modules, [moduleUuid]: module } }
 		: doc;
+}
+
+/** The case and Search details can give one tab independent wording. */
+export function workerDetailTabTitle(
+	tab: { readonly uuid: Uuid; readonly title: string },
+	search: boolean,
+	values: ReadonlyMap<string, unknown>,
+): string {
+	const value = values.get(detailTabWordingId(tab.uuid, search));
+	return typeof value === "string" ? value : tab.title;
 }
 
 /** A column is projected separately on each screen. Its number and its

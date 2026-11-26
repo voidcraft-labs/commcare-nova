@@ -84,6 +84,7 @@ export interface CaseSlotFacts {
 	 *  for a field in no repeat. A repeat's own entry is its parent's. */
 	readonly submittedChildren: ReadonlyMap<Uuid, readonly Uuid[]>;
 	readonly repeatOf: ReadonlyMap<Uuid, Uuid | undefined>;
+	readonly positionedOperations: ReadonlySet<Uuid>;
 	readonly moduleCaseTypes: ReadonlySet<string>;
 }
 
@@ -143,11 +144,14 @@ export function caseSlotFacts(
 		doc.fieldOrder,
 	).children;
 	const repeatOf = new Map<Uuid, Uuid | undefined>();
+	const positionedOperations = new Set<Uuid>();
 	const walk = (parent: Uuid, repeat: Uuid | undefined): void => {
 		for (const uuid of submittedChildren.get(parent) ?? []) {
 			const field = doc.fields[uuid];
 			if (field === undefined) continue;
 			repeatOf.set(uuid, repeat);
+			if (field.kind === "case_change")
+				positionedOperations.add(field.operationUuid);
 			walk(uuid, field.kind === "repeat" ? uuid : repeat);
 		}
 	};
@@ -170,6 +174,7 @@ export function caseSlotFacts(
 			(form.type === "registration" && form.closeCondition !== undefined),
 		submittedChildren,
 		repeatOf,
+		positionedOperations,
 		moduleCaseTypes: moduleCaseTypesOf(doc.modules),
 	};
 	forms?.set(formUuid, built);
@@ -546,13 +551,20 @@ export function sharingCloses(
 ): ReadonlyMap<Uuid, CaseOperation> {
 	const sharers = new Map<Uuid, CaseOperation>();
 	f.operations.forEach((create, index) => {
-		if (create.action !== "create") return;
+		if (
+			create.action !== "create" ||
+			create.closeAfter === true ||
+			f.positionedOperations.has(create.uuid)
+		)
+			return;
 		const next = f.operations
 			.slice(index + 1)
 			.find((op) => namesCase(op, create.uuid));
 		if (
 			next === undefined ||
 			next.action !== "close" ||
+			f.positionedOperations.has(next.uuid) ||
+			next.closeCondition !== undefined ||
 			!changesCase(next, create.uuid) ||
 			next.forEach?.repeat !== create.forEach?.repeat ||
 			next.placement?.kind === "save-to-case" ||
@@ -651,7 +663,11 @@ export function subcaseReasons(
 	const repeat = operation.forEach?.repeat;
 	const reasons: PlacementIneligibility[] = [];
 	if (f.severalCases) reasons.push({ reason: "several-cases" });
-	if (operation.target.kind === "new" && operation.target.idFrom !== undefined)
+	if (
+		operation.target.kind === "new" &&
+		(operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined)
+	)
 		reasons.push({ reason: "keyed-id" });
 	const links = operation.links ?? [];
 	const [link] = links;
@@ -936,6 +952,8 @@ export function basicCaseSlots(
 		| { readonly kind: "save-to-case"; readonly held: boolean };
 	const choose = (op: CaseOperation): CreateChoice => {
 		const held = demoted.has(op.uuid) ? undefined : op.placement;
+		if (f.positionedOperations.has(op.uuid))
+			return { kind: "save-to-case", held: held?.kind === "save-to-case" };
 		if (held?.kind === "basic") {
 			if (
 				(held.slot === "subcase" || held.slot === "subcase-row") &&

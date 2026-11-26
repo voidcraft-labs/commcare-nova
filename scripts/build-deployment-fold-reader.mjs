@@ -17,13 +17,17 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { verifyStep6Reader } from "./lib/deployment-fold/step6-probe.mjs";
+import {
+	verifyPrivateWorkspaceReader,
+	verifyStep6Reader,
+} from "./lib/deployment-fold/step6-probe.mjs";
 
 const { values } = parseArgs({
 	options: {
 		source: { type: "string" },
 		revision: { type: "string" },
 		output: { type: "string" },
+		"private-workspaces": { type: "boolean" },
 	},
 });
 if (
@@ -32,7 +36,7 @@ if (
 	!values.output
 )
 	throw new Error(
-		"Use --source <git checkout> --revision <full deployed commit> --output <private reader.mjs>.",
+		"Use --source <git checkout> --revision <full deployed commit> --output <private reader.mjs> [--private-workspaces].",
 	);
 const checkout = resolve(values.source),
 	sourceRevision = values.revision,
@@ -42,6 +46,11 @@ const git = (args) =>
 const sourceTree = git(["rev-parse", "--verify", `${sourceRevision}^{tree}`]);
 const prefix = "scripts/lib/deploymentFoldReader.ts";
 const bootstrap = sourceRevision === "3e16e43f8cfa56e485860f3345c81f5f9a68aec9";
+const withPrivateWorkspaces = values["private-workspaces"];
+if (withPrivateWorkspaces && !bootstrap)
+	throw new Error(
+		"The private workspace decoder requires the verified Step 7 source release.",
+	);
 const source = await mkdtemp(join(tmpdir(), "nova-fold-reader-"));
 try {
 	const tar = join(source, "source.tar");
@@ -127,11 +136,29 @@ try {
 			entry,
 		);
 	}
+	const privateExports = [
+		"releasedLookups",
+		"readCarriers",
+		"privateBase",
+		"privateStep",
+		"privateOverlay",
+	];
+	let privateEntry = "";
+	if (withPrivateWorkspaces) {
+		const path = join(source, "scripts/lib/source-private.mjs");
+		await copyFile(
+			fileURLToPath(
+				new URL("./lib/deployment-fold/source-private.mjs", import.meta.url),
+			),
+			path,
+		);
+		privateEntry = `export {${privateExports.join(",")}} from ${JSON.stringify(path)};`;
+	}
 	const { build } = createRequire(join(source, "package.json"))("esbuild");
 	const result = await build({
 		absWorkingDir: source,
 		stdin: {
-			contents: `export {readHead,readReference} from ${JSON.stringify(entry)};export const sourceRevision=${JSON.stringify(sourceRevision)},sourceTree=${JSON.stringify(sourceTree)},sourceLockSha256=${JSON.stringify(sourceLockSha256)};`,
+			contents: `${privateEntry}export {readHead,readReference} from ${JSON.stringify(entry)};export const sourceRevision=${JSON.stringify(sourceRevision)},sourceTree=${JSON.stringify(sourceTree)},sourceLockSha256=${JSON.stringify(sourceLockSha256)};`,
 			resolveDir: source,
 			loader: "ts",
 		},
@@ -156,10 +183,13 @@ try {
 		reader.sourceTree !== sourceTree ||
 		reader.sourceLockSha256 !== sourceLockSha256 ||
 		typeof reader.readHead !== "function" ||
-		typeof reader.readReference !== "function"
+		typeof reader.readReference !== "function" ||
+		(withPrivateWorkspaces &&
+			privateExports.some((name) => typeof reader[name] !== "function"))
 	)
 		throw new Error("The bundled decoder does not match the selected source.");
 	const probe = bootstrap ? verifyStep6Reader(reader) : undefined;
+	if (withPrivateWorkspaces) verifyPrivateWorkspaceReader(reader);
 	await mkdir(dirname(output), { recursive: true });
 	await writeFile(output, bytes, { flag: "wx", mode: 0o600 });
 	console.log(

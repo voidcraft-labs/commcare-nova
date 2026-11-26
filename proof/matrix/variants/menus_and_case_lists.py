@@ -34,13 +34,43 @@ def advanced_menu_with_a_narrowed_case_list_item(authoring, app_id):
 
 
 def auto_select_on_a_multi_select_list(authoring, app_id):
-    """Households' list choosing several households, every one chosen at once."""
+    """The existing Household follow-up applies a new shared answer, without a scalar case preload."""
+    def shared_start(root, _form):
+        start, = root.xpath("//*[local-name()='setvalue'][@ref='/data/members']")
+        start.getparent().remove(start)
+
+    ops.set_form_source(authoring, app_id, 0, 1, shared_start, what="shared members answer")
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/multi_select", True),
         ("/modules/0/case_details/short/auto_select", True),
     )
+
+
+def clickable_icon_for_a_visit(authoring, app_id):
+    """A list icon opens its ordinary follow-up with the exact automatic-submission label."""
+    def mark_label(root, _form):
+        text, = root.xpath("//*[local-name()='itext']/*[local-name()='translation']/*[@id='visit_note-label']")
+        label, = root.xpath("//*[local-name()='label'][@ref=$ref]", ref="jr:itext('visit_note-label')")
+        text.set("id", "Pragma-Submit-Automatically")
+        label.set("ref", "jr:itext('Pragma-Submit-Automatically')")
+
+    ops.set_form_source(authoring, app_id, 1, 0, mark_label, what="automatic follow-up label")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/session_endpoint_id", "record-visit")
+    ops.set_json(authoring, app_id, "/modules/1/case_details/short/columns/1", {
+        "doc_type": "DetailColumn",
+        "model": "case",
+        "field": "name",
+        "format": "clickable-icon",
+        "header": {"en": "Record visit"},
+        "endpoint_action_id": "record-visit",
+        "enum": [{
+            "doc_type": "MappingItem",
+            "key": "true()",
+            "value": {"en": "jr://file/commcare/image/register_household.png"},
+        }],
+    })
 
 
 def case_list_deep_link_on_display_only_menu(authoring, app_id):
@@ -266,6 +296,16 @@ def multi_select_above_a_hundred(authoring, app_id):
     )
 
 
+def multi_select_exceeds_runtime_integer(authoring, app_id):
+    """Patients' list holds the first maximum outside Core's signed integer range."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/multi_select", True),
+        ("/modules/0/case_details/short/max_select_value", 2_147_483_648),
+    )
+
+
 def multi_select_of_none(authoring, app_id):
     """Households' list choosing several households, at most none."""
     _set_each(
@@ -286,18 +326,95 @@ def multi_select_unbounded(authoring, app_id):
     )
 
 
-def named_callout(authoring, app_id):
-    """Patients' list given a callout as HQ's Case List page saves one: an action, a name, an extra and a response,
-    which is one thing a person adds."""
+def named_callout(authoring, app_id, *, value="scan"):
+    """Patients' list with a lookup extra that reads a relative XPath rather than fixed text."""
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/lookup_enabled", True),
         ("/modules/0/case_details/short/lookup_action", "org.example.SCAN"),
         ("/modules/0/case_details/short/lookup_name", "Scan a card"),
-        ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": "scan"}]),
+        ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": value}]),
         ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}]),
     )
+
+
+def calculated_callout(authoring, app_id):
+    """The same lookup sends a calculated number, outside the current admitted arguments."""
+    named_callout(authoring, app_id, value="1 + 2")
+
+
+def fixed_text_callout(authoring, app_id):
+    """Patients' list with a named companion, literal text arguments and ordered fallback response names."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/lookup_enabled", True),
+        ("/modules/0/case_details/short/lookup_action", "org.example.SCAN"),
+        ("/modules/0/case_details/short/lookup_name", "Scan a card"),
+        ("/modules/0/case_details/short/lookup_extras", [
+            {"key": "mode", "value": "'scan'"},
+            {"key": "source", "value": "concat('home', ' visit')"},
+        ]),
+        ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}, {"key": "fallback"}]),
+    )
+
+
+def fixed_text_callout_with_worker_name(authoring, app_id):
+    """Patients' lookup passes the signed-in worker's username beside a fixed argument."""
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_extras", [
+        {"key": "mode", "value": "'scan'"},
+        {"key": "worker", "value": "instance('commcaresession')/session/context/username"},
+    ])
+
+
+def fixed_text_callout_with_count(authoring, app_id):
+    """A follow-up reads the guarded count from its one case list in an Android-only app."""
+    from lxml import etree
+
+    from proof.matrix.variants.expressions_and_data import _declare
+
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+
+    def edit(root, _held):
+        _declare(root, "commcaresession", "jr://instance/session")
+        model, = root.xpath("//*[local-name()='model']")
+        data, = model.xpath("./*[local-name()='instance'][not(@id)]/*")
+        data.append(etree.Element(f"{{{etree.QName(data).namespace}}}lookup_count"))
+        bind = etree.Element(f"{{{etree.QName(model).namespace}}}bind")
+        bind.set("nodeset", "/data/lookup_count")
+        result = "instance('commcaresession')/session/data/fingerprintquery"
+        bind.set("calculate", f"if(count({result}) = 1, number({result}[1]), '')")
+        model.append(bind)
+
+    ops.set_form_source(authoring, app_id, 0, 1, edit, what="guarded companion lookup count")
+
+
+def fixed_text_callout_with_confidence(authoring, app_id):
+    """Patients' lookup matches the returned IDs to the cases and has a visible confidence heading."""
+    fixed_text_callout(authoring, app_id)
+    _set_each(
+        authoring, app_id,
+        ("/modules/0/case_details/short/lookup_display_results", True),
+        ("/modules/0/case_details/short/lookup_field_template", "@case_id"),
+        ("/modules/0/case_details/short/lookup_field_header", {"en": "Confidence"}),
+    )
+
+
+def fixed_text_callout_with_icon(authoring, app_id):
+    """Patients' lookup button uses a picture the HQ picker uploaded."""
+    fixed_text_callout(authoring, app_id)
+    path = "jr://file/commcare/image/case-lookup.png"
+    _pages.upload_picture(authoring, app_id, path)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_image", path)
+
+
+def automatic_fixed_text_callout(authoring, app_id):
+    """The same companion configuration with automatic lookup enabled."""
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_autolaunch", True)
 
 
 def parent_selection_of_a_list_with_no_columns(authoring, app_id):

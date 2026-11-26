@@ -2264,6 +2264,16 @@
 						"doc_type": "DefaultCaseSearchProperty"
 					},
 					{
+						"property": "commcare_sort",
+						"defaultValue": "'+-client_code:exact,-dob:date'",
+						"doc_type": "DefaultCaseSearchProperty"
+					},
+					{
+						"property": "commcare_sort",
+						"defaultValue": "'+name'",
+						"doc_type": "DefaultCaseSearchProperty"
+					},
+					{
 						"property": "_xpath_query",
 						"defaultValue": "\"date_opened > '2020-01-01'\"",
 						"doc_type": "DefaultCaseSearchProperty"
@@ -2421,7 +2431,7 @@
 	"logo_refs": {},
 	"archived_media": {},
 	"_id": "d753ed80-c0a3-11f1-9c44-ddeded022512",
-	"_rev": "24-e5a20980-c0a3-11f1-87b3-8305c4c5978e",
+	"_rev": "24-e5a20980-c0a3-11f1-b130-bd77aeba983b",
 	"_attachments": {
 		"503e8c55fbba4f4094a53645d381f3a4.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n  <h:head>\n    <h:title>Registration Form</h:title>\n    <model>\n      <instance>\n        <data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/678B2CF9-55A2-4871-B64B-0F3B6CEE8AB4\" uiVersion=\"1\" version=\"1\" name=\"Registration Form\">\n        </data>\n      </instance>\n    </model>\n  </h:head>\n  <h:body>\n  </h:body>\n</h:html>\n",
 		"6e73264d3066493eb38403f2a280dc80.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n  <h:head>\n    <h:title>Registration Form</h:title>\n    <model>\n      <instance>\n        <data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/0A817671-2537-4077-BD64-676D2E872933\" uiVersion=\"1\" version=\"1\" name=\"Registration Form\">\n        </data>\n      </instance>\n    </model>\n  </h:head>\n  <h:body>\n  </h:body>\n</h:html>\n",

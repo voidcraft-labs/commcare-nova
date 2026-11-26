@@ -9,6 +9,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
+import { menuOffersRecordType } from "@/lib/domain/modules";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { parentCaseConstraint } from "./caseSelectionNavigation";
@@ -138,7 +139,14 @@ export function prepareEntryPointLaunch(args: {
 			(id) => rows.get(id) ?? outsideRows.get(id),
 		);
 		if (
-			selectedRows.some((row) => !row || row.case_type !== requirement.caseType)
+			selectedRows.some(
+				(row) =>
+					!row ||
+					!menuOffersRecordType(
+						args.doc.modules[requirement.moduleUuid],
+						row.case_type,
+					),
+			)
 		)
 			return refuse(
 				"One or more cases are unavailable to this Preview worker. Choose cases this worker has. Preview uses this worker’s cases, including ones they chose from a search.",
