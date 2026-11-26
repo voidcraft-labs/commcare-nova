@@ -1547,7 +1547,7 @@ export function CaseListScreen({
 		() => ({
 			...columnDisplayContext,
 			linkColumnInList: platformRules.linkColumnInList,
-			...(platform === "web-apps" &&
+			...(platformRules.caseListIconActions &&
 				entryStep === undefined && {
 					listIconAction: {
 						disabled: !canEdit || !current || launchingIcon,
@@ -1600,7 +1600,7 @@ export function CaseListScreen({
 		[
 			columnDisplayContext,
 			platformRules.linkColumnInList,
-			platform,
+			platformRules.caseListIconActions,
 			canEdit,
 			entryStep,
 			current,

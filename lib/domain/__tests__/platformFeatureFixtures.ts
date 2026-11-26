@@ -467,7 +467,7 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		use: slotUse(
 			"case-list-icon-actions",
 			COLUMN_OWNER,
-			"caseListConfig.columns[0].entryPointUuid",
+			"caseListConfig.columns[1].entryPointUuid",
 		),
 	},
 	"saved-form-descriptor": {

@@ -126,6 +126,9 @@ export interface PreviewPlatformRules {
 	 *  as it opens, skips its sync, or rechecks only changed answers. CommCare
 	 *  Android reads none of these texts. */
 	readonly webAppsFormPragmas: boolean;
+	/** Formplayer's case-list field exposes the link target. CommCare Android
+	 *  shows the stored media path as plain text. */
+	readonly caseListIconActions: boolean;
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
 	readonly linkColumnInList: "link" | "raw-text";
@@ -600,6 +603,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: true,
 		tileVerticalAlign: "as-authored",
 		webAppsFormPragmas: true,
+		caseListIconActions: true,
 		linkColumnInList: "link",
 		detailTile: "laid-out",
 		searchOnlyTileCell: "hidden",
@@ -703,6 +707,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: false,
 		tileVerticalAlign: "middle-only",
 		webAppsFormPragmas: false,
+		caseListIconActions: false,
 		linkColumnInList: "raw-text",
 		detailTile: "rows",
 		searchOnlyTileCell: "drawn",

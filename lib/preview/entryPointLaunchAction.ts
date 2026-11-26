@@ -95,7 +95,7 @@ export async function launchEntryPointAction(input: {
 			);
 			const [selected] = args.selections;
 			if (
-				context.device.platform !== "web-apps" ||
+				!rules.caseListIconActions ||
 				column?.kind !== "image-map" ||
 				column.entryPointUuid !== args.entryPointUuid ||
 				args.creations?.length ||
