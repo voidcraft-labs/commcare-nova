@@ -626,7 +626,9 @@ describe("an override of a generated media key in `translations`", () => {
 		const emitted = expandDoc(doc, { assets });
 		expect(emitted.modules[0].media_image.en).toBe(MENU_ICON);
 		const reread = await readWithMedia(doc, (json) => {
-			json.modules = emitted.modules as AppJson["modules"];
+			json.modules = JSON.parse(
+				JSON.stringify(emitted.modules),
+			) as AppJson["modules"];
 			json.translations = emitted.translations;
 		});
 		expect(findings(reread)).toEqual([]);
