@@ -190,7 +190,11 @@ import {
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
 import { serverPreviewDataRefusalOf } from "./serverDataRefusal";
 import type { ServerSearchWorld } from "./serverSearchRead";
-import { verifyFormOpening } from "./signedFormOpening";
+import {
+	openingCarryScope,
+	verifyFormOpening,
+	verifyReceiptRunTransition,
+} from "./signedFormOpening";
 import type { ViewerLocation } from "./viewerLocation";
 import { workerLocationFixture } from "./workerLocationFixture";
 import { readPreviewLookup } from "./workerLookupScope";
@@ -2156,6 +2160,8 @@ export async function submitFormAction(
 	 *  operation writing a session context value writes the platform's. */
 	device?: PreviewDevice,
 	entryGroupOwner?: string,
+	previewRun?: string,
+	receiptRunTransition?: unknown,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
@@ -2378,8 +2384,40 @@ export async function submitFormAction(
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
+		const envelope = submissionEnvelopeArgs(normalizedMutation, appId, built);
+		// The accepted write belongs to the device run that will keep it. An
+		// action opened from a case list returns to that list's run, and a resumed
+		// draft keeps its original signed opening even after a new run starts.
+		const sourceRun = binding?.run ?? z.uuid().optional().parse(previewRun);
+		const receiptAudience = {
+			app: appId,
+			project: authorized.projectId,
+			actor: identity.actorUserId,
+			session: session.session.id,
+			worker: identity.ownerId,
+			persona: identity.personaUuid ?? null,
+			device: admitted.device,
+			form: projection.formUuid,
+			revision: authorized.app.mutation_seq,
+		};
+		const run =
+			receiptRunTransition === undefined
+				? sourceRun
+				: verifyReceiptRunTransition(
+						process.env.BETTER_AUTH_SECRET ?? "",
+						receiptAudience,
+						receiptRunTransition,
+						sourceRun,
+						projection.entryKey,
+					);
 		const result = await store.applySubmission({
-			...submissionEnvelopeArgs(normalizedMutation, appId, built),
+			...envelope,
+			submissionReceipt: {
+				...envelope.submissionReceipt,
+				openingCarryScope: run
+					? openingCarryScope({ ...receiptAudience, run })
+					: undefined,
+			},
 			...(admitted.device.platform === "web-apps" &&
 				opening?.webActivity && {
 					webActivity: opening.webActivity,

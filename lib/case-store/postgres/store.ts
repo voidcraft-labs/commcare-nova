@@ -1570,6 +1570,7 @@ export class PostgresCaseStore implements CaseStore {
 	async readSubmittedCaseDatabasePatch(args: {
 		readonly appId: string;
 		readonly entryKey: string;
+		readonly openingCarryScope: string;
 	}): Promise<DeviceCaseDatabase | undefined> {
 		const row = await this.db
 			.selectFrom("form_submission_intents")
@@ -1578,6 +1579,11 @@ export class PostgresCaseStore implements CaseStore {
 			.where("project_id", "=", this.requireProjectId())
 			.where("created_by", "=", this.requireActorUserId())
 			.where("entry_key", "=", args.entryKey)
+			.where(
+				sql<string>`result->>'openingCarryScope'`,
+				"=",
+				args.openingCarryScope,
+			)
 			.executeTakeFirst();
 		if (row?.result == null) return undefined;
 		return parseSubmissionEnvelopeResult(row.result).caseDatabasePatch;

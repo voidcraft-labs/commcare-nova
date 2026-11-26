@@ -1294,7 +1294,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewCaseTarget: launch.formTarget,
 						previewCaseListRegistrationEntry: undefined,
 						previewMenuCaseSelections: launch.menuSelections,
-						previewSessionId: newPreviewSessionId(),
+						previewSessionId:
+							launch.receiptRunTransition?.from ?? newPreviewSessionId(),
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},

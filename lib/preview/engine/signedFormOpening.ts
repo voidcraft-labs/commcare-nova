@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
+import { z } from "zod";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import {
 	getFormOpeningData,
@@ -15,6 +16,7 @@ import {
 import type {
 	FormOpeningAudience,
 	FormOpeningProjection,
+	ReceiptRunTransition,
 	SignedFormOpening,
 } from "./formOpeningSnapshot";
 
@@ -25,6 +27,99 @@ const compress = promisify(gzip);
 const decompress = promisify(gunzip);
 // Keep room within the one-MiB Server Action body for answers, choices and attachments.
 const INLINE_BYTES = 256 * 1024;
+
+/** Authority to carry a committed receipt's patch across entries on the
+ * same logical device run. The source entry is looked up by its receipt
+ * key independently of the destination entry and form. */
+export function openingCarryScope(
+	audience: Pick<
+		FormOpeningAudience,
+		| "app"
+		| "project"
+		| "actor"
+		| "session"
+		| "worker"
+		| "persona"
+		| "device"
+		| "run"
+	>,
+): string {
+	const { app, project, actor, session, worker, persona, device, run } =
+		audience;
+	return canonicalJsonDigest({
+		app,
+		project,
+		actor,
+		session,
+		worker,
+		persona,
+		run,
+		platform: device.platform,
+		androidDeviceId:
+			device.platform === "android" ? device.androidDeviceId : null,
+	});
+}
+
+type TransitionAudience = Pick<
+	FormOpeningAudience,
+	| "app"
+	| "project"
+	| "actor"
+	| "session"
+	| "worker"
+	| "persona"
+	| "device"
+	| "form"
+	| "revision"
+>;
+const transitionSchema = z.strictObject({
+	from: z.uuid(),
+	to: z.uuid(),
+	entry: z.uuid().optional(),
+	signature: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
+export function signReceiptRunTransition(
+	secret: string,
+	audience: TransitionAudience,
+	transition: Omit<ReceiptRunTransition, "signature">,
+): ReceiptRunTransition {
+	if (!secret)
+		throw new Error("A receipt transition needs the service secret.");
+	const { form, revision } = audience;
+	const scope = openingCarryScope({ ...audience, run: transition.from });
+	const signature = createHmac("sha256", secret)
+		.update("nova:receipt-run-transition:v1\u0000")
+		.update(canonicalJsonText({ scope, form, revision, ...transition }))
+		.digest("hex");
+	return { ...transition, signature };
+}
+
+export function verifyReceiptRunTransition(
+	secret: string,
+	audience: TransitionAudience,
+	input: unknown,
+	run: string | undefined,
+	entry: string,
+): string {
+	const parsed = transitionSchema.safeParse(input);
+	if (parsed.success) {
+		const { signature, ...transition } = parsed.data;
+		if (
+			transition.from === run &&
+			(transition.entry === undefined || transition.entry === entry) &&
+			timingSafeEqual(
+				Buffer.from(signature, "hex"),
+				Buffer.from(
+					signReceiptRunTransition(secret, audience, transition).signature,
+					"hex",
+				),
+			)
+		)
+			return transition.to;
+	}
+	throw new CaptureSubmissionRejectedError(reopen);
+}
 
 type OpeningData = Pick<FormOpeningProjection, "cases" | "lookup">;
 type DataLocation<T> =

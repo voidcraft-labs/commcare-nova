@@ -136,6 +136,7 @@ import {
 	projectTargetCaseSelectionsAsync,
 	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
+import { readFormOpeningAction } from "@/lib/preview/engine/formOpeningAction";
 import {
 	type FormOpeningProjection,
 	type FormOpeningState,
@@ -499,6 +500,8 @@ interface SubmissionContextSnapshot {
 }
 
 interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
+	readonly run: string;
+	readonly receiptRun: string;
 	/** One immutable authoring revision. Links, printing, datum projection, and
 	 * target routing must never mix it with a collaborator's later edit. */
 	readonly doc: BlueprintDoc;
@@ -1982,11 +1985,11 @@ function ReadyFormScreen({
 		 * (`formOpeningAction.ts`). */
 		const post = session.getState();
 		const listReturn = post.previewEntryPointLaunch?.listIconReturn;
-		if (submitted.entryKey !== undefined)
-			post.notePreviewSubmission(
-				listReturn?.state.previewSessionId ?? post.previewSessionId,
-				submitted.entryKey,
-			);
+		if (
+			submitted.entryKey !== undefined &&
+			submitted.run === post.previewSessionId
+		)
+			post.notePreviewSubmission(submitted.receiptRun, submitted.entryKey);
 		/* The searches as the submission found them, which a landing that
 		 * keys a menu's search to the registered case carries on. */
 		const searchesAtSubmit = session.getState().previewSearchStates;
@@ -3026,6 +3029,10 @@ function ReadyFormScreen({
 			settleAttempt({ kind: "idle" });
 			return;
 		}
+		const submittedRun = start.previewSessionId;
+		const launchTransition =
+			start.previewEntryPointLaunch?.receiptRunTransition;
+		const receiptRun = launchTransition?.to ?? submittedRun;
 		const submittedSnapshot = (doc: BlueprintDoc): SubmittedContextSnapshot => {
 			const submittedForm =
 				submittedBase.formUuid === undefined
@@ -3033,6 +3040,8 @@ function ReadyFormScreen({
 					: doc.forms[submittedBase.formUuid];
 			return {
 				...submittedBase,
+				run: submittedRun,
+				receiptRun,
 				formType: submittedForm?.type,
 				destination:
 					submittedBase.formUuid === undefined
@@ -3069,7 +3078,6 @@ function ReadyFormScreen({
 			return;
 		}
 		const submittedEntryKey = submitted.entryKey;
-		const submittedRun = session.getState().previewSessionId;
 		let savedDescriptor: string | undefined;
 		const isCurrent = () => {
 			const current = session.getState();
@@ -3077,6 +3085,7 @@ function ReadyFormScreen({
 			return (
 				attemptIsCurrent() &&
 				current.scopeEpoch === submitted.scopeEpoch &&
+				current.previewSessionId === submitted.run &&
 				current.accessPhase === "authorized" &&
 				current.canEdit &&
 				latest.scopeEpoch === submitted.scopeEpoch &&
@@ -3221,6 +3230,32 @@ function ReadyFormScreen({
 					if (!saved || !isCurrent()) return "stale";
 					savedDescriptor = saved.descriptor;
 				}
+				let receiptTransition = launchTransition;
+				if (draft && opening && opening.binding.run !== submitted.run) {
+					const resumed = await readFormOpeningAction(
+						{
+							app: submittedAppId,
+							module: opening.binding.module,
+							form: mutation.formUuid as Uuid,
+							run: opening.binding.run,
+							entry: opening.entry,
+							blueprintDigest: finalBlueprintDigest,
+							persona: submitted.personaUuid as Uuid | undefined,
+							previous: opening.binding.evidence,
+							restore: true,
+							resumeInto: submitted.run,
+						},
+						previewDevice,
+					);
+					if (!isCurrent()) return "stale";
+					if (resumed.kind !== "opening" || !resumed.receiptRunTransition)
+						return {
+							kind: "error",
+							message:
+								"This saved form could not reconnect. Open it again to try submitting.",
+						} as const;
+					receiptTransition = resumed.receiptRunTransition;
+				}
 				return await submitFormAction(
 					{
 						...mutation,
@@ -3239,6 +3274,8 @@ function ReadyFormScreen({
 					submitted.caseDatabase.workerGroups?.length === 1
 						? submitted.caseDatabase.workerGroups[0].id
 						: undefined,
+					submitted.run,
+					receiptTransition,
 				);
 			};
 			const result = await runFormAttachmentBarrier(

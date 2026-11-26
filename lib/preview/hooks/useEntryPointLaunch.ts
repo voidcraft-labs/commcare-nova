@@ -87,6 +87,7 @@ export function useEntryPointLaunch() {
 				creations,
 				personaUuid,
 				listIcon,
+				listIconRun: listIcon ? before.previewSessionId : undefined,
 				expectedSeq,
 				device: withNavigationWidth(device),
 			});

@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CaseNotFoundError } from "@/lib/case-store";
 import {
@@ -17,6 +18,7 @@ import {
 import { readCaseDatabaseSnapshot } from "./engine/caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./engine/caseDataBindingTelemetry";
 import { previewLookupData } from "./engine/lookupEvaluation";
+import { signReceiptRunTransition } from "./engine/signedFormOpening";
 import { readPreviewLookup } from "./engine/workerLookupScope";
 import { prepareEntryPointLaunch } from "./entryPointLaunch";
 import type {
@@ -32,6 +34,7 @@ const requestSchema = z.strictObject({
 	listIcon: z
 		.strictObject({ moduleUuid: uuidSchema, columnUuid: uuidSchema })
 		.optional(),
+	listIconRun: z.uuid().optional(),
 	expectedSeq: z.number().int().nonnegative(),
 	creations: z.array(suppliedCaseCreationSchema).optional(),
 	selections: z
@@ -51,6 +54,7 @@ export async function launchEntryPointAction(input: {
 	entryPointUuid: string;
 	personaUuid?: string;
 	listIcon?: ListIconSource;
+	listIconRun?: string;
 	expectedSeq: number;
 	selections: readonly EntryPointSelection[];
 	creations?: readonly SuppliedCaseCreation[];
@@ -187,6 +191,35 @@ export async function launchEntryPointAction(input: {
 				appId: args.appId,
 				caseIds: result.claimCaseIds,
 			});
+		if (
+			result.kind === "ready" &&
+			icon &&
+			args.listIconRun &&
+			context.sessionId &&
+			result.launch.location.kind === "form"
+		) {
+			return {
+				...result,
+				launch: {
+					...result.launch,
+					receiptRunTransition: signReceiptRunTransition(
+						process.env.BETTER_AUTH_SECRET ?? "",
+						{
+							app: args.appId,
+							project: context.scope.projectId,
+							actor: context.identity.actorUserId,
+							session: context.sessionId,
+							worker: context.identity.ownerId,
+							persona: context.identity.personaUuid ?? null,
+							device: context.device,
+							form: result.launch.location.formUuid,
+							revision: args.expectedSeq,
+						},
+						{ from: randomUUID(), to: args.listIconRun },
+					),
+				},
+			};
+		}
 		return result;
 	} catch (error) {
 		if (error instanceof AppAccessError)
