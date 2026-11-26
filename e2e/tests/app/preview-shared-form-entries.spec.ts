@@ -88,8 +88,16 @@ test("a referral opens the shared questions and submits to the first chosen pers
 	await page
 		.getByRole("button", { name: "Edit opening choices", exact: true })
 		.click();
-	await page.getByRole("button", { name: "Open shared questions" }).click();
-	await expect(page).toHaveURL(new RegExp(parentUuid));
+	await expect(page).toHaveURL(
+		(url) => url.pathname === `${sharedRoute}/operations`,
+	);
+	const openingChoices = page.locator("section").filter({
+		has: page.getByRole("heading", { name: "Shared form", exact: true }),
+	});
+	await openingChoices
+		.getByRole("button", { name: "Open shared questions", exact: true })
+		.click();
+	await expect(page).toHaveURL((url) => url.pathname === parentRoute);
 	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");
