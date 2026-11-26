@@ -434,7 +434,9 @@ function buildPlan(
 					? property
 					: `${write.via.map((step) => step.identifier).join("/")}/${property}`;
 			const day =
-				formKind === "basic" && operation.action === "own"
+				write.calendarDayInExternalId &&
+				formKind === "basic" &&
+				operation.action === "own"
 					? basicOwnExternalIdDayValue(caseSlotFacts(doc, formUuid), write)
 					: undefined;
 			put(

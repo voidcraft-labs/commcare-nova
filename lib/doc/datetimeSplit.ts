@@ -306,10 +306,13 @@ export function planDatetimeSplit(
 	)
 		return refusal("self-read-through-a-filter");
 
-	const facts = caseSlotFacts(doc, where.formUuid);
+	const own = where.form.caseOperations?.find(({ action }) => action === "own");
 	if (
-		facts.own?.writes?.some(
-			(write) => basicOwnExternalIdDayValue(facts, write)?.field === fieldUuid,
+		own?.writes?.some(
+			(write) =>
+				write.calendarDayInExternalId &&
+				basicOwnExternalIdDayValue(caseSlotFacts(doc, where.formUuid), write)
+					?.field === fieldUuid,
 		)
 	)
 		return refusal("saves-day-as-external-id");

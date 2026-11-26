@@ -2765,18 +2765,22 @@ export function buildCaseOperationProgramFromDoc(args: {
 			(operation.action === "update" &&
 				operation.target.kind === "worker-record")
 		);
-	const facts = caseSlotFacts(doc, formUuid);
+	const facts = own?.writes?.some(
+		({ calendarDayInExternalId }) => calendarDayInExternalId,
+	)
+		? caseSlotFacts(doc, formUuid)
+		: undefined;
 	const basicOwnDaySlot =
 		entryUuid === formUuid &&
 		form.type === "followup" &&
-		facts.moduleUuid !== undefined &&
+		facts?.moduleUuid !== undefined &&
 		!menuEmittedAdvanced(doc, facts.moduleUuid) &&
 		basicCaseSlots(doc, formUuid).ownBasic;
 	const externalIdDayValue = (
 		operation: CaseOperation,
 		write: CaseOperationWrite,
 	) =>
-		basicOwnDaySlot && operation.action === "own"
+		basicOwnDaySlot && facts !== undefined && operation.action === "own"
 			? basicOwnExternalIdDayValue(facts, write)
 			: undefined;
 	const withoutAbsentAnswerWrites = (
