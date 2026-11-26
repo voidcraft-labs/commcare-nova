@@ -237,6 +237,10 @@ export const SHARED_TOOL_PRESENTATION = {
 	setCaseListTile: change("Updating record tiles", "Updated record tiles"),
 	updateCaseListColumn: change("Updating column", "Updated column"),
 	updateSearchInput: change("Updating search field", "Updated search field"),
+	configureProjectSearch: change(
+		"Choosing a search source",
+		"Chose a search source",
+	),
 	setCaseSearchAdvanced: change(
 		"Updating advanced search",
 		"Updated advanced search",

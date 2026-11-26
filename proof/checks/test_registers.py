@@ -780,6 +780,29 @@ def test_a_check_no_test_holds_cannot_hold_differences(known_differences, tmp_pa
         cases.hold(unheld, document, [], ())
 
 
+def test_search_value_guards_keep_legacy_source_extensions_and_certify_new_authored_checks():
+    from types import SimpleNamespace
+
+    from proof.checks import changes
+
+    field = "instance('search-input:results')/input/field[@name = 'client_name']"
+    guard = f"""not(count({field}) and contains({field}, "'") and contains({field}, '"'))"""
+    another_guard = f"""not(contains(concat({field}, '"'), "'") and contains(concat({field}, '"'), '"'))"""
+    authored = f"regex({field}, '^[a-z]+$')"
+    source_path = "/modules/*/search_config/properties/*/validations/*/test"
+    path = "/modules/0/search_config/properties/0/validations/0/test"
+    partial = Difference("source", "search-source", "app.json", source_path, path, "changed", guard, f"({guard}) and ({another_guard})")
+    certified = replace(partial, before=authored, after=f"({authored}) and ({guard})")
+    changed_rule = replace(certified, after=certified.after.replace("^[a-z]+$", "^.+$"))
+    document = SimpleNamespace(
+        id="search-source", hq_authored=True,
+        first_publish_places={"search-value-guards": ("/menu/0/search_config/properties/0/validations",)},
+    )
+    allowed, ids = changes.declared(document, "source", [partial, certified, changed_rule])
+    assert allowed == [partial, certified]
+    assert ids == {"search-value-guards"}
+
+
 def test_the_first_publish_register_loads_and_refuses_what_the_judge_cannot_hold():
     """``proof/first-publish-changes.json`` loads as the judge reads it (one object a change, each row a class of one
     of the four checks), and the loader refuses two objects of one change, two rows of one class in an object, and a

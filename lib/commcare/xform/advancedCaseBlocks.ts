@@ -72,12 +72,13 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { isAdvancedCaseIndexIdentifier } from "@/lib/domain";
 import { advancedAutosetsOwner, appendDefaultOwner } from "../workerGroupsWire";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { caseById } from "../xpath/wire/rowScope";
 import { serializeWire } from "../xpath/wire/serialize";
-import type { WireExpr } from "../xpath/wire/tree";
+import type { WireExpr, WirePath } from "../xpath/wire/tree";
 import { caseOpeningSetvalues } from "./caseOpeningSetvalues";
 
 /** CommCare's case-transaction namespace, which every `<case>` is in. */
@@ -164,7 +165,7 @@ interface Emission {
  *  (an `always` relevance, which it drops) is not written. */
 function bind(
 	emission: Emission,
-	nodeset: FormPath,
+	nodeset: FormPath | WirePath,
 	xpath: { calculate?: WireExpr; relevant?: WireExpr },
 	attributes: Record<string, string> = {},
 ): void {
@@ -176,7 +177,13 @@ function bind(
 	emission.binds.push(
 		xel(
 			"bind",
-			{ attributes, xpath: { nodeset: nodeset.toWire(), ...set } },
+			{
+				attributes,
+				xpath: {
+					nodeset: nodeset instanceof FormPath ? nodeset.toWire() : nodeset,
+					...set,
+				},
+			},
 			emission.context,
 		),
 	);
@@ -493,9 +500,9 @@ function addOpenBlock(
 		const indexEl = el("index", {}, []);
 		append(caseEl, indexEl);
 		for (const caseIndex of action.case_indices) {
-			const referenceId = validatePropertyName(
-				caseIndex.reference_id || "parent",
-			);
+			const referenceId = caseIndex.reference_id || "parent";
+			if (!isAdvancedCaseIndexIdentifier(referenceId))
+				throw new Error(`Invalid Advanced open index name: "${referenceId}"`);
 			const target = actionByTag(actions, caseIndex.tag);
 			append(
 				indexEl,
@@ -506,15 +513,19 @@ function addOpenBlock(
 					}),
 				}),
 			);
-			bind(emission, casePath.child("index").child(referenceId), {
-				calculate:
-					target.kind === "load"
-						? sessionRead(loadSessionVar(target.action.case_tag))
-						: actionPath(target.action, indexedPerRepeat, data.name)
-								.path.child("case")
-								.attr("case_id")
-								.toWire(),
-			});
+			bind(
+				emission,
+				w.append(casePath.toWire(), [w.step("index"), w.step(referenceId)]),
+				{
+					calculate:
+						target.kind === "load"
+							? sessionRead(loadSessionVar(target.action.case_tag))
+							: actionPath(target.action, indexedPerRepeat, data.name)
+									.path.child("case")
+									.attr("case_id")
+									.toWire(),
+				},
+			);
 		}
 	}
 	addClose(emission, caseEl, casePath, action.close_condition);

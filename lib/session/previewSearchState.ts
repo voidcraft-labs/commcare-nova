@@ -33,7 +33,11 @@ import type {
 export const NOT_SEARCHED: PreviewSearchState = { kind: "not-searched" };
 
 export type PreviewSearchOutcome =
-	| { readonly kind: "completed"; readonly matchCount: number }
+	| {
+			readonly kind: "completed";
+			readonly matchCount: number;
+			readonly resultReceipt?: string;
+	  }
 	| { readonly kind: "failed"; readonly reason: PreviewSearchFailure };
 
 /** One search of a menu whose forms read it, numbered within the run. */
@@ -146,6 +150,9 @@ export function settleSearch(
 				submission: state.submission,
 				answers: state.answers,
 				matchCount: outcome.matchCount,
+				...(outcome.resultReceipt !== undefined && {
+					resultReceipt: outcome.resultReceipt,
+				}),
 				...kept,
 			}
 		: {

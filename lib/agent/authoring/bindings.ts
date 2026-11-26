@@ -12,6 +12,7 @@ import {
 	caseSelectionCardinality,
 	effectiveCaseTypes,
 	type FieldKind,
+	isSearchAnswerInput,
 	type Module,
 	menuWithInheritedCaseSettings,
 	moduleUuidOfForm,
@@ -24,6 +25,7 @@ import {
 } from "@/lib/domain/advancedEntryDatums";
 import { detailTabForColumn } from "@/lib/domain/detailTabs";
 import {
+	formExpressionFacts,
 	type RecordQueryContext,
 	recordQueryContext,
 	type SearchInputDecl,
@@ -303,11 +305,16 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 				});
 		this.inputs =
 			options.inputs ??
-			(module?.caseListConfig?.searchInputs ?? []).map((input) => ({
-				uuid: input.uuid,
-				name: input.name,
-				data_type: searchInputRuntimeValueType(input),
-			}));
+			(formUuid
+				? formExpressionFacts(doc, formUuid)?.searchInputs
+				: undefined) ??
+			(module?.caseListConfig?.searchInputs ?? [])
+				.filter(isSearchAnswerInput)
+				.map((input) => ({
+					uuid: input.uuid,
+					name: input.name,
+					data_type: searchInputRuntimeValueType(input),
+				}));
 		this.tables = options.tables ?? [];
 		const lookupTables = new Map(
 			this.tables.map((table) => [table.id, lookupReadTypes(table)]),
@@ -363,7 +370,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		if (identity) return identity.uuid;
 		const ids = new Set(
 			this.inputs
-				.filter((input) => input.name === name)
+				.filter(
+					(input) =>
+						(input.supplierId === undefined
+							? input.name
+							: `${input.supplierId}/${input.name}`) === name,
+				)
 				.map((input) => input.uuid),
 		);
 		return ids.size === 1 ? [...ids][0] : undefined;
@@ -390,7 +402,14 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 				throw new AuthoringInputError(
 					`Search answer ${name} is missing or ambiguous.`,
 				);
-			return { kind: "input", searchInputUuid: uuid };
+			const supplier = this.inputs.find(
+				(input) => input.uuid === uuid,
+			)?.supplier;
+			return {
+				kind: "input",
+				searchInputUuid: uuid,
+				...(supplier !== undefined && { supplier }),
+			};
 		}
 		if (value === "user") {
 			const properties = Object.values(this.options.doc.userProperties ?? {});
@@ -788,7 +807,9 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			const input = this.inputs.find(
 				(input) => input.uuid === term.searchInputUuid,
 			);
-			return input ? `#search/${input.name}` : undefined;
+			return input
+				? `#search/${input.supplierId === undefined ? "" : `${input.supplierId}/`}${input.name}`
+				: undefined;
 		}
 		if (term.kind === "session-user-property") {
 			const property = this.options.doc.userProperties?.[term.userPropertyUuid];

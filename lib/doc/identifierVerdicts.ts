@@ -36,13 +36,17 @@ import {
 	MAX_CASE_TYPE_LENGTH,
 } from "@/lib/commcare/constants";
 import {
+	ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE,
 	authoredCasePropertyNameSchema,
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type FreeNameOffer,
+	isAdvancedCaseIndexIdentifier,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
 	isReservedCaseOperationWrite,
 	type Uuid,
@@ -55,7 +59,6 @@ import {
 } from "@/lib/domain/fields/connectActivity";
 import {
 	caseOperationIdNameProblem,
-	caseOperationLinkNameProblem,
 	caseOperationNameSentence,
 	freeCaseOperationName,
 	freeQuestionId,
@@ -591,25 +594,31 @@ export function isReservedCaseOperationProperty(property: string): boolean {
  * Adjudicate a link identifier — the name of one connection between two
  * cases ("parent", "host", "referred_by"). It is an XML element name on
  * the wire, capped by CommCare's index-identifier length, never a name
- * HQ's form builder can't open a form with or reads as the block's own
- * action (`close`, `create`), and unique within its operation: two links of
- * one change cannot share a name, because the second would replace the
- * first.
+ * HQ's form builder can't open a form with, and unique within its operation.
+ * The candidate validator checks whether a link called `close` or `create`
+ * changes the actions of its actual Save to Case block.
+ * An Advanced-name candidate goes to that same validator for its placement.
  */
 export function caseOperationLinkIdentifierVerdict(
 	identifier: string,
 	taken: ReadonlySet<string>,
 	offer: FreeNameOffer = "free-here",
+	allowAdvancedCandidate = false,
 ): CaseOperationIdVerdict {
 	const trimmed = identifier.trim();
 	if (trimmed.length === 0) {
 		return { ok: false, code: "empty", userMessage: "Name this connection." };
 	}
-	if (identifier !== trimmed || !isCaseOperationIdentifier(trimmed)) {
+	const valid = allowAdvancedCandidate
+		? isAdvancedCaseIndexIdentifier(trimmed)
+		: isCaseOperationLinkIdentifier(trimmed);
+	if (identifier !== trimmed || !valid) {
 		return {
 			ok: false,
 			code: "illegal_format",
-			userMessage: CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+			userMessage: allowAdvancedCandidate
+				? ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE
+				: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 		};
 	}
 	if (trimmed.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH) {
@@ -619,7 +628,7 @@ export function caseOperationLinkIdentifierVerdict(
 			userMessage: `Keep it to ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters or fewer.`,
 		};
 	}
-	const nameProblem = caseOperationLinkNameProblem(trimmed);
+	const nameProblem = caseOperationIdNameProblem(trimmed);
 	if (nameProblem !== undefined) {
 		return {
 			ok: false,

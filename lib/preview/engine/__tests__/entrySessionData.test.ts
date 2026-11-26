@@ -329,41 +329,44 @@ describe("entrySessionData", () => {
 		});
 	});
 
-	it("evaluates a grouped tile's companion over the chosen case's index", () => {
-		const doc = tileFixture("grouped-one");
-		const moduleUuid = doc.moduleOrder[0];
-		const formUuid = doc.formOrder[moduleUuid][0];
-		const snapshot: CaseDatabaseSnapshot = {
-			rows: [row("v1", "visit"), row("v2", "visit"), row("h1", "household")],
-			indices: [
-				{
-					case_id: "v1",
-					ancestor_id: "h1",
-					identifier: "parent",
-					relationship: "child",
-					depth: 1,
-					target_case_type: "household",
-				},
-			] as CaseDatabaseSnapshot["indices"],
-		};
-		const companion = Object.keys(
-			session(doc, formUuid, {
+	it.each(["parent", "my-parent"])(
+		"evaluates a grouped tile's %s companion over the chosen case",
+		(identifier) => {
+			const doc = tileFixture("grouped-one", identifier);
+			const moduleUuid = doc.moduleOrder[0];
+			const formUuid = doc.formOrder[moduleUuid][0];
+			const snapshot: CaseDatabaseSnapshot = {
+				rows: [row("v1", "visit"), row("v2", "visit"), row("h1", "household")],
+				indices: [
+					{
+						case_id: "v1",
+						ancestor_id: "h1",
+						identifier,
+						relationship: "child",
+						depth: 1,
+						target_case_type: "household",
+					},
+				] as CaseDatabaseSnapshot["indices"],
+			};
+			const companion = Object.keys(
+				session(doc, formUuid, {
+					boundCases: [{ caseId: "v1" }],
+					caseDatabase: snapshot,
+				}).data,
+			).find((id) => id.endsWith("_parent_ids"));
+			expect(companion).toBeDefined();
+			const chosen = session(doc, formUuid, {
 				boundCases: [{ caseId: "v1" }],
 				caseDatabase: snapshot,
-			}).data,
-		).find((id) => id.endsWith("_parent_ids"));
-		expect(companion).toBeDefined();
-		const chosen = session(doc, formUuid, {
-			boundCases: [{ caseId: "v1" }],
-			caseDatabase: snapshot,
-		});
-		expect(chosen.data[companion as string]).toBe("h1");
-		const ungrouped = session(doc, formUuid, {
-			boundCases: [{ caseId: "v2" }],
-			caseDatabase: snapshot,
-		});
-		expect(ungrouped.data[companion as string]).toBe("");
-	});
+			});
+			expect(chosen.data[companion as string]).toBe("h1");
+			const ungrouped = session(doc, formUuid, {
+				boundCases: [{ caseId: "v2" }],
+				caseDatabase: snapshot,
+			});
+			expect(ungrouped.data[companion as string]).toBe("");
+		},
+	);
 
 	it("values no datum of a form no module holds", () => {
 		const doc = households();

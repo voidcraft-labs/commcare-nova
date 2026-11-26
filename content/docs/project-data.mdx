@@ -234,6 +234,10 @@ after that source is complete; cancelling leaves the current source unchanged.
 If the saved table becomes unavailable, it stays selected with an explanation
 until you choose another source.
 
+A question’s row filter can use **Source row position** to read the row’s place
+in the table, starting at 1. For example, `position() < 3` keeps the first two source
+rows. The choice order applies after the filter.
+
 A question's choices keep the table's row order unless you choose a column
 under **Order of the choices**. Choices are then sorted by that column's text,
 and rows with the same text keep their order in the table. A phone and Web Apps
@@ -336,6 +340,10 @@ When you bring an app in from CommCare HQ, the lookup tables it reads come with
 it, marked **Managed in CommCare HQ**. Each one lives in its project space on
 CommCare HQ. Nova keeps a copy so your apps and Preview can read it, and never
 changes it there.
+
+An assigned table comes in with its definition and a link to its project space.
+Preview and device delivery check the connected worker’s current rows when they
+need them.
 
 Project data distinguishes the complete source inventory from the rows an individual worker receives. A table can stay linked to its project space while a large inventory is refreshed. If a source read stops partway, Nova keeps the last completed inventory and labels it with the time it was read.
 

@@ -17,6 +17,36 @@ import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 /** Native HQ regeneration and Core SuiteParser replay use these same documents. */
 describe("delivered case tiles", () => {
+	it("keeps a hyphenated connection in the local group and its selected-case companion", () => {
+		const doc = tileFixture("grouped-one", "my-parent");
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const zip = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		const suite = readXmlEvidence(zip.readAsText("suite.xml"));
+		const group = onlyXml(
+			xmlChildren(suite, "detail").flatMap((detail) =>
+				xmlChildren(detail, "group"),
+			),
+		);
+		expect(group.attributes).toMatchObject({
+			function: "string(./index/my-parent)",
+			"header-rows": "1",
+		});
+		const session = onlyXml(
+			xmlChildren(xmlChildren(suite, "entry")[0], "session"),
+		);
+		const companion = xmlChildren(session, "datum").find(
+			(datum) => datum.attributes.id === "case_id_parent_ids",
+		);
+		expect(companion?.attributes.function).toBe(
+			"join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/my-parent))",
+		);
+	});
+
 	it.each(resultsTileScenarios)(
 		"%s preserves layout, ordering, and navigation",
 		(scenario) => {

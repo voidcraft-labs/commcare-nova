@@ -1,0 +1,56 @@
+[
+	{
+		"tag": "visit_sites",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "north",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Hill clinic",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "south",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "River clinic",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	}
+]

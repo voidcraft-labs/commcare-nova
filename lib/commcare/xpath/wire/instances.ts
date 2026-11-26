@@ -81,7 +81,7 @@ export function groupsInstance(): InstanceDecl {
 }
 
 export function resultsInstance(
-	id: "results" | "results:inline",
+	id: "results" | `results:${string}`,
 ): InstanceDecl {
 	return { id, src: `jr://instance/remote/${id}` };
 }

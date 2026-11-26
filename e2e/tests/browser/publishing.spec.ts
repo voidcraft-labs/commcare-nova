@@ -3599,3 +3599,78 @@ test("Check connection reads the connection route alone, says so when it can't, 
 	expect(answers).toBe(2);
 	expect(navigations).toEqual([]);
 });
+
+test("offers named Android downloads only for eligible apps and targets, keeping the exact empty-named selection through the request", async ({
+	page,
+}) => {
+	const picker = page.getByRole("combobox", { name: "Installation profile" });
+	await open(page, "installations=true&webOnly=true", false);
+	await expect(picker).toHaveCount(0);
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(picker).toHaveCount(0);
+	await open(page, "installations=true", false);
+	await page.route("**/publishing/download-targets", (route) =>
+		route.fulfill({
+			json: {
+				success: true,
+				data: { targets: [], heldFromHq: [], webAppsOnly: false },
+			},
+		}),
+	);
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(
+		page.getByText(/Once the app is published, you can download the CCZ/),
+	).toBeVisible();
+	await expect(picker).toHaveCount(0);
+	await open(page, "installations=true", false);
+	await expect(picker).toHaveCount(0);
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(picker).toBeVisible();
+	await picker.click();
+	await expect(
+		page.getByRole("option", {
+			name: "Profile 3 · Team (English)",
+			exact: true,
+		}),
+	).toBeVisible();
+	await page
+		.getByRole("option", {
+			name: "Profile 1 · Unnamed profile (English)",
+			exact: true,
+		})
+		.click();
+	await expect(picker).toHaveText("Profile 1 · Unnamed profile (English)");
+	await reviewDestination(page);
+	await expect(
+		page.getByText(
+			"Installation profile: Profile 1 · Unnamed profile (English)",
+			{ exact: true },
+		),
+	).toBeVisible();
+	const reached = Promise.withResolvers<string>(),
+		finish = Promise.withResolvers<void>();
+	await page.route("**/publishing/download/ccz?*", async (route) => {
+		reached.resolve(
+			new URL(route.request().url()).searchParams.get("profile") ?? "",
+		);
+		await finish.promise;
+		await route.fulfill({ json: { ok: true } });
+	});
+	try {
+		await page
+			.getByRole("button", { name: "Download CCZ", exact: true })
+			.click();
+		expect(await reached.promise).toBe("0199a000-0000-7000-8000-00000000a000");
+		await expect(picker).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Back", exact: true }),
+		).toBeDisabled();
+	} finally {
+		finish.resolve();
+	}
+	await expect(
+		page.getByText("Mobile app file downloaded", { exact: true }),
+	).toBeVisible();
+});

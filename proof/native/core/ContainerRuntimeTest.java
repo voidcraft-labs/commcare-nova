@@ -569,6 +569,25 @@ public class ContainerRuntimeTest {
   }
  }
 
+ /** Both visibility histories use controls on the first screen while the
+  * submitted values live under a group after the two repeats. Walk the
+  * controls by their real references and edit them through the controller. */
+ @Test public void relocatedAnswersCanHideTheFirstQueryRow()throws Exception {
+  for(boolean source:new boolean[]{false,true})for(boolean same:new boolean[]{false,true}){
+   String scenario=same?"query-hidden-row-relocated-same-answer":"query-hidden-row-relocated";
+   FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();enter(parsed,false);
+   String held="/data/held/item",counted="/data/counted/item";
+   assertEquals(1,held(form,held).size());assertEquals(1,held(form,counted).size());
+   assertEquals(FormEntryController.ANSWER_OK,confirm(parsed,"/data/receiving/first","no"));
+   if(!same)assertEquals(FormEntryController.ANSWER_OK,confirm(parsed,"/data/receiving/later","yes"));
+   enter(parsed,false);
+   assertEquals(3,held(form,held).size());assertEquals(3,held(form,counted).size());
+   assertFalse(relevant(form,held+"[1]"));assertFalse(relevant(form,counted+"[1]"));
+   assertEquals("a b",eval(form,"join(' ', "+held+"/record)"));
+   assertEquals("b c",eval(form,"join(' ', "+counted+"/record)"));
+  }
+ }
+
  /** `container-query-nested-gated`: a count-placement `sites` query under a group shown only once `show` is yes,
   * and in each site a count-placement `plots` query reading that site's record. Nothing is made while the group
   * is not relevant; once it is, each site's rows are made with the ids of its own query, read on their first

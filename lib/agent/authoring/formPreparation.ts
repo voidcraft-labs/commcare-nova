@@ -36,6 +36,7 @@ import {
 	formLinkDatumNameSchema,
 	formLinkSelectionName,
 } from "@/lib/domain/expression/types";
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
 import { TEXT_KEYPADS } from "@/lib/domain/fields/text";
 import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
@@ -118,13 +119,14 @@ function choices(
 		};
 	if (source.kind === "cases")
 		return { kind: "cases", caseType: z.string().parse(source.caseType) };
+	if (source.kind === "available-cases") return { kind: "available-cases" };
 	if (source.kind === "lookup")
 		return {
 			kind: "lookup",
 			tableId: lookupTableIdSchema.parse(source.tableId),
 		};
 	throw new AuthoringInputError(
-		"Choose an inline, case, or table choice source.",
+		"Choose an inline, case, all available cases, or table choice source.",
 	);
 }
 
@@ -199,7 +201,22 @@ function fieldDeclaration(
 function fieldSlot(
 	uuid: Uuid,
 	path: AuthoringPath,
+	field: Input,
 ): FieldExpressionSlotRef | undefined {
+	if (
+		path[0] === "androidApp" &&
+		path[1] === "send" &&
+		typeof path[2] === "number" &&
+		path[3] === "value"
+	) {
+		const inputs = objects.parse(object.parse(field.androidApp).send);
+		return {
+			entity: "field",
+			uuid,
+			slot: "android_app_input",
+			member: androidAppInputMember(inputs, path[2]),
+		};
+	}
 	if (
 		path.length === 1 &&
 		["relevant", "calculate", "default_value", "required"].includes(
@@ -432,6 +449,11 @@ export function prepareFormAuthoring(args: {
 		const order = new Map<Uuid, readonly Uuid[]>(
 			[...saved.fieldOrder].map(([owner, children]) => [owner, [...children]]),
 		);
+		const controlOrder =
+			saved.controlOrder === undefined
+				? undefined
+				: new Map(saved.controlOrder);
+		const orders = controlOrder === undefined ? [order] : [order, controlOrder];
 		if (uuid === formUuid && toolName === "addFields") {
 			const additions = objects.parse(input.fields);
 			const ids = new Set(
@@ -445,35 +467,34 @@ export function prepareFormAuthoring(args: {
 				);
 				fields.set(id, fieldDeclaration(item, id, parent));
 				if (ids.has(parent))
-					order.set(parent, [...(order.get(parent) ?? []), id]);
+					for (const target of orders)
+						target.set(parent, [...(target.get(parent) ?? []), id]);
 				else {
 					const siblings = top.get(parent) ?? [];
 					siblings.push(id);
 					top.set(parent, siblings);
 				}
-				if (
-					!order.has(id) &&
-					["group", "section", "repeat"].includes(String(item.kind))
-				)
-					order.set(id, []);
+				if (["group", "section", "repeat"].includes(String(item.kind)))
+					for (const target of orders) if (!target.has(id)) target.set(id, []);
 			}
-			for (const [parent, added] of top) {
-				const siblings = [...(order.get(parent) ?? [])];
-				const before =
-					input.beforeFieldUuid === undefined
-						? -1
-						: siblings.indexOf(uuidSchema.parse(input.beforeFieldUuid));
-				const after =
-					input.afterFieldUuid === undefined
-						? -1
-						: siblings.indexOf(uuidSchema.parse(input.afterFieldUuid));
-				siblings.splice(
-					before >= 0 ? before : after >= 0 ? after + 1 : siblings.length,
-					0,
-					...added,
-				);
-				order.set(parent, siblings);
-			}
+			for (const target of orders)
+				for (const [parent, added] of top) {
+					const siblings = [...(target.get(parent) ?? [])];
+					const before =
+						input.beforeFieldUuid === undefined
+							? -1
+							: siblings.indexOf(uuidSchema.parse(input.beforeFieldUuid));
+					const after =
+						input.afterFieldUuid === undefined
+							? -1
+							: siblings.indexOf(uuidSchema.parse(input.afterFieldUuid));
+					siblings.splice(
+						before >= 0 ? before : after >= 0 ? after + 1 : siblings.length,
+						0,
+						...added,
+					);
+					target.set(parent, siblings);
+				}
 		} else if (
 			uuid === formUuid &&
 			(toolName === "editField" || toolName === "setFieldOptionsSource")
@@ -523,10 +544,10 @@ export function prepareFormAuthoring(args: {
 						if (field !== undefined)
 							fields.set(member, { ...field, parent: page });
 					}
-					order.set(page, members);
+					for (const target of orders) target.set(page, members);
 					pages.push(page);
 				}
-				order.set(uuid, pages);
+				for (const target of orders) target.set(uuid, pages);
 			}
 		}
 		const links = new Map(saved.links);
@@ -596,6 +617,7 @@ export function prepareFormAuthoring(args: {
 				}),
 			fields,
 			fieldOrder: order,
+			controlOrder,
 			links,
 			expressionAt: read,
 		};
@@ -650,9 +672,14 @@ export function prepareFormAuthoring(args: {
 			return fieldSlot(
 				uuidSchema.parse(objects.parse(input.fields)[path[1]].fieldUuid),
 				path.slice(2),
+				objects.parse(input.fields)[path[1]],
 			);
 		if (toolName === "editField" && path[0] === "updates")
-			return fieldSlot(uuidSchema.parse(input.fieldUuid), path.slice(1));
+			return fieldSlot(
+				uuidSchema.parse(input.fieldUuid),
+				path.slice(1),
+				object.parse(input.updates),
+			);
 		if (toolName === "updateForm" && path[0] === "recordName")
 			return recordName?.slot;
 		if (

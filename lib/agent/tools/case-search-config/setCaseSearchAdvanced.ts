@@ -21,6 +21,7 @@
 
 import type { z } from "zod";
 import { planSearchTakeawayDependents } from "@/lib/doc/searchReadDependents";
+import { offerSearchNameMutations } from "@/lib/doc/searchResultsNaming";
 import {
 	type CaseSearchConfig,
 	isOrdinaryCaseSearchConfig,
@@ -43,6 +44,7 @@ import {
 	ADVANCED_SLOT_NAMES,
 	type AdvancedSlotName,
 	collapseUnauthoredCaseSearchConfig,
+	pickAdvancedCluster,
 	pickDisplayCluster,
 	setCaseSearchAdvancedBodySchema,
 	snapshotCaseSearchConfig,
@@ -122,6 +124,15 @@ export const setCaseSearchAdvancedTool = {
 					? isOrdinaryCaseSearchConfig(existing) &&
 						existing.searchOnClear === true
 					: input.searchOnClear === true;
+			const previous = pickAdvancedCluster(existing);
+			const relatedRecords =
+				input.relatedRecords === undefined
+					? previous.relatedRecords
+					: input.relatedRecords;
+			const relatedRecordIdProperty =
+				input.relatedRecordIdProperty === undefined
+					? previous.relatedRecordIdProperty
+					: input.relatedRecordIdProperty;
 			const clearingOwnerOnly =
 				existing !== undefined &&
 				"searchActionEnabled" in existing &&
@@ -144,7 +155,9 @@ export const setCaseSearchAdvancedTool = {
 				(workflow !== undefined ||
 					formsReadSearch ||
 					searchOnClear ||
-					requestOrder !== undefined)
+					requestOrder !== undefined ||
+					relatedRecords ||
+					relatedRecordIdProperty)
 			) {
 				return {
 					kind: "mutate" as const,
@@ -160,10 +173,17 @@ export const setCaseSearchAdvancedTool = {
 					: {
 							...pickDisplayCluster(existing),
 							...(requestOrder !== undefined && { requestOrder }),
+							...(existing &&
+								"projectSearch" in existing &&
+								existing.projectSearch && {
+									projectSearch: existing.projectSearch,
+								}),
 							...(excludedOwnerIds !== undefined && { excludedOwnerIds }),
 							...(workflow !== undefined && { workflow }),
 							...(formsReadSearch && { formsReadSearch: true as const }),
 							...(searchOnClear && { searchOnClear: true as const }),
+							...(relatedRecords && { relatedRecords }),
+							...(relatedRecordIdProperty && { relatedRecordIdProperty }),
 						};
 			const nextConfig = clearingOwnerOnly
 				? undefined
@@ -189,9 +209,12 @@ export const setCaseSearchAdvancedTool = {
 				}
 			}
 
-			const mutations = updateModuleMutations(mod, {
-				caseSearchConfig: nextConfig ?? null,
-			});
+			const mutations = [
+				...(formsReadSearch && !formsRead(existing)
+					? offerSearchNameMutations(doc, moduleUuid, { turnsInline: true })
+					: []),
+				...updateModuleMutations(mod, { caseSearchConfig: nextConfig ?? null }),
+			];
 			const commit = await guardedMutate(
 				ctx,
 				mutations,

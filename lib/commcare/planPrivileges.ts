@@ -30,6 +30,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { BUILT_IN_ANDROID_APP_ACTIONS } from "@/lib/domain/fields/androidApp";
 import {
 	menusUsingWorkerRecord,
 	type WorkerRecordRequirement,
@@ -43,12 +44,11 @@ import {
 import { fieldTakesCaseChoices } from "./caseOptions";
 import { planFormCaseWire } from "./casePlacementPlan";
 import { formConnectActivities } from "./connectSlugs";
-import { expandDoc } from "./expander";
+import { expandedFormSources } from "./expander";
 import { formLinkProjectionContext } from "./formLinkProjection";
 import { formsReadingLocationsFixture } from "./locations/readsLocationsFixture";
 import type { LookupWireNaming } from "./lookup/naming";
 import { advancedModulesWithCaseListMenuItem } from "./moduleKind";
-import { DERIVED_WIRE_IDENTITY } from "./wireIdentity";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
 import { formEmitsSaveToCase } from "./xform/caseOps";
 import { formSourceHoldsSupplyPointText } from "./xform/supplyPointText";
@@ -57,6 +57,8 @@ import { formSourceHoldsSupplyPointText } from "./xform/supplyPointText";
 export const HQ_PLAN_PRIVILEGE_IDS = [
 	"cloudcare",
 	"custom_icon_badges",
+	"templated_intents",
+	"custom_intents",
 	"user_case",
 	"lookup_tables",
 	"child_cases",
@@ -68,6 +70,8 @@ export const HQ_PLAN_PRIVILEGE_IDS = [
 	"locked_admin_questions",
 	"app_dependencies",
 	"geocoder",
+	"build_profiles",
+	"practice_mobile_workers",
 ] as const;
 export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 
@@ -75,7 +79,7 @@ export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 export interface HqPlanPrivilegeUse {
 	readonly id: HqPlanPrivilegeId;
 	/** The gate entry id in `lib/commcare/surface/entries/gates.json`. */
-	readonly gate: `privilege/${HqPlanPrivilegeId}`;
+	readonly gate: `privilege/${HqPlanPrivilegeId | "templated_intents+custom_intents"}`;
 	/** One sentence per form that needs it, in form order, then the publish's own. */
 	readonly reasons: readonly string[];
 }
@@ -92,6 +96,8 @@ export interface PlanPrivilegePushes {
 	readonly lookupTables: boolean;
 	/** The publish sends at least one place. */
 	readonly places: boolean;
+	/** Existing installation profiles that need an authorized edit on this target. */
+	readonly hasTargetProfiles?: boolean;
 }
 
 /**
@@ -112,6 +118,8 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	cloudcare: "web-apps",
 	custom_icon_badges: "menu-badges",
 	user_case: "worker-records",
+	templated_intents: "built-in-android-apps",
+	custom_intents: "external-android-apps",
 	lookup_tables: "lookup-tables",
 	child_cases: "child-cases",
 	case_sharing_groups: "case-sharing-groups",
@@ -122,6 +130,8 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	locked_admin_questions: "locked-questions",
 	app_dependencies: "required-android-apps",
 	geocoder: "geocoder",
+	build_profiles: "installation-profiles",
+	practice_mobile_workers: "practice-workers",
 } as const satisfies Record<HqPlanPrivilegeId, PlanFeatureId>;
 
 /** A form named as every reason names it: its name, trimmed, or its id. */
@@ -144,13 +154,28 @@ export function addressSearchFormReasons(
 			use.owner.kind === "field" ? [use.owner.formUuid] : [],
 		),
 	);
-	return formsInOrder(doc).flatMap(({ formUuid }) =>
-		forms.has(formUuid)
-			? [
-					`${formName(doc, formUuid)} has a question that searches for an address in Web Apps.`,
-				]
-			: [],
+	const menus = new Set(
+		uses.flatMap((use) =>
+			use.owner.kind === "search-input" ? [use.owner.moduleUuid] : [],
+		),
 	);
+	return [
+		...formsInOrder(doc).flatMap(({ formUuid }) =>
+			forms.has(formUuid)
+				? [
+						`${formName(doc, formUuid)} has a question that searches for an address in Web Apps.`,
+					]
+				: [],
+		),
+		...doc.moduleOrder.flatMap((id) => {
+			const module = doc.modules[id];
+			return module === undefined || !menus.has(id)
+				? []
+				: [
+						`Search in ${module.name.trim() || module.id} lets workers choose an address in Web Apps.`,
+					];
+		}),
+	];
 }
 
 /** Every form of the document, in its form order. */
@@ -163,6 +188,19 @@ function formsInOrder(
 			: orderedFormUuids(doc, moduleUuid).flatMap((formUuid) =>
 					doc.forms[formUuid] === undefined ? [] : [{ moduleUuid, formUuid }],
 				),
+	);
+}
+
+/** Basic Case Management offers the literal user index under USERCASE. */
+export function formsWritingThroughUserIndex(doc: BlueprintDoc): Uuid[] {
+	return formsInOrder(doc).flatMap(({ formUuid }) =>
+		doc.forms[formUuid].caseOperations?.some((operation) =>
+			operation.writes?.some((write) =>
+				write.via?.some((step) => step.identifier === "user"),
+			),
+		)
+			? [formUuid]
+			: [],
 	);
 }
 
@@ -262,7 +300,14 @@ export function requiredPlanPrivileges(
 	const uses: HqPlanPrivilegeUse[] = [];
 	const add = (id: HqPlanPrivilegeId, reasons: readonly string[]): void => {
 		if (reasons.length === 0) return;
-		uses.push({ id, gate: `privilege/${id}`, reasons });
+		uses.push({
+			id,
+			gate:
+				id === "custom_intents" || id === "templated_intents"
+					? "privilege/templated_intents+custom_intents"
+					: `privilege/${id}`,
+			reasons,
+		});
 	};
 	const forms = formsInOrder(doc);
 	/* The form link context the emitter builds (`expander.ts::expandDoc`),
@@ -296,12 +341,47 @@ export function requiredPlanPrivileges(
 		}),
 	);
 
+	// The custom privilege covers all actions, including templates. Ask once
+	// for the least privilege that lets HQ build this entire application.
+	const androidForms = forms.flatMap(({ formUuid }) => {
+		const actions = [...descendantFieldUuids(doc, formUuid)].flatMap((uuid) => {
+			const field = doc.fields[uuid];
+			return field?.kind === "text" && field.androidApp?.kind === "open-app"
+				? [field.androidApp.action]
+				: [];
+		});
+		return actions.length
+			? [
+					{
+						formUuid,
+						custom: actions.some(
+							(action) => !BUILT_IN_ANDROID_APP_ACTIONS.has(action),
+						),
+					},
+				]
+			: [];
+	});
+	const custom = androidForms.some((form) => form.custom);
+	add(
+		custom ? "custom_intents" : "templated_intents",
+		androidForms
+			.filter((form) => !custom || form.custom)
+			.map(
+				({ formUuid }) =>
+					`${formName(doc, formUuid)} opens an Android app to answer a question.`,
+			),
+	);
+
 	/* `user_case`: HQ's build fails for a form that saves to the worker's
 	 * record (`helpers/validators.py::ApplicationValidator._check_subscription`),
 	 * and a worker's record is made only under the privilege
 	 * (`callcenter/sync_usercase.py::_iter_sync_usercase_helpers`), so every
 	 * value a form reads from it is blank. */
 	add("user_case", [
+		...formsWritingThroughUserIndex(doc).map(
+			(formUuid) =>
+				`${formName(doc, formUuid)} saves to a case linked through its user index.`,
+		),
 		...doc.moduleOrder.flatMap((uuid) =>
 			doc.modules[uuid]?.caseType === "commcare-user"
 				? [`${doc.modules[uuid].name} lists worker records.`]
@@ -462,6 +542,29 @@ export function requiredPlanPrivileges(
 					`${formName(doc, formUuid)} holds a question locked in CommCare HQ.`,
 			),
 	);
+
+	const profiles = Object.values(doc.appSettings.installationProfiles ?? {});
+	add(
+		"build_profiles",
+		profiles.length
+			? [
+					`Workers can choose from ${profiles.length} named installation${profiles.length === 1 ? "" : "s"}.`,
+				]
+			: pushes.hasTargetProfiles
+				? ["Update the named installations already on this project space."]
+				: [],
+	);
+	const practice = profiles.filter(
+		(profile) => profile.requiresPracticeWorker,
+	).length;
+	add(
+		"practice_mobile_workers",
+		practice
+			? [
+					`${practice} named installation${practice === 1 ? " uses" : "s use"} a practice worker from this project space.`,
+				]
+			: [],
+	);
 	return uses;
 }
 
@@ -576,13 +679,12 @@ export function commtrackReasons(
 	);
 	const forms = formsInOrder(doc);
 	if (forms.length === 0) return menuReasons;
-	const sources = expandDoc(doc, {
+	const sources = expandedFormSources(doc, {
 		...(lookupNaming !== undefined && { lookupNaming }),
 		attachmentTarget: null,
-	})._attachments;
+	});
 	const formReasons = forms.flatMap(({ formUuid }) => {
-		const source =
-			sources[`${DERIVED_WIRE_IDENTITY.formUniqueId(formUuid)}.xml`];
+		const source = sources.get(formUuid);
 		return source !== undefined && formSourceHoldsSupplyPointText(source)
 			? [
 					`${formName(doc, formUuid)} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`,

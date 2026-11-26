@@ -126,6 +126,138 @@ def test_authored_search_keeps_its_list_filter_out_of_the_request(
         assert [row["id"] for row in results["list"]["rows"]] == [f"row-{case_id}" for case_id in witness["rows"]]
 
 
+def test_retained_guarded_name_search_messages(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """Keep the retained Clients assertion in pinned native Web Apps, including its worker message."""
+    from dataclasses import replace
+    from io import BytesIO
+    from types import SimpleNamespace
+    from zipfile import ZipFile
+
+    from proof.checks import changes, proof2
+    from proof.checks.compare.xml_tree import compare_xml
+    from proof.checks.xpath_tree import same
+    from proof.matrix import registry
+
+    variant = next(
+        variant for variant in registry.load_variants()
+        if variant.id == "hq-search/check-with-no-message-on-a-guarded-field"
+    )
+    [assertion] = variant.change["value"]
+    document = webapps_documents["hq-search"]
+    folder = Path(__file__).with_name("fixtures")
+    restore = (folder / "restore-search-filter.xml").read_bytes()
+    database = casedata.database_of_restore(restore.replace(b"Matching client", b"amina"))
+    guard_message = (
+        "This search can't use both single and double quotation marks. Remove one kind and try again"
+    )
+    observations = {}
+    suites = {}
+    stored = {}
+    for label in ("authored", "merged-without-message", "guard-only"):
+        publication = "A" if label == "authored" else "B"
+        with webapps_hq.authored_project(document, publication) as project:
+            def apply(app):
+                app["cloudcare_enabled"] = True
+                field = app["modules"][0]["search_config"]["properties"][0]
+                if label == "authored":
+                    field["validations"] = [dict(assertion)]
+                elif label == "merged-without-message":
+                    [guard] = field["validations"]
+                    # B supplies the actual compiler's guard and its protected
+                    # query wrapper. This reconstructs the narrow reader proof's
+                    # authorized change to the stored validation.
+                    field["validations"] = [{
+                        **assertion, "test": f"({assertion['test']}) and ({guard['test']})",
+                    }]
+            with project.released(formplayer_runner, change=apply, database=database, label=label) as release:
+                run = Session(release, editor_driver).run([
+                    *steps.open_app("Client search"),
+                    *steps.choose("Clients"),
+                    *steps.choose("Followup Form"),
+                    *steps.arrive(any_screen=True),
+                    steps.SCREEN,
+                    *steps.type_prompt(0, "Amina"),
+                    steps.SCREEN,
+                    *steps.type_prompt(0, "a'\""),
+                    steps.SCREEN,
+                    *steps.click(steps.SEARCH_BUTTON, visible=True, within=steps.WITHIN_MS),
+                    steps.SCREEN,
+                    *steps.type_prompt(0, ""),
+                    steps.SCREEN,
+                    *steps.type_prompt(0, "amina"),
+                    steps.SCREEN,
+                    *steps.run_search(),
+                    *steps.arrive(any_screen=True),
+                    steps.SCREEN,
+                ])
+                with ZipFile(BytesIO(release.archive())) as archive:
+                    suites[label] = archive.read("suite.xml")
+                stored[label] = release.doc
+                requests = [search.values("_xpath_query") for search in release.hq.searches]
+            observation = {
+                "requests": requests, "screens": run.screens, "queryAnswers": _query_answers(run),
+                "menuRequests": _menu_requests(run), "outcomes": run.outcomes,
+                "pageErrors": run.page_errors, "dialogs": run.dialogs,
+            }
+            evidence(f"retained-name-search-{label}", observation)
+            observations[label] = observation
+
+    for label, observed in observations.items():
+        assert observed["pageErrors"] == [] and observed["dialogs"] == [], observed
+        assert not any(outcome.get("missed") for outcome in observed["outcomes"]), observed
+        initial, upper, quotes, refused, blank, lower, results = observed["screens"]
+        assert initial["query"]["prompts"][0]["label"] == "Name", initial
+        errors = [screen["query"]["prompts"][0]["error"] for screen in (initial, upper, quotes, refused, blank, lower)]
+        assert not errors[0] and not errors[4] and not errors[5], errors
+        expected = guard_message if label == "guard-only" else "Sorry, this response is invalid!"
+        if label == "guard-only":
+            assert not errors[1], errors
+        else:
+            assert errors[1] == expected, errors
+        assert errors[2:4] == [expected, expected], errors
+        expected_clause = "case_name = 'amina'" if label == "authored" else 'case_name = "amina"'
+        [request] = observed["requests"]
+        assert expected_clause in request, request
+        assert [row["id"] for row in results["list"]["rows"]] == ["row-client-both"], results
+
+
+    # A and B both already carry one native validation. The suite comparator
+    # sees the changed @test at that object's position rather than a new node.
+    before, after = (suites[side] for side in ("authored", "merged-without-message"))
+    exact_changes = [
+        diff for diff in compare_xml(before, after, check="proof2", document=variant.id, artifact="suite.xml")
+        if diff.kind == "changed" and diff.path.endswith("/validation[*]/@test")
+        and isinstance(diff.before, str) and same(diff.before, assertion["test"])
+    ]
+    evidence("retained-name-search-native-validation-changes", [diff.as_json() for diff in exact_changes])
+    assert exact_changes
+    sites = proof2.build_sites({"suite.xml": before}, stored["authored"])
+    document_under_change = SimpleNamespace(
+        id=variant.id, hq_authored=True,
+        first_publish_places={"search-value-guards": ("/menu/0/search_config/properties/0/validations",)},
+    )
+    allowed, named = changes.declared(document_under_change, "proof2", exact_changes, sites=sites)
+    assert allowed == exact_changes and named == {"search-value-guards"}
+
+    original = exact_changes[0]
+    unsafe_changes = [
+        replace(original, after=original.before.replace("^[a-z]+$", "^.+$")),
+        replace(original, after=original.after.replace("^[a-z]+$", "^.+$")),
+        replace(original, after=original.after.replace("client_name", "village")),
+        replace(original, after=f"({original.after}) and true()"),
+    ]
+    allowed, _ = changes.declared(document_under_change, "proof2", unsafe_changes, sites=sites)
+    assert allowed == []
+    neighboring_field = SimpleNamespace(
+        id=variant.id, hq_authored=True,
+        first_publish_places={"search-value-guards": ("/menu/0/search_config/properties/1/validations",)},
+    )
+    assert changes.declared(neighboring_field, "proof2", exact_changes, sites=sites)[0] == []
+
+
+
 def _describe(doc):
     doc["modules"][0]["search_config"]["description"] = {"en": DESCRIPTION}
 
@@ -258,6 +390,32 @@ def test_a_saved_choice_and_its_label_show_in_default_order(
     image_cells = [row["cells"][6] for row in listed["rows"]]
     assert [cell["drawn"] for cell in image_cells] == [True, False, False]
     assert image_cells[0]["alt"] == "Assigned to east bank"
+
+
+def test_reached_choice_columns_show_both_paths_in_each_web_apps_language(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-reached-choice-columns"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Related areas"),
+                *steps.choose("Members"),
+                steps.SCREEN,
+                *steps.choose_language("fr", steps.arrive(any_screen=True)),
+                steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    observations = [
+        [[cell["text"] for cell in row["cells"]] for row in screen["list"]["rows"]]
+        for screen in run.screens
+    ]
+    evidence("web-apps-reached-choice-columns", observations)
+    assert observations == [
+        [["Ada", "East bank", "West bank", "Hello!"], ["Bea", "", "", "Hello!"]],
+        [["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "", "", "Bonjour!"]],
+    ]
 
 
 def test_web_apps_shows_signed_relative_case_dates(
@@ -621,3 +779,212 @@ def test_clear_search_requests_new_results_only_from_a_desktop_query(
                     cleared = next(entry for entry in searched[2]["queryData"].values() if entry.get("execute"))
                     assert not any((cleared.get("inputs") or {}).values()), cleared
                 assert not run.page_errors, run.page_errors
+
+def test_web_apps_opens_the_form_with_both_named_search_answers(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """The form reads two completed searches. The same prompt key has different answers."""
+    document = webapps_documents["search-named-parent"]
+    database = casedata.document_case_database(document)
+    parent = next(row for row in database.cases if row.case_type == "parent_case")
+    child = next(row for row in database.cases if row.case_type == "patient")
+    parent = dataclasses.replace(parent, name="North")
+    child = dataclasses.replace(child, name="River", properties=(("first_name", "West"),),
+                                indices=(("parent", parent.case_type, parent.case_id, "child"),))
+    database = dataclasses.replace(database, cases=(parent, child))
+    observed = {}
+    with webapps_hq.project(document) as project:
+        for name, saves in (("published", ()), ("saved", tuple(
+            (pages.CASE_LIST, project.module_id(index)) for index in (0, 1)
+        ))):
+            with project.released(formplayer_runner, database=database, saves=saves, driver=editor_driver, label=name) as release:
+                path = [*steps.open_app("Inline"), *steps.choose("Followup")]
+                for record, answer in ((parent, "North"), (child, "West")):
+                    path.extend([
+                        *steps.type_prompt(0, answer), *steps.run_search(), steps.SCREEN,
+                        *steps.click(f"#menu-region [id='row-{record.case_id}']"),
+                        *steps.click(steps.CONTINUE, visible=True, within=steps.WITHIN_MS),
+                    ])
+                # A menu with form selection after its cases may still offer the form by name.
+                path.extend(steps.click(steps.MENU_ROW, "Untitled Form", visible=True, within=steps.WITHIN_MS))
+                run = Session(release, editor_driver).run([*path, steps.SCREEN])
+                observed[name] = {
+                    "answers": [question["answer"] for question in run.screens[-1]["form"]["questions"]],
+                    "caseLists": [[row["id"] for row in screen["list"]["rows"]] for screen in run.screens[:-1]],
+                    "names": [menu["search_config"]["instance_name"] for menu in release.doc["modules"]],
+                    "pageErrors": run.page_errors,
+                }
+    evidence("named-search-answers", observed)
+    for result in observed.values():
+        assert result["pageErrors"] == []
+        assert result["caseLists"] == [[f"row-{parent.case_id}"], [f"row-{child.case_id}"]]
+        assert result["names"] == ["MemberLookup", "FamilyLookup"]
+        assert result["answers"] == ["North/West"]
+
+
+def test_web_apps_keeps_grouped_search_headings_and_answers_after_hq_save(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["search-grouped-prompts"]
+    headings = """() => [...document.querySelectorAll('.search-query-group-header-label')]
+        .map(label => label.textContent.trim())"""
+    collapse_second = """async () => {
+        const content = document.getElementById('group-group_header_2');
+        const closed = new Promise(resolve => content.addEventListener('hidden.bs.collapse', resolve, {once: true}));
+        document.querySelector('[data-bs-target="#group-group_header_2"]').click();
+        await closed;
+        return getComputedStyle(content).display === 'none';
+    }"""
+    observed = {}
+    with webapps_hq.project(document) as project:
+        for name, saves in (("published", ()), ("saved", ((pages.CASE_LIST, project.module_id(0)),))):
+            with project.released(formplayer_runner, saves=saves, driver=editor_driver, label=name) as release:
+                opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+                path = [
+                    *opening,
+                    {"eval": headings},
+                    *steps.type_prompt(0, "North"),
+                    *steps.type_prompt(1, "River"),
+                    {"eval": collapse_second},
+                    *steps.run_search(),
+                    steps.SCREEN,
+                ]
+                run = Session(release, editor_driver).run(path)
+                sent = [
+                    entry["inputs"]
+                    for request in _menu_requests(run)
+                    if request["searched"]
+                    for entry in request["queryData"].values()
+                    if isinstance(entry, dict) and entry.get("execute")
+                ]
+                observed[name] = {
+                    "headings": run.value(len(opening)),
+                    "collapsed": run.value(len(opening) + 1 + 2 * len(steps.type_prompt(0, ""))),
+                    "inputs": sent,
+                    "pageErrors": run.page_errors,
+                }
+    evidence("grouped-search-headings", observed)
+    for side in observed.values():
+        assert side["headings"] == ["Personal details", "Case details"]
+        assert side["collapsed"] is True
+        assert side["inputs"] == [{"first_name": "North", "case_name": "River"}]
+        assert side["pageErrors"] == []
+
+
+
+@pytest.mark.parametrize("group_key", ["group_header_0", "g"], ids=["current", "saved-legacy"])
+def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, group_key
+):
+    from proof.hq import operations
+    from proof.matrix import ops
+    from proof.matrix.authoring import Authoring
+
+    document = webapps_documents["search-grouped-prompts"]
+    current_group = "group_header_0"
+    key = f"search_property.m0.{group_key}"
+    text = "Find a client"
+    with webapps_hq.project(document) as project:
+        state = project.unit
+        if group_key != current_group:
+            # Reopen the same representable saved group shape as the matrix's
+            # grouped-fields control, whose legacy name is independent of row order.
+            app = operations.held_app(state, project.app_id)
+            properties = [prop.to_json() for prop in app.get_module(0).search_config.properties]
+            for prop in properties:
+                if prop.get("group_key") == current_group:
+                    prop["group_key"] = group_key
+                    if prop.get("is_group"):
+                        prop["name"] = group_key
+            authoring = Authoring(state, {}, "saved-legacy-search-group", operation=state.operation)
+            ops.set_json(authoring, project.app_id, "/modules/0/search_config/properties", properties)
+        with state.operation("search-group-heading-upload", document.id.encode()):
+            messages = ops.upload_commcare_translation(state, project.app_id, key, text)
+        with project.released(
+            formplayer_runner, saves=((pages.CASE_LIST, project.module_id(0)),), driver=editor_driver,
+        ) as release:
+            app = operations.held_app(state, project.app_id)
+            heading = app.get_module(0).search_config.properties[0]
+            assert heading.group_key == group_key and heading.name == group_key
+            assert heading.label["en"] == "Personal details"
+            assert app.translations["en"][key] == text
+            opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+            run = Session(release, editor_driver).run([
+                *opening,
+                {"eval": """() => [...document.querySelectorAll('.search-query-group-header-label')]
+                    .map(label => label.textContent.trim())"""},
+                *steps.type_prompt(0, "North"),
+                *steps.type_prompt(1, "River"),
+                *steps.run_search(),
+                steps.SCREEN,
+            ])
+        sent = [
+            entry["inputs"]
+            for request in _menu_requests(run)
+            if request["searched"]
+            for entry in request["queryData"].values()
+            if isinstance(entry, dict) and entry.get("execute")
+        ]
+        result = {"groupKey": group_key, "headings": run.value(len(opening)), "inputs": sent,
+                  "messages": messages, "errors": run.page_errors}
+        evidence("uploaded-search-group-heading", result)
+        assert result["headings"] == [text, "Case details"]
+        assert sent == [{"first_name": "North", "case_name": "River"}]
+        assert run.page_errors == []
+
+
+@pytest.mark.parametrize("hidden_member", [False, True], ids=["shown-member", "hidden-only-group"])
+def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, hidden_member,
+):
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+    from proof.matrix import ops
+    from proof.matrix.authoring import Authoring
+
+    document = webapps_documents["search-grouped-prompts"]
+    group_name, prop_label = "g", "Account code"
+    key = f"search_property.m0.{group_name}"
+    with webapps_hq.project(document) as project:
+        state, app_id = project.unit, project.app_id
+        app = operations.held_app(state, app_id)
+        properties = [prop.to_json() for prop in app.get_module(0).search_config.properties]
+        properties[0].update({"name": group_name, "group_key": group_name})
+        properties[1].update({"group_key": group_name, "hidden": hidden_member})
+        properties.append({
+            "doc_type": "CaseSearchProperty",
+            "name": group_name, "label": {"en": prop_label},
+            "group_key": properties[-1]["group_key"], "exclude": True,
+        })
+        authoring = Authoring(state, {}, "shared-search-group-locale", operation=state.operation)
+        ops.set_json(authoring, app_id, "/modules/0/search_config/properties", properties)
+        app = operations.held_app(state, app_id)
+        assert key not in app.translations.get("en", {})
+        assert parse_app_strings(app.create_app_strings("en"))[key] == prop_label
+        suite = etree.fromstring(app.create_suite())
+        assert suite.xpath(f".//group[@key='{group_name}']/display/text/locale[@id='{key}']")
+        assert suite.xpath(f".//prompt[@key='{group_name}']/display/text/locale[@id='{key}']")
+        opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+        with project.released(formplayer_runner) as release:
+            run = Session(release, editor_driver).run([
+                *opening,
+                {"eval": """() => {
+                    const text = (selector) => [...document.querySelectorAll(selector)]
+                        .filter(label => label.getClientRects().length !== 0)
+                        .map(label => label.textContent.trim());
+                    return {
+                        headings: text('#query-list-contents .search-query-group-header-label'),
+                        prompts: text('#query-list-contents [id="query-group-content"] .query-caption label'),
+                    };
+                }"""},
+            ])
+    read = run.value(len(opening))
+    labels, prompts = read["headings"], read["prompts"]
+    evidence("shared-search-group-locale", {
+        "headings": labels, "prompts": prompts, "locale": key, "hiddenMember": hidden_member,
+    })
+    assert not run.page_errors and not run.dialogs
+    assert labels == [prop_label, "Case details"]
+    assert prompts == ([] if hidden_member else ["Name"]) + ["Record name", prop_label]
