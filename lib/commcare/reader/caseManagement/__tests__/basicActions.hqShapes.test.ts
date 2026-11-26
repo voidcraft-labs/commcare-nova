@@ -372,7 +372,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		const reading = await readCases(doc);
 		expect(codes(reading)).toEqual([]);
 		const whole = await reading.whole;
-		if (whole.kind !== "read")
+		if (whole?.kind !== "read")
 			throw new Error("The typed hidden instant should read.");
 		const held = whole.draft.doc;
 		expect(

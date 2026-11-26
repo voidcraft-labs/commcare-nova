@@ -287,7 +287,11 @@ interface CatalogWrite {
 	readonly caseType: string;
 	readonly property: string;
 	readonly field?: DraftField;
+	/** The source Hidden Value's answer bind is xsd:dateTime. */
+	readonly dateTime?: true;
+	/** The case write stores the day of a date-and-time answer. */
 	readonly day?: true;
+	/** A preload reads the property and writes nothing. */
 	readonly read?: true;
 }
 
@@ -369,13 +373,7 @@ const DATETIME_DECLARATIONS = new WeakMap<
  */
 function declareHiddenDateTimes(
 	draft: Draft<Catalog>,
-	writes: readonly {
-		readonly caseType: string;
-		readonly property: string;
-		readonly field?: DraftField;
-		readonly dateTime?: true;
-		readonly read?: true;
-	}[],
+	writes: readonly CatalogWrite[],
 ): { caseType: string; property: string }[] {
 	const declared: { caseType: string; property: string }[] = [];
 	for (const one of writes) {
@@ -539,17 +537,7 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 		noteType(caseTypes, typeof stored === "string" ? stored : undefined);
 	}
 	const links: ReadLink[] = [];
-	const writes: {
-		caseType: string;
-		property: string;
-		field?: DraftField;
-		/** The writing question is a Hidden Value its bind types `xsd:dateTime`. */
-		dateTime?: true;
-		/** A date-and-time question's answer saved straight, its day. */
-		day?: true;
-		/** A preload, which reads the property and writes nothing. */
-		read?: true;
-	}[] = [];
+	const writes: CatalogWrite[] = [];
 	for (const module of app.modules) {
 		const menuType = module.module.caseType;
 		for (const form of module.forms) {
