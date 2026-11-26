@@ -1813,10 +1813,12 @@ authority take too, for a live app whose caller may edit it
   `lookup-json`) takes the same locks as a workbook for its one table,
   rechecks the publisher's grant and the table's revisions
   (`workbookAuthorityMatches`), and journals the operation in the same
-  transaction. CommCare HQ's lookup resources check no lookup permission
-  (`fixtures/resources/v0_1.py` overrides `obj_*` without calling the
-  resource's authorization), so this admission is the only check on each
-  request.
+  transaction. CommCare HQ's lookup resources omit the lookup-specific
+  permission check (`fixtures/resources/v0_1.py` overrides `obj_*` without
+  calling the resource's authorization). Nova checks the current HQ account
+  and scoped key's `edit_data` permission with a bounded empty read of the
+  permission-gated device-log resource before direct or manual lookup delivery
+  and again before each JSON mutation.
 
 An admission stays open while HQ may still be finishing a write. A lost
 reply, a deadline or a 5xx that an intermediary could have sent leaves a
@@ -2813,7 +2815,9 @@ preserve. It can continue a prior JSON destination over the same row IDs.
 A revision-bound paged reader reassembles the exact external leaves and
 validates UTF-8 and the encoded request bodies before any writes. Preparation
 stages at most 10,000 rows and 16 MiB of JSON body bytes across these paged
-tables for that publish. The executor returns a checkpoint only between
+tables for that publish. Every carried value also has to fit JavaRosa's
+65,535-byte modified UTF-8 string format, which worker fixtures use in native
+storage. The separate per-value limit applies before an archive or HQ write. The executor returns a checkpoint only between
 settled operations, after up to 200 writes or the wall-clock budget. An
 unfinished checkpoint retains the mapping and prevents sending app content.
 Publishing again reads the same destination ledger, rechecks the intended

@@ -8,6 +8,7 @@ import {
 	MAX_LOOKUP_FIXTURE_CELLS,
 } from "./fixtures";
 import { type LookupTableWireNaming, lookupWireNaming } from "./naming";
+import { LookupRuntimeValueLimit } from "./runtimeStrings";
 import { streamWorkerFixtureRow } from "./streamFixture";
 
 function fixtureTags(naming: LookupTableWireNaming) {
@@ -25,6 +26,7 @@ function fixtureTags(naming: LookupTableWireNaming) {
 export async function measureStreamedLookupFixtures(
 	planned: LookupFixtureBudget,
 	tables: readonly StreamingLookupTable[],
+	checkRuntime = false,
 ) {
 	const measures = new Map(
 		planned.fixtures.map((item) => [item.tableId, item]),
@@ -51,24 +53,34 @@ export async function measureStreamedLookupFixtures(
 			cells++;
 			measured.cellCount++;
 		};
-		for await (const { row, read } of table.reader.rows()) {
-			for await (const chunk of streamWorkerFixtureRow(
-				naming,
-				row,
-				read,
-				onCell,
-			)) {
-				bytes += chunk.byteLength;
-				measured.bytes += chunk.byteLength;
-				if (
-					cells > MAX_LOOKUP_FIXTURE_CELLS ||
-					bytes > MAX_LOOKUP_FIXTURE_BYTES
-				)
-					return {
-						budget: lookupFixtureBudget([...measures.values()]),
-						incomplete: true,
-					};
+		try {
+			for await (const { row, read } of table.reader.rows()) {
+				for await (const chunk of streamWorkerFixtureRow(
+					naming,
+					row,
+					read,
+					onCell,
+					checkRuntime,
+				)) {
+					bytes += chunk.byteLength;
+					measured.bytes += chunk.byteLength;
+					if (
+						cells > MAX_LOOKUP_FIXTURE_CELLS ||
+						bytes > MAX_LOOKUP_FIXTURE_BYTES
+					)
+						return {
+							budget: lookupFixtureBudget([...measures.values()]),
+							incomplete: true,
+						};
+				}
 			}
+		} catch (error) {
+			if (!(error instanceof LookupRuntimeValueLimit)) throw error;
+			return {
+				budget: lookupFixtureBudget([...measures.values()]),
+				incomplete: true,
+				runtimeValueTable: table.definition,
+			};
 		}
 	}
 	return {

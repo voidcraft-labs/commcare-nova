@@ -34,6 +34,7 @@ import {
 	patchHqLocations,
 	readHqPlaceExternalId,
 } from "@/lib/commcare/hq/locations";
+import { checkHqLookupJsonWrite } from "@/lib/commcare/hq/lookupJson";
 import {
 	FIXTURE_UPLOAD_PARTIAL_CODE,
 	type FixtureUploadRefusal,
@@ -1224,6 +1225,21 @@ export async function publishAppToHq(
 			...preflight.ready,
 			prepared: { ...preflight.ready.prepared, doc, compiledAtSeq: seq },
 		};
+
+		if (ready.lookupJsonPush !== null) {
+			const authorization = await checkHqLookupJsonWrite(
+				ready.creds,
+				ready.domain,
+			);
+			if (authorization !== "confirmed")
+				return refuseBeforeSending(
+					lookupJsonWritePermissionFailure(authorization, ready.domain),
+					{
+						checks: preflight.checks,
+						projectSpaceCompatibility: preflight.projectSpaceCompatibility,
+					},
+				);
+		}
 
 		const usedSearches = projectSearchDependencies(ready.prepared.doc);
 		fence = {
@@ -4139,13 +4155,13 @@ export async function pushLookupTablesJson(
 	const db = await getAppDb();
 	const mapped: { novaResourceId: string; remoteId: string }[] = [];
 	const pagedWave = { requests: 200, until: Date.now() + 150_000 };
-	const pagedDeadline = plan.tables.some(
-		(table) => table.pagedBytes !== undefined,
-	)
-		? AbortSignal.timeout(240_000)
-		: undefined;
+	const waveDeadline =
+		manualInstall || plan.tables.some((table) => table.pagedBytes !== undefined)
+			? AbortSignal.timeout(240_000)
+			: undefined;
 	let recorded: RecordAnswer | null = null;
 	for (const table of plan.tables) {
+		const bounded = manualInstall || table.pagedBytes !== undefined;
 		const key: LookupJsonDestinationKey = {
 			projectId: scope.projectId,
 			server: target.server,
@@ -4160,7 +4176,7 @@ export async function pushLookupTablesJson(
 					creds,
 					domain,
 					table.rows.length,
-					table.pagedBytes === undefined ? undefined : pagedDeadline,
+					bounded ? waveDeadline : undefined,
 					table.pagedBytes,
 				),
 				journal: {
@@ -4189,9 +4205,9 @@ export async function pushLookupTablesJson(
 				definition: table.definition,
 				rows: table.rows,
 				holdMs: LOOKUP_JSON_HOLD_MS,
-				...(table.pagedBytes !== undefined && { writeBudget: pagedWave }),
+				...(bounded && { writeBudget: pagedWave }),
 			});
-			if (table.pagedBytes !== undefined) pagedWave.requests -= result.writes;
+			if (bounded) pagedWave.requests -= result.writes;
 		} catch (error) {
 			if (!(error instanceof LookupError)) throw error;
 			return {
@@ -4252,6 +4268,23 @@ export async function pushLookupTablesJson(
 			};
 	}
 	return { failure: null, recorded, mapped };
+}
+
+export function lookupJsonWritePermissionFailure(
+	verdict: "denied" | "unavailable",
+	domain: string,
+): DeploymentFailure {
+	return {
+		code:
+			verdict === "denied"
+				? "domain_not_authorized"
+				: "hq_resource_state_unknown",
+		message:
+			verdict === "denied"
+				? `Your CommCare HQ connection needs permission to edit data on “${domain}”. You can use a connection with that permission and try again.`
+				: `Nova could not confirm permission to edit lookup data on “${domain}”. You can check your CommCare HQ connection and try again.`,
+		details: [],
+	};
 }
 
 /** Why a table's JSON publish stopped, in Nova's voice. */

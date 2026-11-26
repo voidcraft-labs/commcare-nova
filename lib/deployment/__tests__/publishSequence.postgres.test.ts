@@ -4223,6 +4223,7 @@ describe("the save counter a publish's reads are bound to", () => {
 function jsonLookupPeer(
 	peer: MockAgent,
 	answer: {
+		mayEditData?: () => boolean;
 		lose?: (method: string, path: string) => boolean;
 		drop?: (method: string, path: string) => boolean;
 		after?: (method: string, path: string) => Promise<void>;
@@ -4249,6 +4250,19 @@ function jsonLookupPeer(
 		[...rows.values()]
 			.filter((row) => row.table === table)
 			.sort((a, b) => a.sortKey - b.sortKey || (a.id < b.id ? -1 : 1));
+	peer
+		.get(HOST)
+		.intercept({
+			path: (path) => path.startsWith(`${api}device-log/v1/?`),
+			method: "GET",
+		})
+		.reply(() =>
+			answer.mayEditData?.() === false
+				? { statusCode: 403, data: "" }
+				: { statusCode: 200, data: { objects: [] } },
+		)
+		.persist();
+
 	peer
 		.get(HOST)
 		.intercept({
@@ -4511,7 +4525,10 @@ async function editTypesRows(
 	);
 }
 
-async function typesDocument(extraRows = 0): Promise<BlueprintDoc> {
+async function typesDocument(
+	extraRows = 0,
+	paged = false,
+): Promise<BlueprintDoc> {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const table = await createLookupTable(scope, {
@@ -4531,7 +4548,8 @@ async function typesDocument(extraRows = 0): Promise<BlueprintDoc> {
 			{ [code.id]: "002", [name.id]: "Hospital" },
 			...Array.from({ length: extraRows }, (_, index) => ({
 				[code.id]: String(index + 3),
-				[name.id]: `Facility ${index + 3}`,
+				[name.id]:
+					paged && index < 24 ? "x".repeat(45_000) : `Facility ${index + 3}`,
 			})),
 		],
 	});
@@ -4563,9 +4581,8 @@ async function typesDocument(extraRows = 0): Promise<BlueprintDoc> {
 	});
 }
 
-async function stageTypesLabel() {
+async function stageTypesLabel(value: string) {
 	const { tableId, tableRevision, columns, rowIds } = await typesTable();
-	const value = ` ${"🌱".repeat(17_000)} "`;
 	const bytes = Buffer.from(value);
 	const operationId = v7();
 	const edit = async (
@@ -4695,8 +4712,8 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 	});
 
 	it("resumes the ordinary publish of a paged lookup without sending the settled rows again", async () => {
-		const doc = await seed(await typesDocument(201));
-		const value = await stageTypesLabel();
+		const doc = await seed(await typesDocument(201, true));
+		const value = await stageTypesLabel("s".repeat(65_535));
 
 		await withPeer(async (peer) => {
 			const hq = jsonLookupPeer(peer);
@@ -4735,9 +4752,67 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 		});
 	});
 
+	it("stops before any CommCare HQ writes if its connected account cannot edit lookup data", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer, { mayEditData: () => false });
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "domain_not_authorized",
+					message: expect.stringContaining("permission to edit data"),
+				},
+			});
+			expect(hq.writes).toEqual([]);
+			expect(requests(peer).filter((line) => line.startsWith("POST "))).toEqual(
+				[],
+			);
+		});
+	});
+
+	it("refuses an external lookup value JavaRosa cannot load before a publish or manual install", async () => {
+		const doc = await seed(await typesDocument());
+		await stageTypesLabel("🌱".repeat(17_000));
+		const grant = await publishSession(ACTOR);
+		for (const mode of ["hq-json", "ccz"] as const) {
+			await expect(
+				prepareExportBoundary({
+					mode,
+					manualLookupInstaller: mode === "hq-json",
+					access: SCOPE,
+					doc,
+					compiledAtSeq: 0,
+					attachmentTarget: null,
+					archiveActor: () => ({ appId: APP, grant }),
+				}),
+			).resolves.toMatchObject({
+				ok: false,
+				violations: expect.arrayContaining([
+					expect.objectContaining({
+						code: "LOOKUP_CELL_TEXT_UNREPRESENTABLE",
+						details: expect.objectContaining({
+							problem: "runtime-value-length",
+						}),
+					}),
+				]),
+			});
+		}
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: { code: "app_not_ready" },
+			});
+			expect(hq.writes).toEqual([]);
+			expect(requests(peer).filter((line) => line.startsWith("POST "))).toEqual(
+				[],
+			);
+		});
+	});
+
 	it("installs a paged manual package through reviewed data-only waves and checks current authority", async () => {
-		const doc = await seed(await typesDocument(201));
-		const value = await stageTypesLabel();
+		const doc = await seed(await typesDocument(201, true));
+		const value = await stageTypesLabel("s".repeat(65_535));
 		const grant = await publishSession(ACTOR);
 		const boundary = await prepareExportBoundary({
 			mode: "hq-json",
@@ -4755,7 +4830,8 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 		const request = { actorUserId: ACTOR, grant, target: TARGET, manifest };
 
 		await withPeer(async (peer) => {
-			const hq = jsonLookupPeer(peer);
+			let mayEditData = true;
+			const hq = jsonLookupPeer(peer, { mayEditData: () => mayEditData });
 			const reviewed = await installManualLookupData(request);
 			if (reviewed.status !== "review") return fail();
 			expect(reviewed.tables).toEqual([
@@ -4769,6 +4845,13 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 			expect(hq.writes).toEqual([]);
 
 			const confirmed = { ...request, confirm: reviewed.confirmation };
+
+			mayEditData = false;
+			await expect(installManualLookupData(confirmed)).rejects.toMatchObject({
+				status: 403,
+			});
+			expect(hq.writes).toEqual([]);
+			mayEditData = true;
 			const first = await installManualLookupData(confirmed);
 			expect(first).toMatchObject({
 				status: "checkpoint",

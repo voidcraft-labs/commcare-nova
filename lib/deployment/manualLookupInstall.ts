@@ -3,6 +3,7 @@ import "server-only";
 import { sql, type Transaction } from "kysely";
 import { ApiError } from "@/lib/apiError";
 import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
+import { checkHqLookupJsonWrite } from "@/lib/commcare/hq/lookupJson";
 import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import {
 	lookupJsonDefinition,
@@ -26,7 +27,10 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { readLookupJsonDestination } from "./lookupJsonLedger";
 import { lookupJsonDefinitionDigest } from "./lookupJsonPlan";
 import type { LookupJsonPushPlan } from "./preflight";
-import { pushLookupTablesJson } from "./service";
+import {
+	lookupJsonWritePermissionFailure,
+	pushLookupTablesJson,
+} from "./service";
 import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
@@ -113,6 +117,16 @@ export async function installManualLookupData(input: {
 			connection.connectionDigest,
 		),
 	);
+	const authorization = await checkHqLookupJsonWrite(
+		connection.creds,
+		target.domain,
+	);
+	if (authorization !== "confirmed")
+		throw new ApiError(
+			lookupJsonWritePermissionFailure(authorization, target.domain).message,
+			authorization === "denied" ? 403 : 409,
+		);
+
 	const checkRevision = async (tx: Transaction<AppDatabase>) => {
 		const current = await resolveAppScopeInTransaction(
 			tx,

@@ -100,6 +100,7 @@ import {
 	type PagedLookupJsonRow,
 	stagePagedLookupJson,
 } from "@/lib/commcare/lookup/pagedJsonRows";
+import { LOOKUP_RUNTIME_STRING_LIMIT_LINE } from "@/lib/commcare/lookup/runtimeStrings";
 import {
 	measureStreamedLookupFixtures,
 	plannedLookupFixtureBudget,
@@ -546,10 +547,11 @@ async function prepareWithRegistry(
 	let remainingRows = PAGED_LOOKUP_JSON_ROWS;
 	let remainingBytes = PAGED_LOOKUP_JSON_BYTES;
 	const blocked: ValidationError[] = [];
-	for (const { table, carrier } of [
+	for (const { table, carrier, runtimeValueTooLong } of [
 		...workbookPlan.alternatives,
 		...continuedJson.map((table) => ({
 			table,
+			runtimeValueTooLong: undefined,
 			carrier: alternativeLookupCarrier(
 				table.definition,
 				"This table already uses the destination’s JSON resources.",
@@ -567,7 +569,12 @@ async function prepareWithRegistry(
 		let issue: string;
 		let code: ValidationError["code"] = "LOOKUP_WORKER_SOURCE_UNAVAILABLE";
 		let delivery: string = carrier.kind;
-		if (jsonAllowed && carrier.kind === "json" && !inWorkbook) {
+		let problem: string | undefined;
+		if (runtimeValueTooLong) {
+			issue = LOOKUP_RUNTIME_STRING_LIMIT_LINE;
+			problem = "runtime-value-length";
+			code = "LOOKUP_CELL_TEXT_UNREPRESENTABLE";
+		} else if (jsonAllowed && carrier.kind === "json" && !inWorkbook) {
 			const staged = await stagePagedLookupJson(table, tableNaming, {
 				rows: remainingRows,
 				bytes: remainingBytes,
@@ -580,6 +587,7 @@ async function prepareWithRegistry(
 				continue;
 			}
 			issue = staged.issue;
+			problem = staged.problem;
 			code = staged.excess
 				? "LOOKUP_HQ_PUSH_TOO_LARGE"
 				: "LOOKUP_CELL_TEXT_UNREPRESENTABLE";
@@ -598,6 +606,7 @@ async function prepareWithRegistry(
 				issue,
 				{},
 				{
+					...(problem && { problem }),
 					tableId: definition.id,
 					tableName: definition.name,
 					delivery,
@@ -636,10 +645,29 @@ async function prepareWithRegistry(
 	}
 
 	if (ccZBudget) {
-		const { budget, incomplete } = await measureStreamedLookupFixtures(
-			ccZBudget,
-			[...streamed.tables.values()],
-		);
+		const { budget, incomplete, runtimeValueTable } =
+			await measureStreamedLookupFixtures(
+				ccZBudget,
+				[...streamed.tables.values()],
+				true,
+			);
+		if (runtimeValueTable)
+			return {
+				ok: false,
+				violations: [
+					validationError(
+						"LOOKUP_CELL_TEXT_UNREPRESENTABLE",
+						"app",
+						LOOKUP_RUNTIME_STRING_LIMIT_LINE,
+						{},
+						{
+							tableId: runtimeValueTable.id,
+							tableName: runtimeValueTable.name,
+							problem: "runtime-value-length",
+						},
+					),
+				],
+			};
 		const findings = lookupFixtureBudgetFindings(budget, incomplete);
 		if (findings.length) return { ok: false, violations: findings };
 	}
