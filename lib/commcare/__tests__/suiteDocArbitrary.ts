@@ -1014,7 +1014,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	const drawn = resolveArbitraryDocument({
 		appId: "suite-fuzz-app",
 		appName: "Suite Fuzz App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { ...NEW_APP_SETTINGS },
 		caseTypes,
 		modules,

@@ -12,6 +12,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { splitIntoSections } from "@/lib/doc/formSectionMutations";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Field, Uuid } from "@/lib/domain";
@@ -61,7 +62,7 @@ function makeDoc(): PersistableDoc {
 	return {
 		appId: "test-app",
 		appName: "Test App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
@@ -179,4 +180,59 @@ describe("EngineController with a form split into pages while it runs", () => {
 		]);
 		expect(ctrl.validateSection(SECTION_B)).toBe(true);
 	});
+});
+
+it("refuses a direct repeat change after its control disappears and preserves existing answers", async () => {
+	const form = testUuid("controller-repeat-form"),
+		repeat = testUuid("controller-repeat-field");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						uuid: form,
+						name: "Check",
+						type: "survey",
+						fields: [
+							f({ kind: "text", id: "include" }),
+							f({
+								kind: "group",
+								id: "group",
+								relevant: "#form/include = 'yes'",
+								children: [
+									f({
+										kind: "repeat",
+										uuid: repeat,
+										id: "entries",
+										repeat_mode: "user_controlled",
+										submissionPlacement: { parent: form, position: 1 },
+										children: [f({ kind: "text", id: "note" })],
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const store = createBlueprintDocStore();
+	store.getState().load(doc);
+	const ctrl = ownedController();
+	ctrl.setDocStore(store);
+	ctrl.activateForm(form);
+	ctrl.addRepeat(repeat);
+	expect(ctrl.getRepeatCount(repeat)).toBe(0);
+	ctrl.setValueAt("/data/include", "yes");
+	await ctrl.addRepeatAsync(repeat, "/data/entries");
+	expect(ctrl.getRepeatCount(repeat)).toBe(1);
+	ctrl.setValueAt("/data/entries[0]/note", "Retain me");
+	ctrl.setValueAt("/data/include", "no");
+	expect(await ctrl.removeRepeatAsync(repeat, 0, "/data/entries")).toBe(false);
+	ctrl.removeRepeat(repeat, 0, "/data/entries");
+	expect(ctrl.getRepeatCount(repeat)).toBe(1);
+	ctrl.setValueAt("/data/include", "yes");
+	expect(await ctrl.removeRepeatAsync(repeat, 0, "/data/entries")).toBe(true);
+	expect(ctrl.getRepeatCount(repeat)).toBe(0);
 });

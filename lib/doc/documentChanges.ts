@@ -224,7 +224,6 @@ export const FORM_KEY_PARTS = {
 	openCondition: "case-changes",
 	closeCondition: "case-changes",
 	ownClosePlacement: "case-changes",
-	connect: "settings",
 	postSubmit: "after-submit",
 	formLinks: "after-submit",
 	otherwise: "after-submit",
@@ -233,6 +232,10 @@ export const FORM_KEY_PARTS = {
 	audioLabel: "settings",
 	mediaByLanguage: "settings",
 	mediaByFormerCode: "settings",
+	dataRootName: "settings",
+	automaticSubmissionText: "settings",
+	skipAutomaticSyncText: "settings",
+	validateChangedAnswersText: "settings",
 } as const satisfies Record<keyof Form, FormPart | null>;
 
 /** Where a key of the document's root is filed: an app part, or one of the walks below. */
@@ -254,7 +257,7 @@ type RootPlace =
 export const ROOT_KEY_PLACES = {
 	appId: "settings",
 	appName: "name",
-	connectType: "settings",
+	connectRoles: "settings",
 	caseTypes: "case-types",
 	localization: "localization",
 	appSettings: "settings",

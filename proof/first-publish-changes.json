@@ -2781,19 +2781,17 @@
 		]
 	},
 	{
-		"change": "hidden-value-defaults-dropped",
-		"placeKinds": ["form-part", "form"],
+		"change": "hidden-answer-types-respelled",
+		"placeKinds": ["form-node"],
 		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/_attachments/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/forms/*/case_references_data/load"
-			}
+			{ "check": "source", "artifact": "app.json", "path": "/_attachments/*" }
+		]
+	},
+	{
+		"change": "model-iteration-conditions-moved-to-rows",
+		"placeKinds": ["form-node"],
+		"rows": [
+			{ "check": "source", "artifact": "app.json", "path": "/_attachments/*" }
 		]
 	},
 	{

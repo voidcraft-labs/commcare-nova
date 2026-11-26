@@ -18,6 +18,8 @@ DOCUMENTS = (
     "media-language-files",
     "case-list-action-advanced",
     "case-list-action-basic",
+    "targeted-receiving-answers",
+
     "case-capture-multiple",
     "case-capture-repeat",
     "case-extension-registration",
@@ -37,6 +39,7 @@ DOCUMENTS = (
     "prompt-period-fallback",
     "search-hidden-link",
     "search-remote-defaults",
+    "targeted-repeat-invitations",
     "targeted-form-link-hidden-target",
     "targeted-forms-in-menu-above-one-case",
     "targeted-hidden-from-menu",
@@ -49,9 +52,11 @@ DOCUMENTS = (
     "targeted-multi-select-destinations",
     "targeted-save-to-case-read",
     "targeted-search-hq-compile",
+    "targeted-named-answer-root",
     "targeted-search-workflow",
     "targeted-several-case-close",
     "targeted-shared-visit-entries",
+    "targeted-submitted-groups",
     "targeted-validated-barcode-secret",
     "xpath-context",
 )

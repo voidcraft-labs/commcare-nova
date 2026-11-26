@@ -19,7 +19,7 @@ import {
 
 type PersistedAppRow = Pick<
 	Selectable<AppsTable>,
-	"id" | "project_id" | "app_name" | "connect_type" | "logo" | "deleted_at"
+	"id" | "project_id" | "app_name" | "connect_roles" | "logo" | "deleted_at"
 > & {
 	readonly case_types_text: string | null;
 	readonly localization_text: string | null;
@@ -94,7 +94,7 @@ async function readStructuralTargets(
 			row.id,
 			{
 				app_name: row.app_name,
-				connect_type: row.connect_type,
+				connect_roles: row.connect_roles,
 				case_types_text: row.case_types_text,
 				localization_text: row.localization_text,
 				app_settings_text: row.app_settings_text,
@@ -172,7 +172,7 @@ export async function scanPersistedLookupReferences(
 					"id",
 					"project_id",
 					"app_name",
-					"connect_type",
+					"connect_roles",
 					"logo",
 					"deleted_at",
 				])

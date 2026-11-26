@@ -85,7 +85,7 @@ function makeDoc(
 	return {
 		appId: "test-app",
 		appName: "Test App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
@@ -627,6 +627,7 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
+			ctrl.addRepeat(repeatUuid);
 
 			expect(ctrl.attachmentPathDisposition("/data/visits[1]/photo")).toBe(
 				"active",
@@ -668,6 +669,7 @@ describe("EngineController", () => {
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
 			ctrl.addRepeat(repeatUuid);
 			const keys = [
 				ctrl.getRepeatInstanceKey(repeatUuid, 0),
@@ -841,7 +843,7 @@ describe("EngineController", () => {
 
 			/* A repeat carries a `repeatCount` — its presence proves the field
 			 * was re-seeded under the new kind rather than left as a group. */
-			expect(ctrl.store.getState()[groupUuid].repeatCount).toBe(1);
+			expect(ctrl.store.getState()[groupUuid].repeatCount).toBe(0);
 		});
 
 		it("preserves answered child values across a group→repeat conversion (re-path, not drop)", () => {
@@ -926,7 +928,8 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
-			/* Child answered while the container is a repeat (template `[0]`). */
+			ctrl.addRepeat(repeatUuid);
+			/* Child answered in the first actual repeat row. */
 			ctrl.onValueChange(childUuid, "answer");
 			expect(ctrl.getPath(childUuid)).toBe("/data/container[0]/child");
 
@@ -967,7 +970,7 @@ describe("EngineController", () => {
 			const doc: ControllerDocSource = {
 				appId: "test-app",
 				appName: "Test App",
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [patientCaseType, noteCaseType],
 				modules: {
@@ -1208,14 +1211,17 @@ describe("EngineController", () => {
 			return doc;
 		}
 
-		it("activation writes path-keyed entries for repeat children", () => {
+		it("the first added row publishes a concrete answer path", () => {
 			const store = createLoadedStore(repeatDoc());
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
+			expect(ctrl.getRepeatCount(repeatUuid)).toBe(0);
+			expect(ctrl.store.getState()["/data/orders[0]/name"]?.path).toBeFalsy();
+			ctrl.addRepeat(repeatUuid);
 			const runtime = ctrl.store.getState();
-			// Template `[0]` children carry BOTH keys: the uuid (edit-mode
+			// The live first row carries both keys: the uuid (edit-mode
 			// rows) and the concrete path (interactive instance rows).
 			expect(runtime[nameUuid]).toBeDefined();
 			expect(runtime["/data/orders[0]/name"]).toBeDefined();
@@ -1227,6 +1233,7 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
+			ctrl.addRepeat(repeatUuid);
 			ctrl.addRepeat(repeatUuid);
 			ctrl.setValueAt("/data/orders[0]/name", "Hydrangea");
 			ctrl.setValueAt("/data/orders[1]/name", "Aspirin");
@@ -1244,6 +1251,7 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
+			ctrl.addRepeat(repeatUuid);
 			ctrl.addRepeat(repeatUuid);
 			const afterAdd = ctrl.store.getState();
 			expect(afterAdd[repeatUuid].repeatCount).toBe(2);
@@ -1264,6 +1272,7 @@ describe("EngineController", () => {
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
 			ctrl.addRepeat(repeatUuid);
 			ctrl.addRepeat(repeatUuid);
 			const events: Parameters<
@@ -1513,6 +1522,7 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatParentUuid);
+			ctrl.addRepeat(repeatParentUuid);
 			ctrl.setValueAt("/data/visit/photo", "photo.png");
 			const moves: Parameters<
 				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
@@ -1611,6 +1621,7 @@ describe("EngineController", () => {
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatParentUuid);
 			ctrl.addRepeat(repeatParentUuid);
 			ctrl.setValueAt("/data/visit/photo", "photo.png");
 			const moves: Parameters<
@@ -1758,6 +1769,7 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
+			ctrl.addRepeat(repeatUuid);
 
 			const doseUuid = testUuid("eeeeeeee-0002-0002-0002-000000000001");
 			applyControllerEdit(store, [
@@ -1784,6 +1796,7 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
+			ctrl.addRepeat(repeatUuid);
 			ctrl.setValueAt("/data/orders[0]/name", "Hydrangea");
 			ctrl.setValueAt("/data/orders[1]/name", "Aspirin");
 
@@ -1808,6 +1821,7 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
+			ctrl.addRepeat(repeatUuid);
 			ctrl.setValueAt("/data/orders[1]/name", "Aspirin");
 
 			applyControllerEdit(store, [
@@ -1829,6 +1843,7 @@ describe("EngineController", () => {
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
+			ctrl.addRepeat(repeatUuid);
 			ctrl.setValueAt("/data/orders[1]/name", "abc");
 
 			applyControllerEdit(store, [
@@ -1848,6 +1863,7 @@ describe("EngineController", () => {
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
 			ctrl.addRepeat(repeatUuid);
 
 			// Both instances empty + required — submit blocked.
@@ -1873,6 +1889,7 @@ describe("EngineController", () => {
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
 			ctrl.addRepeat(repeatUuid);
 			expect(ctrl.store.getState()["/data/orders[1]/tag"].value).toBe("A");
 
@@ -1957,6 +1974,7 @@ describe("EngineController", () => {
 			ctrl.activateForm(FORM_UUID);
 
 			ctrl.addRepeat(repeatUuid);
+			ctrl.addRepeat(repeatUuid);
 			ctrl.setValueAt("/data/orders[0]/case_name", "Hydrangea");
 			ctrl.setValueAt("/data/orders[1]/case_name", "Aspirin");
 
@@ -1998,7 +2016,7 @@ describe("EngineController", () => {
 			const doc: ControllerDocSource = {
 				appId: "test-app",
 				appName: "Test App",
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [patientCaseType],
 				modules: {

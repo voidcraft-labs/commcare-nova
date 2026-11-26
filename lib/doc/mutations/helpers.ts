@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import { type Field, ownRecordValue } from "@/lib/domain";
+import { referenceNames } from "@/lib/domain/referenceNames";
 
 /**
  * Remove a field and all of its descendants from the doc. Called by
@@ -210,34 +211,13 @@ export function dedupeSiblingId(
 }
 
 /**
- * Compute the slash-delimited path from a form to a field, using its
- * CommCare ids (NOT UUIDs). Used by `rewriteXPathRefs` — XPath references
- * in the blueprint are path-based (`group_id/child_q`), not UUID-based.
- *
- * Returns `undefined` if the field isn't reachable from a form.
+ * Submitted address of a field, used by expression and worker paths.
  */
 export function computeFieldPath(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
 ): string | undefined {
-	const segments: string[] = [];
-	let cursor: Uuid | undefined = fieldUuid;
-	const visited = new Set<Uuid>();
-	while (cursor !== undefined) {
-		if (visited.has(cursor)) return undefined;
-		visited.add(cursor);
-		if (ownRecordValue(doc.forms, cursor) !== undefined) {
-			// Reached the form — path is complete.
-			return segments.reverse().join("/");
-		}
-		const field = ownRecordValue(doc.fields, cursor);
-		if (!field) return undefined;
-		segments.push(field.id);
-		const parent = findFieldParent(doc, cursor);
-		if (!parent) return undefined;
-		cursor = parent.parentUuid;
-	}
-	return undefined;
+	return referenceNames(doc).fieldPathSegments(fieldUuid)?.join("/");
 }
 
 /**

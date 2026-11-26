@@ -1,3 +1,4 @@
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 /**
  * Field-level validation rules.
  *
@@ -20,34 +21,36 @@ import {
 	effectiveAppLocalization,
 	fieldKindCarriesValidation,
 	filledProse,
-	formConnectIds,
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
-	hiddenFieldCarriesBothValueSources,
 	makeTranslationUnitId,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
 	proseTemplateIsEmpty,
 	proseTemplateText,
 	repairSelectOptionValue,
-	SELECT_OPTION_VALUE_BOTH_QUOTES,
 	selectOptionValueProblem,
 	snapshotTranslationUnits,
 } from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
+import { inferStructuralTemporalType } from "@/lib/domain/expression/temporalType";
 import {
 	MEDIA_ROLES,
 	type Media,
 	type MediaRole,
 } from "@/lib/domain/multimedia";
 import {
+	heldOpeningRepeatNeed,
 	type QueryRepeatNeed,
-	queryRepeatPlacementNeeds,
+	requestedQueryPlacement,
 } from "@/lib/domain/queryRepeatPlacement";
 import {
 	freeQuestionId,
 	questionIdProblem,
 	questionIdProblemSentence,
 } from "@/lib/domain/questionId";
+import {
+	answerNamespaceProblem,
+	submittedAction,
+} from "@/lib/domain/submittedAnswerName";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { fieldDisplayProblem } from "../../xform/readDisplaySettings";
 import { type ValidationError, validationError } from "../errors";
@@ -104,8 +107,6 @@ function selectNoOptions(field: Field, ctx: FieldContext): ValidationError[] {
  * A choice's stored VALUE is the answer token, and the wire cannot carry
  * one holding whitespace: CommCare Android throws on any select value with
  * a space, and a multi-select answer is a space-joined token list. A value
- * holding both an apostrophe and a double quote has no XPath string
- * literal, so no rule naming the choice could be shown as text. A value
  * written like `instance('abc')` is read by CommCare HQ's build as a data
  * source the form reads. An empty value saves nothing, indistinguishable
  * from "unanswered".
@@ -142,9 +143,7 @@ function selectOptionValueInvalid(
 				? `${position} has an empty value. A choice's value is the answer the app stores, so an empty one saves nothing and reads as unanswered. Give it a value such as "${suggestion}": a lowercase slug with words joined by underscores, with the wording kept in the label.`
 				: problem === "whitespace"
 					? `${position} has the value ${JSON.stringify(option.value)}, which contains a space. A choice's value is the answer the app stores, not the wording, and the device refuses a choice value holding a space (a multi-select answer is a space-separated list of these values). Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`
-					: problem === "both-quotes"
-						? `${position} has the value ${JSON.stringify(option.value)}, which holds both an apostrophe and a double quote. ${SELECT_OPTION_VALUE_BOTH_QUOTES}`
-						: `${position} has the value ${JSON.stringify(option.value)}, which CommCare HQ reads as a data source the form reads: the value sits in the form's source as written, and HQ's build reads instance('…') there wherever it stands. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`;
+					: `${position} has the value ${JSON.stringify(option.value)}, which CommCare HQ reads as a data source the form reads: the value sits in the form's source as written, and HQ's build reads instance('…') there wherever it stands. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`;
 		errors.push(
 			validationError(
 				"SELECT_OPTION_VALUE_INVALID",
@@ -170,35 +169,74 @@ function selectOptionValueInvalid(
 	return errors;
 }
 
-/**
- * A hidden field holding both a `calculate` and a `default_value`:
- * schema-legal, and a pair Nova doesn't yet write. JavaRosa runs the
- * `xforms-ready` seeds first and then re-evaluates every calculate
- * (`FormDef::initialize`), so the calculate's value is the one the field
- * ends with, while a later load-time setvalue can still read the default
- * before that. A field with neither is valid: it stays blank. The recognizer
- * is shared with the tool-boundary refinement so the two cannot drift. The
- * finding lands on the field, not on one slot, because the message leaves
- * the choice of which slot to keep with the author.
- */
-function hiddenValueBothSources(
+/** Core's BooleanData.cast rejects every nonblank ready or insert assignment.
+ * A literal and a constant condition decide that outcome without worker data. */
+function hiddenAnswerAssignments(
 	field: Field,
 	ctx: FieldContext,
 ): ValidationError[] {
-	if (!hiddenFieldCarriesBothValueSources(field)) return [];
+	if (field.kind !== "hidden") return [];
+	const at = {
+		moduleUuid: ctx.moduleUuid,
+		moduleName: ctx.moduleName,
+		formUuid: ctx.formUuid,
+		formName: ctx.formName,
+		fieldUuid: field.uuid,
+		fieldId: field.id,
+	};
+	const calculation = field.calculate;
+	if (calculation !== undefined) {
+		if (
+			field.answerType === "boolean" &&
+			["date", "datetime"].includes(
+				inferStructuralTemporalType(calculation) ?? "",
+			)
+		) {
+			return [
+				validationError(
+					"HIDDEN_ANSWER_CALCULATION",
+					"field",
+					`The calculation for “${field.id}” returns a date. You can compare the date to get a yes or no answer, or choose a date answer type.`,
+					at,
+					{ problem: "date-as-boolean" },
+				),
+			];
+		}
+		if (
+			field.answerType === "multi_select" &&
+			calculation.kind === "term" &&
+			calculation.term.kind === "literal" &&
+			typeof calculation.term.value === "string" &&
+			/^ +[^ ]/.test(calculation.term.value)
+		) {
+			return [
+				validationError(
+					"HIDDEN_ANSWER_CALCULATION",
+					"field",
+					`The calculation for “${field.id}” starts with an empty choice. You can start the list with its first choice.`,
+					at,
+					{ problem: "empty-choice" },
+				),
+			];
+		}
+	}
+	if (field.answerType !== "boolean") return [];
+	const seed = field.default_value;
+	if (seed === undefined) return [];
+	const nonblank =
+		seed.kind === "match-all" ||
+		seed.kind === "match-none" ||
+		(seed.kind === "term" &&
+			seed.term.kind === "literal" &&
+			seed.term.value !== null &&
+			seed.term.value !== "");
+	if (!nonblank) return [];
 	return [
 		validationError(
-			"HIDDEN_VALUE_BOTH_SOURCES",
+			"HIDDEN_BOOLEAN_STARTING_ANSWER",
 			"field",
-			`Field "${field.id}" in "${ctx.formName}" is a hidden field with both a calculate and a default_value. ${HIDDEN_VALUE_ONE_SOURCE_SENTENCE} Keep the one that matches what the value should do: a calculate for a value that tracks other fields, a default_value for a value fixed at form load. Clear the other.`,
-			{
-				moduleUuid: ctx.moduleUuid,
-				moduleName: ctx.moduleName,
-				formUuid: ctx.formUuid,
-				formName: ctx.formName,
-				fieldUuid: field.uuid,
-				fieldId: field.id,
-			},
+			`The starting answer for “${field.id}” cannot open or add its repeat row. CommCare sets a yes or no hidden answer through Calculation. You can move the starting value there or choose another answer type.`,
+			at,
 		),
 	];
 }
@@ -369,13 +407,17 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
  * siblings.
  */
 function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
+	const namespaceFindings = invalidAnswerNamespace(field, ctx);
 	const problem = questionIdProblem(field.id);
-	if (problem === undefined) return [];
-	// Read from `fieldOrder`, the persisted order, not the derived parent
-	// index, which a document handed in from storage may not hold.
-	const [parentKey, siblingUuids] = Object.entries(ctx.doc.fieldOrder).find(
-		([, order]) => order?.includes(field.uuid),
-	) ?? [undefined, []];
+	if (problem === undefined) return namespaceFindings;
+	const layout = submissionLayout(
+		ctx.formUuid,
+		ctx.doc.fields,
+		ctx.doc.fieldOrder,
+	);
+	const parentKey = layout.parents.get(field.uuid);
+	const siblingUuids =
+		parentKey === undefined ? [] : layout.children.get(parentKey);
 	const siblings = new Set(
 		(siblingUuids ?? [])
 			.filter((uuid) => uuid !== field.uuid)
@@ -384,12 +426,9 @@ function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 				return id === undefined ? [] : [id];
 			}),
 	);
-	// A root field's element shares the form's data root with its Connect
-	// blocks' wrappers.
-	if (parentKey === ctx.formUuid)
-		for (const id of formConnectIds(ctx.doc, ctx.formUuid)) siblings.add(id);
 	const suggestedId = freeQuestionId(field.id, siblings);
 	return [
+		...namespaceFindings,
 		validationError(
 			"INVALID_FIELD_ID",
 			"field",
@@ -405,6 +444,38 @@ function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 			{ fieldUuid: field.uuid, problem, suggestedId },
 		),
 	];
+}
+
+/** A Hidden Value's receiving namespace that XML reserves, that no URI
+ * spells, or that workers read as a stock transaction. */
+function invalidAnswerNamespace(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (field.kind !== "hidden" || field.answerNamespace === undefined) return [];
+	const problem =
+		answerNamespaceProblem(field.answerNamespace) ??
+		(submittedAction(field.id, field.answerNamespace) === "stock"
+			? "Workers use this namespace for stock transactions."
+			: undefined);
+	if (problem)
+		return [
+			validationError(
+				"SUBMITTED_ANSWER_NAMESPACE",
+				"field",
+				`For hidden value "${field.id}", ${problem[0].toLowerCase()}${problem.slice(1)} Enter the receiving service’s namespace or clear it to use the form’s namespace.`,
+				{
+					moduleUuid: ctx.moduleUuid,
+					moduleName: ctx.moduleName,
+					formUuid: ctx.formUuid,
+					formName: ctx.formName,
+					fieldUuid: field.uuid,
+					fieldId: field.id,
+				},
+				{ problem },
+			),
+		];
+	return [];
 }
 
 /**
@@ -528,20 +599,22 @@ export function queryRepeatModelIterationMessage(
 		readonly repeat: string;
 		readonly outer: string;
 		readonly group: string;
+		readonly published: boolean;
 	},
 ): string {
-	const opening = `"${words.repeat}" takes its rows once, when the form opens, as your published app does`;
-	const follow =
-		"You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id";
+	const opening = `"${words.repeat}" takes its rows once, when the form opens${words.published ? ", as your published app does" : ""}`;
+	const follow = words.published
+		? "You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id"
+		: "You can choose As answers change";
 	switch (reason) {
 		case "nested":
 			return `${opening}, and inside "${words.outer}" that would give its rows the wrong records. ${follow}, or keep it outside "${words.outer}".`;
 		case "query-reads-answers":
-			return `${opening}, so its query would run before any answer it reads is given. ${follow}, or have its query read no answers.`;
+			return `${opening}, before the answer its query matches a record ID against is given, so it would find no records. ${follow}, or give that answer a starting value.`;
 		case "row-condition":
 			return `${opening}, and a row made while its condition hides an earlier one would take that row's record. ${follow}, or show every row.`;
 		case "ancestor-condition-changes":
-			return `${opening}, and "${words.group}" around it shows on a condition that can change while the form is filled in, so its rows could stay empty. ${follow}, or show "${words.group}" on a condition that doesn't change.`;
+			return `${opening}, while a starting value hides "${words.group}" around it, so its rows would stay empty. ${follow}, or show "${words.group}" when the form opens.`;
 		default: {
 			const _exhaustive: never = reason;
 			return _exhaustive;
@@ -552,7 +625,7 @@ export function queryRepeatModelIterationMessage(
 /**
  * A query repeat whose held placement is model iteration, while the form
  * now holds it in a shape model iteration cannot run
- * (`lib/domain/queryRepeatPlacement.ts::queryRepeatPlacementNeeds`). The
+ * (`lib/domain/queryRepeatPlacement.ts::heldOpeningRepeatNeed`). The
  * published app keeps each row's record id where model iteration writes it,
  * so the move to the count placement is stated and held with the change
  * that needs it (`lib/doc/queryRepeatPlacement.ts`); a batch that reaches
@@ -562,16 +635,39 @@ function queryRepeatModelIterationShape(
 	field: Field,
 	ctx: FieldContext,
 ): ValidationError[] {
-	if (
-		field.kind !== "repeat" ||
-		field.repeat_mode !== "query_bound" ||
-		field.placement !== "model-iteration"
-	)
-		return [];
+	if (field.kind !== "repeat" || field.repeat_mode !== "query_bound") return [];
+	const requested = requestedQueryPlacement(field.rowTiming);
+	const placement = requested ?? field.placement;
 	const structure = formStructure(ctx.doc, ctx.formUuid);
 	if (structure === undefined) return [];
-	const [need] = queryRepeatPlacementNeeds(structure, field.uuid);
-	if (need === undefined) return [];
+	const need =
+		placement === "model-iteration"
+			? heldOpeningRepeatNeed(structure, field.uuid)
+			: undefined;
+	if (need === undefined) {
+		if (
+			field.placement !== undefined &&
+			requested !== undefined &&
+			requested !== field.placement
+		) {
+			return [
+				validationError(
+					"QUERY_REPEAT_TIMING_MOVE",
+					"field",
+					`The timing for “${field.id}” in “${ctx.formName}” changes where your published app keeps each row's record ID. You can review that change to use the new timing.`,
+					{
+						formUuid: ctx.formUuid,
+						formName: ctx.formName,
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						fieldUuid: field.uuid,
+						fieldId: field.id,
+					},
+				),
+			];
+		}
+		return [];
+	}
 	const outer =
 		need.kind === "nested" ? ctx.doc.fields[need.repeatUuid] : undefined;
 	const group =
@@ -580,6 +676,10 @@ function queryRepeatModelIterationShape(
 			: undefined;
 	const words = {
 		repeat: fieldWords(field, ctx),
+		// Only a held model iteration takes its rows at opening in the
+		// published app; a held count already follows its query, and going
+		// back to it moves no record ID.
+		published: field.placement === "model-iteration",
 		outer: fieldWords(outer, ctx),
 		group: fieldWords(group, ctx),
 	};
@@ -598,6 +698,7 @@ function queryRepeatModelIterationShape(
 			},
 			{
 				reason: need.kind,
+				published: String(words.published),
 				repeatLabel: words.repeat,
 				...(need.kind === "nested" && {
 					repeatUuid: need.repeatUuid,
@@ -720,7 +821,7 @@ const FIELD_RULES = [
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,
 	selectOptionLabelEmpty,
-	hiddenValueBothSources,
+	hiddenAnswerAssignments,
 	requiredOnHidden,
 	calculateOnVisibleInput,
 	invalidFieldId,

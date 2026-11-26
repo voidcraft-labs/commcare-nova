@@ -29,7 +29,6 @@ import { FieldHelp } from "@/components/preview/form/FieldHelp";
 import { FieldRenderer } from "@/components/preview/form/FieldRenderer";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { HiddenField } from "@/components/preview/form/fields/HiddenField";
-import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useHelpFormatText } from "@/components/preview/form/useHelpFormatText";
 import { useLabelFormatText } from "@/components/preview/form/useLabelFormatText";
@@ -169,8 +168,12 @@ export const FieldRow = memo(function FieldRow({
 	// input-producing kind that exposes `label` + optional `hint`.
 	// Narrow on `kind` instead of the legacy wire `type` discriminant.
 	const content =
-		q.kind === "label" ? (
-			<LabelField field={q} state={displayState} />
+		q.kind === "connect_activity" ? (
+			<span className="text-xs text-nova-text-muted">
+				{q.activity.kind === "assessment"
+					? "Connect assessment"
+					: q.activity.name}
+			</span>
 		) : q.kind === "hidden" ? (
 			<HiddenField field={q} />
 		) : isContainer(q) ? null : (

@@ -364,22 +364,27 @@ def post_path(profile: bytes | None, domain: str) -> str:
     return receiver_url(domain, None)
 
 
-def device_request(path: str, username: str, password: str, submission_xml: bytes):
+def device_request(path: str, username: str, password: str, submission_xml: bytes, *, attachments=()):
     """A form as a device posts it to HQ's receiver: the instance as the ``xml_submission_file`` part of a
     multipart body, with the worker's own credentials."""
     import base64
 
     from proof.formplayer.client import HqRequest
 
-    body = (
-        (
-            f"--{BOUNDARY}\r\n"
-            'Content-Disposition: form-data; name="xml_submission_file"; filename="form.xml"\r\n'
-            "Content-Type: text/xml\r\n\r\n"
-        ).encode()
-        + submission_xml
-        + f"\r\n--{BOUNDARY}--\r\n".encode()
-    )
+    parts = [("xml_submission_file", "form.xml", "text/xml", submission_xml)]
+    parts.extend((name, name, content_type, contents) for name, content_type, contents in attachments)
+    body = bytearray()
+    for field, filename, content_type, contents in parts:
+        body.extend(
+            (
+                f"--{BOUNDARY}\r\n"
+                f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode()
+        )
+        body.extend(contents)
+        body.extend(b"\r\n")
+    body.extend(f"--{BOUNDARY}--\r\n".encode())
     credentials = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
     return HqRequest(
         method="POST",
@@ -389,7 +394,7 @@ def device_request(path: str, username: str, password: str, submission_xml: byte
             ("Content-Type", f"multipart/form-data; boundary={BOUNDARY}"),
             ("Authorization", f"Basic {credentials}"),
         ),
-        body=body,
+        body=bytes(body),
     )
 
 
