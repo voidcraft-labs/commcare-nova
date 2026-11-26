@@ -354,6 +354,8 @@ export function applyFormMutation(
 								!Object.hasOwn(patch, "typeChoice"))
 						)
 							delete prospective.typeChoice;
+						if (prospective.action !== "create")
+							delete prospective.ownerAfterCreate;
 						// Saving a name or owner only when changed means nothing once
 						// the patch stops saving that name or owner. A flag the patch
 						// itself sets stays for the gate to judge.

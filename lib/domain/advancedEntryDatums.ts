@@ -596,6 +596,7 @@ export function openActionClause(
 	view: OpenActionView,
 ): AdvancedIneligibility | undefined {
 	if (!opensCase(f, operation)) return "scope";
+	if (operation.ownerAfterCreate !== undefined) return "write-condition";
 	const repeat =
 		operation.action === "create" ? operation.forEach?.repeat : undefined;
 	if (
@@ -707,6 +708,7 @@ function candidateNewCases(
 	for (const op of operations)
 		if (
 			op.action === "create" &&
+			op.ownerAfterCreate === undefined &&
 			op.forEach === undefined &&
 			op.target.kind === "new" &&
 			op.target.idFrom === undefined &&

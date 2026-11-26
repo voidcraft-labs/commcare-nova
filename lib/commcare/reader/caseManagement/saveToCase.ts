@@ -1505,6 +1505,44 @@ function enclosingRepeat(
 }
 
 /** Reads one block's content into its proposal, or the finding it is. */
+/** A later owner needs its own scalar check in the generated guard. */
+function laterOwnerGuardIsHeld(
+	xform: ReadXForm,
+	block: ReadSaveToCaseBlock,
+	condition: string,
+): boolean {
+	const name = block.path.at(-1);
+	if (name === undefined) return false;
+	const guard = xform.saveToCaseBlocks.find(
+		(candidate) =>
+			candidate.element.parent === block.element.parent &&
+			isAllocatedName(
+				candidate.path.at(-1) ?? "",
+				generatedBaseName("guard", name, "text"),
+			),
+	);
+	if (guard === undefined) return false;
+	const calculation = bindsUnder(xform, guard.path).get("case/@case_id")
+		?.attribs.calculate;
+	const root = parse(calculation);
+	if (
+		calculation === undefined ||
+		root?.kind !== "call" ||
+		root.name !== "if" ||
+		root.args.length !== 3 ||
+		root.args[0] === undefined
+	)
+		return false;
+	const [first] = conjuncts(root.args[0]);
+	if (first === undefined) return false;
+	const ownerPath = `current()/../../../${name}/case/update/owner_id`;
+	return sameXPathText(
+		calculation.slice(first.from, first.to),
+		`not(${condition}) or string-length(${ownerPath}) > 0 and string-length(${ownerPath}) <= 255`,
+		{ ruleSet: "form" },
+	);
+}
+
 function readBlock(
 	ctx: ReadContext,
 	form: DraftForm,
@@ -1922,6 +1960,9 @@ function readBlock(
 			if (property === "owner_id") {
 				if (creates && bind.attribs.relevant !== undefined) {
 					if (
+						rows[0] !== row ||
+						!untrimmed(text).trimmed ||
+						!laterOwnerGuardIsHeld(xform, block, bind.attribs.relevant) ||
 						target.kind !== "new" ||
 						target.idFrom !== undefined ||
 						target.authoredId !== undefined ||

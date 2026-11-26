@@ -17,6 +17,7 @@ import {
 } from "@/lib/domain/advancedEntryDatums";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { entryDatumSupplies } from "@/lib/domain/entryDatumSupplies";
+import { literal, matchAll, term } from "@/lib/domain/expression";
 import { datumRefKey } from "@/lib/domain/expression/types";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import type { CaseOperation } from "@/lib/domain/forms";
@@ -99,6 +100,52 @@ function supplied(doc: BlueprintDoc): string[] {
 		.refs.map(({ ref }) => datumRefKey(ref))
 		.sort();
 }
+
+it("does not advertise an advanced open action or datum to a guarded fresh create", () => {
+	const formUuid = testUuid(REGISTER);
+	const moduleUuid = testUuid(HOUSEHOLDS);
+	const doc = buildDoc(
+		{
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					uuid: HOUSEHOLDS,
+					name: "Visits",
+					forms: [
+						{
+							uuid: REGISTER,
+							name: "Visit",
+							type: "survey",
+							fields: [{ kind: "text", id: "name", uuid: NAME }],
+						},
+					],
+				},
+			],
+		},
+		(draft) => {
+			draft.modules[moduleUuid].heldKind = "advanced";
+			draft.forms[formUuid].caseOperations = [
+				{
+					uuid: PATIENT,
+					id: "patient",
+					action: "create",
+					caseType: "patient",
+					target: { kind: "new" },
+					name: nameRead,
+					ownerAfterCreate: {
+						value: term(literal("team-2")),
+						condition: matchAll(),
+					},
+				},
+			];
+		},
+	);
+	expect(menuEmittedAdvanced(doc, moduleUuid)).toBe(true);
+	expect(advancedEntryActions(doc, formUuid).opens).toEqual([]);
+	expect(supplied(doc)).not.toContain(
+		datumRefKey({ kind: "new-child-case", caseType: "patient" }),
+	);
+});
 
 describe("the entry of a registration emitted advanced", () => {
 	it("supplies the new case and the child its open action creates", () => {

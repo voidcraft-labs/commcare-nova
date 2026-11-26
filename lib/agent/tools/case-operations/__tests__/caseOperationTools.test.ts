@@ -31,7 +31,13 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain";
-import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/expression";
+import {
+	eq,
+	literal,
+	tableColumn,
+	tableLookup,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { makeToolWorkspaceHarness } from "../../../__tests__/fixtures";
 import { applyToDoc } from "../../common";
@@ -588,6 +594,70 @@ describe("shared case-operation tools", () => {
 			error: expect.stringContaining("closing the case"),
 		});
 		expect(h.currentDoc()).toEqual(saved);
+	});
+
+	it("adds and converts a fresh create with a later owner through the shared operation planner", async () => {
+		const doc = expectAdmittedDoc(
+			buildDoc({
+				caseTypes: [
+					{
+						name: "visit",
+						properties: [
+							{ name: "source_id", label: "Source ID", data_type: "text" },
+						],
+					},
+				],
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [f({ uuid: TEXT, kind: "text", id: "reference" })],
+							},
+						],
+					},
+				],
+			}),
+		);
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const at = { moduleUuid, formUuid };
+		const h = makeToolWorkspaceHarness(doc);
+		const ownerAfterCreate = {
+			value: term(literal("team-2")),
+			condition: eq(fieldValue, literal("transfer")),
+		};
+		const add = await h.runTool(addCaseOperationsTool, {
+			...at,
+			operations: [item({ ...createVisit, ownerAfterCreate }, CREATE_UUID)],
+		});
+		expect(add.result).toMatchObject({ ok: true });
+		expect(h.currentDoc().forms[formUuid].caseOperations).toEqual([
+			expect.objectContaining({ uuid: CREATE_UUID, ownerAfterCreate }),
+		]);
+
+		const update = await h.runTool(updateCaseOperationTool, {
+			...at,
+			operationUuid: CREATE_UUID,
+			operation: {
+				id: createVisit.id,
+				action: "update",
+				caseType: "visit",
+				target: { kind: "expression", expr: term(literal("retained-visit")) },
+				writes: [...createVisit.writes],
+			},
+		});
+		expect(update.result).toMatchObject({ ok: true });
+		expect(update.mutations).toEqual([
+			expect.objectContaining({
+				caseOperationPatch: expect.objectContaining({ targetAction: "update" }),
+			}),
+		]);
+		const [saved] = h.currentDoc().forms[formUuid].caseOperations ?? [];
+		expect(saved).toMatchObject({ uuid: CREATE_UUID, action: "update" });
+		expect(saved.ownerAfterCreate).toBeUndefined();
 	});
 
 	it("updates through granular patches with no whole-operation fallback", async () => {

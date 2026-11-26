@@ -55,6 +55,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { planPlacements } from "@/lib/commcare/placement";
 import { updateCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -951,6 +952,11 @@ it("round-trips two independently placed owner effects on a fresh case", async (
 		delete draft.modules[draft.moduleOrder[0]].caseType;
 	});
 	expect(gateCodes(doc)).toEqual([]);
+	expect(
+		planPlacements(doc, FORM, { moduleKind: "advanced" }).placements.get(
+			change.uuid,
+		)?.placement.kind,
+	).toBe("save-to-case");
 	const outcome = await readBack(doc);
 	expect(outcome.defects).toEqual([]);
 	if (outcome.kind !== "read")
@@ -970,9 +976,10 @@ it("refuses the later owner on aliased and competing case changes", () => {
 		owner: term(literal("team-01")),
 		ownerAfterCreate: { value: term(literal("team-02")), condition: onYes },
 	});
-	const alias = {
+	if (change.action !== "create") throw new Error("Missing the create.");
+	const alias: CaseOperation = {
 		...change,
-		target: { kind: "new" as const, expr: term(literal("visit-01")) },
+		target: { kind: "new", expr: term(literal("visit-01")) },
 	};
 	for (const changes of [[alias], [change, update({})]]) {
 		const doc = produce(app("survey", changes), (draft) => {
