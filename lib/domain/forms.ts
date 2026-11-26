@@ -14,6 +14,11 @@ import {
 	relationStepSchema,
 	valueSchema,
 } from "./expression/types";
+import {
+	computedEntryValueSchema,
+	formCaseSelectionSchema,
+	sharedFormSchema,
+} from "./formEntryCases";
 import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { menuBadgeSchema } from "./menuBadge";
@@ -23,6 +28,7 @@ import {
 	navigationMediaSchema,
 } from "./navigationMedia";
 import {
+	advancedTagSchema,
 	type CasePlacement,
 	casePlacementSchema,
 	ownClosePlacementSchema,
@@ -409,6 +415,21 @@ export const caseWriteViaSchema = z.tuple(
 );
 export type CaseWriteVia = [RelationStep, ...RelationStep[]];
 
+/** A case editor's one-time assignment after the form's opening defaults.
+ * Its owning load determines when it runs and which selected record it reads. */
+export const formOpeningAssignmentSchema = z.strictObject({
+	uuid: uuidSchema,
+	field: uuidSchema,
+	source: z.discriminatedUnion("kind", [
+		z.strictObject({ kind: z.literal("own") }),
+		z.strictObject({ kind: z.literal("worker-record") }),
+		z.strictObject({ kind: z.literal("selection"), selection: uuidSchema }),
+	]),
+	via: caseWriteViaSchema.optional(),
+	property: authoredCasePropertyNameSchema,
+});
+export type FormOpeningAssignment = z.infer<typeof formOpeningAssignmentSchema>;
+
 export const caseOperationWriteSchema = z.strictObject({
 	property: authoredCasePropertyNameSchema,
 	value: valueSchema,
@@ -507,7 +528,13 @@ export const ownCaseOperationSchema = z.strictObject({
 	/** Registration: the new case's name. Follow-up and close: a rename of
 	 *  the case the form loaded. */
 	name: valueSchema.optional(),
+	/** Follow-up and close: the rename is saved only when it differs from
+	 *  the case's name (`caseFacetOnlyIfChanged`). */
+	nameOnlyIfChanged: z.literal(true).optional(),
 	owner: valueSchema.optional(),
+	/** The owner is saved only when the answer is not blank
+	 *  (`caseFacetOnlyIfChanged`). */
+	ownerOnlyIfChanged: z.literal(true).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 	links: z.array(caseOperationLinkSchema).optional(),
 	placement: casePlacementSchema.optional(),
@@ -516,6 +543,7 @@ export const ownCaseOperationSchema = z.strictObject({
 	condition: z.never().optional(),
 	forEach: z.never().optional(),
 	rename: z.never().optional(),
+	renameOnlyIfChanged: z.never().optional(),
 	retype: z.never().optional(),
 });
 
@@ -526,9 +554,12 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		action: z.literal("create"),
 		target: newCaseTargetSchema,
 		name: valueSchema,
+		nameOnlyIfChanged: z.never().optional(),
 		owner: valueSchema.optional(),
+		ownerOnlyIfChanged: z.literal(true).optional(),
 		links: z.array(caseOperationLinkSchema).optional(),
 		rename: z.never().optional(),
+		renameOnlyIfChanged: z.never().optional(),
 		retype: z.never().optional(),
 	}),
 	z.strictObject({
@@ -536,8 +567,11 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		action: z.literal("update"),
 		target: updateCaseTargetSchema,
 		name: z.never().optional(),
+		nameOnlyIfChanged: z.never().optional(),
 		owner: valueSchema.optional(),
+		ownerOnlyIfChanged: z.literal(true).optional(),
 		rename: valueSchema.optional(),
+		renameOnlyIfChanged: z.literal(true).optional(),
 		retype: z.string().optional(),
 		links: z.array(caseOperationLinkSchema).optional(),
 	}),
@@ -546,18 +580,70 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		action: z.literal("close"),
 		target: existingCaseTargetSchema,
 		name: z.never().optional(),
+		nameOnlyIfChanged: z.never().optional(),
 		owner: z.never().optional(),
+		ownerOnlyIfChanged: z.never().optional(),
 		rename: z.never().optional(),
+		renameOnlyIfChanged: z.never().optional(),
 		retype: z.never().optional(),
 		links: z.never().optional(),
 	}),
 ]);
 
+/**
+ * The name and owner facets an operation saves only when changed, as HQ's
+ * build applies `update_mode: "edit"` to the `name` and `owner_id` keys of
+ * an update map (`xform.py::XFormCaseBlock.add_case_updates`): the key's
+ * leaf is relevant only while the answer differs from the case's
+ * `case/<key>` in the casedb when the form opened. A case holds its name as
+ * `case_name`, so a rename is saved only when it differs from the name; a
+ * case holds its owner as an attribute, so `case/owner_id` is empty
+ * (`XPathNodeset.unpack` of no node is "") and the owner is saved only when
+ * the answer is not blank. On a case the form creates, HQ's build then
+ * leaves the create block's own owner as `-` (`autoset_owner_id_for_*`
+ * finds `owner_id` among the updates), so a blank answer leaves it unowned.
+ *
+ * - `nameOnlyIfChanged`: the own arm's rename on a follow-up or close form.
+ * - `renameOnlyIfChanged`: an update's rename.
+ * - `ownerOnlyIfChanged`: the owner of the own arm, a create or an update.
+ */
+export type CaseFacetOnlyIfChanged =
+	| "nameOnlyIfChanged"
+	| "renameOnlyIfChanged"
+	| "ownerOnlyIfChanged";
+
+/** The facet each flag saves only when changed. */
+export const CASE_FACET_OF_ONLY_IF_CHANGED = {
+	nameOnlyIfChanged: "name",
+	renameOnlyIfChanged: "rename",
+	ownerOnlyIfChanged: "owner",
+} as const satisfies Record<
+	CaseFacetOnlyIfChanged,
+	"name" | "rename" | "owner"
+>;
+
+/** Whether some write or facet of `operation` is saved only when changed. */
+export function operationSavesOnlyChanged(operation: {
+	readonly writes?: readonly CaseOperationWrite[];
+	readonly nameOnlyIfChanged?: true;
+	readonly renameOnlyIfChanged?: true;
+	readonly ownerOnlyIfChanged?: true;
+}): boolean {
+	return (
+		operation.nameOnlyIfChanged === true ||
+		operation.renameOnlyIfChanged === true ||
+		operation.ownerOnlyIfChanged === true ||
+		(operation.writes ?? []).some((write) => write.onlyIfChanged === true)
+	);
+}
+
 type CaseOperationFacets = {
 	uuid: Uuid;
 	id: string;
 	name?: Expression;
+	nameOnlyIfChanged?: true;
 	owner?: Expression;
+	ownerOnlyIfChanged?: true;
 	writes?: CaseOperationWrite[];
 	links?: CaseOperationLink[];
 	placement?: CasePlacement;
@@ -571,6 +657,7 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	condition?: undefined;
 	forEach?: undefined;
 	rename?: undefined;
+	renameOnlyIfChanged?: undefined;
 	retype?: undefined;
 };
 
@@ -582,6 +669,7 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	condition?: Expression;
 	forEach?: { repeat: Uuid };
 	rename?: Expression;
+	renameOnlyIfChanged?: true;
 	retype?: string;
 };
 
@@ -799,6 +887,22 @@ export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
 export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z.strictObject({
+	/** Source or first-published names of the records this form opens. */
+	heldSelectionTags: z.record(uuidSchema, advancedTagSchema).optional(),
+	/** Absent derives the ordinary menu choices. An empty list explicitly opens without a selection. */
+	caseSelections: z.array(formCaseSelectionSchema).optional(),
+	/** A second way to open an ordinary form, in its own menu position. */
+	shadowOf: sharedFormSchema.optional(),
+	computedDatums: z.array(computedEntryValueSchema).optional(),
+	openingAssignments: z.array(formOpeningAssignmentSchema).optional(),
+	/** The opened record's saved assignment map in an adopted basic form.
+	 * Its case editor preserves that map. New forms get an editor with an
+	 * Add property control for these values. */
+	heldBasicOpening: z.literal(true).optional(),
+	/** The finish button on Web Apps. An absent source uses the platform's
+	 * default; an explicitly empty source is a button with no text. Other
+	 * languages use the form's submit-label translation unit. */
+	submitLabel: z.strictObject({ text: z.string().optional() }).optional(),
 	entryPoint: formEntryPointSchema.optional(),
 	/** Case creations whose IDs a caller supplies when opening this form through a deep link.
 	 * The source form owns these choices even when only a second menu offers the link. */
@@ -884,6 +988,25 @@ export const formSchema = z.strictObject({
 	audioLabel: mediaAssetIdSchema.optional(),
 });
 export type Form = z.infer<typeof formSchema>;
+/** A worker starting value runs on an editable worker load. HQ's basic
+ * User Properties editor can create updates, but has no starting-value control. */
+export function opensWithWorkerValue(form: Form): boolean {
+	return Boolean(
+		form.openingAssignments?.some((row) => row.source.kind === "worker-record"),
+	);
+}
+
+export function usesFormEntryActions(form: Form): boolean {
+	return (
+		form.caseSelections !== undefined ||
+		Boolean(form.computedDatums?.length) ||
+		Boolean(
+			form.openingAssignments?.some(
+				(row) => row.source.kind !== "own" || !form.heldBasicOpening,
+			),
+		)
+	);
+}
 
 export type FormKindMetadata = {
 	icon: string;

@@ -165,6 +165,28 @@ export interface OwnCaseProgram {
 	readonly closeCondition?: DomainExpression;
 }
 
+/** Immutable database reads of an authorized form entry. The write transaction
+ * reauthorizes reached targets before changing any current row. */
+export interface OpeningReadSet {
+	readonly currentOwnerIds: readonly string[];
+	/** Cases this actor's own unsynced submissions left on the device, which
+	 * the signed opening carries: the device holds them though the current
+	 * restore may not (a case one of them closed), so a write may still
+	 * reach them. */
+	readonly submittedCaseIds?: readonly string[];
+	readonly cases: DeviceCaseDatabase;
+	readonly locations?: readonly Pick<
+		import("@/lib/organization/footprint").LocationFixtureRow,
+		"id" | "levelUuid" | "lineage"
+	>[];
+	readonly lookupRows: readonly {
+		readonly id: string;
+		readonly table_id: string;
+		readonly order_key: number;
+		readonly values: Readonly<Record<string, string | number>>;
+	}[];
+}
+
 /**
  * The advanced-operation half of a submission. `operations` arrives in
  * canonical `(order, uuid)` sequence (the caller sorts via
@@ -178,6 +200,9 @@ export interface CaseOperationProgram {
 		readonly operations: readonly Uuid[];
 		readonly revisions?: { project: string; places: string };
 	};
+	/** The signed opening's rows, which every read of this submission
+	 *  evaluates against; absent for a form that reads no opening. */
+	readonly openingReads?: OpeningReadSet;
 	/** The authored-key identity scope half the operations share. */
 	readonly formUuid: Uuid;
 	/**
@@ -225,6 +250,9 @@ export interface CaseOperationProgram {
 	 * across the whole envelope (including a schema-heal retry).
 	 */
 	readonly lookupTableSchemas?: LookupTableSchemas;
+	/** The session values the signed opening reached, by datum reference
+	 *  (`datumRefKey`); a chosen-case read takes only these. */
+	readonly entryDatums?: ReadonlyMap<string, string>;
 	/** Open-namespace worker data for `sessionUser` terms: the keys the
 	 * worker's device holds. */
 	readonly sessionUser?: ReadonlyMap<string, string>;

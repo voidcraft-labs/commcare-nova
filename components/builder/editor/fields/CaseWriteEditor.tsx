@@ -499,9 +499,7 @@ function DestinationRow({
 	/* The destination the row's switch commits, on a row that has one. */
 	const switchDestination = useMemo(
 		() =>
-			view !== undefined &&
-			view.slot === "write" &&
-			(view.destination === "own" || view.destination === "ancestor")
+			view !== undefined && view.destination !== "other"
 				? onlyIfChangedDestination(view)
 				: undefined,
 		[view],

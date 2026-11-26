@@ -9,6 +9,7 @@ import {
 } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { afterSubmitRoute } from "@/lib/preview/afterSubmitRouting";
 import { ANDROID_RULES } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import type { CaseRow } from "../caseDataBindingTypes";
 import { formNavigation } from "../navigationProjection";
 import {
@@ -444,4 +445,41 @@ it("returns a submenu with the submitted record even when another menu last sele
 		{ caseId: "submitted", caseProperties: { note: "Saved" } },
 	]);
 	expect(picked[leaf]?.cases).toMatchObject([{ caseId: "submitted" }]);
+});
+
+describe("the preceding task of a form that walks its own choices", () => {
+	it("keeps the earlier choice the frame retains by its identity, not as a menu's", () => {
+		const blueprint = independentChoicesBlueprint("practice");
+		const form = Object.values(blueprint.forms).find(
+			(one) => one.name === "Visit two people",
+		);
+		const [first, second] =
+			form?.caseSelections?.filter((row) => row.source.kind === "choose") ?? [];
+		if (!form || !first || !second)
+			throw new Error("The independent choices fixture lacks its visit");
+		const person = (caseId: string) => ({
+			...row(caseId),
+			case_type: "person",
+		});
+		const task = resolvePreviousTask({
+			doc: blueprint,
+			formUuid: form.uuid,
+			platform: "android",
+			submittedCaseIds: ["ada", "bea"],
+			selections: {},
+			entryChoices: [
+				{ selectionUuid: first.uuid, caseId: "ada" },
+				{ selectionUuid: second.uuid, caseId: "bea" },
+			],
+			caseDatabase: { rows: [person("ada"), person("bea")], indices: [] },
+		});
+		expect(task.destination).toMatchObject({
+			kind: "record-selection",
+			formUuid: form.uuid,
+		});
+		expect(task.entryChoices).toEqual([
+			{ selectionUuid: first.uuid, caseId: "ada", caseName: "ada" },
+		]);
+		expect(task.selections).toEqual({});
+	});
 });

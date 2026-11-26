@@ -23,7 +23,7 @@ export const DEFAULT_GROUP_OWNER = w.instance(GROUPS_INSTANCE, [
 ]);
 export const GROUP_OWNER_ASSERTION = {
 	test: w.eq(w.call("count", [WORKER_GROUP_ROWS]), w.num(1)),
-	localeId: "case_sharing.exactly_one_group",
+	localeId: "case_sharing.exactly_one_group" as const,
 };
 export const GROUP_OWNER_MESSAGE =
 	"This form needs one group to own the new case. Your supervisor can check which case-sharing group or place you belong to.";

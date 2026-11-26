@@ -250,6 +250,10 @@ export function predicateFocusTitle(value: Expression): string {
 			return "Exclude every case";
 		case "if":
 			return "Depends on a condition";
+		case "call":
+			return value.fn === "boolean"
+				? "Is answered"
+				: expressionFocusTitle(value);
 		default:
 			return expressionFocusTitle(value);
 	}
@@ -307,6 +311,10 @@ export function predicateFocusDescription(
 			return "This condition always matches";
 		case "match-none":
 			return "This condition never matches";
+		case "call":
+			return value.fn === "boolean"
+				? "Checks whether the worker answered a question"
+				: expressionFocusDescription(value);
 		default:
 			return expressionFocusDescription(value);
 	}

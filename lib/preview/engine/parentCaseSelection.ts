@@ -185,6 +185,13 @@ export function previewLeafAsksParentCase(
 ): boolean {
 	const chain = parentChain(doc, moduleUuid);
 	if (chain.size === 0) return false;
+	if (formUuid === undefined) {
+		const ctx = contextOf(doc);
+		return caseListSessionDatums(doc, ctx, moduleUuid).some((datum) =>
+			isParentDatum(ctx, chain, datum),
+		);
+	}
+	if (!(doc.formOrder[moduleUuid] ?? []).includes(formUuid)) return false;
 	if (formUuid === undefined) return true;
 	if (!routeContainsForm(doc, moduleUuid, formUuid)) return false;
 	const ctx = contextOf(doc);

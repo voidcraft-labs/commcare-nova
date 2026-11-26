@@ -5,7 +5,7 @@
  * HQ writes each form's submit label into every language's strings and the
  * default strings (`app_strings.py`, `forms.m<N>f<M>.submit_label` from
  * `models/forms.py::FormBase.get_submit_label`), "Submit" where none is set,
- * as Nova never sets one. Formplayer hands it to the client with each form's
+ * independently for every missing language. Formplayer hands it to the client with each form's
  * translations (`services/MenuSessionRunnerService.java`).
  */
 
