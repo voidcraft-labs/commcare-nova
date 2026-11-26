@@ -1950,29 +1950,33 @@ test.describe("authenticated builder", () => {
 		await expect(replaceDialog).toHaveCount(0);
 		await page.setViewportSize({ width: 1280, height: 720 });
 
-		await test.step("preview explains why an otherwise populated list is empty", async () => {
+		await test.step("preview says a search found nothing, past the list's own conditions", async () => {
 			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			await expect(
 				page.getByRole("button", { name: "Back to edit", exact: true }),
 			).toBeVisible();
 			// The menu searches first, so Preview opens on its Search screen and
-			// Results follows a search. A submitted search cannot mask the broader
-			// availability problem: no search can return a case while Results
-			// excludes every available case.
+			// Results follows a search. Its forms don't read the search, so the
+			// search runs over every open case of the type: CommCare HQ's Results
+			// read the case type alone (`remote_requests.py::_build_datum_nodeset`)
+			// and the conditions composed above narrow the case list a worker
+			// browses. A search for nobody therefore says it found no match,
+			// never that the list's own conditions exclude every case.
 			await page.getByRole("textbox", { name: "Patient name" }).fill("Nobody");
 			await page
 				.getByRole("button", { name: "Search All Cases", exact: true })
 				.click();
-			const authoredEmptyTitle = page.getByRole("heading", {
-				name: "No cases available for this task",
+			const noMatchTitle = page.getByRole("heading", {
+				name: "No cases match your search",
 				level: 2,
 			});
-			await expect(authoredEmptyTitle).toBeVisible({ timeout: 20_000 });
-			const authoredEmpty = authoredEmptyTitle.locator("..");
-			const authoredEmptyDescription = authoredEmpty.getByText(
-				"Existing cases do not meet this task's conditions. They may become available as work progresses.",
-			);
-			await expect(authoredEmptyDescription).toBeVisible();
+			await expect(noMatchTitle).toBeVisible({ timeout: 20_000 });
+			const noMatchDescription = noMatchTitle
+				.locator("..")
+				.getByText(
+					"Check your spelling, clear a field, or try a broader search",
+				);
+			await expect(noMatchDescription).toBeVisible();
 			await expect(page.getByText("No cases yet", { exact: true })).toHaveCount(
 				0,
 			);
@@ -1980,14 +1984,14 @@ test.describe("authenticated builder", () => {
 				page.getByRole("button", { name: /sample cases/i }),
 			).toHaveCount(0);
 			const [emptyTitleStyle, emptyDescriptionStyle] = await Promise.all([
-				authoredEmptyTitle.evaluate((element) => {
+				noMatchTitle.evaluate((element) => {
 					const style = getComputedStyle(element);
 					return {
 						fontSize: Number.parseFloat(style.fontSize),
 						color: style.color,
 					};
 				}),
-				authoredEmptyDescription.evaluate((element) => {
+				noMatchDescription.evaluate((element) => {
 					const style = getComputedStyle(element);
 					return {
 						fontSize: Number.parseFloat(style.fontSize),
@@ -2001,7 +2005,7 @@ test.describe("authenticated builder", () => {
 			expect(emptyTitleStyle.color).not.toBe(emptyDescriptionStyle.color);
 			await expect(
 				page.getByRole("heading", {
-					name: "No cases match your search",
+					name: "No cases available for this task",
 					level: 2,
 				}),
 			).toHaveCount(0);

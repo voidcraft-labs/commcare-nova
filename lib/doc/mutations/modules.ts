@@ -23,10 +23,13 @@ import {
 	type Uuid,
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { replaceMediaLanguageEntry } from "@/lib/domain/multimedia";
 import { editNavigationInLanguage } from "@/lib/domain/navigationMedia";
+import {
+	replaceCaseConditions,
+	searchContentWithoutInputs,
+} from "@/lib/domain/searchConditions";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 
 type ModuleParent = Uuid | null;
@@ -414,8 +417,7 @@ export function applyModuleMutation(
 							!isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig) &&
 							!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig) &&
 							(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
-							effectiveFilterForEmission(mod.caseListConfig?.filter) ===
-								undefined
+							!searchContentWithoutInputs(mod.caseListConfig)
 						) {
 							delete mod.caseSearchConfig;
 						}
@@ -448,8 +450,7 @@ export function applyModuleMutation(
 					if (config === undefined) continue;
 					const nextConfig = caseSearchConfigAfterFinalInputRemoval(
 						config,
-						effectiveFilterForEmission(mod.caseListConfig?.filter) !==
-							undefined,
+						searchContentWithoutInputs(mod.caseListConfig),
 					);
 					if (nextConfig === undefined) delete mod.caseSearchConfig;
 					else mod.caseSearchConfig = nextConfig;
@@ -712,7 +713,47 @@ export function applyModuleMutation(
 			// Apply the patch key-by-key: a `null` (wire spelling of a clear —
 			// JSON drops `undefined`) DELETES the slot, any other value sets it.
 			const target = config as unknown as Record<string, unknown>;
-			for (const [key, value] of Object.entries(mut.patch)) {
+			const {
+				filter,
+				listCondition,
+				searchCondition,
+				searchFilterEdit,
+				...rest
+			} = mut.patch;
+			if (searchFilterEdit !== undefined) {
+				const edit = searchFilterEdit;
+				const rows = config.searchFilters ?? [];
+				if (edit.operation === "add")
+					config.searchFilters = spliceEntryAfter(
+						rows,
+						edit.filter,
+						edit.after,
+					);
+				else {
+					const row = rows.find((r) => r.uuid === edit.uuid);
+					if (row !== undefined) {
+						if (edit.operation === "edit") Object.assign(row, edit.patch);
+						else if (edit.operation === "move")
+							config.searchFilters = spliceEntryAfter(rows, row, edit.after);
+						else {
+							const remaining = rows.filter((r) => r.uuid !== row.uuid);
+							if (remaining.length) config.searchFilters = remaining;
+							else delete config.searchFilters;
+						}
+					}
+				}
+			}
+			if (
+				filter !== undefined ||
+				listCondition !== undefined ||
+				searchCondition !== undefined
+			)
+				replaceCaseConditions(config, {
+					filter,
+					listCondition,
+					searchCondition,
+				});
+			for (const [key, value] of Object.entries(rest)) {
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}

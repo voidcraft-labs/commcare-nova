@@ -22,7 +22,7 @@ import { instanceForRead } from "../../xpath/instanceSources";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
-import { type CsqlRun, searchRowCsql } from "./csqlRead";
+import { type CsqlRun, csqlPropertyName, searchRowCsql } from "./csqlRead";
 import {
 	ancestorWalk,
 	casedbRow,
@@ -175,7 +175,7 @@ function visitRunProperties(run: CsqlRun, found: string[]): void {
 		const choice = run.choices.get(name);
 		if (choice !== undefined)
 			for (const branch of choice) visitRunProperties(branch, found);
-		else if (!holes.has(name)) found.push(name);
+		else if (!holes.has(name)) found.push(csqlPropertyName(name));
 	};
 	visit(run.csql);
 }
@@ -277,7 +277,7 @@ export function searchRowRelations(
 			return;
 		}
 		if (related && !run.holes.has(name))
-			properties.push({ caseType: origin, property: name });
+			properties.push({ caseType: origin, property: csqlPropertyName(name) });
 	};
 	visit(row.csql, rowType, false);
 	return { links, properties };

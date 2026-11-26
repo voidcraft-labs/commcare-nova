@@ -104,6 +104,8 @@ export function isRuntimeSubtreeRoot(
  * sends the worker's day. */
 export function isCsqlServerValueFunction(expression: Expression): boolean {
 	switch (expression.kind) {
+		case "today":
+			return expression.clock === "project-space";
 		case "now":
 		case "date-coerce":
 		case "datetime-coerce":

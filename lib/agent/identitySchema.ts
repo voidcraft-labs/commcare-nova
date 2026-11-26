@@ -30,6 +30,7 @@ export type AuthorableIdentityFamily =
 	| "automation-recipient"
 	| "automation-event"
 	| "automation-user-data-filter"
+	| "search-filter"
 	| "media-asset"
 	| "lookup-table"
 	| "lookup-column"
@@ -347,6 +348,14 @@ export function classifyIdentity(
 	// A column's ordered display rule and a calculation's translated text are
 	// anonymous items of their column, each named by its stable id.
 	if (property === "textUuid") return "case-mapping-row";
+	/* `edit_search_filter` names one filter of a menu's online search, and
+	 * anchors a move or an add on the filter it follows. */
+	if (
+		tool === "edit_search_filter" &&
+		(property === "uuid" || property === "after") &&
+		pointer.startsWith("/change/")
+	)
+		return "search-filter";
 	if (property === "uuid") {
 		if (pointer.includes("/mapping/") || pointer.includes("/texts/"))
 			return "case-mapping-row";

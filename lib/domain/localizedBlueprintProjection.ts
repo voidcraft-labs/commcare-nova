@@ -14,6 +14,7 @@ import {
 import {
 	effectiveCaseSearchConfig,
 	type Module,
+	NO_SEARCH_SCREEN_TITLE,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	searchScreenTitleText,
 } from "./modules";
@@ -215,7 +216,7 @@ export function projectLocalizedModule(
 						next.hint,
 					);
 				}
-				if (next.required !== undefined) {
+				if (next.required !== undefined && next.required.noMessage !== true) {
 					// A requirement without its own message reads the system
 					// sentence, localized once for the whole app.
 					next.required = {
@@ -240,7 +241,7 @@ export function projectLocalizedModule(
 									),
 					};
 				}
-				if (next.validation !== undefined) {
+				if (next.validation?.message !== undefined) {
 					next.validation = {
 						...next.validation,
 						message: text(
@@ -259,15 +260,13 @@ export function projectLocalizedModule(
 	const effectiveSearch = effectiveCaseSearchConfig(module);
 	if (effectiveSearch !== undefined) {
 		const search = structuredClone(effectiveSearch);
-		// A search with no title keeps its `none` arm: it has no text, and no
-		// translation unit.
-		const title = searchScreenTitleText(effectiveSearch);
-		if (title !== null) {
-			search.searchScreenTitle = text(
-				makeTranslationUnitId("module", module.uuid, "search-title"),
-				title,
-			);
-		}
+		// The title as this language shows it: its own text, or none where it
+		// holds the title blank (`translationUnits.ts`, the search-title unit).
+		const title = text(
+			makeTranslationUnitId("module", module.uuid, "search-title"),
+			searchScreenTitleText(effectiveSearch) ?? "",
+		);
+		search.searchScreenTitle = title === "" ? NO_SEARCH_SCREEN_TITLE : title;
 		if (effectiveSearch.searchScreenSubtitle !== undefined) {
 			search.searchScreenSubtitle = text(
 				makeTranslationUnitId("module", module.uuid, "search-subtitle"),

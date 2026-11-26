@@ -21,6 +21,10 @@ import type {
 } from "@/lib/lookup/types";
 import type { StoredLocation } from "@/lib/organization/types";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
+import {
+	type PreviewSearchFacts,
+	previewSearchTargetSchema,
+} from "@/lib/preview/searchSettings";
 import type {
 	PreviewCaseListRegistrationLaunch,
 	PreviewMenuCaseSelection,
@@ -115,6 +119,11 @@ export const appTestStartSchema = z.strictObject({
 		.optional()
 		.describe(
 			"Where sessions that leave out platform run: web-apps or android, a platform the saved app runs on. Omit to use Web Apps when the app runs on both, or its only platform.",
+		),
+	searchTarget: previewSearchTargetSchema
+		.optional()
+		.describe(
+			"The Preview search settings to use for this test, either local or a destination this app uses.",
 		),
 	purpose: z
 		.string()
@@ -233,6 +242,7 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 			kind: z.literal("select"),
 			caseIds: z.array(z.string().min(1).max(255)).min(1).max(100),
 		}),
+		z.strictObject({ kind: z.literal("clearSearch") }),
 		z.strictObject({
 			kind: z.literal("search"),
 			answers: z
@@ -337,6 +347,8 @@ export interface AppTestSnapshot {
 	user: PreviewSessionUser;
 	projectSpace: string | null;
 	androidAppLabels?: import("@/lib/domain/requiredAndroidApps").AndroidAppLabels;
+	/** A pinned test keeps the original team-confirmed configuration, even when the destination later changes. */
+	searchFacts?: PreviewSearchFacts;
 	lookup: {
 		projectRevision: string;
 		proof?: AppTestLookupProof;

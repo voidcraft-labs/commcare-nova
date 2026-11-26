@@ -972,6 +972,35 @@ SEARCH_SUITE = b"""<suite version="1">
 
 
 # A search's prompts with an input type no runtime names (``slider``) and one Core names (``date``).
+# Two case lists with a Search action each: the first's condition reads the session, which its entry does not declare,
+# and the second's the case database, which its entry's datum reads; the third action pushes another command.
+BUTTON_SUITE = b"""<suite version="1">
+ <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="f"/></text></command>
+  <instance id="casedb" src="jr://instance/casedb"/>
+  <session><datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='client']" value="./@case_id"
+   detail-select="m0_case_short"/></session></entry>
+ <entry><form>http://example.org/g</form><command id="m1-f0"><text><locale id="g"/></text></command>
+  <instance id="casedb" src="jr://instance/casedb"/>
+  <session><datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='client']" value="./@case_id"
+   detail-select="m1_case_short"/></session></entry>
+ <detail id="m0_case_short"><title><text><locale id="t"/></text></title>
+  <field><header><text><locale id="h"/></text></header><template><text><xpath function="."/></text></template></field>
+  <action auto_launch="false()" redo_last="false" relevant="instance('commcaresession')/session/context/username != 'demo'">
+   <display><text><locale id="case_search.m0"/></text></display>
+   <stack><push><mark/><command value="'search_command.m0'"/></push></stack></action>
+ </detail>
+ <detail id="m1_case_short"><title><text><locale id="t"/></text></title>
+  <field><header><text><locale id="h"/></text></header><template><text><xpath function="."/></text></template></field>
+  <action auto_launch="false()" redo_last="false" relevant="count(instance('casedb')/casedb/case) &gt; 0">
+   <display><text><locale id="case_search.m1"/></text></display>
+   <stack><push><mark/><command value="'search_command.m1'"/></push></stack></action>
+  <action relevant="instance('commcaresession')/session/context/username != 'demo'">
+   <display><text><locale id="r"/></text></display>
+   <stack><push><command value="'m1-f1'"/></push></stack></action>
+ </detail>
+</suite>"""
+
+
 INPUT_SUITE = b"""<suite version="1">
  <entry><form>http://example.org/g</form><command id="m0-f0"><text><locale id="g"/></text></command>
   <instance id="results:inline" src="jr://instance/remote/results:inline"/>
@@ -3067,14 +3096,6 @@ def _search_and_menus():
     def search(*modules, **fields):
         return _app(list(modules), **fields)
 
-    def auto_selecting(module):
-        """``module`` whose case list chooses its case by itself, as HQ reads it (its short detail's ``auto_select``,
-        multi-select or not)."""
-        return {
-            **module,
-            "case_details": {"doc_type": "DetailPair", "short": {"doc_type": "Detail", "auto_select": True}},
-        }
-
     def details(*modules):
         return _app(list(modules))
 
@@ -3144,6 +3165,46 @@ def _search_and_menus():
     legacy_input = "instance('search-input')/input/field"
     return {
         # Case search
+        "case-search/a-server-order-naming-a-property-nova-reserves": (
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'-status:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'-@status:exact,+priority'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            refused(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("dob", "'x'")],
+                        custom_sort_properties=[
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "owner_id", "sort_type": "exact"}
+                        ],
+                    )
+                ),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("dob", "'x'")],
+                        custom_sort_properties=[
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "@owner_id", "sort_type": "exact"}
+                        ],
+                    )
+                ),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+        ),
         "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": (
             refused(
                 "app",
@@ -3240,6 +3301,71 @@ def _search_and_menus():
                 search(_search_module(default_properties=[_default("status", "'open'")])),
                 "schema:DefaultCaseSearchProperty.property",
                 f"{config}/default_properties/0/property",
+            ),
+        ),
+        "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load": (
+            refused("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[1]/action[1]/@relevant"),
+            accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[1]/@relevant"),
+            # another action of the list (a registration form's) is no Search button
+            accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[2]/@relevant"),
+            # an app Nova sends never holds the class (its gate admits only what the list declares)
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        search_button_display_condition="instance('commcaresession')/session/context/username = 'x'"
+                    )
+                ),
+                "schema:CaseSearch.search_button_display_condition",
+                f"{config}/search_button_display_condition",
+            ),
+        ),
+        "case-search/native-filter-value-outside-screen-scope": (
+            # a form's answer, which no search screen holds
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("status", "/data/name")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("status", "'active'")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("owner_id", "instance('commcaresession')/session/context/userid")]
+                    )
+                ),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            # an _xpath_query row is no native filter
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("_xpath_query", "concat(/data/p, ' = 1')")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            # a session datum: whether the search screen holds it is the menus' to say
+            unsettled(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("status", "instance('commcaresession')/session/data/case_id")]
+                    )
+                ),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
             ),
         ),
         "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": (
@@ -3367,6 +3493,40 @@ def _search_and_menus():
                 search(_search_module(properties=[_prompt("dob", hidden=True)])),
                 "schema:CaseSearchProperty.hidden",
                 f"{prompts}/hidden",
+            ),
+        ),
+        "case-search/allow-blank-value-on-a-hidden-prompt": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("dob", hidden=True, allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("dob", allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+        ),
+        "case-search/allow-blank-value-on-a-prompt-named-owner-id": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("owner_id", allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("owner_id", exclude=True, allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("dob", allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
             ),
         ),
         "case-search/validations-1": (
@@ -3500,54 +3660,6 @@ def _search_and_menus():
                 search(_search_module(default_properties=[_default("dob", "'x'")])),
                 "schema:DefaultCaseSearchProperty.property",
                 f"{config}/default_properties/0/property",
-            ),
-        ),
-        "case-search/custom-sort-properties-property-name-sort-type-exact-date": tuple(
-            make(
-                "app",
-                search(
-                    _search_module(
-                        **fields,
-                        custom_sort_properties=[
-                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "dob", "sort_type": "date"}
-                        ],
-                    )
-                ),
-                key,
-                f"{config}/{where}",
-            )
-            for make, fields in ((refused, {"default_properties": [_default("status", "'open'")]}), (accepted, {}))
-            for key, where in (
-                ("schema:CaseSearch.custom_sort_properties", "custom_sort_properties"),
-                ("schema:CaseSearchCustomSortProperty.property_name", "custom_sort_properties/0/property_name"),
-            )
-        ),
-        "case-search/search-on-clear": (
-            refused(
-                "app",
-                search(_search_module(properties=[_prompt("dob")], search_on_clear=True)),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            # HQ reads a list's auto select from its short detail, never from ``auto_select_case``
-            refused(
-                "app",
-                search({**_search_module(properties=[_prompt("dob")], search_on_clear=True), "auto_select_case": True}),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            # beside the case list's auto select, multi-select or not, the bar's refusal
-            accepted(
-                "app",
-                search(auto_selecting(_search_module(properties=[_prompt("dob")], search_on_clear=True))),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            accepted(
-                "app",
-                search(_search_module(search_on_clear=True)),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
             ),
         ),
         "case-search/search-button-label-any-other-value": (
@@ -6795,26 +6907,6 @@ def _held_new():
             accepted("app", search(name="dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             # Excluded from the search, the prompt names no case property.
             accepted("app", search(name="_x", exclude=True), "schema:CaseSearchProperty.name", f"{prompts}/name"),
-        ),
-        "case-search/default-value-on-a-date-range-input": (
-            refused(
-                "app",
-                search(name="dob", input_="daterange", default_value="today()"),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
-            accepted(
-                "app",
-                search(name="dob", input_="date", default_value="today()"),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
-            accepted(
-                "app",
-                search(name="dob", input_="daterange", default_value="today()", hidden=True),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
         ),
         "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": (
             refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),

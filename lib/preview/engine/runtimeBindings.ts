@@ -1,4 +1,5 @@
 import type { TermBindings } from "@/lib/case-store";
+import { takesMultipleSearchChoices } from "@/lib/domain/modules";
 import type { PreviewSearchSessionValues } from "./identity";
 // lib/preview/engine/runtimeBindings.ts
 //
@@ -18,6 +19,7 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
+	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
@@ -27,14 +29,17 @@ import {
 } from "@/lib/domain";
 import type { AstMapHooks, Expression } from "@/lib/domain/expression";
 import {
+	concat,
 	dateLiteral,
 	dateRangeSearchPredicate,
 	eq,
 	exactDateSearchPredicate,
+	isBlank,
 	isIn,
 	literal,
 	mapExpressionAst,
 	match,
+	or,
 	prop,
 	qualifiedLiteral,
 	recordQueryContext,
@@ -46,9 +51,11 @@ import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17Double
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import type { PreviewPlatformRules } from "../platform";
 import {
+	DATE_RANGE_INVALID_MESSAGE,
 	dateRangeInputErrors,
 	ISO_DATE_PATTERN,
 	isValidCalendarDate,
+	rawRangeCriterion,
 	SearchInputValuesError,
 } from "./dateRangeInputValidation";
 import type { ViewerLocation } from "./viewerLocation";
@@ -130,11 +137,53 @@ export function withSearchInputExpressionValues(
 		expressionValues.delete(input.name);
 		const from = validDateBound(inputValues.get(`${input.name}:from`));
 		const to = validDateBound(inputValues.get(`${input.name}:to`));
-		if (from !== undefined && to !== undefined && from <= to) {
+		const starting = inputValues.get(`${input.name}:starting`);
+		if (
+			from !== undefined &&
+			to !== undefined &&
+			(from <= to || starting !== undefined)
+		) {
 			expressionValues.set(input.name, `__range__${from}__${to}`);
+		} else if (
+			starting !== undefined &&
+			from === undefined &&
+			to === undefined
+		) {
+			expressionValues.set(input.name, starting);
 		}
 	}
+	for (const input of searchInputs) {
+		if (input.kind === "hidden" || !searchesForBlank(input, inputValues))
+			continue;
+		// Web Apps sends a ticked "search for blank" as a blank value before the
+		// answer (`query.js::encodeValue`), and the Search screen's value of the
+		// field holds that request value as it is.
+		const answer = expressionValues.get(input.name);
+		expressionValues.set(
+			input.name,
+			answer === undefined || answer === ""
+				? ""
+				: `${MULTI_SELECT_SEARCH_ANSWER_DELIMITER}${answer}`,
+		);
+	}
 	return expressionValues;
+}
+
+/** The key Preview holds a ticked "search for blank" under: `<name>:blank`. */
+export function searchForBlankKey(name: string): string {
+	return `${name}:blank`;
+}
+
+/** Whether the worker asked for cases where this field's property is blank. */
+export function searchesForBlank(
+	input: SearchInputDef,
+	inputValues: SearchInputValues,
+): boolean {
+	return (
+		input.kind !== "hidden" &&
+		input.allowBlank === true &&
+		inputValues.get(searchForBlankKey(input.name)) === "true"
+	);
 }
 
 /**
@@ -151,9 +200,13 @@ export function searchInputInstanceValues(
 		withSearchInputExpressionValues(searchInputs, inputValues),
 	);
 	for (const input of searchInputs) {
-		if (input.kind === "hidden" || input.type !== "date-range") continue;
+		if (input.kind === "hidden") continue;
+		values.delete(searchForBlankKey(input.name));
+		if (input.type !== "date-range") continue;
 		values.delete(`${input.name}:from`);
 		values.delete(`${input.name}:to`);
+		values.delete(`${input.name}:starting`);
+		values.delete(`${input.name}:opening`);
 	}
 	return values;
 }
@@ -233,6 +286,7 @@ export function composeRuntimeFilter(
 	for (const input of searchInputs) {
 		const clause = clauseForInput(
 			input,
+			inputValues,
 			expressionValues,
 			caseType,
 			knownInputUuids,
@@ -249,6 +303,7 @@ export function composeRuntimeFilter(
 function clauseForInput(
 	input: SearchInputDef,
 	inputValues: SearchInputValues,
+	expressionValues: SearchInputValues,
 	caseType: string,
 	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[],
@@ -269,7 +324,7 @@ function clauseForInput(
 		case "advanced":
 			return buildAdvancedArmClause(
 				input,
-				inputValues,
+				expressionValues,
 				knownInputUuids,
 				searchInputs,
 			);
@@ -293,6 +348,25 @@ function clauseForInput(
  * `<input.name>` key.
  */
 function buildSimpleArmClause(
+	input: Extract<SearchInputDef, { kind: "simple" }>,
+	inputValues: SearchInputValues,
+	caseType: string,
+	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
+): Expression | undefined {
+	const clause = buildAnsweredSimpleClause(
+		input,
+		inputValues,
+		caseType,
+		caseTypeSchemas,
+	);
+	if (!searchesForBlank(input, inputValues)) return clause;
+	// CommCare HQ reads the blank beside an answer as "blank, or matches", and a
+	// blank alone as "blank" (`case_search/utils.py::_get_case_property_query`).
+	const blank = isBlank(prop(caseType, input.property, input.via));
+	return clause === undefined ? blank : or(blank, clause);
+}
+
+function buildAnsweredSimpleClause(
 	input: Extract<SearchInputDef, { kind: "simple" }>,
 	inputValues: SearchInputValues,
 	caseType: string,
@@ -334,7 +408,7 @@ function buildSimpleArmClause(
 					}),
 				});
 			}
-			if (input.type === "multi-select") {
+			if (takesMultipleSearchChoices(input.type)) {
 				// CommCare stores several chosen values as one `#,#`-joined
 				// answer and splits it into repeated query parameters
 				// (`RemoteQuerySessionManager.extractMultipleChoices`), which
@@ -383,9 +457,34 @@ function buildRangeClause(
 	caseType: string,
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Expression | undefined {
-	const lower = validDateBound(inputValues.get(`${input.name}:from`));
-	const upper = validDateBound(inputValues.get(`${input.name}:to`));
-	if (lower === undefined && upper === undefined) return undefined;
+	let lower = validDateBound(inputValues.get(`${input.name}:from`));
+	let upper = validDateBound(inputValues.get(`${input.name}:to`));
+	let includeMissing = false;
+	const property = prop(caseType, input.property, input.via);
+	if (lower === undefined && upper === undefined) {
+		const starting = inputValues.get(`${input.name}:starting`);
+		if (starting === undefined) return undefined;
+		const criterion = rawRangeCriterion(starting);
+		if (criterion.kind === "bad-range")
+			throw new SearchInputValuesError(
+				new Map([[input.name, DATE_RANGE_INVALID_MESSAGE]]),
+			);
+		if (criterion.kind === "text") {
+			// HQ tests the stored property text for an unencoded answer, including
+			// for date properties. Passing the raw text as a date can fail in SQL.
+			const [first, ...others] = criterion.values.map(literal);
+			if (first === undefined)
+				return criterion.missing ? isBlank(property) : undefined;
+			const spelling = concat(term(property));
+			const matched = others.length
+				? isIn(spelling, first, ...others)
+				: eq(spelling, first);
+			return criterion.missing ? or(isBlank(property), matched) : matched;
+		}
+		lower = criterion.from;
+		upper = criterion.to;
+		includeMissing = criterion.missing;
+	}
 	// `composeRuntimeFilter` validates the complete pair before dispatch. Keep
 	// this private helper defensive so a future direct caller cannot silently
 	// resurrect Preview-only one-sided daterange semantics.
@@ -399,7 +498,7 @@ function buildRangeClause(
 			`Cannot bind date-range input "${input.name}" without case-type schemas. Date and datetime targets use different final-day boundaries; pass the live blueprint schema map instead of guessing from the widget.`,
 		);
 	}
-	return dateRangeSearchPredicate({
+	const range = dateRangeSearchPredicate({
 		caseType,
 		property: input.property,
 		via: input.via,
@@ -410,6 +509,7 @@ function buildRangeClause(
 			currentCaseType: caseType,
 		}),
 	});
+	return includeMissing ? or(isBlank(property), range) : range;
 }
 
 /**

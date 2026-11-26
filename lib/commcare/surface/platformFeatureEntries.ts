@@ -27,7 +27,11 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
 		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 	],
-	"list-first": ["case-search/list-first-where-web-apps-is-declared"],
+	"search-on-clear": ["case-search/search-on-clear"],
+	"list-first": [
+		"case-search/list-first-where-web-apps-is-declared",
+		"case-search/list-first-with-a-search-that-skips-to-results",
+	],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
@@ -242,16 +246,23 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"search-screen-text": [
 		"case-search/title-label-lang-non-empty",
+		"case-search/title-label-blank-in-some-languages",
 		"case-search/description-lang-markdown",
 		"case-search/hint-lang",
 	],
 	"search-field-checks": [
 		"case-search/required-test-text",
 		"case-search/validations-0-test-text",
+		"case-search/a-required-or-validation-test-with-no-message-in-any-language",
 	],
+	"search-starting-dates": ["case-search/default-value-on-a-date-range-input"],
 	"barcode-search-field": ["case-search/appearance-barcode-scan"],
+	"search-for-blank": ["case-search/allow-blank-value"],
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
+		"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
+		"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
+		"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
 	],
 	"search-first": [
 		"case-search/workflow-search-first-auto-launch-true-default-search-false",

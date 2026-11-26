@@ -29,12 +29,18 @@ import {
 	type WireStringSource,
 } from "@/lib/domain";
 import type { DatumRef } from "@/lib/domain/expression/types";
+import {
+	isDedicatedOwnerFilter,
+	searchOwnerOverride,
+} from "@/lib/domain/modules";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import { validateCaseType } from "../../identifierValidation";
 import type { LookupWireNaming } from "../../lookup/naming";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
 import { SEARCH_SELECTED_CASES_ID } from "./claim";
+import { emitSearchRequestValue, searchRequestKey } from "./nativeFilters";
 import { searchNeedsSupportingCases } from "./relatedCaseProjection";
+import { requestOrderText } from "./requestOrder";
 import { buildSearchPrompts } from "./searchPrompts";
 import {
 	searchInputInstanceId,
@@ -280,6 +286,29 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		searchInputInstanceId(wire),
 		args.datumId,
 	);
+	for (const filter of caseListConfig.searchFilters ?? []) {
+		// The dedicated owner exclusion goes out after the default filters,
+		// where HQ writes `blacklisted_owner_ids_expression`.
+		if (isDedicatedOwnerFilter(filter)) continue;
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: searchRequestKey(filter) },
+					xpath: {
+						ref: emitSearchRequestValue(
+							filter,
+							args.expressions,
+							searchInputInstanceId(wire),
+							args.lookupNaming,
+							args.datumId,
+						),
+					},
+				},
+				context,
+			),
+		);
+	}
 	// A search with no input and no clause sends the zero-input sentinel,
 	// as HQ's build of the same search does.
 	for (const value of xpathQueryRequestValues(
@@ -306,7 +335,34 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// CCHQ scopes this on `<query>`, not `<post>` — the post fires
 	// after case selection, by which point the filter has already
 	// gated the visible result set.
-	if (caseSearchConfig.excludedOwnerIds !== undefined) {
+	//
+	// The search's own exclusion replaces the shared rule here; one that sits
+	// among the default filters went out with them, and the shared rule then
+	// stays off so the key is never sent twice.
+	const override = searchOwnerOverride(caseListConfig);
+	if (override !== undefined && isDedicatedOwnerFilter(override)) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: EXCLUDED_OWNER_IDS_WIRE_KEY },
+					xpath: {
+						ref: emitSearchRequestValue(
+							override,
+							args.expressions,
+							searchInputInstanceId(wire),
+							args.lookupNaming,
+							args.datumId,
+						),
+					},
+				},
+				context,
+			),
+		);
+	} else if (
+		override === undefined &&
+		caseSearchConfig.excludedOwnerIds !== undefined
+	) {
 		const excludedOwnerIds = emitNormalizedExcludedOwnerIdsExpression(
 			caseSearchConfig.excludedOwnerIds,
 			args.expressions({ slot: "excluded_owner_ids" }),
@@ -332,6 +388,23 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 				{
 					attributes: { key: INCLUDE_ALL_RELATED_CASES_WIRE_KEY },
 					xpath: { ref: w.str("true") },
+				},
+				context,
+			),
+		);
+	}
+
+	// The dedicated order, where HQ writes `custom_sort_properties`: after
+	// the related-case keys, before the inline parent clause.
+	if (caseSearchConfig.requestOrder !== undefined) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: "commcare_sort" },
+					xpath: {
+						ref: w.str(requestOrderText(caseSearchConfig.requestOrder)),
+					},
 				},
 				context,
 			),
@@ -376,12 +449,15 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// `searchScreenTitleText` gives the authored title, Nova's default where
 	// none is authored, or null for a search with no title, the same reading
 	// as the HQ-JSON projection
-	// (`lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`). A
-	// search with no title still writes the `<title>` element over a blank
-	// locale value, which every language's table writes as a non-breaking
-	// space (`localeFile.ts::hqLocaleFileValue`), as HQ's build writes
-	// the blank `title_label` (`models/case_search.py::get_search_title_label`).
-	// The Web Apps client trims it and draws no heading.
+	// (`lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`). Each
+	// language's table writes the title unit as that language shows it
+	// (`inlineSearch.ts::searchScreenTranslationUnits`). A search with no
+	// title still writes the `<title>` element over a blank locale value in
+	// each language that holds none of its own, which the table writes as a
+	// non-breaking space (`localeFile.ts::hqLocaleFileValue`), as HQ's build
+	// writes the blank `title_label`
+	// (`models/case_search.py::get_search_title_label`). The Web Apps client
+	// trims it and draws no heading.
 	const titleDisplay = searchScreenTitleText(caseSearchConfig) ?? "";
 
 	// Every search writes `<description>`, blank where no subtitle is
@@ -419,6 +495,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		{
 			url: runtimeUrls(args.runtimeTarget).search,
 			default_search: wire.defaultSearch ? "true" : "false",
+			...(caseSearchConfig.searchOnClear && { search_on_clear: "true" }),
 			"storage-instance": storageInstance,
 			template: "case",
 		},
