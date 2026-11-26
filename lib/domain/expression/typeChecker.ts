@@ -1976,7 +1976,8 @@ function searchResultsRowFindings(
 	errors: CheckError[],
 ): void {
 	const searched =
-		ctx.supplies.searchResults === undefined || readsProjectSearchResults(ctx)
+		ctx.supplies.searchResults === undefined ||
+		readsProjectSearchResults(ctx, expression.supplier)
 			? undefined
 			: ctx.facts.moduleCaseTypes.get(
 					expression.supplier ?? ctx.supplies.searchResults.module,

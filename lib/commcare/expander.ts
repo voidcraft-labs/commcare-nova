@@ -77,7 +77,6 @@ import {
 	declaresWebApps,
 	effectivePostSubmit,
 	makeTranslationUnitId,
-	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
 	moduleParent,
 	moduleShowsFormsInMenuAbove,
@@ -279,19 +278,12 @@ function formSourceProjection(
 					// reachable-case-type depth map matches the deep validator's accept
 					// map, which builds from `mod.caseType` directly.
 					...(mod.caseType && { moduleCaseType: mod.caseType }),
-					// The case list registration form and every form of a menu
-					// whose forms read the search read the menu's Search answers from the inline
-					// query's input instance.
-					...(synthetic !== undefined
-						? {
-								searchAnswers: searchAnswersOf(
-									authoredDoc,
-									synthetic.hostModuleUuid,
-								),
-							}
-						: moduleFormsReadSearch(mod)
-							? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
-							: {}),
+					// A form can read any query that its entry actually loaded. The
+					// generated empty-results command takes its answers from its host.
+					searchAnswers:
+						synthetic === undefined
+							? searchAnswersOf(authoredDoc, moduleUuid, formUuid)
+							: searchAnswersOf(authoredDoc, synthetic.hostModuleUuid),
 					...(ownCaseDatumId !== undefined &&
 						multipleCaseDatum === undefined && {
 							selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
