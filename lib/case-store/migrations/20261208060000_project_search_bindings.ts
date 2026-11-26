@@ -57,6 +57,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		REFERENCING OLD TABLE AS previous_search_bindings NEW TABLE AS changed_search_bindings
 		FOR EACH STATEMENT EXECUTE FUNCTION public.nova_invalidate_search_targets()
 	`.execute(db);
+	await sql`REVOKE EXECUTE ON FUNCTION public.nova_invalidate_search_targets() FROM PUBLIC`.execute(
+		db,
+	);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
