@@ -2813,8 +2813,9 @@ element if the saved heading map is empty, so the reader asks for a heading
 before bringing in that lookup. A stored blank translation carries a locale
 element. A row list over one case type can also key confidence by a direct custom text
 property of that type. Android evaluates it once per eligible row and puts the
-same score on all rows that share a returned key. The browser Preview has no
-companion return channel.
+same score on all rows that share a returned key. A returned empty key can
+match rows whose property is missing or empty, which Core both reads as
+an empty string. The browser Preview has no companion return channel.
 
 ## Case-backed question choices
 
