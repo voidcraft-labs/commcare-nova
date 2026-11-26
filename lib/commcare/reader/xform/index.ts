@@ -11,19 +11,24 @@ import { builtFormInstanceSources } from "./buildInstances";
 import type { Element } from "domhandler";
 import { cloneNode, isTag } from "domhandler";
 import type { FieldKind, Uuid } from "@/lib/domain";
-import type { FormStructureConnect } from "@/lib/domain/expression/formStructure";
 import type {
 	FieldExpressionSlotRef,
 	ItextUnit,
 	ProseSlotRef,
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
+import { formBehaviorRoles } from "@/lib/domain/forms";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { activeActions, isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
+import {
+	activeActions,
+	isMultiSelectMenu,
+	menuMayLoadRegistryCase,
+} from "../../hq/publishedCaseBlocks";
 import {
 	type GeneratedNodePurpose,
 	generatedBaseName,
 } from "../../xform/generatedNodes";
+import { behaviorWireIds } from "../../xform/itextIds";
 import { splitName } from "../../xmlNamespaces";
 import { heldXmlParse } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
@@ -42,7 +47,7 @@ import type { XmlCursor } from "../xmlCursor";
 import type { AppearanceForm } from "./appearances";
 import { type ControlNode, readControls } from "./body";
 import { X } from "./claims";
-import { CONNECT_READS, readConnectBlocks, readConnectType } from "./connect";
+import { readConnectBlocks, readConnectRoles } from "./connect";
 import { labelCarriesMedia, readContainers, rootSections } from "./containers";
 import {
 	absolutePath,
@@ -51,7 +56,12 @@ import {
 	datetimeSpelling,
 	isAllocatedName,
 } from "./generated";
-import { EMPTY_ITEXT_TABLE, type ItextTable, readItext } from "./itext";
+import {
+	EMPTY_ITEXT_TABLE,
+	type ItextTable,
+	pragmaClaim,
+	readItext,
+} from "./itext";
 import { joinForm, registerGeneratedUses } from "./join";
 import { pendingLogic } from "./logic";
 import { readMediaForms } from "./media";
@@ -75,7 +85,7 @@ import {
 	parseXFormSource,
 	type RefusedSource,
 } from "./parse";
-import { readText, rememberFormText, unitOf } from "./prose";
+import { formText, readText, rememberFormText, unitOf } from "./prose";
 import {
 	type FormRefusals,
 	refusingCursor,
@@ -136,11 +146,11 @@ export interface ReadSaveToCaseBlock {
 	readonly refusal?: NodeRefusal;
 }
 
-/** One Connect element, read here and listed for the case management stage's `connectType`. */
+/** A positioned Connect activity and the source wrapper used to account for its role. */
 export interface ReadConnectBlock {
 	readonly block: "learn_module" | "assessment" | "deliver_unit" | "task";
 	readonly id: string;
-	readonly path: readonly string[];
+	readonly node: DataNode;
 }
 
 /** One expression read from a field's source, registered once the field has its UUID. */
@@ -170,6 +180,11 @@ export interface DraftField {
 	kind: FieldKind;
 	readonly id: string;
 	readonly parent: DraftField | null;
+	/** The submitted parent, resolved after all controls have been read. */
+	dataParent: DraftField | null;
+	/** The value stands under a group the form designer can't keep it under
+	 *  (`join.ts`): refused, so it carries no placement. */
+	dataParentRefused?: true;
 	/** True for the stand-in of a question that got a finding; never in a returned document. */
 	readonly standIn: boolean;
 	/** The refusal a stand-in got (its kind's, its repeat's, or its data node's), which covers
@@ -260,7 +275,6 @@ export interface ReadXForm {
 	/** Every Save to Case block of the form, in document order, wherever it stands. */
 	readonly saveToCaseBlocks: readonly ReadSaveToCaseBlock[];
 	readonly connectBlocks: readonly ReadConnectBlock[];
-	readonly connect: FormStructureConnect;
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<string, string>;
@@ -388,6 +402,8 @@ function readForm(
 		intentIds: root === undefined ? new Set() : intentIdsOf(root),
 	});
 	if ("refused" in parsed) return parsed;
+	if (parsed.dataRoot.name !== "data")
+		form.form.dataRootName = parsed.dataRoot.name;
 	if (parsed.ignore.includes("markdown")) form.form.plainText = true;
 	const tree = readDataTree(
 		parsed,
@@ -497,6 +513,7 @@ function readForm(
 		setvalues,
 		controls,
 		cursor,
+		refusals,
 		accounting,
 		formPlace,
 		lookup: ctx.input.lookup,
@@ -506,6 +523,18 @@ function readForm(
 		carrierRead: (id) => carrierInstances.add(id),
 		target: ctx.input.target,
 	});
+	const connectBlocks = readConnectBlocks({
+		parsed,
+		order: tree.order,
+		roles: joined.roles,
+		binds: binds.byNode,
+		cursor,
+		accounting,
+		formPlace,
+		attachActivity: joined.attachActivity,
+		refusals,
+	});
+
 	const sectioned = rootSections({
 		root: joined.childrenOf(null),
 		binds: binds.byNode,
@@ -608,18 +637,6 @@ function readForm(
 			return undefined;
 		},
 	});
-	const connect = readConnectBlocks({
-		parsed,
-		order: tree.order,
-		roles: joined.roles,
-		binds: binds.byNode,
-		cursor,
-		accounting,
-		formPlace,
-		formUuid: form.uuid,
-		refusals,
-	});
-
 	const caseRegion = tree.order.filter(
 		(node) => joined.roles.get(node)?.kind === "case-region",
 	);
@@ -797,8 +814,7 @@ function readForm(
 			binds.byNode,
 			setvalues,
 		),
-		connectBlocks: connect.blocks,
-		connect: connect.connect,
+		connectBlocks,
 		itext: itext ?? EMPTY_ITEXT_TABLE,
 		instanceSources,
 		readSources,
@@ -809,7 +825,6 @@ function readForm(
 		caseChoices: joined.caseChoices,
 		modelIterations: new Set(joined.modelIterations.keys()),
 	};
-	CONNECT_READS.set(xform, connect);
 	if (text !== undefined) {
 		rememberFormText(xform, text);
 		readMediaForms(ctx, xform);
@@ -839,7 +854,16 @@ function appendedRootNames(
 	const multi =
 		module !== undefined &&
 		isMultiSelectMenu({ case_details: module.json.peek("case_details") });
-	if (active.size > 0 && !(requires === "none" && !opens) && (!multi || opens))
+	const registry =
+		module !== undefined &&
+		menuMayLoadRegistryCase({
+			search_config: module.json.peek("search_config"),
+		});
+	if (
+		active.size > 0 &&
+		!(requires === "none" && !opens) &&
+		((!multi && !registry) || opens)
+	)
 		names.add("case");
 	if (active.has("usercase_update")) names.add("commcare_usercase");
 	return names;
@@ -914,13 +938,13 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 				module.forms.splice(module.forms.indexOf(form), 1);
 			});
 		}
-	readConnectType(ctx);
+	readConnectRoles(ctx);
 }
 
 /** A field's ids from the form's root, a query repeat's row left out: its identity key's path. */
 function fieldPath(field: DraftField): string[] {
 	const path: string[] = [];
-	for (let at: DraftField | null = field; at !== null; at = at.parent)
+	for (let at: DraftField | null = field; at !== null; at = at.dataParent)
 		path.unshift(at.id);
 	return path;
 }
@@ -1002,6 +1026,39 @@ export function mintFields(ctx: ReadContext): void {
 						);
 					}
 				}
+				// A parent may appear later in the body, so materialize data
+				// placement only after all identities have been minted.
+				for (const field of fields) {
+					if (
+						field.control === undefined ||
+						field.dataParentRefused === true ||
+						field.dataParent === field.parent ||
+						field.dataParent === null
+					)
+						continue;
+					const parent = field.dataParent.uuid;
+					if (parent !== undefined)
+						field.field.submissionPlacement = { parent };
+				}
+				// A pragma text HQ keeps is the form's behavior: the first slot
+				// that references it carries it, every other slot shares it.
+				const text = formText(xform)?.itext;
+				if (text)
+					for (const role of formBehaviorRoles) {
+						const id = behaviorWireIds[role];
+						const owners = text.owners(id);
+						if (!owners.length || pragmaClaim(text, id).use !== "take")
+							continue;
+						const [carrier, ...alsoUsedBy] = owners.map(unitOf);
+						if (
+							carrier === undefined ||
+							!alsoUsedBy.every((unit) => unit !== undefined)
+						)
+							continue;
+						form.form[role] = alsoUsedBy.length
+							? { carrier, alsoUsedBy }
+							: { carrier };
+					}
 				xform.sourceNames = sourceNames(xform, fields);
 			});
 		}

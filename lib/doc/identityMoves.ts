@@ -28,6 +28,7 @@ import {
 	placementIneligibility,
 	planPlacements,
 } from "@/lib/commcare/placement";
+import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import {
 	type PreparedMutationCandidate,
 	preparedCandidateHasAdmissionIssue,
@@ -59,7 +60,10 @@ import {
 	withHeldPlacement,
 } from "@/lib/doc/placementHolds";
 import { planOperationPlacementMoves } from "@/lib/doc/placementMoves";
-import { planQueryRepeatPlacementMoves } from "@/lib/doc/queryRepeatPlacement";
+import {
+	planQueryRepeatPlacementMoves,
+	queryPlacementChange,
+} from "@/lib/doc/queryRepeatPlacement";
 import type { Mutation, PlacementHoldEntry } from "@/lib/doc/types";
 import {
 	advancedKindBlockers,
@@ -76,15 +80,20 @@ import {
 	type PlacementLabel,
 	placementLabel,
 } from "@/lib/domain/placementCopy";
-import {
-	type QueryRepeatNeed,
-	queryRepeatPlacementNeeds,
+import type {
+	QueryRepeatNeed,
+	RowTiming,
 } from "@/lib/domain/queryRepeatPlacement";
 
 export { documentHoldsIdentity };
 
 /** What an identity move is about. Every UUID is the entity's own. */
 export type IdentityMoveSubject =
+	| {
+			readonly kind: "submitted-question";
+			readonly formUuid: Uuid;
+			readonly fieldUuid: Uuid;
+	  }
 	| {
 			readonly kind: "case-operation";
 			readonly formUuid: Uuid;
@@ -108,6 +117,7 @@ export type IdentityMoveSubject =
  *  model iteration cannot run for a query repeat, or why a menu's kind
  *  moves. */
 export type IdentityMoveReason =
+	| { readonly source: "submitted-question" }
 	| {
 			readonly source: "form-selection";
 			readonly previousTag: string;
@@ -118,6 +128,7 @@ export type IdentityMoveReason =
 			readonly reason: PlacementIneligibility;
 	  }
 	| { readonly source: "query-repeat"; readonly reason: QueryRepeatNeed }
+	| { readonly source: "query-timing"; readonly timing: RowTiming }
 	| {
 			readonly source: "module-kind";
 			readonly reason: ModuleKindMoveReason;
@@ -172,6 +183,11 @@ export const identityMoveSubjectSchema = z.discriminatedUnion("kind", [
 		selectionUuid: uuidSchema,
 	}),
 	z.strictObject({
+		kind: z.literal("submitted-question"),
+		formUuid: uuidSchema,
+		fieldUuid: uuidSchema,
+	}),
+	z.strictObject({
 		kind: z.literal("case-operation"),
 		formUuid: uuidSchema,
 		operationUuid: uuidSchema,
@@ -205,7 +221,19 @@ export function withIdentityMoves(
 	batch: readonly Mutation[],
 	options: IdentityMoveOptions = {},
 ): IdentityMovePlan {
-	if (!documentHoldsIdentity(doc))
+	if (
+		!documentHoldsIdentity(doc) &&
+		!(
+			doc.publishedQuestions?.length &&
+			batch.some(
+				(m) =>
+					m.kind === "moveField" ||
+					m.kind === "convertField" ||
+					m.kind === "updateField" ||
+					m.kind === "updateForm",
+			)
+		)
+	)
 		return {
 			batch,
 			moves: [],
@@ -422,6 +450,20 @@ function withoutHoldsFor(
 	return kept;
 }
 
+/** Published identities name the actual submitted column. In particular a
+ * query repeat's row has its own element between the wrapper and its fields. */
+function submittedAnswerPaths(doc: BlueprintDoc) {
+	const forms = new Map<Uuid, ReturnType<typeof collectFieldLocations>>();
+	return (formUuid: Uuid, fieldUuid: Uuid) => {
+		let fields = forms.get(formUuid);
+		if (fields === undefined) {
+			fields = collectFieldLocations(doc, formUuid);
+			forms.set(formUuid, fields);
+		}
+		return fields.get(fieldUuid)?.path.toXPath();
+	};
+}
+
 /**
  * Every held identity `after` keeps in another place than `before` does,
  * with the reason the earlier place no longer expresses it: first each
@@ -440,6 +482,30 @@ export function identityMovesBetween(
 ): readonly IdentityMove[] {
 	const recorded = options.recorded ?? NO_RECORDED_HOLDS;
 	const moves: IdentityMove[] = [...carriedCreateKindMoves(before, after)];
+	if (
+		before.publishedQuestions?.length &&
+		(before.fields !== after.fields ||
+			before.fieldOrder !== after.fieldOrder ||
+			before.forms !== after.forms)
+	) {
+		const previous = submittedAnswerPaths(before);
+		const current = submittedAnswerPaths(after);
+		for (const fieldUuid of before.publishedQuestions) {
+			const oldForm = formOfField(before, fieldUuid);
+			const formUuid = formOfField(after, fieldUuid);
+			if (oldForm === undefined || formUuid === undefined) continue;
+			const oldPath = previous(oldForm, fieldUuid);
+			const newPath = current(formUuid, fieldUuid);
+			if (oldPath === undefined || newPath === undefined || oldPath === newPath)
+				continue;
+			moves.push({
+				subject: { kind: "submitted-question", formUuid, fieldUuid },
+				from: { answerPath: oldPath },
+				to: { answerPath: newPath },
+				reason: { source: "submitted-question" },
+			});
+		}
+	}
 	for (const change of placementHoldChanges(before, after)) {
 		if (change.from === null || holdChangeRestores(change, recorded)) continue;
 		const move = moveOfChange(after, change);
@@ -523,24 +589,24 @@ function moveOfChange(
 			};
 		}
 		case "query-repeat": {
-			// A held count runs every query repeat, so only model iteration
-			// can be left unable to run one.
-			if (change.from !== "model-iteration") return;
+			if (change.from !== "model-iteration" && change.from !== "count") return;
 			const formUuid = formOfField(after, target.fieldUuid);
 			const structure =
 				formUuid === undefined ? undefined : formStructure(after, formUuid);
 			if (formUuid === undefined || structure === undefined) return;
-			const [need] = queryRepeatPlacementNeeds(structure, target.fieldUuid);
-			if (need === undefined) return;
+			const move = queryPlacementChange(
+				structure,
+				target.fieldUuid,
+				change.from,
+			);
+			if (move === undefined) return;
 			return {
 				subject: {
 					kind: "query-repeat",
 					formUuid,
 					fieldUuid: target.fieldUuid,
 				},
-				from: "rows-set-when-opened",
-				to: "rows-follow-query",
-				reason: { source: "query-repeat", reason: need },
+				...move,
 			};
 		}
 		case "module-kind": {

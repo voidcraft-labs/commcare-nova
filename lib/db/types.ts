@@ -215,7 +215,7 @@ export interface AppDoc {
 	 *  mutation batch — the stream's ordering key, the client's recovery
 	 *  cursor, and the source for the Postgres `synced_seq` guard. */
 	mutation_seq: number;
-	connect_type: "learn" | "deliver" | null;
+	connect_roles: PersistableDoc["connectRoles"];
 	module_count: number;
 	form_count: number;
 	status: AppLifecycleStatus;

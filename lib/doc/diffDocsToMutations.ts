@@ -30,7 +30,7 @@ import { wordingSourceUnit } from "./localizationWorkspace";
  * The emission order is dictated by the reducer's semantics, not by the
  * mutation union's declaration order:
  *
- *   1. App-level scalars (`setAppName` / `setConnectType` / `setAppLogo` /
+ *   1. App-level scalars (`setAppName` / `setConnectRoles` / `setAppLogo` /
  *      `setAppSettings`). No entity side effects, so they can lead.
  *   2. Module + form ADDS and module relocations — parents and final sibling
  *      anchors before dependents. Added entities land before removes so an
@@ -174,6 +174,7 @@ import {
 	moduleSiblingUuids,
 	ownRecordValue,
 	parseLanguageTag,
+	pickFieldKeysForKind,
 } from "@/lib/domain";
 import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { sharedEntryValues } from "@/lib/domain/formEntryCases";
@@ -791,8 +792,8 @@ function* diffGranularSteps(
 	if (prev.appName !== next.appName) {
 		appLevel.push({ kind: "setAppName", name: next.appName });
 	}
-	if (prev.connectType !== next.connectType) {
-		appLevel.push({ kind: "setConnectType", connectType: next.connectType });
+	if (!deepEqual(prev.connectRoles, next.connectRoles)) {
+		appLevel.push({ kind: "setConnectRoles", roles: next.connectRoles });
 	}
 	if (prev.logo !== next.logo) {
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
@@ -1273,6 +1274,23 @@ function* diffGranularSteps(
 			!convertNeedsOptionSeed(pField, nField.kind);
 		if (sourceNeedsAtomicReplacement) {
 			patch.optionsSource = cloneEntity(nextOptionsSource);
+		}
+		// A repeat's mode decides which of its slots exist, and the reducer drops
+		// the old mode's slots as the mode changes (`mutations/fields.ts`). A
+		// clear of one the new mode never declares fits no mode's patch schema.
+		if (
+			!kindChanged &&
+			pField.kind === "repeat" &&
+			nField.kind === "repeat" &&
+			pField.repeat_mode !== nField.repeat_mode
+		) {
+			const declared = pickFieldKeysForKind(
+				{ ...patch, repeat_mode: nField.repeat_mode },
+				"repeat",
+			);
+			for (const key of Object.keys(patch))
+				if (patch[key] === null && !Object.hasOwn(declared, key))
+					delete patch[key];
 		}
 		if (Object.keys(patch).length > 0) {
 			updates.push({

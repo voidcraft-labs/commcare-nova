@@ -49,6 +49,7 @@ import * as workerAssignments from "./20261207000000_worker_assignments";
 import * as exportArtifacts from "./20261207040000_export_artifacts";
 import * as organizationPlacePages from "./20261207050000_organization_place_pages";
 import * as userSettingsConnectionEpoch from "./20261207060000_user_settings_connection_epoch";
+import * as connectActivityRoles from "./20261208000000_connect_activity_roles";
 import * as lookupJsonDestinations from "./20261208000000_lookup_json_destinations";
 import * as caseIndexHistory from "./20261208020000_case_index_history";
 import * as previewSearchSettings from "./20261208050000_preview_search_settings";
@@ -280,6 +281,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261208050000_preview_search_settings": previewSearchSettings,
 	"20261208010000_form_opening_data": formOpeningData,
 	"20261208030000_cases_location_id": casesLocationId,
+	"20261208000000_connect_activity_roles": connectActivityRoles,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

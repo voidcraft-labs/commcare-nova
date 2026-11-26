@@ -848,7 +848,7 @@ export function ownerQuestionPath(
 /** A field's ids from the form's root. */
 export function fieldIds(field: DraftField): string[] {
 	const ids: string[] = [];
-	for (let at: DraftField | null = field; at !== null; at = at.parent)
+	for (let at: DraftField | null = field; at !== null; at = at.dataParent)
 		ids.unshift(at.id);
 	return ids;
 }

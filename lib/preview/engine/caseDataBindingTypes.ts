@@ -1,3 +1,7 @@
+import type {
+	ActivityFact,
+	SubmittedActivity,
+} from "@/lib/domain/connectSubmissionFacts";
 // lib/preview/engine/caseDataBindingTypes.ts
 //
 // Discriminated-union result shapes for the running-app view's
@@ -519,6 +523,7 @@ interface SubmissionProtocol {
 	readonly entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
 	readonly formOpening?: import("./formOpeningSnapshot").FormOpeningBinding;
 	readonly locationFix?: DeviceLocation;
+	readonly activities?: readonly SubmittedActivity[];
 	readonly formUuid: string;
 	readonly entryKey: string;
 	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
@@ -572,6 +577,7 @@ export type SubmissionWireMutation =
 export type SubmissionResult =
 	| {
 			kind: "registration";
+			receiptOutsideRun?: true;
 			submissionLocation?: DeviceLocation | null;
 			caseId: string;
 			/** Flat compatibility alias for a pre-deploy FormScreen. */
@@ -579,6 +585,7 @@ export type SubmissionResult =
 			/** Absent only when replaying a historical flat child-id receipt whose
 			 * authored-child/parent mapping cannot be reconstructed safely. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -589,6 +596,7 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "followup";
+			receiptOutsideRun?: true;
 			submissionLocation?: DeviceLocation | null;
 			caseIds: ReadonlyArray<string>;
 			/** Present only for a singleton result. A true batch has no scalar
@@ -598,6 +606,7 @@ export type SubmissionResult =
 			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only for a historical flat child-id receipt. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -608,6 +617,7 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "close";
+			receiptOutsideRun?: true;
 			submissionLocation?: DeviceLocation | null;
 			caseIds: ReadonlyArray<string>;
 			/** Present only for a singleton result. A true batch has no scalar
@@ -617,6 +627,7 @@ export type SubmissionResult =
 			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only for a historical flat child-id receipt. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -627,7 +638,9 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "survey";
+			receiptOutsideRun?: true;
 			submissionLocation?: DeviceLocation | null;
+			activities?: readonly ActivityFact[];
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];

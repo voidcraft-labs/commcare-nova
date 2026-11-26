@@ -38,29 +38,18 @@ import {
 	foldProvisioningOutcome,
 	provisioningOutcomeKey,
 } from "@/lib/deployment/workerProvisionPlan";
-import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { planConnectTargetState } from "@/lib/doc/connectTargetState";
-import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
-import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import type {
 	PendingIdentityMove,
 	PendingIdentityMoveSlot,
 } from "@/lib/doc/pendingIdentityMove";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
-import type { Mutation } from "@/lib/doc/types";
-import { userFacingErrors } from "@/lib/doc/userFacingErrors";
-import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type {
 	AssetKind,
 	MediaFormatValue,
 	MediaKind,
 } from "@/lib/domain/multimedia";
-import {
-	declaredPlatforms,
-	declaresWebApps,
-	type Platform,
-} from "@/lib/domain/platforms";
+import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import type { RequiredAndroidApp } from "@/lib/domain/requiredAndroidApps";
 import type { Event } from "@/lib/log/types";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
@@ -143,24 +132,6 @@ export interface EditScrollMemory {
 	offset: number;
 	/** Snapshot of measured row sizes (`virtualizer.measurementsCache`). */
 	measurements: VirtualItem[];
-}
-
-/** What `switchConnectMode` is asked to reach, and what it gates the planned
- *  batch under. */
-export interface ConnectSwitchRequest {
-	/** The mode to reach; `null` turns Connect off. */
-	readonly type: ConnectType | null;
-	/** For learn/deliver, the AUTHORITATIVE complete set of participating
-	 *  forms with their blocks; a form absent here stays auxiliary. Omitted
-	 *  (or empty) means no participants — which the planner refuses for a
-	 *  non-null mode. */
-	readonly blocks?: Record<string, ConnectConfig>;
-	/** The Project's lookup-definition context the commit verdict runs
-	 *  against — the builder's live one, from `useLookupCommitState`. */
-	readonly lookupContext: LookupValidationContext;
-	/** `false` when the caller presents the rejection itself (the manager's
-	 *  footer); otherwise a rejection announces through the error toast. */
-	readonly announce?: boolean;
 }
 
 /**
@@ -414,24 +385,6 @@ export interface BuilderSessionState {
 		chat: { open: boolean; stashed: boolean | undefined };
 		structure: { open: boolean; stashed: boolean | undefined };
 	};
-
-	// ── Connect stash (ephemeral, not undoable) ──────────────────────────
-
-	/** Preserved form connect configs for the INACTIVE mode(s). Keyed by
-	 *  connect type -> form uuid -> config. Written when a mode is switched
-	 *  away from (or Connect disabled) so the work survives; the Connect
-	 *  manager reads it to seed the inactive mode's drafts. Uses uuid instead
-	 *  of moduleIndex/formIndex so renames and reorders don't invalidate the
-	 *  stash. */
-	connectStash: Record<
-		ConnectType,
-		Record<string /* formUuid */, ConnectConfig>
-	>;
-
-	/** Last active connect type — the mode the manager defaults its selector
-	 *  to when Connect is currently off. Every `switchConnectMode` document
-	 *  command still states its target mode exactly. */
-	lastConnectType: ConnectType | undefined;
 
 	// ── Staged media uploads (ephemeral, never doc state) ────────────────
 
@@ -727,53 +680,6 @@ export interface BuilderSessionState {
 	/** Append a single event. Convenience wrapper over `pushEvents`. */
 	pushEvent: (event: Event) => void;
 
-	// ── Connect stash actions ────────────────────────────────────────────
-
-	/** Apply an app-level Connect configuration — ONE gated batch:
-	 *  `setConnectType` (when the mode changes) plus the per-form connect
-	 *  blocks needed to reach the requested state.
-	 *
-	 *  Passing a mode (`'learn'` or `'deliver'`) sets that mode and makes
-	 *  `desiredBlocks` the AUTHORITATIVE complete set of participating forms:
-	 *  a form present in the map participates with that config; a form absent
-	 *  has any existing block cleared and stays auxiliary. The store does NOT
-	 *  consult the stash to restore blocks — the Connect manager seeds its
-	 *  drafts from the live doc (current mode) and the stash (the other mode)
-	 *  and hands over the whole truth, so an edited block is never overwritten
-	 *  by a stale stash entry. Every incoming block is already a complete
-	 *  final `ConnectConfig`; app-wide identity conflicts are rejected by the
-	 *  same atomic admission gate as every other invalid batch. Switching AWAY from a
-	 *  non-null mode stashes that mode's live blocks first (the manager reads
-	 *  the stash to repopulate the inactive mode later).
-	 *
-	 *  Passing `null` disables Connect entirely (always valid — standard apps
-	 *  need no blocks; the outgoing mode is stashed so re-enabling restores
-	 *  the work). A non-null call must state the exact mode and complete
-	 *  participant set; the session never infers a document command from its
-	 *  UI-only `lastConnectType`.
-	 *
-	 *  The whole batch runs the shared commit verdict before anything
-	 *  dispatches — a state that would leave the app with NO participating
-	 *  form is rejected (findings returned in the outcome) and the doc +
-	 *  stash stay untouched. An apply that leaves the doc unchanged commits
-	 *  nothing. A pass commits as one undo entry. A rejection announces via
-	 *  the error toast unless the caller opts out with `announce: false`
-	 *  because it presents the outcome itself (the manager's footer) — one
-	 *  rejection, one presentation.
-	 *
-	 *  `request.lookupContext` is the Project's lookup-definition context the
-	 *  verdict runs under; `useSwitchConnectMode` binds the builder's live one
-	 *  after running the shared builder write admission. The gate is absolute,
-	 *  so on a doc that carries a lookup-backed select an unavailable context
-	 *  refuses every switch, which is why the store cannot default it. */
-	switchConnectMode: (request: ConnectSwitchRequest) => CommitOutcome;
-
-	/** Get a single form's stashed connect config (does not remove it). */
-	getFormConnectStash: (
-		mode: ConnectType,
-		formUuid: string,
-	) => ConnectConfig | undefined;
-
 	// ── Preview + sidebar actions ────────────────────────────────────────
 
 	/** Atomically enter/leave preview mode with sidebar stash/restore.
@@ -1027,7 +933,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 	};
 	/* Non-reactive ref — lives outside Zustand state so it doesn't serialize
 	 * to devtools and doesn't fire subscribers on install/clear. Read
-	 * imperatively by `switchConnectMode`, `beginRun`, and `endRun`. */
+	 * imperatively by `beginRun` and `endRun`. */
 	let docStoreRef: BlueprintDocStore | null = null;
 
 	/* The platform Preview plays, derived over the document this store
@@ -1119,13 +1025,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					chat: { open: true, stashed: undefined },
 					structure: { open: true, stashed: undefined },
 				},
-
-				/* Connect stash */
-				connectStash: { learn: {}, deliver: {} } as Record<
-					ConnectType,
-					Record<string, ConnectConfig>
-				>,
-				lastConnectType: undefined as ConnectType | undefined,
 
 				/* Staged media uploads */
 				stagedUploads: {} as Record<string, StagedUpload>,
@@ -1352,157 +1251,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setLoading(loading: boolean) {
 					if (loading === get().loading) return;
 					set({ loading });
-				},
-
-				// ── Connect stash actions ───────────────────────────────
-
-				switchConnectMode(request: ConnectSwitchRequest): CommitOutcome {
-					if (!docStoreRef) return { ok: false, messages: [] };
-					const { type, blocks: desiredBlocks } = request;
-					const announce = request.announce !== false;
-					const s = get();
-					const docState = docStoreRef.getState();
-
-					const currentType = (docState.connectType ?? undefined) as
-						| ConnectType
-						| undefined;
-					/* `desiredBlocks` is the AUTHORITATIVE complete set of
-					 * participating forms for `type`: a form present here
-					 * participates with this config, a form absent stays auxiliary.
-					 * The manager seeds these drafts from the live doc (current
-					 * mode) and the stash (the other mode), so the store no longer
-					 * restores from the stash itself — what the caller hands over
-					 * is the whole truth. */
-					const blocks = desiredBlocks ?? {};
-
-					const plan = planConnectTargetState(
-						docState,
-						type === null
-							? { mode: null }
-							: {
-									mode: type,
-									participants: Object.entries(blocks).map(
-										([formUuid, connect]) => ({
-											formUuid,
-											connect,
-										}),
-									),
-								},
-					);
-					if (!plan.ok) {
-						if (announce) notifyRejectedCommit([...plan.messages]);
-						return { ok: false, messages: [...plan.messages] };
-					}
-
-					/* Stash the OUTGOING mode's live blocks when the mode is
-					 * actually leaving a non-null type (a mode switch or a disable),
-					 * so the work survives for a later switch-back — the manager
-					 * reads this stash to seed the inactive mode's drafts. A
-					 * same-mode apply leaves the active configs on the doc, so it
-					 * stashes nothing. */
-					let nextStash = s.connectStash;
-					if (currentType && currentType !== type) {
-						const outgoing: Record<string, ConnectConfig> = {};
-						for (const moduleUuid of docState.moduleOrder) {
-							const formUuids = docState.formOrder[moduleUuid] ?? [];
-							for (const formUuid of formUuids) {
-								const form = docState.forms[formUuid];
-								if (form?.connect) {
-									outgoing[formUuid] = structuredClone(form.connect);
-								}
-							}
-						}
-						nextStash = { ...nextStash, [currentType]: outgoing };
-					}
-
-					/* Blocks dropped by a SAME-mode apply (a form the manager removed
-					 * from participation) — stashed below so removal stays reversible,
-					 * the same guarantee the per-form toggle gives. A mode switch /
-					 * disable already stashed its outgoing blocks wholesale above, so
-					 * this only collects the same-mode case. */
-					const droppedBlocks: Record<string, ConnectConfig> = {};
-					if (type && currentType === type) {
-						for (const moduleUuid of docState.moduleOrder) {
-							const formUuids = docState.formOrder[moduleUuid] ?? [];
-							for (const formUuid of formUuids) {
-								const current = docState.forms[formUuid]?.connect;
-								if (current !== undefined && blocks[formUuid] === undefined) {
-									droppedBlocks[formUuid] = structuredClone(current);
-								}
-							}
-						}
-					}
-
-					/* Fold any same-mode drops into the outgoing mode's stash so a
-					 * removed form is restorable — per-form-toggle parity. */
-					if (currentType && Object.keys(droppedBlocks).length > 0) {
-						nextStash = {
-							...nextStash,
-							[currentType]: { ...nextStash[currentType], ...droppedBlocks },
-						};
-					}
-
-					/* Nothing to do — the doc already matches the request. Return
-					 * success without committing so an unchanged apply is inert. */
-					if (plan.mutations.length === 0) return { ok: true };
-
-					/* A Connect app runs on Android only: Connect workers open it in
-					 * the Connect app on Android. Turning Connect on in an app that
-					 * runs in Web Apps sets it to Android only in the same batch, so
-					 * Connect and the declaration are one undo step. A switch
-					 * between Learn and Deliver adds nothing (the app already runs
-					 * on Android only), and turning Connect off never widens. */
-					const mutations: Mutation[] =
-						type !== null &&
-						currentType === undefined &&
-						declaresWebApps(docState)
-							? [
-									{
-										kind: "setAppSettings",
-										settings: { runsOnlyOn: "android" },
-									},
-									...plan.mutations,
-								]
-							: [...plan.mutations];
-
-					/* The shared commit verdict — the same gate every other write
-					 * surface runs. The pure planner has already rejected malformed
-					 * target-state input; this gate adjudicates the complete app
-					 * candidate. A refusal dispatches nothing, so the doc and the UI
-					 * stash stay exactly as they were. */
-					const verdict = mutationCommitVerdict(
-						docState,
-						mutations,
-						request.lookupContext,
-					);
-					if (!verdict.ok) {
-						// Concise builder copy for both the toast and the returned
-						// outcome (the manager footer reads it); the SA keeps the
-						// verbose `ValidationError.message`.
-						const lines = userFacingErrors(verdict.findings);
-						if (announce) notifyRejectedCommit(lines);
-						return { ok: false, messages: lines };
-					}
-					/* Commit the validated candidate (one reducer run, one undo
-					 * entry) with the batch that produced it — this is an author
-					 * edit, so it joins the command queue persistence sends. THEN
-					 * the stash, a pure state write that can't fail. */
-					docStoreRef.getState().commitDoc(verdict.nextDoc, verdict.mutations);
-					set({
-						connectStash: nextStash,
-						// "Last active connect type" = the mode now in effect, or the
-						// one just left when turning off. It is only a manager-default
-						// hint; every document command still states its mode exactly.
-						lastConnectType: type ?? currentType ?? s.lastConnectType,
-					});
-					return { ok: true };
-				},
-
-				getFormConnectStash(
-					mode: ConnectType,
-					formUuid: string,
-				): ConnectConfig | undefined {
-					return get().connectStash[mode]?.[formUuid];
 				},
 
 				installEntryPointLaunch(launch: EntryPointPreviewLaunch) {
@@ -2294,13 +2042,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							chat: { open: true, stashed: undefined },
 							structure: { open: true, stashed: undefined },
 						},
-
-						/* Connect stash */
-						connectStash: { learn: {}, deliver: {} } as Record<
-							ConnectType,
-							Record<string, ConnectConfig>
-						>,
-						lastConnectType: undefined as ConnectType | undefined,
 
 						/* Staged media uploads */
 						stagedUploads: {} as Record<string, StagedUpload>,

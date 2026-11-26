@@ -34,10 +34,12 @@ import {
 } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
 import { LOCATION_LEVELS } from "../locations/__tests__/locationOwnerFixture";
+import { DEFAULT_DELIVER_ENTITY_ID_EXPRESSION } from "./releasedConnectDefaults";
 
 export const INSTANCE_READS = {
 	visitModule: testUuid("instance-reads-visits"),
 	visitForm: testUuid("instance-reads-visit"),
+	delivery: testUuid("instance-reads-delivery"),
 	noteForm: testUuid("instance-reads-note"),
 	color: testUuid("instance-reads-color"),
 	red: testUuid("instance-reads-red"),
@@ -97,7 +99,7 @@ export function instanceReadFixture() {
 		f({ kind: "hidden", id, calculate });
 	const doc = buildDoc({
 		appName: "Instance reads",
-		connectType: "deliver",
+		connectRoles: ["deliver"],
 		// The several-case and search-first menus run in Web Apps alone and the
 		// Connect app on Android alone, so no declaration admits the whole
 		// document: it declares Web Apps, and a test that commits or exports it
@@ -126,17 +128,6 @@ export function instanceReadFixture() {
 						name: "Visit",
 						type: "followup",
 						otherwise: { kind: "destination", destination: "module" },
-						connect: {
-							deliver_unit: {
-								id: "visit",
-								name: "Visit",
-								entity_name: tableLookup(
-									table.id,
-									label.id,
-									eq(tableColumn(table.id, value.id), literal("south")),
-								),
-							},
-						},
 						fields: [
 							f({
 								kind: "single_select",
@@ -197,6 +188,21 @@ export function instanceReadFixture() {
 							hidden("color_text", {
 								kind: "itext",
 								unit: { field: INSTANCE_READS.color, role: "field-label" },
+							}),
+							f({
+								kind: "connect_activity",
+								uuid: INSTANCE_READS.delivery,
+								id: "visit",
+								activity: {
+									kind: "delivery",
+									name: "Visit",
+									entityId: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+									entityName: tableLookup(
+										table.id,
+										label.id,
+										eq(tableColumn(table.id, value.id), literal("south")),
+									),
+								},
 							}),
 						],
 						formLinks: [

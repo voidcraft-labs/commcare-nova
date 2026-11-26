@@ -4,7 +4,7 @@
    the app page (``edit_app_attr``), with Web Apps turned on on the settings
    page.
 2. A survey menu "Questions" (``views/modules.py::new_module`` with
-   ``module_type`` ``survey``), whose one form is joined by a second
+   ``module_type`` ``survey``), whose one form is joined by a second and a third
    (``views/forms.py::new_form``).
 3. The first form's source, written by HQ's own form writer
    (``xform_builder.py::XFormBuilder``) and, for each control
@@ -57,6 +57,11 @@
    its words through the same upload, since the form builder writes it as a
    plain space (``Vellum/src/xml.js``), which Nova writes as an output
    (``form-text-characters-written-as-outputs``).
+5. A third form joined to the menu, its source uploaded on the form page and
+   never saved in the form builder: a text question and a model-iteration
+   repeat ``visits`` whose display condition stands on its container's bind,
+   which a save in the form builder discards, so only an upload keeps it;
+   Nova writes it on the rows (``model-iteration-conditions-moved-to-rows``).
 
 It is read as an app that runs on both platforms with its date and time
 question split (``date-and-time-questions-split``): a date-and-time question
@@ -254,6 +259,15 @@ def kinds_source(name):
     _question(xform, "clip", "Video of the field", tag="upload", bind_type="binary", mediatype="video/*")
     _question(xform, "document", "Land document", tag="upload", bind_type="binary", mediatype="application/*,text/*")
     xform.new_question("double_age", None, None, calculate="/data/age * 2")
+    # The advanced bind attributes on a no-control value survive Vellum's
+    # editor, which respells only "xsd:integer" (as "xsd:int",
+    # `parser.js::parseBindElement`). Core's "decimal" is the data class of "double"
+    # (`XFormParser.initTypeMappings`), which Nova's export writes for it.
+    count_path = xform.get_data_ref("opening_count")
+    parent, name = _node(xform, count_path)
+    etree.SubElement(parent, name)
+    xform._model.append(etree.Element(_x(xform, "bind"), {"nodeset": count_path, "type": "xsd:decimal", "calculate": "1"}))
+
     xform.new_group("details", "Details")
     _group_body(xform, "details").set("appearance", "field-list")
     xform.new_question("nickname", "Nickname", "string", group="details")
@@ -378,6 +392,55 @@ def _appearance_written_as_hq_reads_it(root, _form):
     return None
 
 
+def rounds_source(name):
+    """The third form: a text question ``round_summary`` and the model-iteration repeat ``visits``, in the shape
+    the form builder's model iteration writes (as ``_model_iteration`` writes ``rounds``), with its display
+    condition ``true()`` on the container's own bind, ``/data/visits``, where the form builder never writes one:
+    its question is the rows (``modeliteration.js::getPathName``), so a save in the builder discards the bind
+    (``parser.js::parseBindElement``). The form is uploaded on the form page and never saved in the builder, which
+    HQ stores as posted, so the app holds a shape only an upload makes; Nova's first publish writes the condition on
+    the rows (``model-iteration-conditions-moved-to-rows``)."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+    from lxml import etree
+
+    from proof.matrix.bases.hq_expressions import declare_instances
+
+    xform = XFormBuilder(name)
+    xform.new_question("round_summary", "Round summary", "string")
+    jr = xform.ns["jr"]
+    visits = etree.SubElement(xform._data, "visits", ids="", count="", current_index="")
+    item = etree.SubElement(visits, "item", id="", index="")
+    item.set(f"{{{jr}}}template", "")
+    etree.SubElement(item, "visit_note")
+    declare_instances(xform, (("casedb", "jr://instance/casedb"),))
+    for attrs in (
+        {"nodeset": "/data/visits", "relevant": "true()"},
+        {"nodeset": "/data/visits/@current_index", "calculate": "count(/data/visits/item)"},
+        {"nodeset": "/data/visits/item"},
+        {"nodeset": "/data/visits/item/visit_note", "type": "xsd:string"},
+    ):
+        xform._model.append(etree.Element(_x(xform, "bind"), attrs))
+    for event, ref, value in (
+        ("xforms-ready", "/data/visits/@ids", f"join(' ', {ROUNDS_QUERY})"),
+        ("xforms-ready", "/data/visits/@count", "count-selected(/data/visits/@ids)"),
+        ("jr-insert", "/data/visits/item/@index", "int(/data/visits/@current_index)"),
+        ("jr-insert", "/data/visits/item/@id", "selected-at(/data/visits/@ids, ../@index)"),
+    ):
+        xform._model.append(etree.Element(_x(xform, "setvalue"), event=event, ref=ref, value=value))
+    _text(xform, "visits-label", "Visits")
+    _text(xform, "visits/item/visit_note-label", "Visit note")
+    group = etree.SubElement(xform._body, _x(xform, "group"))
+    etree.SubElement(group, _x(xform, "label"), ref="jr:itext('visits-label')")
+    repeat = etree.SubElement(group, _x(xform, "repeat"), nodeset="/data/visits/item")
+    repeat.set(f"{{{jr}}}count", "/data/visits/@count")
+    repeat.set(f"{{{jr}}}noAddRemove", "true()")
+    note = etree.SubElement(repeat, _x(xform, "input"), ref="/data/visits/item/visit_note")
+    etree.SubElement(note, _x(xform, "label"), ref="jr:itext('visits/item/visit_note-label')")
+    root = _with_vellum_prefix(xform)
+    visits.set(f"{{{VELLUM}}}role", "Repeat")
+    return etree.tostring(root, encoding="utf-8", xml_declaration=True).decode("utf-8")
+
+
 def build(authoring) -> str:
     app_id = _pages.new_app(authoring)
     _pages.rename_app(authoring, app_id, NAME)
@@ -392,6 +455,8 @@ def build(authoring) -> str:
     ops.set_form_source(
         authoring, app_id, 0, 1, _appearance_written_as_hq_reads_it, what="field-list-in-another-case", label="build"
     )
+    _pages.new_form(authoring, app_id, 0)
+    ops.upload_form_source(authoring, app_id, 0, 2, rounds_source, "rounds-source")
     return app_id
 
 
@@ -423,6 +488,7 @@ BASE = Base(
         "questions/repeat-with-jr-count-naming-an-integer-question-of-the-form-s",
         "questions/jr-count-naming-a-hidden-value-whose-calculate-is-an-integer-in",
         "questions/repeat-model-iteration-vellum-role-repeat-ids-count-current",
+        "questions/relevance-bound-on-a-model-iteration-repeat-s-container",
         "questions/hint-text",
         "questions/help-text-with-no-markdown-form",
         "questions/help-text-markdown-form",

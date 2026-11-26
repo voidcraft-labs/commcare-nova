@@ -26,9 +26,7 @@
 // reads `Every time`, never as a condition card.
 //
 // Choosing `When a condition is true` stores nothing. It enters the local
-// state `awaiting-condition` for that row (the
-// `editor/fields/hiddenValueModel.ts` precedent: a local state, not a
-// write), the condition editor opens, and only a condition the author
+// state `awaiting-condition` for that row, the condition editor opens, and only a condition the author
 // completes commits, as one `updateForm`. Leaving it empty returns the row
 // to its stored choice. Committing a seed such as `true()` or `false()`
 // would be a second spelling of a stored choice, or a change workers meet

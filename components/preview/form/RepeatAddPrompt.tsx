@@ -23,6 +23,7 @@ import {
 } from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { repeatAddCaption } from "@/lib/preview/engine/repeatAddCaption";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
@@ -81,11 +82,17 @@ function RepeatAddPromptContent({
 		(field !== undefined && "label" in field && field.label
 			? projectProse(field.label)
 			: runtimeMessage(language, "entry"));
-	const addChoice = runtimeMessage(
-		language,
-		prompt.point.entryCount === 0 ? "repeatAddNew" : "repeatAddAnother",
-		{ label },
-	);
+	const caption =
+		field?.kind === "repeat"
+			? repeatAddCaption(field, state, prompt.point.entryCount, projectProse)
+			: undefined;
+	const addChoice =
+		caption ??
+		runtimeMessage(
+			language,
+			prompt.point.entryCount === 0 ? "repeatAddNew" : "repeatAddAnother",
+			{ label },
+		);
 	return (
 		<AlertDialogContent>
 			<AlertDialogHeader>

@@ -18,6 +18,7 @@ import { produce } from "immer";
 import type { Kysely, Transaction } from "kysely";
 import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb } from "@/lib/db/pg";
+import { publishedQuestions } from "@/lib/deployment/publishedQuestions";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -105,7 +106,16 @@ export async function rehydrateChangeSet(
 				`Change set ${changeSet.id} recorded base Project ${changeSet.baseProjectId}, but the fold at sequence ${changeSet.baseSeq} arrives in ${base.projectId}.`,
 			);
 		}
-		baseDoc = base.doc;
+		baseDoc = {
+			...base.doc,
+			publishedQuestions: await publishedQuestions(
+				db,
+				changeSet.appId,
+				base.projectId,
+				changeSet.baseSeq,
+				base.snapshot,
+			),
+		};
 	} else {
 		if (changeSet.proposedAppId === null) {
 			throw new ChangeSetIntegrityError(

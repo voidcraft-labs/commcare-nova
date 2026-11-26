@@ -41,6 +41,7 @@ function identityMoveRowTitle(doc: BlueprintDoc, move: IdentityMove): string {
 	switch (move.subject.kind) {
 		case "form-selection":
 			return name;
+		case "submitted-question":
 		case "case-operation":
 		case "own-close":
 			return `${name}: from ${placementLabelWords(move.from)} to ${placementLabelWords(move.to)}`;
