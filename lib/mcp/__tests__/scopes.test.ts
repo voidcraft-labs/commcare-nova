@@ -23,6 +23,8 @@ it("preserves every issued credential scope name", () => {
 		hqRead: "nova.hq.read",
 		hqWrite: "nova.hq.write",
 		hqImport: "nova.hq.import",
+		previewSearchRead: "nova.preview.search.read",
+		previewSearchWrite: "nova.preview.search.write",
 		projectsRead: "nova.projects.read",
 		projectsWrite: "nova.projects.write",
 		projectDataExport: "nova.projects.data.export",

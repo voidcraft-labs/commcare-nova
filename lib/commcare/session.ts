@@ -1,3 +1,14 @@
+import {
+	type BlueprintDoc,
+	type CaseListConfig,
+	caseListColumnRuns,
+	columnOnList,
+	effectiveCaseSearchConfig,
+	effectiveCaseTypes,
+} from "@/lib/domain";
+import { caseListColumnFieldKind } from "@/lib/domain/caseListOrder";
+import { walkPropertyRefs } from "@/lib/domain/expression/walk";
+import { columnProperty } from "./suite/case-list/orderPlanOptions";
 /**
  * CommCare suite-entry derivation.
  *
@@ -418,7 +429,72 @@ export const INLINE_SEARCH_RESULTS_SRC = "jr://instance/remote/results:inline";
  * `INCREASED_MAX_SEARCH_RESULTS` toggle raises it to 1,500 in a project space
  * that has it. Preview reads at most this many cases of a completed search.
  */
-export const SEARCH_RESULTS_CAP = 500;
+export { DEFAULT_SEARCH_RESULT_LIMIT as SEARCH_RESULTS_CAP } from "@/lib/domain/searchLimits";
+/** Every search-enabled menu for these types contributes its detail’s
+ * non-expression field paths (case_search/utils.py::get_app_context).
+ * A calculated reference to a parent does not ask HQ to deliver it. */
+export function searchDetailRelatedPaths(
+	doc: BlueprintDoc,
+	requestedTypes: readonly string[],
+): string[][] {
+	const paths = new Map<string, string[]>();
+	const types = effectiveCaseTypes(doc);
+	for (const menu of Object.values(doc.modules)) {
+		const config = menu.caseListConfig;
+		if (
+			!menu.caseType ||
+			!requestedTypes.includes(menu.caseType) ||
+			!config ||
+			!effectiveCaseSearchConfig(menu)
+		)
+			continue;
+		for (const column of config.columns) {
+			if (
+				column.kind === "calculated" ||
+				!column.via ||
+				!caseListColumnRuns(column, config)
+			)
+				continue;
+			const property = columnProperty(column, menu, types);
+			const long =
+				column.visibleInDetail !== false &&
+				caseListColumnFieldKind(column, false, property) === "property";
+			const short =
+				columnOnList(column) &&
+				(config.tile === undefined || column.visibleInList !== false) &&
+				caseListColumnFieldKind(
+					column,
+					column.visibleInList === false,
+					property,
+				) === "property";
+			if (long || short) {
+				const path = column.via.map((s) => s.identifier);
+				paths.set(JSON.stringify(path), path);
+			}
+		}
+	}
+	return [...paths.values()];
+}
+
+/** HQ writes the actual hit's score over this property in every primary
+ * search result. The restore's property with that name is independent. */
+export function searchResultsReadScore(
+	config: CaseListConfig | undefined,
+): boolean {
+	const score = "commcare_search_score";
+	return (
+		config?.columns.some((column) => {
+			if (!caseListColumnRuns(column, config)) return false;
+			if (column.kind !== "calculated")
+				return column.via === undefined && column.field === score;
+			let found = false;
+			walkPropertyRefs(column.expression, (ref) => {
+				if (ref.via === undefined && ref.property === score) found = true;
+			});
+			return found;
+		}) ?? false
+	);
+}
 export const EXCLUDE_RELATED_CASES_FILTER = w.not(
 	w.eq(w.context([w.step("commcare_is_related_case")]), w.call("true")),
 );

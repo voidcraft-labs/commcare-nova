@@ -163,6 +163,35 @@ describe("unwritten property derivation", () => {
 			]),
 		);
 	});
+	it("counts the property a search filter matches, and nothing for a menu without one", () => {
+		const searched = orderDoc(
+			[f({ kind: "text", id: "note", label: "Note" })],
+			{
+				caseListConfig: {
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
+					searchFilters: [
+						{
+							uuid: testUuid("status-filter"),
+							target: { kind: "property", property: "order_status" },
+							value: term(literal("open")),
+						},
+					],
+				},
+			},
+		);
+		expect(unwrittenProperties(searched)).toEqual([
+			{
+				caseType: "medication_order",
+				property: "order_status",
+				reads: [
+					{ carrier: MODULE, entity: "module", slot: "search_filter_property" },
+				],
+			},
+		]);
+		expect(unwrittenPropertyCards(searched)[0].reads).toEqual([
+			"a search filter in module “Orders”",
+		]);
+	});
 	it("counts an after-submit link condition", () => {
 		const doc = orderDoc([], {
 			forms: [

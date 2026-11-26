@@ -170,12 +170,15 @@ export async function resolveAuthorizedPreviewContext(args: {
 	 * while the browser's copy carries it would make one expression answer
 	 * two ways depending on which side evaluated it — the hardest kind of
 	 * difference to notice, because both halves look right alone. */
-	const projectSpace = await previewProjectSpaceFor({
-		appId: args.appId,
-		projectId: access.projectId,
-		role: access.role,
-		actorUserId: memberIdentity.actorUserId,
-	});
+	const projectSpace = await previewProjectSpaceFor(
+		{
+			appId: args.appId,
+			projectId: access.projectId,
+			role: access.role,
+			actorUserId: memberIdentity.actorUserId,
+		},
+		suppliedDevice?.searchConfiguration,
+	);
 
 	/* `memberIdentity` above proved the session exists, so every
 	 * `previewAsMe` here returns non-null for the same user; the earlier

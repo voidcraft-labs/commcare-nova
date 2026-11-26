@@ -65,6 +65,14 @@ export type JsonObject = { [key: string]: JsonValue };
  * fields every case carries.
  */
 export interface CasesTable {
+	/** Observed from this case's creation. An older case can still have
+	 * particular live and cleared indexes whose state is known. */
+	index_history_complete: ColumnType<boolean, boolean | undefined, boolean>;
+	cleared_index_identifiers: ColumnType<
+		string[],
+		string[] | undefined,
+		string[]
+	>;
 	/**
 	 * Stable case identifier — opaque TEXT, the CommCare wire
 	 * identity. Nova-generated ids default to `uuidv7()::text`

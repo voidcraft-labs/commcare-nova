@@ -220,7 +220,7 @@ function zoneFormatter(zone: string): Intl.DateTimeFormat {
 /** Milliseconds `zone` is ahead of UTC at an instant in the IANA history,
  * seconds included. The formatter reads whole seconds, so the instant is
  * floored to its second first. */
-function ianaZoneOffsetMs(zone: string, instantMs: number): number {
+export function ianaZoneOffsetMs(zone: string, instantMs: number): number {
 	const second = Math.floor(instantMs / 1000) * 1000;
 	const parts = zoneFormatter(zone).formatToParts(new Date(second));
 	const read = (type: Intl.DateTimeFormatPartTypes): number => {

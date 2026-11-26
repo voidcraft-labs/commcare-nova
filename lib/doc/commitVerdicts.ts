@@ -320,7 +320,9 @@ export function caseWorkspaceBoundaryVerdicts(
 		const registrySlot = finding.details?.registrySlot;
 		if (
 			slot === "caseListConfig.filter" ||
-			registrySlot === "case_list_filter"
+			registrySlot === "case_list_filter" ||
+			slot === "caseListConfig.searchCondition" ||
+			registrySlot === "case_search_filter"
 		) {
 			filterBroken = true;
 			continue;

@@ -24,7 +24,7 @@ import {
 	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, sessionContext } from "@/lib/domain/expression";
+import { dateLiteral, gte, today } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 
@@ -121,7 +121,9 @@ const childModule = (): ModuleSpec => ({
 	forms: [{ name: "Note", type: "followup", fields: [question()] }],
 });
 
-const buttonCondition = () => eq(sessionContext("username"), literal("alice"));
+/** A Search button condition on the device's day: it reads no instance, so
+ *  every entry showing the list can evaluate it. */
+const buttonCondition = () => gte(today(), dateLiteral("2026-01-01"));
 
 describe("formsReadSearchRequiresCaseFirstModule", () => {
 	const CODE = "FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE";

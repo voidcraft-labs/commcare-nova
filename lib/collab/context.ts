@@ -18,6 +18,7 @@ import type {
 	Reconciler,
 } from "@/lib/collab/reconciler";
 import type { LookupManifest } from "@/lib/lookup/types";
+import type { PreviewSearchCatalog } from "@/lib/preview/searchSettings";
 
 /** What the provider exposes: the one reconciler, its new-build activation
  *  glue, plus presence and lookup subscriptions that ride the same
@@ -53,6 +54,9 @@ export interface ReconcilerContextValue {
 	 *  Preview plays, under the rule that names `commcare_project`. The held
 	 *  latest value replays at once to a late subscriber; `null` means Preview
 	 *  holds no facts. `DeploymentTargetProvider` is the consumer. */
+	subscribePreviewSearchSettings?: (
+		cb: (catalog: PreviewSearchCatalog | null) => void,
+	) => () => void;
 	subscribePreviewTargetFacts: (
 		cb: (facts: PreviewTargetFacts | null) => void,
 	) => () => void;

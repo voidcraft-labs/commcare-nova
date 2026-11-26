@@ -43,8 +43,12 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { advancedSearchInputDef } from "@/lib/domain/modules";
+import {
+	advancedSearchInputDef,
+	type CaseListConfig,
+} from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { readsSearchField } from "@/lib/domain/searchConditions";
 import { emitCsql } from "../../../csql/emitter";
 import { lookupWireNaming } from "../../../lookup/naming";
 import { searchWireShape } from "../../../suite/case-search/searchWireShape";
@@ -89,6 +93,20 @@ function novaRow(predicate: Expression, context: typeof filter): string {
 		},
 	}).wrapper;
 	return serializeWire(wire, { target: "hq-json", interpolation: "none" }).text;
+}
+
+/** The condition a reading holds for the menu's one Search field: the field's own where it reads a
+ *  Search field, else the search condition, the field then holding none. */
+function heldCondition(
+	config: CaseListConfig | undefined,
+	ownField: boolean,
+): unknown {
+	const field = config?.searchInputs[0];
+	if (ownField) return field?.kind === "advanced" ? field.predicate : field;
+	expect(field?.kind === "advanced" ? field.predicate : field).toEqual({
+		kind: "match-all",
+	});
+	return config?.searchCondition;
 }
 
 describe("a search filter row's CSQL", () => {
@@ -503,9 +521,9 @@ describe("an ancestor's id compared with a chosen case's", () => {
 			);
 			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
 			if (outcome.kind !== "read") throw new Error("The export did not read.");
-			const field =
-				outcome.draft.doc.modules[PATIENTS]?.caseListConfig?.searchInputs[0];
-			expect(field?.kind === "advanced" ? field.predicate : field).toEqual(
+			// A condition that reads no Search field is the search's own, never the field's.
+			const config = outcome.draft.doc.modules[PATIENTS]?.caseListConfig;
+			expect(heldCondition(config, readsSearchField(condition))).toEqual(
 				condition,
 			);
 		});
@@ -716,18 +734,23 @@ describe("a selection and a membership read back from Nova's own Search field", 
 			);
 			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
 			if (outcome.kind !== "read") throw new Error("The export did not read.");
-			const field =
-				outcome.draft.doc.modules[PATIENTS]?.caseListConfig?.searchInputs[0];
-			const read = field?.kind === "advanced" ? field.predicate : field;
+			// A condition that reads no Search field is the search's own, never the field's.
+			const ownField = readsSearchField(one.condition);
+			const read = heldCondition(
+				outcome.draft.doc.modules[PATIENTS]?.caseListConfig,
+				ownField,
+			);
 			expect(read).toEqual(one.reads);
 			const context = slotContext(
 				outcome.draft.doc,
-				{
-					entity: "module",
-					uuid: PATIENTS,
-					slot: "search_input_predicate",
-					member: { searchInputUuid: PICKED },
-				},
+				ownField
+					? {
+							entity: "module",
+							uuid: PATIENTS,
+							slot: "search_input_predicate",
+							member: { searchInputUuid: PICKED },
+						}
+					: { entity: "module", uuid: PATIENTS, slot: "case_search_filter" },
 				new Map(),
 			);
 			if (context === undefined) throw new Error("The condition has no slot.");

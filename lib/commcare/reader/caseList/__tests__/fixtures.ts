@@ -24,6 +24,8 @@ export function patients(
 				| "contextAboveForm"
 				| "detailTile"
 				| "detailTabs"
+				| "searchCondition"
+				| "searchFilters"
 			>
 		>;
 	} = {},

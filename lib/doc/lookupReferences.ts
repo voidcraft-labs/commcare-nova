@@ -615,6 +615,7 @@ function extractRegisteredExpressions(
 				else if ("sortUuid" in member) carrierUuid = member.sortUuid;
 				else if ("tabUuid" in member) carrierUuid = member.tabUuid;
 				else if ("optionUuid" in member) carrierUuid = member.optionUuid;
+				else if ("filterUuid" in member) carrierUuid = member.filterUuid;
 				else carrierUuid = member.searchInputUuid;
 			}
 			if (

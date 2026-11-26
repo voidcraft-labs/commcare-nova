@@ -188,6 +188,8 @@ export const PLATFORM_CELLS: Readonly<
 		structural("forms-read-search"),
 	"case-search/list-first-where-web-apps-is-declared@web-apps":
 		structural("list-first"),
+	"case-search/list-first-with-a-search-that-skips-to-results@web-apps":
+		structural("list-first"),
 	"menus-and-case-lists/detail-multi-select@android":
 		structural("several-cases"),
 	"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list@android":
@@ -300,14 +302,30 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/10-markdown-any-property-or-expression@android": model(
 		"link-column-raw-android",
 	),
+	"case-search/search-on-clear@android": model("desktop-search-on-clear"),
+	"case-search/default-value-on-a-date-range-input@android": model(
+		"starting-dates-android",
+	),
+	"case-search/default-value-on-a-date-range-input@web-apps": model(
+		"starting-dates-web-apps",
+	),
 	"case-search/required-test-text@android": model(
 		"search-field-checks-android",
 	),
 	"case-search/validations-0-test-text@android": model(
 		"search-field-checks-android",
 	),
+	"case-search/a-required-or-validation-test-with-no-message-in-any-language@android":
+		model("search-field-checks-android"),
 	"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset@android":
 		model("hidden-search-field-android"),
+	"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no@android":
+		model("hidden-search-field-android"),
+	"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or@android":
+		model("hidden-search-field-android"),
+	"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or@android":
+		model("hidden-search-field-android"),
+	"case-search/allow-blank-value@android": model("search-for-blank-android"),
 	"case-search/the-generated-search-round-trip-remote-request-query-results@android":
 		model("search-android"),
 	"case-search/workflow-skip-to-default-results-auto-launch-true-default-search@android":
@@ -393,6 +411,9 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s@android":
 		browser("label-markdown-android"),
 	"case-search/title-label-lang-non-empty@android": browser(
+		"search-screen-text-android",
+	),
+	"case-search/title-label-blank-in-some-languages@android": browser(
 		"search-screen-text-android",
 	),
 	"case-search/description-lang-markdown@android": browser(

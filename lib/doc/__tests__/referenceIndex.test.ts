@@ -627,6 +627,68 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		});
 	});
 
+	it("tracks the properties the server sorts separately from native search predicates and display fields", () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: ["priority", "notes", "rank"].map((name) => ({
+						name,
+						label: proseText(name),
+					})),
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [],
+						searchInputs: [],
+						searchFilters: [
+							{
+								uuid: testUuid("sort-filter"),
+								kind: "order",
+								order: [
+									{
+										property: "priority",
+										direction: "descending",
+										comparison: "number",
+									},
+								],
+							},
+							{
+								uuid: testUuid("notes-filter"),
+								target: { kind: "property", property: "notes" },
+								value: term(literal("urgent")),
+							},
+						],
+					},
+					caseSearchConfig: {
+						requestOrder: [
+							{
+								property: "rank",
+								direction: "ascending",
+								comparison: "number",
+							},
+						],
+					},
+					forms: [],
+				},
+			],
+		});
+		const uuid = Object.keys(doc.modules)[0];
+		expect(
+			slotsFor(doc, casePropertyTargetKey("patient", "priority")),
+		).toMatchObject({ [uuid]: { search_filter_order_property: true } });
+		expect(
+			slotsFor(doc, casePropertyTargetKey("patient", "rank")),
+		).toMatchObject({ [uuid]: { search_order_property: true } });
+		expect(
+			slotsFor(doc, casePropertyTargetKey("patient", "notes")),
+		).toMatchObject({ [uuid]: { search_filter_property: true } });
+	});
+
 	it("indexes selected-case form display-condition Predicate leaves", () => {
 		const doc = buildDoc({
 			caseTypes: [

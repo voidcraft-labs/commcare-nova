@@ -77,7 +77,9 @@ import {
 	requireClaimCaseIds,
 	SchemaNotSyncedError,
 } from "../errors";
+import { resolveNativeSearchCriteria } from "../nativeSearchCriteria";
 import type { SampleCaseGenerator } from "../sample/generator";
+import { CaseSearchUnavailableError } from "../searchRequest";
 import type { ExpressionCompileContext } from "../sql";
 import {
 	buildRestoreScope,
@@ -121,11 +123,14 @@ import type {
 	GroupedQueryResult,
 	MigrationReport,
 	ParkedValueEntry,
+	PrivateCaseColumn,
 	QueryArgs,
 	RelatedRead,
 	ResetSampleDataArgs,
 	RestoreScope,
 	SchemaChangeKind,
+	SearchResultInstance,
+	SearchResultsPage,
 	SelectedParentCases,
 	SortKey,
 } from "../store";
@@ -134,8 +139,13 @@ import type {
 	ApplySubmissionArgs,
 	SubmissionEnvelopeResult,
 } from "../submission";
+import { clearCaseIndices, replaceCaseIndex } from "./caseIndexWrites";
 import { caseSchemaIndexLockScope } from "./indexIdentity";
 import { retireCaseTypeSchemasInTransaction } from "./schemaRetirement";
+import {
+	indexedSearchCondition,
+	searchPopulationIds,
+} from "./searchPopulation";
 import {
 	applyLinkEffect,
 	executeSubmissionEnvelope,
@@ -164,6 +174,12 @@ import { ajvErrorToCaseFailure } from "./validationFailure";
  * type that exposes no such method.
  */
 export interface PostgresCaseStoreArgs {
+	readSearchConfiguration?: (
+		tx: Transaction<Database>,
+		scope: { appId: string; projectId: string },
+		selector: import("../searchRequest").SearchConfigurationSelection,
+		requestedTypes: readonly string[],
+	) => Promise<import("../nativeSearchCriteria").ResolvedSearchConfiguration>;
 	projectId: string | null;
 	actorUserId: string | null;
 	/**
@@ -595,6 +611,7 @@ export class PostgresCaseStore implements CaseStore {
 	 * can choose.
 	 */
 	private readonly actorUserId: string | null;
+	private readonly readSearchConfiguration: PostgresCaseStoreArgs["readSearchConfiguration"];
 	/**
 	 * The CommCare worker: stamped as `owner_id` (the case-owner) on every
 	 * inserted case and resolved for `acting-user`. Not a tenant boundary —
@@ -614,6 +631,7 @@ export class PostgresCaseStore implements CaseStore {
 		| undefined;
 
 	constructor(args: PostgresCaseStoreArgs) {
+		this.readSearchConfiguration = args.readSearchConfiguration;
 		assertNullableNonblankIdentity(args.projectId, "Project");
 		assertNullableNonblankIdentity(args.actorUserId, "actor");
 		assertNullableNonblankIdentity(args.ownerId, "owner");
@@ -857,7 +875,11 @@ export class PostgresCaseStore implements CaseStore {
 	 * must never re-derive. `queryGrouped` wraps the builder this returns
 	 * in window functions; `query` orders and paginates it directly.
 	 */
-	private buildCaseSelect(args: QueryArgs) {
+	private buildCaseSelect(
+		args: QueryArgs,
+		db = this.db,
+		resultIds?: readonly string[],
+	) {
 		const calculated = args.calculated ?? [];
 		const distances = new Map(
 			(args.sort ?? []).flatMap((key) =>
@@ -887,11 +909,15 @@ export class PostgresCaseStore implements CaseStore {
 		// the predicate context so relation walks apply it per hop too — a list
 		// filtered by "households with an open member" must count only members
 		// the worker's device holds.
-		const restore = this.buildRestoreScopeFor(args.appId, args.restoreScope);
+		const restore = this.buildRestoreScopeFor(
+			args.appId,
+			args.restoreScope,
+			db,
+		);
 		// A search reads past the restore, relation walks included; the
 		// searching worker's closure only answers, per returned row, whether
 		// the device already holds it.
-		const heldBy = this.searchPopulationHeldBy(args);
+		const heldBy = this.searchPopulationHeldBy(args, db);
 		const ctx = this.buildPredicateContext({
 			// The PLAIN handle, deliberately. `restore.creator` carries the
 			// `WITH` clause into every query built from it, and the compile
@@ -900,7 +926,7 @@ export class PostgresCaseStore implements CaseStore {
 			// closure, and inside a `UNION` branch it is not even legal SQL.
 			// Only the outermost statement below attaches the CTEs; the
 			// membership reference is visible throughout it.
-			db: this.db,
+			db,
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
@@ -913,6 +939,13 @@ export class PostgresCaseStore implements CaseStore {
 		// Calculated columns and sort keys read the row as the columns'
 		// reading holds it; under an effective Search that is the results
 		// instance, not the query that chose the rows.
+		if (resultIds !== undefined) {
+			// Relations in an inline detail read only the server rows delivered to the device.
+			ctx.restrictToRestoreScope = <QB>(qb: QB, alias: string): QB =>
+				(qb as { where(condition: ReturnType<typeof sql<boolean>>): QB }).where(
+					sql<boolean>`${sql.ref(`${alias}.case_id`)} = any(${resultIds}::text[])`,
+				);
+		}
 		const deviceGroups = (args.restoreScope ?? args.searchPopulation?.heldBy)
 			?.groups;
 		const exprCtx: ExpressionCompileContext = {
@@ -1007,7 +1040,7 @@ export class PostgresCaseStore implements CaseStore {
 		// `selectAll("c")` first so every `cases` column lands; the
 		// per-calculated-column projection chains via `select(...)`
 		// under prefixed aliases.
-		let qb = (restore?.creator ?? heldBy?.creator ?? this.db)
+		let qb = (restore?.creator ?? heldBy?.creator ?? db)
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
@@ -1113,11 +1146,300 @@ export class PostgresCaseStore implements CaseStore {
 			uuid: c.uuid,
 		}));
 
-		return { qb, exprCtx, calcAliases };
+		return { qb, ctx, exprCtx, calcAliases };
+	}
+
+	/** Every completed search reads its authorized candidates, certifies and
+	 * caps the server set, then selects from the resulting device instance.
+	 * A refusal is raised before count, pagination, or a selection write. */
+	private async withCaseSelect<T>(
+		args: QueryArgs,
+		read: (
+			built: ReturnType<PostgresCaseStore["buildCaseSelect"]>,
+			db: Kysely<Database>,
+			primaryCount?: number,
+		) => Promise<T>,
+		transaction?: Transaction<Database>,
+	): Promise<T> {
+		const population = args.searchPopulation;
+		const request = population?.request;
+		if (population === undefined || request === undefined) {
+			const db = transaction ?? this.db;
+			return read(this.buildCaseSelect(args, db), db);
+		}
+		const resolve = async (tx: Transaction<Database>) => {
+			const ids = await this.resolveServerSearchIds(
+				tx,
+				args,
+				population,
+				request,
+			);
+			const supporting = await this.searchSupportingIds(
+				tx,
+				args,
+				ids,
+				request.relatedPaths ?? [],
+			);
+			const device = this.buildCaseSelect(
+				{
+					...args,
+					reading: { filter: "results", columns: "results" },
+					predicate: request.resultCondition,
+				},
+				tx,
+				[...ids, ...supporting],
+			);
+			// The worker's datum excludes every returned case marked related.
+			// A primary hit can itself carry an author-written property of
+			// that name. Core unpacks its text and converts it to boolean.
+			const qb = device.qb
+				.where(sql<boolean>`c.case_id = any(${ids}::text[])`)
+				.where(
+					sql<boolean>`coalesce(c.properties ->> 'commcare_is_related_case', '') = ''`,
+				);
+			return read({ ...device, qb }, tx, ids.length);
+		};
+		return transaction === undefined
+			? this.dataTransaction(resolve, true)
+			: resolve(transaction);
+	}
+
+	/** Resolve the exact primary hits, including the order returned to the
+	 * device. All configuration reads and the query see the same snapshot. */
+	private async resolveServerSearchIds(
+		tx: Transaction<Database>,
+		args: QueryArgs,
+		population: NonNullable<QueryArgs["searchPopulation"]>,
+		request: NonNullable<NonNullable<QueryArgs["searchPopulation"]>["request"]>,
+	): Promise<readonly string[]> {
+		const selected = request.configuration;
+		const configuration =
+			selected === undefined
+				? undefined
+				: await this.readSearchConfiguration?.(
+						tx,
+						{ appId: args.appId, projectId: this.requireProjectId() },
+						selected,
+						[args.caseType],
+					);
+		if (
+			selected?.revision !== undefined &&
+			selected.revision !== configuration?.revision
+		) {
+			throw new CaseSearchUnavailableError({ kind: "search-settings-changed" });
+		}
+		const indexed = indexedSearchCondition(
+			args.predicate,
+			args.caseTypeSchemas,
+		);
+		const server = this.buildCaseSelect(
+			{
+				...args,
+				predicate: indexed ? undefined : args.predicate,
+				reading: { filter: "search", columns: "results" },
+				bindings: {
+					...args.bindings,
+					projectTimeZone: configuration?.timeZone ?? undefined,
+				},
+				caseIds: undefined,
+				parentCases: undefined,
+				calculated: undefined,
+				related: undefined,
+				searchPopulation: { heldBy: population.heldBy },
+			},
+			tx,
+		);
+		return searchPopulationIds(
+			tx,
+			server.qb.clearSelect().selectAll("c"),
+			server.ctx,
+			{
+				...request,
+				maximum:
+					selected === undefined
+						? request.maximum
+						: (configuration?.maximum ?? null),
+				criteria: [
+					...(indexed ? [indexed] : []),
+					...(request.criteria ?? []),
+					...resolveNativeSearchCriteria(
+						request.parameters ?? [],
+						(key) => configuration?.matcherFor(key) ?? null,
+						configuration?.projectSpace,
+					),
+				],
+			},
+		);
+	}
+
+	/** HQ delivers the last case of each requested path. An intermediate
+	 * case is delivered only when a detail also asks for that prefix. */
+	private async searchSupportingIds(
+		tx: Transaction<Database>,
+		args: QueryArgs,
+		primary: readonly string[],
+		paths: readonly (readonly string[])[],
+	): Promise<string[]> {
+		if (!primary.length || !paths.length) return [];
+		const projectId = this.requireProjectId();
+		const prefixes = new Map<string, readonly string[]>();
+		const related = new Set<string>();
+		for (const path of paths) {
+			let ids = primary;
+			for (let step = 0; step < path.length; step++) {
+				const prefix = JSON.stringify(path.slice(0, step + 1));
+				const cached = prefixes.get(prefix);
+				if (cached !== undefined) {
+					ids = cached;
+					continue;
+				}
+				if (!ids.length) break;
+				const found = await tx
+					.selectFrom("case_indices as edge")
+					.innerJoin("cases as target", "target.case_id", "edge.ancestor_id")
+					.select("target.case_id")
+					.distinct()
+					.where("edge.depth", "=", 1)
+					.where("edge.identifier", "=", path[step])
+					.where("edge.case_id", "in", ids)
+					.where("target.app_id", "=", args.appId)
+					.where("target.project_id", "=", projectId)
+					.where(({ not, exists, selectFrom }) =>
+						not(
+							exists(
+								selectFrom("parked_case_values as held")
+									.select("held.id")
+									.whereRef("held.case_id", "=", "target.case_id")
+									.where("held.dismissed_at", "is", null),
+							),
+						),
+					)
+					.execute();
+				ids = found.map((row) => row.case_id);
+				prefixes.set(prefix, ids);
+			}
+			for (const id of ids) related.add(id);
+		}
+		for (const id of primary) related.delete(id);
+		return [...related];
+	}
+
+	/** The primary count powers the empty-search transition. The inline
+	 * predicate and transport page must see that very same set of hits. */
+	async querySearchResults(
+		args: QueryArgs,
+		grouping?: string,
+	): Promise<SearchResultsPage> {
+		return this.withCaseSelect(args, async (built, tx, primaryCount) => {
+			if (primaryCount === undefined)
+				throw new Error("A search result page requires a completed request.");
+			const limit = args.limit;
+			const offset = Math.max(0, args.offset ?? 0);
+			const clamp = (total: number) =>
+				limit === undefined || total === 0
+					? 0
+					: Math.min(offset, Math.floor((total - 1) / limit) * limit);
+			if (grouping && limit !== undefined) {
+				const pageAt = (groupOffset: number) =>
+					this.readCaseGroups(
+						{
+							...args,
+							indexIdentifier: grouping,
+							groupLimit: limit,
+							groupOffset,
+						},
+						built,
+						tx,
+					);
+				let page = await pageAt(offset);
+				const position = clamp(page.totalGroups);
+				if (position !== offset && page.totalGroups)
+					page = await pageAt(position);
+				return {
+					primaryCount,
+					totalRows: page.totalRows,
+					rows: page.groups.flatMap((group) => group.rows),
+					offset: position,
+					grouped: page,
+				};
+			}
+			const counted = await built.qb
+				.clearSelect()
+				.select((eb) => eb.fn.countAll<string>().as("total"))
+				.executeTakeFirstOrThrow();
+			const totalRows = Number(counted.total);
+			const position = clamp(totalRows);
+			return {
+				primaryCount,
+				totalRows,
+				offset: position,
+				rows: totalRows
+					? await this.readCasePage({ ...args, offset: position }, built)
+					: [],
+			};
+		});
+	}
+
+	async readSearchResultInstance(
+		args: QueryArgs,
+	): Promise<SearchResultInstance> {
+		const population = args.searchPopulation;
+		const request = population?.request;
+		if (!population || (!request && !args.caseIds?.length))
+			throw new Error(
+				"A search result instance requires a completed or registered search.",
+			);
+		return this.dataTransaction(async (tx) => {
+			// After registration the query datum holds the newly registered
+			// record alone. It does not repeat the online search.
+			const ids = request
+				? await this.resolveServerSearchIds(tx, args, population, request)
+				: (
+						await this.buildCaseSelect(args, tx)
+							.qb.clearSelect()
+							.select("c.case_id")
+							.execute()
+					).map((row) => row.case_id);
+			const supporting = await this.searchSupportingIds(
+				tx,
+				args,
+				ids,
+				request?.relatedPaths ?? [],
+			);
+			const allIds = [...ids, ...supporting];
+			const patch = await this.readCaseDatabasePatchInTransaction(tx, {
+				appId: args.appId,
+				projectId: this.requireProjectId(),
+				caseIds: allIds,
+			});
+			const rows = new Map(patch.rows.map((row) => [row.case_id, row]));
+			return {
+				...patch,
+				primaryIds: ids,
+				rows: allIds.map((id) => {
+					const row = rows.get(id);
+					if (!row)
+						throw new Error(
+							"A search result is missing from the snapshot that selected it.",
+						);
+					return row;
+				}),
+			};
+		}, true);
 	}
 
 	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
-		const { qb: base, exprCtx, calcAliases } = this.buildCaseSelect(args);
+		return this.withCaseSelect(args, (built) => this.readCasePage(args, built));
+	}
+
+	private async readCasePage(
+		args: QueryArgs,
+		{
+			qb: base,
+			exprCtx,
+			calcAliases,
+		}: ReturnType<PostgresCaseStore["buildCaseSelect"]>,
+	): Promise<CaseRowWithCalculated[]> {
 		let qb = base;
 
 		// Sort keys compile through `compileExpression` against the
@@ -1158,7 +1480,14 @@ export class PostgresCaseStore implements CaseStore {
 			CaseRow & Record<string, unknown>
 		>;
 
-		return rows.map((row) => this.shapeCaseRow(row, calcAliases));
+		return rows.map((row) =>
+			this.shapeCaseRow(
+				row,
+				calcAliases,
+				[],
+				args.searchPopulation !== undefined,
+			),
+		);
 	}
 
 	async readDeviceCaseDatabase(args: {
@@ -1192,7 +1521,7 @@ export class PostgresCaseStore implements CaseStore {
 				.orderBy("c.opened_on", "asc")
 				.orderBy("c.case_id", "asc")
 				.execute();
-			const rows = storedRows.map(({ project_id: _projectId, ...row }) => row);
+			const rows = storedRows.map(publicCaseRow);
 
 			const indexRestore = buildRestoreScope(trx, {
 				appId: args.appId,
@@ -1280,7 +1609,7 @@ export class PostgresCaseStore implements CaseStore {
 			.orderBy("c.opened_on", "asc")
 			.orderBy("c.case_id", "asc")
 			.execute();
-		const rows = storedRows.map(({ project_id: _projectId, ...row }) => row);
+		const rows = storedRows.map(publicCaseRow);
 		// The read above already holds the tenant's own rows, so the indices
 		// are read for those ids alone and only the ancestor is checked, by
 		// its key. Joining both ends to `cases` let Postgres pair every case
@@ -1379,6 +1708,7 @@ export class PostgresCaseStore implements CaseStore {
 		row: Record<string, unknown>,
 		calcAliases: ReadonlyArray<{ alias: string; uuid: string }>,
 		extraAliases: readonly string[] = [],
+		searchResult = false,
 	): CaseRowWithCalculated {
 		const calculatedMap: Record<string, CalculatedValue> = {};
 		for (const { alias, uuid } of calcAliases) {
@@ -1391,7 +1721,14 @@ export class PostgresCaseStore implements CaseStore {
 				? (row[alias] as CalculatedValue)
 				: null;
 		}
-		const cleaned = stripTenantKey(row) as Record<string, unknown>;
+		const cleaned = publicCaseRow(row) as Record<string, unknown>;
+		if (searchResult) {
+			const properties = cleaned.properties as CaseRow["properties"];
+			if (Object.hasOwn(properties, "commcare_search_score")) {
+				const { commcare_search_score: _storedScore, ...other } = properties;
+				cleaned.properties = other;
+			}
+		}
 		for (const { alias } of calcAliases) delete cleaned[alias];
 		for (const alias of extraAliases) delete cleaned[alias];
 		const held = Object.hasOwn(cleaned, HELD_ON_DEVICE_ALIAS)
@@ -1406,8 +1743,20 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	async queryGrouped(args: GroupedQueryArgs): Promise<GroupedQueryResult> {
-		const { qb: base, exprCtx, calcAliases } = this.buildCaseSelect(args);
+		return this.withCaseSelect(args, (built, db) =>
+			this.readCaseGroups(args, built, db),
+		);
+	}
 
+	private async readCaseGroups(
+		args: GroupedQueryArgs,
+		{
+			qb: base,
+			exprCtx,
+			calcAliases,
+		}: ReturnType<PostgresCaseStore["buildCaseSelect"]>,
+		db: Kysely<Database>,
+	): Promise<GroupedQueryResult> {
 		// The group key, as the device computes it. `string(./index/<id>)`
 		// takes the FIRST node of a node-set, and Nova's writers keep one
 		// target per `(case_id, identifier)` — `submissionEnvelope.ts`
@@ -1459,26 +1808,26 @@ export class PostgresCaseStore implements CaseStore {
 		// `max(group ordinal)` is the group count precisely because the
 		// rank is dense; Postgres has no `count(distinct …) over ()`.
 		const paged = await sql<Record<string, unknown>>`
-			with matched as (${matched}),
-			clustered as (
-				select *, min(${sql.ref(ROW_ORDINAL_ALIAS)}) over (partition by ${sql.ref(GROUP_KEY_ALIAS)}) as ${sql.ref(GROUP_FIRST_ALIAS)}
-				from matched
-			),
-			ordinal as (
-				select *, dense_rank() over (order by ${sql.ref(GROUP_FIRST_ALIAS)}) as ${sql.ref(GROUP_ORDINAL_ALIAS)}
-				from clustered
-			),
-			totals as (
-				select *,
-					max(${sql.ref(GROUP_ORDINAL_ALIAS)}) over () as ${sql.ref(TOTAL_GROUPS_ALIAS)},
-					count(*) over () as ${sql.ref(TOTAL_ROWS_ALIAS)}
-				from ordinal
-			)
-			select * from totals
-			where ${sql.ref(GROUP_ORDINAL_ALIAS)} > ${args.groupOffset}
-				and ${sql.ref(GROUP_ORDINAL_ALIAS)} <= ${args.groupOffset + args.groupLimit}
-			order by ${sql.ref(GROUP_FIRST_ALIAS)}, ${sql.ref(ROW_ORDINAL_ALIAS)}
-		`.execute(this.db);
+	with matched as (${matched}),
+	clustered as (
+		select *, min(${sql.ref(ROW_ORDINAL_ALIAS)}) over (partition by ${sql.ref(GROUP_KEY_ALIAS)}) as ${sql.ref(GROUP_FIRST_ALIAS)}
+		from matched
+	),
+	ordinal as (
+		select *, dense_rank() over (order by ${sql.ref(GROUP_FIRST_ALIAS)}) as ${sql.ref(GROUP_ORDINAL_ALIAS)}
+		from clustered
+	),
+	totals as (
+		select *,
+			max(${sql.ref(GROUP_ORDINAL_ALIAS)}) over () as ${sql.ref(TOTAL_GROUPS_ALIAS)},
+			count(*) over () as ${sql.ref(TOTAL_ROWS_ALIAS)}
+		from ordinal
+	)
+	select * from totals
+	where ${sql.ref(GROUP_ORDINAL_ALIAS)} > ${args.groupOffset}
+		and ${sql.ref(GROUP_ORDINAL_ALIAS)} <= ${args.groupOffset + args.groupLimit}
+	order by ${sql.ref(GROUP_FIRST_ALIAS)}, ${sql.ref(ROW_ORDINAL_ALIAS)}
+`.execute(db);
 
 		const rows = paged.rows;
 		if (rows.length === 0) {
@@ -1492,10 +1841,10 @@ export class PostgresCaseStore implements CaseStore {
 				total_groups: string | number | null;
 				total_rows: string | number | null;
 			}>`
-				with matched as (${matched})
-				select count(distinct ${sql.ref(GROUP_KEY_ALIAS)}) as total_groups, count(*) as total_rows
-				from matched
-			`.execute(this.db);
+		with matched as (${matched})
+		select count(distinct ${sql.ref(GROUP_KEY_ALIAS)}) as total_groups, count(*) as total_rows
+		from matched
+	`.execute(db);
 			const totals = empty.rows[0];
 			return {
 				groups: [],
@@ -1512,7 +1861,12 @@ export class PostgresCaseStore implements CaseStore {
 		for (const row of rows) {
 			const key = String(row[GROUP_KEY_ALIAS] ?? "");
 			const last = groups.at(-1);
-			const shaped = this.shapeCaseRow(row, calcAliases, GROUPED_ROW_ALIASES);
+			const shaped = this.shapeCaseRow(
+				row,
+				calcAliases,
+				GROUPED_ROW_ALIASES,
+				args.searchPopulation !== undefined,
+			);
 			if (last !== undefined && last.key === key) last.rows.push(shaped);
 			else groups.push({ key, rows: [shaped] });
 		}
@@ -1606,6 +1960,21 @@ export class PostgresCaseStore implements CaseStore {
 		// count with a limited `query` against the same predicate, so
 		// any divergence between the two compile paths would surface
 		// as a count vs row-list mismatch.
+		if (args.searchPopulation?.request !== undefined) {
+			return this.withCaseSelect(
+				{
+					...args,
+					reading: { ...args.reading, columns: "results" },
+				},
+				async ({ qb }) => {
+					const counted = await qb
+						.clearSelect()
+						.select((eb) => eb.fn.countAll<string>().as("total"))
+						.executeTakeFirstOrThrow();
+					return Number(counted.total);
+				},
+			);
+		}
 		const restore = this.buildRestoreScopeFor(args.appId, args.restoreScope);
 		if (restore !== undefined && args.searchPopulation !== undefined) {
 			throw new Error(searchPopulationWithRestoreMessage("count"));
@@ -1908,6 +2277,8 @@ export class PostgresCaseStore implements CaseStore {
 	async insert(args: {
 		appId: string;
 		row: CaseInsert;
+		/** A record supplied from an external history proves only its current links. */
+		origin?: "existing-record";
 		parentRelationship?: CaseIndicesTable["relationship"];
 		parentIdentifier?: string;
 	}): Promise<{ caseId: string }> {
@@ -1923,6 +2294,7 @@ export class PostgresCaseStore implements CaseStore {
 			const caseId = await this.insertRowInTransaction(trx, {
 				appId: args.appId,
 				row: args.row,
+				...(args.origin === undefined ? {} : { origin: args.origin }),
 				...(args.parentRelationship === undefined
 					? {}
 					: { parentRelationship: args.parentRelationship }),
@@ -1955,6 +2327,7 @@ export class PostgresCaseStore implements CaseStore {
 		args: {
 			appId: string;
 			row: CaseInsert;
+			origin?: "existing-record";
 			caseId?: string;
 			ownerId?: string;
 			parentRelationship?: CaseIndicesTable["relationship"];
@@ -1989,6 +2362,8 @@ export class PostgresCaseStore implements CaseStore {
 		// on non-string inputs to a text-cast slot).
 		const insertRow: InsertObject<Database, "cases"> = {
 			...args.row,
+			index_history_complete: args.origin !== "existing-record",
+			cleared_index_identifiers: [],
 			case_name: normalizedCaseScalar(
 				"case_name",
 				args.row.case_name,
@@ -2264,6 +2639,8 @@ export class PostgresCaseStore implements CaseStore {
 				});
 				return {
 					...row,
+					index_history_complete: true,
+					cleared_index_identifiers: [],
 					case_id: caseIds[index],
 					app_id: args.appId,
 					project_id: this.requireProjectId(),
@@ -2484,11 +2861,13 @@ export class PostgresCaseStore implements CaseStore {
 			.execute();
 
 		if (args.patch.parent_case_id === null) {
-			await this.rebuildParentEdge(trx, {
-				caseId: args.caseId,
-				identifier: parentIdentifier,
-				newParent: null,
-			});
+			await replaceCaseIndex(
+				trx,
+				{ appId: args.appId, projectId: this.requireProjectId() },
+				args.caseId,
+				parentIdentifier,
+				null,
+			);
 		} else if (args.patch.parent_case_id !== undefined) {
 			if (args.parentRelationship === undefined) {
 				throw new TypeError(
@@ -2500,13 +2879,17 @@ export class PostgresCaseStore implements CaseStore {
 					"Parent case type was not captured before edge replacement.",
 				);
 			}
-			await this.rebuildParentEdge(trx, {
-				caseId: args.caseId,
-				identifier: parentIdentifier,
-				newParent: args.patch.parent_case_id,
-				targetCaseType: parentTargetType,
-				relationship: args.parentRelationship,
-			});
+			await replaceCaseIndex(
+				trx,
+				{ appId: args.appId, projectId: this.requireProjectId() },
+				args.caseId,
+				parentIdentifier,
+				{
+					id: args.patch.parent_case_id,
+					caseType: parentTargetType,
+					relationship: args.parentRelationship,
+				},
+			);
 		}
 	}
 
@@ -2718,7 +3101,7 @@ export class PostgresCaseStore implements CaseStore {
 				.execute();
 			// Strip the bound-tenant key off the `selectAll` rows — the
 			// non-self arms below already omit it via explicit projection.
-			return rows.map(stripTenantKey);
+			return rows.map(publicCaseRow);
 		}
 
 		// Non-self path: compile the relation-walk subquery, join it
@@ -3552,18 +3935,21 @@ export class PostgresCaseStore implements CaseStore {
 				.execute();
 			if (claimsOfResetCases.length > 0) {
 				const claimIds = claimsOfResetCases.map((row) => row.case_id);
-				await trx
-					.deleteFrom("case_indices")
-					.where((eb) =>
-						eb.or([
-							eb("case_id", "in", claimIds),
-							eb.and([
-								eb("ancestor_id", "in", claimIds),
-								eb("case_id", "in", tenantCaseIds()),
+				await clearCaseIndices(
+					trx,
+					{ appId: args.appId, projectId: this.requireProjectId() },
+					trx
+						.deleteFrom("case_indices")
+						.where((eb) =>
+							eb.or([
+								eb("case_id", "in", claimIds),
+								eb.and([
+									eb("ancestor_id", "in", claimIds),
+									eb("case_id", "in", tenantCaseIds()),
+								]),
 							]),
-						]),
-					)
-					.execute();
+						),
+				);
 				await trx
 					.deleteFrom("cases")
 					.where("app_id", "=", args.appId)
@@ -3571,18 +3957,21 @@ export class PostgresCaseStore implements CaseStore {
 					.where("case_id", "in", claimIds)
 					.execute();
 			}
-			await trx
-				.deleteFrom("case_indices")
-				.where((eb) =>
-					eb.or([
-						eb("case_id", "in", resetCaseIds()),
-						eb.and([
-							eb("ancestor_id", "in", resetCaseIds()),
-							eb("case_id", "in", tenantCaseIds()),
+			await clearCaseIndices(
+				trx,
+				{ appId: args.appId, projectId: this.requireProjectId() },
+				trx
+					.deleteFrom("case_indices")
+					.where((eb) =>
+						eb.or([
+							eb("case_id", "in", resetCaseIds()),
+							eb.and([
+								eb("ancestor_id", "in", resetCaseIds()),
+								eb("case_id", "in", tenantCaseIds()),
+							]),
 						]),
-					]),
-				)
-				.execute();
+					),
+			);
 			await trx
 				.updateTable("cases")
 				.set({ parent_case_id: null, modified_on: new Date() })
@@ -4781,10 +5170,11 @@ export class PostgresCaseStore implements CaseStore {
 	private buildRestoreScopeFor(
 		appId: string,
 		scope: RestoreScope | undefined,
+		db = this.db,
 	): RestoreScopeQuery | undefined {
 		return scope === undefined
 			? undefined
-			: buildRestoreScope(this.db, {
+			: buildRestoreScope(db, {
 					appId,
 					projectId: this.requireProjectId(),
 					ownerIds: scope.ownerIds,
@@ -4795,60 +5185,17 @@ export class PostgresCaseStore implements CaseStore {
 	 *  for any other read. A read is a device's or a search's, never both. */
 	private searchPopulationHeldBy(
 		args: Pick<QueryArgs, "appId" | "restoreScope" | "searchPopulation">,
+		db = this.db,
 	): RestoreScopeQuery | undefined {
 		if (args.searchPopulation === undefined) return undefined;
 		if (args.restoreScope !== undefined) {
 			throw new Error(searchPopulationWithRestoreMessage("query"));
 		}
-		return this.buildRestoreScopeFor(args.appId, args.searchPopulation.heldBy);
-	}
-
-	/**
-	 * Re-derive the parent edge in `case_indices` after an UPDATE that
-	 * assigned or cleared a parent, under `identifier`, the index the
-	 * caller names the parent by (`parent` unless it says otherwise, as
-	 * `insert` takes it). Direct edges only — recursive walks compose at
-	 * read time via `compileRelationPath`.
-	 *
-	 * The DELETE is broad — every edge of the case under `identifier` —
-	 * so leftover edges from any prior shape don't accumulate. The
-	 * INSERT skips when `newParent` is null (clearing the edge). A non-null
-	 * assignment requires its authoritative relationship explicitly; preserving
-	 * the prior row would retain historical mistakes, while consulting the case
-	 * catalog would corrupt deliberately authored advanced-operation links.
-	 */
-	private async rebuildParentEdge(
-		trx: Transaction<Database>,
-		args:
-			| {
-					readonly caseId: string;
-					readonly identifier: string;
-					readonly newParent: string;
-					readonly targetCaseType: string;
-					readonly relationship: CaseIndicesTable["relationship"];
-			  }
-			| {
-					readonly caseId: string;
-					readonly identifier: string;
-					readonly newParent: null;
-			  },
-	): Promise<void> {
-		await trx
-			.deleteFrom("case_indices")
-			.where("case_indices.case_id", "=", args.caseId)
-			.where("case_indices.identifier", "=", args.identifier)
-			.execute();
-		if (args.newParent !== null) {
-			const edge: Insertable<CaseIndicesTable> = {
-				case_id: args.caseId,
-				ancestor_id: args.newParent,
-				target_case_type: args.targetCaseType,
-				identifier: args.identifier,
-				relationship: args.relationship,
-				depth: 1,
-			};
-			await trx.insertInto("case_indices").values(edge).execute();
-		}
+		return this.buildRestoreScopeFor(
+			args.appId,
+			args.searchPopulation.heldBy,
+			db,
+		);
 	}
 }
 
@@ -4897,9 +5244,14 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
  * relation-walk arms, `compileRelationPath`'s leaf builders) already omit
  * `project_id` by listing columns.
  */
-function stripTenantKey<T extends object>(row: T): Omit<T, "project_id"> {
-	const { project_id: _omit, ...rest } = row as T & { project_id?: unknown };
-	return rest as Omit<T, "project_id">;
+function publicCaseRow<T extends object>(row: T): Omit<T, PrivateCaseColumn> {
+	const {
+		project_id: _project,
+		index_history_complete: _complete,
+		cleared_index_identifiers: _clears,
+		...visible
+	} = row as T & Partial<Record<PrivateCaseColumn, unknown>>;
+	return visible;
 }
 
 /**

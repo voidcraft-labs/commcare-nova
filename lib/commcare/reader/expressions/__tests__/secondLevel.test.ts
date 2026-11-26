@@ -143,7 +143,6 @@ const WITHHOLD_ALL = new Set([
 	"row-predicate-current",
 	"default-reads-current",
 	"search-value-guards",
-	"search-today-device-day",
 	"filter-identities-dropped",
 	"validation-counts-moved",
 ] as const);
