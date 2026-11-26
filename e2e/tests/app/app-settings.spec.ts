@@ -554,7 +554,7 @@ test("Android Preview reopens an incomplete form under its saved label", {
 	await main.getByRole("button", { name: "Start", exact: true }).click();
 	await main.getByRole("button", { name: /^Survey/ }).click();
 	await main.getByRole("button", { name: "Survey", exact: true }).click();
-	const answer = main.getByRole("textbox", { name: "Question 1", exact: true });
+	const answer = main.getByRole("textbox", { name: /^Question 1\./ });
 	await answer.fill("Before leaving");
 	await main
 		.getByRole("button", { name: "Save for later", exact: true })
