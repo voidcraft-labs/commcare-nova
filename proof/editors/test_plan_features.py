@@ -288,6 +288,34 @@ def test_vellum_cannot_keep_an_empty_case_update(hq, core_runner, editor_driver)
     assert saved_case.find(f"{case_ns}close") is not None
     assert saved_case.find(f"{case_ns}update") is None
 
+
+def test_hq_build_adds_the_managed_case_after_an_authored_root_block(hq, core_runner):
+    document = corpus_document("case-capture-query")
+    case = "{http://commcarehq.org/case/transaction/v2}case"
+    with _published(document, "CHILD_CASES", True) as opened:
+        form = _form(opened.state, opened.app_id, lambda one: one.actions.open_case.is_active())
+        original = etree.fromstring(form.source.encode())
+        model = original.find(f".//{{{XFORMS}}}model")
+        primary = next(element for element in model.findall(f"{{{XFORMS}}}instance") if element.get("id") is None)
+        data = primary[0]
+        assert data.find(case) is None
+        wrapper = etree.SubElement(data, f"{{{etree.QName(data).namespace}}}positioned_case_block")
+        transaction = etree.SubElement(
+            wrapper, case, case_id="existing-patient", date_modified="2026-09-30T10:00:00Z", user_id="u-1",
+        )
+        update = etree.SubElement(transaction, "{http://commcarehq.org/case/transaction/v2}update")
+        etree.SubElement(update, "{http://commcarehq.org/case/transaction/v2}name").text = "Authored"
+        form.source = etree.tostring(original, encoding="unicode")
+
+        rendered = etree.fromstring(form.render_xform())
+        model = rendered.find(f".//{{{XFORMS}}}model")
+        primary = next(element for element in model.findall(f"{{{XFORMS}}}instance") if element.get("id") is None)
+        built = primary[0]
+        order = [etree.QName(element).localname for element in built]
+        assert built.find(f"{{{etree.QName(built).namespace}}}positioned_case_block/{case}") is not None
+        assert built.find(case) is not None
+        assert order.index("positioned_case_block") < order.index("case")
+
 def _itemsets(source):
     return len(list(etree.fromstring(source.encode("utf-8")).iter(f"{{{XFORMS}}}itemset")))
 

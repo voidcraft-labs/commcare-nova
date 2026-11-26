@@ -290,6 +290,81 @@ function positionedChangeHasConditionalContainer(
 	return false;
 }
 
+/** HQ's build adds its managed case blocks after authored root data, but
+ * inserts some single repeat actions first. Until the two plans share the
+ * physical order of those mixed blocks, only independent effects are safe. */
+function mixedPositionOrderDependency(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	module: Module,
+	operations: readonly CaseOperation[],
+	positioned: ReadonlySet<Uuid>,
+	operation: TargetedCaseOperation,
+): CaseOperation | undefined {
+	const { placements } = planPlacements(doc, formUuid);
+	const formType = doc.forms[formUuid]?.type;
+	const directTargetOf = (target: CaseTarget | null | undefined, uuid: Uuid) =>
+		(target?.kind === "op" && target.opUuid === uuid) ||
+		(target?.kind === "expression" &&
+			target.expr.kind === "id-of" &&
+			target.expr.opUuid === uuid);
+	const writesOf = (op: CaseOperation): Set<string> =>
+		new Set([
+			...(op.writes ?? []).map((write) => write.property),
+			...(op.rename !== undefined ||
+			(op.action === "own" && op.name !== undefined)
+				? ["case_name"]
+				: []),
+			...(op.owner === undefined ? [] : ["owner_id"]),
+		]);
+	const properties = writesOf(operation);
+	return operations.find((other) => {
+		if (positioned.has(other.uuid)) return false;
+		const placement = placements.get(other.uuid)?.placement.kind;
+		if (placement !== "basic" && placement !== "advanced") return false;
+		if (
+			other.action === "create" ||
+			(other.action === "own" && formType === "registration")
+		)
+			return (
+				directTargetOf(operation.target, other.uuid) ||
+				(operation.links ?? []).some((link) =>
+					directTargetOf(link.target, other.uuid),
+				)
+			);
+
+		if (
+			(other.writes ?? []).some(
+				(write) => write.via && properties.has(write.property),
+			)
+		)
+			return true;
+		const type = other.action === "own" ? module.caseType : other.caseType;
+		if (type !== operation.caseType) return false;
+		const otherProperties = writesOf(other);
+		const otherCloses =
+			other.action === "close" ||
+			other.closeAfter ||
+			(other.action === "own" && formType === "close");
+		const indices = new Set((other.links ?? []).map((link) => link.identifier));
+		const otherChangesRow =
+			otherProperties.size > 0 ||
+			indices.size > 0 ||
+			otherCloses ||
+			other.retype !== undefined;
+		if (!otherChangesRow) return false;
+		return (
+			operation.retype !== undefined ||
+			other.retype !== undefined ||
+			operation.action === "close" ||
+			operation.closeAfter === true ||
+			otherCloses === true ||
+			[...properties].some((property) => otherProperties.has(property)) ||
+			(operation.links ?? []).some((link) => indices.has(link.identifier))
+		);
+	});
+}
+
 export function validateCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -307,10 +382,17 @@ export function validateCaseOperations(
 		caseType: module.caseType,
 	});
 	const positions = new Set<Uuid>();
+	const locations = collectFieldLocations(doc, formUuid);
+	const positioned = new Set(
+		[...locations.keys()].flatMap((uuid) => {
+			const field = doc.fields[uuid];
+			return field?.kind === "case_change" ? [field.operationUuid] : [];
+		}),
+	);
 	const byUuid = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
 	);
-	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
+	for (const [uuid, location] of locations) {
 		const field = doc.fields[uuid];
 		if (field.kind !== "case_change") continue;
 		const operation = byUuid.get(field.operationUuid);
@@ -335,17 +417,43 @@ export function validateCaseOperations(
 										positionedChangeHasConditionalContainer(doc, uuid)
 									? "Place a change of case type outside sections that can be skipped."
 									: undefined;
+		const orderDependency =
+			invalid === undefined &&
+			operation !== undefined &&
+			operation.action !== "own"
+				? mixedPositionOrderDependency(
+						doc,
+						formUuid,
+						module,
+						operations,
+						positioned,
+						operation,
+					)
+				: undefined;
 		positions.add(field.operationUuid);
-		if (invalid !== undefined)
+		if (invalid !== undefined || orderDependency !== undefined)
 			ownFindings.push(
-				validationError("CASE_CHANGE_POSITION_INVALID", "field", invalid, {
-					moduleUuid,
-					moduleName: module.name,
-					formUuid,
-					formName: form.name,
-					fieldUuid: uuid,
-					fieldId: field.id,
-				}),
+				validationError(
+					"CASE_CHANGE_POSITION_INVALID",
+					"field",
+					invalid ??
+						"Keep these case changes together in the form's case settings so they run in order.",
+					{
+						moduleUuid,
+						moduleName: module.name,
+						formUuid,
+						formName: form.name,
+						fieldUuid: uuid,
+						fieldId: field.id,
+					},
+					{
+						operationUuid: field.operationUuid,
+						...(orderDependency && {
+							reason: "managed-order",
+							otherOperationUuid: orderDependency.uuid,
+						}),
+					},
+				),
 			);
 	}
 	if (operations.length === 0) return ownFindings;

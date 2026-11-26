@@ -839,6 +839,15 @@ function settleCaseChanges(
 			operation?.placement?.kind === "save-to-case" ? operation : undefined;
 		const reason = detail(finding, "reason");
 		switch (finding.code) {
+			case "CASE_CHANGE_POSITION_INVALID":
+				if (operation !== undefined)
+					refuseBlock(
+						operation.uuid,
+						reason === "managed-order"
+							? ORDER_CLAIMS.mixedPosition
+							: OUTSIDE_VOCABULARY,
+					);
+				break;
 			case "CASE_OPERATION_EXECUTION_ORDER":
 				atForm.add(ORDER_CLAIMS.noOrder);
 				break;

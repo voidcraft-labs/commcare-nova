@@ -3388,6 +3388,33 @@
 		"gates": []
 	},
 	{
+		"id": "questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a positioned Save to Case block whose effect depends on its order beside a case action that HQ builds",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "positioned-case-change-coupled-to-hq-action",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: HQ adds its root case actions after the authored form and inserts a sole repeat child action at the start of its row (`app_manager/xform.py::_create_casexml`). Independent writes stay supported. If the actions could change the same property or link in a different order, change the type or lifecycle of the same case, or depend on the other action creating it, Nova holds the positioned change.",
+		"subject": "form-case-management",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type",
 		"area": "questions",
 		"section": "Question types",

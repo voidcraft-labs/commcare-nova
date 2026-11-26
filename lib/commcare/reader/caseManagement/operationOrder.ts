@@ -36,6 +36,11 @@ export const ORDER_CLAIMS = defineClaims("caseManagement.operationOrder", {
 		"questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes",
 		"mug:SaveToCase",
 	),
+	/** A positioned effect whose order relative to an HQ action changes the case. */
+	mixedPosition: refuse(
+		"questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+		"mug:SaveToCase",
+	),
 	/** A form whose changes the gate's target-type rule refuses in the order
 	 *  the reading holds: a block gives a case another type where a later
 	 *  change may read it as the earlier one (`index.ts::settleCaseChanges`). */

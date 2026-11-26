@@ -749,6 +749,32 @@ it("holds a case update between the same submitted questions after HQ read-back"
 	).toEqual([change.uuid]);
 });
 
+it("accounts for a positioned block whose write may race the managed action on the same case", async () => {
+	const change = update({
+		target: { kind: "expression", expr: term(literal("patient-01")) },
+		writes: [{ property: "outcome", value: term(literal("authored outcome")) }],
+	});
+	const position = testUuid("authored-case-order-violation");
+	const doc = produce(app("followup", [own, change]), (draft) => {
+		draft.fields[position] = {
+			kind: "case_change",
+			id: "save_outcome",
+			uuid: position,
+			operationUuid: change.uuid,
+		};
+		draft.fieldParent[position] = FORM;
+		draft.fieldOrder[FORM].splice(1, 0, position);
+	});
+	expect(gateCodes(doc)).toContain("CASE_CHANGE_POSITION_INVALID");
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "account")
+		throw new Error("Expected a positioned case order refusal.");
+	expect(outcome.findings.map((finding) => finding.code)).toEqual([
+		"questions/a-positioned-case-change-coupled-to-an-hq-case-action",
+	]);
+});
+
 it.each(["close", "update", "create"] as const)(
 	"keeps the %s block's close condition separate from its own relevance",
 	async (action) => {
