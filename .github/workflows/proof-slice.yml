@@ -1,49 +1,15 @@
-name: Proof slice
-
-# A bounded diagnostic run on the native amd64 readers, for failures whose
-# pytest items a nightly issue names. No store is read or saved.
-on:
-  workflow_call:
-    inputs:
-      selectors:
-        type: string
-        required: true
-      readers:
-        type: string
-        default: all
-      mode:
-        type: string
-        default: normal
-  workflow_dispatch:
-    inputs:
-      selectors:
-        description: Pytest paths and selectors from a failed proof issue (for example proof/android/test_navigation.py -k entry_point)
-        type: string
-        required: true
-      readers:
-        description: Readers to run (all, 0, or a comma list of formplayer,webapps,android,connect)
-        type: string
-        default: all
-      mode:
-        description: Audit conditions to reproduce for these checks
-        type: choice
-        options: [normal, verified, unseeded, unseamed]
-        default: normal
+name: C5 focused verification
+on: workflow_dispatch
 permissions:
   contents: read
 jobs:
-  slice:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: [app-test]
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    env:
-      PROOF_READERS: ${{ inputs.readers }}
-      PROOF_OUT_DIR: .proof/slice
-      PROOF_ENTROPY: ${{ inputs.mode == 'unseeded' && 'real' || '' }}
-      PROOF_HQ_DETERMINISM: ${{ inputs.mode == 'unseeded' && '0' || '1' }}
-      PROOF_HQ_SPEED: ${{ inputs.mode == 'unseamed' && '0' || '1' }}
-      PROOF_VERIFY_MEMOS: ${{ inputs.mode == 'verified' && '1' || '0' }}
-      PROOF_EDITOR_AUDIT: ${{ inputs.mode == 'verified' && '1' || '0' }}
-      PROOF_BRANCH_DOCUMENTS: ${{ inputs.mode == 'verified' && 'all' || '' }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -52,76 +18,30 @@ jobs:
           package-manager-cache: false
       - name: Install pinned npm
         run: |
-          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          version="$(node -p "require('./package.json').devEngines.packageManager.version")"
           cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
+          npm install --global "npm@$version" --ignore-scripts
+      - uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-      - id: selection
-        name: Validate the slice
-        env:
-          SELECTORS: ${{ inputs.selectors }}
-          AUDIT_MODE: ${{ inputs.mode }}
-        run: |
-          python3 - <<'PY'
-          import json, os, shlex
-          from pathlib import Path
-          from proof.lane.readers import parse
-          if os.environ.get('AUDIT_MODE', 'normal') not in ('normal', 'verified', 'unseeded', 'unseamed'):
-              raise SystemExit('A slice mode is normal, verified, unseeded or unseamed.')
-          args = shlex.split(os.environ['SELECTORS'])
-          paths = []
-          cursor = 0
-          while cursor < len(args):
-              arg = args[cursor]
-              if arg in ('-k', '-m'):
-                  cursor += 1
-                  if cursor == len(args):
-                      raise SystemExit(f'{arg} needs its expression.')
-              else:
-                  path = Path(arg.split('::', 1)[0])
-                  root = Path('proof').resolve()
-                  piece = (path == Path('proof/checks/pieces.py')
-                           and arg.startswith('proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[')
-                           and arg.endswith(']'))
-                  if (not arg.startswith('proof/') or not path.is_file()
-                      or not (path.name.startswith('test_') or piece) or path.suffix != '.py'
-                      or not path.resolve().is_relative_to(root)):
-                      raise SystemExit('A slice takes existing proof test files/items and -k/-m expressions only.')
-                  paths.append(path)
-              cursor += 1
-          if not paths:
-              raise SystemExit('Name specific proof test files or items; a slice cannot run the whole proof.')
-          readers = parse(os.environ['PROOF_READERS'])
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              print(f'android={str("android" in readers).lower()}', file=output)
-          Path(os.environ['RUNNER_TEMP'], 'proof-selectors.json').write_text(json.dumps(args))
-          PY
-      - id: android
-        if: ${{ steps.selection.outputs.android == 'true' }}
-        uses: ./.github/actions/proof-android-runtime
+      - if: matrix.scope == 'typescript'
+        run: npm run typecheck
+      - uses: ./.github/actions/pull-test-image
+        if: matrix.scope != 'typescript'
+      - if: matrix.scope == 'app-test'
+        run: npm run build:xpath-worker
+      - if: matrix.scope == 'app-test'
+        run: node_modules/.bin/vitest run --maxWorkers=1 lib/preview/app-tests/__tests__/journey.postgres.test.ts -t 'automatically opens and atomically closes'
+      - if: matrix.scope == 'overflow'
+        run: node_modules/.bin/vitest run --maxWorkers=1 lib/case-store/postgres/__tests__/submissionEnvelope.postgres.test.ts -t 'refuses a 101-case selection'
+      - if: matrix.scope == 'browser'
+        run: npx playwright install --with-deps --only-shell chromium
+      - if: matrix.scope == 'browser'
+        run: npm run test:smoke -- --project=authed e2e/tests/app/automatic-case-selection.spec.ts
+      - if: matrix.scope == 'browser' && always()
+        uses: actions/upload-artifact@v7
         with:
-          build: 'true'
-          checks: 'false'
-          label: slice
-      - name: Run the selected checks
-        env:
-          PROOF_ANDROID_RUNTIME: ${{ steps.android.outputs.runtime }}
-        run: |
-          if [ -n "$PROOF_ANDROID_RUNTIME" ]; then export PROOF_ANDROID_JDK="$JAVA_HOME"; fi
-          python3 - <<'PY'
-          import json, os, subprocess
-          from pathlib import Path
-          args = json.loads(Path(os.environ['RUNNER_TEMP'], 'proof-selectors.json').read_text())
-          raise SystemExit(subprocess.call(['node', 'proof/run.mjs', '--workers', '1', *args]))
-          PY
-      - name: Seal the slice's output
-        id: seal
-        if: ${{ !cancelled() }}
-        run: node proof/run.mjs --seal "$PROOF_OUT_DIR"
-      - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
-        with:
-          name: proof-slice-${{ github.run_attempt }}
-          path: .proof/slice
-          if-no-files-found: error
-          retention-days: 30
+          name: c5-browser-receipt
+          path: e2e/playwright-report
