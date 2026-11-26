@@ -1492,7 +1492,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			places: (facts) =>
 				recordedPlaces(facts, "legacy-related-case-text-rekeyed"),
 		},
-		paths: [],
+		paths: [
+			"/modules/*/case_details/short/columns/*",
+			"/modules/*/case_details/long/columns/*",
+		],
 	},
 	/**
 	 * A case list's, a search's or a menu's stored setting or text map Nova
