@@ -1,6 +1,7 @@
 """HQ case-management updates through the loaded case’s own indices."""
 
 from datetime import datetime
+import json
 
 from lxml import etree
 
@@ -180,3 +181,117 @@ def test_basic_date_and_time_saves_the_same_day_to_its_case_and_parent(hq, core_
         assert {case_id: one.case.case_json for case_id, one in stored.touched.items()} == {
             ORIGIN: {"visit_day": day}, LINKED: {"visit_day": day},
         }
+
+
+def test_basic_case_management_saves_a_parent_user_path_and_keeps_its_empty_block(
+    hq, core_runner, tmp_path
+):
+    from corehq.apps.app_manager.form_action_diff import make_multi
+    from corehq.apps.app_manager.models import ConditionalCaseUpdate, DetailColumn
+    from proof.editors.test_hq_own_registration_alert import _hq
+
+    intermediate = "member-parent"
+    unrelated = "unrelated-linked-household"
+    route = "parent/user/linked_note"
+
+    def source(xmlns):
+        return _source(xmlns).replace(
+            "<note/>", "<note/><mode/>",
+        ).replace(
+            '<bind nodeset="/data/note" type="xsd:string"/>',
+            """<bind nodeset="/data/note" type="xsd:string"
+                calculate="if(/data/mode = 'write', 'A visit', '')"
+                relevant="/data/mode != 'omit'"/>
+              <bind nodeset="/data/mode" type="xsd:string"/>""",
+        ).replace('ref="/data/note"', 'ref="/data/mode"')
+
+    def index(identifier, case_type, target):
+        return f'<index><{identifier} case_type="{case_type}">{target}</{identifier}></index>'
+
+    def case_blocks(scenario):
+        person_index = "" if scenario == "missing-parent-edge" else index("parent", "family", intermediate)
+        family_index = "" if scenario == "missing-user-edge" else index("user", "household", LINKED)
+        return [
+            _case(ORIGIN, _create("person", "Person") + person_index),
+            *([] if scenario == "missing-intermediate" else [
+                _case(intermediate, _create("family", "Family") + family_index),
+            ]),
+            *([] if scenario == "missing-terminal" else [
+                _case(LINKED, _create("household", "Household") +
+                      "<update><linked_note>before</linked_note></update>"),
+            ]),
+            _case(unrelated, _create("household", "Unrelated")),
+        ]
+
+    def run_form(app, form, scenario, answer):
+        restore = etree.fromstring(TEMPLATE_RESTORE.read_bytes())
+        for block in case_blocks(scenario):
+            restore.append(etree.fromstring(block.encode()))
+        table = load_answer_table()
+        table["novaKinds"]["index-mode"] = [answer]
+        trace = core_runner.session(
+            app, restore=etree.tostring(restore), answer_table=table,
+            question_kinds={"/data/mode": "index-mode"},
+        )
+        run, = (run for run in trace["runs"]
+                if (step := form_step(run)) and step.get("xmlns") == form.xmlns)
+        return run
+
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
+        app = operations.held_app(state, app_id)
+        module = app.modules[0]
+        form = module.forms[0]
+        module.case_type = "person"
+        for detail in (module.case_details.short, module.case_details.long):
+            detail.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
+        form.requires = "case"
+        form.actions.open_case.name_update = ConditionalCaseUpdate()
+        form.actions.update_case.condition.type = "always"
+        form.actions.update_case.update = {
+            "local_note": ConditionalCaseUpdate(question_path="/data/mode", update_mode="always"),
+            route: ConditionalCaseUpdate(question_path="/data/note", update_mode="always"),
+        }
+        app.save()
+        _patched(state, app_id, form.unique_id, source(form.xmlns), "write through two declared indices")
+        _hq(
+            state, "edit_form_actions", app_id, form.unique_id,
+            data=[("requires", "case"),
+                  ("actions", json.dumps(make_multi(form.actions.to_json()))),
+                  ("case_mapping_diff", "{}")],
+        )
+        kept = operations.held_app(state, app_id).get_form(form.unique_id).actions.update_case.update
+        assert kept[route].question_path == "/data/note"
+
+        built = compare.build(state, app_id, record)
+        assert not built.errors, built.errors
+        with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
+            assert admission["admitted"], admission["problems"]
+            for answer in ("write", "omit", "blank"):
+                run = run_form(admission["app"], form, "complete", answer)
+                assert run["end"] == "submitted", run.get("refusal")
+                submission, _ = unmarked_submission(run)
+                data = etree.fromstring(submission)
+                reached = data.find(f"{{*}}parents/{{*}}parent/{{*}}user/{{{CASE}}}case")
+                assert reached is not None and reached.get("case_id") == LINKED
+                leaf = reached.findtext(f"{{{CASE}}}update/{{{CASE}}}linked_note")
+                assert leaf == {"write": "A visit", "omit": None, "blank": ""}[answer]
+                final = {"write": "A visit", "omit": "before", "blank": ""}[answer]
+                snapshot = etree.fromstring(form_step(run)["caseDb"].encode())
+                assert snapshot.findtext(f"case[@case_id='{LINKED}']/linked_note") == final
+                assert snapshot.findtext(f"case[@case_id='{intermediate}']/linked_note") is None
+                assert snapshot.findtext(f"case[@case_id='{unrelated}']/linked_note") is None
+                initial = operations.process_case_blocks(state, _submission(*case_blocks("complete")))
+                assert initial.refusal is None
+                processed = operations.process_case_blocks(
+                    state, submission, cases=[item.case for item in initial.touched.values()],
+                )
+                assert processed.refusal is None
+                assert processed.touched[LINKED].case.case_json["linked_note"] == final
+                assert processed.touched[ORIGIN].case.case_json["local_note"] == answer
+
+            for scenario in ("missing-parent-edge", "missing-intermediate", "missing-user-edge", "missing-terminal"):
+                for answer in ("write", "omit"):
+                    rejected = run_form(admission["app"], form, scenario, answer)
+                    assert rejected["end"] == "submission-refused", (scenario, answer, rejected.get("refusal"))
+                    assert form_step(rejected)["processing"]["class"] == "org.javarosa.xml.util.InvalidStructureException"
