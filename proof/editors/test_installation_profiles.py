@@ -46,11 +46,15 @@ def test_saved_defaults_reorder_secondary_languages(hq, editor_driver):
                     operations.held_app(state, app_id).build_profiles.items()] == [("Field team", expected, "visits")]
 
 def test_blank_and_repeated_names_can_be_distinguished_without_replacing_profiles(hq, editor_driver):
+    from corehq.apps.users.dbaccessors import get_practice_mode_mobile_workers
     from proof.hq import redis as hq_redis
     editor_build()
     with hq_check(Configuration(privileges={"BUILD_PROFILES", "CLOUDCARE", "PRACTICE_MOBILE_WORKERS"})) as (state, _):
         with hq_redis.shared(None), state.committing():
             worker = operations.practice_worker(state, "editor-profile-practice")
+            if state.indexes is not None:
+                state.indexes.settle()
+            assert worker in {account["_id"] for account in get_practice_mode_mobile_workers(state.domain)}
         source = bilingual_app()
         source["build_profiles"] = {
             "north": profile_payload("Team", ["fra"], worker),
@@ -61,8 +65,9 @@ def test_blank_and_repeated_names_can_be_distinguished_without_replacing_profile
         path = f"/a/{state.domain}/apps/view/{app_id}/releases/"
         bar = "#profiles-tab [data-bind='saveButton: saveButton'] > .savebtn-bar"
         def definitions():
-            return {key: (list(p.langs), p.practice_mobile_worker_id)
+            return {key: (list(p.langs), p.practice_mobile_worker_id or None)
                     for key, p in operations.held_app(state, app_id).build_profiles.items()}
+        assert operations.held_app(state, app_id).enable_practice_users
         before = definitions()
         assert before["north"][1] == worker
         answers = HQAnswers(state)
@@ -78,6 +83,8 @@ def test_blank_and_repeated_names_can_be_distinguished_without_replacing_profile
                 ]));
                 if (names.size !== 3 || names.get("north")?.value !== "Team" ||
                     names.get("south")?.value !== "Team" || names.get("office")?.value !== "") return false;
+                const worker = names.get("north").closest("tr").querySelector("select.practice-user");
+                if (!worker || worker.disabled || !worker.value) return false;
                 for (const [key, value] of Object.entries({north: "Outreach", south: "District", office: "Office"})) {
                     const input = names.get(key);
                     input.value = value;

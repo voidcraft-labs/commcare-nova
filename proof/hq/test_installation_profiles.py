@@ -14,9 +14,9 @@ from lxml import etree
 from proof.hq import operations, requests as hq_requests
 from proof.hq import redis as hq_redis
 from proof.hq.check import hq_check
-from proof.hq.configuration import Configuration
+from proof.hq.configuration import Configuration, DEFAULT_COMMCARE_VERSION
 from proof.hq.conftest import hq_test_app_with_menu_ids, nova_shaped_upload
-from proof.hq.seams import build_seams
+from proof.hq.seams import api_rate_limits, build_seams
 from proof.observe import hqside
 from proof.observe.build import arrange
 from proof.webapps import hq as webapps_hq
@@ -24,6 +24,7 @@ from proof.webapps import hq as webapps_hq
 
 def bilingual_app():
     source = hq_test_app_with_menu_ids()
+    source["build_spec"]["version"] = DEFAULT_COMMCARE_VERSION
     source["langs"] = ["en", "fra"]
     for path, xml in source["_attachments"].items():
         form = etree.fromstring(xml.encode())
@@ -81,7 +82,7 @@ def test_selected_installation_and_real_practice_restore(hq, core_runner, tmp_pa
     configuration = Configuration(privileges={"CLOUDCARE", "BUILD_PROFILES", "API_ACCESS"} | (
         {"PRACTICE_MOBILE_WORKERS"} if practice_allowed else set()
     ))
-    with hq_check(configuration) as (state, record):
+    with hq_check(configuration) as (state, _), api_rate_limits(state):
         with hq_redis.shared(None), state.committing():
             worker = operations.practice_worker(state, "installation-guide")
             reader = operations.seed_api_user(state, "build-observer@example.com")
