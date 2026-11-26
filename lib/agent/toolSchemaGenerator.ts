@@ -113,7 +113,7 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 /** What the model needs to place a Connect activity, the one rule that admits a
  *  delivery in each row a worker adds among it (`connectRecipientRule.ts`). */
 const CONNECT_ACTIVITY_DOC =
-	"The Connect activity this position submits. Replacing an activity replaces all of its settings. A delivery value left out submits empty text. A delivery inside a repeat the worker adds rows to needs each row to ask for a recipient ID no other row repeats: a required text question in that row, with no condition or default, whose validate expr is string-length(join('|', #form/<repeat>[true()]/<id>)) = string-length(join('|', distinct-values(#form/<repeat>[true()]/<id>))), and the delivery's entityId ../../../<id>, read from the delivery's own value.";
+	"The Connect activity this position submits. Replacing an activity replaces all of its settings. A delivery value left out submits empty text. A delivery inside a repeat the worker adds rows to needs each row to ask for a person or place ID no other row repeats: a required text question in that row, with no condition or default, whose validate expr is string-length(join('|', #form/<repeat>[true()]/<id>)) = string-length(join('|', distinct-values(#form/<repeat>[true()]/<id>))), and the delivery's entityId ../../../<id>, read from the delivery's own value.";
 
 const FIELD_DOCS = {
 	id: "Question identifier: lowercase words joined by underscores, starting with a letter and never with XML. Not one of meta, case, registration, script, instance, bind, parsererror. Independent of its saved record property.",

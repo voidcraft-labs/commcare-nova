@@ -222,7 +222,7 @@ const FIELD_SLOT_NOUNS: Readonly<Record<string, string>> = {
 	validate_msg: "the display text",
 	option_label: "the display text",
 	assessment_user_score: "the assessment score",
-	deliver_entity_id: "the delivery recipient ID",
+	deliver_entity_id: "the delivery's person or place ID",
 	deliver_entity_name: "the delivery recipient name",
 	deliver_work_area_id: "the delivery work area",
 } satisfies Partial<Record<FieldSlotId, string>>;

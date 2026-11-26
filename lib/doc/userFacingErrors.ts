@@ -883,7 +883,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			: `${q(fieldName(e))} uses a Connect role this app doesn't have. You can turn on that role in App settings or remove the activity.`;
 	},
 	CONNECT_DUPLICATE_DELIVERY: (e) =>
-		`One submission of ${q(formName(e))} can deliver ${q(fieldName(e))} twice to the same recipient${connectPlaces(e)}. You can give each visit its own recipient or send each visit in a separate form.`,
+		`One submission of ${q(formName(e))} can deliver ${q(fieldName(e))} twice to the same person or place${connectPlaces(e)}. You can ask for a different person or place ID in each row, as Delivery with a person or place ID does, or send each visit in a separate form.`,
 	CONNECT_REPEATED_ASSESSMENT: (e) =>
 		`One submission of ${q(formName(e))} can send two assessments${connectPlaces(e)}. You can use separate forms or show one assessment at a time.`,
 	CONNECT_REPEATED_LEARNING_MODULE: (e) =>

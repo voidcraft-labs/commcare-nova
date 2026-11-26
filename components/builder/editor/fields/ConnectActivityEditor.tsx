@@ -20,8 +20,8 @@ import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useFormLintContext } from "./useFormLintContext";
 
 const deliveryValues = [
-	["entityId", "deliver_entity_id", "Entity ID"],
-	["entityName", "deliver_entity_name", "Entity name"],
+	["entityId", "deliver_entity_id", "Person or place ID"],
+	["entityName", "deliver_entity_name", "Person or place name"],
 	["workAreaId", "deliver_work_area_id", "Work area ID"],
 ] as const;
 

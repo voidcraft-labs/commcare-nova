@@ -1256,11 +1256,11 @@ export function createBlueprintMutations(
 							uuid: recipient,
 							kind: "text",
 							id: freeQuestionId("recipient_id", siblingIds),
-							label: proseText("Recipient ID"),
+							label: proseText("Person or place ID"),
 							required: { kind: "match-all" },
 							validate: connectRecipientRule(parentUuid, recipient),
 							validate_msg: proseText(
-								"Each delivery needs a different recipient ID of up to 255 characters.",
+								"Each delivery needs a different person or place ID of up to 255 characters.",
 							),
 						},
 					},

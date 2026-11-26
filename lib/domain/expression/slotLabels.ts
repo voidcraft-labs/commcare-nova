@@ -34,9 +34,9 @@ export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 		case "assessment_user_score":
 			return "assessment score";
 		case "deliver_entity_id":
-			return "delivery identifier";
+			return "person or place ID";
 		case "deliver_entity_name":
-			return "delivery name";
+			return "person or place name";
 		case "label":
 			return "label";
 		case "hint":

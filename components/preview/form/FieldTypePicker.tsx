@@ -494,7 +494,7 @@ export function FieldTypePickerPopup({
 													labelOverride={
 														item.preset === "delivery" &&
 														offersRecipientQuestion
-															? "Delivery with recipient ID"
+															? "Delivery with a person or place ID"
 															: undefined
 													}
 												/>
@@ -542,7 +542,7 @@ export function FieldTypePickerPopup({
 								disabledReason={kindRefusal(item)}
 								labelOverride={
 									item.preset === "delivery" && offersRecipientQuestion
-										? "Delivery with recipient ID"
+										? "Delivery with a person or place ID"
 										: undefined
 								}
 							/>

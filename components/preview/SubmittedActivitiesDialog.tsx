@@ -61,7 +61,7 @@ export function SubmittedActivitiesDialog({
 										<dd>{fact.entityId || "Empty"}</dd>
 										{fact.entityName && (
 											<>
-												<dt>Name</dt>
+												<dt>Person or place name</dt>
 												<dd>{fact.entityName}</dd>
 											</>
 										)}
