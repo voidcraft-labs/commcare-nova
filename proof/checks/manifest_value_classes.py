@@ -10582,8 +10582,35 @@ def conditioned_create_owner(use, manifest):
     )
 
 
-def conditioned_update_owner(use, manifest):
-    """A condition on the owner leaf of an ordinary targeted Save to Case update."""
+def conditioned_aliased_create_owner(use, manifest):
+    """An authored ID can reuse an existing case when the create owner is absent."""
+    form, bind, node = _bind(use)
+    if form is None:
+        return None
+    if bind is None or node is None or isinstance(node, tuple) or not bind.get("relevant"):
+        return False
+    create = node.getparent()
+    if node.tag != f"{{{CASE}}}owner_id" or create is None or create.tag != f"{{{CASE}}}create":
+        return False
+    case = create.getparent()
+    holder = case.getparent() if case is not None else None
+    if holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase":
+        return False
+    id_path = f"{form.paths[holder]}/case/@case_id"
+    id_bind = form.bind(id_path)
+    if id_bind is not None:
+        value = (id_bind.get("calculate") or "").strip()
+        return form.in_repeat(form.paths[holder]) and value not in ("", "uuid()")
+    return any(
+        step.get("ref") == id_path
+        and step.get("event") == "xforms-ready"
+        and (step.get("value") or "").strip() not in ("", "uuid()")
+        for step in form.model.findall(f"{{{XFORMS}}}setvalue")
+    )
+
+
+def conditioned_unsupported_update_owner(use, manifest):
+    """An owner update inside a create, or a transfer of the worker's own record."""
     form, bind, node = _bind(use)
     if form is None:
         return None
@@ -10597,10 +10624,11 @@ def conditioned_update_owner(use, manifest):
     return (
         holder is not None
         and holder.get(f"{{{VELLUM}}}role") == "SaveToCase"
-        and holder.get(f"{{{VELLUM}}}case_type") != USER_CASE_TYPE
-        and case.find(f"{{{CASE}}}create") is None
+        and (
+            holder.get(f"{{{VELLUM}}}case_type") == USER_CASE_TYPE
+            or case.find(f"{{{CASE}}}create") is not None
+        )
     )
-
 
 
 def _savetocase_index_at(use):
@@ -12417,7 +12445,8 @@ VALUE_CLASSES = {
     "questions/savetocase-case-id-expression-on-a-create": exact_create_id,
     "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under": write_and_close,
     "questions/savetocase-owner-id-condition": conditioned_create_owner,
-    "questions/savetocase-targeted-update-owner-condition": conditioned_update_owner,
+    "questions/savetocase-owner-condition-on-an-aliased-create": conditioned_aliased_create_owner,
+    "questions/savetocase-update-owner-condition": conditioned_unsupported_update_owner,
     "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,
     "questions/savetocase-link-bind-lost-on-save": index_period_loses_bind,
     "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": savetocase_blank_create_id,

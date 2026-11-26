@@ -24,6 +24,7 @@ CONDITION = "/data/decision = 'transfer'"
 
 
 def _form_source(xmlns, action):
+    casedb = ""
     if action == "create":
         effects = "<create><case_type/><case_name/><owner_id/></create><update><visits/></update>"
         identity = f'<setvalue event="xforms-ready" ref="{PATH}/@case_id" value="\'{CASE_ID}\'"/>'
@@ -32,8 +33,13 @@ def _form_source(xmlns, action):
             f'<bind nodeset="{PATH}/create/case_name" calculate="\'Known person\'"/>'
         )
     else:
-        effects = "<update><visits/><owner_id/></update>"
-        identity = f'<bind nodeset="{PATH}/@case_id" calculate="\'{CASE_ID}\'"/>'
+        effects = "<update><owner_id/><visits/></update>"
+        existing = (
+            "instance('casedb')/casedb/case"
+            f"[@case_id = '{CASE_ID}' and @case_type = 'person']/@case_id"
+        )
+        casedb = '<instance src="jr://instance/casedb" id="casedb"/>'
+        identity = f'<bind nodeset="{PATH}/@case_id" calculate="{existing}"/>'
         fields = ""
     return f"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="{XFORMS}"
       xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="{VELLUM}" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
@@ -42,7 +48,7 @@ def _form_source(xmlns, action):
           <decision/><save_person vellum:role="SaveToCase" vellum:case_type="person">
             <case xmlns="{CASE}" case_id="" date_modified="" user_id="">{effects}</case>
           </save_person>
-        </data></instance>
+        </data></instance>{casedb}
         <bind nodeset="/data/decision" type="xsd:string"/>
         <bind nodeset="{PATH}/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
         <bind nodeset="{PATH}/@user_id" calculate="/data/meta/userID"/>

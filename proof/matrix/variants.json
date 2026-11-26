@@ -35402,6 +35402,24 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-create-with-conditioned-owner-update",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-update-owner-condition",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_create_with_conditioned_owner_update"
+		}
+	},
+	{
 		"id": "hq-questions/save-to-case-update-owner-condition",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-targeted-update-owner-condition",
@@ -35414,6 +35432,16 @@
 				"key": ["form", { "$xmlns": [0, 0] }],
 				"pointer": "/caseOperations/0/ownerCondition/kind",
 				"value": "gt"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/action",
+				"value": "update"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/writes/0/property",
+				"value": "head"
 			}
 		]
 	},

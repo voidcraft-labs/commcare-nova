@@ -1972,11 +1972,15 @@ def save_to_case_conditional_owner_aliased_create(authoring, app_id):
 def save_to_case_update_owner_condition(authoring, app_id):
     """The same conditional facet on a targeted update has its own standing."""
     owner_path = GUARD_OWNER.replace("/create/", "/update/")
+    existing_household = (
+        "instance(&apos;casedb&apos;)/casedb/case"
+        "[@case_id = &apos;household-01&apos; and @case_type = &apos;household&apos;]/@case_id"
+    )
     _save_to_case(
         authoring,
         app_id,
         "save-to-case-update-owner-condition",
-        (STC_CREATE + STC_UPDATE, '<update><head/><owner_id/></update>', 1),
+        (STC_CREATE + STC_UPDATE, '<update><owner_id/><head/></update>', 1),
         (STC_TYPE_BIND, '', 1),
         (STC_NAME_BIND, '', 1),
         (
@@ -1984,12 +1988,29 @@ def save_to_case_update_owner_condition(authoring, app_id):
             STC_OWNER_BIND.replace('/create/owner_id', '/update/owner_id')[: -len("/>")] + ' relevant="/data/age &gt; 5"/>',
             1,
         ),
-        (STC_ID_SETVALUE, f'<bind nodeset="{MAKE}/@case_id" calculate="&apos;household-01&apos;"/>', 1),
+        (STC_ID_SETVALUE, f'<bind nodeset="{MAKE}/@case_id" calculate="{existing_household}"/>', 1),
         (
             f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
             f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
             f"not(/data/age &gt; 5) or string-length({owner_path}) &gt; 0 and"
             f" string-length({owner_path}) &lt;= 255",
+            1,
+        ),
+    )
+
+
+def save_to_case_create_with_conditioned_owner_update(authoring, app_id):
+    """A create's later update of the owner is a separate effect from its create owner."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-create-with-conditioned-owner-update",
+        (STC_UPDATE, "<update><head/><owner_id/></update>", 1),
+        (
+            STC_HEAD_BIND,
+            STC_HEAD_BIND
+            + f'<bind nodeset="{MAKE}/update/owner_id" calculate="/data/full_name"'
+            ' relevant="/data/age &gt; 5"/>',
             1,
         ),
     )

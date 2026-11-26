@@ -188,9 +188,12 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	),
 	aliasedOwnerCondition: refuse(
 		`${Q}/savetocase-owner-condition-on-an-aliased-create`,
-		MUG,
+		"xform:model/bind@relevant",
 	),
-	updateOwnerCondition: refuse(`${Q}/savetocase-update-owner-condition`, MUG),
+	updateOwnerCondition: refuse(
+		`${Q}/savetocase-update-owner-condition`,
+		"xform:model/bind@relevant",
+	),
 	blockRelevance: refuse(
 		`${Q}/relevance-bound-on-the-savetocase-node-itself`,
 		"xform:model/bind@relevant",
@@ -1695,7 +1698,11 @@ function readBlock(
 				target.idFrom !== undefined ||
 				target.authoredId !== undefined
 			)
-				return fail(SAVE_TO_CASE_CLAIMS.aliasedOwnerCondition);
+				return {
+					ok: false,
+					claim: SAVE_TO_CASE_CLAIMS.aliasedOwnerCondition,
+					at: { element: ownerBind, attribute: "relevant" },
+				};
 			ownerCondition = {
 				text: ownerBind.attribs.relevant,
 				site: site("case/create/owner_id", "relevant"),
@@ -1793,7 +1800,11 @@ function readBlock(
 					if (sharedShape) ownerLed = true;
 					else {
 						if (creates || target.kind === "worker-record")
-							return fail(SAVE_TO_CASE_CLAIMS.updateOwnerCondition);
+							return {
+								ok: false,
+								claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
+								at: { element: bind, attribute: "relevant" },
+							};
 						ownerCondition = {
 							text: bind.attribs.relevant,
 							site: { element: bind, attribute: "relevant" },
@@ -2037,8 +2048,16 @@ function readBlock(
 						),
 					);
 	} else sharedHolds = false;
-	if (ownerLed && !sharedHolds)
-		return fail(SAVE_TO_CASE_CLAIMS.updateOwnerCondition);
+	if (ownerLed && !sharedHolds) {
+		const ownerBind = bindAt("case/update/owner_id");
+		return {
+			ok: false,
+			claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
+			...(ownerBind !== undefined && {
+				at: { element: ownerBind, attribute: "relevant" },
+			}),
+		};
+	}
 
 	return {
 		ok: true,
@@ -2679,16 +2698,19 @@ export function readSaveToCaseBlocks(
 	// Any other block whose owner row carries a condition is that entry.
 	for (const one of [...proposed]) {
 		const { read } = one;
+		const ownerBind = bindsUnder(xform, read.block.path).get(
+			"case/update/owner_id",
+		);
 		if (
 			read !== sharedCandidate?.read &&
 			read.shared !== undefined &&
-			bindsUnder(xform, read.block.path).get("case/update/owner_id")?.attribs
-				.relevant !== undefined
+			ownerBind?.attribs.relevant !== undefined
 		) {
 			reading.failed.push({
 				block: read.block,
 				place: read.place,
 				claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
+				at: { element: ownerBind, attribute: "relevant" },
 			});
 			proposed.splice(proposed.indexOf(one), 1);
 		}
@@ -4692,6 +4714,7 @@ export function updateBesideBareOwnAsOwnArm(doc: BlueprintDoc): BlueprintDoc {
 					one.target.kind !== "session" ||
 					one.caseType !== caseType ||
 					one.condition !== undefined ||
+					one.ownerCondition !== undefined ||
 					one.forEach !== undefined ||
 					one.retype !== undefined ||
 					(one.writes ?? []).some(writesAnswerAsIs)

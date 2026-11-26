@@ -3495,6 +3495,7 @@ def _search_and_menus():
                 "schema:CaseSearchCustomSortProperty.property_name",
                 f"{config}/custom_sort_properties/0/property_name",
             ),
+        ),
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": (
             refused("app", search(_search_module(instance_name="Mycasedb2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
             accepted("app", search(_search_module(instance_name="MyCaseDB2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
@@ -7133,7 +7134,36 @@ def _held_new():
         body="""<select1 ref="/data/s"><item><value>a'b"c</value></item><item><value>a'b</value></item></select1>""",
     )
     named = _form(data="<q/>").replace(b"<data ", b'<visit uiVersion="1" ').replace(b"</data>", b"</visit>")
+    def owner_form(create, leaf, case_id, *, case_type="household"):
+        start = "<create><owner_id/></create>" if create and leaf == "create" else (
+            "<create><case_type/></create>" if create else ""
+        )
+        update = "<update><owner_id/></update>" if leaf == "update" else ""
+        return _form(
+            data=f'<q/><change vellum:role="SaveToCase" vellum:case_type="{case_type}">{case}{start}{update}</case></change>',
+            model=f'<bind nodeset="/data/change/case/{leaf}/owner_id" relevant="/data/q &gt; 5" calculate="/data/q"/>'
+                  + (f'<setvalue event="xforms-ready" ref="/data/change/case/@case_id" value="{case_id}"/>'
+                     if create else f'<bind nodeset="/data/change/case/@case_id" calculate="{case_id}"/>'),
+        )
+
+    alias = owner_form(True, "create", "'household-01'")
+    fresh = owner_form(True, "create", "uuid()")
+    update_owner = owner_form(False, "update", "'household-01'")
+    create_owner_update = owner_form(True, "update", "uuid()")
+    worker_owner = owner_form(False, "update", "'worker-01'", case_type="commcare-user")
+    owner_key, owner_site = "xform:model/bind@relevant", "bind[1]/@relevant"
     return {
+        "questions/savetocase-owner-condition-on-an-aliased-create": (
+            refused("form", alias, owner_key, owner_site),
+            accepted("form", fresh, owner_key, owner_site),
+            accepted("form", update_owner, owner_key, owner_site),
+        ),
+        "questions/savetocase-update-owner-condition": (
+            refused("form", create_owner_update, owner_key, owner_site),
+            refused("form", worker_owner, owner_key, owner_site),
+            accepted("form", fresh, owner_key, owner_site),
+            accepted("form", update_owner, owner_key, owner_site),
+        ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             refused("app", own_update("größe"), update_map, updates),
             refused("app", child_update("größe"), child_map, children),
