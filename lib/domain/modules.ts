@@ -2989,6 +2989,7 @@ export function projectSpaceMatchingFits(
 		"name" | "property" | "via" | "type" | "mode"
 	>,
 ): boolean {
+	if (directParentSearchProperty(input) !== undefined) return true;
 	return (
 		(input.via === undefined || input.via.kind === "self") &&
 		(input.name === "name" ? "case_name" : input.name) === input.property &&

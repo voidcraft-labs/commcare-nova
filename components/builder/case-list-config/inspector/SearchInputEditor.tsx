@@ -1318,10 +1318,9 @@ function VisibleSearchInputEditor({
 					</FieldRow>
 				)}
 
-				{/* Offered wherever the gate admits it (`projectSpaceMatchingFits`):
-				    a field over its own property, under that property's name,
-				    matched exactly or by a date range. With it on, the widget and
-				    the match need not fit the property's type. */}
+				{/* The field can use its own property key or the direct parent's
+				    property key. The project space matches either independently of
+				    the property's type. */}
 				{value.kind === "simple" &&
 					projectSpaceMatchingFits(value) &&
 					(effectiveModeKind(value) === "exact" ||
@@ -1486,7 +1485,11 @@ function VisibleSearchInputEditor({
 						<BlurCommitTextInput
 							value={value.name}
 							onCommit={setName}
-							ariaLabel={`Search field ${index + 1} name used in other conditions`}
+							ariaLabel={
+								parentKey === undefined
+									? `Search field ${index + 1} name used in other conditions`
+									: `Search field ${index + 1} name`
+							}
 						/>
 						{nameRefusal !== null && <InlineError errors={[nameRefusal]} />}
 						{resolved.nameState.kind === "empty" && (
