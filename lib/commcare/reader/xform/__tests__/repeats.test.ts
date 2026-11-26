@@ -551,6 +551,32 @@ describe("a count-placement query repeat Nova writes", () => {
 	});
 });
 
+describe("a condition on a count placement's wrapper", () => {
+	it("leaves the wrapper the group it is, its condition its own, as Core drops the generated ids with it", async () => {
+		const doc = queryDoc({ nested: true });
+		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+			xmlns: XMLNS,
+		}).replace(
+			"<bind ",
+			`<bind nodeset="/data/outer/visits" relevant="/data/asked != ''"/><bind `,
+		);
+		const reading = await readForm(source);
+		const fields = readFields(reading.xform ?? ({} as never));
+		const visits = fields.find((field) => field.id === "visits");
+		expect(visits?.kind).toBe("group");
+		expect(
+			visits?.expressions
+				.filter((one) => one.slot === "relevant")
+				.map((one) => one.text),
+		).toEqual(["/data/asked != ''"]);
+		expect(
+			reading.closed.claims.counts[
+				Q("count-repeat-whose-count-and-row-ids-come-from-one-query-a")
+			],
+		).toBeUndefined();
+	});
+});
+
 describe("modelIterationVerdict", () => {
 	const verdict = (
 		doc: BlueprintDoc,

@@ -1084,6 +1084,13 @@ export function readQueryPlacement(
 	// wrapper holding it is no count placement but the group HQ's form builder shows.
 	const parts = new Set([ids, count, position, row]);
 	if (wrapper.children.some((child) => !parts.has(child))) return undefined;
+	// Nor does it bind the wrapper: a condition there, which HQ's form builder can give the
+	// unlabelled group it shows, leaves the generated ids and count out of the submission with
+	// the rows, which a query repeat's condition (written on its rows) does not; the wrapper is
+	// then that group, its condition its own.
+	const wrapperBind = binds.get(wrapper);
+	if (wrapperBind !== undefined && !bindHoldsOnly(wrapperBind, []))
+		return undefined;
 	const idsBind = binds.get(ids);
 	const countBind = binds.get(count);
 	const trees = countPlacementTrees({ ids: ids.name, count: count.name });
