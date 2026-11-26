@@ -21,7 +21,7 @@
 
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
-import { type Kysely, sql } from "kysely";
+import type { Kysely } from "kysely";
 import { describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { retainedBodyJson } from "@/__tests__/helpers/retainedHqReads";
@@ -995,21 +995,14 @@ it("carries live saved values across the released decoder even when its displaye
 							"hq-round-trip-expressions",
 							"hq-round-trip-case-writes",
 						] as const) {
-							const released = cutover === "hq-round-trip-expressions";
-							// The released code stored this app with no Connect type, and
-							// the release's Connect conversion writes its roles.
-							if (released)
-								await sql`UPDATE apps SET connect_roles = NULL, connect_type = NULL
-									WHERE id = ${appId}`.execute(h.db());
 							await certifyFold(
 								h.db(),
 								appId,
 								cutover,
-								released ? migration : sameRepresentationFold,
+								cutover === "hq-round-trip-expressions"
+									? migration
+									: sameRepresentationFold,
 							);
-							if (released)
-								await sql`UPDATE apps SET connect_roles = '{}'
-									WHERE id = ${appId}`.execute(h.db());
 							const state = await h
 								.db()
 								.selectFrom("app_deployment_fold_references")

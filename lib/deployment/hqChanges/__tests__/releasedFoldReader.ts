@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -40,9 +40,9 @@ export async function withReleasedFoldReader(
 				],
 				{ timeout: 180_000, maxBuffer: 2 * 1024 * 1024 },
 			);
-		// The release changes one stored shape: an app's Connect type becomes
-		// its Connect roles. The converter is the one the release selects.
-		const converter = resolve("lib/db/releasedConnectShape.mjs");
+		const converter = join(folder, "identity.mjs");
+		const identity = `export const sourceRevision="${sourceRevision}";export const convert=(doc)=>doc;\n`;
+		await writeFile(converter, identity);
 		const migration = await openDeploymentFoldMigration({
 			sourceRevision,
 			sourceTree,
@@ -50,9 +50,7 @@ export async function withReleasedFoldReader(
 			reader: { path, sha256: readerSha256 },
 			converter: {
 				path: converter,
-				sha256: createHash("sha256")
-					.update(await readFile(converter))
-					.digest("hex"),
+				sha256: createHash("sha256").update(identity).digest("hex"),
 			},
 			settings: {},
 		});
