@@ -18,6 +18,7 @@ import {
 	patients,
 	uuid,
 } from "../../../lib/commcare/reader/caseList/__tests__/fixtures";
+import type { RuntimeTarget } from "../../../lib/commcare/runtimeTarget";
 import {
 	type TargetFacts,
 	targetFactsFromSource,
@@ -159,6 +160,13 @@ for (const [dir, table] of Object.entries(keptTables(keptFacts))) {
 
 /** The browser's and MCP's shared download path for an installation with a single language. */
 async function selectedArchive(directory: string) {
+	// The Android witness installs this archive on the deployment it names.
+	// Its key server, restore and receiver all run on the served HQ fixture.
+	const target: RuntimeTarget = {
+		server: "production",
+		domain: "nova-installation-proof",
+		appId: "nova-installation-proof-app",
+	};
 	const doc = localizationWireFixture("bilingual");
 	if (!doc.localization) throw new Error("Expected a bilingual installation.");
 	doc.localization = {
@@ -205,7 +213,7 @@ async function selectedArchive(directory: string) {
 	] as const) {
 		const bytes = compileLocalArchive(
 			result.prepared,
-			NATIVE_RUNTIME_TARGET,
+			target,
 			DERIVED_WIRE_IDENTITY,
 			{
 				installationProfileUuid: selected,
@@ -218,6 +226,10 @@ async function selectedArchive(directory: string) {
 		);
 		writeFileSync(resolve(directory, `${name}.ccz`), bytes);
 	}
+	writeFileSync(
+		resolve(directory, "installation-target.json"),
+		JSON.stringify(target),
+	);
 	writeFileSync(
 		resolve(directory, "named-spanish.json"),
 		JSON.stringify(expandDoc(doc)),
