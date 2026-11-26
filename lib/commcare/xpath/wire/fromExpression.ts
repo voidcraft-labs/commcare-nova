@@ -534,14 +534,24 @@ function term(input: Term, ctx: Context): WireExpr {
 			const self = input.via === undefined || input.via.kind === "self";
 			if (self && bindings.emitSelfProperty !== undefined)
 				return bindings.emitSelfProperty(input);
-			if (input.readReached && input.via?.kind === "ancestor")
+			if (input.readReached && input.via?.kind === "ancestor") {
+				// The walk starts at the case the slot reads: a case list's row
+				// (`current()`), or, in a form, the case its menu chose
+				// (`rootCaseIdWireExpr`), since a form bind's `current()` is
+				// its own node and holds no index.
+				if (bindings.lookup?.rowScope?.caseAnchor.kind === "unaddressable")
+					throw new Error(
+						`Case property '${input.property}' is read inside a lookup-row filter whose case cannot be addressed from current(). Validation should reject this shape before emission.`,
+					);
 				return w.append(
 					buildAncestorJoinNodeset(
 						input.via.via.map(({ identifier }) => ({ identifier })),
 						root,
+						origin(ctx),
 					),
 					[casePropertyStep(input.property)],
 				);
+			}
 			const anchored = bindings.caseProperty?.(
 				input,
 				root,
