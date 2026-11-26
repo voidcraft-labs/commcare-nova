@@ -147,8 +147,9 @@ export function qualifiedLookupValues() {
 				restore: "restore.xml",
 				request: {
 					// A select is answered by its choice's 1-based position, as Web Apps sends
-					// Formplayer: "east" is the second row's choice, so this also proves Core
-					// built the choice list from the attribute and the French occurrence.
+					// Formplayer: "east" is the second row's choice. Core's choices, read
+					// back below, show the attribute as each value and the French
+					// occurrence as each label.
 					answers: [{ path: "/data/clinic", value: "2" }],
 					expressions: [
 						"/data/clinic",
@@ -159,6 +160,10 @@ export function qualifiedLookupValues() {
 				},
 				expect: [
 					{ pointer: "/answers/0/result", value: "ok" },
+					{ pointer: "/answers/0/choices/0/value", value: "north" },
+					{ pointer: "/answers/0/choices/0/text", value: "Nord" },
+					{ pointer: "/answers/0/choices/1/value", value: "east" },
+					{ pointer: "/answers/0/choices/1/text", value: "Est" },
 					{ pointer: "/values/0/value", value: "east" },
 					{ pointer: "/values/1/value", value: "Est" },
 					{ pointer: "/values/2/value", value: "fr" },
