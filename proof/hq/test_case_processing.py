@@ -131,7 +131,7 @@ def test_unicode_index_identifiers_keep_their_exact_case_target(hq, core_runner)
                 )
                 updated = CommCareCase.objects.get_case("c-child", state.domain)
                 assert {(index.identifier, index.referenced_type, index.referenced_id)
-                        for index in updated.indices} == {
+                        for index in updated.live_indices} == {
                     (name, "person", "c-parent") for name in identifiers if name != "parént"
                 }
 
