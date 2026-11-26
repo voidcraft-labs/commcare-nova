@@ -76,6 +76,10 @@ import {
 	lookupXformInstanceId,
 } from "../../lookup/naming";
 import { lookupOptionsNodeset } from "../../lookupOptions";
+import {
+	caseTextKeyVariants,
+	caseTextWireKey,
+} from "../../suite/case-list/calculationText";
 import { detailBindings } from "../../suite/case-list/detailBindings";
 import { detailTabConditionWire } from "../../suite/case-list/detailTabCondition";
 import { detailRowExpressionWire } from "../../suite/case-list/detailTabRows";
@@ -142,6 +146,7 @@ import { toWire, type WireTermBindings } from "../../xpath/wire/fromExpression";
 import { InstanceSink } from "../../xpath/wire/instances";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
+import { bindCalculationText } from "../caseList/calculationText";
 import {
 	expandHqShortcuts,
 	type HqInterpolationSlot,
@@ -1173,6 +1178,12 @@ function relocatedOperationIds(
 	return relocated;
 }
 
+interface SlotPrintOptions {
+	readonly projection?: FormNodeProjection;
+	readonly rewrites?: RewriteControl;
+	readonly bindCalculationText?: true;
+}
+
 /** The text the production emitter writes for `expression` in `ref`'s
  *  slot, in `slotReadMode(doc, ref)`, with `rewrites` withheld or reported.
  *  Throws where the emitter refuses the tree, which the checker refuses. */
@@ -1181,10 +1192,7 @@ export function printSlot(
 	ref: SlotContextRef,
 	expression: Expression,
 	env: ExpressionReadEnv,
-	print: {
-		readonly projection?: FormNodeProjection;
-		readonly rewrites?: RewriteControl;
-	} = {},
+	print: SlotPrintOptions = {},
 ): string {
 	return printSlotWith(
 		doc,
@@ -1223,10 +1231,7 @@ function printSlotWith(
 	expression: Expression,
 	naming: LookupWireNaming,
 	operationIdPaths: ExpressionReadEnv["operationIdPaths"],
-	print: {
-		readonly projection?: FormNodeProjection;
-		readonly rewrites?: RewriteControl;
-	},
+	print: SlotPrintOptions,
 ): string {
 	const mode = slotReadMode(doc, ref);
 	const text = (wire: WireExpr | undefined): string => {
@@ -1387,17 +1392,24 @@ function printSlotWith(
 					throw new Error(
 						`The column ${ref.member.columnUuid} is no calculated column of its menu.`,
 					);
-				return text(
-					hqExpressionField(
-						{ ...column, expression },
-						mod,
-						doc,
-						"details",
-						naming,
-						expressions,
-						rewrites,
-					),
+				const wire = hqExpressionField(
+					{ ...column, expression },
+					mod,
+					doc,
+					"details",
+					naming,
+					expressions,
+					rewrites,
 				);
+				const field = text(wire);
+				if (!print.bindCalculationText || !column.texts) return field;
+				// Project the emitted field with the enum keys HQ sees. The
+				// parser recognizes the translated pieces this column owns.
+				const variants = caseTextKeyVariants(wire, column.texts);
+				const keys = column.texts.map(({ uuid }) =>
+					caseTextWireKey(uuid, variants.get(uuid)),
+				);
+				return bindCalculationText(field, keys, column.texts);
 			}
 			case "search_input_predicate":
 				throw new Error("A search filter row prints as CSQL, never here.");
@@ -1794,6 +1806,7 @@ export function printedSyntax(
 	let text: string;
 	try {
 		text = printSlot(doc, pending.ref, candidate, env, {
+			bindCalculationText: true,
 			...(form !== undefined && names !== undefined
 				? { projection: sourceNodeProjection(doc, form, names) }
 				: {}),
