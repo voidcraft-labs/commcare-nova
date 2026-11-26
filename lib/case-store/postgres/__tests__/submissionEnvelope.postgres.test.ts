@@ -775,6 +775,43 @@ describe("whole-envelope atomicity", () => {
 });
 
 describe("ordered selected-case batches", () => {
+	it("refuses a 101-case selection before a shared write or receipt can land", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const caseIds = [
+			SESSION_CASE_ID,
+			...Array.from({ length: 100 }, (_, index) => `past-bound-${index}`),
+		];
+		for (const maximum of [100, 101]) {
+			await expect(
+				submit(store, {
+					appId: APP_ID,
+					ordinary: {
+						kind: "followup",
+						caseType: "patient",
+						caseIds,
+						selection: { kind: "multiple", maximum },
+					},
+					operations: {
+						...ownProgram("followup", [
+							ownOp({ writes: literalWrites({ notes: "must not land" }) }),
+						]),
+						sessionCaseIds: caseIds,
+					},
+				}),
+			).rejects.toMatchObject({
+				rejection: { kind: "selection", reason: "too-many", maximum: 100 },
+			});
+		}
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({ notes: "original" });
+		const receipts =
+			await sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
+				dbHandle.db,
+			);
+		expect(receipts.rows).toEqual([]);
+	});
 	it("applies the own case's shared answers to every selected case, then each later operation", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
