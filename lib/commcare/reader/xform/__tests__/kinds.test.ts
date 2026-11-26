@@ -541,6 +541,21 @@ describe("text on a question's data node", () => {
 			Q("default-data-value-datavalue-instance-text"),
 		);
 	});
+
+	it("names an attachment's nonempty data value as a runtime refusal", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<photo>carry-forward.jpg</photo><report> \t\n </report>",
+				model:
+					'<bind nodeset="/data/photo" type="binary"/><bind nodeset="/data/report" type="binary"/>',
+				body: '<upload ref="/data/photo" mediatype="image/*"/><upload ref="/data/report" mediatype="application/*,text/*"/>',
+			}),
+		);
+		expect(codesAt(reading, "photo")).toEqual([
+			Q("default-other-than-blank-on-a-capture-question"),
+		]);
+		expect(codesAt(reading, "report")).toEqual([]);
+	});
 });
 
 describe("a question refused by its bind type", () => {

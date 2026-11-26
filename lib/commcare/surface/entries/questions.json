@@ -6117,7 +6117,11 @@
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
 		"item": "a default other than the blank string on an image, audio, video, signature or file question: a file name, or an expression that can give one",
-		"surfaceKeys": ["xform:model/instance//*", "xform:setvalue@value"],
+		"surfaceKeys": [
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"xform:setvalue@value"
+		],
 		"valueClass": "other-than-blank-on-capture",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Web Apps clears the starting file as the form opens and submits nothing for it, and Android looks for the file in the form's own folder and can't open the form. Leaving the starting value blank in the form builder fixes it.",
