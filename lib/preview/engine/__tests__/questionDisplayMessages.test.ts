@@ -13,7 +13,7 @@ import { engineFixtureInput } from "./fixtures/engineInput";
 import { androidDevice } from "./fixtures/previewDevices";
 
 const FORM = testUuid("display-message-form");
-function visitInput() {
+function visitInput(receiverField = "filename") {
 	const choices = (id: string) => ({
 		kind: "inline",
 		options: ["North", "South"].map((label) => ({
@@ -73,7 +73,7 @@ function visitInput() {
 						kind: "text",
 						id: "filename",
 						label: "Name of file",
-						receiveFrom: { channel: "document", field: "filename" },
+						receiveFrom: { channel: "document", field: receiverField },
 					},
 				],
 			},
@@ -135,29 +135,32 @@ describe("a worker question receiving a form update", () => {
 			);
 		}
 	});
-	it("only addresses the selected repeat row and leaves Android's answers to the worker", () => {
-		const input = visitInput();
-		const web = new FormEngine(input);
-		web.addRepeat("/data/stops");
-		const paths = web
-			.displayMessageAnswers("/data/stops[1]/document", {
-				filename: "later.pdf",
-			})
-			.map(({ path, value }) => [path, value]);
-		expect(paths).toEqual([["/data/stops[1]/filename", "later.pdf"]]);
-		const android = new FormEngine(
-			input,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			{ device: androidDevice() },
-		);
-		expect(
-			android.displayMessageAnswers("/data/stops[0]/document", {
-				filename: "phone.pdf",
-			}),
-		).toEqual([]);
-	});
+	it.each(["filename", "indexed"])(
+		"addresses only the selected repeat row using the %s receiver and leaves Android's answer to the worker",
+		(receiverField) => {
+			const input = visitInput(receiverField);
+			const web = new FormEngine(input);
+			web.addRepeat("/data/stops");
+			const paths = web
+				.displayMessageAnswers("/data/stops[1]/document", {
+					filename: "later.pdf",
+				})
+				.map(({ path, value }) => [path, value]);
+			expect(paths).toEqual([["/data/stops[1]/filename", "later.pdf"]]);
+			const android = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ device: androidDevice() },
+			);
+			expect(
+				android.displayMessageAnswers("/data/stops[0]/document", {
+					filename: "phone.pdf",
+				}),
+			).toEqual([]);
+		},
+	);
 });
