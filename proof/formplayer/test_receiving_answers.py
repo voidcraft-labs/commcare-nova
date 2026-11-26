@@ -27,8 +27,11 @@ def test_formplayer_submits_the_answers_and_hq_stores_the_household(
     document = formplayer_documents["targeted-receiving-answers"]
     mode = "bulk" if bulk else "normal"
 
+    # Formplayer reads the parser from the profile's properties (FormplayerPropertyManager.ENABLE_BULK_PERFORMANCE);
+    # HQ writes into the profile only its own commcare_settings and, where the project space holds
+    # CUSTOM_PROPERTIES (as under ``maximum``), the app's custom properties (``Application.create_profile``).
     def select_case_parser(stored):
-        stored.setdefault("profile", {}).setdefault("properties", {})[BULK] = "yes" if bulk else "no"
+        stored.setdefault("profile", {}).setdefault("custom_properties", {})[BULK] = "yes" if bulk else "no"
 
     with apps.published(document, core_runner, "maximum") as published:
         with apps.served(published, formplayer_runner, label=mode, change=select_case_parser) as served:
