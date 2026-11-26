@@ -23,7 +23,7 @@ function deviceCasesNodeset(predicates: readonly WireExpr[] = []): WireExpr {
 	]);
 }
 
-/** Every restored case, or open cases across all restored types. */
+/** Every restored case, optionally filtered by status across all restored types. */
 export function availableCasesNodeset(
 	status?: AvailableCasesOptionsSource["status"],
 ): WireExpr {

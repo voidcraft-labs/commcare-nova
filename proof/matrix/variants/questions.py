@@ -2343,7 +2343,7 @@ def itemset_over_open_cases(authoring, app_id):
 
 
 def itemset_over_closed_cases(authoring, app_id):
-    """A closed-only all-type itemset lies outside the admitted open selector."""
+    """The district select offers only closed cases retained in the worker’s restore."""
     _case_itemset(authoring, app_id, "itemset-over-closed-cases", "[@status = &apos;closed&apos;]")
 
 

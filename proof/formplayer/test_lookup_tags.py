@@ -122,22 +122,20 @@ def test_formplayer_does_not_open_the_form_over_the_controls_tags(
 
 
 
-@pytest.mark.parametrize("open_only", [False, True], ids=["all", "open"])
+@pytest.mark.parametrize("status", [None, "open", "closed"], ids=["all", "open", "closed"])
 def test_formplayer_case_itemset_keeps_its_lifecycle_scope(
-    hq, core_runner, formplayer_runner, formplayer_documents, evidence, open_only
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence, status
 ):
     from lxml import etree
 
     from proof.observe import visible_case_choice as visible
 
-    expected = dict(visible.EXPECTED)
-    if open_only:
-        del expected["closed-host"]
-    selected = "former-service" if open_only else "closed-host"
+    expected = visible.expected_choices(status)
+    selected = "former-service" if status == "open" else "closed-host"
 
     with apps.published(formplayer_documents[visible.DOCUMENT], core_runner) as published:
         with apps.served(published, formplayer_runner, database=visible.database(),
-                         change=visible.release_with_lifecycle(published, open_only)) as served, served.run("all-visible-cases"):
+                         change=visible.release_with_lifecycle(published, status)) as served, served.run("all-visible-cases"):
             web = apps.web(formplayer_runner, served)
             form = _opened(web)
             assert screen_kind(form) == "form", form

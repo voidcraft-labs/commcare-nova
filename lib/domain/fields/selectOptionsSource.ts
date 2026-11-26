@@ -34,10 +34,10 @@ z.globalRegistry.add(caseOptionsSourceSchema, { id: "CaseOptionsSource" });
 export const availableCasesOptionsSourceSchema = z.strictObject({
 	kind: z.literal("available-cases"),
 	status: z
-		.literal("open")
+		.enum(["open", "closed"])
 		.optional()
 		.describe(
-			"Use open to offer only open records. Omit to include restored closed records.",
+			"Offer only open or only closed records. Omit to include both in the worker’s restore.",
 		),
 });
 export type AvailableCasesOptionsSource = z.infer<

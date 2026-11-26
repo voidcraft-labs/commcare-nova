@@ -3180,7 +3180,7 @@
 		"id": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
 		"area": "questions",
 		"section": "Question types",
-		"item": "itemset over `casedb` whose value is `@case_id`, over a specified case type or a single select over all of the worker's restored cases or only its open cases, with the case name as label",
+		"item": "itemset over `casedb` whose value is `@case_id`, over a specified case type or a single select over the worker's restored cases across all types with case names as labels and an optional open-only or closed-only scope",
 		"surfaceKeys": [
 			"mug:SelectDynamic",
 			"mug:MSelectDynamic",
@@ -3197,7 +3197,7 @@
 		],
 		"valueClass": "case-choices",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases` with optional `status: open`",
+		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases` with optional `status: open` or `status: closed`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

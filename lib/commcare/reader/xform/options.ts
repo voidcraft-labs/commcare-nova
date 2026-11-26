@@ -14,6 +14,7 @@ import {
 
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
+import type { AvailableCasesOptionsSource } from "@/lib/domain/fields";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import { questionChoiceReadIssue } from "@/lib/domain/lookupRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
@@ -46,7 +47,7 @@ export interface CaseChoicesProposal {
 	readonly sort?: Element;
 	readonly select: "select1" | "select";
 	readonly caseType?: string;
-	readonly status?: "open";
+	readonly status?: AvailableCasesOptionsSource["status"];
 	readonly labelProperty: string;
 	/** Whether the nodeset holds a filter, registered for the expression stage, which claims
 	 *  the nodeset with it. */
@@ -504,17 +505,19 @@ function readItemset(
 		chain.predicates.length <= 2 &&
 		singleAttribute(valueRef) === "case_id"
 	) {
-		const allOpen =
-			chain.predicates.length === 1 &&
-			sameTree(nodeset, availableCasesNodeset("open"));
-		if (chain.predicates.length === 0 || allOpen) {
+		const status =
+			chain.predicates.length === 1
+				? (["open", "closed"] as const).find((value) =>
+						sameTree(nodeset, availableCasesNodeset(value)),
+					)
+				: undefined;
+		if (chain.predicates.length === 0 || status !== undefined) {
 			if (
 				select !== "select1" ||
 				sort !== undefined ||
 				singleName(labelRef) !== "case_name"
 			)
 				return other();
-			const status = allOpen ? ("open" as const) : undefined;
 			field.field.optionsSource = {
 				kind: "available-cases",
 				...(status !== undefined && { status }),

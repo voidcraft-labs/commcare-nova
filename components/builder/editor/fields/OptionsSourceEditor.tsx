@@ -344,13 +344,22 @@ export function OptionsSourceEditor<
 					<div className="space-y-2">
 						<Label htmlFor={caseStatusId}>Cases to offer</Label>
 						<Select
-							items={{ all: "All available cases", open: "Open cases only" }}
+							items={{
+								all: "All available cases",
+								open: "Open cases only",
+								closed: "Closed cases only",
+							}}
 							value={active.status ?? "all"}
 							onValueChange={(selection) => {
-								if (selection !== "all" && selection !== "open") return;
+								if (
+									selection !== "all" &&
+									selection !== "open" &&
+									selection !== "closed"
+								)
+									return;
 								const next: typeof active = {
 									kind: "available-cases",
-									...(selection === "open" && { status: selection }),
+									...(selection !== "all" && { status: selection }),
 								};
 								if (draft?.kind === "available-cases") setDraft(next);
 								else commit(next);
@@ -362,6 +371,7 @@ export function OptionsSourceEditor<
 							<SelectContent>
 								<SelectItem value="all">All available cases</SelectItem>
 								<SelectItem value="open">Open cases only</SelectItem>
+								<SelectItem value="closed">Closed cases only</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>
