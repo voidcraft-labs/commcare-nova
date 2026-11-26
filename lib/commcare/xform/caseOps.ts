@@ -1370,7 +1370,13 @@ export function buildCaseOperations(
 							boundFieldPath(fields, target.idFrom, repeat, caseIdPath),
 							keyedCaseIdPrefixes?.get(operation.uuid),
 						)
-					: w.call("uuid");
+					: target.kind === "new" && target.expr !== undefined
+						? emitExpression(
+								target.expr,
+								caseIdPath,
+								ownSlot("case_operation_target_expression"),
+							)
+						: w.call("uuid");
 			// HQ's form builder keeps a create's id as a bind inside a repeat and
 			// as a load-time setvalue outside one (`saveToCase.js::getSetValues`),
 			// so a root create keyed by an answer stands in its one-row repeat.

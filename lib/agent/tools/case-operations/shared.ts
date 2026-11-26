@@ -136,6 +136,11 @@ const newTargetInputSchema = z.strictObject({
 		.describe(
 			"Optional field UUID whose answer deterministically keys the case",
 		),
+	expr: valueSchema
+		.optional()
+		.describe(
+			"An exact case ID expression, separate from the derived field key. A root create runs it when the form opens; one in a repeat runs it in each row.",
+		),
 });
 
 const operationTargetInputSchema = z.strictObject({

@@ -369,10 +369,16 @@ export function formLinkEntries(
  * one operation per form) because those require the containing
  * form/module/doc.
  */
-const newCaseTargetSchema = z.strictObject({
-	kind: z.literal("new"),
-	idFrom: uuidSchema.optional(),
-});
+const newCaseTargetSchema = z
+	.strictObject({
+		kind: z.literal("new"),
+		idFrom: uuidSchema.optional(),
+		expr: valueSchema.optional(),
+	})
+	.refine(
+		({ idFrom, expr }) => idFrom === undefined || expr === undefined,
+		"Choose a keyed field or an exact case ID expression.",
+	);
 
 const operationCaseTargetSchema = z.strictObject({
 	kind: z.literal("op"),
