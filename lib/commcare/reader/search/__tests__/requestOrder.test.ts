@@ -214,3 +214,29 @@ it("keeps a default filter's order text as it arrived, defaults left implicit", 
 		},
 	]);
 });
+
+// HQ reads `@case_type` as the record's own type (`requestOrder.ts`'s
+// attribute keys), so an order on it names no property the catalog gains.
+it("adds no catalog property for an order on the record's own type", async () => {
+	const reading = await readLists(patients([], { search: {} }), {
+		edit: (app) => {
+			app.modules[0].search_config.default_properties = [
+				{ property: "commcare_sort", defaultValue: "'+@case_type:exact'" },
+			];
+			app.modules[0].search_config.custom_sort_properties = [
+				{
+					doc_type: "CaseSearchCustomSortProperty",
+					property_name: "@case_type",
+					sort_type: "exact",
+					direction: "ascending",
+				},
+			];
+		},
+	});
+	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+	expect(
+		reading.ctx.doc?.caseTypes?.flatMap((type) =>
+			type.properties.map((property) => property.name),
+		),
+	).not.toContain("case_type");
+});

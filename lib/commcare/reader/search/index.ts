@@ -21,6 +21,7 @@ import type {
 	SearchFilter,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
+import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import { searchButtonUndeclaredInstances } from "../../suite/case-search/buttonCondition";
@@ -651,7 +652,8 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const caseType = module.module.caseType;
 		const prompts = readSearchPrompts(ctx, module, cursor, filters.names);
 		// A property the search's rows read, and a simple Search field's, is a property of the
-		// catalog, as every expression's is.
+		// catalog, as every expression's is. A record attribute an order names (`@case_type`,
+		// `@status`) is the record's own, never a property (`requestOrder.ts::ATTRIBUTE_KEYS`).
 		const properties = [
 			...filters.filters.flatMap((row) =>
 				"order" in row
@@ -671,7 +673,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 					? [prompt.input.property]
 					: [],
 			),
-		];
+		].filter((property) => !CASE_NODE_ATTRIBUTE_PROPERTIES.has(property));
 		// A row's relation functions name the related cases' types: a `parent` hop is a parent link
 		// the catalog gives the child where it gives none, and each property a relation's filter
 		// reads is a property of the related type. Rows bind at the settle, outside the expression
