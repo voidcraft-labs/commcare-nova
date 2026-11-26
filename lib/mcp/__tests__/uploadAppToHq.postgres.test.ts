@@ -239,6 +239,13 @@ async function asUser<T>(
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.write", "nova.hq.write"],
 ) {
+	if (scopes.includes("nova.hq.import") && scopes.includes("nova.hq.write")) {
+		const context = await installationCredential(h.db(), userId, scopes);
+		return withMcpClient(
+			(server) => registerUploadAppToHq(server, context),
+			run,
+		);
+	}
 	const clientId = "publish-fixture";
 	const issuedAt = Math.floor(Date.now() / 1000);
 	await sql`INSERT INTO auth_oauth_client(id,"clientId","redirectUris","createdAt","updatedAt") VALUES (${clientId},${clientId},'[]'::jsonb,now(),now()) ON CONFLICT DO NOTHING`.execute(

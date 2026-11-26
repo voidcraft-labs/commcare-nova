@@ -9,7 +9,11 @@ import {
 } from "./appSource";
 import { readHqAppSaveCounter } from "./appSourceAtVersion";
 import { HQ_APP_SOURCE_MAX_BYTES, HQ_APPLICATION_MAX_BYTES } from "./bounds";
-import { baseUrl, type CommCareCredentials, isValidDomainSlug } from "./http";
+import {
+	type CommCareCredentials,
+	hqDomainPath,
+	isValidDomainSlug,
+} from "./http";
 import {
 	INSTALLATION_RESOURCES,
 	nativeInstallationKey,
@@ -50,7 +54,7 @@ export async function readInstallationBuild(
 		return null;
 	const answer = await readHqJson(
 		creds,
-		`${baseUrl(creds)}/a/${domain}/api/application/v1/${encodeURIComponent(build.id)}/?extras=true`,
+		`${hqDomainPath(domain)}/api/application/v1/${encodeURIComponent(build.id)}/?extras=true`,
 		"installation build",
 		{ maxBytes: HQ_APPLICATION_MAX_BYTES + HQ_APP_SOURCE_MAX_BYTES },
 	);

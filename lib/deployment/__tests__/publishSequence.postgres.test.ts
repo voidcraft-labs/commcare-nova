@@ -5448,8 +5448,8 @@ describe("named installations on a destination", () => {
 					needsBuildableContent: false,
 					creds: {
 						server: TARGET.server,
-						username: "editor",
-						apiKey: "synthetic",
+						username: "account",
+						apiKey: "fixture-key",
 					},
 					releasesUrl: HOST,
 					confirmWorkers: token,

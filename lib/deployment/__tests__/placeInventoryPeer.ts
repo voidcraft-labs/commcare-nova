@@ -30,15 +30,22 @@ export function servePlaceInventory(
 		regionLevel,
 	],
 	repeat = false,
+	onRead?: () => Promise<void>,
 ) {
 	const host = "https://india.commcarehq.org";
 	const base = "/a/" + domain + "/api/";
 	const headers = { authorization: "ApiKey account:fixture-key" };
 	const send = (path: string, body: object) => {
-		const reply = peer
+		const request = peer
 			.get(host)
-			.intercept({ path: base + path, method: "GET", headers })
-			.reply(200, body);
+			.intercept({ path: base + path, method: "GET", headers });
+		const reply =
+			onRead && path.startsWith("location/v2/")
+				? request.reply(async () => {
+						await onRead();
+						return { statusCode: 200, data: JSON.stringify(body) };
+					})
+				: request.reply(200, body);
 		if (repeat) reply.persist();
 	};
 	const page = (objects: object[]) => ({

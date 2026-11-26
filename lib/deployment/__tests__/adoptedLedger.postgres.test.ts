@@ -845,13 +845,15 @@ describe("existing adoptions and installation reviews", () => {
 			observedPushToken: mapping.pushToken,
 			comparedReview: mapping.reviewGeneration ?? null,
 			compiledIdentity: await readTargetIdentity(birth.scope, TARGET),
-			compiledAtSeq: 0,
+			compiledAtSeq: mapping.pushedRevision ?? 0,
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
 		});
 		if (admitted.kind !== "admitted")
-			throw new Error("Expected a durable import admission");
+			throw new Error(
+				`Expected a durable import admission. Got ${admitted.kind}`,
+			);
 		await settleRemoteWrites([admitted.writeId], { kind: "settled" });
 		const oldReceipt = await database
 			.selectFrom("hq_remote_writes")

@@ -43,9 +43,7 @@ export async function withInstallationRuntimeRole<T>(
 			(t) => existing.has(t.name) && t.runtimeCapability !== "none",
 		).map((t) => t.name);
 		await owner.transaction().execute(async (tx) => {
-			await sql`GRANT USAGE ON SCHEMA public, ${sql.id(CASE_RUNTIME_SCHEMA)} TO ${sql.id(role)}`.execute(
-				tx,
-			);
+			await sql`GRANT USAGE ON SCHEMA public TO ${sql.id(role)}`.execute(tx);
 			for (const [verb, excluded] of [
 				["SELECT", []],
 				["INSERT", RUNTIME_TABLES_WITHOUT_INSERT],
