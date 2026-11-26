@@ -27,6 +27,7 @@ export type PlanFeatureId =
 	| "child-cases"
 	| "form-links"
 	| "advanced-case-actions"
+	| "locked-questions"
 	| "organization"
 	| "data-forwarding"
 	| "required-android-apps"
@@ -101,6 +102,13 @@ export const PLAN_FEATURES: Readonly<
 		plans: "Advanced and Enterprise",
 		consequence:
 			"Without it, saving this form in CommCare HQ's form builder removes what ties its case changes to a case.",
+	},
+	"locked-questions": {
+		id: "locked-questions",
+		label: "Locked Admin Questions",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"Without it, CommCare HQ cannot enforce the questions you locked in this app.",
 	},
 	organization: {
 		id: "organization",

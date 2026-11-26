@@ -242,13 +242,20 @@ export function ownText(element: Element): string {
  * instance whole), which is recorded at that attribute, and a claim naming an
  * itext form (`itext-form:core/markdown`) on a `<value>` that names its form:
  * the form a value is read as is the value of its `form` attribute, so the
- * record stands there, as a hand-off of such a value under that key does.
+ * record stands there, as a hand-off of such a value under that key does; and
+ * a claim on an attribute an extension parser reads, which stands at its
+ * control.
  */
 function recordedNode(
 	node: XmlNode,
 	key: string | null,
 	scope: (element: Element) => NamespaceScope,
 ): XmlNode {
+	// An extension parser's key names the control it parses
+	// (`proof/checks/manifest_usage.py` records its use there), so a claim
+	// on the attribute it reads stands at the control.
+	if (node.attribute !== undefined && key?.startsWith("jr-extension:"))
+		return { element: node.element };
 	if (node.attribute !== undefined || key === null) return node;
 	const { element } = node;
 	if (key.startsWith("itext-form:"))

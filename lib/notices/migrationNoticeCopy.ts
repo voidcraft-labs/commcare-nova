@@ -353,6 +353,8 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"connect-app": "CommCare Connect",
 	"auto-select-confirm":
 		"lists that choose their one record by themselves before a confirmation screen",
+	"answer-name-requires-android":
+		"answers whose IDs Web Apps reads as instructions",
 };
 
 /** Cause ids a stored notice row may carry that no current feature reads

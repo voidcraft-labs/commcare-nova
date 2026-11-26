@@ -841,10 +841,18 @@ A change that holds one removes its line.
   (`xform/model.ts::heldSetvalueRef`, `xform/logic.ts::readDefaults`). Core's reading of each is a
   default or an id Nova could hold, but not in the one spelling it prints, and a reading from the
   form builder's spelling would aim it elsewhere.
-- **A Connect deliver unit whose `work_area_id` holds a fixed id**: refused whole under
-  `questions/connect-deliver-unit-work-area-id-expression`, its record at the leaf
-  (`xform/connect.ts`). Connect files the visit under that work area
-  (`form_receiver/processor.py::process_deliver_unit`), and Nova's document holds no work area.
+- **A Connect delivery can identify the area visited** using a calculated `work_area_id`, including a
+  quoted fixed case ID. The delivery's calculation reads under
+  `questions/connect-deliver-unit-work-area-id-expression`. A fixed value written directly in the
+  submitted data is a different spelling: Vellum clears it on save.
+- **A Connect work-area request with photo evidence** stops under
+  `questions/connect-work-area-update-photo-not-forwarded`. HQ keeps the file. Its Connect forwarder
+  carries the filename, and Connect requires the attachment map as well. The receiver declines the
+  whole submission. The original malformed block remains under `questions/connect-work-area-update`:
+  Vellum replaces its element or children on save. The repaired form can link its delivery to the
+  area for a visit. Inaccessible-area requests stay in the opportunity's separate work-area process.
+  The forwarding stop can retire when the receiver commits the request with the file from the
+  original saved field, on both workers, under the same identity.
 - **A form expression no XPath grammar reads, outside a bind** (a setvalue's `value` of `((((`):
   `unrecognized` at the question under the slot's key, with the `expression-not-written-back`
   defect beside it (`expressions/findings.ts::parseIssueEntry`, `parse:syntax`, which names an
@@ -862,17 +870,10 @@ A change that holds one removes its line.
 - **A `required` on a Hidden Value's bind**: `unrecognized` at the question,
   `xform:bind@required` (`xform/logic.ts::readBindLogic`, which claims a `required` only on a kind
   that holds one and refuses it only on a label), wherever no other reader claims it.
-- **A Hidden Value holding both a calculate and a default where a runtime may read the
-  default**: one finding at the question under
-  `questions/hidden-value-with-both-calculate-and-a-default-by-any-expression`. The form stage
-  refuses one in a repeat whole, where a row's default can outlast its calculate; outside every
-  repeat it leaves the node and its bind's type unclaimed, and the bound document decides
-  (`xform/afterBinding.ts::settleBothSources`): where no later `xforms-ready` setvalue reads the
-  node, directly or through the calculates of what it reads, the calculate replaces the default
-  before anything reads it, so the reading holds the calculate alone under
-  `questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads` and records the form
-  under `hidden-value-defaults-dropped`; any doubt (a slot the expression stage did not hold,
-  another setvalue on the node, a later setvalue no bound tree gives the reads of) is the refusal.
+- **A hidden value with a starting answer and a calculation** holds both expressions.
+  The bound reader records whether a later opening assignment can observe the
+  starting answer in the coverage ledger. A repeat can observe the starting
+  answer when its row is inserted. Neither observation changes the document.
 - **Advanced loads and computed datums**. `caseManagement/advancedActions.ts`
   reads each load by the entry and its tag. Stored worker-first loads, manual
   loads from another list, independent loads from the same list, and earlier
@@ -1027,6 +1028,8 @@ and its registration button inherit the storage field but their suite
 commands never read it. `reader/menus/modules.ts` accounts for each carrier
 at its source pointer. The expression reader binds badge calculations in
 the navigation slot with no HQ hashtag interpolation.
+An ordinary submitted `case` is refused even when HQ builds the form. The source reader distinguishes it from the app’s case transaction and its property subtree. Device and source export check the actual primary instance from its children. Hidden Value namespace identity is read from the literal declaration, and an explicit empty namespace that Vellum loses is refused. A supported `vellum:lock="all"` becomes `Field.lockedInHq`; data-only Hidden Values emit it on their node and ordinary questions on their bind.
+
 A generated Search check has a stable wording unit even while no current filter
 would produce it. A hidden case list entry, disabled registration action, registration form taken off its hidden menu, column hidden from a view and disabled Search keep
 their saved wording under the same owner. Only the wire comparison erases
@@ -1034,6 +1037,7 @@ these unprinted values. Reading HQ over the published reference can replace a lo
 worker-visible edit in the reviewed change list. When the original language
 changes, that same review preserves the head's dormant checks and the saved
 review metadata for generated wording that the resulting app still shows.
+A form whose root questions are all qualifying Question Lists reads them as sections. Root Connect activities retain their own submitted data positions, including before or between those sections. A Connect activity inside a page keeps that page in its submitted path.
 
 ### Reading a shared form
 

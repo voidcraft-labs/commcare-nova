@@ -45,7 +45,7 @@ import {
 	OPEN_PATIENTS,
 	operationOf,
 	PATIENTS,
-	PATIENTS_NAMED,
+	PATIENTS_BY_ENTERED_ID,
 	REGISTRATION,
 	read,
 	refusalCodes,
@@ -145,7 +145,7 @@ describe("withIdentityMoves", () => {
 		},
 		{
 			subject: "a query repeat",
-			edit: () => [setQuery(PATIENTS_NAMED)],
+			edit: () => [setQuery(PATIENTS_BY_ENTERED_ID)],
 			code: "QUERY_REPEAT_MODEL_ITERATION_SHAPE",
 			moved: () => ({
 				kind: "query-repeat",
@@ -182,7 +182,7 @@ describe("withIdentityMoves", () => {
 
 	it("plans a query repeat's move over the candidate the case changes' moves leave", () => {
 		const doc = published();
-		const edit = [setRemark(doc, computed), setQuery(PATIENTS_NAMED)];
+		const edit = [setRemark(doc, computed), setQuery(PATIENTS_BY_ENTERED_ID)];
 		const plan = withIdentityMoves(doc, edit);
 		expect(plan.moves.map((move) => move.subject.kind)).toEqual([
 			"case-operation",
@@ -226,7 +226,7 @@ describe("withIdentityMoves", () => {
 	it("states the move a redo re-applies, and none for a restore of the recorded hold", () => {
 		const doc = published();
 		const recorded = recordedOf(doc);
-		const forward = withIdentityMoves(doc, [setQuery(PATIENTS_NAMED)]);
+		const forward = withIdentityMoves(doc, [setQuery(PATIENTS_BY_ENTERED_ID)]);
 		const moved = verdict(doc, forward.batch);
 		if (!moved.ok) throw new Error("The move commits.");
 		// The undo restores the content and the recorded hold: no move.
@@ -449,7 +449,7 @@ describe("planConflictReplay", () => {
 		// The tab composed two edits over a document that held nothing.
 		const stale = moveFixture();
 		const first = [setRemark(stale, computed)];
-		const second = [setQuery(PATIENTS_NAMED)];
+		const second = [setQuery(PATIENTS_BY_ENTERED_ID)];
 		expect(refusalCodes(stale, first)).toEqual([]);
 		expect(refusalCodes(stale, [...first, ...second])).toEqual([]);
 		// A publish recorded every place; the head refuses the edits as they

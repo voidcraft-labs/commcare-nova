@@ -1,3 +1,8 @@
+import {
+	type BehaviorText,
+	type FormBehaviorRole,
+	formBehaviorRoles,
+} from "@/lib/domain/forms";
 import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
@@ -52,7 +57,6 @@ import type {
 	BlueprintDoc,
 	CaseOperation,
 	Column,
-	ConnectConfig,
 	Field,
 	FieldKind,
 	FieldPatchFor,
@@ -647,26 +651,26 @@ export function removeFormMutations(
 }
 
 /**
- * Patch non-Connect form-level fields. Nullable fields (`openCondition`,
- * `closeCondition`, `postSubmit`, `purpose`) follow a convention: passing `null` clears the field (the
- * reducer stores `undefined`), passing a value replaces it, and omitting
- * the key leaves it untouched. Connect participation is deliberately absent;
- * the app-wide target planner owns membership, and a type change is absent
- * too: it carries the form's own case, so `planFormTypeChange` plans it.
+ * Patch form metadata. An explicit null clears an optional field. An omitted
+ * key preserves its value. A type change also changes the form's own case,
+ * so planFormTypeChange owns that edit. Connect activities are form nodes.
  */
 export function updateFormMutations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	patch: Partial<{
-		name: string;
-		openCondition: Form["openCondition"] | null;
-		closeCondition: Form["closeCondition"] | null;
-		postSubmit: PostSubmitDestination | null;
-		purpose: string | null;
-		submitLabel: NonNullable<Form["submitLabel"]>;
-		captureLocation: true | null;
-		plainText: true | null;
-	}>,
+	patch: Partial<
+		{
+			name: string;
+			dataRootName: string | null;
+			openCondition: Form["openCondition"] | null;
+			closeCondition: Form["closeCondition"] | null;
+			postSubmit: PostSubmitDestination | null;
+			purpose: string | null;
+			submitLabel: NonNullable<Form["submitLabel"]>;
+			captureLocation: true | null;
+			plainText: true | null;
+		} & Record<FormBehaviorRole, BehaviorText | null>
+	>,
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
 	const mutations: Mutation[] = [];
@@ -674,6 +678,8 @@ export function updateFormMutations(
 		mutations.push({ kind: "renameForm", uuid: formUuid, newId: patch.name });
 	}
 	const reducerPatch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
+	if (patch.dataRootName !== undefined)
+		reducerPatch.dataRootName = patch.dataRootName;
 	if (patch.openCondition !== undefined) {
 		reducerPatch.openCondition =
 			patch.openCondition === null ? null : patch.openCondition;
@@ -693,27 +699,13 @@ export function updateFormMutations(
 		reducerPatch.submitLabel = patch.submitLabel;
 	if (patch.captureLocation !== undefined)
 		reducerPatch.captureLocation = patch.captureLocation;
+	for (const role of formBehaviorRoles)
+		if (patch[role] !== undefined) reducerPatch[role] = patch[role];
 	if (patch.plainText !== undefined) reducerPatch.plainText = patch.plainText;
 	if (Object.keys(reducerPatch).length > 0) {
 		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });
 	}
 	return mutations;
-}
-
-/**
- * Refine the complete Connect configuration of an existing participant.
- * This named helper cannot create or remove participation: a form without a
- * live block, or a nullish runtime value from an untyped caller, is refused
- * with an empty plan. App-wide membership transitions use
- * `planConnectTargetState` instead.
- */
-export function refineFormConnectMutations(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	connect: ConnectConfig,
-): Mutation[] {
-	if (doc.forms[formUuid]?.connect === undefined || connect == null) return [];
-	return [{ kind: "updateForm", uuid: formUuid, patch: { connect } }];
 }
 
 // ── Mutation builders — fields ──────────────────────────────────────────

@@ -14,9 +14,15 @@ import {
 	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
+import { formOfField } from "@/lib/domain/fieldForm";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
 import type { RuntimeStoreState } from "../engine/engineController";
 import { DEFAULT_RUNTIME_STATE } from "../engine/engineController";
-import { buildFieldTree, type FieldTreeNode } from "../engine/fieldTree";
+import {
+	controlValuePath,
+	type FieldTreeNode,
+	formFieldTrees,
+} from "../engine/fieldTree";
 import {
 	type FormPresentationSource,
 	fieldHasWorkerPresentation,
@@ -54,8 +60,12 @@ function presentationFields(doc: BlueprintDoc, language: LanguageTag | null) {
 	return fields;
 }
 
-function presentationSource(state: RuntimeStoreState): FormPresentationSource {
+function presentationSource(
+	state: RuntimeStoreState,
+	workerRelevant: ReadonlySet<string> | undefined,
+): FormPresentationSource {
 	return {
+		workerRelevant,
 		stateAt: (field, path) =>
 			state[path.includes("[") ? path : field.uuid] ?? DEFAULT_RUNTIME_STATE,
 	};
@@ -87,12 +97,22 @@ function presentationTree(
 	}
 	let tree = byParent.get(parentUuid);
 	if (tree === undefined) {
-		tree = buildFieldTree(
-			parentUuid,
+		const form = formOfField(doc, parentUuid);
+		if (form === undefined) return [];
+		const { controls } = formFieldTrees(
+			form,
 			presentationFields(doc, resolved),
 			doc.fieldOrder,
+			`/${formRootName(doc.forms[form])}`,
 		);
-		byParent.set(parentUuid, tree);
+		const remember = (parent: Uuid, list: FieldTreeNode[]) => {
+			byParent.set(parent, list);
+			for (const node of list)
+				if (node.children !== undefined)
+					remember(node.field.uuid, node.children);
+		};
+		remember(form, controls);
+		tree = byParent.get(parentUuid) ?? [];
 	}
 	return tree;
 }
@@ -129,8 +149,8 @@ export function useVisibleFieldOrder(
 				.filter((node) =>
 					fieldHasWorkerPresentation(
 						node,
-						`${prefix}/${node.field.id}`,
-						presentationSource(state),
+						controlValuePath(node, prefix),
+						presentationSource(state, controller.workerRelevantPaths()),
 					),
 				)
 				.map((node) => node.field.uuid),
@@ -151,7 +171,7 @@ export function useVisibleRepeatInstances(
 			visibleRepeatInstances(
 				{ field, children },
 				path,
-				presentationSource(state),
+				presentationSource(state, controller.workerRelevantPaths()),
 			),
 		),
 	);
@@ -171,23 +191,24 @@ export function useScreenBanners(uuid: Uuid, path: string): QuestionBanner[] {
 	return usePresentationSelector(
 		(doc) => {
 			const field = presentationFields(doc, language)[uuid];
-			const source = presentationSource(controller.store.getState());
+			const source = presentationSource(
+				controller.store.getState(),
+				controller.workerRelevantPaths(),
+			);
 			const found: QuestionBanner[] = [];
 			function visit(node: FieldTreeNode, concrete: string) {
 				const { field, children = [] } = node;
 				const state = source.stateAt(field, concrete);
-				if (!state.visible) return;
-				if (
-					"banner" in field &&
-					field.banner &&
-					field.banner !== "hidden" &&
-					field.label
-				)
+				if (!state.visible || source.workerRelevant?.has(concrete) === false)
+					return;
+				const tone = "banner" in field ? field.banner : undefined;
+				const label = "label" in field ? field.label : undefined;
+				if ((tone === "good" || tone === "caution" || tone === "bad") && label)
 					found.push({
 						path: concrete,
 						uuid: field.uuid,
-						tone: field.banner,
-						text: state.resolvedLabel ?? proseTemplateText(field.label),
+						tone,
+						text: state.resolvedLabel ?? proseTemplateText(label),
 					});
 				const containers =
 					field.kind === "repeat"
@@ -197,7 +218,7 @@ export function useScreenBanners(uuid: Uuid, path: string): QuestionBanner[] {
 						: [concrete];
 				for (const parent of containers)
 					for (const child of children)
-						visit(child, `${parent}/${child.field.id}`);
+						visit(child, controlValuePath(child, parent));
 			}
 			if (field)
 				visit({ field, children: presentationTree(doc, language, uuid) }, path);

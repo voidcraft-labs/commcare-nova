@@ -17,7 +17,7 @@ async function loadPersistedBlueprint(
 ): Promise<PersistableDoc | null> {
 	let rootQuery = tx
 		.selectFrom("apps")
-		.select(["app_name", "connect_type", "logo"])
+		.select(["app_name", "connect_roles", "logo"])
 		.select(
 			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
 				"case_types_text",

@@ -170,7 +170,7 @@ export const holdsNovaAppearance = holdsQuestionAppearance;
 function emittedCaseRegion(doc: BlueprintDoc, formUuid: Uuid): string[] {
 	const wireDoc = emissionPlan(doc).doc;
 	const plan = planGeneratedNodes(wireDoc, formUuid);
-	const scopes = [FormPath.root()];
+	const scopes = [FormPath.root(wireDoc.forms[formUuid]?.dataRootName)];
 	for (const [uuid, location] of collectFieldLocations(wireDoc, formUuid)) {
 		const field = wireDoc.fields[uuid];
 		if (field?.kind === "repeat")
@@ -451,7 +451,12 @@ export function* identityDifferencesSteps(
 			differ(["form", "missing"], formPlace, `form ${xmlns} is not written`);
 			continue;
 		}
-		for (const key of ["dataNamespace", "docType", "uniqueId"] as const)
+		for (const key of [
+			"dataNamespace",
+			"dataRootName",
+			"docType",
+			"uniqueId",
+		] as const)
 			if (a[key] !== e[key])
 				differ(
 					["form", key],
@@ -496,7 +501,7 @@ export function* identityDifferencesSteps(
 			sideA,
 			sideE,
 			inert: (facts?.inertAppearances ?? []).map((path) =>
-				path.startsWith("/") ? path : `/data/${path}`,
+				path.startsWith("/") ? path : `/${a.dataRootName}/${path}`,
 			),
 			differ,
 		});

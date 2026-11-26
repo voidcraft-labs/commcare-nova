@@ -1,16 +1,13 @@
-import {
-	buildDoc,
-	f,
-	parseFixtureExpression,
-} from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { blueprintDocSchema, proseText } from "@/lib/domain";
 import {
-	blueprintDocSchema,
-	type ConnectConfig,
-	proseText,
-} from "@/lib/domain";
+	DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
+	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+} from "./releasedConnectDefaults";
 
 /**
  * The same admitted documents feed ordinary artifact checks and native
@@ -30,20 +27,51 @@ export function connectWireFixtures() {
 	].map((name) => {
 		const learn = name.startsWith("learn");
 		const custom = name.endsWith("custom");
-		const connect: ConnectConfig | undefined =
+		const activities =
 			name === "absent"
-				? undefined
+				? []
 				: learn
-					? {
-							learn_module: {
+					? [
+							f({
+								uuid: `${name}-lesson`,
+								kind: "connect_activity",
 								id: "lesson",
-								name: "Health & care <雪>",
-								description: "Read 'A' then \"B\"",
-								time_estimate: 5,
-							},
-							assessment: { id: "quiz" },
-						}
-					: { deliver_unit: { id: "visit", name: "Home & clinic <雪>" } };
+								activity: {
+									kind: "learning-module",
+									name: "Health & care <雪>",
+									description: "Read 'A' then \"B\"",
+									estimatedHours: 5,
+								},
+							}),
+							f({
+								uuid: `${name}-quiz`,
+								kind: "connect_activity",
+								id: "quiz",
+								activity: {
+									kind: "assessment",
+									score: custom
+										? "#form/score"
+										: DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
+								},
+							}),
+						]
+					: [
+							f({
+								uuid: `${name}-visit`,
+								kind: "connect_activity",
+								id: "visit",
+								activity: {
+									kind: "delivery",
+									name: "Home & clinic <雪>",
+									entityId: custom
+										? "concat('visit-', #form/score)"
+										: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+									entityName: custom
+										? "#form/feedback"
+										: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+								},
+							}),
+						];
 		const task = {
 			id: "follow_up",
 			name: "Record & review",
@@ -51,7 +79,7 @@ export function connectWireFixtures() {
 		};
 		const doc = buildDoc({
 			appName: name,
-			connectType: name === "absent" ? null : learn ? "learn" : "deliver",
+			connectRoles: name === "absent" ? [] : [learn ? "learn" : "deliver"],
 			modules: [
 				{
 					name: "Work",
@@ -59,7 +87,6 @@ export function connectWireFixtures() {
 						{
 							name: "Activity",
 							type: "survey",
-							connect,
 							fields: [
 								f({
 									kind: "int",
@@ -73,6 +100,7 @@ export function connectWireFixtures() {
 									label: proseText("Feedback"),
 									default_value: "'Clinic & child'",
 								}),
+								...activities,
 							],
 						},
 						...(learn || name === "absent"
@@ -82,13 +110,22 @@ export function connectWireFixtures() {
 										uuid: `${name}-task-form`,
 										name: task.name,
 										type: "survey" as const,
-										connect: { task },
 										fields: [
 											f({
 												uuid: `${name}-task-note`,
 												kind: "label",
 												id: "note",
 												label: proseText(task.description),
+											}),
+											f({
+												uuid: `${name}-task`,
+												kind: "connect_activity",
+												id: task.id,
+												activity: {
+													kind: "assigned-task",
+													name: task.name,
+													description: task.description,
+												},
 											}),
 										],
 									},
@@ -97,28 +134,6 @@ export function connectWireFixtures() {
 				},
 			],
 		});
-		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		const config = doc.forms[formUuid].connect;
-		if (custom && config) {
-			if ("assessment" in config && config.assessment)
-				config.assessment.user_score = parseFixtureExpression(
-					doc,
-					{ entity: "form", uuid: formUuid, slot: "assessment_user_score" },
-					"#form/score",
-				);
-			if ("deliver_unit" in config && config.deliver_unit) {
-				config.deliver_unit.entity_id = parseFixtureExpression(
-					doc,
-					{ entity: "form", uuid: formUuid, slot: "deliver_entity_id" },
-					"concat('visit-', #form/score)",
-				);
-				config.deliver_unit.entity_name = parseFixtureExpression(
-					doc,
-					{ entity: "form", uuid: formUuid, slot: "deliver_entity_name" },
-					"#form/feedback",
-				);
-			}
-		}
 		blueprintDocSchema.parse(toPersistableDoc(doc));
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		if (findings.length)
