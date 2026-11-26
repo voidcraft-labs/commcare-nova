@@ -562,10 +562,13 @@ Apps. It has its own field identity and no search answer. A visible text
 or multiple-choice field can link to the picker by identity and list the parts
 it tries in order. Text fields can share an identical subscription. A
 multiple-choice field needs its own address parts or picker across the Search
-screen. A source brought in with no active address topic retains
-its exact dormant spelling, and a mutation cannot accidentally make that
-topic active. The search compiler resolves linked identities to current
-names at the wire boundary.
+screen. A brought-in subscription with ordinary topic and component syntax
+keeps its spelling when the topic has no picker. An edit may activate the
+subscription by linking the field to a picker by identity. A bare subscription
+to a picker on the same screen requires repair in HQ because Web Apps raises
+an error when it receives an address. Android leaves linked fields as ordinary
+inputs. The search compiler resolves linked identities to current names at the
+wire boundary.
 
 
 A multiple selection is meaningful only where a follow-up or close form
