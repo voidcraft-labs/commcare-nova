@@ -1384,10 +1384,13 @@ def holders(
                 and any(tuple(unescaped(place)) == owner[:-1] for place in where) else None
             )
         elif change.change == LEGACY_SEARCH_GROUP_WORDING:
-            score = (
-                1 + len(unescaped(difference.at))
-                if _search_group_wording_pair(difference, where, siblings) else None
+            from proof.checks import search_group_wording
+
+            matches = (
+                _search_group_wording_pair(difference, where, siblings)
+                if difference.check == "source" else search_group_wording.holds(difference, where, siblings, sites)
             )
+            score = 1 + len(unescaped(difference.at)) if matches else None
         elif change.change == LEGACY_RELATED_CASE_TEXT:
             owner = _legacy_related_case_text_location(difference)
             score = (

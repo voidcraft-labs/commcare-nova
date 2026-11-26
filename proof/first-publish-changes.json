@@ -1277,6 +1277,126 @@
 				"artifact": "app.json",
 				"path": "/translations/*/search_group_heading",
 				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/group[*]/@key",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/group[*]/@key",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/group[*]/display[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/group[*]/display[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@group_key",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@group_key",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/displays/*/groupKey",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/groupHeaders/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/groupHeaders/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/queryResponse/displays/*/groupKey",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/queryResponse/groupHeaders/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/queryResponse/groupHeaders/*",
+				"kind": "added"
 			}
 		]
 	},

@@ -213,8 +213,7 @@ def build_sites(files, source=None, *, profile=None):
                 commands = children(element, "command")
                 place = changes.command_place(commands[0].get("id") if commands else None)
                 top = f"{element_name}[{position}]"
-                if profile is None:
-                    built[(artifact, top)] = place or None
+                built[(artifact, top)] = place or None
                 if place and source is not None:
                     menu = place[1].split(".")[0]
                     modules = source.get("modules") or []
