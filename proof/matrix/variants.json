@@ -34989,6 +34989,27 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-hyphenated-link-name",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-index-name-child-extension-and-unlink-empty",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_hyphenated_link_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/identifier",
+				"value": "par-ent"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-link-name-outside-grammar",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",

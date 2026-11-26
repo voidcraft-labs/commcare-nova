@@ -31,6 +31,7 @@ import {
 	CASE_FACET_OF_ONLY_IF_CHANGED,
 	CASE_LOADING_FORM_TYPES,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseFacetOnlyIfChanged,
 	type CaseOperation,
@@ -45,6 +46,7 @@ import {
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
 	isFacetWriteThroughIndex,
 	isReservedCaseOperationWrite,
@@ -587,7 +589,7 @@ function validateLinks(
 		(operation.links ?? []).map((link) => link.identifier),
 	);
 	for (const link of operation.links ?? []) {
-		const invalidLinkFormat = !isCaseOperationIdentifier(link.identifier);
+		const invalidLinkFormat = !isCaseOperationLinkIdentifier(link.identifier);
 		const linkTooLong =
 			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH;
 		const duplicateLink = linkIds.has(link.identifier);
@@ -598,7 +600,7 @@ function validateLinks(
 					operation,
 					"CASE_OPERATION_LINK_INVALID",
 					invalidLinkFormat
-						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
+						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE}`
 						: linkTooLong
 							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
 							: `Link identifier "${link.identifier}" is used more than once by this operation.`,
