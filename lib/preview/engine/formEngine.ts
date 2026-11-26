@@ -1442,7 +1442,11 @@ export class FormEngine {
 	 *  Returns whether the instance takes the answer: false for one the
 	 *  platform's number keypad refused, which changes nothing the form reads
 	 *  and so opens no request. */
-	setValue(path: string, typed: string): boolean {
+	setValue(
+		path: string,
+		typed: string,
+		source: "worker-input" | "android-app" = "worker-input",
+	): boolean {
 		const current = this.store.getState()[path];
 		if (current === undefined || current === DEFAULT_ENGINE_STATE) return false;
 		/* A Text question with a number keypad plays the platform's keypad:
@@ -1450,7 +1454,10 @@ export class FormEngine {
 		 * earlier answer in the instance when its pattern refuses the typed one,
 		 * sends nothing, and shows its message (`answerShapeError`). */
 		const field = this.findField(path);
-		const { shown: value, stores } = this.keypadAnswer(path, typed, field);
+		const { shown: value, stores } =
+			source === "android-app"
+				? { shown: typed, stores: true }
+				: this.keypadAnswer(path, typed, field);
 		const isCapture = field !== undefined && isCaptureFieldKind(field.kind);
 		if (stores) {
 			if (this.asyncRuntime) this.stagedValues.set(path, value);
@@ -1470,8 +1477,11 @@ export class FormEngine {
 				(isCapture && current.captureFileName !== value))
 		) {
 			const cleared =
-				value === "" && this.rules.datePicker === "shows-a-day"
-					? this.findField(path)
+				value === "" &&
+				this.rules.datePicker === "shows-a-day" &&
+				field?.kind === "date" &&
+				field.androidApp === undefined
+					? field
 					: undefined;
 			updates[path] = withKeypadRefused(
 				{
@@ -7015,7 +7025,9 @@ export class FormEngine {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
-					if (node.field.kind === "date") this.datePathTemplates.push(nodePath);
+					// An Android app replaces the Date widget, including its suggested day.
+					if (node.field.kind === "date" && node.field.androidApp === undefined)
+						this.datePathTemplates.push(nodePath);
 					if (node.children) walk(node.children, nodePath);
 				}
 			};
