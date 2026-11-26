@@ -29,6 +29,8 @@ import {
 	searchScreenHeading,
 } from "@/lib/preview/platform";
 
+import { BuilderSessionProvider } from "@/lib/session/provider";
+
 const languageJourney = new URLSearchParams(window.location.search).has(
 	"language",
 );
@@ -276,9 +278,11 @@ let revision = 0;
 function renderSurface() {
 	return (
 		<BlueprintDocContext value={docStore}>
-			<BuilderLocalizationProvider>
-				<Surface revision={revision} />
-			</BuilderLocalizationProvider>
+			<BuilderSessionProvider>
+				<BuilderLocalizationProvider>
+					<Surface revision={revision} />
+				</BuilderLocalizationProvider>
+			</BuilderSessionProvider>
 		</BlueprintDocContext>
 	);
 }
