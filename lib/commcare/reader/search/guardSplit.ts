@@ -111,6 +111,12 @@ function guardCarriers(
 			),
 		);
 		for (const input of config.searchInputs) {
+			if (
+				input.kind !== "hidden" &&
+				input.validation !== undefined &&
+				input.validation.message === undefined
+			)
+				continue;
 			const guard = guards.get(input.name);
 			if (guard === undefined) continue;
 			out.set(guard.messageKey, [...(out.get(guard.messageKey) ?? []), input]);
@@ -157,7 +163,7 @@ export function joinedGuardsSplitAsRead(doc: BlueprintDoc): BlueprintDoc {
 		const sentence = units.get(guardUnit)?.source;
 		if (typeof sentence !== "string") continue;
 		const messageUnits = carriers.flatMap((input) =>
-			input.kind !== "hidden" && input.validation !== undefined
+			input.kind !== "hidden" && input.validation?.message !== undefined
 				? [
 						makeTranslationUnitId(
 							"search-input",

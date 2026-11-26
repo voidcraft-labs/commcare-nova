@@ -18,7 +18,7 @@ import { routeContainsForm } from "@/lib/domain/listedForms";
  *   - the menu's own entry point (located at the module);
  *   - the menu's case list entry point (located at the module).
  *
- * `FORMS_IN_MENU_ABOVE_WITH_SEARCH`: such a menu takes no search. HQ's build
+ * `FORMS_IN_MENU_ABOVE_WITH_SEARCH`: such a menu can keep an ordinary search. HQ's build
  * writes no Search action on its case list (`details.py::build_detail`,
  * `not module.put_in_root`) and refuses inline search on it
  * (`validate_display_only_forms`).
@@ -43,7 +43,6 @@ import {
 	type BlueprintDoc,
 	caseListRegistrationReturnOf,
 	type EntryPointTarget,
-	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	type FirstMenuCaseRead,
 	type Form,
@@ -145,16 +144,7 @@ export function menuAboveSearch(
 				{ reason: "forms-read-search" },
 			),
 		];
-	if (effectiveCaseSearchConfig(mod) !== undefined)
-		return [
-			validationError(
-				"FORMS_IN_MENU_ABOVE_WITH_SEARCH",
-				"module",
-				`"${mod.name}" shows its forms in the menu above, and CommCare offers no Search on the case list of such a menu, so a worker could never open its search. You can remove the search from "${mod.name}", or give it its own screen again (forms_in_menu_above null).`,
-				location,
-				{ reason: "search" },
-			),
-		];
+
 	return [];
 }
 

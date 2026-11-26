@@ -19,6 +19,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import { dispatchMcpTools } from "@/app/api/mcp/dispatch";
+import { executeWorkTool } from "@/lib/agent/authoring/session";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import {
 	getCommCareSettings,
@@ -48,6 +49,10 @@ import { registerNovaTools } from "../server";
 import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
 
+vi.mock("@/lib/agent/authoring/session", async (original) => ({
+	...(await original<typeof import("@/lib/agent/authoring/session")>()),
+	executeWorkTool: vi.fn(),
+}));
 vi.mock("@/lib/deployment/service", async (original) => ({
 	...(await original<typeof import("@/lib/deployment/service")>()),
 	stopPublishing: vi.fn(),
@@ -92,6 +97,7 @@ vi.mock("../ownership", async (original) => ({
 }));
 
 const BEHIND_THE_GATE = [
+	executeWorkTool,
 	stopPublishing,
 	refreshManagedLookupTable,
 	refreshManagedPlaces,
@@ -117,11 +123,27 @@ beforeEach(() => {
 });
 
 const APP = "app-somewhere";
+const WORK = "0192f5a0-0000-7000-8000-000000000002";
 const PROJECT = "project-somewhere";
 const TABLE = "0192f5a0-0000-7000-8000-000000000001";
 
 /** Each tool and arguments it would otherwise act on; its scopes are `TOOL_SCOPES`'. */
 const TOOLS = [
+	{ name: "get_preview_search_settings", args: { app_id: APP } },
+	{
+		name: "set_preview_search_settings",
+		args: {
+			work_id: WORK,
+			request_id: "confirmed",
+			target: { kind: "local" },
+			expectedRevision: "0",
+			changes: {
+				timeZone: "UTC",
+				maximum: 500,
+				propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
+			},
+		},
+	},
 	{ name: "list_hq_apps", args: { domain: "clinic" } },
 	{
 		name: "read_hq_app",
@@ -246,7 +268,9 @@ it.each(EACH_SCOPE)(
 			EVERY_SCOPE.filter((granted) => granted !== scope),
 		);
 		expect(result.isError).toBe(true);
-		expect(JSON.parse(resultContentText(result))).toMatchObject({
+		const message = resultContentText(result);
+		expect(message).toContain("scope_missing");
+		expect(JSON.parse(message)).toMatchObject({
 			error_type: "scope_missing",
 			required_scope: scope,
 		});

@@ -63,6 +63,14 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
+/** Stored reviews can still display these notices. New reads preserve their source exactly. */
+export const retiredSearchFilterNotices: ReadonlySet<FirstPublishChangeId> =
+	new Set([
+		"search-filter-joined-to-list",
+		"search-restates-list-filter",
+		"search-today-device-day",
+	]);
+
 /** A list of what a publish changes, as every surface shows it. */
 export interface FirstPublishView {
 	readonly ids: readonly FirstPublishChangeId[];

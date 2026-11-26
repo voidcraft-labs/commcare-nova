@@ -11,6 +11,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { uuidSchema } from "@/lib/domain/uuid";
+import { DEVICE_FIXTURE_MAX_TABLES } from "@/lib/lookup/constants";
 import { LookupError } from "@/lib/lookup/errors";
 import type {
 	LookupFixtureRow,
@@ -34,7 +35,7 @@ const argsSchema = z.object({
 	personaUuid: uuidSchema.optional(),
 	// The doc-derived referenced set — bounded far above any real doc;
 	// the byte ceiling below is the real resource bound.
-	tableIds: z.array(lookupTableIdSchema).max(500),
+	tableIds: z.array(lookupTableIdSchema).max(DEVICE_FIXTURE_MAX_TABLES),
 });
 
 export async function loadLookupFixtureDataAction(

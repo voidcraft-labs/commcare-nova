@@ -105,13 +105,32 @@ final class Queries {
             return false;
         }
         query.put("opened", true);
+        query.put("finishingBeforePress", activity.isFinishing());
         query.put("url", address(String.valueOf(manager.getBaseUrl())));
         JSONObject shown = new JSONObject();
+        JSONObject pickerText = new JSONObject();
         for (Map.Entry<String, View> box : new TreeMap<>(boxes(activity)).entrySet()) {
-            shown.put(box.getKey(), box.getValue().getClass().getSimpleName());
+            View widget = box.getValue();
+            shown.put(box.getKey(), widget.getClass().getSimpleName());
+            // A range has a read-only EditText filled by buildDateRangeView on
+            // the real activity. Its text can differ from the manager's answer.
+            if (widget instanceof EditText && !widget.isFocusable()) {
+                pickerText.put(box.getKey(), ((EditText)widget).getText().toString());
+            }
         }
         query.put("prompts", shown);
+        if (pickerText.length() != 0) query.put("pickerText", pickerText);
         query.put("items", items(activity));
+        if (Forms.views) {
+            // The query content as Android inflated it. Retain its own submit button separately so the
+            // witness can distinguish a genuinely available search from an empty or unrelated screen.
+            View content = ((Activity)activity).findViewById(android.R.id.content);
+            View submit = ((Activity)activity).findViewById(R.id.request_button);
+            query.put("controls", Views.describe(content));
+            if (submit != null) {
+                query.put("submitButton", Views.describe(submit));
+            }
+        }
         Multimap<String, String> params = manager.getRawQueryParams(false);
         query.put("RemoteQuerySessionManager.getRawQueryParams", params(params));
 

@@ -3,7 +3,7 @@
 	"configuration": {
 		"flags": [
 			"CASE_SEARCH_ADVANCED",
-			"FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+			"CASE_SEARCH_RELATED_LOOKUPS",
 			"SYNC_SEARCH_CASE_CLAIM"
 		],
 		"namedPrivileges": [
@@ -17,6 +17,12 @@
 	"declaration": "preselected",
 	"exhibits": [
 		"case-search/appearance-barcode-scan",
+		"case-search/case-list-filter-clause-the-search-does-not-restate",
+		"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
+		"case-search/date-prompt-matched-by-hq-s-own-rule",
+		"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
+		"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+		"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
 		"case-search/exclude",
 		"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
 		"case-search/input-date",
@@ -26,11 +32,16 @@
 		"case-search/itemset-sort-over-a-lookup-field",
 		"case-search/label-lang",
 		"case-search/name-prompt-key-case-property",
+		"case-search/prompt-named-for-a-case-attribute-hq-matches-itself",
 		"case-search/several-xpath-query-rows",
 		"case-search/text-prompt-no-input",
 		"case-search/title-label-or-blank-hq-s-default",
 		"case-search/workflow-search-first-auto-launch-true-default-search-false",
 		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
+		"case-search/xpath-query-condition-outside-what-nova-types",
+		"case-search/xpath-query-row-reading-a-field-hq-also-matches",
+		"case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard",
+		"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"forms-and-case-writes/open-case-name-update-question-path",
 		"forms-and-case-writes/update-case-update-property-question",
 		"questions/date-xsd-date",

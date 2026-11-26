@@ -32,6 +32,7 @@ import {
 	type SelectedPreviewIdentityState,
 } from "@/lib/preview/engine/identity";
 import { usePreviewPersonaUuid } from "@/lib/session/hooks";
+import { usePreviewSearchConfiguration } from "../searchConfigurationContext";
 
 export type { SelectedPreviewIdentityState };
 
@@ -54,7 +55,10 @@ export function useSelectedPreviewIdentityState(
 	const collections = useUserCollections();
 	/* The project space a deployment put this app on, so `commcare_project`
 	 * reads the way it will on a device instead of staying absent forever. */
-	const projectSpace = useDeploymentProjectSpace();
+	const deploymentSpace = useDeploymentProjectSpace();
+	const { catalog, facts } = usePreviewSearchConfiguration();
+	const projectSpace =
+		catalog === null ? deploymentSpace : (facts.projectSpace ?? null);
 	const hydrated = useHydrated();
 
 	const derived = useMemo((): SelectedPreviewIdentityState => {

@@ -1,7 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { lookupAppFixture } from "@/lib/commcare/__tests__/lookupAppFixtures";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { LookupError } from "@/lib/lookup/errors";
 
 const { session, snapshot, projection } = vi.hoisted(() => ({
 	session: vi.fn(),
@@ -21,6 +20,7 @@ vi.mock("../caseDataBindingTelemetry", () => ({
 }));
 
 import { AppAccessError } from "@/lib/db/appAccess";
+import { LookupError } from "@/lib/lookup/errors";
 import { loadLookupFixtureDataAction } from "../lookupDataBinding";
 
 const { doc, table, rows } = lookupAppFixture(false, true);

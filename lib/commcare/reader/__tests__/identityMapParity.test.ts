@@ -402,6 +402,19 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 								{ uuid: uuid(21), title: "Patient", startColumnUuid: uuid(1) },
 								{ uuid: uuid(22), title: "Contact", startColumnUuid: uuid(4) },
 							],
+							// Two filters on one request key, which count apart.
+							searchFilters: [
+								{
+									uuid: uuid(11),
+									target: { kind: "owner" },
+									value: term(literal("worker-a")),
+								},
+								{
+									uuid: uuid(12),
+									target: { kind: "owner" },
+									value: term(literal("worker-b")),
+								},
+							],
 						},
 					},
 				),
