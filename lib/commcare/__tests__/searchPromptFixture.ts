@@ -453,6 +453,11 @@ export function searchPromptFixture(scenario: PromptScenario) {
 				"Name",
 				"text",
 				matchAll(),
+				{
+					validation: {
+						rule: matchesPattern(input(id.first_name), "^[A-Z].*"),
+					},
+				},
 			),
 		];
 		config.filter = whenInput(

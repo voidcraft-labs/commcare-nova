@@ -616,6 +616,7 @@
 		"hq-saved-pages/tile-cell-bordered-and-shaded"
 	],
 	"hq-search": [
+		"hq-search/another-case-type-searched",
 		"hq-search/blank-answer-searched-for",
 		"hq-search/blank-searched-for-beside-the-owner",
 		"hq-search/blank-searched-for-on-a-hidden-prompt",
@@ -635,6 +636,8 @@
 		"hq-search/field-named-by-a-parent-path",
 		"hq-search/field-named-include-closed",
 		"hq-search/field-validation",
+		"hq-search/field-with-an-unknown-heading",
+		"hq-search/fields-with-a-blank-heading",
 		"hq-search/grouped-fields",
 		"hq-search/hidden-choice-field",
 		"hq-search/hidden-field-matched-by-its-name",
@@ -667,6 +670,7 @@
 		"hq-search/search-button-label",
 		"hq-search/search-endpoint",
 		"hq-search/search-on-clear",
+		"hq-search/search-widened-to-its-own-type",
 		"hq-search/second-validation",
 		"hq-search/slider-field",
 		"hq-search/value-received-on-a-barcode-field",

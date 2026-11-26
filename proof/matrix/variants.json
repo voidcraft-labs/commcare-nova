@@ -39173,6 +39173,36 @@
 		}
 	},
 	{
+		"id": "hq-search/field-with-an-unknown-heading",
+		"base": "hq-search",
+		"entry": "case-search/search-group-layout-unreadable",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "fields_with_unknown_search_heading"
+		}
+	},
+	{
+		"id": "hq-search/fields-with-a-blank-heading",
+		"base": "hq-search",
+		"entry": "case-search/search-group-heading-unreadable",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "fields_with_blank_search_heading"
+		}
+	},
+	{
 		"id": "hq-search/field-starting-value",
 		"base": "hq-search",
 		"entry": "case-search/default-value-lifting-into-valueexpression",
