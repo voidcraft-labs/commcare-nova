@@ -227,11 +227,30 @@ function checkLoadOrder(
 ): void {
 	const names = xform.sourceNames;
 	if (names === undefined) return;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	const positions = documentOrder(doc, formUuid);
-	const emitted = emittedLoadOrder(order, (step) =>
-		loadPosition(names, positions, step.target, positions.size),
+	const operations = doc.forms[formUuid]?.caseOperations ?? [];
+	const createPositions = new Map(
+		operations.map((operation, index) => [
+			operation.uuid,
+			index - operations.length,
+		]),
 	);
+	for (const [uuid, position] of positions) {
+		const field = doc.fields[uuid];
+		if (field?.kind === "case_change")
+			createPositions.set(field.operationUuid, position);
+	}
+	const emitted = emittedLoadOrder(order, (step) => {
+		const ref = step.pending?.ref;
+		if (
+			ref?.entity === "form" &&
+			ref.slot === "case_operation_target_expression"
+		) {
+			return createPositions.get(ref.member.operationUuid) ?? positions.size;
+		}
+		return loadPosition(names, positions, step.target, positions.size);
+	});
 	const reads = new Map<LoadStep, Set<string>>();
 	const readsOfStep = (step: LoadStep) => {
 		const known = reads.get(step) ?? readsOf(doc, names, step);
@@ -285,7 +304,7 @@ function defaultUnread(
 		!held(ctx, only.element, "value")
 	)
 		return false;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	const at = order.findIndex(
 		(step) => step.event === "xforms-ready" && step.target === path,
 	);
@@ -562,7 +581,7 @@ function checkModelIterations(
 ): void {
 	const names = xform.sourceNames;
 	if (names === undefined) return;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	for (const repeat of xform.modelIterations) {
 		const uuid = repeat.uuid;
 		if (uuid === undefined || doc.fields[uuid] === undefined) continue;

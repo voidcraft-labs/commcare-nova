@@ -3362,6 +3362,28 @@
 		"gates": []
 	},
 	{
+		"id": "questions/savetocase-case-id-expression-on-a-create",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Typed case ID expression on a SaveToCase create",
+		"surfaceKeys": ["xform:setvalue@value", "xform:model/bind@calculate"],
+		"valueClass": "typed-create-case-id",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `target.expr` provides the exact case ID without a derived prefix.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`xforms-ready` setvalue at the root or an `@case_id` calculate in a repeat",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
 		"area": "questions",
 		"section": "Question types",
@@ -4155,11 +4177,11 @@
 		"id": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a SaveToCase `index/<name>` whose name is outside `[A-Za-z_][A-Za-z0-9_-]*`, or is a name CommCare HQ's form builder reads as the block's own action (`create`, `close`)",
+		"item": "A SaveToCase link identifier outside the supported link names after the known HQ save failures are accounted for",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "link-name-outside-identifier-grammar",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an index name Nova's link identifier cannot spell (`caseOperationIdentifiers.ts::CASE_OPERATION_LINK_IDENTIFIER_REGEX`, `questionId.ts::caseOperationLinkNameProblem`, as the gate refuses it under `CASE_OPERATION_LINK_INVALID`); the name is a key of case data, so no rename keeps it",
+		"dispositionCell": "**HELD-NEW**: separately classify remaining link identifiers without changing keys already in case data.",
 		"subject": "save-to-case",
 		"owner": "xform",
 		"platforms": {
@@ -4169,6 +4191,58 @@
 		"emission": {
 			"cell": "omit",
 			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-link-name-changes-actions-on-save",
+		"area": "questions",
+		"section": "Question types",
+		"item": "A SaveToCase index named for an action absent from the block",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "index-name-adds-action",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum reads a descendant named create or close as an action, so it adds that action on save.",
+		"subject": "save-to-case",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum reads a descendant named create or close as an action, so it adds that action on save."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-link-bind-lost-on-save",
+		"area": "questions",
+		"section": "Question types",
+		"item": "A SaveToCase link containing a period loses its calculation on save",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "index-period-loses-bind",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum cannot bind the link path containing a period, so its calculation is lost on save.",
+		"subject": "save-to-case",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum cannot bind the link path containing a period, so its calculation is lost on save."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},

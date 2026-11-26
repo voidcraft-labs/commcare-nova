@@ -10495,6 +10495,93 @@ def live_create_id(use, manifest):
     return _creates(holder) and not form.in_repeat(form.paths[holder])
 
 
+def exact_create_id(use, manifest):
+    """The create's authored ready action or repeat-row bind supplies a case ID."""
+    form, setvalue = _setvalue(use)
+    if form is not None and setvalue is not None:
+        target = _target(form, setvalue)
+        holder = _save_to_case_create_id(form, setvalue, target)
+        if holder is None or form.in_repeat(form.paths[holder]) or setvalue.get("event") != "xforms-ready":
+            return False
+        value = (setvalue.get("value") or "").strip()
+        if value in ("", "''", '""', "uuid()"):
+            return False
+        if form.node(value) is not None:
+            return any(
+                step.get("ref") == value and step.get("event") == "xforms-ready"
+                and (step.get("value") or "").strip() not in ("", "''", '""')
+                for step in setvalue.itersiblings(preceding=True)
+                if step.tag == f"{{{XFORMS}}}setvalue"
+            )
+        return True
+    form, bind, target = _bind(use)
+    if form is None:
+        return None
+    if bind is None or not isinstance(target, tuple) or target[1] != "case_id":
+        return False
+    holder = target[0].getparent()
+    if holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase" or not _creates(holder):
+        return False
+    value = (bind.get("calculate") or "").strip()
+    if "nova-case-v1:" in value:
+        return None  # The derived-key envelope has a separate judgment.
+    return form.in_repeat(form.paths[holder]) and bool(value) and value != "uuid()"
+
+
+def conditioned_create_owner(use, manifest):
+    """Fresh create has its own relevance on the owner leaf."""
+    form, bind, node = _bind(use)
+    if form is None:
+        return None
+    if bind is None or node is None or isinstance(node, tuple) or not bind.get("relevant"):
+        return False
+    create = node.getparent()
+    if node.tag != f"{{{CASE}}}owner_id" or create is None or create.tag != f"{{{CASE}}}create":
+        return False
+    case = create.getparent()
+    holder = case.getparent() if case is not None else None
+    if holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase":
+        return False
+    id_path = f"{form.paths[holder]}/case/@case_id"
+    id_bind = form.bind(id_path)
+    if id_bind is not None:
+        return (id_bind.get("calculate") or "").strip() == "uuid()"
+    return any(
+        setvalue.get("ref") == id_path and (setvalue.get("value") or "").strip() == "uuid()"
+        for setvalue in form.model.findall(f"{{{XFORMS}}}setvalue")
+    )
+
+
+def _savetocase_index_at(use):
+    form, element = _data_node(use)
+    if form is None or element is None:
+        return form, None, None
+    holder = form.holder(element)
+    if holder is None or holder[0] != "save-to-case":
+        return form, None, None
+    case = holder[1].find(f"{{{CASE}}}case")
+    if case is None:
+        return form, None, None
+    return form, case, case.find(f"{{{CASE}}}index")
+
+
+def index_name_adds_action(use, manifest):
+    form, case, index = _savetocase_index_at(use)
+    if form is None:
+        return None
+    return index is not None and any(
+        index.find(f"{{{CASE}}}{action}") is not None and case.find(f"{{{CASE}}}{action}") is None
+        for action in ("create", "close")
+    )
+
+
+def index_period_loses_bind(use, manifest):
+    form, _, index = _savetocase_index_at(use)
+    if form is None:
+        return None
+    return index is not None and any("." in _local(link) for link in index)
+
+
 # The body controls a question shows (XFormParser's question handlers; a group or repeat is no question Vellum
 # offers a Calculate Condition on).
 SHOWN_CONTROLS = frozenset({"input", "secret", "select", "select1", "trigger", "upload", "range"})
@@ -12275,6 +12362,11 @@ VALUE_CLASSES = {
     "questions/upload-with-any-other-mediatype-or-none": other_upload_mediatype,
     "questions/a-default-value-s-setvalue-whose-event-does-not-match-where-the": default_event_mismatching_placement,
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
+
+    "questions/savetocase-case-id-expression-on-a-create": exact_create_id,
+    "questions/savetocase-owner-id-condition": conditioned_create_owner,
+    "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,
+    "questions/savetocase-link-bind-lost-on-save": index_period_loses_bind,
     "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": savetocase_blank_create_id,
     "questions/default-other-than-blank-on-a-capture-question": default_other_than_blank_on_a_capture_question,
     "questions/actions-nested-inside-controls": action_nested_in_control,

@@ -1947,6 +1947,43 @@ def save_to_case_owner_condition(authoring, app_id):
         app_id,
         "save-to-case-owner-condition",
         (STC_OWNER_BIND, STC_OWNER_BIND[: -len("/>")] + ' relevant="/data/age &gt; 5"/>', 1),
+        (
+            f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+            f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
+            f"(not(/data/age &gt; 5) or string-length({GUARD_OWNER}) &gt; 0 and"
+            f" string-length({GUARD_OWNER}) &lt;= 255) and string-length({GUARD_NAME}) &gt; 0 and"
+            f" string-length({GUARD_NAME}) &lt;= 255",
+            1,
+        ),
+    )
+
+
+def save_to_case_conditional_owner_aliased_create(authoring, app_id):
+    """The case can already exist when its conditional owner leaf is absent."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-conditional-owner-aliased-create",
+        (STC_OWNER_BIND, STC_OWNER_BIND[: -len("/>")] + ' relevant="/data/age &gt; 5"/>', 1),
+        (STC_ID_SETVALUE, STC_ID_SETVALUE.replace('uuid()', "'household-01'"), 1),
+    )
+
+
+def save_to_case_update_owner_condition(authoring, app_id):
+    """The same conditional facet on a targeted update has its own standing."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-update-owner-condition",
+        (STC_CREATE + STC_UPDATE, '<update><head/><owner_id/></update>', 1),
+        (STC_TYPE_BIND, '', 1),
+        (STC_NAME_BIND, '', 1),
+        (
+            STC_OWNER_BIND,
+            STC_OWNER_BIND.replace('/create/owner_id', '/update/owner_id')[: -len("/>")] + ' relevant="/data/age &gt; 5"/>',
+            1,
+        ),
+        (STC_ID_SETVALUE, f'<bind nodeset="{MAKE}/@case_id" calculate="&apos;household-01&apos;"/>', 1),
     )
 
 
@@ -1973,6 +2010,11 @@ def save_to_case_hyphenated_link_name(authoring, app_id):
 def save_to_case_link_name_outside_grammar(authoring, app_id):
     """The bind path contains a period that Vellum does not parse as an index bind."""
     _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
+
+
+def save_to_case_index_close_adds_action(authoring, app_id):
+    """This block creates a case without a close action, before Vellum saves it."""
+    _save_to_case_link(authoring, app_id, "save-to-case-index-close-adds-action", "close")
 
 
 def _save_to_case_link(authoring, app_id, what, name, value="'abc'"):

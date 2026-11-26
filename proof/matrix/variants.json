@@ -34882,20 +34882,23 @@
 	{
 		"id": "hq-questions/save-to-case-authored-id",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
+		"entry": "questions/savetocase-case-id-expression-on-a-create",
 		"change": {
 			"op": "named",
 			"name": "save_to_case_authored_id"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/target/expr/kind",
+				"value": "concat"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-bare-name",
@@ -35126,8 +35129,8 @@
 	{
 		"id": "hq-questions/save-to-case-link-name-outside-grammar",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
-		"standing": "not-yet",
+		"entry": "questions/savetocase-link-bind-lost-on-save",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -35139,6 +35142,24 @@
 		"change": {
 			"op": "named",
 			"name": "save_to_case_link_name_outside_grammar"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-index-close-adds-action",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-changes-actions-on-save",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_index_close_adds_action"
 		}
 	},
 	{
@@ -35247,6 +35268,27 @@
 		"id": "hq-questions/save-to-case-owner-condition",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-owner-id-condition",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_owner_condition"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerCondition/kind",
+				"value": "gt"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-conditional-owner-aliased-create",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-owner-condition-on-an-aliased-create",
 		"standing": "not-yet",
 		"place": {
 			"kind": "question",
@@ -35258,7 +35300,25 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_owner_condition"
+			"name": "save_to_case_conditional_owner_aliased_create"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-update-owner-condition",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-update-owner-condition",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_update_owner_condition"
 		}
 	},
 	{

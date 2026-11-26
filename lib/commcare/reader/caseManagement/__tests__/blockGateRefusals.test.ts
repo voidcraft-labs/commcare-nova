@@ -72,8 +72,7 @@ import { readHqApp } from "./heldReading";
 
 const DEVICE =
 	"questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself";
-const LINK_NAME =
-	"questions/savetocase-link-name-outside-nova-s-identifier-grammar";
+const LINK_NAME = "questions/savetocase-link-name-changes-actions-on-save";
 const AUTHORED_ID =
 	"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside";
 const QUESTION_ID =
