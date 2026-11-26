@@ -3837,6 +3837,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			appId: FIXTURE_REMOTE_APP_ID as string,
 		},
 		confirm = CONFIRM_ALL,
+		readInstallationSourceAgain = false,
 	) {
 		const sourcePath = `/a/${destination.domain}/apps/source/${destination.appId}/`;
 		const importPath = `/a/${destination.domain}/apps/api/import_app/`;
@@ -3868,7 +3869,12 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					};
 				})
 				.persist();
-			serveAnswer(peer, sourcePath, source);
+			serveAnswer(
+				peer,
+				sourcePath,
+				source,
+				readInstallationSourceAgain ? 2 : 1,
+			);
 			if (accepts && !(readBack instanceof TargetPeer))
 				serveAnswer(peer, sourcePath, readBack);
 			if (accepts)
@@ -4872,10 +4878,17 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			named("Outreach", 2).source,
 			false,
 			named("Outreach", 2).source,
-			3,
+			2,
+			[],
+			undefined,
+			undefined,
+			undefined,
 			[],
 		);
-		expect(pending.outcome).toMatchObject({
+		expect(
+			pending.outcome,
+			JSON.stringify(pending.outcome.refusal),
+		).toMatchObject({
 			landed: false,
 			refusal: { failure: { code: "hq_confirmation_needed" } },
 		});
@@ -4890,8 +4903,23 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		const edited = named("Home visits", 3);
 		const take = await reviewAndBringIn(appId, doc, edited);
 		expect(take.outcome.kind).toBe("brought-in");
-		const published = await publishOver(appId, edited.source, true);
-		expect(published.outcome).toMatchObject({ landed: true });
+		const published = await publishOver(
+			appId,
+			edited.source,
+			true,
+			edited.source,
+			3,
+			[],
+			undefined,
+			undefined,
+			undefined,
+			CONFIRM_ALL,
+			true,
+		);
+		expect(
+			published.outcome,
+			JSON.stringify(published.outcome.refusal),
+		).toMatchObject({ landed: true });
 		expect(published.imported).toHaveLength(1);
 		expect(published.imported[0]).not.toHaveProperty("build_profiles");
 		expect(

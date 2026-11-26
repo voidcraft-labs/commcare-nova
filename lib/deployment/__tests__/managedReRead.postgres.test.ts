@@ -365,7 +365,11 @@ describe("a table managed in the target", () => {
 		};
 		await withHttpPeer(async (peer) => {
 			serveTableList(peer, "clinic", [changed]);
-			serveRows(peer, "clinic", changed);
+			serveRows(peer, "clinic", changed, undefined, async () => {
+				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+			});
 			await expect(
 				reReadManagedTablesForPublish({
 					requireHqImport: null,
@@ -375,9 +379,6 @@ describe("a table managed in the target", () => {
 					creds: CREDS,
 					grant: async (tx) => {
 						expect(tx).toBeDefined();
-						await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
-							h.db(),
-						);
 						await grant(tx);
 					},
 				}),

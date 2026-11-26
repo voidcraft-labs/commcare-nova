@@ -205,19 +205,30 @@ function publish(
 	});
 }
 
-function serveManagedPlace(peer: MockAgent, name = north.name) {
-	servePlaceInventory(peer, MANAGING.domain, [
-		{
-			location_id: north.locationId,
-			name,
-			site_code: north.siteCode,
-			location_type_code: "region",
-			parent_location_id: "",
-			latitude: null,
-			longitude: null,
-			location_data: {},
-		},
-	]);
+function serveManagedPlace(
+	peer: MockAgent,
+	name = north.name,
+	onRead?: () => Promise<void>,
+) {
+	servePlaceInventory(
+		peer,
+		MANAGING.domain,
+		[
+			{
+				location_id: north.locationId,
+				name,
+				site_code: north.siteCode,
+				location_type_code: "region",
+				parent_location_id: "",
+				latitude: null,
+				longitude: null,
+				location_data: {},
+			},
+		],
+		undefined,
+		false,
+		onRead,
+	);
 }
 
 function request(peer: MockAgent, path: string, method = "GET") {
@@ -258,31 +269,13 @@ it.each(["named", "pending-during-read"] as const)(
 		]);
 		let fetched = false;
 		await withManagedPeer(async (peer) => {
-			request(peer, "/a/clinic/api/location/v2/?limit=5000").reply(async () => {
+			serveManagedPlace(peer, "Renamed during publish", async () => {
 				fetched = true;
 				if (mode === "pending-during-read")
 					await pendingInstallationTarget(h, SCOPE, MANAGING);
 				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
 					h.db(),
 				);
-				return {
-					statusCode: 200,
-					data: JSON.stringify({
-						meta: { next: null },
-						objects: [
-							{
-								location_id: north.locationId,
-								name: "Renamed during publish",
-								site_code: north.siteCode,
-								location_type_code: "region",
-								parent_location_id: "",
-								latitude: null,
-								longitude: null,
-								location_data: {},
-							},
-						],
-					}),
-				};
 			});
 			await expect(
 				publishAppToHq({

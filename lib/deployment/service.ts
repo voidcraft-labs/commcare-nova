@@ -1632,7 +1632,7 @@ export async function publishAppToHq(
 							? { kind: "settled" }
 							: { kind: "unanswered" },
 					);
-					return refused(
+					return await refused(
 						"resources",
 						{
 							code: "hq_rejected_upload",
@@ -1709,22 +1709,25 @@ export async function publishAppToHq(
 					appId: input.scope.appId,
 				});
 				if (!("success" in read) && read.kind === "moved") {
-					return refused("resources", hqAppMovedWhileReadFailure(domain, true));
+					return await refused(
+						"resources",
+						hqAppMovedWhileReadFailure(domain, true),
+					);
 				}
 				if (!("success" in read) && read.kind === "unbound") {
-					return refused(
+					return await refused(
 						"resources",
 						hqAppSourceReadFailure(read.counter, domain, true),
 					);
 				}
 				if ("success" in read || read.kind !== "source-at") {
-					return refused(
+					return await refused(
 						"resources",
 						hqAppSourceReadFailure(read, domain, true),
 					);
 				}
 				if (freshShellHasAffectedFiles(read.source, published)) {
-					return refused("resources", {
+					return await refused("resources", {
 						code: "hq_changed",
 						message:
 							"CommCare HQ created the app with a file this publish would change. You can publish again to review the file.",
@@ -1732,7 +1735,7 @@ export async function publishAppToHq(
 					});
 				}
 				if (createBaseline.normalized === null) {
-					return refused(
+					return await refused(
 						"resources",
 						hqAppSourceReadFailure(MALFORMED_SOURCE, domain, true),
 					);
@@ -1750,7 +1753,7 @@ export async function publishAppToHq(
 						shell: read.source,
 					})
 				) {
-					return refused(
+					return await refused(
 						"resources",
 						planLacksWebAppsFailure(
 							domain,
@@ -1765,7 +1768,7 @@ export async function publishAppToHq(
 				 * The mapping is kept: the next publish fills this same app. */
 				const floor = compareToVersionFloor(read.source.buildSpecVersion);
 				if (floor === "below") {
-					return refused(
+					return await refused(
 						"resources",
 						versionBelowFloorFailure(
 							domain,
@@ -1775,7 +1778,7 @@ export async function publishAppToHq(
 					);
 				}
 				if (floor === "unreadable") {
-					return refused(
+					return await refused(
 						"resources",
 						hqAppSourceReadFailure(MALFORMED_SOURCE, domain, true),
 					);
@@ -1794,7 +1797,7 @@ export async function publishAppToHq(
 					if (check.kind === "prepare-content")
 						prepareContent = check.checkpoint;
 					else if (check.kind !== "agreed")
-						return refused(
+						return await refused(
 							"resources",
 							installationReviewFailure(
 								check.kind === "review"
@@ -1846,7 +1849,7 @@ export async function publishAppToHq(
 				importMapping?.remoteId !== appId ||
 				importMapping.releasedAt !== null
 			)
-				return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
+				return await refused("upload", APP_CHANGED_WHILE_PUBLISHING);
 
 			// ── Put everything the app depends on there first ───────────────
 			// The app's selects read these tables by name at runtime and its
@@ -1877,7 +1880,7 @@ export async function publishAppToHq(
 				if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
 				earlierLookups.push(...pushed.mapped);
 				if (pushed.failure !== null)
-					return refused("resources", pushed.failure);
+					return await refused("resources", pushed.failure);
 			}
 			const pendingFiles: (typeof files)[number][] = [];
 			if (!resumed && lookupPush)
@@ -1900,7 +1903,7 @@ export async function publishAppToHq(
 						true,
 					);
 					if ("failure" in checkedFile)
-						return refused("resources", checkedFile.failure);
+						return await refused("resources", checkedFile.failure);
 					for (const { tableId } of file.tables) {
 						const remoteId = lookupPush.verifiedFiles.get(tableId);
 						if (!remoteId)
@@ -1963,7 +1966,7 @@ export async function publishAppToHq(
 					 * project space now holds. */
 					if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
 					if (pushed.failure !== null)
-						return refused("resources", pushed.failure);
+						return await refused("resources", pushed.failure);
 					if (fileIndex !== pendingFiles.length - 1)
 						for (const item of deployment.active)
 							if (
@@ -2001,7 +2004,7 @@ export async function publishAppToHq(
 				}
 				if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
 				if (pushed.failure !== null)
-					return refused("resources", pushed.failure, {
+					return await refused("resources", pushed.failure, {
 						responseTo: pushed.responseTo,
 					});
 			}
@@ -2082,24 +2085,24 @@ export async function publishAppToHq(
 				const counter = await readHqAppSaveCounter(creds, domain, appId);
 				const read = await readHqAppSource(creds, domain, appId);
 				if (!("success" in read) && read.kind === "gone" && !createdApp) {
-					return remoteAppGone("publish-read");
+					return await remoteAppGone("publish-read");
 				}
 				if (typeof counter !== "number") {
-					return refused(
+					return await refused(
 						"upload",
 						hqAppSourceReadFailure(counter, domain, createdApp),
 					);
 				}
 				counterBeforeRead = counter;
 				if ("success" in read || read.kind !== "source") {
-					return refused(
+					return await refused(
 						"upload",
 						hqAppSourceReadFailure(read, domain, createdApp),
 					);
 				}
 				const second = normalizeHqAppSource(read.source.raw);
 				if ("malformed" in second) {
-					return refused(
+					return await refused(
 						"upload",
 						hqAppSourceReadFailure(MALFORMED_SOURCE, domain, createdApp),
 					);
@@ -2160,7 +2163,7 @@ export async function publishAppToHq(
 						sourceCapturesLocation(second.normalized) ||
 					(!shell && webAppsMovedDuringPush(source, read.source))
 				) {
-					return refused("upload", changedDuringPush);
+					return await refused("upload", changedDuringPush);
 				}
 				/* A file at a path this publish sends, which no comparison of the
 				 * source reads: the upload below would write over it. A file
@@ -2170,7 +2173,7 @@ export async function publishAppToHq(
 				 * this app's stops the publish. */
 				const secondMap = read.source.multimediaMap;
 				if (secondMap === null) {
-					return refused(
+					return await refused(
 						"upload",
 						hqAppSourceReadFailure(MALFORMED_SOURCE, domain, createdApp),
 					);
@@ -2183,13 +2186,13 @@ export async function publishAppToHq(
 				) {
 					const settled = await settleHqMedia(creds, between, {});
 					if (settled.kind === "failed") {
-						return refused("upload", hqMediaReadFailure(domain));
+						return await refused("upload", hqMediaReadFailure(domain));
 					}
 					settledBetween = settled.paths;
 					learnedBetween = settled.learned;
 				}
 				if (settledBetween.some((path) => path.standing === "replaced")) {
-					return refused("upload", changedDuringPush);
+					return await refused("upload", changedDuringPush);
 				}
 				/* A build profile saved in HQ while the tables and places went is
 				 * held to the same rule preflight holds the first read to: no API
@@ -2199,7 +2202,7 @@ export async function publishAppToHq(
 					read.source.buildProfiles,
 				);
 				if (gaps.length > 0) {
-					return refused(
+					return await refused(
 						"upload",
 						buildProfileLanguageFailure(domain, gaps, {
 							duringPush: true,
@@ -2211,7 +2214,7 @@ export async function publishAppToHq(
 					canonicalJsonDigest(source.buildProfiles) !==
 					canonicalJsonDigest(read.source.buildProfiles)
 				) {
-					return refused("upload", changedDuringPush);
+					return await refused("upload", changedDuringPush);
 				}
 				source = read.source;
 			}
@@ -2277,7 +2280,7 @@ export async function publishAppToHq(
 						requireHqImport: requireProfileImport,
 					});
 			if (importAdmission && importAdmission.kind !== "admitted") {
-				return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
+				return await refused("upload", APP_CHANGED_WHILE_PUBLISHING);
 			}
 			const importWrites = importAdmission ? [importAdmission.writeId] : [];
 			const result = resumed
@@ -2297,7 +2300,7 @@ export async function publishAppToHq(
 					);
 			if ("kind" in result) {
 				if (importAdmission) await cancelUnsentImport(importAdmission);
-				return refused(
+				return await refused(
 					"upload",
 					typeof result.counter === "number"
 						? {
@@ -2329,12 +2332,14 @@ export async function publishAppToHq(
 				 * mapping is kept, so the next publish reads it at `target-app`
 				 * and never creates a second one. */
 				if (result.status === 404 && !createdApp && importAdmission)
-					return remoteAppGone({ importWriteId: importAdmission.writeId });
+					return await remoteAppGone({
+						importWriteId: importAdmission.writeId,
+					});
 				/* CommCare HQ refusing THIS upload says nothing about the app
 				 * already on the project space; the fold leaves a reached record
 				 * alone and moves an unreached one to `incomplete` at `upload`,
 				 * which is exactly what a retry resumes from. */
-				return refused(
+				return await refused(
 					"upload",
 					{
 						code: "hq_rejected_upload",
@@ -2450,7 +2455,7 @@ export async function publishAppToHq(
 			) {
 				const unverified = async (message: string) => {
 					await settleQuietly(importWrites, { kind: "settled" });
-					return refused(
+					return await refused(
 						"upload",
 						installationReviewFailure(
 							{ kind: "review", message, details: [] },
@@ -2466,14 +2471,14 @@ export async function publishAppToHq(
 					result.version !== counterBeforeRead + (resumed ? 0 : 1) ||
 					extraSave
 				)
-					return unverified(
+					return await unverified(
 						"CommCare HQ received the app, but Nova could not verify this installation at the version it sent. Publish again to review the latest project space state.",
 					);
 				if (
 					canonicalJsonDigest(source.buildProfiles) !==
 					canonicalJsonDigest(readBack.source.buildProfiles)
 				)
-					return unverified(
+					return await unverified(
 						"An installation profile changed while CommCare HQ was saving the app. Publish again to review its current profiles.",
 					);
 				if (
@@ -2481,7 +2486,7 @@ export async function publishAppToHq(
 					profileSourceDigests(readBack.source.raw).unrelatedDigest !==
 						resumed.unrelatedDigest
 				)
-					return unverified(
+					return await unverified(
 						"The app changed after its installation was prepared. Review its current content and publish again.",
 					);
 				if (prepareContent) {
@@ -2495,7 +2500,7 @@ export async function publishAppToHq(
 						canonicalJsonDigest(publishedLanguageCodes(prepared.doc)) !==
 							canonicalJsonDigest(readBack.source.langs)
 					)
-						return unverified(
+						return await unverified(
 							"CommCare HQ has not returned the complete app and installation profiles. Review the working app and publish again.",
 						);
 					const accountIssue = await unavailableInstallationWorker(
@@ -2504,7 +2509,7 @@ export async function publishAppToHq(
 						appId,
 						readBack.source,
 					);
-					if (accountIssue) return unverified(accountIssue);
+					if (accountIssue) return await unverified(accountIssue);
 					const check = await checkPracticePreparation({
 						creds,
 						domain,
@@ -2564,14 +2569,14 @@ export async function publishAppToHq(
 								: null,
 						}))
 					)
-						return unverified(
+						return await unverified(
 							"CommCare HQ received the app. Nova could not verify the intermediate installation languages at this revision. Publish again to review the current languages.",
 						);
 					const readBackProfiles = new Map(
 						readBack.source.buildProfiles.map((p) => [p.id, p.langs]),
 					);
 					await settleQuietly(importWrites, { kind: "settled" });
-					return refused(
+					return await refused(
 						"upload",
 						installationReviewFailure(
 							{
@@ -2607,9 +2612,9 @@ export async function publishAppToHq(
 						appId,
 						readBack.source,
 					);
-					if (unavailableWorker) return unverified(unavailableWorker);
+					if (unavailableWorker) return await unverified(unavailableWorker);
 					if (!agreement.agreed)
-						return unverified(
+						return await unverified(
 							"CommCare HQ did not save all of the installation settings that Nova sent. Review its current profiles and publish again.",
 						);
 				}
@@ -2623,7 +2628,7 @@ export async function publishAppToHq(
 					(await readHqAppSaveCounter(creds, domain, appId)) !==
 						readBack.version
 				)
-					return unverified(
+					return await unverified(
 						"The app changed in CommCare HQ while Nova checked its practice installation. Publish again to review the current worker and app version.",
 					);
 			}
@@ -2999,7 +3004,7 @@ export async function publishAppToHq(
 							upload.reported,
 						)
 					)
-						return refused(
+						return await refused(
 							"upload",
 							installationReviewFailure(
 								{
@@ -3017,7 +3022,7 @@ export async function publishAppToHq(
 						after.source.buildProfiles,
 					);
 					if (!agreement.agreed)
-						return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
+						return await refused("upload", APP_CHANGED_WHILE_PUBLISHING);
 					const workerIssue = await unavailableInstallationWorker(
 						creds,
 						domain,
@@ -3025,7 +3030,7 @@ export async function publishAppToHq(
 						after.source,
 					);
 					if (workerIssue)
-						return refused(
+						return await refused(
 							"upload",
 							installationReviewFailure(
 								{ kind: "review", message: workerIssue, details: [] },
@@ -3075,8 +3080,8 @@ export async function publishAppToHq(
 							requireHqImport: requireProfileImport,
 						})))
 				)
-					return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
-				return refused(
+					return await refused("upload", APP_CHANGED_WHILE_PUBLISHING);
+				return await refused(
 					"upload",
 					warnings.length
 						? {
