@@ -31,8 +31,10 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	type Column,
 	calculatedColumn,
 	declaresAndroid,
+	idMappingColumn,
 	NEW_APP_SETTINGS,
 	plainColumn,
 	proseText,
@@ -67,6 +69,7 @@ import {
 	formsUsingWorkerRecord,
 	HQ_PLAN_PRIVILEGE_IDS,
 	type HqPlanPrivilegeId,
+	menusUsingWorkerRecord,
 	PLAN_FEATURE_FOR_PRIVILEGE,
 	requiredPlanFeatures,
 	requiredPlanPrivileges,
@@ -667,6 +670,88 @@ describe("each privilege's reasons", () => {
 		).toEqual([{ name: "Greet team", reads: true, writes: false }]);
 		expect(reasonsOf(doc, "user_case")).toEqual([
 			"Greet team reads worker information.",
+		]);
+	});
+
+	it("names a menu whose calculation or mapping condition reads the worker's record, as it names a worker-property column", () => {
+		const region = testUuid("plan-privileges-menu-region");
+		const workerRegion = term({
+			kind: "session-user-property",
+			userPropertyUuid: region,
+			source: "worker-record",
+		});
+		const columns: Record<string, Column> = {
+			Calculated: calculatedColumn(
+				testUuid("plan-privileges-calculated-region"),
+				"Region",
+				workerRegion,
+			),
+			Mapped: idMappingColumn(
+				testUuid("plan-privileges-mapped-region"),
+				"case_name",
+				"Mine",
+				[
+					{
+						uuid: testUuid("plan-privileges-mapped-row"),
+						when: eq(workerRegion, literal("north")),
+						label: "North",
+					},
+				],
+			),
+			/* A read of the login session's own data is no read of the record. */
+			Session: calculatedColumn(
+				testUuid("plan-privileges-session-region"),
+				"Region",
+				term({ kind: "session-user", field: "region" }),
+			),
+			Plain: plainColumn(
+				testUuid("plan-privileges-plain-region"),
+				"region",
+				"Region",
+				{ readFrom: "worker-record" },
+			),
+		};
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: Object.keys(columns).map((name) => ({
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{ name: `${name} visit`, type: "followup" as const, fields: [] },
+				],
+			})),
+		});
+		doc.userProperties = {
+			[region]: { uuid: region, slug: "region", label: "Region" },
+		};
+		doc.userPropertyOrder = [region];
+		for (const uuid of doc.moduleOrder) {
+			const module = doc.modules[uuid];
+			const config = module?.caseListConfig;
+			const column = module && columns[module.name];
+			if (config === undefined || column === undefined)
+				throw new Error("Each fixture menu has a list and a column.");
+			config.columns.push(column);
+			config.listColumnOrder.push(column.uuid);
+			config.detailColumnOrder.push(column.uuid);
+		}
+		expect(menusUsingWorkerRecord(doc).map(({ name }) => name)).toEqual([
+			"Calculated",
+			"Mapped",
+			"Plain",
+		]);
+		expect(reasonsOf(doc, "user_case")).toEqual([
+			"Calculated displays information from the worker’s record.",
+			"Mapped displays information from the worker’s record.",
+			"Plain displays information from the worker’s record.",
 		]);
 	});
 

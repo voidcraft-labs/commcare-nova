@@ -18,7 +18,11 @@ export interface WorkerRecordRequirement {
 	readonly writes: boolean;
 }
 
-function readsWorkerRecord(value: unknown): boolean {
+/**
+ * Whether a slot value reads the worker's own record: a worker-record read
+ * in an expression, or a prose reference to worker information.
+ */
+export function readsWorkerRecord(value: unknown): boolean {
 	if (isProseTemplate(value))
 		return value.parts.some(
 			(part) =>

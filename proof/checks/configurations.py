@@ -148,10 +148,13 @@ def _usercase_reads(content):
 
 
 def _detail_usercase_reads(content):
-    """Each case list or case detail column of a menu over the worker's record, as the XPath HQ's build gives it: a
-    column over ``user/<property>`` reads ``UsercaseXPath().case()`` (``detail_screen.py::PropertyXpathGenerator``),
-    which a worker reads blank where the space makes no record, as a form's read is. Nova asks for the privilege
-    for such a column (``lib/commcare/planPrivileges.ts::menusUsingWorkerRecord``)."""
+    """Each read a case list or case detail column of a menu makes, as the XPath HQ's build gives it: a column over
+    ``user/<property>`` reads ``UsercaseXPath().case()`` (``detail_screen.py::PropertyXpathGenerator``), a calculated
+    column (``useXpathExpression``) reads its own field, and a mapping row whose key HQ treats as a condition
+    (``models/case_list.py::MappingItem.treat_as_expression``) reads that key in the column's ``if()``
+    (``key_as_condition``). A worker reads each read of the record blank where the space makes no record, as a form's
+    read is. Nova asks for the privilege for such a column
+    (``lib/commcare/planPrivileges.ts::menusUsingWorkerRecord``)."""
     from corehq.apps.app_manager.xpath import UsercaseXPath
 
     for module in _modules(content):
@@ -159,8 +162,14 @@ def _detail_usercase_reads(content):
         for detail in (getattr(details, "short", None), getattr(details, "long", None)):
             for column in getattr(detail, "columns", None) or []:
                 field = getattr(column, "field", None) or ""
-                if not getattr(column, "useXpathExpression", False) and field.split("/")[0] == "user" and "/" in field:
+                if getattr(column, "useXpathExpression", False):
+                    if field:
+                        yield field
+                elif field.split("/")[0] == "user" and "/" in field:
                     yield str(UsercaseXPath().case())
+                for item in getattr(column, "enum", None) or []:
+                    if item.treat_as_expression:
+                        yield item.key
 
 
 def _needs_usercase(content):

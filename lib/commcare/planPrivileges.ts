@@ -22,12 +22,14 @@ import {
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
+	type Column,
 	declaresAndroid,
 	declaresWebApps,
 	effectiveCaseSearchConfig,
 	type Uuid,
 } from "@/lib/domain";
 import {
+	readsWorkerRecord,
 	type WorkerRecordRequirement,
 	workerRecordRequirements,
 } from "@/lib/domain/workerRecordRequirements";
@@ -170,19 +172,31 @@ export function formsUsingWorkerRecord(
 	return forms;
 }
 
+/**
+ * Whether a case list or detail column reads the current worker's record: a
+ * property column over it (`user/<property>`, HQ's `UsercaseXPath`), a
+ * calculation whose expression reads it, or a mapping row whose condition
+ * does. HQ's build hands each of these to the device as a read of the
+ * `commcare-user` case, which is blank where the space makes no record.
+ */
+function columnReadsWorkerRecord(column: Column): boolean {
+	if (column.kind === "calculated") return readsWorkerRecord(column.expression);
+	if (column.readFrom === "worker-record") return true;
+	return (
+		"mapping" in column &&
+		column.mapping.some(
+			(row) => row.when !== undefined && readsWorkerRecord(row.when),
+		)
+	);
+}
+
 /** Case views that read the current worker's record, in menu order. */
 export function menusUsingWorkerRecord(
 	doc: BlueprintDoc,
 ): { uuid: Uuid; name: string }[] {
 	return doc.moduleOrder.flatMap((uuid) => {
 		const menu = doc.modules[uuid];
-		if (
-			!menu?.caseListConfig?.columns.some(
-				(column) =>
-					column.kind !== "calculated" && column.readFrom === "worker-record",
-			)
-		)
-			return [];
+		if (!menu?.caseListConfig?.columns.some(columnReadsWorkerRecord)) return [];
 		return [{ uuid, name: menu.name.trim() || menu.id }];
 	});
 }
