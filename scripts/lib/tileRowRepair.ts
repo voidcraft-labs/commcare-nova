@@ -20,7 +20,9 @@
  *    tile by its row count (`views/EntityViewTile.java`,
  *    `setCellWidthAndHeight`, `computeNumTilesPerScreen`), so on Android the
  *    tile loses that blank band and is that much shorter; nothing else moves
- *    relative to anything else.
+ *    relative to anything else. Grouped Results retain their header depth:
+ *    a case row can move only within the per-case band, since moving it
+ *    into the header would show only the first case's value.
  * 2. **Only where no empty row is left to remove**, each cell still below the
  *    rows is fitted back as an edit that removes a field fits it
  *    (`lib/domain/tilePlacement.ts::fitTileCellIntoRows`): raised in its own
@@ -33,7 +35,8 @@
  */
 import { z } from "zod";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
-import { runValidation } from "@/lib/commcare/validator/runner";
+import { caseTileGrouping } from "@/lib/commcare/validator/rules/case-list/caseTileGrouping";
+import { caseTileLayout } from "@/lib/commcare/validator/rules/case-list/caseTileLayout";
 import { lockActorGenerationGateForAppHolder } from "@/lib/db/actorGenerationGate";
 import { appendSyntheticBatchInTransaction } from "@/lib/db/apps";
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
@@ -43,7 +46,6 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
@@ -89,26 +91,24 @@ export const tileRowRepairSchema = z.strictObject({
 export type TileRowRepair = z.infer<typeof tileRowRepairSchema>;
 
 const ACTOR = "system:tile-rows";
-const TILE_CODES = [
-	"CASE_LIST_TILE_CELL_OUT_OF_GRID",
-	"CASE_DETAIL_TILE_LAYOUT_INVALID",
-];
 
 /**
  * One screen's cells fitted into `rows`: empty rows removed from the bottom up
  * while any cell ends below `rows`, then each cell still below fitted around
- * the cells `drawn` says are drawn. Pure; the moves in cell order.
+ * the cells `drawn` says are drawn. Rows before `firstRow` form a fixed
+ * header. Returns the moves in cell order.
  */
 function fitScreen(
 	cells: ReadonlyMap<Uuid, TileCell>,
 	rows: number,
 	drawn: (uuid: Uuid) => boolean,
+	firstRow = 0,
 ): Map<Uuid, { after: TileCell; how: TileRowMove["how"] }> {
 	const current = new Map(cells);
 	const moved = new Map<Uuid, { after: TileCell; how: TileRowMove["how"] }>();
 	const bottom = () =>
 		Math.max(0, ...[...current.values()].map(tileCellBottomEdge));
-	for (let row = bottom() - 1; row >= 0 && bottom() > rows; row--) {
+	for (let row = bottom() - 1; row >= firstRow && bottom() > rows; row--) {
 		const covered = [...current.values()].some(
 			(cell) => cell.y <= row && row < tileCellBottomEdge(cell),
 		);
@@ -122,17 +122,27 @@ function fitScreen(
 	}
 	for (const [uuid, cell] of current) {
 		if (tileCellBottomEdge(cell) <= rows) continue;
+		// Keep any cell in the header in place. If the header itself exceeds
+		// the row limit or a case cell has no safe place, certification will
+		// report the remaining findings for manual review.
+		if (cell.y < firstRow || firstRow >= rows) continue;
+		const intoBand = (cell: TileCell) => ({ ...cell, y: cell.y - firstRow });
 		const others = (onlyDrawn: boolean) =>
 			[...current]
-				.filter(([other]) => other !== uuid && (!onlyDrawn || drawn(other)))
-				.map(([, other]) => other);
-		const after =
-			fitTileCellIntoRows(cell, others(false), rows) ??
-			fitTileCellIntoRows(cell, others(true), rows);
-		if (after === null)
-			throw new Error(
-				"A tile cell has no free square left to move to. Review this app by hand.",
-			);
+				.filter(
+					([other, placed]) =>
+						other !== uuid &&
+						tileCellBottomEdge(placed) > firstRow &&
+						(!onlyDrawn || drawn(other)),
+				)
+				.map(([, placed]) => intoBand(placed));
+		const bandCell = intoBand(cell);
+		const bandRows = rows - firstRow;
+		const fitted =
+			fitTileCellIntoRows(bandCell, others(false), bandRows) ??
+			fitTileCellIntoRows(bandCell, others(true), bandRows);
+		if (fitted === null) continue;
+		const after = { ...fitted, y: fitted.y + firstRow };
 		current.set(uuid, after);
 		moved.set(uuid, { after, how: "fitted" });
 	}
@@ -159,6 +169,7 @@ export function tileRowMoves(doc: BlueprintDoc): TileRowMove[] {
 			results,
 			tileRowLimit(resultsTileFieldCount(config)),
 			(uuid) => shownOnResults.has(uuid),
+			config.tile?.grouping?.headerRows,
 		)) {
 			const before = results.get(columnUuid) as TileCell;
 			moves.push({
@@ -227,11 +238,17 @@ export function repairedTileRows(
 	return toPersistableDoc(target);
 }
 
-/** The findings that say a tile cell is below its rows or off its grid. */
+/** A row move has to preserve every tile's geometry and group bands. */
 function tileFindings(doc: BlueprintDoc) {
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((finding) =>
-		TILE_CODES.includes(finding.code),
-	);
+	return doc.moduleOrder.flatMap((uuid) => {
+		const module = doc.modules[uuid];
+		return module === undefined
+			? []
+			: [
+					...caseTileLayout(module, uuid, doc),
+					...caseTileGrouping(module, uuid, doc),
+				];
+	});
 }
 
 /** Read one app from one snapshot: its tile findings and the repair plan that
@@ -253,11 +270,13 @@ export async function inspectTileRows(appId: string) {
 			const doc = hydratePersistedBlueprint(structuredClone(blueprint));
 			const moves = tileRowMoves(doc);
 			const findings = tileFindings(doc);
-			if (moves.length === 0) return { appId, findings, plan: null };
+			if (moves.length === 0)
+				return { appId, findings, plan: null, left: findings };
 			const target = repairedTileRows(blueprint, moves);
 			const left = tileFindings(
 				hydratePersistedBlueprint(structuredClone(target)),
 			);
+			if (left.length > 0) return { appId, findings, plan: null, left };
 			const plan: TileRowRepair = {
 				appId,
 				expectedBaseSeq: safePersistedSequence(app.mutation_seq),
@@ -336,6 +355,12 @@ export async function migrateTileRows(plan: TileRowRepair) {
 		const targetDoc = repairedTileRows(before, plan.moves);
 		if (canonicalJsonDigest(targetDoc) !== plan.targetDigest)
 			throw new Error("Repair target does not match its plan.");
+		if (
+			tileFindings(hydratePersistedBlueprint(structuredClone(targetDoc))).length
+		)
+			throw new Error(
+				"This tile still needs a manual repair. Review its layout before applying a plan.",
+			);
 		const result = await appendSyntheticBatchInTransaction(tx, {
 			appId: plan.appId,
 			expectedBaseSeq: plan.expectedBaseSeq,
