@@ -567,21 +567,29 @@ export function useFormPaging({
 				!ownsNavigation(entryKey, version)
 			)
 				return;
-			const livePages = readPages();
-			if (!availablePages(livePages).some((page) => identityOf(page) === id))
-				return;
-			for (const page of pagesToValidate(
-				livePages,
-				identityOf(current),
-				id,
-				identityOf,
-			)) {
-				if (!(await pagePasses(page, entryKey, version))) return;
+			const source = identityOf(current);
+			const checked = new Set<string>();
+			const checkLimit = readPages().length;
+			// Entering a section can materialize its repeats and reveal a
+			// later required page. Use the settled route after each check.
+			while (ownsNavigation(entryKey, version)) {
+				const livePages = readPages();
+				if (!livePages.some((page) => identityOf(page) === source)) return;
+				const target = availablePages(livePages).find(
+					(page) => identityOf(page) === id,
+				);
+				if (target === undefined) return;
+				const next = pagesToValidate(livePages, source, id, identityOf).find(
+					(page) => !checked.has(identityOf(page)),
+				);
+				if (next === undefined) {
+					await turnTo(target, entryKey, version);
+					return;
+				}
+				if (checked.size === checkLimit) return;
+				checked.add(identityOf(next));
+				if (!(await pagePasses(next, entryKey, version))) return;
 			}
-			const target = availablePages(readPages()).find(
-				(page) => identityOf(page) === id,
-			);
-			if (target !== undefined) await turnTo(target, entryKey, version);
 		},
 		[
 			controller,
