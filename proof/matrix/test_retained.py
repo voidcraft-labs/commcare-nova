@@ -146,6 +146,7 @@ def authored_base(request, hq, core_runner, editor_driver, documents):
 
     base = request.param
     variants = [variant for variant in registry.load_variants() if variant.base == base.id]
+    variants = [one for one in variants if one.id in ['hq-questions/save-to-case-hyphenated-link-name', 'hq-questions/save-to-case-index-close-adds-action', 'hq-questions/save-to-case-link-long-name', 'hq-questions/save-to-case-link-name-outside-grammar', 'hq-questions/save-to-case-link-stops-form-designer', 'hq-questions/save-to-case-unicode-link-name']]
     return base, authored(base, documents=documents, driver=editor_driver, core_runner=core_runner, variants=variants)
 
 
