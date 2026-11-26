@@ -33,7 +33,6 @@ LOOKUP = {
 }
 
 
-
 def _lookup_case_list(state, editor_driver, *, name=LOOKUP["lookup_name"]):
     app_id = _case_list_app(state, editor_driver)
     module = operations.held_app(state, app_id).modules[0]
