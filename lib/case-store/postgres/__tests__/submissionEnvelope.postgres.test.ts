@@ -1442,6 +1442,76 @@ describe("ordered selected-case batches", () => {
 		expect(await store.applySubmission(claim)).toEqual(saved);
 	});
 
+	it("omits a conditional create owner before evaluation and keeps each row's resolved owner on replay", async () => {
+		const store = makeStore();
+		const root = operation({
+			uuid: OP_A,
+			id: "group_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: term(literal("Group patient")),
+		});
+		const repeating = operation({
+			uuid: OP_B,
+			id: "repeat_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: term(literal("Repeated patient")),
+			forEach: { repeat: REPEAT_UUID },
+			owner: term(formField(KEY_FIELD)),
+			ownerCondition: eq(formField(FLAG_FIELD), literal("assign")),
+		});
+		const program = rootProgram([envOp(root), envOp(repeating)], {
+			sessionCaseId: null,
+		});
+		const request: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...program,
+				groupDefaults: { owner: "team-1", operations: [OP_A, OP_B] },
+				scopes: [
+					...program.scopes,
+					{
+						repeat: REPEAT_UUID,
+						iterations: [
+							{ formFields: new Map([[FLAG_FIELD, "skip"]]) },
+							{
+								formFields: new Map([
+									[FLAG_FIELD, "assign"],
+									[KEY_FIELD, "supervisor-9"],
+								]),
+							},
+						],
+					},
+				],
+			},
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const saved = await store.applySubmission(claim);
+		expect(
+			saved.operations.map(({ operationUuid, iteration }) => [
+				operationUuid,
+				iteration,
+			]),
+		).toEqual([
+			[OP_A, 0],
+			[OP_B, 0],
+			[OP_B, 1],
+		]);
+		const rows = await Promise.all(
+			saved.operations.map(({ caseId }) => patientRow(store, caseId)),
+		);
+		expect(rows.map((row) => row?.owner_id)).toEqual([
+			"team-1",
+			ACTOR,
+			"supervisor-9",
+		]);
+		expect(await store.applySubmission(claim)).toEqual(saved);
+	});
+
 	it("applies authored case changes within a row and omits absent positions on replay", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);

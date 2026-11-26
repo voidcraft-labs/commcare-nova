@@ -1470,39 +1470,53 @@ async function resolveOperationProgram(
 		});
 	}
 
-	// Resolve write guards before requesting values. An omitted write must
+	// Resolve leaf guards before requesting values. An omitted leaf must
 	// not evaluate blank numeric answers or other unused expressions. These
 	// reads share the operation guards' pre-effect view under the app lock.
-	const writeGuardRequests: EvalRequest[] = [];
-	const writeGuardSlots: Array<{ instance: number; write: number }> = [];
+	const leafGuardRequests: EvalRequest[] = [];
+	const leafGuardSlots: Array<{ instance: number; write?: number }> = [];
 	for (const [index, instance] of instances.entries()) {
 		if (!executing[index]) continue;
-		for (const [writeIndex, write] of (
-			instance.envelope.operation.writes ?? []
-		).entries()) {
+		const operation = instance.envelope.operation;
+		if (operation.ownerCondition !== undefined) {
+			leafGuardSlots.push({ instance: index });
+			leafGuardRequests.push({
+				instance: index,
+				predicate: operation.ownerCondition,
+				operationUuid: operation.uuid,
+				operationId: operation.id,
+				slot: "owner condition",
+			});
+		}
+		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (write.condition === undefined) continue;
-			writeGuardSlots.push({ instance: index, write: writeIndex });
-			writeGuardRequests.push({
+			leafGuardSlots.push({ instance: index, write: writeIndex });
+			leafGuardRequests.push({
 				instance: index,
 				predicate: write.condition,
-				operationUuid: instance.envelope.operation.uuid,
-				operationId: instance.envelope.operation.id,
+				operationUuid: operation.uuid,
+				operationId: operation.id,
 				slot: `write condition: ${write.property}`,
 			});
 		}
 	}
-	const writeGuardResults = await evaluateBatch(
+	const leafGuardResults = await evaluateBatch(
 		trx,
 		host,
 		appId,
 		program,
 		sessionFor,
 		bindingsFor,
-		writeGuardRequests,
+		leafGuardRequests,
 	);
+	const skippedOwners = new Set<number>();
 	const skippedWrites = new Map<number, Set<number>>();
-	for (const [slotIndex, slot] of writeGuardSlots.entries()) {
-		if (writeGuardResults[slotIndex] === true) continue;
+	for (const [slotIndex, slot] of leafGuardSlots.entries()) {
+		if (leafGuardResults[slotIndex] === true) continue;
+		if (slot.write === undefined) {
+			skippedOwners.add(slot.instance);
+			continue;
+		}
 		let writes = skippedWrites.get(slot.instance);
 		if (writes === undefined) {
 			writes = new Set();
@@ -1558,7 +1572,7 @@ async function resolveOperationProgram(
 		if (operation.rename !== undefined) {
 			request(index, "rename", { expression: operation.rename });
 		}
-		if (operation.owner !== undefined) {
+		if (operation.owner !== undefined && !skippedOwners.has(index)) {
 			request(index, "owner", { expression: operation.owner });
 		}
 		if (
@@ -2041,16 +2055,22 @@ async function resolveOperationProgram(
 			blankText(evaluatedText(bag?.owner));
 		let preparedOwner: string | undefined;
 		if (operation.action === "create") {
-			preparedOwner = ownerKept
-				? UNOWNED_OWNER_ID
-				: prepareText(
-						"owner",
-						program.groupDefaults?.operations.includes(operation.uuid)
-							? program.groupDefaults.owner
-							: operation.owner === undefined
-								? host.actingUserId
-								: evaluatedText(bag?.owner),
-					);
+			const groupOwner =
+				operation.ownerCondition === undefined &&
+				program.groupDefaults?.operations.includes(operation.uuid)
+					? program.groupDefaults.owner
+					: undefined;
+			// HQ and Core default an omitted create/owner_id to this
+			// submitting user for a fresh case. The group's default is an
+			// HQ case-action feature; it does not own this Save to Case leaf.
+			const ownerValue =
+				skippedOwners.has(index) || operation.owner === undefined
+					? (groupOwner ?? host.actingUserId)
+					: (groupOwner ?? evaluatedText(bag?.owner));
+			preparedOwner =
+				ownerKept && operation.ownerCondition === undefined
+					? UNOWNED_OWNER_ID
+					: prepareText("owner", ownerValue);
 		} else if (
 			operation.action === "update" &&
 			operation.owner !== undefined &&

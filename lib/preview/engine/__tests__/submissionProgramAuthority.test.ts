@@ -305,6 +305,58 @@ describe("committed program input rejection", () => {
 			}),
 		).toThrow(CaptureSubmissionRejectedError);
 	});
+
+	it("requires the committed owner predicate's answer inside its concrete row", () => {
+		const { doc, formUuid, uuids } = acceptanceDoc((fields) => [
+			{
+				uuid: OP_ROOT,
+				id: "repeat_create",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: term(literal("Patient from repeat")),
+				owner: term(literal("worker-2")),
+				ownerCondition: eq(formField(fields.visitNote), literal("assign")),
+				forEach: { repeat: fields.visits },
+			},
+		]);
+		const engine = engineFor(doc, formUuid);
+		engine.addRepeat("/data/visits");
+		engine.setValue("/data/visits[0]/visit_note", "assign");
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		const answers = mutation.operationAnswers;
+		if (!answers) throw new Error("Expected the operation's row answers.");
+		const build = (submitted: SubmissionMutation) =>
+			buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation: submitted,
+				projection: validateCaptureSubmissionProjection(submitted),
+				identity: IDENTITY,
+			}).program;
+		expect(
+			build(mutation)
+				?.scopes.find(({ repeat }) => repeat === uuids.visits)
+				?.iterations[0]?.formFields.get(uuids.visitNote),
+		).toBe("assign");
+		expect(() =>
+			build({
+				...mutation,
+				operationAnswers: {
+					...answers,
+					repeats: answers.repeats.map((scope) => ({
+						...scope,
+						iterations: scope.iterations.map((row) =>
+							row.filter(({ fieldUuid }) => fieldUuid !== uuids.visitNote),
+						),
+					})),
+				},
+			}),
+		).toThrow("missing an answer its committed case operations read");
+	});
 });
 
 it("binds nested operation order to the committed repeat and the enclosing answers", () => {
