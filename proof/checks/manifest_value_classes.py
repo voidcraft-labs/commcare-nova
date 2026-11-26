@@ -6530,6 +6530,61 @@ def default_on_multi_select_host(use, manifest):
     )(use, manifest)
 
 
+def _registration_return_search(at, module, form_id):
+    if not _inline_search(module):
+        return False
+    registration = at.app.forms_by_id.get(form_id)
+    if registration is None:
+        return None
+    if registration.get("post_form_workflow") == "root":
+        return False
+    # HQ's common-datum prefix excludes the standalone case-list entry.
+    forms = _forms(module)
+    if not forms:
+        return False
+    owner = at.app.module_of(registration)
+    if (
+        module.get("doc_type") != "Module"
+        or module.get("root_module_id")
+        or (module.get("parent_select") or {}).get("active")
+        or _multi_select(module)
+        or not owner
+        or registration.get("doc_type") != "Form"
+        or (owner.get("parent_select") or {}).get("active")
+        or any(form.get("doc_type") != "Form" for form in forms)
+    ):
+        return None
+    if any(_requires(form) != "case" for form in forms):
+        return False
+
+    # A basic standalone registration contributes its own new-case datum.
+    # Child actions and advanced entries need the built datum-to-source match.
+    case_type = module.get("case_type")
+    if any(subcase.get("case_type") == case_type and _active(subcase) for subcase in _subcases(registration)):
+        return None
+    action = _actions(registration).get("open_case")
+    if not case_type or owner.get("case_type") != case_type or not _active(action):
+        return False
+    if (
+        _requires(registration) != "none"
+        or registration.get("form_links")
+        or registration.get("post_form_workflow") not in (None, "", "default")
+        or (module["case_list_form"].get("post_form_workflow") or "default") not in ("case_list", "default")
+    ):
+        return None
+    return _condition(action) == "if"
+
+
+def registration_return_search_needs_created_case(use, manifest):
+    """HQ's CaseListFormWorkflow keeps the inline query before the case
+    selection it cuts. In a basic case-first menu with a standalone
+    registration of its type, the query takes the registration's allocated
+    ID. An active conditional create may leave that ID without a case.
+    Advanced, parent and subcase datum matches require the built frame.
+    """
+    return _case_list_form_reader(_registration_return_search)(use, manifest)
+
+
 def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
     """``menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of``: a module that shows
     its forms in the menu above (``put_in_root``) beside one of what HQ's build refuses there: its own
@@ -12669,6 +12724,9 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/case-list-form-on-a-put-in-root-module-whose-case-list-is-a-tile": (
         on_display_only_module_with_tile_list
+    ),
+    "menus-and-case-lists/case-list-form-return-search-needs-the-created-case": (
+        registration_return_search_needs_created_case
     ),
     "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
         default_on_multi_select_host

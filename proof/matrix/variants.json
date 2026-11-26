@@ -22945,6 +22945,27 @@
 	{
 		"id": "hq-lookups/itemset-filter-outside-predicate",
 		"base": "hq-lookups",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_outside_predicate"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["village"]],
+				"pointer": "/optionsSource/filter/left/fn",
+				"value": "position"
+			},
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["village"]],
+				"pointer": "/optionsSource/filter/left/args/0/term/kind",
+				"value": "field"
+			}
+		]
+	},
+	{
+		"id": "hq-lookups/itemset-filter-position-of-scalar",
+		"base": "hq-lookups",
 		"entry": "questions/itemset-filter-outside-predicate",
 		"standing": "not-yet",
 		"place": {
@@ -22957,7 +22978,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_filter_outside_predicate"
+			"name": "itemset_filter_position_of_scalar"
 		}
 	},
 	{
@@ -35150,6 +35171,24 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-dynamic-type",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-case-type-given-as-an-xpath",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_dynamic_type"
+		}
+	},
+	{
 		"id": "hq-questions/save-to-case-leaf-constraint",
 		"base": "hq-questions",
 		"entry": "questions/constraint-on-savetocase-case-leaves",
@@ -35475,20 +35514,29 @@
 	{
 		"id": "hq-questions/save-to-case-type-expression",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-case-type-given-as-an-xpath",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"change": {
 			"op": "named",
 			"name": "save_to_case_type_expression"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/caseType",
+				"value": "household"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeCalculation",
+				"value": {
+					"kind": "concat",
+					"parts": [
+						{ "kind": "term", "term": { "kind": "literal", "value": "house" } },
+						{ "kind": "term", "term": { "kind": "literal", "value": "hold" } }
+					]
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-type-outside-grammar",

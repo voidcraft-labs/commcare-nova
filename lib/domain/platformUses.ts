@@ -614,6 +614,10 @@ function moduleUses(
 	// form, ride on it.
 	const formsReadSearch = moduleFormsReadSearch(module);
 	const own: PlatformFeatureUse[] = [];
+	if (list?.deviceLookup !== undefined && wanted("case-list-android-lookup"))
+		own.push(
+			slotUse("case-list-android-lookup", owner, "caseListConfig.deviceLookup"),
+		);
 	if (formsReadSearch && wanted("forms-read-search"))
 		own.push(
 			slotUse("forms-read-search", owner, "caseSearchConfig.formsReadSearch"),

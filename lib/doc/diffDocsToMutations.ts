@@ -3206,11 +3206,14 @@ function diffCaseListMeta(
 		emptyText?: string | null;
 		selectButtonText?: string | null;
 		optimizations?: true | null;
+		deviceLookup?: CaseListConfig["deviceLookup"] | null;
 	} = {};
 	if (!deepEqual(prev.searchInputGroups, next.searchInputGroups))
 		patch.searchInputGroups = next.searchInputGroups
 			? cloneEntity(next.searchInputGroups)
 			: null;
+	if (!deepEqual(prev.deviceLookup, next.deviceLookup))
+		patch.deviceLookup = next.deviceLookup ?? null;
 	if (prev.optimizations !== next.optimizations)
 		patch.optimizations = next.optimizations ?? null;
 	for (const key of ["emptyText", "selectButtonText"] as const)

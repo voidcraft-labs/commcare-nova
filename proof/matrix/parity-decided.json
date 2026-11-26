@@ -238,7 +238,9 @@
 		"hq-connect-learn/connect-work-area-photo",
 		"hq-connect-learn/connect-work-area-update"
 	],
-	"hq-empty-search": [],
+	"hq-empty-search": [
+		"hq-empty-search/conditional-registration-returning-to-search"
+	],
 	"hq-expressions": [
 		"hq-expressions/inline-instance",
 		"hq-expressions/second-instance-without-id",
@@ -500,6 +502,7 @@
 		"hq-questions/number-appearance-read-by-no-runtime",
 		"hq-questions/ordinary-stock-answer",
 		"hq-questions/output-ref",
+		"hq-questions/photo-file-default",
 		"hq-questions/pollsensor",
 		"hq-questions/protected-message-forms",
 		"hq-questions/protected-message-identity",
@@ -520,13 +523,16 @@
 		"hq-questions/save-to-case-attachment",
 		"hq-questions/save-to-case-block-relevance",
 		"hq-questions/save-to-case-child-link",
+		"hq-questions/save-to-case-create-and-close",
 		"hq-questions/save-to-case-hyphenated-link-name",
 		"hq-questions/save-to-case-hyphenated-property",
 		"hq-questions/save-to-case-leaf-constraint",
 		"hq-questions/save-to-case-leaf-type",
 		"hq-questions/save-to-case-live-id",
 		"hq-questions/save-to-case-open-condition",
+		"hq-questions/save-to-case-owner-condition",
 		"hq-questions/save-to-case-reserved-key",
+		"hq-questions/save-to-case-type-expression",
 		"hq-questions/save-to-case-user-type",
 		"hq-questions/save-to-case-without-role",
 		"hq-questions/second-default",

@@ -24,6 +24,7 @@ import { attributeDisplayCondition } from "./documents/attributeDisplayCondition
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
+import { caseListDeviceLookup } from "./documents/caseListDeviceLookup";
 import { caseListIconAction } from "./documents/caseListIconAction";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
@@ -229,6 +230,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	webFormActivity,
 	labelSort,
 	customTile,
+	caseListDeviceLookup,
 	caseListIconAction,
 	closeConditions,
 	closeConditionUnparsable,

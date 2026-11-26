@@ -67,7 +67,10 @@ public final class AndroidAppAnswers {
     private static Intent result(Activity activity, JSONObject command) throws Exception {
         if (command.optBoolean("invalid")) return null;
         Intent result = new Intent();
-        if (command.has("primary")) result.putExtra(IntentCallout.INTENT_RESULT_VALUE, command.getString("primary"));
+        if (command.has("primary")) {
+            String primary = command.isNull("primary") ? null : command.getString("primary");
+            result.putExtra(IntentCallout.INTENT_RESULT_VALUE, primary);
+        }
         JSONObject values = command.optJSONObject("named");
         Bundle named = new Bundle();
         if (values != null) {

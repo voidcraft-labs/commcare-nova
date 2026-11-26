@@ -133,6 +133,12 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.caseType, after.caseType)
 					? { caseType: after.caseType }
 					: {}),
+				...(!deepEqual(
+					before.action === "create" ? before.typeCalculation : undefined,
+					after.typeCalculation,
+				)
+					? { typeCalculation: clearable(after.typeCalculation) }
+					: {}),
 				...(!deepEqual(before.target, after.target)
 					? { target: structuredClone(after.target) }
 					: {}),
@@ -996,6 +1002,16 @@ export function updateCaseOperationMutations(
 	);
 	if (existing === undefined) return [];
 	const value = { ...operation };
+	if (
+		value.action === "create" &&
+		existing.action === "create" &&
+		existing.typeCalculation !== undefined
+	) {
+		if (value.caseType === existing.caseType)
+			value.typeCalculation ??= existing.typeCalculation;
+		else if (deepEqual(value.typeCalculation, existing.typeCalculation))
+			delete value.typeCalculation;
+	}
 	return [
 		...caseOperationCatalogMutations(
 			doc,

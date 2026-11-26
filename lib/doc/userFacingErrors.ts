@@ -1322,6 +1322,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		det(e, "reason", "") === "order-fields"
 			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab orders its rows by a field it can't use. You can open Edit tabs and choose its ordering fields again.`
 			: `The Details tabs of ${q(modName(e))} no longer match the fields shown in Details. You can open Edit tabs and save the tabs again.`,
+	CASE_LIST_DEVICE_LOOKUP_INVALID: (e) => e.message,
 	CASE_LIST_LOAD_BEHAVIOR_INVALID: (e) => {
 		const subject =
 			e.details?.columnLabel !== undefined
@@ -2101,6 +2102,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A case with a conditional owner needs a new ID on each submission.",
 	CASE_OPERATION_CLOSE_ACTION_REQUIRED: () =>
 		"A close change can save these properties and close the case.",
+	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: () =>
+		"This change needs a calculation that always gives its chosen case type.",
 	CASE_OPERATION_CLOSE_CONDITION_INVALID: () =>
 		"This change needs to close the case before you can set a close condition.",
 	CASE_CHANGE_POSITION_INVALID: (e) => {

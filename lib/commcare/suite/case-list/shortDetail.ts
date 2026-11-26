@@ -100,6 +100,7 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseListDeviceLookup,
 	type CaseTileGrouping,
 	type Column,
 	caseListWordingUnitId,
@@ -549,6 +550,7 @@ export function buildShortDetail(args: {
 				expressions,
 				wire,
 				args.lookupNaming,
+				config.deviceLookup,
 			),
 			config,
 			config.columns.filter(
@@ -650,11 +652,34 @@ function buildDetailShell(
 	expressions: ModuleExpressionContexts,
 	wire: WireElementContext,
 	lookupNaming?: LookupWireNaming,
+	deviceLookup?: CaseListDeviceLookup,
 ): Element {
 	const titleEl = el("title", {}, [
 		el("text", {}, [el("locale", { id: "cchq.case" })]),
 	]);
-	const children: Element[] = [titleEl, ...fields];
+	const children: Element[] = [titleEl];
+	if (deviceLookup !== undefined)
+		children.push(
+			el(
+				"lookup",
+				{
+					action: deviceLookup.action,
+					name: deviceLookup.label,
+					auto_launch: String(deviceLookup.automatic === true),
+				},
+				[
+					...deviceLookup.extras.map(({ name, value }) =>
+						xel(
+							"extra",
+							{ attributes: { key: name }, xpath: { value: w.str(value) } },
+							wire,
+						),
+					),
+					...deviceLookup.responses.map((key) => el("response", { key })),
+				],
+			),
+		);
+	children.push(...fields);
 	// HQ adds the register action before the search action
 	// (`DetailContributor.build_detail`: `add_register_action`, then
 	// `get_case_search_action`).
