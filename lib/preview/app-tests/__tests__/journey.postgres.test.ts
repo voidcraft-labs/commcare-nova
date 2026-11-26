@@ -5432,12 +5432,23 @@ it("automatically opens and atomically closes the whole ordered case datum", {
 			savedInTest: true,
 			effects: { primaryCaseIds: caseIds },
 		});
-		const rows = await sql<{ case_id: string; status: string }>`
-			SELECT case_id, status FROM ${sql.id(appTestNamespace(current.testId), "cases")} ORDER BY case_id
+		const rows = await sql<{
+			case_id: string;
+			case_type: string;
+			status: string;
+		}>`
+			SELECT case_id, case_type, status FROM ${sql.id(appTestNamespace(current.testId), "cases")} ORDER BY case_id
 		`.execute(h.db());
-		expect(rows.rows).toEqual(
-			caseIds.map((case_id) => ({ case_id, status: "closed" })),
+		expect(rows.rows.filter((row) => row.case_type === "person")).toEqual(
+			caseIds.map((case_id) => ({
+				case_id,
+				case_type: "person",
+				status: "closed",
+			})),
 		);
+		expect(rows.rows.filter((row) => row.case_type !== "person")).toEqual([
+			expect.objectContaining({ case_type: "commcare-user", status: "open" }),
+		]);
 	} finally {
 		await step({ kind: "finish" });
 	}
