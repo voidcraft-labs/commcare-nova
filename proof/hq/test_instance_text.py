@@ -638,7 +638,12 @@ def test_working_suite_lookup_instances_follow_their_physical_navigation_scope(
             source_answer = operations.source_read(state, app_id, credential)
             recorded = dict(operations.source_factory_answers(state, app_id, credential, source_answer))
             suite = recorded[f"/a/{state.domain}/apps/download/{app_id}/suite.xml"]
-            assert recorded["source-check"].body == source_answer.body
+            assert recorded["source-check"].status == 200
+            # Each HQ source export remints form IDs. The saved conditions
+            # are what the suite request must leave intact.
+            reread_menu = json.loads(recorded["source-check"].body)["modules"][0]
+            assert reread_menu["module_filter"] == f"{ordinary} > 0"
+            assert [form["form_filter"] for form in reread_menu["forms"]] == [f"{grouped} > 0"] * 2
         assert suite.status == 200
 
     def source(scope):
