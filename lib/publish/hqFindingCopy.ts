@@ -330,9 +330,7 @@ export const FINDING_COPY: Readonly<
 	},
 	"question-logic": {},
 	"question-media": {},
-	"question-text": {
-		"not-yet": "This uses a kind of question text, which Nova can't hold yet.",
-	},
+	"question-text": {},
 	"question-types": {},
 	repeats: {},
 	"save-to-case": {
@@ -570,6 +568,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"questions/video-inline-as-the-only-content-of-a-help-text":
+		"The inline video in this question’s help cannot play. Add help text and attach the file as a regular video, or move the inline video to the question label.",
 	"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks":
 		"A menu or form display condition here reads a lookup table or column whose name holds a letter outside unaccented a to z, and CommCare HQ checks those conditions with a reader that can't read it, so it won't build the app. Renaming the table or column in CommCare HQ to unaccented letters, digits, _, . and -, or changing the condition, fixes it.",
 	"expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks":

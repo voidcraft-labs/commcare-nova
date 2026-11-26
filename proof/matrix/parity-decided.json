@@ -307,7 +307,10 @@
 	],
 	"hq-media": [
 		"hq-media/form-media-for-every-language",
-		"hq-media/video-inline-as-only-help"
+		"hq-media/label-video-inline",
+		"hq-media/video-as-only-help",
+		"hq-media/video-inline-as-only-help",
+		"hq-media/video-inline-on-help"
 	],
 	"hq-menus": [
 		"hq-menus/after-submit-to-the-parent-menu",

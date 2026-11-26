@@ -1,6 +1,7 @@
 package nova.proof.android;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Intent;
 import android.view.View;
 import android.widget.CheckBox;
@@ -22,6 +23,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
+import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowLooper;
 
 import java.lang.reflect.Method;
@@ -479,6 +481,34 @@ final class Forms {
 
     /** Set by the reader where a request asks for each screen's views as Android laid them out. */
     static boolean views;
+    static JSONArray helpQuestions;
+
+    private static boolean readsHelp(String reference) {
+        if (helpQuestions == null) return false;
+        for (int i = 0; i < helpQuestions.length(); i++) {
+            if (helpQuestions.optString(i).equals(reference)) return true;
+        }
+        return false;
+    }
+
+    private static JSONObject openHelp(QuestionWidget widget) throws Exception {
+        // QuestionWidget.addHelpPlaceholder assigns the trigger this ID.
+        View trigger = widget.findViewById(847294011);
+        if (trigger == null || trigger.getVisibility() != View.VISIBLE) return null;
+        Dialog before = ShadowDialog.getLatestDialog();
+        if (!trigger.performClick()) throw new AssertionError("Android did not handle the help button");
+        ShadowLooper.idleMainLooper();
+        Dialog dialog = ShadowDialog.getLatestDialog();
+        if (dialog == null || dialog == before || !dialog.isShowing() || dialog.getWindow() == null) {
+            throw new AssertionError("Android did not open its help dialog");
+        }
+        try {
+            return Views.describe(dialog.getWindow().getDecorView());
+        } finally {
+            dialog.dismiss();
+            ShadowLooper.idleMainLooper();
+        }
+    }
 
     private static JSONObject screen(FormEntryActivity activity) throws Exception {
         JSONObject found = new JSONObject();
@@ -507,7 +537,9 @@ final class Forms {
                 JSONObject question = new JSONObject();
                 question.put("widget", widget.getClass().getSimpleName());
                 question.put("text", String.valueOf(widget.getPrompt().getLongText()));
-                question.put("reference", String.valueOf(widget.getPrompt().getIndex().getReference()));
+                String reference = String.valueOf(widget.getPrompt().getIndex().getReference());
+                question.put("reference", reference);
+                if (readsHelp(reference)) question.put("openedHelp", Screens.orNull(openHelp(widget)));
                 question.put("required", widget.getPrompt().isRequired());
                 if (controls) {
                     question.put("control", control(widget));

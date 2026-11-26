@@ -354,29 +354,73 @@ describe("a question label's other texts", () => {
 		});
 	});
 
-	it("keeps an empty Android help affordance out of the unshown-video cleanup", async () => {
+	it("reports video-only inline help as broken and reads ordinary videos and neighboring help", async () => {
 		const original = labelTexts();
 		const question = original.fields[NAME];
 		if (question?.kind !== "text") throw new Error("Expected a text question.");
 		original.fields[NAME] = { ...question, help: proseText("Ordinary help") };
-		const insertVideo = (xml: string, defaultText: string) =>
-			xml.replaceAll(
-				'<value>Ordinary help</value><value form="markdown">Ordinary help</value>',
-				`<value>${defaultText}</value><value form="video-inline">jr://file/commcare/explanation.mp4</value>`,
+		const path = "jr://file/commcare/explanation.mp4";
+		const assetId = "00000000-0000-4000-8000-000000000040";
+		const code = "questions/video-inline-as-the-only-content-of-a-help-text";
+		const readHelp = async (
+			text: string,
+			mediaForm: "video-inline" | "video",
+			markdown = "",
+		) =>
+			readHqApp(
+				await inputFor(
+					exportedBody(original, {
+						xml: (xml) =>
+							xml.replaceAll(
+								'<value>Ordinary help</value><value form="markdown">Ordinary help</value>',
+								`<value>${text}</value><value form="${mediaForm}">${path}</value>${markdown}`,
+							),
+					}),
+					{
+						media: {
+							resolve: (reference) =>
+								reference === path
+									? { kind: "asset", assetId, mediaKind: "video" }
+									: { kind: "no-entry" },
+						},
+					},
+				),
 			);
-		const held = await read(original, (xml) => insertVideo(xml, ""));
-		expect(held.kind).toBe("account");
-		if (held.kind !== "account")
-			throw new Error("Expected a help affordance finding.");
-		expect(JSON.stringify(held.findings)).toContain(
-			"video-inline-as-the-only-content-of-a-help-text",
+		const broken = await readHelp("", "video-inline");
+		expect(broken.kind).toBe("account");
+		if (broken.kind !== "account") throw new Error("Expected a help finding.");
+		expect(broken.findings).toEqual([
+			expect.objectContaining({ code, standing: "fix-in-hq" }),
+		]);
+
+		const ordinary = await readHelp("", "video");
+		expect(ordinary.kind).toBe("read");
+		if (ordinary.kind !== "read")
+			throw new Error("Expected ordinary video help.");
+		expect(fieldById(ordinary.draft.doc, "name").help_media).toMatchObject({
+			video: assetId,
+		});
+		const supported = await readHelp("Ordinary help", "video-inline");
+		expect(supported.kind).toBe("read");
+		if (supported.kind !== "read")
+			throw new Error("Expected ordinary help text.");
+		expect(fieldById(supported.draft.doc, "name").help).toEqual(
+			proseText("Ordinary help"),
 		);
-		const ordinary = await read(original, (xml) =>
-			insertVideo(xml, "Ordinary help"),
+		expect(supported.draft.facts.unheldMedia).toContainEqual(
+			expect.objectContaining({ path, form: "video-inline", role: ["help"] }),
 		);
-		expect(
-			JSON.stringify(ordinary.kind === "account" ? ordinary.findings : []),
-		).not.toContain("video-inline-as-the-only-content-of-a-help-text");
+		const differingMarkdown = await readHelp(
+			"",
+			"video-inline",
+			'<value form="markdown">Help exists on Android</value>',
+		);
+		expect(differingMarkdown.kind).toBe("account");
+		if (differingMarkdown.kind !== "account")
+			throw new Error("Expected the separate Markdown finding.");
+		expect(differingMarkdown.findings.map((finding) => finding.code)).toEqual([
+			"questions/markdown-form-differing-from-the-default-text",
+		]);
 	});
 
 	it("keeps a group's default and long forms as separately editable text", async () => {

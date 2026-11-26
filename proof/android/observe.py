@@ -202,6 +202,7 @@ def app(
     device: str = "phone",
     commands=None,
     views: bool = False,
+    help_questions: tuple[str, ...] = (),
     type_refused: bool = False,
     keys: bool = False,
     controls: bool = False,
@@ -270,6 +271,8 @@ def app(
         options["commands"] = list(commands)
     if views:
         options["views"] = True
+    if help_questions:
+        options["helpQuestions"] = list(help_questions)
     if type_refused:
         options["typeRefused"] = True
     if controls:

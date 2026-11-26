@@ -3811,6 +3811,17 @@ def video_inline_as_only_help(authoring, app_id):
     )
 
 
+def video_as_only_help(authoring, app_id):
+    """An ordinary help video keeps its file even when help has no text."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-as-only-help",
+        "help",
+        '<value/><value form="video">jr://file/commcare/video/data/animal_name.mp4</value>',
+    )
+
+
 def hint_media(authoring, app_id):
     """A hint on ``animal_name`` with an image, at the path its label's image names."""
     _animal_name_text(authoring, app_id, "hint-media", "hint", "<value>Its own name</value>" + ANIMAL_NAME_IMAGE)
