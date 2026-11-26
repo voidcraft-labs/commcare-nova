@@ -283,6 +283,18 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "term":
 				// A read standing as a condition: a yes or no CommCare holds.
 				return term(value.term);
+			case "call":
+				// A case change's condition on one form answer read as CommCare
+				// reads an answer alone (`typeChecker.ts::effectiveBooleanOfAnswer`).
+				if (
+					value.fn === "boolean" &&
+					value.args.length === 1 &&
+					value.args[0]?.kind === "term"
+				)
+					return call("boolean", term(value.args[0].term));
+				throw new Error(
+					`The saved ${value.fn}() call has no record condition spelling.`,
+				);
 			case "and":
 			case "or":
 				return call(

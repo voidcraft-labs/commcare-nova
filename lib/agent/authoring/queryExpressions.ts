@@ -675,6 +675,19 @@ function compiler(bindings: QueryBindings) {
 				throw new AuthoringInputError("when-provided() needs a Search answer.");
 			return { kind: "when-input-present", input, clause: predicate(args[1]) };
 		}
+		// A case change's condition on one form answer read as CommCare reads
+		// an answer alone: true wherever it is not blank, apart from a number
+		// answered 0. The checker admits it as a case change's condition alone
+		// (`typeChecker.ts::effectiveBooleanOfAnswer`), so it is no record
+		// function anywhere else.
+		if (name === "boolean") {
+			const read = args.length === 1 ? term(args[0]) : undefined;
+			if (read?.kind !== "field")
+				throw new AuthoringInputError(
+					"boolean() reads one form answer as a case change's condition, such as boolean(#form/member_left).",
+				);
+			return { kind: "call", fn: name, args: [{ kind: "term", term: read }] };
+		}
 		if (name === "exists" || name === "missing") {
 			arity(name, args);
 			const via = relation(args[0]);

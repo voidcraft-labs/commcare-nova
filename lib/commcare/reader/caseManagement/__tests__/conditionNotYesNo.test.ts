@@ -6,17 +6,23 @@
  * select here), the reading holds the explicit operation Core applies,
  * `boolean(...)` of the question, which the gate admits as a case change's
  * condition and Nova's emitter states back as the same `boolean_true`, so
- * CommCare HQ's stored condition comes back as it was. The plausible
+ * CommCare HQ's stored condition comes back as it was. The chat and MCP
+ * tools read that condition as `boolean(#form/<question>)` and take it back
+ * in the same spelling. The plausible
  * failure: the reader admitting a bare read the gate refuses, which stopped
  * CommCare HQ's WASH starter app at the gate; refusing the condition it can
- * now hold; or holding it in a shape that comes back as another operator or
- * question.
+ * now hold; holding it in a shape that comes back as another operator or
+ * question; or the record dialect neither printing nor reading it, which
+ * leaves the form's case changes unreadable to an agent.
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc } from "@/lib/domain";
+import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { type BlueprintDoc, moduleUuidOfForm, type Uuid } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
@@ -226,5 +232,61 @@ describe("a child case's condition reading one question alone", () => {
 			fn: "boolean",
 			args: [AT("outcome")],
 		});
+	});
+
+	it("is read by the case change tools as boolean(...) and written back in that spelling", async () => {
+		const { outcome } = await reading(inspection(), "/data/outcome");
+		if (outcome.kind !== "read") throw new Error("The form does not come in.");
+		const doc = outcome.draft.doc;
+		const [formUuid] = Object.entries(doc.forms).find(
+			([, form]) => form.name === "Inspection",
+		) as [Uuid, unknown];
+		const moduleUuid = moduleUuidOfForm(doc, formUuid);
+		if (moduleUuid === undefined) throw new Error("The form has a menu.");
+		// Called as a chat or MCP client calls the tools: authored text in and out.
+		const h = makeAuthoringHarness({}, doc);
+		const authored = (await h.call("getCaseOperations", {
+			moduleUuid,
+			formUuid,
+		})) as { operations: Record<string, unknown>[] };
+		const operation = doc.forms[formUuid]?.caseOperations?.find(
+			(one) => one.id === "referral",
+		);
+		if (operation === undefined) throw new Error("The form opens a referral.");
+		const projected = authored.operations.find(
+			(one) => one.uuid === operation.uuid,
+		);
+		if (projected === undefined)
+			throw new Error("The tool reads the referral.");
+		expect(projected.condition).toBe("boolean(#form/outcome)");
+		// The same condition over another answer, written back by an agent.
+		const {
+			uuid: _uuid,
+			placement: _placement,
+			placementKept: _kept,
+			...input
+		} = projected;
+		const written = await h.call("updateCaseOperation", {
+			moduleUuid,
+			formUuid,
+			operationUuid: operation.uuid,
+			operation: { ...input, condition: "boolean(#form/referral_name)" },
+		});
+		expect(written).not.toHaveProperty("error");
+		const after = h.currentDoc();
+		const condition = after.forms[formUuid]?.caseOperations?.find(
+			(one) => one.uuid === operation.uuid,
+		)?.condition;
+		expect(condition).toMatchObject({
+			kind: "call",
+			fn: "boolean",
+			args: [{ kind: "term", term: { kind: "field" } }],
+		});
+		const verdict = mutationCommitVerdict(
+			after,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 	});
 });
