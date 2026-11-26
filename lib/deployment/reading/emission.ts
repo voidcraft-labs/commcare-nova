@@ -23,7 +23,7 @@ import type {
 	HqAppSource,
 	HqAppSourceModule,
 } from "@/lib/commcare/hq/appSource";
-import { readBuildProfiles } from "@/lib/commcare/hq/appSource";
+import { readBuildProfiles } from "@/lib/commcare/hq/buildProfiles";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
 import { expectedXmlnsOf } from "@/lib/commcare/hq/sharedFormSource";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -288,6 +288,7 @@ function sourceFromServed(
 		if (value === undefined) delete raw[key];
 		else raw[key] = value;
 	}
+	const modules = servedModules(body);
 	return {
 		docType: "Application",
 		buildSpecVersion: source.buildSpecVersion,
@@ -306,7 +307,7 @@ function sourceFromServed(
 			string,
 			boolean
 		>,
-		modules: servedModules(body),
+		modules,
 		raw,
 		name: text(body.name),
 		lastModified: null,
@@ -315,7 +316,7 @@ function sourceFromServed(
 			readBuildProfiles(
 				raw.build_profiles ?? NO_ENTRIES,
 				new Set(Array.isArray(body.langs) ? body.langs : []),
-				servedModules(body).length,
+				modules.length,
 			) ?? [],
 	};
 }
