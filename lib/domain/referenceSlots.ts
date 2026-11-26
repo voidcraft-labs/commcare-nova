@@ -1580,7 +1580,6 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	// finding gates a change that leaves it naming nothing; no expression
 	// reads it.
 	"submissionPlacement.parent": "config",
-	"submissionPlacement.position": "config",
 	"optionsSource.options[].plainLabel": "config",
 	label_media: "media",
 	help_media: "media",

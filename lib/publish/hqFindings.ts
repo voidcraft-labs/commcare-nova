@@ -63,6 +63,7 @@ export const SUBJECTS = [
 	"advanced-menus",
 	"after-submit",
 	"android-app-dependencies",
+	"answer-groups",
 	"app-document",
 	"app-logos",
 	"app-name",

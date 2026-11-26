@@ -676,8 +676,8 @@ it("offers and reparses the picked answer after its submitted address changes", 
 		throw new Error("The original selected answer did not bind.");
 	const changed = structuredClone(doc);
 	changed.forms[form.uuid].dataRootName = "screening";
-	changed.fields[chosen].submissionPlacement = { parent: right, position: 0 };
-	changed.fields[other].submissionPlacement = { parent: left, position: 0 };
+	changed.fields[chosen].submissionPlacement = { parent: right };
+	changed.fields[other].submissionPlacement = { parent: left };
 	expect(referenceContextChanged(changed, doc)).toBe(true);
 	const reference = buildFormReferenceContext(changed, form.uuid);
 	const paths = dataPathSource(() => reference)(ctxFor("/screening/right"));

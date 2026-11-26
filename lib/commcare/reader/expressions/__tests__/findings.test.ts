@@ -83,6 +83,7 @@ const ISSUES: Readonly<Record<FormParseIssueCode, true>> = {
 };
 
 const CODES: Readonly<Record<CheckErrorCode, true>> = {
+	"capture-default-not-blank": true,
 	"unknown-property": true,
 	"unknown-search-input": true,
 	"unknown-form-field": true,

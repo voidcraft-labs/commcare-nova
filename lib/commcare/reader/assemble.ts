@@ -48,7 +48,10 @@ import {
 	proseText,
 } from "@/lib/domain/prose";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
-import { submissionLayout } from "@/lib/domain/submissionLayout";
+import {
+	designerScreenOrder,
+	submissionLayout,
+} from "@/lib/domain/submissionLayout";
 import {
 	hasGeneratedWording,
 	localizeTranslationUnit,
@@ -293,70 +296,30 @@ function flagPrintsNothing(
 }
 
 /**
- * A form's controls and submitted answers as the reader returns them
- * (`xform/join.ts::order`). The export keeps only the submitted order of a
- * bodyless field (a Hidden Value, which has no control), so the reader puts it
- * in its submitted slot among its screen siblings, the visible ones filling
- * the other slots in the worker's order. Where a group's submitted children
- * then differ from its screen children, every one of them carries its
- * submitted position; elsewhere none does.
+ * A form's screen order and placements as the reader returns them
+ * (`xform/join.ts::order`): the order the form designer's question tree holds
+ * (`submissionLayout.ts::designerScreenOrder`), which differs from an
+ * authored one only in where a value with no question, or a question whose
+ * answer stands under another group, sits among its group's questions; and no
+ * placement naming the question's own group. The export prints the same bytes
+ * for both.
  */
 function placementAsRead(doc: BlueprintDoc, form: Uuid): BlueprintDoc {
 	const layout = submissionLayout(form, doc.fields, doc.fieldOrder);
-	if (!layout.independent || layout.problems.size > 0) return doc;
-	const dataIndex = new Map<Uuid, number>();
-	const visit = (parent: Uuid): void => {
-		for (const uuid of layout.children.get(parent) ?? []) {
-			dataIndex.set(uuid, dataIndex.size);
-			visit(uuid);
-		}
-	};
-	visit(form);
-	const screens = new Map<Uuid, Uuid[]>();
-	for (const parent of [form, ...layout.controlParents.keys()]) {
-		const list = doc.fieldOrder[parent];
-		if (list === undefined) continue;
-		const sorted = [...list].sort(
-			(a, b) => (dataIndex.get(a) ?? 0) - (dataIndex.get(b) ?? 0),
-		);
-		const visible = list.filter((uuid) => doc.fields[uuid]?.kind !== "hidden");
-		let slot = 0;
-		screens.set(
-			parent,
-			sorted.map((uuid) =>
-				doc.fields[uuid]?.kind === "hidden" ? uuid : (visible[slot++] as Uuid),
-			),
-		);
-	}
-	const placed = new Map<Uuid, { parent: Uuid; position: number }>();
-	for (const [parent, siblings] of layout.children) {
-		const shown = screens.get(parent) ?? [];
-		if (
-			shown.length === siblings.length &&
-			siblings.every((uuid, index) => shown[index] === uuid)
-		)
-			continue;
-		for (const [position, uuid] of siblings.entries())
-			placed.set(uuid, { parent, position });
-	}
+	if (layout.problems.size > 0) return doc;
+	const screens = designerScreenOrder(form, doc.fields, doc.fieldOrder);
+	const redundant = [...layout.controlParents].flatMap(([uuid, parent]) =>
+		doc.fields[uuid]?.submissionPlacement?.parent === parent ? [uuid] : [],
+	);
 	const unchanged =
+		redundant.length === 0 &&
 		[...screens].every(([parent, list]) =>
 			sameJson(list, doc.fieldOrder[parent]),
-		) &&
-		[...dataIndex.keys()].every((uuid) =>
-			sameJson(placed.get(uuid), doc.fields[uuid]?.submissionPlacement),
 		);
 	if (unchanged) return doc;
 	return withCandidate(doc, (draft) => {
-		for (const [parent, list] of screens) draft.fieldOrder[parent] = list;
-		for (const uuid of dataIndex.keys()) {
-			const field = draft.fields[uuid] as {
-				submissionPlacement?: { parent: Uuid; position: number };
-			};
-			const placement = placed.get(uuid);
-			if (placement === undefined) delete field.submissionPlacement;
-			else field.submissionPlacement = placement;
-		}
+		for (const [parent, list] of screens) draft.fieldOrder[parent] = [...list];
+		for (const uuid of redundant) delete draft.fields[uuid].submissionPlacement;
 	});
 }
 
@@ -371,10 +334,11 @@ export function placementsAsRead(doc: BlueprintDoc): BlueprintDoc {
 
 export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 	{
-		/** A form whose answers are submitted apart from their screens: a
-		 *  bodyless field's screen position, and which answers name their
-		 *  submitted place, are what the export prints of them, as the reader
-		 *  returns them (`placementAsRead`). */
+		/** A form whose answers are submitted apart from their screens: the
+		 *  screen order the form designer's question tree holds, which places a
+		 *  value with no question and a question whose answer stands elsewhere
+		 *  where the export cannot say otherwise, as the reader returns them
+		 *  (`placementAsRead`). */
 		id: "submitted-placement-as-read",
 		kind: "one-wire",
 		apply: (doc) => placementsAsRead(doc),

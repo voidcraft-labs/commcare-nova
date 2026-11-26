@@ -74,7 +74,7 @@ export const moveFieldInputSchema = fieldAddressSchema
 			.enum(["screen", "submission"])
 			.optional()
 			.describe(
-				"Move only where the question appears on screen, or only where its value is saved in the submitted form. Omit to move a question with its value when they share a place.",
+				"Move only where the question appears on screen, or only where its answer is saved in the submitted form. With submission, name the group with parentUuid and no anchor: the answer follows that group's own values, in the order CommCare HQ's form designer keeps, and naming the question's own group puts it back. Omit to move a question with its answer.",
 			),
 		beforeFieldUuid: uuidSchema
 			.optional()
@@ -141,6 +141,10 @@ export const moveFieldTool = {
 				);
 			}
 
+			if (input.where === "submission" && anchorRef !== undefined)
+				return fail(
+					`A submitted answer names only the group that holds it: "${moved.id}"'s answer follows that group's own values, in the order CommCare HQ's form designer keeps. Pass parentUuid alone.`,
+				);
 			let anchor: Field | undefined;
 			if (anchorRef !== undefined) {
 				const resolvedAnchor = resolveOther(anchorRef);
@@ -160,10 +164,7 @@ export const moveFieldTool = {
 			// name the actual parent instead of silently picking a side.
 			let destParentUuid: Uuid;
 			if (anchor) {
-				destParentUuid =
-					submitted?.parents.get(anchor.uuid) ??
-					doc.fieldParent[anchor.uuid] ??
-					formUuid;
+				destParentUuid = doc.fieldParent[anchor.uuid] ?? formUuid;
 				if (parentUuid !== undefined) {
 					const anchorParentField = doc.fields[destParentUuid];
 					const anchorParentName = anchorParentField
@@ -241,9 +242,7 @@ export const moveFieldTool = {
 			// share a place (the reducer's rule), so the value lands beside the
 			// destination's values too.
 			const valueFollows =
-				input.where === undefined &&
-				layout.parents.get(moved.uuid) ===
-					layout.controlParents.get(moved.uuid);
+				input.where === undefined && moved.submissionPlacement === undefined;
 			if (
 				(input.where === "submission" || valueFollows) &&
 				collision !== undefined
@@ -258,17 +257,19 @@ export const moveFieldTool = {
 			// the same gesture land in the same array position. The moved field
 			// is excluded from the neighbor set so a same-parent reorder anchors
 			// among the other siblings.
-			const after = fieldSlotAfter(
-				doc,
-				destParentUuid,
-				anchor
-					? anchorSide === "before"
-						? { beforeUuid: anchor.uuid }
-						: { afterUuid: anchor.uuid }
-					: {},
-				moved.uuid,
-				input.where,
-			);
+			const after =
+				submitted !== undefined
+					? null
+					: fieldSlotAfter(
+							doc,
+							destParentUuid,
+							anchor
+								? anchorSide === "before"
+									? { beforeUuid: anchor.uuid }
+									: { afterUuid: anchor.uuid }
+								: {},
+							moved.uuid,
+						);
 
 			// A question saving to a new child case of its repeat moves that
 			// save to the child case of its new repeat, in the same batch

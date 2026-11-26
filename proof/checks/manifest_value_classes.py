@@ -9648,6 +9648,64 @@ def data_parent_crossing_a_repeat(use, manifest):
     return _nearest_repeat(form, path) != control_repeat
 
 
+def _placed_control(use):
+    """A body control's form, element, its data path (``ref``, or a repeat's ``nodeset``) and the path of the group
+    or repeat it stands in on screen as Vellum's parser takes its parent (the nearest enclosing ``group`` with a
+    ``ref`` or ``repeat`` with a ``nodeset``; the data root at the body's top); ``(form, None, None, None)`` for a
+    use on anything else, and None for the path where the control's is not absolute."""
+    form, element = _form_element(use)
+    if form is None or form.body is None or element not in form.body_elements:
+        return form, None, None, None
+    attribute = "nodeset" if _local(element) == "repeat" else "ref"
+    if element.get(attribute) is None or form.data_root is None:
+        return form, None, None, None
+    path = element.get(attribute).strip()
+    screen = f"/{_local(form.data_root)}"
+    node = element.getparent()
+    while node is not None and node is not form.body:
+        if _local(node) == "repeat" and node.get("nodeset"):
+            screen = node.get("nodeset").strip()
+            break
+        if _local(node) == "group" and node.get("ref"):
+            screen = node.get("ref").strip()
+            break
+        node = node.getparent()
+    return form, element, (path if path.startswith("/") else None), screen
+
+
+def data_parent_at_the_form_root(use, manifest):
+    """``questions/data-parent-at-the-form-root-under-a-grouped-control``: a body control inside a group whose data
+    node is a child of the data root. Vellum's parser names that data parent ``#form``
+    (``parser.js::parseControlElement``), and its Data Parent check reports "Must be valid path" on every open. A
+    control inside a repeat is the crossing class's."""
+    form, element, path, screen = _placed_control(use)
+    if element is None:
+        return None if form is None else False
+    if path is None:
+        return None
+    if data_parent_crossing_a_repeat(use, manifest):
+        return False
+    root = f"/{_local(form.data_root)}"
+    return screen != root and path.rsplit("/", 1)[0] == root
+
+
+def data_parent_on_a_group_or_repeat(use, manifest):
+    """``questions/data-parent-on-a-group-or-repeat``: a group's or repeat's control whose data node stands under
+    another group than the one the control stands in, at a place other than the data root. Vellum's save writes a
+    group's own answers only under the group's place in its data tree, before it places the group itself
+    (``form.js::dataTree``), so the group's answers are lost. The data root and a crossed repeat are their own
+    classes'."""
+    form, element, path, screen = _placed_control(use)
+    if element is None or _local(element) not in ("group", "repeat"):
+        return None if form is None else False
+    if path is None:
+        return None
+    if data_parent_crossing_a_repeat(use, manifest):
+        return False
+    parent = path.rsplit("/", 1)[0]
+    return parent != screen and parent != f"/{_local(form.data_root)}"
+
+
 # The keys a class does not declare that the inventory's rows name, by class (``menus-and-case-lists/
 # module-display-separately``, ``module-referral-label-case-label`` (HQ's agriculture template app carries both on
 # every menu), ``display-style-on-an-advanced-or-shadow-module``,
@@ -10339,6 +10397,8 @@ VALUE_CLASSES = {
     "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": appearance_token_no_runtime_reads,
     "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": case_variant_read_differently,
     "questions/data-parent-crossing-a-repeat": data_parent_crossing_a_repeat,
+    "questions/data-parent-at-the-form-root-under-a-grouped-control": data_parent_at_the_form_root,
+    "questions/data-parent-on-a-group-or-repeat": data_parent_on_a_group_or_repeat,
     "questions/any-other-bind-id-named-by-a-control-s-bind": other_bind_id,
     "questions/label-big-image": _big_image("label"),
     "questions/choice-big-image": _big_image("choice"),

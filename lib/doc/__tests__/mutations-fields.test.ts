@@ -218,9 +218,9 @@ describe("field topology and identity", () => {
 		};
 		expect(withIdentityMoves(doc, [move]).moves).toEqual([]);
 		expect(
-			withIdentityMoves(doc, [{ ...move, where: "submission" }]).moves.map(
-				(m) => m.to,
-			),
+			withIdentityMoves(commit(doc, [move]), [
+				{ ...move, where: "submission", after: null },
+			]).moves.map((m) => m.to),
 		).toEqual([{ answerPath: "/data/child" }]);
 	});
 
@@ -423,64 +423,85 @@ describe("field topology and identity", () => {
 		expect(next.fieldParent[children[0]]).toBe(groupPlan.cloneUuid);
 		expect(duplicateFieldMutations(next, Q("gone"))).toBeUndefined();
 	});
-	it("carries an answer with its question on an ordinary move, and keeps one placed on its own", () => {
-		// Placing child's answer at the form's top level writes a placement on
-		// every sibling there, a and b included.
-		const separated = commit(fixture(), [
+	it("carries ordinary answers on screen moves and keeps explicitly placed answers in their groups", () => {
+		const source = commit(fixture(), [
 			{
 				kind: "moveField",
-				uuid: Q("child"),
+				uuid: Q("a"),
 				where: "submission",
-				toParentUuid: F,
-				after: Q("b"),
+				toParentUuid: Q("group"),
+				after: null,
 			},
 		]);
-		expect(separated.fields[Q("a")].submissionPlacement).toBeDefined();
-		const moved = commit(separated, [
+		expect(
+			submissionLayout(F, source.fields, source.fieldOrder).children.get(
+				Q("group"),
+			),
+		).toEqual([Q("child"), Q("a")]);
+		const moved = commit(source, [
+			{ kind: "moveField", uuid: Q("child"), toParentUuid: F, after: Q("b") },
+		]);
+		expect(
+			submissionLayout(F, moved.fields, moved.fieldOrder).children.get(
+				Q("group"),
+			),
+		).toEqual([Q("a")]);
+		expect(
+			submissionLayout(F, moved.fields, moved.fieldOrder).children.get(F),
+		).toEqual([Q("b"), Q("child"), Q("group")]);
+		const together = commit(moved, [
 			{
 				kind: "moveField",
 				uuid: Q("a"),
 				toParentUuid: Q("group"),
-				after: Q("child"),
+				after: null,
 			},
 		]);
-		const layout = submissionLayout(F, moved.fields, moved.fieldOrder);
-		expect(layout.parents.get(Q("a"))).toBe(Q("group"));
-		expect(layout.parents.get(Q("child"))).toBe(F);
-		expect(layout.children.get(F)).toEqual([Q("b"), Q("child"), Q("group")]);
-		expect(layout.children.get(Q("group"))).toEqual([Q("a")]);
-		// child's own answer stays at the top level when its question moves.
-		const back = commit(moved, [
-			{ kind: "moveField", uuid: Q("child"), toParentUuid: F, after: null },
-		]);
-		const after = submissionLayout(F, back.fields, back.fieldOrder);
-		expect(after.children.get(F)).toEqual([Q("b"), Q("child"), Q("group")]);
-		expect(after.parents.get(Q("a"))).toBe(Q("group"));
-		// Once screen and submission agree again, no placement is left.
-		const agreed = commit(back, [
-			{ kind: "moveField", uuid: Q("child"), toParentUuid: F, after: Q("b") },
-			{ kind: "moveField", uuid: Q("a"), toParentUuid: F, after: null },
-		]);
-		expect(agreed.fieldOrder[F]).toEqual([
-			Q("a"),
-			Q("b"),
-			Q("child"),
-			Q("group"),
-		]);
+		expect(together.fields[Q("a")].submissionPlacement).toBeUndefined();
 		expect(
-			Object.values(agreed.fields).filter(
-				(field) => field.submissionPlacement !== undefined,
+			submissionLayout(F, together.fields, together.fieldOrder).children.get(
+				Q("group"),
 			),
-		).toEqual([]);
+		).toEqual([Q("a")]);
 	});
-	it("duplicates the screen with fresh answers beside their independently placed originals", () => {
+
+	it("refuses to place a grouped question's answer at the form root", () => {
+		const verdict = mutationCommitVerdict(
+			fixture(),
+			[
+				{
+					kind: "moveField",
+					uuid: Q("child"),
+					where: "submission",
+					toParentUuid: F,
+					after: null,
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			verdict.ok ? [] : verdict.findings.map((finding) => finding.code),
+		).toContain("FIELD_SUBMISSION_PLACEMENT");
+	});
+
+	it("duplicates a screen while keeping its explicitly placed answer under the same external group", () => {
 		const source = commit(fixture(), [
+			{
+				kind: "addField",
+				parentUuid: F,
+				field: {
+					uuid: Q("receiving"),
+					id: "receiving",
+					kind: "group",
+					label: proseText("Receiving"),
+				},
+			},
 			{
 				kind: "moveField",
 				uuid: Q("child"),
 				where: "submission",
-				toParentUuid: F,
-				after: Q("b"),
+				toParentUuid: Q("receiving"),
+				after: null,
 			},
 		]);
 		const clone = duplicateFieldMutations(source, Q("group"));
@@ -489,14 +510,7 @@ describe("field topology and identity", () => {
 		const [child] = result.fieldOrder[clone.cloneUuid];
 		const layout = submissionLayout(F, result.fields, result.fieldOrder);
 		expect(result.fields[child].id).toBe("child_2");
-		expect(layout.children.get(F)).toEqual([
-			Q("a"),
-			Q("b"),
-			Q("child"),
-			child,
-			Q("group"),
-			clone.cloneUuid,
-		]);
+		expect(layout.children.get(Q("receiving"))).toEqual([Q("child"), child]);
 		expect(layout.children.get(clone.cloneUuid)).toEqual([]);
 		expect(result.fieldParent[child]).toBe(clone.cloneUuid);
 	});

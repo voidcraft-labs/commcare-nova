@@ -2350,7 +2350,7 @@ it("visits form pages using retained entry state before allowing submission", {
 			kind: "text",
 			id: "follow_up",
 			label: proseText("Follow-up question"),
-			submissionPlacement: { parent: first.uuid, position: 1 },
+			submissionPlacement: { parent: first.uuid },
 		};
 		doc.fieldOrder[second.uuid].push(question);
 		doc.fieldParent[question] = second.uuid;

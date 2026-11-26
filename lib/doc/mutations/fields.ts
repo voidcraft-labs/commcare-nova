@@ -171,6 +171,13 @@ export function applyFieldMutation(
 				}
 			}
 			cascadeDeleteField(draft as unknown as BlueprintDoc, mut.uuid);
+			// An answer placed in a group that left the form returns to its own
+			// question's group.
+			for (const remaining of Object.values(draft.fields)) {
+				const parent = remaining.submissionPlacement?.parent;
+				if (parent !== undefined && draft.fields[parent] === undefined)
+					delete remaining.submissionPlacement;
+			}
 			return;
 		}
 		case "moveField": {
@@ -182,47 +189,25 @@ export function applyFieldMutation(
 				form === undefined
 					? undefined
 					: submissionLayout(form, doc.fields, doc.fieldOrder);
-			const previous = layout?.parents.get(mut.uuid);
-			// An ordinary move carries the value with its question where the
-			// two share a place, and leaves a value placed on its own where it
-			// is, as a screen move does.
-			const valueFollows =
-				mut.where === undefined &&
-				layout !== undefined &&
-				previous !== undefined &&
-				previous === layout.controlParents.get(mut.uuid);
-			const keepOrder = (parent: Uuid, sequence: readonly Uuid[]) => {
-				const screen = draft.fieldOrder[parent] ?? [];
-				const together =
-					screen.length === sequence.length &&
-					screen.every((uuid, index) => uuid === sequence[index]);
-				for (const [position, uuid] of sequence.entries()) {
-					const member = draft.fields[uuid];
-					if (member === undefined) continue;
-					if (together) delete member.submissionPlacement;
-					else member.submissionPlacement = { parent, position };
-				}
+			// Where the answer is submitted before the move: its own group on
+			// screen, or the group it names.
+			const submitted = layout?.parents.get(mut.uuid);
+			// A placement names the group that holds the answer, and only a group
+			// other than the question's own on screen. The answer's place among
+			// that group's values is the one CommCare HQ's form designer writes
+			// (`submissionLayout`), so no move sets a position.
+			const placeAnswer = (parent: Uuid | undefined) => {
+				const screen = findFieldParent(doc, mut.uuid)?.parentUuid;
+				const target = draft.fields[mut.uuid];
+				if (target === undefined) return;
+				if (parent === undefined || parent === screen)
+					delete target.submissionPlacement;
+				else target.submissionPlacement = { parent };
 			};
 			if (mut.where === "submission") {
-				if (
-					layout === undefined ||
-					previous === undefined ||
-					!layout.children.has(mut.toParentUuid)
-				)
+				if (layout === undefined || !layout.children.has(mut.toParentUuid))
 					return;
-				const siblings = layout.children.get(mut.toParentUuid) ?? [];
-				if (mut.after !== null && !siblings.includes(mut.after)) return;
-				if (previous !== mut.toParentUuid)
-					keepOrder(
-						previous,
-						(layout.children.get(previous) ?? []).filter(
-							(uuid) => uuid !== mut.uuid,
-						),
-					);
-				keepOrder(
-					mut.toParentUuid,
-					spliceAfter([...siblings], mut.uuid, mut.after),
-				);
+				placeAnswer(mut.toParentUuid);
 				return;
 			}
 			if (
@@ -230,50 +215,15 @@ export function applyFieldMutation(
 				!(draft.fieldOrder[mut.toParentUuid] ?? []).includes(mut.after)
 			)
 				return;
-			const preserveSubmitted = () => {
-				if (layout === undefined || previous === undefined) return;
-				if (valueFollows) {
-					carrySubmitted();
-					return;
-				}
-				const originalScreen = layout.controlParents.get(mut.uuid);
-				if (
-					originalScreen !== undefined &&
-					originalScreen !== previous &&
-					originalScreen !== mut.toParentUuid
-				)
-					keepOrder(originalScreen, layout.children.get(originalScreen) ?? []);
-				keepOrder(previous, layout.children.get(previous) ?? []);
-				if (previous !== mut.toParentUuid)
-					keepOrder(
-						mut.toParentUuid,
-						layout.children.get(mut.toParentUuid) ?? [],
-					);
-			};
-			// The value lands in its new parent's submitted sequence after the
-			// nearest earlier question on screen whose value is there too, and
-			// both parents' placements are written again, so a placement drops
-			// wherever the screen and the submission agree once more.
-			const carrySubmitted = () => {
-				if (layout === undefined || previous === undefined) return;
-				const left = (layout.children.get(previous) ?? []).filter(
-					(uuid) => uuid !== mut.uuid,
+			// A screen move keeps the answer where it was submitted. An ordinary
+			// move carries an answer that stands under its question's group, and
+			// keeps one placed in a named group there.
+			const preserveSubmitted = () =>
+				placeAnswer(
+					mut.where === "screen"
+						? submitted
+						: field.submissionPlacement?.parent,
 				);
-				const base =
-					previous === mut.toParentUuid
-						? left
-						: (layout.children.get(mut.toParentUuid) ?? []).filter(
-								(uuid) => uuid !== mut.uuid,
-							);
-				const screen = draft.fieldOrder[mut.toParentUuid] ?? [];
-				const at = screen.indexOf(mut.uuid);
-				let anchor: Uuid | null = null;
-				for (let i = at - 1; i >= 0 && anchor === null; i--)
-					if (base.includes(screen[i])) anchor = screen[i];
-				const landed = spliceAfter([...base], mut.uuid, anchor);
-				if (previous !== mut.toParentUuid) keepOrder(previous, left);
-				keepOrder(mut.toParentUuid, landed);
-			};
 			// A same-parent move is a pure reorder. A cross-parent move needs
 			// the complete destination, subtree, and same-form checks below.
 			const currentParent = findFieldParent(

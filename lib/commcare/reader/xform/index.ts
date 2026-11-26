@@ -179,7 +179,9 @@ export interface DraftField {
 	readonly parent: DraftField | null;
 	/** The submitted parent, resolved after all controls have been read. */
 	dataParent: DraftField | null;
-	dataPosition?: number;
+	/** The value stands under a group the form designer can't keep it under
+	 *  (`join.ts`): refused, so it carries no placement. */
+	dataParentRefused?: true;
 	/** True for the stand-in of a question that got a finding; never in a returned document. */
 	readonly standIn: boolean;
 	/** The refusal a stand-in got (its kind's, its repeat's, or its data node's), which covers
@@ -958,14 +960,16 @@ export function mintFields(ctx: ReadContext): void {
 				// A parent may appear later in the body, so materialize data
 				// placement only after all identities have been minted.
 				for (const field of fields) {
-					if (field.dataPosition === undefined) continue;
-					const parent =
-						field.dataParent === null ? form.uuid : field.dataParent.uuid;
+					if (
+						field.control === undefined ||
+						field.dataParentRefused === true ||
+						field.dataParent === field.parent ||
+						field.dataParent === null
+					)
+						continue;
+					const parent = field.dataParent.uuid;
 					if (parent !== undefined)
-						field.field.submissionPlacement = {
-							parent,
-							position: field.dataPosition,
-						};
+						field.field.submissionPlacement = { parent };
 				}
 				// A pragma text HQ keeps is the form's behavior: the first slot
 				// that references it carries it, every other slot shares it.

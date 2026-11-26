@@ -1082,15 +1082,29 @@ export function joinForm(input: JoinInput): JoinedForm {
 			dataRepeat = dataParent(dataRepeat.node);
 		const crossing = dataRepeat !== repeatOf(made.parent);
 		const control = made.control;
-		if (crossing) {
-			if (control === undefined)
-				accounting.finding(X.dataParentCrossingRepeat, made.place);
+		// The form designer's parser names a value kept at the form's root
+		// under a grouped question `#form`, which its own check of a data
+		// parent then reports as no valid path on every open
+		// (`parser.js::parseControlElement`, `baseSpecs.js::dataParent`); and
+		// it writes a group's own answers only under the group's place, so a
+		// group kept under another group loses them on its next save
+		// (`form.js::dataTree`).
+		const refusal = crossing
+			? X.dataParentCrossingRepeat
+			: parent === null
+				? X.dataParentAtFormRoot
+				: made.kind === "group" || made.kind === "repeat"
+					? X.dataParentOfAGroup
+					: undefined;
+		if (refusal !== undefined) {
+			made.dataParentRefused = true;
+			if (control === undefined) accounting.finding(refusal, made.place);
 			else
 				accounting.findingAtNode(
-					X.dataParentCrossingRepeat,
+					refusal,
 					made.place,
 					{ element: control.element },
-					`xform:${control.tag}@ref`,
+					`xform:${control.tag}@${control.tag === "repeat" ? "nodeset" : "ref"}`,
 				);
 		} else if (control !== undefined) {
 			const attribute = control.tag === "repeat" ? "nodeset" : "ref";
@@ -1279,42 +1293,50 @@ export function joinForm(input: JoinInput): JoinedForm {
 			(a, b) => (dataOrder.get(a.node) ?? 0) - (dataOrder.get(b.node) ?? 0),
 		);
 		const byParent = new Map<DraftField | null, DraftField[]>();
-		const submitted = new Map<DraftField | null, DraftField[]>();
 		for (const field of fields) {
 			field.dataParent = dataParent(field.node);
 			const list = byParent.get(field.parent) ?? [];
 			list.push(field);
 			byParent.set(field.parent, list);
-			const values = submitted.get(field.dataParent) ?? [];
-			values.push(field);
-			submitted.set(field.dataParent, values);
 		}
+		// Each group's questions as the form designer's question tree holds
+		// them (`parser.js::parseControlTree`): its own values in the order they
+		// stand under it, then each question whose value stands under another
+		// group, as the parser reads it from the body; where the body shows the
+		// group's questions in another order than that (`merge`'s `fixOrder`),
+		// its questions in body order and then its values with no question.
 		const made = new Map<DraftField | null, readonly DraftField[]>();
 		for (const [parent, list] of byParent) {
-			// A bodyless field stays in its slot. Only the visible slots are
-			// filled from the body's sequence.
-			const visible = list
-				.flatMap((field) =>
-					field.control === undefined
-						? []
-						: [{ field, index: bodyOrder.get(field.control) ?? 0 }],
+			const byBody = (a: DraftField, b: DraftField) =>
+				(bodyOrder.get(a.control as ControlNode) ?? 0) -
+				(bodyOrder.get(b.control as ControlNode) ?? 0);
+			const own = list.filter((field) => field.dataParent === parent);
+			const away = list
+				.filter(
+					(field) => field.dataParent !== parent && field.control !== undefined,
 				)
-				.sort((a, b) => a.index - b.index);
-			let slot = 0;
+				.sort(byBody);
+			const controls = list
+				.filter((field) => field.control !== undefined)
+				.sort(byBody);
+			const seen = new Set<DraftField>();
+			let reordered = false;
+			for (let read = 0, shown = 0; shown < controls.length; ) {
+				if (read < own.length) {
+					if (own[read] === controls[shown]) shown++;
+					seen.add(own[read]);
+					read++;
+				} else {
+					if (seen.has(controls[shown])) reordered = true;
+					shown++;
+				}
+			}
 			made.set(
 				parent,
-				list.map((field) =>
-					field.control === undefined ? field : visible[slot++].field,
-				),
+				reordered
+					? [...controls, ...own.filter((field) => field.control === undefined)]
+					: [...own, ...away],
 			);
-		}
-		for (const [parent, siblings] of submitted) {
-			const screens = made.get(parent) ?? [];
-			const separate =
-				screens.length !== siblings.length ||
-				siblings.some((field, index) => screens[index] !== field);
-			for (const [position, field] of siblings.entries())
-				field.dataPosition = separate ? position : undefined;
 		}
 		ordered = made;
 		return made;

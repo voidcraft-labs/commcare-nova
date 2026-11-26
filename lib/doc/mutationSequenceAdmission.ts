@@ -374,8 +374,10 @@ export function mutationSequenceAdmissionIssue(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): MutationSequenceAdmissionIssue | undefined {
-	// A submitted move's anchor belongs to the data tree as it stands at
-	// that operation, including the effects of earlier edits in this batch.
+	// A submitted move names a group of the data tree as it stands at that
+	// operation, including the effects of earlier edits in this batch, and no
+	// anchor: the answer's place among that group's values is derived
+	// (`submissionLayout`).
 	if (
 		mutations.some((m) => m.kind === "moveField" && m.where === "submission")
 	) {
@@ -387,11 +389,9 @@ export function mutationSequenceAdmissionIssue(
 					form === undefined
 						? undefined
 						: submissionLayout(form, current.fields, current.fieldOrder);
-				const siblings = layout?.children.get(mutation.toParentUuid);
 				if (
-					siblings === undefined ||
-					mutation.uuid === mutation.after ||
-					(mutation.after !== null && !siblings.includes(mutation.after))
+					layout?.children.has(mutation.toParentUuid) !== true ||
+					mutation.after !== null
 				)
 					return issue(
 						mutation,

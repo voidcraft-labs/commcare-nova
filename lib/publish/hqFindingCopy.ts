@@ -55,6 +55,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"advanced-menus": "Advanced menus",
 	"after-submit": "After a form is sent",
 	"android-app-dependencies": "Android app dependencies",
+	"answer-groups": "Groups that hold answers",
 	"app-document": "The app as stored",
 	"app-logos": "App logos",
 	"app-name": "The app's name",
@@ -165,6 +166,7 @@ export const FINDING_COPY: Readonly<
 			"This uses a destination after the form is sent, which Nova doesn't bring in.",
 	},
 	"android-app-dependencies": {},
+	"answer-groups": {},
 	"app-document": {
 		never:
 			"A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by.",
@@ -492,6 +494,10 @@ export const FIX_CAUSE_CLAUSES: Readonly<
 export const FIX_IN_HQ_SENTENCES: Readonly<
 	Partial<Record<Subject, Partial<Record<FixCause, string>>>>
 > = {
+	"answer-groups": {
+		"hq-refuses":
+			"An answer here is kept under a group CommCare HQ's form designer can't keep it under: at the top level of the form for a question inside a group, which the designer reports as invalid each time it opens the form, or under another group for a whole group, whose answers its next save loses. Keeping the answer with its question in the form designer's Data Parent setting fixes it.",
+	},
 	"app-document": {
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",

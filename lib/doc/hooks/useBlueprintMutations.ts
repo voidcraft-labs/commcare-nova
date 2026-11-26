@@ -1395,17 +1395,21 @@ export function createBlueprintMutations(
 				// Resolve the requested slot to a landing in the destination
 				// parent's sequence, excluding the moved field from the neighbour
 				// set — a same-parent reorder places it among the OTHER siblings.
-				const after = fieldSlotAfter(
-					doc,
-					toParentUuid,
-					{
-						index: opts.toIndex,
-						beforeUuid: opts.beforeUuid,
-						afterUuid: opts.afterUuid,
-					},
-					uuid,
-					opts.where,
-				);
+				// A submitted answer names only its group: its place among the
+				// group's values is the one the form designer writes.
+				const after =
+					opts.where === "submission"
+						? null
+						: fieldSlotAfter(
+								doc,
+								toParentUuid,
+								{
+									index: opts.toIndex,
+									beforeUuid: opts.beforeUuid,
+									afterUuid: opts.afterUuid,
+								},
+								uuid,
+							);
 
 				// A write to a case the form creates in one repeat follows the
 				// move to the create of the field's new repeat; the form's own

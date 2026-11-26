@@ -5059,7 +5059,7 @@
 		"id": "questions/data-parent-data-node-under-another-group-than-its-control",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Data Parent (data node under another group than its control, within one repeat)",
+		"item": "Data Parent (data node under another group than its control, within one repeat): a question's answer under a group, in the order HQ's form designer writes",
 		"surfaceKeys": [
 			"xform:group@ref",
 			"xform:input@ref",
@@ -5072,7 +5072,7 @@
 		],
 		"valueClass": "data-parent",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a question has an independent submitted group and position",
+		"dispositionCell": "**HELD**: a question names the group that holds its answer; the answer follows that group's own values, in the order HQ's form designer writes and keeps",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -5086,6 +5086,67 @@
 		},
 		"emission": {
 			"cell": "data tree placement",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/data-parent-at-the-form-root-under-a-grouped-control",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Data Parent at the form's root for a question whose control is inside a group",
+		"surfaceKeys": [
+			"xform:group@ref",
+			"xform:input@ref",
+			"xform:repeat@nodeset",
+			"xform:secret@ref",
+			"xform:select@ref",
+			"xform:select1@ref",
+			"xform:trigger@ref",
+			"xform:upload@ref"
+		],
+		"valueClass": "data-parent-at-the-form-root",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum's parser names the root `#form`, which its own Data Parent check reports as \"Must be valid path\" on every open",
+		"subject": "answer-groups",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum error \"Must be valid path\" (`parser.js::parseControlElement` writes `#form`, `mugs/baseSpecs.js` dataParent `validationFunc`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/data-parent-on-a-group-or-repeat",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Data Parent on a group or repeat (a group's data node under another group than its control)",
+		"surfaceKeys": ["xform:group@ref", "xform:repeat@nodeset"],
+		"valueClass": "data-parent-on-a-group",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum writes a group's own answers under the group's place in its data tree before it places the group (`form.js::dataTree`), so its save loses them",
+		"subject": "answer-groups",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum's save writes a group with a Data Parent without its answers (`form.js::dataTree`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

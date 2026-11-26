@@ -216,7 +216,6 @@ describe("committed capture paths", () => {
 		if (!visits) throw new Error("The form contains the visits repeat");
 		doc.fields[PHOTO].submissionPlacement = {
 			parent: visits.uuid,
-			position: 0,
 		};
 		const path = committedCapturePath(doc, PHOTO);
 		expect(path?.instancePathTemplate).toBe("/data/visits[0]/photo");

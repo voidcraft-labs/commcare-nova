@@ -61,12 +61,14 @@ import {
 	type FieldKind,
 	fieldRegistry,
 	getConvertibleTypes,
+	isContainer,
 } from "@/lib/domain";
 import {
 	featureForFieldKind,
 	platformPickerLine,
 	platformRefusal,
 } from "@/lib/domain/platforms";
+import { submitsWithoutQuestion } from "@/lib/domain/submissionLayout";
 import { shortcutLabel } from "@/lib/platform";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import {
@@ -640,18 +642,24 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 										</SimpleTooltip>
 									)}
 
-									{field.kind !== "hidden" && (
-										<MenuItem
-											icon={tablerArrowsExchange}
-											label="Place question on screen"
-											onClick={() => setPlacement("screen")}
-										/>
-									)}
-									<MenuItem
-										icon={tablerArrowsExchange}
-										label="Place submitted answer"
-										onClick={() => setPlacement("submission")}
-									/>
+									{/* A question's answer can stand under another group than the
+									    question: values with no question, and groups, stand where
+									    they stand on screen (`submissionLayout`). */}
+									{!submitsWithoutQuestion(field.kind) &&
+										!isContainer(field) && (
+											<>
+												<MenuItem
+													icon={tablerArrowsExchange}
+													label="Place question on screen"
+													onClick={() => setPlacement("screen")}
+												/>
+												<MenuItem
+													icon={tablerArrowsExchange}
+													label="Place submitted answer"
+													onClick={() => setPlacement("submission")}
+												/>
+											</>
+										)}
 									{/* Duplicate */}
 									<MenuItem
 										icon={tablerCopyPlus}

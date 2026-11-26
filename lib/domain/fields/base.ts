@@ -66,22 +66,23 @@ export { formLogicSchema, proseTemplateSchema };
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
  * fields extend this directly (they have no label and no input wiring).
- * Screen position belongs to fieldOrder. A separately placed submitted
- * value keeps its own parent and position.
+ * Screen position belongs to fieldOrder. A question whose answer is
+ * submitted under another group than its own on screen names that group;
+ * its place among the group's values follows the order CommCare HQ's form
+ * designer writes (`lib/domain/submissionLayout.ts`), never a position of
+ * its own.
  */
 export type StructuralFieldBase = {
 	uuid: Uuid;
 	id: string;
-	submissionPlacement?: { parent: Uuid; position: number };
+	submissionPlacement?: { parent: Uuid };
 	lockedInHq?: boolean;
 };
 
 export const structuralFieldBase = z.strictObject({
 	uuid: uuidSchema,
 	id: z.string(),
-	submissionPlacement: z
-		.strictObject({ parent: uuidSchema, position: z.int().nonnegative() })
-		.optional(),
+	submissionPlacement: z.strictObject({ parent: uuidSchema }).optional(),
 	lockedInHq: z.boolean().optional(),
 });
 

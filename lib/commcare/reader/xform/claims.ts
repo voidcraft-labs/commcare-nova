@@ -535,6 +535,16 @@ export const X = {
 		Q("data-parent-crossing-a-repeat"),
 		"xform:group@ref",
 	),
+	dataParentAtFormRoot: one(
+		"refuse",
+		Q("data-parent-at-the-form-root-under-a-grouped-control"),
+		"xform:input@ref",
+	),
+	dataParentOfAGroup: one(
+		"refuse",
+		Q("data-parent-on-a-group-or-repeat"),
+		"xform:group@ref",
+	),
 
 	// ── Field kinds ────────────────────────────────────────────────
 	kind: {

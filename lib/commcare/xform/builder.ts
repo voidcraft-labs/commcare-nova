@@ -178,7 +178,23 @@ type AddItext = (
 	force?: boolean,
 	protectConstraint?: boolean,
 	markdown?: boolean,
+	owner?: Uuid,
 ) => ItextRegistration;
+
+/** `addItext` registering each text as `owner`'s, unless a field nested in it
+ *  already names itself the owner. */
+function ownedItext(addItext: AddItext, owner: Uuid): AddItext {
+	return (id, label, media, force, protectConstraint, markdown, nested) =>
+		addItext(
+			id,
+			label,
+			media,
+			force,
+			protectConstraint,
+			markdown,
+			nested ?? owner,
+		);
+}
 
 export function whitespaceOutput(
 	value: string,
@@ -776,6 +792,7 @@ export function buildXFormSource(
 	// A form behavior text shared by several slots is one itext entry under its
 	// pragma id; each further slot only references it.
 	const writtenBehaviorIds = new Set<string>();
+	const itextOwners = new Map<Element, Uuid | undefined>();
 	const addItext: AddItext = (
 		id: string,
 		label: ProseTemplate | undefined,
@@ -783,6 +800,7 @@ export function buildXFormSource(
 		force = false,
 		protectConstraint = false,
 		markdown = true,
+		owner?: Uuid,
 	): ItextRegistration => {
 		// Every localized prose value contributes instance reads when its output
 		// attributes are serialized; untranslated or unused text declares nothing.
@@ -834,22 +852,22 @@ export function buildXFormSource(
 				throw new Error(`Missing XForm itext table for ${language}.`);
 			}
 			const labelTemplate = localizedTemplates[index] ?? sourceTemplate;
-			languageEntries.push(
-				el("text", { id }, [
-					el("value", {}, buildLabelNodes(labelTemplate, lowerProse, context)),
-					...(markdown
-						? [
-								el(
-									"value",
-									{ form: "markdown" },
-									buildLabelNodes(labelTemplate, lowerProse, context),
-								),
-							]
-						: []),
-					...itextMediaValues(media, opts.assets, "buildXForm"),
-					...(protectedMessage?.forms.get(language) ?? []),
-				]),
-			);
+			const entry = el("text", { id }, [
+				el("value", {}, buildLabelNodes(labelTemplate, lowerProse, context)),
+				...(markdown
+					? [
+							el(
+								"value",
+								{ form: "markdown" },
+								buildLabelNodes(labelTemplate, lowerProse, context),
+							),
+						]
+					: []),
+				...itextMediaValues(media, opts.assets, "buildXForm"),
+				...(protectedMessage?.forms.get(language) ?? []),
+			]);
+			itextOwners.set(entry, owner);
+			languageEntries.push(entry);
 		}
 		return {
 			registered: true,
@@ -983,7 +1001,11 @@ export function buildXFormSource(
 							? { default: "" }
 							: {}),
 					},
-					itextEntries.get(language) ?? [],
+					orderedItext(
+						itextEntries.get(language) ?? [],
+						itextOwners,
+						screenRanks(doc, formUuid),
+					),
 				),
 			),
 		]),
@@ -1108,6 +1130,9 @@ function buildFieldParts(
 	controls: Map<Uuid, readonly Element[]>,
 ): void {
 	const field = doc.fields[fieldUuid];
+	// Each text this field registers is the field's own, for the order the
+	// form designer writes texts in (`orderedItext`).
+	const itext = ownedItext(addItext, fieldUuid);
 	const lookupSource =
 		(field.kind === "single_select" || field.kind === "multi_select") &&
 		field.optionsSource.kind === "lookup"
@@ -1198,14 +1223,14 @@ function buildFieldParts(
 	);
 	const hasLabel =
 		field.kind !== "hidden" &&
-		addItext(textId("label"), label, labelMedia, false, false, labelMarkdown)
+		itext(textId("label"), label, labelMedia, false, false, labelMarkdown)
 			.registered;
 	const hasHint =
 		field.kind !== "hidden" &&
-		addItext(textId("hint"), hint, undefined, false, false, false).registered;
+		itext(textId("hint"), hint, undefined, false, false, false).registered;
 	const hasHelp =
 		field.kind !== "hidden" &&
-		addItext(textId("help"), help, helpMedia, false, false, helpMarkdown)
+		itext(textId("help"), help, helpMedia, false, false, helpMarkdown)
 			.registered;
 	// A message no constraint can fail is never shown, so none is written.
 	const validationMessage = bindCarriesConstraint(
@@ -1213,14 +1238,7 @@ function buildFieldParts(
 		validate,
 		scalarGuard,
 	)
-		? addItext(
-				textId("constraintMsg"),
-				validateMsg,
-				undefined,
-				false,
-				true,
-				false,
-			)
+		? itext(textId("constraintMsg"), validateMsg, undefined, false, true, false)
 		: { registered: false };
 	const hasValidationMessage = validationMessage.registered;
 
@@ -1555,7 +1573,7 @@ function buildFieldParts(
 			// so the body-ref-iff-entry invariant forbids skipping the
 			// registration even for an empty option label — a dangling ref
 			// is parse-fatal in `verifyTextMappings`.
-			addItext(
+			itext(
 				textId(`opt${index}-label`),
 				opt.label,
 				opt.media,
@@ -1587,7 +1605,7 @@ function buildFieldParts(
 			binds,
 			setvalues,
 			bodyElements,
-			addItext,
+			itext,
 			context,
 			expressions,
 			assets,
@@ -2232,6 +2250,43 @@ function buildContainer(
 
 /** Controls are emitted against their submitted paths. Nest the visible ones
  * in the order a worker sees them, including a repeat's actual row control. */
+/** Each field's place in the form's screen walk, a group before its fields. */
+function screenRanks(doc: BlueprintDoc, form: Uuid): ReadonlyMap<Uuid, number> {
+	const ranks = new Map<Uuid, number>();
+	const visit = (parent: Uuid): void => {
+		for (const uuid of orderedFieldUuids(doc, parent)) {
+			ranks.set(uuid, ranks.size);
+			visit(uuid);
+		}
+	};
+	visit(form);
+	return ranks;
+}
+
+/**
+ * A language's texts in the order the form designer writes them: each
+ * question's texts in the order its question stands on screen, walking the
+ * form's groups as the designer walks its question tree
+ * (`javaRosa/util.js::forEachItextItem`), whatever group holds the answer.
+ * Texts no field registered keep their place among the rest.
+ */
+function orderedItext(
+	entries: readonly Element[],
+	owners: ReadonlyMap<Element, Uuid | undefined>,
+	ranks: ReadonlyMap<Uuid, number>,
+): Element[] {
+	let last = -1;
+	const keyed = entries.map((entry, index) => {
+		const owner = owners.get(entry);
+		const rank = owner === undefined ? undefined : ranks.get(owner);
+		if (rank !== undefined) last = rank;
+		return { entry, rank: rank ?? last, index };
+	});
+	return keyed
+		.sort((a, b) => a.rank - b.rank || a.index - b.index)
+		.map(({ entry }) => entry);
+}
+
 function orderedControls(
 	doc: BlueprintDoc,
 	parent: Uuid,

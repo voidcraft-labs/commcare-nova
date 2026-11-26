@@ -5263,6 +5263,13 @@ def _data_binds_and_itext():
         body="""<group><repeat nodeset="/data/r"><input ref="/data/other/q"/></repeat></group>
           <input ref="/data/top"/>""",
     )
+    # A question in group g kept at the root, one in group h kept under g, and a group kept under another.
+    held_parents = form(
+        data="<top/><g><inner/><moved/></g><h/><c/>",
+        body="""<group ref="/data/g"><input ref="/data/top"/></group>
+          <group ref="/data/h"><input ref="/data/g/inner"/></group>
+          <group ref="/data/c"><group ref="/data/g/moved"/></group>""",
+    )
     inline = form(data="<q/>", model='<instance id="inline"><root><row/></root></instance>')
     unnamed = form(data="<q/>", model="<instance><extra/></instance>")
     # A data node named instance: Vellum's second unnamed instance, an element of the main instance's content.
@@ -5847,6 +5854,15 @@ def _data_binds_and_itext():
         "questions/data-parent-crossing-a-repeat": (
             refused("form", parents, "xform:input@ref", "repeat[1]/input[1]/@ref"),
             accepted("form", parents, "xform:input@ref", "body[1]/input[1]/@ref"),
+        ),
+        "questions/data-parent-at-the-form-root-under-a-grouped-control": (
+            refused("form", held_parents, "xform:input@ref", "body[1]/group[1]/input[1]/@ref"),
+            accepted("form", held_parents, "xform:input@ref", "body[1]/group[2]/input[1]/@ref"),
+            accepted("form", parents, "xform:input@ref", "body[1]/input[1]/@ref"),
+        ),
+        "questions/data-parent-on-a-group-or-repeat": (
+            refused("form", held_parents, "xform:group@ref", "body[1]/group[3]/group[1]/@ref"),
+            accepted("form", held_parents, "xform:group@ref", "body[1]/group[1]/@ref"),
         ),
         "expressions-and-data/inline-instance-content-inside-instance-no-src": (
             refused("form", inline, "xform:model/instance@id", "instance[4]/@id"),
