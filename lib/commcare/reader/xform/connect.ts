@@ -68,6 +68,8 @@ const TOP = "xform:model/instance/*/*";
 const NESTED = "xform:model/instance//*";
 /** The form builder's role on the wrapper. */
 const ROLE = "vellum-markup:model/instance//*@vellum:role";
+/** A data node's own namespace. */
+const NAMESPACE = "xform:model/instance//*@xmlns";
 const CALCULATE = "xform:model/bind@calculate";
 
 /** A held block is claimed whole at its wrapper's data node, and recorded inside at each node the
@@ -175,6 +177,12 @@ function recordBlock(
 		for (const child of element.children) {
 			if (!isTag(child)) continue;
 			cursor.within({ element: child }, claim, [NESTED]);
+			// The block's own element declares the Connect namespace, which the
+			// form builder writes on it and Connect finds the block by.
+			if (Object.hasOwn(child.attribs, "xmlns"))
+				cursor.within({ element: child, attribute: "xmlns" }, claim, [
+					NAMESPACE,
+				]);
 			if (!child.children.some(isTag))
 				cursor.within({ element: child }, claim, ["mug:DataBindOnly"]);
 			walk(child);
