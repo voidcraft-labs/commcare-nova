@@ -105,31 +105,27 @@ def test_basic_update_key_reaches_formplayers_own_xpath_parser(hq, core_runner, 
         with build_seams():
             built = operations.build(held, record)
 
-    def generated_bind(xml):
-        tree = etree.fromstring(xml)
-        return next((bind for bind in tree.iter(f"{{{XFORMS}}}bind") if bind.get("nodeset") == nodeset), None)
-
-    [(sent, bind)] = [
-        (sent, bind) for sent in built.form_validations
-        if (bind := generated_bind(sent.xml)) is not None
-    ]
-    xml = etree.fromstring(sent.xml)
+    generated = built.files["modules-0/forms-1.xml"]
+    xml = etree.fromstring(generated)
     assert list(xml.iter(f"{{{CASE}}}{key}"))
+    [bind] = [bind for bind in xml.iter(f"{{{XFORMS}}}bind") if bind.get("nodeset") == nodeset]
     assert bind.get("calculate") == "/data/rename"
-    assert sent.xml == built.files["modules-0/forms-1.xml"]
+    # HQ's build also validates the attached source, before it adds the
+    # Case Management block. Ask actual Formplayer to open the generated file.
+    reply = json.loads(formplayer_validation(generated))
     evidence("basic-update-name", {
         "key": key, "nodeset": nodeset, "calculate": bind.get("calculate"),
-        "formplayer": sent.response, "hqErrors": built.errors,
+        "formplayer": reply, "hqErrors": built.errors,
+        "hqValidatedGeneratedBind": any(nodeset.encode() in sent.xml for sent in built.form_validations),
     })
-    assert sent.response["validated"] is valid, sent.response
+    assert reply["validated"] is valid, reply
     if valid:
         assert built.errors == [], built.errors
     else:
-        fatal = sent.response["fatal_error"]
+        fatal = reply["fatal_error"]
         assert f"Parse error in XPath path: [{nodeset}]" in fatal, fatal
         assert "Couldn't understand the expression starting at this point: " in fatal, fatal
         assert "\u034e名" in fatal, fatal
-        assert any(nodeset in (error.get("validation_message") or "") for error in built.errors), built.errors
 
 
 def _with_owner_update(app_json):
