@@ -2236,7 +2236,7 @@ it("asks before removing a language already held at the earlier cutover", async 
 		accepted(peer, 200, bodies);
 		serve(peer, "source-live");
 		const [shown] = asked.remoteChanges;
-		if (!shown || shown.kind !== "app")
+		if (shown?.kind !== "app")
 			throw new Error("Expected a review of the app's languages.");
 		expect(
 			landed(
