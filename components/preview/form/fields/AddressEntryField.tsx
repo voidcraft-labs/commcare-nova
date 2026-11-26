@@ -39,6 +39,7 @@ import {
 	addressMessage,
 	type FoundAddress,
 } from "@/lib/preview/addressMessage";
+import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
@@ -64,7 +65,10 @@ interface AddressEntryFieldProps {
 	field: TextFieldEntity | SecretField | BarcodeField;
 	state: FieldState;
 	labelledBy?: string;
-	onChange: (value: string) => Promise<boolean>;
+	onCommit: (
+		value: string,
+		message?: QuestionMessage,
+	) => boolean | Promise<boolean>;
 	onBlur: () => void;
 }
 
