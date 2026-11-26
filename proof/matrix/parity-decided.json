@@ -307,6 +307,7 @@
 	],
 	"hq-media": [
 		"hq-media/form-media-for-every-language",
+		"hq-media/translation-overrides-a-menu-icon-without-a-map-entry",
 		"hq-media/video-inline-as-only-help"
 	],
 	"hq-menus": [

@@ -23848,6 +23848,22 @@
 		]
 	},
 	{
+		"id": "hq-media/translation-overrides-a-menu-icon-without-a-map-entry",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-menu-icon-without-mapping",
+		"standing": "fix-in-hq",
+		"place": { "kind": "app" },
+		"change": {
+			"op": "set-json",
+			"pointer": "/translations",
+			"value": {
+				"en": {
+					"modules.m0.icon": "jr://file/commcare/image/data/unmapped-menu-icon.png"
+				}
+			}
+		}
+	},
+	{
 		"id": "hq-media/translation-overrides-a-menu-icon-without-a-resource",
 		"base": "hq-media",
 		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",

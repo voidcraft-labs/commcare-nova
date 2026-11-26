@@ -1841,6 +1841,18 @@ def _settings_and_forms():
             refused("app", app(langs=["en", "fr", "en"]), "schema:Application.langs", "/langs"),
             accepted("app", app(langs=["en", "pt-br"]), "schema:Application.langs", "/langs"),
         ),
+        "application-and-settings/translations-generated-menu-icon-without-mapping": (
+            refused("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
+                    translations={"en": {"modules.m0.icon": "jr://file/commcare/image/missing.png"}}),
+                    translations, "/translations"),
+            accepted("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
+                     translations={"en": {"modules.m0.icon": "http://example.invalid/icon.png"}}),
+                     translations, "/translations"),
+            accepted("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
+                     multimedia_map={"jr://file/commcare/image/mapped.png": {"multimedia_id": "supplied"}},
+                     translations={"en": {"modules.m0.icon": "jr://file/commcare/image/mapped.png"}}),
+                     translations, "/translations"),
+        ),
         "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
             refused("app", app(translations={"en": {" home.start": "Begin"}}), translations, "/translations"),
             refused(

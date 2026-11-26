@@ -295,6 +295,10 @@ const generatedMediaNotPackaged = refuse(
 	"application-and-settings/translations-generated-navigation-file-not-packaged",
 	"schema:Application.translations",
 );
+const generatedMenuIconWithoutMapping = refuse(
+	"application-and-settings/translations-generated-menu-icon-without-mapping",
+	"schema:Application.translations",
+);
 const generatedMediaNoEffect = account(
 	"application-and-settings/translations-generated-key-with-no-effect",
 	"schema:Application.translations",
@@ -302,6 +306,7 @@ const generatedMediaNoEffect = account(
 defineClaims("menus.navMedia", {
 	generatedMediaClaim,
 	generatedMediaNotPackaged,
+	generatedMenuIconWithoutMapping,
 	generatedMediaNoEffect,
 });
 const acceptedOverrides = new WeakMap<
@@ -382,7 +387,23 @@ export function accountNavigationMediaOverride(
 	// HQ decides what to pack from ordinary carriers, even when the asset
 	// index cannot resolve the path. Check that source fact before handoff.
 	if (!ordinarySourcePaths(ctx).get(held.language)?.has(override.path)) {
-		held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
+		// A local icon with no map entry cannot be recovered from the full
+		// release or from Web Apps' resource map. A mapped entry might still
+		// work in another installation or from a carrier we do not retain.
+		const missingMenuIcon =
+			override.carrierClass === "Module" &&
+			override.role === "icon" &&
+			override.pending?.resolution === "no-entry" &&
+			/^jr:\/\/file\/commcare\/image\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/.test(
+				override.path,
+			);
+		held.json.refuse(
+			held.key,
+			missingMenuIcon
+				? generatedMenuIconWithoutMapping
+				: generatedMediaNotPackaged,
+			{ name: held.key },
+		);
 		return true;
 	}
 	if (override.pending !== undefined) {
