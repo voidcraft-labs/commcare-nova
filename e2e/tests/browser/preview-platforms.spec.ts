@@ -1068,9 +1068,11 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		});
 		await dialog.getByRole("button", { name: "Return to form" }).click();
 		await expect(page.getByText("captured", { exact: true })).toBeVisible();
-		await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("8");
+		await expect(page.getByRole("textbox", { name: /Quantity$/ })).toHaveValue(
+			"8",
+		);
 		await expect(
-			page.getByLabel("Reading as text", { exact: true }),
+			page.getByRole("textbox", { name: /Reading as text$/ }),
 		).toHaveValue("008");
 		await expect(page.getByText("large.png", { exact: true })).toBeVisible();
 		await buttons.nth(1).click();
@@ -1085,9 +1087,11 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(page.getByText("9", { exact: true })).toBeVisible();
 		await expect(page.getByText("captured", { exact: true })).toBeVisible();
 		await page.getByRole("button", { name: "Next", exact: true }).click();
-		await expect(page.getByLabel("Quantity", { exact: true })).toHaveValue("5");
+		await expect(page.getByRole("textbox", { name: /Quantity$/ })).toHaveValue(
+			"5",
+		);
 		await expect(
-			page.getByLabel("Reading as text", { exact: true }),
+			page.getByRole("textbox", { name: /Reading as text$/ }),
 		).toHaveValue("five");
 		await expect(page.getByText("large.png", { exact: true })).toHaveCount(0);
 		await buttons.first().click();
