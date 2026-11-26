@@ -39,7 +39,7 @@ import {
 	operationHold,
 	ownCloseAt,
 	ownCloseHold,
-	PATIENTS_NAMED,
+	PATIENTS_BY_ENTERED_ID,
 	queryRepeatHold,
 	read,
 	saveToCase,
@@ -190,7 +190,10 @@ describe("holdExpresses", () => {
 				throw new Error("The fixture's visits is a query repeat.");
 			d.fields[VISITS] = {
 				...field,
-				data_source: { ...field.data_source, ids_query: PATIENTS_NAMED },
+				data_source: {
+					...field.data_source,
+					ids_query: PATIENTS_BY_ENTERED_ID,
+				},
 			};
 		});
 		const answers = [holdFixture(), overAnswer].flatMap(({ doc, formUuid }) =>

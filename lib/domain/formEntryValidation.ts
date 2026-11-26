@@ -71,7 +71,6 @@ export function validateFormEntryCases(
 			form.ownClosePlacement ||
 			form.openCondition ||
 			form.closeCondition ||
-			form.connect ||
 			form.plainText ||
 			doc.fieldOrder[form.uuid]?.length
 		)

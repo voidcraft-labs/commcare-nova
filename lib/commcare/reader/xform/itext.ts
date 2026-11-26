@@ -13,6 +13,7 @@ import { isTag } from "domhandler";
 import type { LanguageTag } from "@/lib/domain";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import surface from "../../surface/surface.json";
+import { behaviorWireIds } from "../../xform/itextIds";
 import {
 	attributeNamespace,
 	elementNamespace,
@@ -43,6 +44,12 @@ export const PRAGMA_KEYS = [
 ] as const;
 
 const PRAGMAS: ReadonlySet<string> = new Set(PRAGMA_KEYS);
+
+/** The pragmas Formplayer reads by presence alone, which a form holds as its
+ *  behaviors (`Form.automaticSubmissionText` and the others). */
+const PRESENCE_PRAGMAS: ReadonlySet<string> = new Set(
+	Object.values(behaviorWireIds),
+);
 
 /** A text's slot on the field that references it. */
 export type TextSlot = Exclude<ItextRecipient["slot"], "option_label">;
@@ -466,13 +473,18 @@ function claimReferencedId(
 		return;
 	}
 	const claim = pragmaClaim(reading, id);
+	if (claim.use === "take") {
+		for (const element of elements)
+			cursor.take({ element, attribute: "id" }, claim).value;
+		return;
+	}
 	for (const text of elements) {
 		if (claim.use === "account")
 			cursor.account({ element: text, attribute: "id" }, claim, place);
 		else
 			cursor.refuse(
 				{ element: text, attribute: "id" },
-				claim as typeof X.pragmaKey,
+				claim as typeof X.pragmaKey | typeof X.pragmaFormDescriptor,
 				place,
 			);
 	}
@@ -498,13 +510,14 @@ export function sameValueNodes(a: Element, b: Element): boolean {
 	});
 }
 
-function pragmaClaim(
+export function pragmaClaim(
 	reading: ItextReading,
 	id: string,
 ):
 	| typeof X.pragmaMerged
 	| typeof X.pragmaVolatilityWithoutKey
 	| typeof X.pragmaFormDescriptor
+	| typeof X.pragmaPresence
 	| typeof X.pragmaKey {
 	const mine = reading.allValues(id);
 	const merged = reading.ids().some((other) => {
@@ -529,10 +542,12 @@ function pragmaClaim(
 	if (
 		(id === "Pragma-Volatility-Entity-Title" ||
 			id === "Pragma-Volatility-Window") &&
-		!reading.ids().includes("Pragma-Volatility-Key")
+		(!reading.owners("Pragma-Volatility-Key").length ||
+			pragmaClaim(reading, "Pragma-Volatility-Key") === X.pragmaMerged)
 	)
 		return X.pragmaVolatilityWithoutKey;
 	if (id === "Pragma-Form-Descriptor") return X.pragmaFormDescriptor;
+	if (PRESENCE_PRAGMAS.has(id)) return X.pragmaPresence;
 	return X.pragmaKey;
 }
 

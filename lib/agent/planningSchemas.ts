@@ -1,8 +1,7 @@
 /**
  * SA-facing input schemas for the data-model tool (`generateSchema` —
  * it commits the case-type catalog onto the app), the per-form
- * close-condition creation/update shape, and the Connect shapes shared by
- * `configureConnect` and `updateForm`.
+ * close-condition creation/update shape, and the case-type declarations.
  *
  * Separate from the field-mutation tool schemas in `toolSchemas.ts`
  * because these describe whole-app structure at the case-type level,
@@ -18,7 +17,7 @@
  * null meaning absent on the add path — arbitrary MCP callers and
  * stray nulls stay harmless. Every non-null string must be non-empty
  * (`min(1)`), and cross-field contradictions (a `relationship` with no
- * parent, a connect block with nothing in it) are rejected with a
+ * parent) are rejected with a
  * message that says what to pass instead. `cleanCaseTypeRecord`
  * collapses the nulls before a record leaves the boundary, so no null
  * ever lands on the catalog.
@@ -29,11 +28,8 @@
  */
 
 import { z } from "zod";
-import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import {
 	authoredCasePropertyNameSchema,
-	connectDeliverFormHoldsTask,
-	formLogicSchema,
 	proseTemplateSchema,
 	selectOptionValueSchema,
 } from "@/lib/domain";
@@ -208,180 +204,3 @@ export const caseTypesOutputSchema = z.object({
 		.min(1)
 		.describe("Case types and their properties"),
 });
-
-// ── Per-form Connect block ──────────────────────────────────────────
-
-/**
- * Per-form Connect config — the ONE SA-facing input shape for a complete
- * participant inside `configureConnect`, with the same base shape reused by
- * `updateForm` for a partial edit to an existing participant. A block marks
- * that the form
- * PARTICIPATES in Connect; a form without one is auxiliary — Connect's
- * ingestion scans per form and silently skips blockless forms
- * (`commcare_connect/opportunity/app_xml.py::extract_modules`). The
- * validator's coverage demand is the app-level floor of one participating
- * form (`CONNECT_NO_PARTICIPATING_FORMS`), and `configureConnect` lands the
- * complete set atomically after every target form has a UUID.
- *
- * ONE shape, two refinements — the same object can't be gated the same
- * way on both surfaces because null means different things there (the
- * shared input contract): in an exact target, null ≡ omitted, so an all-empty
- * participant opts into nothing and is rejected (`connectFormConfigSchema` —
- * the failure mode it invites is a model padding every form with an
- * empty block "just in case"); on `updateForm`'s patch an omitted
- * sub-config keeps its current value and an explicit null REMOVES it,
- * so a partial-null patch is meaningful and only the says-nothing
- * all-omitted patch rejects (`connectFormPatchSchema`).
- */
-const connectFormConfigShape = z.strictObject({
-	learn_module: z
-		.strictObject({
-			id: z
-				.string()
-				.min(1)
-				.nullable()
-				.optional()
-				.describe(CONNECT_ID_FIELD_DESCRIPTION),
-			name: z.string().min(1),
-			description: z.string().min(1),
-			// Match the domain's `connectLearnModuleSchema`: time estimate is
-			// in hours and must be a positive integer. The reducer applies
-			// the patch via `Object.assign` without a Zod re-parse, so the
-			// SA-facing schema is the only gate against `0` / negatives /
-			// floats landing on the persisted doc.
-			time_estimate: z
-				.number()
-				.int("time_estimate must be a whole number of hours.")
-				.min(1, "time_estimate must be at least 1 hour.")
-				.describe(
-					"Estimated whole hours to complete the module's content; round up and use at least 1.",
-				),
-		})
-		.nullable()
-		.optional()
-		.describe(
-			"Set on forms with educational/training content. null on quiz-only forms.",
-		),
-	assessment: z
-		.strictObject({
-			id: z
-				.string()
-				.min(1)
-				.nullable()
-				.optional()
-				.describe(CONNECT_ID_FIELD_DESCRIPTION),
-			user_score: formLogicSchema,
-		})
-		.nullable()
-		.optional()
-		.describe(
-			"Set on forms with a quiz/test; null on content-only forms. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
-		),
-	deliver_unit: z
-		.strictObject({
-			id: z
-				.string()
-				.min(1)
-				.nullable()
-				.optional()
-				.describe(CONNECT_ID_FIELD_DESCRIPTION),
-			name: z.string().min(1),
-			entity_id: formLogicSchema
-				.nullable()
-				.optional()
-				.describe(
-					"XPath dedup key grouping submissions into one paid delivery (CompletedWork). Omit for the daily-aggregate default; override per the Connect guidance in your instructions.",
-				),
-			entity_name: formLogicSchema
-				.nullable()
-				.optional()
-				.describe(
-					"XPath for the human-readable delivery label in Connect dashboards. Display-only; omit for the username default.",
-				),
-		})
-		.nullable()
-		.optional()
-		.describe(
-			"Set on a deliver-app form that counts as a payable delivery; `name` shows in Connect's deliver-unit picker. Never on the form that holds a `task`.",
-		),
-	task: z
-		.strictObject({
-			id: z
-				.string()
-				.min(1)
-				.nullable()
-				.optional()
-				.describe(CONNECT_ID_FIELD_DESCRIPTION),
-			name: z.string().min(1),
-			description: z.string().min(1),
-		})
-		.nullable()
-		.optional()
-		.describe(
-			"A task the worker completes with this form, shown in the Connect mobile UI. It goes in a form of its own, never beside `deliver_unit`: Connect checks a delivery before it completes a task, so a form holding both has its own visit turned away while the task is assigned.",
-		),
-});
-
-const CONNECT_DELIVER_UNIT_AND_TASK_MESSAGE =
-	"A form can't hold both a deliver_unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in that form while the task is assigned. A task goes in a form of its own.";
-
-/** A config that states both a deliver unit and a task, read by the domain's
- *  one predicate; null states neither on either surface. */
-function statesDeliverUnitAndTask(
-	connect: z.infer<typeof connectFormConfigShape>,
-	ctx: z.RefinementCtx,
-): void {
-	if (
-		connectDeliverFormHoldsTask({
-			deliver_unit: connect.deliver_unit ?? undefined,
-			task: connect.task ?? undefined,
-		})
-	) {
-		ctx.addIssue({
-			code: "custom",
-			message: CONNECT_DELIVER_UNIT_AND_TASK_MESSAGE,
-		});
-	}
-}
-
-/** The exact-target refinement: null ≡ omitted there, so a participant with
- *  no non-null sub-config opts the form into nothing. */
-export const connectFormConfigSchema = connectFormConfigShape.superRefine(
-	(connect, ctx) => {
-		statesDeliverUnitAndTask(connect, ctx);
-		if (
-			!connect.learn_module &&
-			!connect.assessment &&
-			!connect.deliver_unit &&
-			!connect.task
-		) {
-			ctx.addIssue({
-				code: "custom",
-				message:
-					"An empty Connect participant doesn't opt the form into anything. Give it the sub-config that matches the form's content — learn_module/assessment on a learn app, deliver_unit/task on a deliver app — or leave the form out of configureConnect's complete participant set.",
-			});
-		}
-	},
-);
-
-/** The `updateForm` patch refinement: omitted sub-configs keep their
- *  current value and explicit nulls remove theirs, so partial-null
- *  patches pass; only a patch naming NO sub-config — which could
- *  change nothing — rejects. */
-export const connectFormPatchSchema = connectFormConfigShape.superRefine(
-	(connect, ctx) => {
-		statesDeliverUnitAndTask(connect, ctx);
-		if (
-			connect.learn_module === undefined &&
-			connect.assessment === undefined &&
-			connect.deliver_unit === undefined &&
-			connect.task === undefined
-		) {
-			ctx.addIssue({
-				code: "custom",
-				message:
-					"This connect patch names no sub-config, so it changes nothing. State the sub-configs to set (omitted ones keep their current value), or pass null on one sub-config to remove it while another remains. Use configureConnect/configure_connect for participant-set changes.",
-			});
-		}
-	},
-);

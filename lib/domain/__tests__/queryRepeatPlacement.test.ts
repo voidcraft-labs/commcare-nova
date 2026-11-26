@@ -157,7 +157,7 @@ describe("a query that reads an answer", () => {
 			]);
 			expect(result.needs).toEqual([{ kind: "query-reads-answers" }]);
 			expect(result.placement).toBe("count");
-			expect(result.expresses("model-iteration")).toBe(false);
+			expect(result.expresses("model-iteration")).toBe(true);
 			expect(result.expresses("count")).toBe(true);
 		});
 	}
@@ -179,7 +179,7 @@ describe("a query repeat with a condition", () => {
 		]);
 		expect(result.needs).toEqual([{ kind: "row-condition" }]);
 		expect(result.placement).toBe("count");
-		expect(result.expresses("model-iteration")).toBe(false);
+		expect(result.expresses("model-iteration")).toBe(true);
 	});
 
 	it("lists the condition after the query's own need", () => {
@@ -242,7 +242,7 @@ describe("what surrounds the repeat", () => {
 		expect(result.placement).toBe("count");
 	});
 
-	it("names the nearest group whose condition reads an answer", () => {
+	it("names each enclosing group whose condition could suppress the opening count, nearest first", () => {
 		const result = verdict([
 			{
 				kind: "group",
@@ -262,6 +262,7 @@ describe("what surrounds the repeat", () => {
 		]);
 		expect(result.needs).toEqual([
 			{ kind: "ancestor-condition-changes", groupUuid: INNER_GROUP },
+			{ kind: "ancestor-condition-changes", groupUuid: GROUP },
 		]);
 	});
 

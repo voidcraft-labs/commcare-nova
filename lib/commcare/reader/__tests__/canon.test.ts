@@ -110,7 +110,6 @@ import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValida
 import type { CorpusDocument } from "@/proof/corpus/documents";
 import { producerDocuments } from "@/proof/corpus/producers";
 import { compileCcz } from "../../compiler";
-import { DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION } from "../../connectDefaults";
 import { expandDoc } from "../../expander";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { withCandidate } from "../candidate";
@@ -878,6 +877,20 @@ function profileWithout(files: Map<string, string>, key: string): unknown[] {
 
 const PAIRS: readonly Pair[] = [
 	{
+		id: "hidden-answer-type-as-automatic",
+		name: "a hidden value whose chosen answer type is the text its automatic type writes",
+		other: () =>
+			survey([
+				f({ kind: "text", id: "code_entry", label: "Code" }),
+				f({
+					kind: "hidden",
+					id: "code",
+					answerType: "text",
+					calculate: "#form/code_entry",
+				}),
+			]),
+	},
+	{
 		id: "connect-requires-app-location",
 		name: "an ordinary app-wide location choice kept while Connect is on",
 		other: () => {
@@ -1034,11 +1047,16 @@ const PAIRS: readonly Pair[] = [
 			]),
 	},
 	{
-		id: "connect-defaults-are-unset",
-		name: "a Connect assessment's score holding the default an unset one prints",
+		id: "active-connect-roles-as-read",
+		name: "a learning form in an app configured for learning and delivery",
 		other: () =>
 			buildDoc({
-				connectType: "learn",
+				connectRoles: ["learn", "deliver"],
+				appSettings: {
+					showSavedForms: false,
+					showIncompleteForms: false,
+					runsOnlyOn: "android",
+				},
 				modules: [
 					{
 						name: "Learn",
@@ -1046,13 +1064,14 @@ const PAIRS: readonly Pair[] = [
 							{
 								name: "Lesson",
 								type: "survey",
-								connect: {
-									assessment: {
+								fields: [
+									f({ kind: "int", id: "points" }),
+									f({
+										kind: "connect_activity",
 										id: "quiz",
-										user_score: DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
-									},
-								},
-								fields: [f({ kind: "int", id: "points" })],
+										activity: { kind: "assessment", score: "#form/points" },
+									}),
+								],
 							},
 						],
 					},
@@ -2142,6 +2161,26 @@ const PAIRS: readonly Pair[] = [
 					draft.locationPropertyOrder = [BEDS];
 				},
 			);
+		},
+	},
+	{
+		id: "submitted-placement-as-read",
+		name: "a Hidden Value submitted between two questions but kept last on the screen tree",
+		other: () => {
+			const doc = survey([
+				f({ kind: "text", id: "arrival", label: "Arrival" }),
+				f({ kind: "text", id: "next", label: "Next" }),
+				f({ kind: "hidden", id: "visit_note", calculate: "'noted'" }),
+			]);
+			const form = Object.keys(doc.forms)[0] as Uuid;
+			return produce(doc, (draft) => {
+				const note = draft.fieldOrder[form]?.[2] as Uuid;
+				(
+					draft.fields[note] as {
+						submissionPlacement?: { parent: Uuid; position: number };
+					}
+				).submissionPlacement = { parent: form, position: 1 };
+			});
 		},
 	},
 	{

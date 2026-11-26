@@ -826,8 +826,10 @@ describe("a yes or no answer as a case change's condition", () => {
 	// Core holds a Hidden Value calculated by a condition as `BooleanData`
 	// and reads it back as its truth (`Recalculate.wrapData`,
 	// `XPathPathExpr.unpackValue`), so the referral opens exactly when the
-	// calculation holds. Preview's form submits the answer's text, `false`
-	// included, which only the answer's held class keeps from reading true.
+	// calculation holds. Preview's form submits the text Core's serializer
+	// writes for it, `1` or `0` (`XFormAnswerDataSerializer.serializeAnswerData
+	// (BooleanData)`), and only the answer's held class keeps `0` from reading
+	// true.
 	it.each([
 		["a note given", "needs work", 1],
 		["no note given", "", 0],
@@ -900,7 +902,7 @@ describe("a yes or no answer as a case change's condition", () => {
 		if (!built.program) throw new Error("Expected a submission program");
 		expect(built.program.formFieldHeld?.get(flag)).toBe("boolean");
 		expect(built.program.scopes[0]?.iterations[0]?.formFields.get(flag)).toBe(
-			note === "" ? "false" : "true",
+			note === "" ? "0" : "1",
 		);
 		const store = makeStore();
 		await submit(store, built.program);

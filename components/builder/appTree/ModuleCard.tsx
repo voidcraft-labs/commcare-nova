@@ -31,7 +31,6 @@ import { useLocalizedText } from "@/components/builder/localization/BuilderLocal
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
 import {
 	useFormIds,
@@ -98,8 +97,6 @@ export const ModuleCard = memo(function ModuleCard({
 	 *  while the module row is mounted without a formOrder entry, the
 	 *  component returns null below in that case. */
 	const formIds = useFormIds(moduleUuid);
-
-	const connectType = useConnectTypeOrUndefined();
 
 	/** Boolean selection: URL-driven via useIsModuleSelected.
 	 *  Only this module + the previously selected re-render on change. */
@@ -279,7 +276,6 @@ export const ModuleCard = memo(function ModuleCard({
 												collapsed={collapsed}
 												toggle={toggle}
 												searchResult={searchResult}
-												connectType={connectType}
 												locked={locked}
 											/>
 										),
