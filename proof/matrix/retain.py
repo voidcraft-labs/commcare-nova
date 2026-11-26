@@ -57,8 +57,9 @@ or path it names.
 ``read_variant`` makes one row of ``variants.json`` in a fork of the base's
 state and reads it as the row's own answers: its application resource,
 source, version and project space lists, and each file its media map names
-(a change may attach one the base does not hold), beside the base's lookup
-table, level and place answers. A set-json value is served where HQ's source
+(a change may attach one the base does not hold), and the project space's
+lookup table, level and place answers as the fork holds them then (a change
+may make a table the base does not hold). A set-json value is served where HQ's source
 read holds what the row set (``holds``), each menu or form the value names by
 position read as the id the source read serves for it (``served_ids``). It
 retains nothing; it returns what the row is held to.
@@ -663,9 +664,10 @@ def make_change(authoring, app_id, change):
 
 def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantOutcome:
     """The row ``variant`` made over the base's state (the caller's fork), read through HQ's API and by the reader
-    bundle: the app's answers and each file its media map names are the variant's own (a change may attach a file
-    the base does not hold), the project space's other answers the base's. HQ raising while the change is made is
-    the outcome itself (``raised``); nothing is read then."""
+    bundle: the app's answers, the project space's lookup tables, levels and places, and each file its media map
+    names are the variant's own, read once its changes are made (a change may attach a file, or make a table, the
+    base does not hold). HQ raising while the change is made is the outcome itself (``raised``); nothing is read
+    then."""
     from proof.matrix.ops import MatrixChangeRefused, SourceNotHeld, ValueNotSet
 
     base_source = json.loads(kept.answers["source"].body)
@@ -686,7 +688,9 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
     except Exception as error:  # noqa: BLE001 (the class of what HQ raised is what the row records)
         return VariantOutcome(variant, raised=type(error).__name__, base_source=base_source)
     answers = app_reads(authoring, app_id, credential)
-    media = media_reads(authoring, app_id, credential)
+    # The project space's data as the fork holds it once the row's changes are made: a named change may make a
+    # lookup table, a level or a place the base does not hold, which the variant's app then reads.
+    project_answers, media = project_data_reads(authoring, app_id, credential)
     source = json.loads(answers["source"].body) if answers["source"].status == 200 else {}
     from proof.matrix.ops import resolve_references
 
@@ -700,7 +704,7 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
     request = {
         "id": variant.id,
         "mode": "first-read",
-        "input": reading_input(answers, kept.project_answers, media, base, claims="full"),
+        "input": reading_input(answers, project_answers, media, base, claims="full"),
     }
     held = [{**hold, "key": hold_key(hold["key"], base_source)} for hold in variant.holds]
     if held:
