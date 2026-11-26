@@ -1568,10 +1568,7 @@ function readBlock(
 	};
 	const casePath = [...block.path, "case"];
 	const idPath = [...casePath, "@case_id"];
-	if (
-		block.authoredScopeLength !== undefined &&
-		(creates || caseType === "commcare-user")
-	)
+	if (block.authoredScopeLength !== undefined && caseType === "commcare-user")
 		return { ok: false };
 	const segments: SaveToCaseBlockSegment[] = [];
 	for (const wrapper of block.wrappers) {

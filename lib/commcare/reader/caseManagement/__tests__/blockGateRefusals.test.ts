@@ -66,6 +66,8 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
+import { expandDoc } from "../../../expander";
+
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import {
 	type ExportEdits,
@@ -842,6 +844,43 @@ it("accounts for a positioned block whose write may race the managed action on t
 	expect(outcome.findings.map((finding) => finding.code)).toEqual([
 		"questions/a-positioned-case-change-coupled-to-an-hq-case-action",
 	]);
+});
+
+it("keeps a positioned create and its text guard together in submission order", async () => {
+	const change = visitCreate({});
+	const position = testUuid("authored-case-create");
+	const doc = produce(app("survey", [change]), (draft) => {
+		delete draft.modules[draft.moduleOrder[0]].caseType;
+		draft.fields[position] = {
+			kind: "case_change",
+			id: "save_visit",
+			uuid: position,
+			operationUuid: change.uuid,
+		};
+		draft.fieldParent[position] = FORM;
+		draft.fieldOrder[FORM].splice(1, 0, position);
+	});
+	expect(gateCodes(doc)).toEqual([]);
+	const attachment = Object.values(expandDoc(doc)._attachments).find(
+		(xml): xml is string =>
+			typeof xml === "string" && xml.includes("save_visit"),
+	);
+	expect(attachment).toMatch(
+		/<save_visit[^>]+>[\s\S]+?<\/save_visit><nova_guard_save_visit_text[ >]/,
+	);
+	const outcome = await readBack(doc);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	expect(outcome.draft.doc.fieldOrder[FORM].slice(0, 3)).toEqual([
+		NOTE,
+		position,
+		MANY,
+	]);
+	expect(outcome.draft.doc.forms[FORM].caseOperations?.[0]).toMatchObject({
+		action: "create",
+		uuid: change.uuid,
+	});
 });
 
 it.each(["close", "update", "create"] as const)(
