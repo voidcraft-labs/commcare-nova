@@ -52,6 +52,7 @@ import {
 	fieldReferenceSlotsFor,
 	isOwnerOnlyCaseSearchConfig,
 	MODULE_REFERENCE_SLOTS,
+	optionsSourceFilter,
 	ownRecordValue,
 	type ProseTemplate,
 	readSlotStrings,
@@ -532,14 +533,14 @@ function collectFieldReferences(
 				}
 				break;
 			}
-			case "options-source":
+			case "options-source": {
+				if (field.kind !== "single_select" && field.kind !== "multi_select")
+					break;
+				const source = field.optionsSource;
+				const filter = optionsSourceFilter(source);
 				if (
-					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource.kind !== "inline" &&
-					((field.optionsSource.kind === "cases" &&
-						field.optionsSource.caseType === caseType) ||
-						(field.optionsSource.filter !== undefined &&
-							expressionRefsCaseType(field.optionsSource.filter, caseType)))
+					(source.kind === "cases" && source.caseType === caseType) ||
+					(filter !== undefined && expressionRefsCaseType(filter, caseType))
 				) {
 					out.push({
 						verbose: `field "${field.id}" in ${where} reads a "${caseType}" property in its choice source`,
@@ -547,6 +548,7 @@ function collectFieldReferences(
 					});
 				}
 				break;
+			}
 			case "case-type-ref":
 			case "entity-uuid":
 			case "case-property-ref":

@@ -14,7 +14,7 @@ import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
 import { FIELD_ITEXT_SLOTS } from "./expression/types";
 import type { Field } from "./fields";
-import { isContainer } from "./fields";
+import { isContainer, isDeviceCaseOptionsSource } from "./fields";
 import { DEFAULT_FORM_SUBMIT_LABEL } from "./formSubmitLabel";
 import {
 	type GeneratedWording,
@@ -301,7 +301,9 @@ export function collectTranslationCoverageDiagnostics(
 		});
 	}
 	const caseChoices = Object.values(doc.fields).filter(
-		(field) => "optionsSource" in field && field.optionsSource.kind === "cases",
+		(field) =>
+			"optionsSource" in field &&
+			isDeviceCaseOptionsSource(field.optionsSource),
 	).length;
 	if (caseChoices > 0)
 		diagnostics.push({

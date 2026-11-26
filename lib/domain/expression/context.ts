@@ -881,7 +881,8 @@ export function slotContext(
 		);
 		if (slot.slot === "lookup_options_source") {
 			const choices = field.choices;
-			if (choices === undefined || choices.kind === "inline") return undefined;
+			if (choices?.kind !== "lookup" && choices?.kind !== "cases")
+				return undefined;
 			profile = slotProfile(
 				"record",
 				choices.kind === "cases" ? "case" : "table",

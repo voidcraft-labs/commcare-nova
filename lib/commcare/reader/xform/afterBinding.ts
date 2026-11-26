@@ -43,7 +43,7 @@ import {
 } from "@/lib/domain/localization";
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import { caseOptionsNodeset } from "../../caseOptions";
+import { availableCasesNodeset, caseOptionsNodeset } from "../../caseOptions";
 
 import { el, text as textNode } from "../../elementBuilders";
 import { planLanguageWire } from "../../languageWire";
@@ -493,6 +493,18 @@ function settleChoices(
 						? nodeset.slice(top.base.from, top.base.to)
 						: undefined
 					: nodeset;
+		if (proposal.caseType === undefined) {
+			settleCaseChoices(
+				xform.cursor,
+				proposal,
+				field.place,
+				head !== undefined &&
+					!filtered &&
+					sameTree(head, availableCasesNodeset()),
+				false,
+			);
+			continue;
+		}
 		const context = slotContext(
 			doc,
 			{ entity: "field", uuid, slot: "lookup_options_source" },

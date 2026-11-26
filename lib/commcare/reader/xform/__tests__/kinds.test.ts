@@ -984,6 +984,7 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 	async function questionFindings(
 		filter: string | undefined,
 		options: {
+			readonly allCases?: true;
 			readonly labelProperty?: string;
 			readonly sortProperty?: string;
 			readonly xml?: (xml: string) => string;
@@ -1014,15 +1015,17 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 								f({
 									kind: "single_select",
 									id: "clinic",
-									optionsSource: {
-										kind: "cases",
-										caseType: "clinic",
-										labelProperty: options.labelProperty ?? "case_name",
-										...(options.sortProperty !== undefined && {
-											sortProperty: options.sortProperty,
-										}),
-										...(filter === undefined ? {} : { filter }),
-									},
+									optionsSource: options.allCases
+										? { kind: "available-cases" }
+										: {
+												kind: "cases",
+												caseType: "clinic",
+												labelProperty: options.labelProperty ?? "case_name",
+												...(options.sortProperty !== undefined && {
+													sortProperty: options.sortProperty,
+												}),
+												...(filter === undefined ? {} : { filter }),
+											},
 								} as FieldSpec),
 							],
 						},
@@ -1054,6 +1057,38 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 				Q("itemset-over-casedb-in-nova-s-case-choices-shape")
 			],
 		).toBeGreaterThan(0);
+	});
+
+	it("keeps all available cases as an unfiltered source with exact name and ID", async () => {
+		const { atQuestion, outcome } = await questionFindings(undefined, {
+			allCases: true,
+			xml: (xml) => {
+				expect(xml).toContain(
+					`nodeset="instance(&apos;casedb&apos;)/casedb/case"`,
+				);
+				expect(xml).toContain('<label ref="case_name"/>');
+				expect(xml).toContain('<value ref="@case_id"/>');
+				return xml;
+			},
+		});
+		expect(atQuestion).toEqual([]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") throw new Error("Expected a read form.");
+		const field = Object.values(outcome.draft.doc.fields).find(
+			(one) => one.id === "clinic",
+		);
+		expect(field).toMatchObject({ optionsSource: { kind: "available-cases" } });
+	});
+
+	it("refuses a custom label over untyped cases", async () => {
+		const { atQuestion } = await questionFindings(undefined, {
+			allCases: true,
+			xml: (xml) =>
+				xml.replace('<label ref="case_name"/>', '<label ref="region"/>'),
+		});
+		expect(atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
 	});
 
 	it("holds the itemset Nova writes with a filter", async () => {
