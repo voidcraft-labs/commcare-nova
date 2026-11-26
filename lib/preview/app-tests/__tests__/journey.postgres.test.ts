@@ -154,7 +154,7 @@ it.each(["guarded", "repeated"] as const)(
 							type: "survey",
 							fields: repeated
 								? [
-										f({ kind: "integer", uuid: decision, id: "decision" }),
+										f({ kind: "int", uuid: decision, id: "decision" }),
 										f({
 											kind: "repeat",
 											uuid: members,
