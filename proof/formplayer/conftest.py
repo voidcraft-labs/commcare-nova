@@ -23,6 +23,7 @@ DOCUMENTS = (
     "case-operation-key",
     "case-operation-query",
     "case-operation-sequence",
+    "hq-empty-search",
     "media-rich",
     "navigation-base",
     "no-matches-basic",
