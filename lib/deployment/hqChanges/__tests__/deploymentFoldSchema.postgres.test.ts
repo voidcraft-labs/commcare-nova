@@ -279,13 +279,17 @@ async function installEarlierProjection() {
 			),
 		)
 		.execute(h.db());
+	await reinstateEarlierProjection();
+	return def;
+}
+
+async function reinstateEarlierProjection() {
 	await sql`CREATE OR REPLACE FUNCTION public.nova_current_app_change_fold_snapshot(text)
 		RETURNS jsonb LANGUAGE sql STABLE AS $f$
 		SELECT (doc - 'appName') || jsonb_build_object('visitTitle', doc->'appName')
 		FROM (SELECT public.witness_candidate_snapshot($1) AS doc) AS candidate $f$`.execute(
 		h.db(),
 	);
-	return def;
 }
 
 async function oldEdit(appId: string, title: string, seq: number) {
@@ -347,6 +351,9 @@ it.each([false, true])(
 		let seq = headSeq;
 		if (hasCertificate) {
 			await installCandidate();
+			// Connect's DDL replaces the projection. Keep this historical
+			// certificate on its original title representation.
+			await reinstateEarlierProjection();
 			// A later old release issued a certificate for West in this same old
 			// dialect. East published again above that horizon.
 			seq = await writeHqRoundTripCaseWritesHorizon(
@@ -426,7 +433,10 @@ it.each([false, true])(
 		).rejects.toThrow();
 		const receipt = await scan();
 		expect(receipt.usable).toBe(2);
-		if (!hasCertificate) await installCandidate();
+		if (!hasCertificate) {
+			await installCandidate();
+			await reinstateEarlierProjection();
+		}
 		expect(await scan()).toEqual(receipt);
 		const write = (selected: typeof source) =>
 			h.withTransaction((tx) =>
