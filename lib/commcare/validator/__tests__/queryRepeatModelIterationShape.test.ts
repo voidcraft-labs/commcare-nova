@@ -121,6 +121,11 @@ describe("QUERY_REPEAT_MODEL_ITERATION_SHAPE", () => {
 			expect(found?.location.fieldUuid).toBe(REPEAT);
 		});
 
+		it("refuses when one edited answer hides the first row and shows the later rows", () => {
+			const doc = gated("'a b c'", "model-iteration", "#form/first = 'no'");
+			expect(finding(doc)?.details).toMatchObject({ reason: "row-condition" });
+		});
+
 		it("admits when the later answer cannot enter the text that would show its rows", () => {
 			expect(
 				finding(

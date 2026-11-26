@@ -10081,7 +10081,7 @@ def _relevance(form, element):
 
 
 def model_iteration_hides_earlier_row(use, manifest):
-    """Core's insertion counter counts only visible rows; support only the independently editable first/later shape."""
+    """Core's insertion counter counts only visible rows; support only the editable first/later comparisons."""
     from proof.checks.xpath_tree import tree
 
     form, container = _model_iteration(use)
@@ -10144,11 +10144,11 @@ def model_iteration_hides_earlier_row(use, manifest):
                         and field_bind.get("type", "xsd:string") == "xsd:string"
                         and not any(field_bind.get(key) for key in ("relevant", "readonly", "constraint", "calculate"))
                     ):
-                        return field_path
+                        return field_path, comparison[1]
         return None
 
-    first_path, later_path = answer(first), answer(later)
-    return first_path is not None and later_path is not None and first_path != later_path
+    first_answer, later_answer = answer(first), answer(later)
+    return first_answer is not None and later_answer is not None and first_answer != later_answer
 
 
 def model_iteration_under_late_relevance(use, manifest):

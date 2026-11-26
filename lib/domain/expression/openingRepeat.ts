@@ -172,24 +172,22 @@ function isFirstRow(condition: Expression): boolean {
 }
 
 /** The directly editable text answer whose equality can show this branch.
- * Keep the proof to independent, ordinary controls the worker can reach
+ * Keep the proof to ordinary controls the worker can reach
  * before the query repeat. */
 function earlierTextAnswer(
 	form: FormStructure,
 	condition: Expression,
 	earlier: OpeningOrder,
-): Uuid | undefined {
+): readonly [Uuid, string] | undefined {
 	if (condition.kind !== "eq") return undefined;
-	const first = literal(condition.left);
-	const last = literal(condition.right);
-	const editableValue = (value: string | number | undefined) =>
-		typeof value === "string" && /^[A-Za-z0-9]+$/.test(value);
-	const uuid = editableValue(last)
-		? directField(condition.left)
-		: editableValue(first)
-			? directField(condition.right)
-			: undefined;
+	const leftField = directField(condition.left);
+	const uuid = leftField ?? directField(condition.right);
 	if (uuid === undefined || !earlier(uuid)) return undefined;
+	const value = literal(
+		leftField === undefined ? condition.left : condition.right,
+	);
+	if (typeof value !== "string" || !/^[A-Za-z0-9]+$/.test(value))
+		return undefined;
 	const field = form.fields.get(uuid);
 	return field?.kind === "text" &&
 		field.parent === form.formUuid &&
@@ -198,7 +196,7 @@ function earlierTextAnswer(
 		form.expressionAt({ entity: "field", uuid, slot: "relevant" }) ===
 			undefined &&
 		form.expressionAt({ entity: "field", uuid, slot: "validate" }) === undefined
-		? uuid
+		? [uuid, value]
 		: undefined;
 }
 
@@ -219,9 +217,13 @@ function hidesAnEarlierRow(
 	const first = earlierTextAnswer(form, condition.then, earlier);
 	const later = earlierTextAnswer(form, condition.else, earlier);
 	// Core counts only relevant rows when assigning a newly inserted row's
-	// model index. With independent answers for the first row and later rows,
-	// the worker can reach the first row, hide it, then make another row.
-	return first !== undefined && later !== undefined && first !== later;
+	// model index. With different branch comparisons, the worker can reach
+	// the first row, hide it, then make another row.
+	return (
+		first !== undefined &&
+		later !== undefined &&
+		(first[0] !== later[0] || first[1] !== later[1])
+	);
 }
 
 export function openingRepeatLimitation(
