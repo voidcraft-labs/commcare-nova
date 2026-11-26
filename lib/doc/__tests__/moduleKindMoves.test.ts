@@ -31,6 +31,7 @@ import {
 	CHECK_IN,
 	carryVisit,
 	DIRECTORY,
+	HOUSEHOLD_VISIT,
 	HOUSEHOLDS,
 	K,
 	kindFixture,
@@ -96,17 +97,6 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 					uuid: VISITS,
 					patch: {},
 					caseSearchConfigPatch: { formsReadSearch: true },
-				} as Mutation,
-			],
-		},
-		{
-			blocker: "case-list-menu-item-narrowed",
-			module: DIRECTORY,
-			edit: () => [
-				{
-					kind: "setCaseListMeta",
-					uuid: DIRECTORY,
-					patch: { filter: isBlank(prop("household", "size")) },
 				} as Mutation,
 			],
 		},
@@ -178,6 +168,27 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 			);
 		});
 
+	it("keeps a held advanced kind when its list gains a filter, since HQ lists every open case at an advanced menu's case list item", () => {
+		const doc = publishedAdvanced(kindFixture(), DIRECTORY);
+		const edit: Mutation[] = [
+			{
+				kind: "setCaseListMeta",
+				uuid: DIRECTORY,
+				patch: { filter: isBlank(prop("household", "size")) },
+			} as Mutation,
+		];
+		expect(refusalCodes(doc, edit)).toEqual([]);
+		expect(
+			planModuleKindMoves(doc, verdictCandidate(doc, edit, { stranded: false }))
+				.moves,
+		).toEqual([]);
+		const result = verdict(doc, edit);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.nextDoc.modules[DIRECTORY].heldKind).toBe("advanced");
+		expect(emittedModuleKind(result.nextDoc, DIRECTORY)).toBe("advanced");
+	});
+
 	it("states that a parent selection's forms read their chosen cases under new names", () => {
 		const doc = publishedAdvanced(kindFixture(), MEMBERS);
 		const [move] = withIdentityMoves(doc, memberUnderTwoNames).moves;
@@ -194,6 +205,8 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 				"forms-read-search",
 				"case-list-menu-item-narrowed",
 				"chain-index",
+				"list-entry-change",
+				"form-entry-change",
 				"advanced-change",
 			] as const
 		).map((reason) =>
@@ -212,6 +225,8 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 			`${lead} Its forms now read the search, which an advanced menu can't do. ${exports}`,
 			`${lead} Its case list in the menu now has a filter or a parent case, which an advanced menu would leave out. ${exports}`,
 			`${lead} Its cases now link to their parent case under more than one name. ${exports}`,
+			`${lead} Its list now chooses records in a way only an advanced menu can: the worker’s own record, or a single match opened automatically. ${exports}`,
+			`${lead} A form in it now opens with its own cases or values, which only an advanced menu can do. ${exports}`,
 			`${lead} A form in it now saves a case change only an advanced menu can. ${exports}`,
 		]);
 	});
@@ -296,6 +311,122 @@ describe("planModuleKindMoves, for a menu a carried create turns advanced", () =
 		expect(plan.batch).toBe(edit);
 		expect(plan.moves).toEqual([]);
 	});
+});
+
+/**
+ * A published ordinary menu that an opening edit, not a case change, turns
+ * advanced. The failure: the move stated with the case-change reason, so a
+ * person confirms a move for a cause they did not make.
+ */
+describe("planModuleKindMoves, for a menu an opening edit turns advanced", () => {
+	const rows: readonly {
+		readonly cause: string;
+		readonly reason: string;
+		readonly edit: Mutation[];
+		readonly sentence: string;
+	}[] = [
+		{
+			cause: "automatic selection",
+			reason: "list-entry-change",
+			edit: [
+				{
+					kind: "updateModule",
+					uuid: HOUSEHOLDS,
+					patch: { autoSelectSingle: true },
+				} as Mutation,
+			],
+			sentence:
+				"Its list now chooses records in a way only an advanced menu can: the worker’s own record, or a single match opened automatically.",
+		},
+		{
+			cause: "the form's own opening choices",
+			reason: "form-entry-change",
+			edit: [
+				{
+					kind: "updateForm",
+					uuid: HOUSEHOLD_VISIT,
+					patch: {},
+					entryChange: { operation: "use-form-choices" },
+				} as Mutation,
+			],
+			sentence:
+				"A form in it now opens with its own cases or values, which only an advanced menu can do.",
+		},
+	];
+	for (const row of rows)
+		it(`states the move with ${row.cause} as its reason`, () => {
+			const doc = publishedBasic(kindFixture(), HOUSEHOLDS);
+			// Web Apps refuses automatic selection beside a details screen.
+			doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+			expect(verdict(doc, []).ok).toBe(true);
+			const plan = withIdentityMoves(doc, row.edit);
+			// The forms' held basic placements move after it.
+			expect(plan.moves[0]).toEqual({
+				subject: { kind: "module-kind", moduleUuid: HOUSEHOLDS },
+				from: "ordinary-menu",
+				to: "advanced-menu",
+				reason: {
+					source: "module-kind",
+					reason: row.reason,
+					chosenCasesRenamed: false,
+				},
+			});
+			const result = verdict(doc, plan.batch);
+			expect(result.ok ? [] : result.findings.map((f) => f.message)).toEqual(
+				[],
+			);
+			if (!result.ok) return;
+			expect(emittedModuleKind(result.nextDoc, HOUSEHOLDS)).toBe("advanced");
+			expect(identityMoveSentence(result.nextDoc, plan.moves[0])).toBe(
+				`“Households” moves from an ordinary menu to an advanced menu. ${row.sentence} From your next publish, CommCare HQ's exports show these answers under new columns.`,
+			);
+			expect(identityMovesBetween(doc, result.nextDoc)[0]).toEqual(
+				plan.moves[0],
+			);
+		});
+});
+
+// HQ's advanced item lists every open case of the type, so a published
+// ordinary menu whose filtered case list menu item turns advanced shows
+// workers more cases. The failure: the move stated without that, so a
+// person confirms it never knowing the item broadens.
+it("states that a published menu's filtered case list menu item will list every open case", () => {
+	const doc = kindFixture();
+	const config = doc.modules[HOUSEHOLDS].caseListConfig;
+	if (config === undefined) throw new Error("Households has a list.");
+	doc.modules[HOUSEHOLDS] = {
+		...doc.modules[HOUSEHOLDS],
+		caseListMenuItem: {},
+		caseListConfig: { ...config, filter: isBlank(prop("household", "size")) },
+	};
+	doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+	publishedBasic(doc, HOUSEHOLDS);
+	expect(verdict(doc, []).ok).toBe(true);
+	const edit: Mutation[] = [
+		{
+			kind: "updateModule",
+			uuid: HOUSEHOLDS,
+			patch: { autoSelectSingle: true },
+		} as Mutation,
+	];
+	const plan = withIdentityMoves(doc, edit);
+	expect(plan.moves[0]).toEqual({
+		subject: { kind: "module-kind", moduleUuid: HOUSEHOLDS },
+		from: "ordinary-menu",
+		to: "advanced-menu",
+		reason: {
+			source: "module-kind",
+			reason: "list-entry-change",
+			expandsCaseList: true,
+			chosenCasesRenamed: false,
+		},
+	});
+	const result = verdict(doc, plan.batch);
+	expect(result.ok ? [] : result.findings.map((f) => f.message)).toEqual([]);
+	if (!result.ok) return;
+	expect(identityMoveSentence(result.nextDoc, plan.moves[0])).toBe(
+		"“Households” moves from an ordinary menu to an advanced menu. Its list now chooses records in a way only an advanced menu can: the worker’s own record, or a single match opened automatically. Its case list menu item will show every open record of this type available to the worker. Forms will keep their own selection filters. From your next publish, CommCare HQ's exports show these answers under new columns.",
+	);
 });
 
 describe("the undo of a menu's move", () => {

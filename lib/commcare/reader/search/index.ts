@@ -1351,13 +1351,29 @@ function settleUntoldChecks(
 			}
 			if (!kept) {
 				const place = searchPlace(module);
-				const detail = { name: "schema:Assertion.text" };
-				ctx.accounting.circumstance("unrecognized", place, detail);
-				settleDeferredRefusal(
-					ctx,
-					index,
-					circumstanceFinding("unrecognized", place, detail),
-				);
+				if (Object.values(stored).every((text) => text === "")) {
+					const claim = SETTING_CLAIMS.checkWithoutMessageGuarded;
+					const detail = { name: prompt.name };
+					ctx.accounting.findingAt(
+						claim,
+						place,
+						`${prompt.cursor.pointer}/validations`,
+						detail,
+					);
+					settleDeferredRefusal(
+						ctx,
+						index,
+						manifestFindingOf(claim, place, detail),
+					);
+				} else {
+					const detail = { name: "schema:Assertion.text" };
+					ctx.accounting.circumstance("unrecognized", place, detail);
+					settleDeferredRefusal(
+						ctx,
+						index,
+						circumstanceFinding("unrecognized", place, detail),
+					);
+				}
 				if (rule) untoldRuleRefusal(ctx, held, index, rule);
 				continue;
 			}

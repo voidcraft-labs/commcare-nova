@@ -7,6 +7,7 @@ import type {
 	HqForm,
 	HqFormLink,
 	HqModule,
+	HqShadowForm,
 } from "../types";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr, WireMode } from "../xpath/wire/tree";
@@ -38,6 +39,7 @@ export type HqFormTree = HqForm<HqXPath, HqLinkXPath>;
 /** An advanced menu's tree; of its own keys only `form_filter` holds an expression. */
 export type HqAdvancedModuleTree = HqAdvancedModule<HqXPath, HqLinkXPath>;
 export type HqAdvancedFormTree = HqAdvancedForm<HqXPath, HqLinkXPath>;
+export type HqShadowFormTree = HqShadowForm<HqXPath, HqLinkXPath>;
 export type HqFormLinkTree = HqFormLink<HqLinkXPath>;
 
 export function hqXPathText(value: HqXPath): string {

@@ -2,7 +2,7 @@ import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { z } from "zod";
 import type { CaseRow } from "@/lib/case-store";
-import { type BlueprintDoc, materializableCaseTypes } from "@/lib/domain";
+import { type BlueprintDoc, entryCaseTypes } from "@/lib/domain";
 import { ancestorLink } from "@/lib/domain/advancedModule";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { FormEvaluationInputError } from "@/lib/preview/engine/formEvaluationTypes";
@@ -64,9 +64,7 @@ export function evaluationScenarioCases(
 ): CaseDatabaseSnapshot {
 	const ajv = new Ajv2020({ strict: false, strictNumbers: true });
 	addFormats(ajv);
-	const types = new Map(
-		materializableCaseTypes(doc).map((type) => [type.name, type]),
-	);
+	const types = new Map(entryCaseTypes(doc).map((type) => [type.name, type]));
 	const validators = new Map(
 		[...types].map(([name, type]) => [
 			name,

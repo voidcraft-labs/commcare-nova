@@ -205,18 +205,21 @@ describe("a basic form read back from Nova's own emission", () => {
 	}, 60_000);
 
 	/** Members chosen under their household, whose visit saves its own answers and, through the
-	 *  household it was chosen under, the household's: each step typed or not, as Nova admits both. */
+	 *  household it was chosen under, the household's, its name and owner among them: each step
+	 *  typed or not, as Nova admits both. */
 	const viaDocArbitrary: fc.Arbitrary<BlueprintDoc> = fc
 		.record({
 			typed: fc.boolean(),
 			own: fc.integer({ min: 0, max: 2 }),
 			above: fc.integer({ min: 1, max: 2 }),
+			facets: fc.subarray(["case_name", "owner_id"]),
 		})
-		.map(({ typed, own, above }) => {
+		.map(({ typed, own, above, facets }) => {
 			const VISIT = testUuid("rt-via-visit");
 			const ids = [
 				...Array.from({ length: own }, (_, i) => `note_${i}`),
 				...Array.from({ length: above }, (_, i) => `size_${i}`),
+				...facets.map((facet) => `set_${facet}`),
 			];
 			return buildDoc(
 				{
@@ -224,7 +227,7 @@ describe("a basic form read back from Nova's own emission", () => {
 						{
 							name: "household",
 							properties: ids
-								.filter((id) => id.startsWith("size"))
+								.filter((id) => id.startsWith("size_"))
 								.map((id) => ({ name: id, label: id })),
 						},
 						{
@@ -283,9 +286,9 @@ describe("a basic form read back from Nova's own emission", () => {
 								id: "member",
 								action: "own",
 								writes: ids.map((id) => ({
-									property: id,
+									property: id.startsWith("set_") ? id.slice(4) : id,
 									value: term(formField(testUuid(`rt-via-${id}`))),
-									...(id.startsWith("size") && {
+									...(!id.startsWith("note_") && {
 										via: [
 											typed
 												? { identifier: "parent", throughCaseType: "household" }

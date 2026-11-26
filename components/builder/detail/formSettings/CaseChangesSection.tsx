@@ -11,6 +11,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import { Button } from "@/components/shadcn/button";
 import { useCaseOperationCount } from "@/lib/doc/hooks/useCaseOperationFacts";
+import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import type { FormSettingsSectionProps } from "./types";
@@ -27,7 +28,8 @@ export function CaseChangesSection({
 }) {
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
-	const count = useCaseOperationCount(formUuid);
+	const parent = useForm(formUuid)?.shadowOf?.form;
+	const count = useCaseOperationCount(parent ?? formUuid);
 
 	return (
 		<section className="space-y-3">

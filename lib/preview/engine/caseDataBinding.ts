@@ -79,6 +79,7 @@ import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { searchOwnerOverride } from "@/lib/domain/modules";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -139,6 +140,7 @@ import {
 } from "./caseListOrder";
 import { completedSearchRequest } from "./completedSearchRequest";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
+import { formNeedsOpeningEvidence } from "./formOpeningSnapshot";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
 	previewAsMe,
@@ -178,6 +180,7 @@ import {
 } from "./searchInputValidation";
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
 import { serverPreviewDataRefusalOf } from "./serverDataRefusal";
+import { openingCarryScope, verifyFormOpening } from "./signedFormOpening";
 import type { ViewerLocation } from "./viewerLocation";
 import { workerLocationFixture } from "./workerLocationFixture";
 import type {
@@ -2042,6 +2045,7 @@ export async function submitFormAction(
 	 *  operation writing a session context value writes the platform's. */
 	device?: PreviewDevice,
 	entryGroupOwner?: string,
+	previewRun?: string,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
@@ -2183,7 +2187,51 @@ export async function submitFormAction(
 			identity,
 			"edit",
 		);
+		const binding = projection.formOpening;
+		const committed = hydratePersistedBlueprint(authorized.app.blueprint);
+		if (!binding && formNeedsOpeningEvidence(committed, projection.formUuid)) {
+			throw new CaptureSubmissionRejectedError(
+				"Reopen this form to load its opening records before submitting.",
+			);
+		}
+		const opening =
+			binding &&
+			(await verifyFormOpening(
+				process.env.BETTER_AUTH_SECRET ?? "",
+				{
+					app: appId,
+					project: authorized.projectId,
+					actor: identity.actorUserId,
+					worker: identity.ownerId,
+					session: session.session.id,
+					persona: identity.personaUuid ?? null,
+					device: admitted.device,
+					module: binding.module,
+					form: projection.formUuid,
+					run: binding.run,
+					entry: projection.entryKey,
+					revision: authorized.app.mutation_seq,
+					blueprintDigest: expectedBlueprintDigest,
+				},
+				binding.evidence,
+			));
+		if (
+			opening &&
+			(!opening.complete ||
+				binding?.module !== moduleUuidOfForm(committed, projection.formUuid) ||
+				("caseIds" in normalizedMutation &&
+					(normalizedMutation.caseIds.length !==
+						opening.primaryCaseIds.length ||
+						normalizedMutation.caseIds.some(
+							(id, index) => id !== opening.primaryCaseIds[index],
+						))))
+		) {
+			throw new CaptureSubmissionRejectedError(
+				"The selected records changed. Reopen the form to choose them again.",
+			);
+		}
 		const built = await buildSubmissionOperationProgram({
+			opening,
 			appId,
 			committedApp: authorized.app,
 			blueprintDigest: expectedBlueprintDigest,
@@ -2205,8 +2253,15 @@ export async function submitFormAction(
 			receiptMutation: wireMutation,
 			projection,
 			viewerTimeZone,
+			...(opening
+				? {
+						workerPlaceIds:
+							opening.cases.locations?.map((place) => place.id) ?? [],
+					}
+				: entryPlaceIds === undefined
+					? {}
+					: { workerPlaceIds: entryPlaceIds }),
 			entryGroupOwner,
-			...(entryPlaceIds === undefined ? {} : { workerPlaceIds: entryPlaceIds }),
 		});
 		if (built.captureIntent !== undefined) {
 			await prepareCaptureSubmissionBytes({
@@ -2219,9 +2274,26 @@ export async function submitFormAction(
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
-		const result = await store.applySubmission(
-			submissionEnvelopeArgs(normalizedMutation, appId, built),
-		);
+		const envelope = submissionEnvelopeArgs(normalizedMutation, appId, built);
+		const run = binding?.run ?? z.uuid().optional().parse(previewRun);
+		const result = await store.applySubmission({
+			...envelope,
+			submissionReceipt: {
+				...envelope.submissionReceipt,
+				openingCarryScope: run
+					? openingCarryScope({
+							app: appId,
+							project: authorized.projectId,
+							actor: identity.actorUserId,
+							session: session.session.id,
+							worker: identity.ownerId,
+							persona: identity.personaUuid ?? null,
+							device: admitted.device,
+							run,
+						})
+					: undefined,
+			},
+		});
 
 		return submissionResultFromEnvelope(
 			normalizedMutation,

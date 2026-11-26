@@ -15,6 +15,10 @@ import {
 	snapshotTranslationUnits,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	formCaseSelections,
+	ownFormSelectionIndex,
+} from "@/lib/domain/advancedEntryDatums";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import {
@@ -23,6 +27,7 @@ import {
 } from "@/lib/domain/listedForms";
 import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
+import type { PreviewEntryChoice } from "@/lib/session/types";
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
@@ -34,7 +39,11 @@ import {
 	type NavigationSelectedCase,
 	navigationSelectedCase,
 } from "../engine/displayConditionEvaluation";
-import { caseListStepSession } from "../engine/entrySessionData";
+import {
+	caseListStepSession,
+	entrySessionData,
+	entryWalksChoices,
+} from "../engine/entrySessionData";
 import { previewSessionValues } from "../engine/identity";
 import {
 	previewLeafAsksParentCase,
@@ -543,6 +552,7 @@ export function appTestRecordsHaveDetails(
 			?.inlineModuleUuid
 	)
 		return false;
+	if (screen.formEntry) return screen.formEntry.next.confirms;
 	const request = appTestParentRequestOf(screen);
 	return request === undefined
 		? listHasDetails
@@ -551,6 +561,63 @@ export function appTestRecordsHaveDetails(
 					selectorModuleUuid: screen.moduleUuid,
 					...request,
 				});
+}
+
+/** This worker has selected exactly the stored prefix. A repeated list with another
+ * selection identity is a fresh screen, even when it shows the very same cases. */
+export function appTestFormOpening(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+	choices: readonly PreviewEntryChoice[],
+	linkedCases?: AppTestSessionState["deviceCases"],
+): AppTestScreen {
+	const scoped =
+		linkedCases ??
+		(state.screen.kind === "menu" || state.screen.kind === "records"
+			? state.screen.taskCases
+			: undefined);
+	const snapshot = scoped ?? state.deviceCases;
+	const entry = entrySessionData(context.doc, formUuid, {
+		appId: undefined,
+		entryKey: "",
+		boundCases: [],
+		menuSelections: state.selections,
+		entryChoices: choices,
+		caseDatabase: snapshot,
+		lookupData: context.lookup,
+		session: previewSessionValues(context.identity, context.device),
+	});
+	if (entry.nextSelection)
+		return {
+			kind: "records",
+			moduleUuid: entry.nextSelection.moduleUuid,
+			formEntry: {
+				moduleUuid,
+				formUuid,
+				choices,
+				next: entry.nextSelection,
+				values: entry.resolvedEntryValues,
+				sessionData: entry.data,
+			},
+			...(scoped && { taskCases: scoped }),
+		};
+	const own = ownFormSelectionIndex(context.doc, formUuid);
+	const ownChoice =
+		own === undefined
+			? undefined
+			: formCaseSelections(context.doc, formUuid)[own];
+	const caseId = ownChoice && entry.reachedCaseIds.get(ownChoice.uuid);
+	return {
+		kind: "form",
+		moduleUuid,
+		formUuid,
+		caseIds: caseId ? [caseId] : [],
+		entryCases: snapshot,
+		entryChoices: choices,
+		heldEntryValues: entry.resolvedEntryValues,
+	};
 }
 
 export function enterAppTestForm(
@@ -574,6 +641,15 @@ export function enterAppTestForm(
 			"This form is not available on the current menu.",
 		);
 	const selection = appTestMenuSelection(context, state, moduleUuid);
+	/* A form that keeps its own choices, or whose entry opens a single match
+	 * automatically, is walked choice by choice, as Preview walks it
+	 * (`entryWalksChoices`); a case this menu already chose is its own. */
+	if (
+		entry.form.caseSelections !== undefined ||
+		entry.form.shadowOf !== undefined ||
+		(selection === undefined && entryWalksChoices(context.doc, formUuid))
+	)
+		return appTestFormOpening(context, state, moduleUuid, formUuid, []);
 	if (state.screen.kind === "menu" && state.screen.taskCases) {
 		const [first, ...remaining] = previousTaskFormSelectors(
 			context.doc,
@@ -638,6 +714,26 @@ export function selectAppTestRecords(
 		throw new AppTestActionError(
 			"Open a record list before selecting records.",
 		);
+	if (screen.formEntry) {
+		const entry = screen.formEntry;
+		if (rows.length !== 1)
+			throw new AppTestActionError("Choose one record for this form.");
+		const chosen = {
+			...previewCaseChoiceOf(rows[0]),
+			selectionUuid: entry.next.selectionUuid,
+			earlierValues: entry.values,
+		};
+		return {
+			...state,
+			screen: appTestFormOpening(
+				context,
+				state,
+				entry.moduleUuid,
+				entry.formUuid,
+				[...entry.choices, chosen],
+			),
+		};
+	}
 	/* A route listing another menu's forms takes its case type and selection from its source. */
 	const mod = menuWithInheritedCaseSettings(context.doc, screen.moduleUuid);
 	if (
@@ -776,6 +872,7 @@ export function isCaseListMenuItemList(
 	screen: Extract<AppTestScreen, { kind: "records" }>,
 ): boolean {
 	if (
+		screen.formEntry !== undefined ||
 		screen.formUuid !== undefined ||
 		(screen.returnModules?.length ?? 0) > 0 ||
 		screen.retainedFormTarget !== undefined
@@ -845,6 +942,7 @@ export function appTestCanContinue(
 	screen: Extract<AppTestScreen, { kind: "records" }>,
 ): boolean {
 	return (
+		screen.formEntry !== undefined ||
 		!!screen.returnModules?.length ||
 		isCaseListMenuItemList(context, screen) ||
 		(screen.formUuid === undefined &&
