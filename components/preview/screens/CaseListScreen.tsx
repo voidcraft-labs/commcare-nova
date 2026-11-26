@@ -1444,6 +1444,13 @@ export function CaseListScreen({
 	}
 	const multipleSelection = config?.selection;
 	const selectionMaximum = multipleSelection?.maximum ?? 1;
+	const automaticSelection =
+		previewing &&
+		canContinue &&
+		entryStep === undefined &&
+		multipleSelection?.autoSelect === true;
+	const manualMultipleSelection =
+		multipleSelection !== undefined && !automaticSelection;
 	/* A collaborator can replace the live case-list configuration while an
 	 * authoritative selection read is in flight. Keep both the configuration
 	 * identity and its projected limit in the attempt identity: neither the old
@@ -1763,7 +1770,8 @@ export function CaseListScreen({
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
 		parentCase: parentCaseConstraint,
-		page: casePage,
+		page: automaticSelection ? undefined : casePage,
+		...(automaticSelection && { automaticSelection }),
 		/* What the worker owns is the list's identity; a claim re-reads the
 		 * list through the case data revision and keeps the settled rows on
 		 * screen. */
@@ -1952,7 +1960,7 @@ export function CaseListScreen({
 	const clearSearch = () => {
 		resetSearch();
 		const alsoSearch = searchAfterClear(
-			searchConfig?.searchOnClear === true,
+			searchConfig?.searchOnClear === true && !automaticSelection,
 			platformRules,
 			withNavigationWidth(device).windowWidth,
 		);
@@ -2216,13 +2224,19 @@ export function CaseListScreen({
 	 *  made on a case's details replaces them: a device leaves the details
 	 *  behind once the case is chosen, so a step back off the menu reaches
 	 *  the list (`CommCareSession.stepBack`). */
-	const holdFormMenu = (cases: readonly PreviewCaseChoice[]) => {
+	const holdFormMenu = (
+		cases: readonly PreviewCaseChoice[],
+		replaceList = false,
+	) => {
 		if (!moduleUuid) return;
 		if (routeCaseId !== undefined) explicitRouteCloseRef.current = routeCaseId;
 		setOpenCase(null);
 		navigate.holdPreviewMenu(
 			{ moduleUuid, cases },
-			{ replace: routeCaseId !== undefined, session: previewSessionId },
+			{
+				replace: replaceList || routeCaseId !== undefined,
+				session: previewSessionId,
+			},
 		);
 	};
 	/* The cases this screen's session holds, in the order they were chosen:
@@ -2679,6 +2693,54 @@ export function CaseListScreen({
 		else routeCaseGoesOnRef.current?.(loadedRows[0], true);
 	}, [entryStep, current, state, loadedRows, filterText]);
 
+	const automaticSelectionCount =
+		state.kind === "rows"
+			? Math.max(state.totalCount ?? 0, state.rows.length)
+			: 0;
+	const [automaticSelectionFailure, setAutomaticSelectionFailure] =
+		useState<string>();
+	const autoBatch = useRef<
+		{ scope: string; config: typeof selectionConfiguration } | undefined
+	>(undefined);
+	const advanceAutoBatch = useRef<
+		((rows: readonly CaseRowWithCalculated[]) => void) | undefined
+	>(undefined);
+	advanceAutoBatch.current = undefined;
+	useEffect(() => {
+		if (
+			!automaticSelection ||
+			!current ||
+			heldMenuShown ||
+			fetching ||
+			state.kind !== "rows" ||
+			automaticSelectionCount === 0 ||
+			automaticSelectionCount > selectionMaximum ||
+			!advanceAutoBatch.current
+		)
+			return;
+		const tried = autoBatch.current;
+		if (
+			tried?.scope === selectionScopeKey &&
+			tried.config === selectionConfiguration
+		)
+			return;
+		autoBatch.current = {
+			scope: selectionScopeKey,
+			config: selectionConfiguration,
+		};
+		advanceAutoBatch.current(state.rows);
+	}, [
+		automaticSelection,
+		current,
+		heldMenuShown,
+		fetching,
+		state,
+		automaticSelectionCount,
+		selectionMaximum,
+		selectionScopeKey,
+		selectionConfiguration,
+	]);
+
 	if (mod === undefined) {
 		return (
 			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
@@ -2739,6 +2801,7 @@ export function CaseListScreen({
 		chosenAfterCase = false,
 		/** Where the worker stood as they made the choice. */
 		step: PreviewChoiceStep = choiceStep(),
+		replaceList = false,
 	) => {
 		if (!moduleUuid) return;
 		/* In a menu whose forms read the search the claim sits in the form's
@@ -2788,7 +2851,8 @@ export function CaseListScreen({
 						: undefined,
 			}),
 		});
-		navigate.openForm(moduleUuid, formUuid);
+		if (replaceList) navigate.replace({ kind: "form", moduleUuid, formUuid });
+		else navigate.openForm(moduleUuid, formUuid);
 	};
 	const openFormWithCase = (
 		formUuid: Uuid,
@@ -3018,6 +3082,7 @@ export function CaseListScreen({
 		choices: readonly PreviewCaseChoice[],
 		/** Where the worker stood as they pressed Continue. */
 		step: PreviewChoiceStep,
+		replaceList = false,
 	) => {
 		if (!choiceStands(step)) return;
 		/* Read the live limit at the final effect boundary. The async caller's
@@ -3036,6 +3101,10 @@ export function CaseListScreen({
 			return;
 		}
 		if (claimsAtResult && !(await claimChoices(choices, step))) return;
+		if (openedFromCaseListMenuItem) {
+			routeCaseListMenuItemSelection();
+			return;
+		}
 		if (selectsForMenu) {
 			continueAfterMenuSelection(choices);
 			return;
@@ -3044,7 +3113,7 @@ export function CaseListScreen({
 		 * listed (`previewRequestedForm`). */
 		const requestedForm = retainedFormUuid ?? seededFormUuid;
 		if (requestedForm !== undefined) {
-			await openFormWithCases(requestedForm, choices, false, step);
+			await openFormWithCases(requestedForm, choices, false, step, replaceList);
 			return;
 		}
 		/* Otherwise Core lists the menu, reading its form conditions once the
@@ -3052,7 +3121,25 @@ export function CaseListScreen({
 		 * reads data the device lacks fails the whole screen, which the form
 		 * menu shows in its place. */
 		const read = readPreviewScreen(() => decideMultiCaseLoadingForms());
-		if (read.kind === "refused" || read.value.length > 0) holdFormMenu(choices);
+		if (read.kind === "refused" || read.value.length > 0)
+			holdFormMenu(choices, replaceList);
+	};
+	advanceAutoBatch.current = (rows) => {
+		const run = choiceStep();
+		setAutomaticSelectionFailure(undefined);
+		void finishSelectedCaseNavigation(
+			rows.map(previewCaseChoiceOf),
+			run,
+			step === "browse" && !openedFromCaseListMenuItem,
+		).then(
+			() => {
+				if (choiceStands(run) && !openedFromCaseListMenuItem)
+					setAutomaticSelectionFailure(selectionScopeKey);
+			},
+			() => {
+				if (choiceStands(run)) setAutomaticSelectionFailure(selectionScopeKey);
+			},
+		);
 	};
 	const continueWithSelectedCases = async () => {
 		if (
@@ -3169,7 +3256,7 @@ export function CaseListScreen({
 			(step === "browse" ||
 				(step === "results" &&
 					searchAfterClear(
-						searchConfig?.searchOnClear === true,
+						searchConfig?.searchOnClear === true && !automaticSelection,
 						platformRules,
 						withNavigationWidth(device).windowWidth,
 					)))) ? (
@@ -3566,11 +3653,18 @@ export function CaseListScreen({
 				ref={formMenuBackRef}
 				type="button"
 				variant="ghost"
-				onClick={() => stepBackOffPreviewHeldMenu(previewSessionId)}
+				onClick={() => {
+					if (automaticSelection && step === "browse") navigate.back();
+					else stepBackOffPreviewHeldMenu(previewSessionId);
+				}}
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				<WorkerText message="backToResults" />
+				<WorkerText
+					message={
+						automaticSelection && step === "browse" ? "back" : "backToResults"
+					}
+				/>
 			</Button>
 			<h1 className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]">
 				{message(
@@ -3920,7 +4014,7 @@ export function CaseListScreen({
 				rowAction={rowAction}
 				onOpenCase={handleOpenCase}
 				selection={
-					multipleSelection === undefined
+					!manualMultipleSelection
 						? undefined
 						: {
 								selectedCaseIds,
@@ -3930,7 +4024,7 @@ export function CaseListScreen({
 				}
 				busy={fetching || validatingSelection}
 			/>
-			{multipleSelection !== undefined && (
+			{manualMultipleSelection && (
 				<MultiSelectionTray
 					choices={selectedChoices}
 					maximum={selectionMaximum}
@@ -4062,17 +4156,42 @@ export function CaseListScreen({
 					{/* Stacked + a sub-screen open = the narrow experience: the
 					 *  sub-screen takes the whole canvas, search waits behind Back. */}
 					{(split || !onSubScreen) && searchPane}
-					{step === "search" && !onSubScreen
-						? null
-						: multiFormMenuChoices !== undefined
-							? multiFormMenuPane
-							: displayedFormMenuCase !== null
-								? formMenuPane
-								: displayedOpenCase !== null
-									? detailPane
-									: routeCaseId !== undefined
-										? routeCaseFallbackPane
-										: resultsPane}
+					{step === "search" && !onSubScreen ? null : multiFormMenuChoices !==
+						undefined ? (
+						multiFormMenuPane
+					) : displayedFormMenuCase !== null ? (
+						formMenuPane
+					) : displayedOpenCase !== null ? (
+						detailPane
+					) : routeCaseId !== undefined ? (
+						routeCaseFallbackPane
+					) : automaticSelection &&
+						state.kind === "rows" &&
+						(!openedFromCaseListMenuItem ||
+							automaticSelectionCount > selectionMaximum) ? (
+						automaticSelectionCount > selectionMaximum ? (
+							<CaseListEmptyNotice
+								headingLevel={1}
+								title={message("automaticSelectionTooMany", {
+									count: automaticSelectionCount,
+									maximum: selectionMaximum,
+								})}
+								description={message("automaticSelectionUnavailable")}
+								tone="error"
+							/>
+						) : automaticSelectionFailure === selectionScopeKey ? (
+							<CaseListEmptyNotice
+								headingLevel={1}
+								title={message("automaticSelectionFailed")}
+								description={message("automaticSelectionUnavailable")}
+								tone="error"
+							/>
+						) : (
+							<CasesLoading />
+						)
+					) : (
+						resultsPane
+					)}
 				</div>
 			</ContentFrame>
 		</>

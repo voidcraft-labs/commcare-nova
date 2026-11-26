@@ -3256,6 +3256,7 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
 export const caseSelectionSchema = z.strictObject({
 	kind: z.literal("multiple"),
 	maximum: persistableJsonPositiveIntegerSchema.max(100),
+	autoSelect: z.literal(true).optional(),
 });
 export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 

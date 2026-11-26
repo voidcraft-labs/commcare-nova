@@ -190,6 +190,7 @@ export function buildSearchSession(
 				"detail-select": `${moduleId}_search_short`,
 				...(selection !== undefined && {
 					"max-select-value": String(selection.maximum),
+					...(selection.autoSelect === true && { autoselect: "true" }),
 				}),
 			},
 			xpath: {
@@ -556,7 +557,10 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		{
 			url: runtimeUrls(args.runtimeTarget).search,
 			default_search: wire.defaultSearch ? "true" : "false",
-			...(caseSearchConfig.searchOnClear && { search_on_clear: "true" }),
+			...(caseSearchConfig.searchOnClear &&
+				caseListConfig.selection?.autoSelect !== true && {
+					search_on_clear: "true",
+				}),
 			"storage-instance": storageInstance,
 			template: "case",
 		},

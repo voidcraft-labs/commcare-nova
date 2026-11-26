@@ -698,6 +698,7 @@ function selectableDatums(
 			...(parentSelection !== undefined && { parentSelection }),
 			...(multiple?.kind === "multiple" && {
 				maxSelectValue: multiple.maximum,
+				autoSelect: multiple.autoSelect,
 			}),
 			...(moduleUsesInlineSearch(detail) && {
 				caseSource: inlineSearchInstance(detail.searchResultsName),

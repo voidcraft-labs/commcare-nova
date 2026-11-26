@@ -3372,10 +3372,9 @@
 			"schema:Detail.auto_select"
 		],
 		"valueClass": "on-a-multi-select-basic-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.selection.autoSelect`",
-		"subject": "auto-select",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.selection.autoSelect` holds the automatic choice of every eligible case up to the configured maximum",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",
@@ -3390,7 +3389,7 @@
 			"cell": "`auto_select: true`",
 			"markers": []
 		},
-		"gates": []
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
 		"id": "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",

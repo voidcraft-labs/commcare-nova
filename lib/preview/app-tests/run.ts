@@ -987,10 +987,50 @@ async function advanceAutomaticChoices(
 	state: AppTestSessionState,
 ): Promise<AppTestSessionState> {
 	let cursor = state;
-	while (
-		cursor.screen.kind === "records" &&
-		cursor.screen.formEntry?.next.autoSelectSingle
-	) {
+	while (cursor.screen.kind === "records") {
+		const screen = cursor.screen;
+		const selection = menuWithInheritedCaseSettings(
+			context.doc,
+			screen.moduleUuid,
+		)?.caseListConfig?.selection;
+		if (
+			!screen.formEntry &&
+			selection?.autoSelect &&
+			appTestCanContinue(context, screen)
+		) {
+			const read = await appTestRecords(
+				context,
+				scope,
+				cursor,
+				undefined,
+				selection.maximum,
+			);
+			if (read.result?.kind !== "rows") return read.state;
+			const count = Math.max(
+				read.result.totalCount ?? 0,
+				read.result.rows.length,
+			);
+			if (count > selection.maximum)
+				throw new AppTestActionError(
+					runtimeMessage(context.language, "automaticSelectionTooMany", {
+						count,
+						maximum: selection.maximum,
+					}),
+				);
+			if (isCaseListMenuItemList(context, read.state.screen))
+				return caseListMenuItemLanding(context, read.state);
+			const next = selectAppTestRecords(context, read.state, read.result.rows);
+			({ context, state: cursor } = await postAppTestClaims(
+				context,
+				scope,
+				cursor,
+				next,
+				read.result.rows.map(previewCaseChoiceOf),
+				read.state.screen,
+			));
+			continue;
+		}
+		if (!screen.formEntry?.next.autoSelectSingle) return cursor;
 		const read = await appTestRecords(context, scope, cursor);
 		if (
 			read.result?.kind !== "rows" ||
@@ -999,7 +1039,7 @@ async function advanceAutomaticChoices(
 		)
 			return read.state;
 		const [row] = read.result.rows;
-		if (cursor.screen.formEntry.next.confirms)
+		if (screen.formEntry.next.confirms)
 			return {
 				...read.state,
 				screen: {
@@ -1476,6 +1516,10 @@ async function advanceAppTestOnScreen(
 			});
 			const recordsScreen = read.state.screen;
 			const mod = context.doc.modules[recordsScreen.moduleUuid];
+			if (!recordsScreen.formEntry && mod.caseListConfig?.selection?.autoSelect)
+				throw new AppTestActionError(
+					"This list chooses eligible records automatically.",
+				);
 			const multiple =
 				!recordsScreen.formEntry && caseSelectionCardinality(mod) !== "single";
 			const rowAction = caseSelectionRowAction({
@@ -1548,7 +1592,8 @@ async function advanceAppTestOnScreen(
 			const alsoSearch =
 				module !== undefined &&
 				searchAfterClear(
-					effectiveCaseSearchConfig(module)?.searchOnClear === true,
+					effectiveCaseSearchConfig(module)?.searchOnClear === true &&
+						module.caseListConfig?.selection?.autoSelect !== true,
 					context.rules,
 					context.device.windowWidth,
 				);
