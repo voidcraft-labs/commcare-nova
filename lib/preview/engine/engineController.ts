@@ -2998,7 +2998,8 @@ export class EngineController {
 				write.kind === "answer"
 					? write.value
 					: (captures.get(write.path) ?? "");
-			if (engine.setValue(write.path, value)) {
+			// The device writes the returned data directly to the form instance.
+			if (engine.setValue(write.path, value, "android-app")) {
 				changed.add(write.path);
 				if (this.xpathRuntime) this.pendingValuePaths.add(write.path);
 			}
