@@ -838,6 +838,11 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "The app points at {name}, and Nova reads no file that large. That limit is Nova's, not the app's.",
 		next: "You can save a smaller copy of it in CommCare HQ, then check again.",
 	},
+	"media-picture-too-many-pixels": {
+		title: "This picture is larger than CommCare HQ stores",
+		body: "The app points at {name}. CommCare HQ takes no new picture that large, so Nova couldn't publish it.",
+		next: "You can save a smaller copy of it in CommCare HQ, then check again.",
+	},
 	"media-not-played-where-app-runs": {
 		title: "A media file doesn't play where this app runs",
 		body: "The app points at {name}, and no platform that can run the rest of this app plays that file's format.",

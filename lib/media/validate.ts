@@ -55,6 +55,7 @@ import {
 	assetKindForExtension,
 	assetKindForMimeType,
 	EXTENSION_FOR_MIME_TYPE,
+	HQ_PICTURE_MAX_PIXELS,
 	type MediaFormatKey,
 	type MediaFormatValue,
 	mimeTypeForExtension,
@@ -126,7 +127,8 @@ export type ValidationFailureReason =
 	| "codec-not-accepted"
 	| "bmp-variant-not-accepted"
 	| "svg-not-accepted"
-	| "ico-variant-not-accepted";
+	| "ico-variant-not-accepted"
+	| "picture-too-many-pixels";
 
 export { namesSvg, SVG_REFUSAL_MESSAGE } from "./svg";
 
@@ -378,6 +380,15 @@ async function validateBody(args: {
 			if (!verdict.ok) return verdict;
 			dimensions = verdict.dimensions;
 			mediaFormat = verdict.key;
+			const pixels =
+				Math.max(1, dimensions.width) * Math.max(1, dimensions.height);
+			if (pixels > HQ_PICTURE_MAX_PIXELS) {
+				return {
+					ok: false,
+					reason: "picture-too-many-pixels",
+					message: `\`${args.originalFilename}\` is ${dimensions.width.toLocaleString("en-US")} × ${dimensions.height.toLocaleString("en-US")} pixels, and CommCare HQ stores no picture of more than ${HQ_PICTURE_MAX_PIXELS.toLocaleString("en-US")} pixels. Saving it at a smaller size fixes that.`,
+				};
+			}
 		} else if (claimedKind === "audio" || claimedKind === "video") {
 			const verdict = await streamVerdict(
 				body,

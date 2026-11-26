@@ -28,6 +28,7 @@ import {
 	ASSET_SIZE_CAPS_BYTES,
 	type AssetKind,
 	type AssetMimeType,
+	HQ_PICTURE_MAX_PIXELS,
 	type MediaAssetId,
 	type MediaFormatKey,
 	type MediaKind,
@@ -782,6 +783,17 @@ export function mediaFindings(input: {
 				);
 				break;
 			case "refused": {
+				/* A picture past the pixels CommCare HQ's Pillow opens (`HQ_PICTURE_MAX_PIXELS`): CommCare
+				 * HQ stores no such picture again, through its bulk upload or any other, so no publish
+				 * could send it. */
+				if (verdict.reason === "picture-too-many-pixels") {
+					findings.push(
+						circumstanceFinding("media-picture-too-many-pixels", place, {
+							name: `${path} (more than ${HQ_PICTURE_MAX_PIXELS.toLocaleString("en-US")} pixels)`,
+						}),
+					);
+					break;
+				}
 				const entry = hqMediaRefusalEntry(
 					verdict.sniffedMime,
 					verdict.reason,

@@ -822,6 +822,22 @@ describe("mediaFindings", () => {
 			[
 				{
 					kind: "refused",
+					reason: "picture-too-many-pixels",
+					sniffedMime: "image/png",
+				},
+				{
+					code: "media-picture-too-many-pixels",
+					standing: "fix-in-hq",
+					place: { kind: "media", path: "jr://file/a.png" },
+					subject: null,
+					detail: {
+						name: "jr://file/a.png (more than 178,956,970 pixels)",
+					},
+				},
+			],
+			[
+				{
+					kind: "refused",
 					reason: "svg-not-accepted",
 					sniffedMime: "image/svg+xml",
 				},

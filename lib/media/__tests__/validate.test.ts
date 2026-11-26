@@ -93,14 +93,19 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { deflateSync } from "node:zlib";
 import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain/multimedia";
+import {
+	ASSET_SIZE_CAPS_BYTES,
+	HQ_PICTURE_MAX_PIXELS,
+} from "@/lib/domain/multimedia";
 import {
 	classifyStoredMediaBytes,
 	SVG_REFUSAL_MESSAGE,
 	validateMediaBytes,
+	validateSniffedMediaBytes,
 } from "../validate";
 import { BUILT_BMPS, bmpV4Srgb24 } from "./bmpFixtures";
 import { amrEmpty, amrMultichannel, amrNb, amrWb, midi } from "./builtFixtures";
@@ -330,6 +335,44 @@ describe("validateMediaBytes — rejection paths", () => {
 		if (!result.ok) {
 			expect(result.reason).toBe("size-cap-exceeded");
 		}
+	});
+
+	it("refuses a picture of more pixels than CommCare HQ stores, and takes one at the bound's side", async () => {
+		/* 13,378 × 13,377 is 178,957,506 pixels, past HQ_PICTURE_MAX_PIXELS (178,956,970);
+		 * 13,377 × 13,377 is 178,944,129, within it. Each side stays under libvips' own bound. */
+		expect(13_378 * 13_377).toBeGreaterThan(HQ_PICTURE_MAX_PIXELS);
+		expect(13_377 * 13_377).toBeLessThanOrEqual(HQ_PICTURE_MAX_PIXELS);
+		const past = grayPng(13_378, 13_377);
+		expect(past.length).toBeLessThan(ASSET_SIZE_CAPS_BYTES.image);
+		const result = await validateMediaBytes({
+			bytes: past,
+			claimedMimeType: "image/png",
+			claimedSizeBytes: past.length,
+			originalFilename: "wide.png",
+		});
+		expect(result).toEqual({
+			ok: false,
+			reason: "picture-too-many-pixels",
+			message:
+				"`wide.png` is 13,378 × 13,377 pixels, and CommCare HQ stores no picture of more than 178,956,970 pixels. Saving it at a smaller size fixes that.",
+		});
+		expect(await validateSniffedMediaBytes(past)).toMatchObject({
+			ok: false,
+			reason: "picture-too-many-pixels",
+			sniffedMime: "image/png",
+		});
+		const within = grayPng(13_377, 13_377);
+		expect(
+			await validateMediaBytes({
+				bytes: within,
+				claimedMimeType: "image/png",
+				claimedSizeBytes: within.length,
+				originalFilename: "wide.png",
+			}),
+		).toMatchObject({
+			ok: true,
+			validated: { dimensions: { width: 13_377, height: 13_377 } },
+		});
 	});
 
 	it("rejects when actual byte length disagrees with the claim", async () => {
@@ -788,6 +831,26 @@ describe("classifyStoredMediaBytes", () => {
 		).toBe("wav-pcm");
 	});
 
+	it("gives a stored file past its kind's upload cap its variant, as a bring-in stores one", async () => {
+		const png = fixture("pattern.png");
+		const end = png.length - 12;
+		const padding = Buffer.alloc(
+			ASSET_SIZE_CAPS_BYTES.image + 1 - png.length - 12,
+		);
+		const large = Buffer.concat([
+			png.subarray(0, end),
+			pngChunk("npAd", padding),
+			png.subarray(end),
+		]);
+		expect(large.length).toBe(ASSET_SIZE_CAPS_BYTES.image + 1);
+		expect(
+			await classifyStoredMediaBytes(large, {
+				mimeType: "image/png",
+				extension: ".png",
+			}),
+		).toBe("png");
+	});
+
 	it("keeps bytes no variant admits as unplayable, a disagreeing sniff included", async () => {
 		expect(
 			await classifyStoredMediaBytes(fixture("tone-24.wav"), {
@@ -1087,3 +1150,38 @@ describe("validateMediaBytes — near misses some CommCare platform refuses", ()
 		).toMatchObject({ ok: false, reason: "image-parse-failed" });
 	});
 });
+
+/** A PNG chunk: its length, its type, its data and the CRC-32 of type and data. */
+function pngChunk(type: string, data: Buffer): Buffer {
+	const typed = Buffer.concat([Buffer.from(type, "latin1"), data]);
+	const length = Buffer.alloc(4);
+	length.writeUInt32BE(data.length);
+	const crc = Buffer.alloc(4);
+	crc.writeUInt32BE(crc32(typed));
+	return Buffer.concat([length, typed, crc]);
+}
+
+function crc32(bytes: Buffer): number {
+	let crc = 0xffffffff;
+	for (const byte of bytes) {
+		crc ^= byte;
+		for (let bit = 0; bit < 8; bit++)
+			crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+	}
+	return (crc ^ 0xffffffff) >>> 0;
+}
+
+/** A one-bit grayscale PNG of `width` × `height` pixels, every one black: a few kilobytes at any size. */
+function grayPng(width: number, height: number): Buffer {
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(width, 0);
+	header.writeUInt32BE(height, 4);
+	header.set([1, 0, 0, 0, 0], 8);
+	const row = 1 + Math.ceil(width / 8);
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		pngChunk("IHDR", header),
+		pngChunk("IDAT", deflateSync(Buffer.alloc(row * height), { level: 9 })),
+		pngChunk("IEND", Buffer.alloc(0)),
+	]);
+}
