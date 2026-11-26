@@ -17,7 +17,9 @@ test("a search name can be corrected and is kept when the menu reopens", {
 	await expect(field).toBeFocused();
 	await expect(field).toHaveValue("2Family");
 	await expect(field).toHaveAttribute("aria-invalid", "true");
-	await expect(page.getByRole("alert")).toContainText("Choose a name");
+	await expect(
+		page.getByRole("alert").filter({ hasText: "Choose a name" }),
+	).toBeVisible();
 
 	const saved = page.waitForResponse(
 		(response) =>
