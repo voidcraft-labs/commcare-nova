@@ -202,15 +202,13 @@ export function requestOrderText(order: SearchRequestOrder): string {
 }
 
 /** The order a literal `commcare_sort` text names, or `undefined` for text
- *  Nova cannot hold. HQ reads a leading `-` as descending and anything else
- *  as ascending; a part with two signs or more than one `:` is refused here
- *  although HQ would read it. */
+ *  Nova cannot hold. HQ strips leading signs from the property and reads
+ *  only the first for direction. Multiple comparison separators still refuse. */
 export function readRequestOrderText(
 	text: string,
 ): SearchRequestOrder | undefined {
 	const order: Term[] = [];
 	for (const part of text.split(",")) {
-		if (/^[+-]{2}/.test(part)) return;
 		const signed = /^[+-]/.test(part);
 		const [key, comparison, ...extra] = part.replace(/^[-+]+/, "").split(":");
 		if (extra.length > 0 || key === undefined) return;

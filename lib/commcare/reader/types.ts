@@ -408,6 +408,7 @@ export interface ReadFacts {
 export const SAME_STATE_REGISTERS = [
 	"case-settings-respelled",
 	"search-filter-rows-recut",
+	"search-order-direction-signs-respelled",
 	"sort-rule-kept-as-hidden-column",
 	"legacy-related-case-text-rekeyed",
 	"list-settings-respelled",

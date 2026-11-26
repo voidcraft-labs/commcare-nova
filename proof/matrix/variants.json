@@ -38619,6 +38619,33 @@
 	{
 		"id": "hq-search/default-filter-sorting-by-a-repeated-direction",
 		"base": "hq-search",
+		"entry": "case-search/default-filter-orders-the-records-the-search-sends",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'++priority:exact'"
+			}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchFilters/0/order",
+				"value": [
+					{
+						"property": "priority",
+						"comparison": "text",
+						"direction": "ascending"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-search/default-filter-sorting-by-an-unknown-comparison",
+		"base": "hq-search",
 		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
 		"standing": "not-yet",
 		"place": {
@@ -38632,7 +38659,7 @@
 			"value": {
 				"property": "commcare_sort",
 				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "'++priority:exact'"
+				"defaultValue": "'++priority:unknown'"
 			}
 		}
 	},

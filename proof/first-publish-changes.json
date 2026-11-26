@@ -915,6 +915,36 @@
 		]
 	},
 	{
+		"change": "search-order-direction-signs-respelled",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/default_properties/*/defaultValue",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/commcare_sort/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/commcare_sort/*",
+				"kind": "changed"
+			}
+		]
+	},
+	{
 		"change": "legacy-related-case-text-rekeyed",
 		"placeKinds": ["menu"],
 		"rows": [

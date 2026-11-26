@@ -1460,6 +1460,17 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/modules/*/search_config/default_properties"],
 	},
+	"search-order-direction-signs-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("search-order-direction-signs-respelled"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "search-order-direction-signs-respelled"),
+		},
+		paths: ["/modules/*/search_config/default_properties/*/defaultValue"],
+	},
 	/**
 	 * A sort rule over a property the list doesn't show, written as a hidden
 	 * column, recorded by `caseList/order.ts` where a sort element names a

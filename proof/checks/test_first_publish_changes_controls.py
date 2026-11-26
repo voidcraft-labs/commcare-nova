@@ -47,6 +47,8 @@ from types import SimpleNamespace
 import pytest
 
 from proof.checks import changes, parity, source
+from proof.checks.compare.trace import compare_traces
+from proof.checks.compare.xml_tree import compare_xml
 from proof.checks.differences import Difference
 
 RESIDUE = "forms-and-settings-rewritten"
@@ -923,6 +925,72 @@ def test_the_split_holds_no_other_form_s_question_of_the_same_name_and_a_title_n
 
 def _built(artifact, path, at, kind="changed"):
     return Difference("proof2", "hq-planted", artifact, path, at, kind, None, None)
+
+
+def test_repeated_search_order_change_covers_original_filter_and_exact_built_and_sent_values():
+    change = "search-order-direction-signs-respelled"
+    document = _document(RESIDUE, (change, ["/menu/0/search_config/default_properties/0/defaultValue"]))
+    sites = changes.Sites(
+        builds={("suite.xml", "remote-request[1]"): ("menu", "0")},
+        steps={(0, 0): ("menu", "0", "search_config")},
+    )
+
+    def app(first, second):
+        return {
+            "modules": [{
+                "search_config": {"default_properties": [
+                    {"property": "commcare_sort", "defaultValue": first},
+                    {"property": "region", "defaultValue": second},
+                ]},
+            }],
+        }
+
+    def suite(first, second):
+        return (
+            '<suite><remote-request><session><query>'
+            f'<data key="commcare_sort" ref="{first}"/><data key="commcare_sort" ref="{second}"/>'
+            '<data key="region" ref="&apos;north&apos;"/>'
+            '</query></session></remote-request></suite>'
+        )
+
+    def run(first, second):
+        params = {"commcare_sort": [first, second], "region": ["north"]}
+        return {
+            "end": "incomplete",
+            "script": [],
+            "trace": [{"screen": "search", "params": params, "requests": [{"kind": "search", "params": params}]}],
+        }
+
+    changed = source.compare_sources("hq-planted", app("'++priority'", "'north'"), app("'+priority'", "'south'"))
+    assert len(changed) == 2
+    assert [_held_by(document, item, sites) for item in changed] == [{change}, frozenset()]
+
+    built = compare_xml(
+        suite("'++priority'", "'-name'"), suite("'+priority'", "'-name'"),
+        check="proof2", document="hq-planted", artifact="suite.xml",
+    )
+    assert [item.path for item in built] == [
+        "/suite/remote-request[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+    ]
+    assert _held_by(document, built[0], sites) == {change}
+
+    position_swapped = compare_xml(
+        suite("'+priority'", "'-name'"), suite("'-name'", "'+priority'"),
+        check="proof2", document="hq-planted", artifact="suite.xml",
+    )
+    assert len(position_swapped) == 2
+    assert all(not _held_by(document, item, sites) for item in position_swapped)
+    assert not _held_by(document, replace(built[0], after="'-priority'"), sites)
+
+    sent = compare_traces(
+        {"runs": [run("++priority", "-name")]}, {"runs": [run("+priority", "-name")]},
+        check="proof3", document="hq-planted", artifact="trace@B", rules=(),
+    )
+    assert {item.path for item in sent} == {
+        "/runs/*/trace/*/params/commcare_sort/*",
+        "/runs/*/trace/*/requests/*/params/commcare_sort/*",
+    }
+    assert all(_held_by(document, item, sites) == {change} for item in sent)
 
 
 def test_a_menu_s_change_holds_no_other_menu_s_build_difference():
