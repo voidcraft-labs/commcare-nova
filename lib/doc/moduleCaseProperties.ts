@@ -1,5 +1,6 @@
 import {
 	type BlueprintDoc,
+	type CaseType,
 	columnPropertyBindings,
 	effectiveCaseTypes,
 	type Module,
@@ -26,19 +27,29 @@ interface MenuProperty {
 }
 
 /** A menu field may have a single stored spelling on several concrete types.
- * Renames, dependency edges and the ambiguity check share those same owners. */
+ * Renames, dependency edges and the ambiguity check share those same owners.
+ * A reference-index pass shares the relation catalog across every carrier. */
 export function* moduleCaseProperties(
 	doc: BlueprintDoc,
 	mod: Module,
+	readRelations: () => readonly CaseType[] = () => caseTypesWithRelations(doc),
 ): Generator<MenuProperty> {
 	if (!mod.caseType) return;
-	const catalog = caseTypesWithRelations(doc);
+	let relations: readonly CaseType[] | undefined;
+	const catalog = () => {
+		relations ??= readRelations();
+		return relations;
+	};
 	const list = mod.caseListConfig;
 	const requested = requestedRecordTypes(mod.caseType, list);
 	const relatedTypes = (via?: RelationPath) => [
 		...new Set(
 			requested.flatMap((type) => {
-				const result = resolveRelationDestination(via, type, catalog);
+				const result = resolveRelationDestination(
+					via,
+					type,
+					via === undefined || via.kind === "self" ? [] : catalog(),
+				);
 				return result.ok ? [result.caseType] : [];
 			}),
 		),
@@ -55,7 +66,7 @@ export function* moduleCaseProperties(
 		const types = [
 			...new Set(
 				columnCaseScopes(doc, mod, column).flatMap((type) =>
-					column.via ? columnPropertyBindings(column, type, catalog) : [type],
+					column.via ? columnPropertyBindings(column, type, catalog()) : [type],
 				),
 			),
 		];

@@ -1098,7 +1098,7 @@ function extractModuleEdges(
 			}
 		}
 	}
-	for (const property of moduleCaseProperties(doc, mod)) {
+	for (const property of moduleCaseProperties(doc, mod, relationTypes)) {
 		for (const type of property.types) {
 			sink.edge(casePropertyTargetKey(type, property.name), property.slot);
 			if (property.throughRelation)
