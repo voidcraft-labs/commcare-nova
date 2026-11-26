@@ -1,4 +1,5 @@
 import { caseTypeHopMap } from "@/lib/commcare/caseTypeDepths";
+import { searchAnswersOf } from "@/lib/commcare/emissionPlan";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
@@ -23,6 +24,10 @@ import {
 } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	afterEmptySearchRegistrationFormOf,
+	moduleUuidOfForm,
+} from "@/lib/domain";
 import {
 	type ExpressionContext,
 	slotContext,
@@ -214,6 +219,16 @@ export function formExpressionRuntime(
 ): FormExpressionRuntime {
 	const projection = previewFormNodeProjection(doc, formUuid);
 	const reads = previewFormNodeProjection(doc, formUuid, { readPaths: true });
+	const menu = moduleUuidOfForm(doc, formUuid);
+	const search =
+		menu &&
+		searchAnswersOf(
+			doc,
+			menu,
+			afterEmptySearchRegistrationFormOf(doc, menu) === formUuid
+				? undefined
+				: formUuid,
+		);
 	const contexts = new Map<string, ExpressionContext>();
 	const context = (slot: SlotContextRef): ExpressionContext => {
 		const key = JSON.stringify(slot);
@@ -251,6 +266,13 @@ export function formExpressionRuntime(
 			form: projection,
 			bindings: {
 				...bindings,
+				...(search && {
+					searchInputNames: search.names,
+					searchInputInstanceId: search.instanceId,
+					searchAnswerInstances: search.answers,
+					searchResultInstances: search.instances,
+					searchResultInstance: search.resultsInstanceId,
+				}),
 				...(lookup === undefined
 					? {}
 					: {

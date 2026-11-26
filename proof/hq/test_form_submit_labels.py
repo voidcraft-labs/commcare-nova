@@ -12,7 +12,7 @@ def test_form_submit_labels_keep_present_blank_and_missing_languages(hq, documen
     with published(documents["case-list-inline"], None, configuration="maximum") as app:
         changed = app.spell(doc=edited(configure))
     assert changed.build.files is not None and not changed.build.raised, changed.build.raised
-    assert changed.stored["modules"][0]["forms"][0]["submit_label"] == {"en": "Send referral", "fra": ""}
+    assert changed.stored["doc"]["modules"][0]["forms"][0]["submit_label"] == {"en": "Send referral", "fra": ""}
     for language, expected in [("en", "Send referral"), ("fra", None), ("es", "Submit"), ("default", "Send referral")]:
         contents = changed.build.files[f"{language}/app_strings.txt"]
         assert parse_app_strings(contents).get("forms.m0f0.submit_label") == expected

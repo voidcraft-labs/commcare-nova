@@ -411,19 +411,20 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		cases: NonNullable<typeof selectedMenuCase>["cases"],
 	) => {
 		const formModule = menuSource.modules[formModuleUuid];
-		const claimIds =
+		const choices =
 			formModule !== undefined && moduleFormsReadSearch(formModule)
-				? claimableCaseIds([
+				? [
 						...cases,
 						...parentSelectClaimChoices(
 							menuSource.doc,
 							formModuleUuid,
 							menuCaseSelections,
 						),
-					])
+					]
 				: [];
+		const claimIds = claimableCaseIds(choices);
 		if (claimIds.length > 0) {
-			const outcome = await claimSearchedCases(claimIds);
+			const outcome = await claimSearchedCases(claimIds, choices);
 			if (outcome.kind === "superseded") return;
 			if (outcome.kind !== "claimed") {
 				showToast(

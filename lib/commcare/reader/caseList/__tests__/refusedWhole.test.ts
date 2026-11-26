@@ -87,7 +87,7 @@ describe("a refused column", () => {
 				endpoint_action_id: "open_visit",
 			},
 			"short",
-			`${M}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+			`${M}clickable-icon-with-an-unusable-form-endpoint`,
 		],
 		[
 			"a clickable icon on the list with no entry point, with its mapping",
@@ -278,14 +278,16 @@ describe("a callout on the case list", () => {
 		lookup_field_template: "@case_id",
 	};
 
-	it("is one finding, every key of it claimed under the callout's own entry", async () => {
+	it("refuses a relative lookup extra before the case list opens", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, callout, {
 				lookup_extras: [{ key: "mode", value: "scan" }],
 				lookup_responses: [{ key: "result" }],
 			});
 		});
-		expect(closedCodes(reading)).toEqual([`${M}lookup-enabled-lookup-action`]);
+		expect(closedCodes(reading)).toEqual([
+			`${M}lookup-extra-relative-without-case-context`,
+		]);
 	});
 
 	it("with no extras is one finding, HQ's own refusal", async () => {

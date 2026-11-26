@@ -8,6 +8,7 @@
 
 import type { DriftReference } from "@/lib/publish/driftReference";
 import { REQUIRED_FIRST_PUBLISH_RECOVERY } from "@/lib/publish/hqChangesCopy";
+import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import {
 	type appConfirmationScope,
 	diffHqAppSource,
@@ -37,6 +38,7 @@ import type {
 export function appRemoteChange(input: {
 	/** Whether this publish replaces Android requirements CommCare HQ holds that Nova's baseline does not own. */
 	readonly replacesUnownedAndroidRequirements?: boolean;
+	readonly managedProfiles?: boolean;
 	readonly authority: ReturnType<typeof appConfirmationScope>;
 	/** The app's automatic-location line, when the target holds the other value
 	 * and its baseline predates Nova owning that switch. */
@@ -185,6 +187,11 @@ export function appRemoteChange(input: {
 	});
 	const descriptions = parts.map(describeAppChange);
 	if (
+		input.managedProfiles &&
+		profilesOf(baseline.source) !== profilesOf(input.current.normalized)
+	)
+		descriptions.push("Installation profiles");
+	if (
 		!baseline.ownership.profileFeatures?.includes("dependencies") &&
 		input.replacesUnownedAndroidRequirements
 	) {
@@ -197,4 +204,13 @@ export function appRemoteChange(input: {
 		input.legacyLanguageRemoval === undefined
 		? null
 		: change(descriptions, true);
+}
+
+/** Regular app imports leave HQ's profile key alone. Managed targets still disclose any change there. */
+function profilesOf(source: unknown): string {
+	return canonicalJsonText(
+		source && typeof source === "object" && "build_profiles" in source
+			? (source.build_profiles ?? {})
+			: {},
+	);
 }

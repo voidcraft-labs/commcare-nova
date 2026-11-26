@@ -383,9 +383,14 @@ function solveConnectedSelections(
 	}
 
 	for (const moduleUuid of connected) {
+		const autoSelect =
+			moduleUuid === sourceModuleUuid
+				? selection.autoSelect
+				: doc.modules[moduleUuid]?.caseListConfig?.selection?.autoSelect;
 		projected.set(moduleUuid, {
 			kind: "multiple",
 			maximum: maxima.get(moduleUuid) ?? selection.maximum,
+			...(autoSelect && { autoSelect }),
 		});
 	}
 	return projected;

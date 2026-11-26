@@ -31,6 +31,7 @@ import {
 	knownCaseTypesOf,
 	knownFormOpenings,
 	knownLanguageCodesOf,
+	knownPositionedCaseOperationIdsOf,
 	type ReadDraft,
 	type ReaderInput,
 	type ReaderMediaIndex,
@@ -39,12 +40,20 @@ import {
 } from "@/lib/commcare/reader";
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
-import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import {
+	externalIdentityMap,
+	knownDirectParentSearchNamesOf,
+} from "@/lib/commcare/reader/identityMap";
+import {
+	baselineSearchBindings,
+	projectSearchLineage,
+} from "@/lib/commcare/reader/projectSearchLineage";
+import {
+	type ProjectSearchBinding,
 	targetWireIdentity,
-	type WireIdentityOverride,
 } from "@/lib/commcare/wireIdentity";
 import type { FormParseIssueCode } from "@/lib/commcare/xpath/formParseIssues";
+import type { Uuid } from "@/lib/domain";
 import type { CheckErrorCode } from "@/lib/domain/expression/typeChecker";
 import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import { isMediaKind } from "@/lib/domain/multimedia";
@@ -67,6 +76,7 @@ import {
 	type ReadingMediaPlan,
 	readingMediaIndex,
 } from "../reading/projectData/media";
+import type { TargetIdentity } from "../targetIdentity";
 import {
 	alignedFromSource,
 	inStoredKeyOrder,
@@ -120,7 +130,7 @@ export interface HqChangeReadingsInput {
 	readonly caseListActionsApplied?: boolean;
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
 	/** The entities of the deployment's target-identity record (`store.ts::readTargetIdentity`). */
-	readonly overrides: readonly WireIdentityOverride[];
+	readonly targetIdentity: TargetIdentity;
 	readonly media: {
 		/** Every file the reference publishes to the deployment, settled against the source now
 		 *  (`hqMediaStandings`, then `settleHqMedia`): no path `moved` or `unrecorded`. */
@@ -309,17 +319,49 @@ export function* makeHqChangeReadingsSteps(
 	input: HqChangeReadingsInput,
 ): Generator<void, HqChangeReadingsResult, void> {
 	const { appId, reference, data } = input;
+	const target = input.targetIdentity;
 	const lookup = readerLookupContext(data);
-	const identity = targetWireIdentity(input.overrides);
-	const resolver = matchingResolver(
-		appId,
-		externalIdentityMap(
-			reference.identityDoc,
-			targetWireIdentity(input.overrides),
-			lookupWireNaming(lookup.definitions),
-		),
+	const reserved = new Set(
+		Object.keys(
+			reference.identityDoc.appSettings.projectSearches ?? {},
+		) as Uuid[],
 	);
+	const resolverWith = (bindings: readonly ProjectSearchBinding[]) =>
+		matchingResolver(
+			appId,
+			externalIdentityMap(
+				reference.identityDoc,
+				targetWireIdentity(
+					target.entities,
+					target.columnWords,
+					bindings,
+					target.installationProfiles,
+				),
+				lookupWireNaming(lookup.definitions),
+			),
+			reserved,
+		);
 	const baseSource = sourceFromBaseline(input.baselineSource);
+	yield;
+	const publishedBindings = baselineSearchBindings(
+		reference.doc,
+		baseSource,
+		targetWireIdentity(
+			target.entities,
+			target.columnWords,
+			[],
+			target.installationProfiles,
+		),
+		target.projectSearches ?? [],
+	);
+	const resolver = resolverWith(publishedBindings);
+
+	const identity = targetWireIdentity(
+		target.entities,
+		target.columnWords,
+		publishedBindings,
+		target.installationProfiles,
+	);
 	const shared = {
 		knownOpenings: knownFormOpenings(reference.doc, baseSource),
 		appId,
@@ -331,8 +373,13 @@ export function* makeHqChangeReadingsSteps(
 		appStrings: readingAppStrings(lookup),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
+		knownPositionedCaseOperationIds: knownPositionedCaseOperationIdsOf(
+			reference.doc,
+		),
 		knownFormEntryChoices: knownFormEntryChoicesOf(reference.doc),
+		knownDirectParentSearchNames: knownDirectParentSearchNamesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
+		knownProjectSearchNames: reference.doc.appSettings.projectSearches,
 		...(input.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: input.saveOnlyEditedApplied,
 		}),
@@ -341,7 +388,6 @@ export function* makeHqChangeReadingsSteps(
 		}),
 	} satisfies Omit<ReaderInput, "source" | "modules" | "media">;
 
-	yield;
 	const current =
 		data.suiteDetails && normalizedHqAppSource(input.now.source.raw);
 	const baseInput: ReaderInput = {
@@ -369,6 +415,11 @@ export function* makeHqChangeReadingsSteps(
 	const nowInput: ReaderInput = {
 		...shared,
 		suiteDetails: data.suiteDetails,
+		resolver: publishedBindings.length
+			? resolverWith(
+					projectSearchLineage(publishedBindings, baseSource, nowSource),
+				)
+			: resolver,
 		source: nowSource,
 		modules: input.now.modules,
 		media: nowIndex(nowSource, appId, input.media.published, input.media.now),

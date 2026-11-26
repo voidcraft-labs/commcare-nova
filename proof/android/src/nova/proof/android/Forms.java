@@ -1,6 +1,7 @@
 package nova.proof.android;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Intent;
 import android.view.View;
 import android.widget.CheckBox;
@@ -22,6 +23,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
+import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowLooper;
 
 import java.lang.reflect.Method;
@@ -293,6 +295,10 @@ final class Forms {
             return false;
         }
         saved.put("resultCode", shadow.getResultCode());
+        FormRecord savedRecord = CommCareApplication.instance().getCurrentSessionWrapper().getFormRecord();
+        if (savedRecord != null && savedRecord.getDescriptor() != null) {
+            saved.put("descriptor", savedRecord.getDescriptor());
+        }
         // The save applied the form's case blocks to the device (FormRecord.updateAndProcessRecord): the form's
         // record and the cases the device now holds, read before home is handed the result.
         Device.dirty = true;
@@ -332,7 +338,7 @@ final class Forms {
     }
 
     /** The form's data as it stands, serialized as the form's own save serializes it. */
-    private static String data() throws java.io.IOException {
+    static String data() throws java.io.IOException {
         return new String(new org.javarosa.model.xform.XFormSerializingVisitor()
                 .serializeInstance(FormEntryActivity.mFormController.getInstance()),
                 java.nio.charset.StandardCharsets.UTF_8);
@@ -419,6 +425,9 @@ final class Forms {
         JSONObject entry = new JSONObject();
         entry.put("status", record.getStatus());
         entry.put("FormRecord.getDisplayName", Screens.orNull(record.getDisplayName()));
+        if (record.getDescriptor() != null) {
+            entry.put("descriptor", record.getDescriptor());
+        }
         entry.put("AndroidCommCarePlatform.getFormDefId", CommCareApplication.instance().getCommCarePlatform()
                 .getFormDefId(record.getFormNamespace()) == -1 ? "none" : "held");
         String location = metaLocation(record);
@@ -472,6 +481,34 @@ final class Forms {
 
     /** Set by the reader where a request asks for each screen's views as Android laid them out. */
     static boolean views;
+    static JSONArray helpQuestions;
+
+    private static boolean readsHelp(String reference) {
+        if (helpQuestions == null) return false;
+        for (int i = 0; i < helpQuestions.length(); i++) {
+            if (helpQuestions.optString(i).equals(reference)) return true;
+        }
+        return false;
+    }
+
+    private static JSONObject openHelp(QuestionWidget widget) throws Exception {
+        // QuestionWidget.addHelpPlaceholder assigns the trigger this ID.
+        View trigger = widget.findViewById(847294011);
+        if (trigger == null || trigger.getVisibility() != View.VISIBLE) return null;
+        Dialog before = ShadowDialog.getLatestDialog();
+        if (!trigger.performClick()) throw new AssertionError("Android did not handle the help button");
+        ShadowLooper.idleMainLooper();
+        Dialog dialog = ShadowDialog.getLatestDialog();
+        if (dialog == null || dialog == before || !dialog.isShowing() || dialog.getWindow() == null) {
+            throw new AssertionError("Android did not open its help dialog");
+        }
+        try {
+            return Views.describe(dialog.getWindow().getDecorView());
+        } finally {
+            dialog.dismiss();
+            ShadowLooper.idleMainLooper();
+        }
+    }
 
     private static JSONObject screen(FormEntryActivity activity) throws Exception {
         JSONObject found = new JSONObject();
@@ -483,8 +520,9 @@ final class Forms {
             if (banners != null) found.put("banners", Views.describe(banners));
         }
         if (views && activity.getODKView() != null) {
-            // The whole screen as Android built it: each question's widget with its label, hint and media, and
-            // a group's header above them.
+            // Android mounts the group heading separately from the question widgets and action banners.
+            View groupHeading = activity.findViewById(R.id.form_entry_group_label);
+            if (groupHeading != null) found.put("groupHeading", Views.describe(groupHeading));
             found.put("view", Views.describe(activity.getODKView()));
         }
         found.put("alert", Screens.orNull(Views.alert(activity)));
@@ -499,7 +537,9 @@ final class Forms {
                 JSONObject question = new JSONObject();
                 question.put("widget", widget.getClass().getSimpleName());
                 question.put("text", String.valueOf(widget.getPrompt().getLongText()));
-                question.put("reference", String.valueOf(widget.getPrompt().getIndex().getReference()));
+                String reference = String.valueOf(widget.getPrompt().getIndex().getReference());
+                question.put("reference", reference);
+                if (readsHelp(reference)) question.put("openedHelp", Screens.orNull(openHelp(widget)));
                 question.put("required", widget.getPrompt().isRequired());
                 if (controls) {
                     question.put("control", control(widget));
@@ -544,6 +584,18 @@ final class Forms {
     private static JSONObject control(QuestionWidget widget) throws Exception {
         JSONObject shown = new JSONObject();
         shown.put("visible", widget.getVisibility() == View.VISIBLE);
+        FormEntryPrompt prompt = widget.getPrompt();
+        if (prompt.getQuestion().getDynamicChoices() != null) {
+            JSONArray choices = new JSONArray();
+            var offered = prompt.getOldSelectChoices();
+            if (offered != null) {
+                for (var choice : offered) {
+                    choices.put(new JSONObject().put("value", choice.getValue())
+                            .put("label", prompt.getSelectChoiceText(choice)).put("index", choice.getIndex()));
+                }
+            }
+            shown.put("choices", choices);
+        }
         if (widget instanceof org.commcare.views.widgets.StringWidget) {
             android.widget.EditText input = box((org.commcare.views.widgets.StringWidget)widget);
             shown.put("masked", input.getTransformationMethod() instanceof android.text.method.PasswordTransformationMethod);
@@ -732,6 +784,10 @@ final class Forms {
                 int status = FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), value);
                 entry.put("result", answerResult(status));
                 answered |= status == FormEntryController.ANSWER_OK;
+                continue;
+            }
+            if (AndroidAppAnswers.has(widget)) {
+                answered |= AndroidAppAnswers.give(activity, widget, entry);
                 continue;
             }
             if (Captures.kind(widget) != null) {

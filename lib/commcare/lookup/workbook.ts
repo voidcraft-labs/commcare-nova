@@ -64,10 +64,8 @@ export const TYPES_SHEET = "types";
  * (`upload/const.py::MAX_FIXTURE_ROWS`), enforced across every sheet
  * together rather than per table
  * (`util/workbook_json/excel.py::WorkbookJSONReader.__init__` accumulates
- * `worksheet.max_row`). Nova's own 5,000-row cap per table means only an
- * app referencing about a hundred tables could approach it, but an app
- * that did would be refused by CommCare HQ with a message about a limit
- * nobody set, so Nova measures it first.
+ * `worksheet.max_row`). Nova's 5,000-row threshold is for inline input;
+ * a paged table can approach the workbook ceiling by itself.
  */
 export const MAX_HQ_FIXTURE_WORKBOOK_ROWS = 500_000;
 

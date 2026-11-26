@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import html
 import re
+import posixpath
 import unicodedata
 from dataclasses import dataclass
 from functools import cache, cached_property
@@ -39,7 +40,7 @@ from lxml import etree
 
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
-from proof.observe.manifest import CSQL_HOLES, form_language_profiles
+from proof.observe.manifest import CSQL_HOLES, expression_tree, form_language_profiles
 from proof.rules._xpath import tokens as xpath_tokens
 
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -463,22 +464,43 @@ class Form:
     @cached_property
     def question_references(self):
         """Each attribute value by which a question names its itext as Vellum reads it, with what the text is:
-        its controls' ``label``, ``hint``, ``help`` and ``alert``, its choices' labels (``choice``) and its repeat
-        captions (``caption``; ``javaRosa/plugin.js::populateControlMug``, ``parseRepeatItexts``), and its binds'
-        validation messages (``message``, ``getITextID``), in document order."""
+        its controls' ``label``, ``hint``, ``help`` and ``alert``, the labels of a group or repeat
+        (``container-label``), the choices' labels (``choice``), its repeat captions (``caption``;
+        ``javaRosa/plugin.js::populateControlMug``, ``parseRepeatItexts``), and its binds' validation messages
+        (``message``, ``getITextID``), in document order."""
         found = []
         for element in self.body.iter() if self.body is not None else ():
             if not isinstance(element.tag, str):
                 continue
             parent = element.getparent()
             local = _local(element)
-            if local in ("label", "hint", "help", "alert") and _local(parent) in QUESTION_CONTROLS | {"item"}:
-                found.append((element.get("ref"), "choice" if (local, _local(parent)) == ("label", "item") else local))
+            parent_kind = _local(parent)
+            if local in ("label", "hint", "help", "alert") and parent_kind in QUESTION_CONTROLS | {"item"}:
+                kind = local
+                if local == "label":
+                    if parent_kind == "item":
+                        kind = "choice"
+                    elif parent_kind in {"group", "repeat"}:
+                        kind = "container-label"
+                found.append((element.get("ref"), kind))
             elif element.tag in (f"{{{JAVAROSA}}}addCaption", f"{{{JAVAROSA}}}addEmptyCaption"):
                 found.append((element.get("ref"), "caption"))
         for binds in self.binds.values():
             found += [(bind.get(f"{{{JAVAROSA}}}constraintMsg"), "message") for bind in binds]
         return tuple((value, kind) for value, kind in found if value is not None)
+
+    @cached_property
+    def question_text_owners(self):
+        """The text IDs named by the form's question references, retaining the kind of each owner.
+
+        The same XPath grammar as the observer reads the owning references directly from the form.
+        These classes can therefore judge the authored variants before device observations exist.
+        """
+        kinds = {}
+        for reference, kind in self.question_references:
+            if (text_id := _question_text_id(reference)) is not None:
+                kinds.setdefault(text_id, set()).add(kind)
+        return kinds
 
     def tree(self, text):
         """HQ's XPath grammar's structure of an expression (the observation's ``trees``), or None where the records
@@ -613,7 +635,7 @@ class Form:
                 continue
             text_id = _itext_id(tree)
             if text_id is not None:
-                kinds.setdefault(text_id, set()).add(kind)
+                kinds.setdefault(text_id, set()).add("label" if kind == "container-label" else kind)
         return {text_id: frozenset(held) for text_id, held in kinds.items()}, unplaced
 
     @cached_property
@@ -715,6 +737,12 @@ DATA_ROLES = frozenset(
         "ConnectWorkAreaUpdate",
     }
 )
+
+
+@cache
+def _question_text_id(reference):
+    tree = expression_tree(reference)
+    return _itext_id(tree) if tree is not None else None
 
 
 def _itext_id(tree):
@@ -1292,6 +1320,98 @@ def long_input(use, manifest):
 PRINT_ACTION = "org.commcare.dalvik.action.PRINT"
 
 
+def _android_action_presence(use):
+    """An input's appearance names its action. An intent-typed input using
+    that name owns the definition; ordinary inputs may refer to that owner."""
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    if element.tag != f"{{{XFORMS}}}input" or not (appearance := element.get("appearance", "")).startswith("intent:"):
+        return "other"
+    if appearance[len("intent:"):] not in form.intents:
+        return "missing"
+    if any(control.tag == f"{{{XFORMS}}}input" and control.get("appearance") == appearance
+           and (bind := form.control_bind(control)) is not None and _vellum_type(bind.get("type") or "") == "intent"
+           for controls in form.controls.values() for control in controls):
+        return "owned"
+    return "orphan"
+
+
+def missing_android_action(use, _manifest):
+    state = _android_action_presence(use)
+    return None if state is None else state == "missing"
+
+
+def orphan_android_action(use, _manifest):
+    state = _android_action_presence(use)
+    return None if state is None else state == "orphan"
+
+
+def unreproducible_android_question(use, manifest):
+    """Vellum takes the intent tagged with the question's node ID while Android
+    takes the one named by its appearance. A named result has to resolve at
+    every invoking input, including its concrete repeat row."""
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    if element.tag == f"{{{OPENDATAKIT}}}intent":
+        intent = element
+        action_id = intent.get("id")
+        invoking = None
+    elif element.tag == f"{{{XFORMS}}}input" and (element.get("appearance") or "").startswith("intent:"):
+        invoking = element
+        action_id = element.get("appearance")[len("intent:"):]
+        intent = form.intents.get(action_id)
+    else:
+        return False
+    if intent is None:
+        return False
+    head = form.root.find(f"{{{XHTML}}}head")
+    duplicates = head is not None and sum(
+        el.get("id") == action_id for el in head.findall(f"{{{OPENDATAKIT}}}intent")
+    ) > 1
+    using = [control for controls in form.controls.values() for control in controls
+             if control.tag == f"{{{XFORMS}}}input" and control.get("appearance") == f"intent:{action_id}"]
+    owners = [control for control in using if (bind := form.control_bind(control)) is not None
+              and _vellum_type(bind.get("type") or "") == "intent"]
+    if not owners:
+        return False  # An orphan tag has its own entry.
+    owner = owners[0]
+    owner_path = form.control_path(owner)
+    if len(owners) != 1 or duplicates:
+        return True
+    if intent.get("appearance") == "quick" or intent.get("class") == PRINT_ACTION:
+        return False
+    if (owner_path or "").rsplit("/", 1)[-1] != action_id:
+        return True
+    if not intent.get("class") or set(intent.attrib) - {"id", "class"} or (intent.text or "").strip():
+        return True
+    if intent is not form.intents.get(action_id):
+        return True
+    for tag in ("extra", "response"):
+        keys = [arg.get("key") for arg in _children(intent) if arg.tag == f"{{{XFORMS}}}{tag}"]
+        if "__proto__" in keys or "hasOwnProperty" in keys[:-1]:
+            return True
+    for arg in _children(intent):
+        if arg.tag not in {f"{{{XFORMS}}}extra", f"{{{XFORMS}}}response"} or not arg.get("key") or not arg.get("ref"):
+            return True
+        if set(arg.attrib) - {"key", "ref", f"{{{VELLUM}}}ref"} or _children(arg) or (arg.text or "").strip():
+            return True
+        if arg.tag == f"{{{XFORMS}}}response":
+            ref = arg.get("ref")
+            target = posixpath.normpath(posixpath.join(owner_path, ref))
+            node = form.node(target)
+            if node is None or isinstance(node, tuple) or _children(node):
+                return True
+            for source in ([invoking] if invoking is not None else [owner]):
+                here = form.control_path(source)
+                if here is None or posixpath.normpath(posixpath.join(here, ref)) != target:
+                    return True
+                if any(target.startswith(row + "/") and not here.startswith(row + "/") for row in form.repeat_paths):
+                    return True
+    return False
+
+
 def print_callout(use, manifest):
     """``questions/print-callout-…``: an input Vellum reads as an Android callout (bind type ``intent``)
     whose ``<odkx:intent>`` (by the question's node name, ``intentManager.js::syncMugWithIntent``) has the
@@ -1299,8 +1419,14 @@ def print_callout(use, manifest):
     form, element = _form_element(use)
     if form is None:
         return None
-    if _local(element) != "input":
+    if element.tag != f"{{{XFORMS}}}input":
         return False
+    if use.key == "appearance:android/intent:":
+        # Android follows the input's named action, including an adopted
+        # callout whose action ID differs from Vellum's question node name.
+        appearance = element.get("appearance", "")
+        intent = form.intents.get(appearance.removeprefix("intent:"))
+        return intent is not None and intent.get("class") == PRINT_ACTION and _android_action_presence(use) == "owned"
     if not any(intent.get("class") == PRINT_ACTION for intent in form.intents.values()):
         return False
     bind = form.control_bind(element)
@@ -1365,6 +1491,32 @@ def label_text_missing_in_default(use, manifest):
         return None if _form_element(use)[0] is None else False
     form, values = group
     return form.default_translation is not None and form.default_translation not in values
+
+
+def inline_video_on_empty_help(use, manifest):
+    """An otherwise empty help element keeps Android's help affordance."""
+    form, value = _itext_value(use)
+    if form is None:
+        return None
+    if value is None or value.get("form") != "video-inline":
+        return False
+    text_id = value.getparent().get("id")
+    if "help" not in form.question_text_owners.get(text_id, ()):
+        return False
+    for translation in form.translations:
+        for text in _children(translation):
+            if _local(text) != "text" or text.get("id") != text_id:
+                continue
+            for candidate in _children(text):
+                if _local(candidate) != "value":
+                    continue
+                role = candidate.get("form") or "default"
+                if role == "long" or (
+                    role in {"default", "markdown", "audio", "image", "video"}
+                    and (len(candidate) or (candidate.text or "").strip())
+                ):
+                    return False
+    return True
 
 
 def media_blank_beside_file(use, manifest):
@@ -1631,8 +1783,7 @@ def _default_value(form, setvalue, target):
 
 def default_other_than_blank_on_a_capture_question(use, manifest):
     """``questions/default-other-than-blank-on-a-capture-question``: an attachment question's Default Value
-    (``_default_value``: a setvalue Vellum reads as the Default Value of a question an ``<upload>`` binds, which is
-    every image, audio, video, signature and file question) whose value is anything but the blank string literal.
+    anything but the blank string literal, or nonempty text on its data node.
     Web Apps clears a starting file as the form opens and submits nothing for it, and Android's ``MediaWidget``
     looks for the named file in the form's own folder and stops the form. A value Core's lexer refuses, or this
     port does not read, is not settled here: None."""
@@ -1640,14 +1791,14 @@ def default_other_than_blank_on_a_capture_question(use, manifest):
     if form is None:
         return None
     if setvalue is None:
-        return False  # an event on another element of the form, no setvalue
+        _, data = _data_node(use)
+        return _instance_text_value(form, data) and _attachment_answer(form, data)
     target = _target(form, setvalue)
     if target is None:
         return _unplaced_target(form, setvalue)
     if not _default_value(form, setvalue, target) or isinstance(target, tuple):
         return False
-    path = form.paths.get(target)
-    if not any(_local(control) == "upload" for control in form.question_controls(path)):
+    if not _attachment_answer(form, target):
         return False
     found = xpath_tokens(setvalue.get("value") or "")
     if found is None:
@@ -2369,6 +2520,52 @@ def translation_key_not_its_own(use, manifest):
             if not is_locale_file_key(key):
                 return True
     return False
+
+
+def generated_menu_icon_without_mapping(use, manifest):
+    """A real module icon locale whose local file is not mapped in the app."""
+    at = _json(use)
+    if at is None or at.key != "translations" or not isinstance(at.value, dict):
+        return None
+    app = at.app.doc
+    codes = app.get("langs") or []
+    if not isinstance(codes, list) or not codes:
+        return None
+    mapped = app.get("multimedia_map") or {}
+    modules = app.get("modules") or []
+    possible_carriers = None
+    uncertain = False
+    for index, module in enumerate(modules):
+        if not isinstance(module, dict) or module.get("doc_type") != "Module":
+            continue
+        icons = module.get("media_image") or {}
+        if not isinstance(icons, dict):
+            continue
+        same_for_all = module.get("use_default_image_for_all") is True
+        if not any(isinstance(path, str) and path for code, path in icons.items() if code in codes):
+            continue
+        if same_for_all and not icons.get(codes[0]):
+            continue
+        for code in codes:
+            table = at.value.get(code)
+            if not isinstance(table, dict):
+                continue
+            path = table.get(f"modules.m{index}.icon")
+            if (
+                not isinstance(path, str) or path in mapped or path == icons.get(codes[0] if same_for_all else code)
+                or not re.fullmatch(r"jr://file/commcare/image/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*", path)
+            ):
+                continue
+            # Leave a source with another possible carrier to its media checks.
+            if possible_carriers is None:
+                possible_carriers = json.dumps(modules) + "".join(
+                    etree.tostring(form.root, encoding="unicode") for form in at.app.forms.values()
+                )
+            if path in possible_carriers:
+                uncertain = True
+                continue
+            return True
+    return None if uncertain else False
 
 
 def path_not_from_uploader(use, manifest):
@@ -4811,36 +5008,47 @@ SERVER_ORDER_RECORD_KEYS = frozenset(
     {"@case_id", "@owner_id", "@case_type", "@status", "name", "case_name", "external_id", "date_opened", "last_modified"}
 )
 CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id"})
+# SQL keeps this value apart from case_json, so the Search index lacks it.
+SERVER_SEARCH_DEVICE_ONLY_KEYS = frozenset({"location_id"})
 
 
 def _order_key_reserved(key):
     return key not in SERVER_ORDER_RECORD_KEYS and (key in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or key in CASE_OPERATION_OWN_ROWS)
 
 
-def server_order_reserved_property(use, manifest):
-    """``case-search/a-server-order-naming-a-property-nova-reserves``: a literal ``commcare_sort`` default filter, or a
-    search's ``custom_sort_properties`` on a search its menu offers (the only one Nova reads them on), one of whose
-    keys names a property Nova reserves (``status`` is a saved property; the record's state is ``@status``,
-    ``es/case_search.py::sort_by_case_property``). A ``commcare_sort`` that is no one literal is
-    ``a-commcare-sort-x-commcare-custom-related-case-property-or-case``'s."""
+def _server_order_keys(use):
+    """The keys of a literal or dedicated server order at the source site of a use."""
     at, config = _search(use)
     if config is None:
         return None
     if not use.key.startswith(("schema:CaseSearch.custom_sort_properties", "schema:CaseSearchCustomSortProperty")):
+        keys = []
         for entry in _default_entries(at, config):
             if entry.get("property") != "commcare_sort":
                 continue
             text = _literal_text(entry.get("defaultValue"))
-            if text is not None and any(
-                _order_key_reserved(part.lstrip("+-").split(":")[0]) for part in text.split(",")
-            ):
-                return True
-        return False
+            if text is not None:
+                keys.extend(part.lstrip("+-").split(":")[0] for part in text.split(","))
+        return keys
     if not (config.get("properties") or config.get("default_properties")):
-        return False
+        return []
     row = at.nearest("CaseSearchCustomSortProperty")
     rows = [row] if row is not None else [each for each in config.get("custom_sort_properties") or [] if isinstance(each, dict)]
-    return any(isinstance(each.get("property_name"), str) and _order_key_reserved(each["property_name"]) for each in rows)
+    return [row["property_name"] for row in rows if isinstance(row.get("property_name"), str)]
+
+
+def server_order_reserved_property(use, manifest):
+    """An order of a stored property Nova reserves, apart from the indexed record's own attribute keys."""
+    keys = _server_order_keys(use)
+    return None if keys is None else any(_order_key_reserved(key) for key in keys)
+
+
+def server_order_device_only_property(use, manifest):
+    """An order of a case location kept outside Search's indexed case_json and metadata."""
+    keys = _server_order_keys(use)
+    if keys is None:
+        return None
+    return not any(_order_key_reserved(key) for key in keys) and bool(SERVER_SEARCH_DEVICE_ONLY_KEYS.intersection(keys))
 
 
 def request_config_key_runtime_value(use, manifest):
@@ -4873,6 +5081,23 @@ def related_case_property_twice(use, manifest):
         each.get("property") == "x_commcare_custom_related_case_property" for each in _default_entries(at, config)
     )
     return keyed and bool(config.get("custom_related_case_property"))
+
+
+def related_case_device_only_property(use, manifest):
+    """HQ follows a case ID from case_json, which omits the case's location column."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    if related_case_property_twice(use, manifest):
+        return False
+    if use.key == "schema:CaseSearch.custom_related_case_property":
+        value = config.get("custom_related_case_property")
+        return isinstance(value, str) and value in SERVER_SEARCH_DEVICE_ONLY_KEYS
+    return any(
+        row.get("property") == "x_commcare_custom_related_case_property"
+        and _literal_text(row.get("defaultValue")) in SERVER_SEARCH_DEVICE_ONLY_KEYS
+        for row in _default_entries(at, config)
+    )
 
 
 def data_registry_key(use, manifest):
@@ -4976,6 +5201,82 @@ def _prompt_reader(test):
     return reader
 
 
+def additional_record_type_without_menu(use, manifest):
+    """HQ's Module Settings only offers types in the app's menus (views/modules.py)."""
+    at = _json(use)
+    if at is None:
+        return None
+    app = at.nearest("Application", "LinkedApplication")
+    menu = at.nearest(*MODULES)
+    requested = at.value
+    if app is None or menu is None or not isinstance(requested, list):
+        return None
+    if any(not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9_-]+", name) is None for name in requested):
+        return None
+    available = {
+        row["case_type"] for row in app.get("modules") or []
+        if isinstance(row, dict) and isinstance(row.get("case_type"), str) and row["case_type"]
+    }
+    return any(name != menu.get("case_type") and name not in available for name in requested)
+
+
+def search_group_layout_unreadable(use, manifest):
+    """A group's header and member runs must let the Case List editor name an ordered section."""
+    at = _json(use)
+    if at is None:
+        return None
+    search = at.nearest("CaseSearch")
+    prompt = at.nearest("CaseSearchProperty")
+    if search is None or prompt is None:
+        return None
+    properties = [row for row in search.get("properties") or [] if isinstance(row, dict)]
+    has_fields = any(row.get("is_group") is not True for row in properties)
+    seen = set()
+    heading = None
+    for row in properties:
+        key = row.get("group_key")
+        if row.get("is_group") is True:
+            valid = isinstance(key, str) and bool(key) and row.get("name") == key and key not in seen and has_fields
+            if row is prompt:
+                return not valid
+            heading = key if valid else None
+            if valid:
+                seen.add(key)
+        elif row is prompt:
+            return bool(key) and key != heading
+    return None
+
+
+def search_group_heading_unreadable(use, manifest):
+    """An otherwise valid header must give the app's worker languages a visible label."""
+    at = _json(use)
+    if at is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if prompt is None or prompt.get("is_group") is not True:
+        return False
+    if search_group_layout_unreadable(use, manifest):
+        return False
+    labels = prompt.get("label")
+    if not isinstance(labels, dict):
+        return True
+    app = at.nearest("Application", "LinkedApplication") or {}
+    languages = app.get("langs") or ["en"]
+    # HQ picks each requested language before the first build language with
+    # a stored value. With neither, _trans takes the first stored language.
+    fallback = next(
+        (labels[code] for code in languages if labels.get(code) is not None),
+        labels[min(labels)] if labels else "",
+    )
+    chosen = [fallback if labels.get(code) is None else labels[code] for code in languages]
+    if any(word is not None and not isinstance(word, (str, bool)) for word in chosen):
+        return True
+    texts = [str(word) for word in chosen]
+    # An empty locale entry falls back to the merged default table.
+    source = texts[0] or next((text for text in texts if text.strip()), "")
+    return not source.strip()
+
+
 # The input types HQ's Case List page shows over an address appearance (``case_claim.js::_getAppearance`` tests them
 # last), which HQ's build also writes over the ``input="address"`` the appearance gives
 # (``remote_requests.py::build_query_prompts``): beside one, the prompt is no address field.
@@ -5072,6 +5373,86 @@ receiver_on_another_appearance.__doc__ = """``case-search/receiver-expression-on
 ``receiver_expression`` holding text on a prompt whose appearance in HQ's Case List page is neither a plain text
 field nor a lookup or Mobile UCR selection (``editor_appearance``); a blank one is no value, and on any other prompt
 the expression is ``case-search/receiver-expression``'s."""
+
+ADDRESS_RECEIVE_SELECTOR = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*)")
+ADDRESS_MESSAGE_PARTS = frozenset({
+    "full", "geopoint", "street", "city", "district", "county", "zipcode", "postcode", "region",
+    "state_long", "state_short", "us_state", "us_state_short", "country", "country_short",
+})
+
+
+def _address_receiver_widget(prompt):
+    if prompt.get("is_group") or prompt.get("hidden"):
+        return None
+    appearance = editor_appearance(prompt)
+    if appearance == "" and not prompt.get("input_"):
+        return "text"
+    itemset = prompt.get("itemset")
+    nodeset = itemset.get("nodeset") if isinstance(itemset, dict) else None
+    if appearance == "lookup_table_fixture" and isinstance(nodeset, str) and nodeset:
+        return "choice"
+    return None
+
+
+def _active_address_receive(config, prompt):
+    endpoint = config.get("case_search_endpoint_id")
+    if type(endpoint) is int and 0 < endpoint <= 2147483647:
+        return None
+    if prompt is None or prompt.get("is_group") or prompt.get("hidden"):
+        return None
+    if editor_appearance(prompt) in RECEIVER_REFUSED_APPEARANCES:
+        return None
+    value = prompt.get("receiver_expression")
+    selector = ADDRESS_RECEIVE_SELECTOR.fullmatch(value) if isinstance(value, str) else None
+    if selector is None:
+        return None
+    if any(
+        row.get("name") == selector[1]
+        and _address_field(row)
+        and not row.get("is_group")
+        and not row.get("hidden")
+        and not row.get("input_")
+        and not row.get("allow_blank_value")
+        and not row.get("receiver_expression")
+        and not row.get("default_value")
+        and not _required(row)
+        and not _validations(row)
+        and not (isinstance(row.get("itemset"), dict) and row["itemset"].get("nodeset"))
+        for row in config.get("properties") or [] if isinstance(row, dict)
+    ):
+        return selector
+    return None
+
+
+def single_choice_receives_from_address(use, manifest):
+    """Web Apps assigns a single choice's displayed position instead of its lookup key."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    return (at.key == "receiver_expression" and prompt is not None
+            and prompt.get("input_") == "select1" and _active_address_receive(config, prompt) is not None)
+
+
+def address_receiver_shared_with_choice(use, manifest):
+    """Web Apps query.js reselects every receiver with the same attribute, then handles the entire match
+    as one input or one list. Two text fields receive safely; multiple matches including a choice do not."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if at.key != "receiver_expression" or prompt is None or _address_receiver_widget(prompt) is None:
+        return False
+    selector = _active_address_receive(config, prompt)
+    if selector is None or not set(selector[2].split("||")) <= ADDRESS_MESSAGE_PARTS:
+        return False
+    widgets = [
+        widget for row in config.get("properties") or []
+        if isinstance(row, dict) and row.get("receiver_expression") == selector[0]
+        and (widget := _address_receiver_widget(row)) is not None
+    ]
+    return len(widgets) > 1 and "choice" in widgets
+
 
 # The input types a runtime names (commcare-core ``QueryPrompt.INPUT_TYPE_*``): the six Formplayer supports
 # (``QueryScreen.getSupportedPrompts``), of which Android supports three (``QueryRequestActivity``).
@@ -5341,15 +5722,13 @@ def differs_from_the_default(use, manifest):
     return not _at_schema_defaults(manifest, "DetailColumn", column, aside)
 
 
-def _clickable_icon_list_empty(at, column, detail, kind, module):
-    if _format(column) != "clickable-icon" or kind != "short" or column.get("endpoint_action_id"):
-        return False
-    # In a basic or shadow module HQ's build refuses it (``invalid clickable icon configuration``), which the
-    # bar reports; an advanced module skips that check and builds no action.
-    return module.get("doc_type") == "AdvancedModule"
-
-
-clickable_icon_list_empty = _column_reader(_clickable_icon_list_empty)
+# Basic and shadow modules refuse the build. Advanced modules bypass the
+# check and emit no action. Both source shapes need an endpoint.
+clickable_icon_list_empty = _column_reader(
+    lambda at, column, detail, kind, module: (
+        _format(column) == "clickable-icon" and kind == "short" and not column.get("endpoint_action_id")
+    )
+)
 clickable_icon_list_empty.__doc__ = """``menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-…``:
 the column, read on each use of its keys, its icon mapping (``enum``) among them, which HQ's build reads of a
 clickable icon (``detail_screen.py::ClickableIcon``) and which the column editor's extras on another format are not."""
@@ -5359,6 +5738,58 @@ clickable_icon_on_detail = _column_reader(
 )
 clickable_icon_on_detail.__doc__ = """``menus-and-case-lists/16pp-clickable-icon-on-the-case-detail-…``: the
 column, read on each use of its keys, its icon mapping (``enum``) among them."""
+
+
+def _unusable_clickable_icon(at, column, detail, kind, module):
+    if _format(column) != "clickable-icon" or kind != "short" or not column.get("endpoint_action_id"):
+        return False
+    endpoint = column["endpoint_action_id"]
+    grouping = detail.get("case_tile_group")
+    if isinstance(grouping, dict):
+        row, header = column.get("grid_y"), grouping.get("header_rows")
+        if isinstance(row, int) and isinstance(header, int) and row >= header:
+            return True
+    targets = [
+        (owner, form)
+        for owner in at.app.modules
+        for form in owner.get("forms") or []
+        if isinstance(form, dict) and form.get("session_endpoint_id") == endpoint
+    ]
+    if not targets:
+        return True
+    if len(targets) != 1:
+        return True
+    owner, target = targets[0]
+    if target.get("doc_type") == "Form" and target.get("requires") != "case":
+        return True
+    if owner.get("case_type") != module.get("case_type"):
+        # The action's target type can be a related record selected by the grouped header.
+        return None
+    xform = at.app.xform(target)
+    if xform is None:
+        return None
+    body = next((node for node in xform.root if _local(node) == "body"), None)
+    if body is None:
+        return True
+    for label in body.iter():
+        if not isinstance(label.tag, str) or _local(label) != "label":
+            continue
+        if not re.fullmatch(r"jr:itext\(\s*(['\"])Pragma-Submit-Automatically\1\s*\)", label.get("ref") or ""):
+            continue
+        if _local(label.getparent()) in ("group", "repeat"):
+            continue
+        if (not grouping and target.get("doc_type") == "Form"
+                and target.get("requires") == "case"
+                and not (owner.get("parent_select") or {}).get("active")
+                and not (owner.get("case_details") or {}).get("short", {}).get("multi_select")):
+            return False
+        return None
+    return True
+
+
+clickable_icon_unusable = _column_reader(_unusable_clickable_icon)
+clickable_icon_unusable.__doc__ = """A case-list icon missing a case-requiring form with a leaf label that
+sets Pragma-Submit-Automatically, which HQ requires before offering the endpoint in its Case List editor."""
 
 # Characters HQ's mapping editor marks in a translatable-enum key (ui-element-key-val-mapping.js::hasBadXML):
 # anything outside [A-Za-z0-9_-].
@@ -5514,22 +5945,25 @@ filter_changes_the_build.__doc__ = """``menus-and-case-lists/24p-filter-otherwis
 SINGLE_FORMATS = ("image", "geo-boundary", "geo-boundary-color", "geo-points", "geo-points-colors")
 
 
-def _repeated_single_format(detail, column=None):
-    """Whether a detail holds a second column of one of ``SINGLE_FORMATS``; for a use in a column, whether that
+def _repeated_single_format(detail, column, single_formats):
+    """Whether a detail holds a second column of one of ``single_formats``; for a use in a column, whether that
     column is of the repeated format, since the class is a fact about those columns and not their neighbours."""
     formats = [_format(one) for one in _columns(detail)]
-    repeated = {single for single in SINGLE_FORMATS if formats.count(single) > 1}
+    repeated = {single for single in single_formats if formats.count(single) > 1}
     return bool(repeated) if column is None else _format(column) in repeated
 
 
 def several_of_one_format_basic(use, manifest):
     """``menus-and-case-lists/more-than-one-address-column-or-more-than-one-image-or-geo``: in a basic or
     shadow module's detail, a second ``image`` or geo column of one format, which the editor refuses; a
-    second ``address`` fails HQ's build (``invalid tile configuration``), which the bar reports."""
+    second ``address`` fails HQ's build (``invalid tile configuration``). The source check also classifies
+    the address columns of a retained mutation that has no build verdict."""
     at, column, detail, kind, module = _column(use)
     if detail is None:
         return None
-    return (module or {}).get("doc_type") != "AdvancedModule" and _repeated_single_format(detail, column)
+    return (module or {}).get("doc_type") != "AdvancedModule" and _repeated_single_format(
+        detail, column, (*SINGLE_FORMATS, "address")
+    )
 
 
 def several_of_one_format_advanced(use, manifest):
@@ -5537,7 +5971,9 @@ def several_of_one_format_advanced(use, manifest):
     at, column, detail, kind, module = _column(use)
     if detail is None:
         return None
-    return (module or {}).get("doc_type") == "AdvancedModule" and _repeated_single_format(detail, column)
+    return (module or {}).get("doc_type") == "AdvancedModule" and _repeated_single_format(
+        detail, column, SINGLE_FORMATS
+    )
 
 
 # HQ's editor's field check (details/utils.js::isValidPropertyName, and sort_rows.js::hasValidPropertyName for a
@@ -5983,6 +6419,139 @@ def _detail_of(use):
         None,
     )
     return at, detail, kind, module
+
+
+def _short_lookup(use):
+    _, detail, kind, _ = _detail_of(use)
+    if kind != "short" or detail.get("lookup_enabled") is not True:
+        return None
+    return detail if detail.get("case_tile_template") != "icon_text_grid" else None
+
+
+def _missing_lookup_arguments(detail):
+    return any(
+        not isinstance(detail.get(key), list) or not detail[key] for key in ("lookup_extras", "lookup_responses")
+    )
+
+
+def lookup_without_arguments(use, manifest):
+    """HQ's Case List editor requires a row in both argument lists for an active lookup."""
+    detail = _short_lookup(use)
+    return detail is not None and _missing_lookup_arguments(detail)
+
+
+def lookup_on_long_detail(use, manifest):
+    """HQ's Case List editor can only save an active lookup on the short detail."""
+    _, detail, kind, _ = _detail_of(use)
+    return kind == "long" and detail.get("lookup_enabled") is True
+
+
+def _literal_lookup_text(tree):
+    if tree is None:
+        return False
+    if tree[0] == "text":
+        return True
+    return tree[:2] == ["call", "concat"] and all(_literal_lookup_text(argument) for argument in tree[2])
+
+
+def _worker_lookup_value(tree):
+    return bool(
+        tree and tree[:2] == ["path", "instance:commcaresession"]
+        and tree[3] == [["text", "commcaresession"]]
+        and tree[4][:2] == [["child", "session", 0], ["child", "context", 0]]
+        and tree[4][2:] in ([["child", "username", 0]], [["child", "userid", 0]])
+    )
+
+
+def _supported_lookup_value(text):
+    tree = expression_tree(text)
+    return _literal_lookup_text(tree) or _worker_lookup_value(tree)
+
+
+def lookup_with_nonliteral_arguments(use, manifest):
+    """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail):
+        return False
+    return any(
+        isinstance(extra, dict)
+        and isinstance(value := extra.get("value"), str)
+        and not _supported_lookup_value(value)
+        for extra in detail["lookup_extras"]
+    )
+
+
+def _bare_relative_lookup_extra(detail):
+    extras = detail["lookup_extras"]
+    if any(isinstance(extra, dict) and extra.get("key") == "force_xpath_parsing" for extra in extras):
+        return False
+    if not isinstance(detail.get("lookup_action"), str) or not isinstance(detail.get("lookup_name"), str):
+        return False
+    for extra in extras:
+        if not isinstance(extra, dict) or not isinstance(extra.get("key"), str):
+            continue
+        value = extra.get("value")
+        tree = expression_tree(value) if isinstance(value, str) else None
+        if tree and tree[:2] == ["path", "relative"] and not tree[3]:
+            steps = tree[4]
+            if (
+                len(steps) == 1 and steps[0][0] == "child" and steps[0][2] == 0
+                and not steps[0][1].endswith("*") and value.strip() == steps[0][1]
+            ):
+                return True
+    return False
+
+
+def lookup_extra_relative_without_case_context(use, manifest):
+    detail = _short_lookup(use)
+    return detail is not None and not _missing_lookup_arguments(detail) and _bare_relative_lookup_extra(detail)
+
+
+def lookup_with_result_column(use, manifest):
+    """The active result columns outside the plain-list case-ID carrier."""
+    detail = _short_lookup(use)
+    if detail is None or detail.get("lookup_display_results") is not True:
+        return False
+    template, headings = detail.get("lookup_field_template"), detail.get("lookup_field_header")
+    parsed = expression_tree(template) if isinstance(template, str) else None
+    return bool(
+        detail.get("case_tile_template") or not parsed
+        or parsed[:2] != ["path", "relative"] or parsed[3] != []
+        or parsed[4] != [["attribute", "case_id", 0]]
+        or not isinstance(headings, dict)
+        or not any(isinstance(value, str) and value.strip() for value in headings.values())
+    )
+
+
+def _lookup_names(entries, keys):
+    if not all(isinstance(entry, dict) and entry.keys() == keys for entry in entries):
+        return False
+    names = [entry["key"] for entry in entries]
+    return all(_lookup_name(name) for name in names) and len(set(names)) == len(names)
+
+
+def _lookup_name(value):
+    return isinstance(value, str) and value != "" and value.strip() == value
+
+
+def lookup_outside_fixed_text(use, manifest):
+    """The remaining active short-detail lookup settings beside a fixed-text action."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail):
+        return False
+    if _bare_relative_lookup_extra(detail):
+        return False
+    extras = detail["lookup_extras"]
+    return (
+        lookup_with_result_column(use, manifest)
+        or (detail.get("lookup_image") is not None and not isinstance(detail["lookup_image"], str))
+        or not _lookup_name(detail.get("lookup_action"))
+        or not _lookup_name(detail.get("lookup_name"))
+        or not _lookup_names(detail["lookup_responses"], {"key"})
+        or not _lookup_names(extras, {"key", "value"})
+        or any(extra["key"] == "force_xpath_parsing" or not isinstance(extra["value"], str) for extra in extras)
+        or lookup_with_nonliteral_arguments(use, manifest)
+    )
 
 
 def _tabs(detail):
@@ -6756,11 +7325,17 @@ def _instance_in(use):
     return at.element, (node if node is not None and _local(node) == "entry" else None)
 
 
-def _entry_searches_inline(entry):
+def _entry_loads_query(entry, storage, before_detail=None):
+    """The named storage loaded by the session before it shows a detail or opens the form."""
     session = next((child for child in _children(entry) if _local(child) == "session"), None)
-    return session is not None and any(
-        _local(child) == "query" for child in session.iter() if isinstance(child.tag, str)
-    )
+    if session is None:
+        return False
+    for step in _children(session):
+        if before_detail and step.get("detail-select") == before_detail:
+            break
+        if _local(step) == "query" and step.get("storage-instance") == storage:
+            return True
+    return False
 
 
 def _instance_reads(use):
@@ -6820,8 +7395,8 @@ def _entries_showing(root, detail_id):
     ]
 
 
-def _reached_without_a_query(entry):
-    """Whether a suite opens an entry's form with no query on the session's frame (True), only after one (False),
+def _reached_without_a_query(entry, storage):
+    """Whether a suite opens an entry's form with no query for the requested storage on the session's frame (True), only after one (False),
     or does not say (None).
 
     Core opens the form from the frame the session is in when the entry's last step is met. A menu's command
@@ -6837,8 +7412,8 @@ def _reached_without_a_query(entry):
     root = entry.getparent()
     command = _command_id(entry)
     if root is None or command is None:
-        return not _entry_searches_inline(entry)
-    own = _entry_searches_inline(entry)
+        return not _entry_loads_query(entry, storage)
+    own = _entry_loads_query(entry, storage)
     verdicts = set()
     for menu in _children(root):
         if _local(menu) != "menu" or not any(
@@ -6863,7 +7438,7 @@ def _reached_without_a_query(entry):
             for step in _children(frame):
                 if _local(step) == "command" and _command_literal(step) == command:
                     break
-                queried = queried or _local(step) == "query"
+                queried = queried or (_local(step) == "query" and step.get("id") == storage)
             verdicts.add(not (own or queried))
             continue
         detail = next((at for at in frame.iterancestors() if _local(at) == "detail"), None)
@@ -6871,7 +7446,7 @@ def _reached_without_a_query(entry):
             verdicts.add(None)
             continue
         showing = _entries_showing(root, detail.get("id"))
-        verdicts.update(not (own or _entry_searches_inline(shown)) for shown in showing)
+        verdicts.update(not (own or _entry_loads_query(shown, storage, detail.get("id"))) for shown in showing)
     if True in verdicts:
         return True
     if None in verdicts:
@@ -6880,27 +7455,40 @@ def _reached_without_a_query(entry):
 
 
 def non_inline_search_form(prefix):
+    source_prefix = "jr://instance/search-input/" if prefix == "search-input" else "jr://instance/remote/"
+
+    def storage_id(instance_id, source):
+        if source and source.startswith(source_prefix):
+            return source[len(source_prefix):]
+        if instance_scheme(instance_id) == prefix:
+            if prefix == "results":
+                return instance_id
+            return instance_id.partition(":")[2] or None
+        return None
+
     def reader(use, manifest):
         document, read = _instance_reads(use)
         if document is not None:
-            # An app JSON's slot is evaluated in a menu or a case list, outside a form.
             if document.kind != "xform":
                 return False
             if read is None:
                 return None
-            if not any(instance_id.startswith(prefix) for instance_id in read):
+            sources = dict(document.declared_instances)
+            storage = {value for instance_id in read if (value := storage_id(instance_id, sources.get(instance_id)))}
+            if not storage:
                 return False
             entries = _form_entries(document)
             if not entries:
                 return None
-            verdicts = {_reached_without_a_query(entry) for entry in entries}
+            verdicts = {_reached_without_a_query(entry, value) for entry in entries for value in storage}
             return True if True in verdicts else None if None in verdicts else False
         instance, entry = _instance_in(use)
         if instance is None:
             return None
-        if entry is None or not (instance.get("id") or "").startswith(prefix):
+        storage = storage_id(instance.get("id") or "", instance.get("src"))
+        if entry is None or storage is None:
             return False
-        return _reached_without_a_query(entry)
+        return _reached_without_a_query(entry, storage)
 
     reader.__doc__ = (
         f"An ``{prefix}`` instance a form's entry declares, or a form's expression reads, where the suite opens the"
@@ -7395,12 +7983,18 @@ def invalid_question_id(use, manifest):
     ``parsererror``, which HQ's form builder cannot open a form holding (``NEVER_OPENED``), as Nova's reader reads
     each question's data node (``lib/commcare/reader/xform/join.ts``'s question id rule over
     ``questionId.ts::questionIdProblem``)."""
-    form, element = _question_node(use)
+    form, element = _data_node(use)
     if form is None:
         return None
     if element is None:
         return False
     name = _node_name(element)
+    if name in NEVER_OPENED and any(
+        holder.get(f"{{{VELLUM}}}role") == "SaveToCase" for holder in element.iterancestors()
+    ):
+        return True
+    if element not in form.vellum_nodes:
+        return False
     return VELLUM_ELEMENT_NAME.fullmatch(name) is None or name.lower() == "meta" or name in NEVER_OPENED
 
 
@@ -7642,9 +8236,22 @@ def default_data_value(use, manifest):
     form, element = _data_node(use)
     if form is None:
         return None
-    if element is None or element not in form.vellum_nodes or _children(element):
-        return False
-    return bool("".join(element.itertext()))
+    return _instance_text_value(form, element) and not _attachment_answer(form, element)
+
+
+def _instance_text_value(form, element):
+    # Core's XFormParser.getXMLDocument drops text Java String.trim() makes empty. A no-break space survives.
+    return (
+        element is not None and element in form.vellum_nodes and not _children(element)
+        and any(ord(char) > 0x20 for text in element.itertext() for char in text)
+    )
+
+
+def _attachment_answer(form, element):
+    return any(
+        _local(control) == "upload" and control.get("mediatype") in UPLOAD_MEDIATYPES
+        for control in form.question_controls(_path_of(form, element))
+    )
 
 
 def hand_written_case_block(use, manifest):
@@ -9068,6 +9675,54 @@ def _session_data_read(tree):
     return steps[2][1]
 
 
+@cache
+def _guarded_lookup_count():
+    path = "instance('commcaresession')/session/data/fingerprintquery"
+    return expression_tree(f"if(count({path}) = 1, number({path}[1]), '')")
+
+
+def _contains_unguarded_lookup_count(tree):
+    if not isinstance(tree, list) or tree == _guarded_lookup_count():
+        return False
+    if tree[:2] == ["path", "instance:commcaresession"] and any(
+        step[:2] == ["child", "fingerprintquery"] for step in tree[4]
+    ):
+        return True
+    return any(_contains_unguarded_lookup_count(child) for child in tree)
+
+
+def guarded_lookup_count_in_one_frame(use, manifest):
+    """Positive evidence for a guarded count and its one built lookup frame."""
+    document, text = _expression_at(use)
+    if text is None:
+        return None
+    tree = expression_tree(text)
+    if tree is None:
+        return None
+    if not isinstance(document, Form) or _contains_unguarded_lookup_count(tree):
+        return False
+    entries = _form_entries(document)
+    if not entries:
+        # An editor-only carrier can prove the guard, but not its entry frame.
+        return None
+    for entry in entries:
+        suite = entry.getparent()
+        selected = [datum for _, datum in _session_ids(entry) if datum.get("nodeset")]
+        if len(selected) != 1:
+            return False
+        detail_id = selected[0].get("detail-select")
+        if not detail_id or not any(
+            _local(detail) == "detail" and detail.get("id") == detail_id
+            and any(_local(child) == "lookup" for child in _children(detail))
+            for detail in _children(suite)
+        ):
+            return False
+    for suite in document.entry_suites:
+        if sum(entry.getparent() is suite for entry in entries) > 1:
+            return False
+    return True
+
+
 def _own_case_property(tree):
     """``instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/<id>]/<property>``, the
     read of a case a session datum names that HQ's form builder writes for ``#case/<property>``: (the datum's id,
@@ -10198,6 +10853,52 @@ def model_iteration_reading_blank_answer(use, manifest):
     return False
 
 
+def _lookup_itemset_predicate(use):
+    """The predicate on a declared fixture's row step, from the independent XPath parser."""
+    form, itemset = _form_element(use)
+    if form is None or _local(itemset) != "itemset":
+        return form, None
+    tree = expression_tree(itemset.get("nodeset") or "")
+    if not tree or tree[0] != "path" or not tree[1].startswith("instance:"):
+        return form, None
+    instance = tree[1].removeprefix("instance:")
+    src = dict(form.declared_instances).get(instance)
+    if src is None or not src.startswith("jr://fixture/item-list:"):
+        return form, None
+    tag = src.removeprefix("jr://fixture/item-list:")
+    if tree[4] != [["child", f"{tag}_list", 0], ["child", tag, 1]] or len(tree[3]) != 2:
+        return form, None
+    return form, tree[3][1]
+
+
+def itemset_position_of_number(use, manifest):
+    """A normal lookup itemset reaches Core's nodeset cast with a literal number."""
+    form, predicate = _lookup_itemset_predicate(use)
+    if form is None:
+        return None
+    if predicate is None:
+        return False
+
+    def directly(node):
+        if node[:2] != ["call", "position"] or len(node[2]) != 1:
+            return False
+        argument, = node[2]
+        return argument[0] == "number" or (argument[0] == "negative" and argument[1][0] == "number")
+
+    return directly(predicate) or (
+        predicate[0] == "binary" and predicate[1] in ("=", "!=", "<", "<=", ">", ">=")
+        and any(directly(operand) for operand in predicate[2:])
+    )
+
+
+def itemset_literal_row_index(use):
+    """A bare numeric fixture row index works in Core and is outside Nova's boolean filter."""
+    form, predicate = _lookup_itemset_predicate(use)
+    if form is None:
+        return None
+    return predicate is not None and predicate[0] == "number"
+
+
 def _itemset_read(use):
     """The actual form or Search itemset slot, parsed as a row-relative XPath by the proof parser."""
     from proof.checks.xpath_tree import tree
@@ -10316,6 +11017,123 @@ def reserved_save_to_case_type(use, manifest):
     return any(case.find(f".//{{{CASE}}}{action}") is not None for action in ("create", "close", "index"))
 
 
+def _one_save_to_case_write(form, block, case):
+    update = case.find(f"{{{CASE}}}update")
+    names = [_local(node) for node in _children(update) if _local(node) != "case_type"] if update is not None else []
+    if len(names) != 1:
+        return None
+    name, = names
+    writer = form.bind(f"{form.paths[block]}/case/update/{name}")
+    text = writer.get("calculate") if writer is not None else None
+    path = expression_tree(text) if text else None
+    if not path or path[:2] != ["path", "absolute"] or len(path[4]) != 2:
+        return None
+    if not all(step[0] == "child" and step[2] == 0 for step in path[4]):
+        return None
+    if not form.controls.get(text):
+        return None
+    source_bind = form.bind(text)
+    return name, _data_type(source_bind.get("type", "string") if source_bind is not None else "string")
+
+
+def save_to_case_before_optional_own_update(use):
+    """A direct update of the one case selected by a basic follow-up,
+    authored before a Case Management update of the same row from an
+    optional root answer. HQ still submits the later empty row."""
+    form, block = _form_element(use)
+    if form is None or form.app_form is None or block not in form.paths:
+        return False
+    app, source = form.app_form
+    menu = app.module_of(source)
+    if (menu is None or menu.get("doc_type") != "Module" or source.get("doc_type") != "Form"
+            or source.get("requires") != "case"
+            or ((menu.get("case_details") or {}).get("short") or {}).get("multi_select")
+            or not menu.get("case_type") or block.get(f"{{{VELLUM}}}case_type") != menu["case_type"]
+            or block.getparent().getparent() is not form.data_root):
+        return False
+    blocks = [node for node in form.data_root.iter() if node.get(f"{{{VELLUM}}}role") == "SaveToCase"]
+    if blocks != [block]:
+        return False
+    actions = source.get("actions") or {}
+    if any((actions.get(action, {}).get("condition") or {}).get("type") != "never"
+           for action in ("open_case", "close_case")):
+        return False
+    own = actions.get("update_case") or {}
+    if (own.get("condition") or {}).get("type") not in ("always", "if"):
+        return False
+    case = block.find(f"{{{CASE}}}case")
+    if case is None or [_local(node) for node in _children(case)] != ["update"]:
+        return False
+    authored = _one_save_to_case_write(form, block, case)
+    if authored is None:
+        return False
+    property_name, _ = authored
+    write = (own.get("update") or {}).get(property_name) or {}
+    if (property_name in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or write.get("update_mode") != "always"
+            or not form.controls.get(write.get("question_path"))):
+        return False
+    answer_path = expression_tree(write["question_path"])
+    if (not answer_path or answer_path[:2] != ["path", "absolute"] or len(answer_path[4]) != 2
+            or any(step[0] != "child" or step[2] != 0 for step in answer_path[4])):
+        return False
+    answer = form.bind(write["question_path"])
+    if answer is not None and (answer.get("required") or "").strip() not in ("", "false()", "false"):
+        return False
+    target = form.bind(f"{form.paths[block]}/case/@case_id")
+    if target is None:
+        return False
+    path = expression_tree(target.get("calculate") or "")
+    return (path is not None and path[:2] == ["path", "instance:commcaresession"]
+            and path[4] == [["child", part, 0] for part in ("session", "data", "case_id")])
+
+
+def save_to_case_retype_property_types(use):
+    """The original and destination bind types for one same-property pair of
+    direct question writes across a literal retype of its earlier sibling's
+    freshly created case. Wider graphs need the typed reader's verdict."""
+    form, block = _form_element(use)
+    if form is None or block.get(f"{{{VELLUM}}}role") != "SaveToCase" or block not in form.paths:
+        return None
+    case = block.find(f"{{{CASE}}}case")
+    if case is None or case.find(f"{{{CASE}}}create") is not None:
+        return None
+    location = form.paths[block]
+    destination = form.bind(f"{location}/case/update/case_type")
+    target = form.bind(f"{location}/case/@case_id")
+    destination_type = _quoted(destination.get("calculate") or "") if destination is not None else None
+    if not destination_type or target is None or not target.get("calculate"):
+        return None
+    path = expression_tree(target.get("calculate"))
+    if not path or path[:2] != ["path", "call:current"] or len(path[4]) != 6:
+        return None
+    before, selected, after = path[4][:3], path[4][3], path[4][4:]
+    if (before != [["parent", "node()", 0]] * 3 or selected[0] != "child" or selected[2] != 0
+            or after != [["child", "case", 0], ["attribute", "case_id", 0]]):
+        return None
+    candidates = [node for node in block.itersiblings(preceding=True) if _local(node) == selected[1]]
+    if len(candidates) != 1:
+        return None
+    earlier, = candidates
+    if earlier.get(f"{{{VELLUM}}}role") != "SaveToCase" or earlier not in form.paths:
+        return None
+    prior = earlier.find(f"{{{CASE}}}case")
+    source_type_bind = form.bind(f"{form.paths[earlier]}/case/create/case_type")
+    source_type = _quoted(source_type_bind.get("calculate") or "") if source_type_bind is not None else None
+    if prior is None or not source_type or source_type == destination_type or block.get(f"{{{VELLUM}}}case_type") != source_type:
+        return None
+    case_id = f"{form.paths[earlier]}/case/@case_id"
+    if not any(
+        node.get("ref") == case_id and node.get("event") == "xforms-ready"
+        and expression_tree(node.get("value") or "") == ["call", "uuid", []]
+        for node in _children(form.model) if _local(node) == "setvalue"
+    ):
+        return None
+    source = _one_save_to_case_write(form, earlier, prior)
+    final = _one_save_to_case_write(form, block, case)
+    if source is not None and final is not None and source[0] == final[0]:
+        return source[1], final[1]
+
+
 # Binds -------------------------------------------------------------------------------
 
 
@@ -10364,6 +11182,103 @@ def live_create_id(use, manifest):
     if case.tag != f"{{{CASE}}}case" or holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase":
         return False
     return _creates(holder) and not form.in_repeat(form.paths[holder])
+
+
+def conditioned_aliased_create_owner(use, manifest):
+    """An authored ID can reuse an existing case when the create owner is absent."""
+    form, bind, node = _bind(use)
+    if form is None:
+        return None
+    if bind is None or node is None or isinstance(node, tuple) or not bind.get("relevant"):
+        return False
+    create = node.getparent()
+    if node.tag != f"{{{CASE}}}owner_id" or create is None or create.tag != f"{{{CASE}}}create":
+        return False
+    case = create.getparent()
+    holder = case.getparent() if case is not None else None
+    if holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase":
+        return False
+    id_path = f"{form.paths[holder]}/case/@case_id"
+    id_bind = form.bind(id_path)
+    if id_bind is not None:
+        value = (id_bind.get("calculate") or "").strip()
+        return form.in_repeat(form.paths[holder]) and value not in ("", "''", '""', "uuid()")
+    return any(
+        step.get("ref") == id_path
+        and step.get("event") == "xforms-ready"
+        and (step.get("value") or "").strip() not in ("", "''", '""', "uuid()")
+        for step in form.model.findall(f"{{{XFORMS}}}setvalue")
+    )
+
+
+def conditioned_unsupported_update_owner(use, manifest):
+    """An owner update inside a create, or a transfer of the worker's own record."""
+    form, bind, node = _bind(use)
+    if form is None:
+        return None
+    if bind is None or node is None or isinstance(node, tuple) or not bind.get("relevant"):
+        return False
+    update = node.getparent()
+    if node.tag != f"{{{CASE}}}owner_id" or update is None or update.tag != f"{{{CASE}}}update":
+        return False
+    case = update.getparent()
+    holder = case.getparent() if case is not None else None
+    return (
+        holder is not None
+        and holder.get(f"{{{VELLUM}}}role") == "SaveToCase"
+        and (
+            holder.get(f"{{{VELLUM}}}case_type") == USER_CASE_TYPE
+            or case.find(f"{{{CASE}}}create") is not None
+        )
+    )
+
+
+def _savetocase_index_at(use):
+    form, element = _data_node(use)
+    if form is None or element is None:
+        return form, None, None
+    holder = form.holder(element)
+    if holder is None or holder[0] != "save-to-case":
+        return form, None, None
+    case = holder[1].find(f"{{{CASE}}}case")
+    if case is None:
+        return form, None, None
+    return form, case, case.find(f"{{{CASE}}}index")
+
+
+def index_name_adds_action(use, manifest):
+    form, case, index = _savetocase_index_at(use)
+    if form is None:
+        return None
+    return index is not None and any(
+        index.find(f"{{{CASE}}}{action}") is not None and case.find(f"{{{CASE}}}{action}") is None
+        for action in ("create", "close")
+    )
+
+
+def index_period_loses_bind(use, manifest):
+    form, _, index = _savetocase_index_at(use)
+    if form is None:
+        return None
+    return index is not None and any("." in _local(link) for link in index)
+
+
+def unicode_index_name_loses_bind(use, manifest):
+    """A valid, unprefixed XML name outside Vellum's ASCII index bind matcher.
+    Periods, absent action names and reserved editor names have distinct rows."""
+    form, _, index = _savetocase_index_at(use)
+    if form is None:
+        return None
+    if index is None:
+        return False
+    for link in _children(index):
+        name = _local(link)
+        if link.tag != f"{{{CASE}}}{name}" or link.prefix is not None or "." in name or name.isascii():
+            continue
+        bind = form.bind(form.paths.get(link))
+        if bind is not None and (bind.get("calculate") or "").strip():
+            return True
+    return False
 
 
 # The body controls a question shows (XFormParser's question handlers; a group or repeat is no question Vellum
@@ -11529,6 +12444,40 @@ def _prompt_slot(use, key):
     return at.owner
 
 
+def direct_parent_text_prompt_key(use, manifest):
+    """A native direct-parent Search key on a labeled plain text prompt."""
+    prompt = _prompt_slot(use, "name")
+    if prompt is None:
+        return None
+    name = prompt.get("name")
+    if not isinstance(name, str) or not name.startswith("parent/"):
+        return False
+    prop = name.removeprefix("parent/")
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", prop) or not _authored_property_name(prop):
+        return False
+    if prop in {"case_id", "case_name", "date_opened", "last_modified", "owner_id", "external_id",
+                "status", "name", "case_type", "closed_on", "location_id", "commcare_search_score"}:
+        return False
+    at = _json(use)
+    config = at.nearest("CaseSearch")
+    if config and (config.get("case_search_endpoint_id") or any(
+        item.get("is_group") or item.get("group_key") for item in config.get("properties", [])
+    )):
+        return False
+    label = prompt.get("label") or {}
+    itemset = prompt.get("itemset") or {}
+    required = prompt.get("required") or {}
+    return (
+        isinstance(label, dict) and any(isinstance(text, str) and text.strip() for text in label.values())
+        and isinstance(itemset, dict) and not (itemset.keys() - {"doc_type"})
+        and isinstance(required, dict) and not required.get("test")
+        and not any(prompt.get(key) for key in (
+            "hidden", "exclude", "allow_blank_value", "group_key", "input_", "appearance",
+            "receiver_expression", "default_value", "validations",
+        ))
+    )
+
+
 def prompt_key_outside_nova_s_name_grammar(use, manifest):
     """``case-search/prompt-key-outside-nova-s-name-grammar``: a prompt's ``name`` outside a Search field's grammar
     (``SEARCH_INPUT_NAME``), or, on a prompt that is neither hidden nor ``exclude``, a case property Nova's grammar
@@ -11541,7 +12490,7 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     name = prompt.get("name")
     if not isinstance(name, str):
         return None
-    if name in PROMPT_REQUEST_KEYS:
+    if name in PROMPT_REQUEST_KEYS or direct_parent_text_prompt_key(use, manifest):
         return False
     if SEARCH_INPUT_NAME.fullmatch(name) is None:
         return True
@@ -11550,56 +12499,49 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     return not _authored_property_name(name)
 
 
-def _offered_search_config(use):
-    """A use's ``CaseSearch`` object and whether its menu offers that search: ``util.py::module_offers_search``,
-    a search property or a default filter, read from the object itself; (None, None) outside one."""
-    at = _json(use)
-    config = None if at is None else at.nearest("CaseSearch")
-    if config is None:
-        return None, None
-    return config, bool(config.get("properties") or config.get("default_properties"))
+def _basic_multi_select_maximum(use):
+    """The source maximum on a basic menu's short list that actually selects several cases."""
 
-
-def endpoint_on_an_offered_search(use, manifest):
-    """``case-search/case-search-endpoint-id``: ``case_search_endpoint_id`` on a search the menu offers, the one
-    place HQ's build reads it (``util.py::module_uses_case_search_endpoint``, beside ``CASE_SEARCH_ENDPOINTS``),
-    and each default filter of such a search, which HQ's build sends the endpoint as a parameter of its key
-    (``remote_requests.py``, ``_remote_request_query_datums``). On a menu that offers none the id is part of the
-    search configuration HQ stores and builds nothing of, the round trip's class, and a default filter of a
-    search with no id is its own key's."""
-    config, offered = _offered_search_config(use)
-    if config is None:
-        return None
-    if use.key == "schema:CaseSearch.case_search_endpoint_id":
-        return offered
-    return offered and bool(config.get("case_search_endpoint_id"))
-
-
-def max_select_value_above_100(use, manifest):
-    """``menus-and-case-lists/detail-max-select-value-above-100``: a ``max_select_value`` above 100 on the case list
-    of a basic menu with a case type whose list selects several cases (``lib/commcare/reader/caseList/details.ts::
-    readSelection``). A value 0, below -1 or no number is another class's."""
     at = _json(use)
     if at is None or at.key != "max_select_value" or at.scope[-1][0] != "Detail":
         return None
     detail, pair, module = at.owner, at.nearest("DetailPair"), at.nearest(*MODULES)
     if pair is None or pair.get("short") is not detail or module is None:
         return False
-    if module.get("doc_type") == "AdvancedModule" or not module.get("case_type"):
+    if module.get("doc_type") not in (None, "Module") or not module.get("case_type"):
         return False
     if detail.get("multi_select") is not True:
         return False
-    value = _max_select_number(detail.get("max_select_value"))
-    if value is None or value is False:
-        return value
-    return value > 100
+    return _max_select_number(detail.get("max_select_value"))
+
+
+def max_select_value_above_100(use, manifest):
+    value = _basic_multi_select_maximum(use)
+    return value if value is None else 100 < value <= 2_147_483_647
+
+
+def multi_select_maximum_exceeds_java_int(use, manifest):
+    """A signed Java integer overflow on an active source list or its emitted instance datum."""
+    at = _xml(use)
+    if at is not None and at.document.kind == "runtime":
+        try:
+            value = int(at.element.get("max-select-value"))
+        except (TypeError, ValueError):
+            return None
+    else:
+        value = _basic_multi_select_maximum(use)
+    return value if value is None else value > 2_147_483_647
 
 
 # The characters Core trims from the end of a line it reads of an app strings file: every one up to U+0020.
 CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
 
 
-# Nova's XML name for a link's and a tile grouping's identifier (``lib/domain/expression/types.ts::
+# Case-operation links may include hyphens. Tile grouping still uses its separate XML name grammar.
+CASE_OPERATION_LINK_IDENTIFIER = re.compile(r"[a-zA-Z_][a-zA-Z0-9_-]*")
+
+
+# Nova's XML name for a tile grouping's identifier (``lib/domain/expression/types.ts::
 # XML_ELEMENT_NAME_PATTERN``), matched whole; it holds no ``-``.
 XML_ELEMENT_NAME = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 
@@ -11613,8 +12555,8 @@ def _index_identifier(index):
 
 def index_identifier_outside_an_xml_name(use, manifest):
     """``forms-and-case-writes/index-identifier-outside-an-xml-element-name``: an advanced open action's index whose
-    identifier (``_index_identifier``) is no XML name Nova writes (``XML_ELEMENT_NAME``;
-    ``advancedActions.ts``, ``openIndexName``). A load's index is another class's."""
+    identifier (``_index_identifier``) is outside Nova's case operation link identifier grammar
+    (``advancedActions.ts``, ``openIndexName``). A load's index is another class's."""
     at = _json(use)
     if at is None:
         return None
@@ -11626,7 +12568,7 @@ def index_identifier_outside_an_xml_name(use, manifest):
         indices = [at.owner]
     else:
         return None
-    return any(XML_ELEMENT_NAME.fullmatch(_index_identifier(index)) is None for index in indices)
+    return any(CASE_OPERATION_LINK_IDENTIFIER.fullmatch(_index_identifier(index)) is None for index in indices)
 
 
 def tile_group_identifier_outside_an_xml_name(use, manifest):
@@ -11672,17 +12614,20 @@ def column_hash_property(use, manifest):
     return last.startswith("#") and last != "#owner_name"
 
 
-def build_profiles_held(use, manifest):
-    """``application-and-settings/build-profiles-non-empty``: an app's ``build_profiles`` holding a profile, and each
-    part of a profile it holds (``lib/commcare/reader/appShell.ts``: anything but an empty map). An empty map is
-    HQ's default and no use."""
+def invalid_profile_languages(use, manifest):
+    """A selected profile needs a first language and an ordered subset of the app's own codes."""
     at = _json(use)
     if at is None:
         return None
-    if at.nearest("BuildProfile") is not None:
-        return True
-    if at.key == "build_profiles" and at.scope[-1][0] in ("Application", "LinkedApplication"):
-        return not (isinstance(at.value, dict) and not at.value)
+    app_languages = at.app.doc.get("langs") or []
+    def invalid(profile):
+        languages = profile.get("langs") or []
+        return not languages or any(code not in app_languages for code in languages) or len(set(languages)) != len(languages)
+    profile = at.nearest("BuildProfile")
+    if profile is not None:
+        return invalid(profile)
+    if at.key == "build_profiles" and isinstance(at.value, dict):
+        return any(invalid(profile) for profile in at.value.values())
     return None
 
 
@@ -12130,13 +13075,24 @@ VALUE_CLASSES = {
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
+    "questions/video-inline-as-the-only-content-of-a-help-text": inline_video_on_empty_help,
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
+    "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes": orphan_android_action,
+    "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form": missing_android_action,
+    "questions/android-app-callout-that-cannot-be-recreated": unreproducible_android_question,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
     "questions/jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater": invalid_image_dimension,
     "questions/upload-with-any-other-mediatype-or-none": other_upload_mediatype,
     "questions/a-default-value-s-setvalue-whose-event-does-not-match-where-the": default_event_mismatching_placement,
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
+
+    "questions/itemset-position-called-on-a-number": itemset_position_of_number,
+    "questions/savetocase-owner-condition-on-an-aliased-create": conditioned_aliased_create_owner,
+    "questions/savetocase-update-owner-condition": conditioned_unsupported_update_owner,
+    "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,
+    "questions/savetocase-link-bind-lost-on-save": index_period_loses_bind,
+    "questions/savetocase-link-name-outside-nova-s-identifier-grammar": unicode_index_name_loses_bind,
     "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": savetocase_blank_create_id,
     "questions/default-other-than-blank-on-a-capture-question": default_other_than_blank_on_a_capture_question,
     "questions/actions-nested-inside-controls": action_nested_in_control,
@@ -12204,6 +13160,7 @@ VALUE_CLASSES = {
     "application-and-settings/34p-hq-build-spec-below-nova-s-floor": below_floor,
     "application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture": only_hierarchical_fixture,
     "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated": invalid_or_repeated_code,
+    "application-and-settings/translations-generated-menu-icon-without-mapping": generated_menu_icon_without_mapping,
     "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
         translation_key_not_its_own
     ),
@@ -12317,6 +13274,8 @@ VALUE_CLASSES = {
     "forms-and-case-writes/any-other-undeclared-key": undeclared_key_no_row_names,
     # Case search
     "case-search/a-server-order-naming-a-property-nova-reserves": server_order_reserved_property,
+    "case-search/a-server-order-naming-a-property-only-devices-hold": server_order_device_only_property,
+    "case-search/a-related-record-property-only-devices-hold": related_case_device_only_property,
     "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": request_config_key_runtime_value,
     "case-search/an-x-commcare-custom-related-case-property-entry-together-with": related_case_property_twice,
     "case-search/default-properties-entry-keyed-x-commcare-data-registry": data_registry_key,
@@ -12331,12 +13290,17 @@ VALUE_CLASSES = {
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
+    "case-search/additional-record-type-without-menu": additional_record_type_without_menu,
+    "case-search/search-group-layout-unreadable": search_group_layout_unreadable,
+    "case-search/search-group-heading-unreadable": search_group_heading_unreadable,
     "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
     "case-search/allow-blank-value-on-a-prompt-named-owner-id": allow_blank_beside_the_owner,
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,
     "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": receiver_on_another_appearance,
+    "case-search/address-receiver-single-choice-lookup-position": single_choice_receives_from_address,
+    "case-search/address-receiver-shared-with-a-choice-field": address_receiver_shared_with_choice,
     "case-search/search-button-label-any-other-value": other_search_button_label,
     "case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with": list_first_with_web_apps,
     "case-search/a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys": reserved_request_key,
@@ -12367,6 +13331,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/advancedmodule-product-details-differing-from-the-default": differs_from_the_default,
     "menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-on-the-case": clickable_icon_list_empty,
     "menus-and-case-lists/16pp-clickable-icon-on-the-case-detail-whatever-its-endpoint": clickable_icon_on_detail,
+    "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint": clickable_icon_unusable,
     "menus-and-case-lists/21p-translatable-enum-key-outside-a-za-z0-9": translatable_enum_key_grammar,
     "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-offers": (
         translatable_enum_over_relation
@@ -12469,6 +13434,12 @@ VALUE_CLASSES = {
     ),
     "expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail": legacy_after_query,
     "expressions-and-data/commtrack-locations-hierarchical": hierarchical_locations,
+    "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": _scope_reader(
+        ("CaseSearch",), lambda at, config: any(part in (config.get("instance_name") or "") for part in ("casedb", "ledgerdb", "fixture", "session"))
+    ),
+    "case-search/results-name-outside-the-search-editor": _scope_reader(
+        ("CaseSearch",), lambda at, config: bool(config.get("instance_name")) and not re.fullmatch(r"[A-Za-z]\w*", config["instance_name"])
+    ),
     "case-search/p-whose-right-side-is-not-a-number-date-or-datetime-a-time-of": untyped_right_side,
     "case-search/date-opened-closed-on-or-last-modified-compared-with-any": non_date_value,
     "expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install": (
@@ -12499,17 +13470,32 @@ VALUE_CLASSES = {
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
-    "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
     "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
     "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
+    "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,
+    "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
+    "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
+    "menus-and-case-lists/lookup-extra-relative-without-case-context": lookup_extra_relative_without_case_context,
+    "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
+    "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
+        lookup_with_result_column
+    ),
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
+    "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name
     ),
     "menus-and-case-lists/column-reading-an-unknown-hash-property": column_hash_property,
-    "application-and-settings/build-profiles-non-empty": build_profiles_held,
     "questions/submitted-node-consumed-as-case": submitted_case_answer,
     "questions/question-lock-the-designer-cannot-represent": unsupported_question_lock,
     "questions/ordinary-answer-in-stock-namespace": ordinary_stock_answer,
     "questions/submitted-namespace-the-form-designer-cannot-keep": namespace_the_designer_cannot_keep,
+    "application-and-settings/build-profiles-invalid-language-subset": invalid_profile_languages,
+}
+
+
+# A positive class may need an observation beyond the use at its own source.
+# It grants HELD only when that observation establishes the supported class.
+POSITIVE_VALUE_CLASSES = {
+    "expressions-and-data/companion-lookup-count": guarded_lookup_count_in_one_frame,
 }

@@ -28,6 +28,8 @@ describe("expressionSlotLabel", () => {
 			extended_text: "extended text",
 			qr_code: "QR code",
 			spoken_text: "spoken text",
+			addFirstLabel: "first entry button",
+			addLabel: "add entry button",
 			option_label: "choice label",
 		});
 		expect(expressionSlotLabel("calculate")).toBe("calculated value");

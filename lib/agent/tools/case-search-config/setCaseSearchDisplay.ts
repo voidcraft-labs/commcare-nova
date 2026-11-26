@@ -96,6 +96,9 @@ export const setCaseSearchDisplayTool = {
 			const authoredDisplaySetting = Object.keys(displayPatch).length > 0;
 			const nextConfigCandidate: CaseSearchConfig = {
 				...pickAdvancedCluster(existing),
+				...(existing &&
+					"projectSearch" in existing &&
+					existing.projectSearch && { projectSearch: existing.projectSearch }),
 				...(!authoredDisplaySetting && pickSearchActionIntent(existing)),
 				...displayPatch,
 			};

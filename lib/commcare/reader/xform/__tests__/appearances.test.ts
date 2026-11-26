@@ -154,9 +154,7 @@ describe("classifyAppearance", () => {
 
 	it("reads an intent value against the form's intents and callout questions", () => {
 		const intents = { intents: new Set(["scan"]), callouts: new Set(["scan"]) };
-		expect(verdict(text, "xsd:string", "intent:scan", intents)).toBe(
-			Q("intent-id-on-any-input-other-than-an-intent-typed-one-where-id"),
-		);
+		expect(verdict(text, "xsd:string", "intent:scan", intents)).toBe("held");
 		expect(
 			verdict(text, "xsd:string", "intent:scan", {
 				intents: new Set(["scan"]),
@@ -261,7 +259,7 @@ describe("the head's odkx:intent an input names", () => {
 			}),
 		);
 		expect(codesAt(reading, "scan")).toEqual([
-			Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+			Q("android-app-callout-that-cannot-be-recreated"),
 		]);
 		expect(codesAt(reading, "other")).toEqual([
 			Q("intent-id-naming-an-odkx-intent-that-no-callout-question-writes"),

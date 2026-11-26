@@ -1,3 +1,4 @@
+import { searchInputGroupsWithMembers } from "@/lib/domain";
 import {
 	type LookupRead,
 	lookupReadType,
@@ -45,8 +46,11 @@ import { walkExpression } from "@/lib/domain/expression/walk";
 import { ownedFormSelections } from "@/lib/domain/formEntryCases";
 import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import {
+	directParentSearchRequestKey,
 	isDedicatedOwnerFilter,
 	moduleFormsReadSearch,
+	projectSearchOf,
+	searchInputRequestKey,
 } from "@/lib/domain/modules";
 import type { LookupTableId } from "@/lib/lookup/types";
 import { moduleExpressionContexts } from "../expressionContext";
@@ -58,7 +62,7 @@ import {
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
 import { searchRequestKey } from "../suite/case-search/nativeFilters";
-import type { WireIdentity } from "../wireIdentity";
+import { installationProfileKey, type WireIdentity } from "../wireIdentity";
 import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
@@ -139,6 +143,21 @@ function canNameCalculation(
  * two (two worker properties of one slug, say) is refused here rather than
  * mapped to one of them.
  */
+/** Nova keeps the display/editor name, while HQ keeps the parent request key. */
+export function knownDirectParentSearchNamesOf(
+	doc: BlueprintDoc,
+): ReadonlyMap<Uuid, string> {
+	return new Map(
+		Object.values(doc.modules).flatMap((module) =>
+			(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
+				directParentSearchRequestKey(input) === undefined
+					? []
+					: [[input.uuid, input.name] as const],
+			),
+		),
+	);
+}
+
 export function externalIdentityMap(
 	doc: BlueprintDoc,
 	identity: WireIdentity,
@@ -149,6 +168,23 @@ export function externalIdentityMap(
 		entries.push({ kind: key.kind, parts: key.parts, uuid });
 	};
 
+	for (const uuid of Object.keys(
+		doc.appSettings.projectSearches ?? {},
+	) as Uuid[]) {
+		const endpointId = identity.projectSearchId?.(uuid);
+		if (endpointId !== undefined)
+			add(externalKey.projectSearch(endpointId), uuid);
+	}
+	for (const profile of Object.values(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		add(
+			externalKey.installationProfile(
+				installationProfileKey(profile.uuid, identity),
+			),
+			profile.uuid,
+		);
+	}
 	const caseTypes = effectiveCaseTypes(doc);
 	for (const module of Object.values(doc.modules)) {
 		const uniqueId = identity.moduleUniqueId(module.uuid);
@@ -176,6 +212,16 @@ export function externalIdentityMap(
 					endpoint.uuid,
 				);
 		}
+		const occurrences = new Map<string, number>();
+		for (const parameter of projectSearchOf(module)?.defaults ?? [])
+			add(
+				externalKey.projectSearchParameter(
+					uniqueId,
+					parameter.name,
+					nextOrdinal(occurrences, parameter.name),
+				),
+				parameter.uuid,
+			);
 		const config = module.caseListConfig;
 		if (config !== undefined) {
 			if (config.calculatedSorts?.length) {
@@ -330,8 +376,22 @@ export function externalIdentityMap(
 					filter.uuid,
 				);
 			}
+			for (const [position, group] of searchInputGroupsWithMembers(
+				config,
+			).entries())
+				add(
+					externalKey.searchInputGroup(
+						uniqueId,
+						group.inputs.map(({ name }) => name),
+						position,
+					),
+					group.uuid,
+				);
 			for (const input of config.searchInputs)
-				add(externalKey.searchInput(uniqueId, input.name), input.uuid);
+				add(
+					externalKey.searchInput(uniqueId, searchInputRequestKey(input)),
+					input.uuid,
+				);
 		}
 	}
 

@@ -145,6 +145,13 @@ export function resolveNativeSearchCriteria(
 			});
 			continue;
 		}
+		if (parameter.directParentPrompt && facts.fuzzy) {
+			out.push({
+				kind: "unavailable",
+				reason: { kind: "parent-fuzzy-unavailable", field },
+			});
+			continue;
+		}
 		out.push({
 			kind: "native",
 			parameter: {

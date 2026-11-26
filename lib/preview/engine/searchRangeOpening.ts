@@ -11,6 +11,7 @@ export function isRangeWithDefault(
 	return (
 		input.kind !== "hidden" &&
 		input.type === "date-range" &&
+		"default" in input &&
 		input.default !== undefined
 	);
 }

@@ -33,6 +33,7 @@ import type { WireShape } from "./types";
  */
 export function searchWireShape(
 	caseSearchConfig: OrdinaryCaseSearchConfig,
+	resultsName?: string,
 ): WireShape {
 	const workflow = searchWorkflow(caseSearchConfig);
 	return {
@@ -41,5 +42,6 @@ export function searchWireShape(
 			workflow === "skipToResults" ||
 			workflow === "listFirstWithDefaultResults",
 		inlineSearch: caseSearchConfig.formsReadSearch === true,
+		...(resultsName === undefined ? {} : { resultsName }),
 	};
 }

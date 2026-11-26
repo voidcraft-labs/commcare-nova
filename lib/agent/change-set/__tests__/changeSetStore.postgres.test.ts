@@ -18,6 +18,7 @@ import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
 import { canonicalJsonDigest, workspaceCallInputDigest } from "../digest";
 import {
+	ChangeSetIntegrityError,
 	ChangeSetRequestIdCollisionError,
 	ChangeSetWorkspaceRevisionStaleError,
 } from "../errors";
@@ -368,6 +369,72 @@ it("recovers exact mutations and idempotent results without creating a visible a
 	expect(
 		await h.db().selectFrom("app_changes").select("app_id").execute(),
 	).toEqual([]);
+});
+
+it("resumes a converted private step at its expanded stage while retrying the original receipt", async () => {
+	const fixture = await open();
+	const call = stage(fixture);
+	const first = await stageChangeSetRequest(call);
+	const [original] = await loadChangeSetSteps(fixture.workspace.id);
+	if (!original) throw new Error("The staged private edit is missing.");
+	const converted = [
+		{ kind: "setAppName", name: "Interim name" },
+		{ kind: "setAppName", name: "Tool library" },
+	] as const;
+	const workspace = await loadChangeSet(fixture.workspace.id);
+	if (!workspace) throw new Error("The private workspace is missing.");
+	const overlay = await rehydrateChangeSet(workspace);
+
+	// The migration identity records the equivalent instruction and stage
+	// expansion next to the immutable, authoritative source rows.
+	await h
+		.db()
+		.insertInto("authoring_workspace_folds")
+		.values({
+			change_set_id: workspace.id,
+			project_id: PROJECT,
+			app_id: fixture.begin.proposedAppId,
+			source_base_seq: null,
+			effective_base_seq: null,
+			source_base_digest: workspace.baseSnapshotDigest,
+			effective_base_digest: workspace.baseSnapshotDigest,
+			source_digest: canonicalJsonDigest("reviewed source workspace"),
+			candidate_digest: overlay.overlay.candidateDigest,
+			source_step_count: 1,
+			base_snapshot: null,
+		})
+		.execute();
+	await h
+		.db()
+		.insertInto("authoring_step_folds")
+		.values({
+			change_set_id: workspace.id,
+			ordinal: original.ordinal,
+			source_mutation_digest: original.mutationDigest,
+			mutation_digest: canonicalJsonDigest(converted),
+			mutations: JSON.stringify(converted),
+			mutation_lengths: "[2]",
+		})
+		.execute();
+
+	const resumed = await rehydrateChangeSet(workspace);
+	expect(resumed.overlay.candidateDigest).toBe(overlay.overlay.candidateDigest);
+	expect(resumed.steps[0]).toMatchObject({
+		requestId: original.requestId,
+		mutations: converted,
+		stages: [{ stageName: "Name", mutationStart: 0, mutationCount: 2 }],
+	});
+	expect(await stageChangeSetRequest(call)).toEqual({
+		...first,
+		replayed: true,
+	});
+
+	await h
+		.pool()
+		.query("UPDATE authoring_step_folds SET mutation_lengths = '[1]'::jsonb");
+	await expect(rehydrateChangeSet(workspace)).rejects.toBeInstanceOf(
+		ChangeSetIntegrityError,
+	);
 });
 
 it.each<StageTransactionBoundary>([

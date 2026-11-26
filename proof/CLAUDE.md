@@ -334,7 +334,14 @@ harness keeps, each with its reason.
   from its stored document (`proof/hq/operations.py::save_authored_app`,
   `Application.from_source` and `save_attachments`) and never through Nova's
   import. Its case database is seeded from A alone (`proof/matrix/seed.py`),
-  so a reader that drops something cannot empty both walks. What a person
+  so a reader that drops something cannot empty both walks. A base that uses
+  a project search retains its synthetic active service in `project-searches.json`
+  beside the app. HQ recreates the service on the original project space. For
+  its ProjectDB provider the lane owns a separate database and domain SQL role,
+  pools their real connections before a unit opens, and populates the service's
+  visit table with the cases that walk is given. Formplayer's request executes
+  through HQ's service, and the worker's submitted instance identifies the case
+  they claimed and updated. What a person
   writes about a base (`proof/matrix/hand/`) is written from A's authored
   meaning, never from a reading. A retained base is written only by
   `python3 -m proof.matrix.adopt` over every output of a run, never deleted

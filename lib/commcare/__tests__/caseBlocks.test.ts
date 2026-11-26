@@ -203,6 +203,7 @@ it("writes a key through an index into a block of the case that index reaches", 
 			question_path: "/data/assigned_owner",
 			update_mode: "always",
 		},
+		"user/linked_note": { question_path: "/data/done", update_mode: "always" },
 	};
 	const output = read(addCaseBlocks(host(), actions, "patient"));
 	// The own block keeps only its own key; the ancestors stand under
@@ -213,9 +214,10 @@ it("writes a key through an index into a block of the case that index reaches", 
 	]);
 	expect(names(output.data).slice(-2)).toEqual(["parents", "case"]);
 	const parents = child(output.data, "parents");
-	expect(names(parents)).toEqual(["parent", "parent"]);
-	const [direct, through] = parents.children.filter(isTag);
+	expect(names(parents)).toEqual(["parent", "parent", "user"]);
+	const [direct, through, user] = parents.children.filter(isTag);
 	expect(names(direct)).toEqual(["case"]);
+	expect(names(child(child(user, "case"), "update"))).toEqual(["linked_note"]);
 	expect(names(child(child(through, "host"), "case"))).toEqual(["update"]);
 	const session = "instance('commcaresession')/session/data/case_id";
 	const parentId = `instance('casedb')/casedb/case[@case_id = ${session}]/index/parent`;
@@ -240,9 +242,13 @@ it("writes a key through an index into a block of the case that index reaches", 
 			relevant: "count(/data/assigned_owner) > 0",
 		},
 	);
+	expect(output.bind("/data/parents/user/case/@case_id").calculate).toBe(
+		`instance('casedb')/casedb/case[@case_id = ${session}]/index/user`,
+	);
 	for (const path of [
 		"/data/parents/parent/case",
 		"/data/parents/parent/host/case",
+		"/data/parents/user/case",
 	]) {
 		expect(output.bind(`${path}/@date_modified`).calculate).toBe(
 			"/data/meta/timeEnd",

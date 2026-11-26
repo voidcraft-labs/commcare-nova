@@ -1,0 +1,18 @@
+[
+	{
+		"id": 1,
+		"name": "Visits in the chosen area",
+		"version": 1,
+		"parameters": [
+			{
+				"name": "area",
+				"type": "text"
+			},
+			{
+				"name": "minimum_priority",
+				"type": "number"
+			}
+		],
+		"sql": "SELECT case_id, case_name, prop__district AS area FROM visit WHERE prop__district = :area AND number_prop__priority >= :minimum_priority ORDER BY case_id"
+	}
+]

@@ -209,9 +209,9 @@ export async function recordOAuthGrantRevocation(
 	clientId: string,
 ): Promise<void> {
 	const db = await getAuthDb();
-	const revokedAt = new Date();
 	await db.transaction().execute(async (tx) => {
 		await lockOAuthGrantGate(tx, userId, clientId, "revoke");
+		const revokedAt = new Date();
 		await tx
 			.insertInto("auth_oauth_grant_revocation")
 			.values({ userId, clientId, revokedAt })

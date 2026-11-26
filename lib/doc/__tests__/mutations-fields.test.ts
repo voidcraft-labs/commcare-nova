@@ -514,6 +514,127 @@ describe("field topology and identity", () => {
 		expect(layout.children.get(clone.cloneUuid)).toEqual([]);
 		expect(result.fieldParent[child]).toBe(clone.cloneUuid);
 	});
+	it("duplicates an Android app question with its sent value, destinations and second invoking question", () => {
+		const source = commit(fixture(), [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+			{
+				kind: "addField",
+				parentUuid: Q("group"),
+				field: {
+					...textField("meter"),
+					androidApp: {
+						kind: "open-app",
+						action: "org.example.MEASURE",
+						send: [
+							{
+								name: "previous",
+								value: term({ ...formField(Q("child")), spelling: "absolute" }),
+							},
+						],
+						receive: [
+							{ name: "reading", question: Q("child") },
+							{ name: "display", question: Q("a") },
+						],
+					},
+				},
+			},
+			{
+				kind: "updateField",
+				targetKind: "text",
+				uuid: Q("child"),
+				patch: { androidApp: { kind: "use-question", question: Q("meter") } },
+			},
+		]);
+		const plan = duplicateFieldMutations(source, Q("group"));
+		if (!plan) throw new Error("Expected the group to be duplicated.");
+		const copied = commit(source, plan.mutations);
+		const [child, meter] = copied.fieldOrder[plan.cloneUuid];
+		expect(copied.fields[child]).toMatchObject({
+			androidApp: { kind: "use-question", question: meter },
+		});
+		expect(copied.fields[meter]).toMatchObject({
+			id: "meter_2",
+			androidApp: {
+				send: [
+					{
+						name: "previous",
+						value: term({ ...formField(child), spelling: "absolute" }),
+					},
+				],
+				receive: [
+					{ name: "reading", question: child },
+					{ name: "display", question: Q("a") },
+				],
+			},
+		});
+		expect(copied.fields[Q("meter")]).toEqual(source.fields[Q("meter")]);
+		const converted = commit(copied, [
+			{
+				kind: "updateField",
+				uuid: child,
+				targetKind: "text",
+				patch: { androidApp: null },
+			},
+			{ kind: "convertField", uuid: meter, toKind: "barcode" },
+		]);
+		expect(converted.fields[meter]).toMatchObject({
+			kind: "barcode",
+			id: "meter_2",
+		});
+		expect(converted.fields[meter]).not.toHaveProperty("androidApp");
+		expect(converted.fields[Q("child")]).toMatchObject({
+			androidApp: { kind: "use-question", question: Q("meter") },
+		});
+	});
+
+	it("gives copied Android app questions an ID free both in the form and in their submission group", () => {
+		const androidApp = {
+			kind: "open-app" as const,
+			action: "org.example.MEASURE",
+			send: [],
+			receive: [],
+		};
+		const source = commit(fixture(), [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+			{
+				kind: "addField",
+				parentUuid: F,
+				field: {
+					uuid: Q("receiving"),
+					id: "receiving",
+					kind: "group",
+					label: proseText("Receiving"),
+				},
+			},
+			{
+				kind: "addField",
+				parentUuid: Q("group"),
+				field: { ...textField("meter"), androidApp },
+			},
+			{
+				kind: "addField",
+				parentUuid: F,
+				field: { ...textField("meter_2"), androidApp },
+			},
+			{
+				kind: "addField",
+				parentUuid: Q("receiving"),
+				field: textField("meter_2_2"),
+			},
+			{
+				kind: "moveField",
+				uuid: Q("meter"),
+				where: "submission",
+				toParentUuid: Q("receiving"),
+				after: null,
+			},
+		]);
+		const plan = duplicateFieldMutations(source, Q("meter"));
+		if (!plan)
+			throw new Error("Expected the Android app question to duplicate.");
+		const copied = commit(source, plan.mutations);
+		expect(copied.fields[plan.cloneUuid].id).toBe("meter_2_3");
+	});
 });
 describe("field content and patch admission", () => {
 	it("patches one slot while retaining untouched nested values by identity", () => {
