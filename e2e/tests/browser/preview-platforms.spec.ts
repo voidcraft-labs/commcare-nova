@@ -1444,7 +1444,7 @@ test("Web Apps address search commits only the current choice and updates the fo
 		const address = page.getByRole("combobox", {
 			name: "Private meeting place",
 		});
-		const city = page.getByRole("textbox", { name: "Meeting city" });
+		const city = page.locator('[data-instance-path$="/city"] input');
 		const cityCopy = () => answer(page, "/data/questions/recorded_city");
 		const storedAddress = () => answer(page, "/data/questions/address");
 		const choose = async (query: string, choice: string) => {
