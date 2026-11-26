@@ -299,9 +299,16 @@ test("a deep link creates its case at the supplied ID and refuses reuse", {
 	const newId = randomUUID();
 	await input.fill(newId);
 	await launch.click();
-	const name = page
-		.locator("main")
-		.getByRole("textbox", { name: registration.fieldLabel, exact: true });
+	const registrationPath = `/build/${fixture.appId}/${registration.formUuid}`;
+	await expect
+		.poll(async () => ({
+			path: new URL(page.url()).pathname,
+			alerts: await page.getByRole("alert").allTextContents(),
+		}))
+		.toEqual({ path: registrationPath, alerts: [] });
+	const form = page.locator("main");
+	const name = form.getByRole("textbox", { name: registration.fieldLabel });
+	await expect(name).toBeVisible();
 	await name.fill("Patient from the deep link");
 	const finish = page
 		.locator("main")

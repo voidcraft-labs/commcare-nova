@@ -1,6 +1,7 @@
 /** The deep-link journey owns a fresh app and two real cases per attempt.
  * A distractor sorts first, so falling back to the first case cannot pass. */
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { asUuid } from "@/lib/domain";
 import { buildUrl } from "@/lib/routing/location";
 import { buildFormLinksBlueprint, FORM_LINKS_SEED } from "./formLinksSeed";
 
@@ -13,6 +14,7 @@ export const DEEP_LINKS_SEED = {
 	registration: {
 		moduleName: "Intake",
 		formName: "Register patient",
+		formUuid: asUuid("d8dc23a4-0839-454a-9ce0-e00d28a8e2ef"),
 		fieldLabel: "Patient name",
 	},
 	distractorName: "A different patient",
@@ -35,7 +37,7 @@ export function buildDeepLinksBlueprint(appId: string) {
 				]),
 				forms: [
 					{
-						uuid: "deep-links-registration",
+						uuid: registration.formUuid,
 						name: registration.formName,
 						type: "registration",
 						postSubmit: "app_home",
