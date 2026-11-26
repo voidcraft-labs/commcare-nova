@@ -951,17 +951,39 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
     old_key = f"search_property.m0.{old_group}"
     current_key = f"search_property.m0.{current_group}"
     old_heading = "Find a client"
+    database = casedata.document_case_database(document)
+    case = next(row for row in database.cases if row.case_type == "patient")
+    wanted = dataclasses.replace(case, name="River", properties=(("first_name", "North"),))
+    excluded = dataclasses.replace(
+        wanted, case_id="55810dad8a87487bb8f49d3a35e8ce4c", name="Other",
+    )
+    database = dataclasses.replace(database, cases=(wanted, excluded))
 
-    def worker_headings(project, label):
+    def worker_search(project, label):
         opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
-        with project.released(formplayer_runner, label=label) as release:
+        with project.released(formplayer_runner, label=label, database=database) as release:
             run = Session(release, editor_driver).run([
                 *opening,
                 {"eval": """() => [...document.querySelectorAll('.search-query-group-header-label')]
                     .map(label => label.textContent.trim())"""},
+                *steps.type_prompt(0, "North"),
+                *steps.type_prompt(1, "River"),
+                *steps.run_search(),
+                steps.SCREEN,
             ])
         assert not run.page_errors and not run.dialogs
-        return run.value(len(opening))
+        inputs = [
+            entry["inputs"]
+            for request in _menu_requests(run)
+            if request["searched"]
+            for entry in request["queryData"].values()
+            if isinstance(entry, dict) and entry.get("execute")
+        ]
+        return {
+            "headings": run.value(len(opening)),
+            "inputs": inputs,
+            "matches": [row["id"] for row in run.screens[-1]["list"]["rows"]],
+        }
 
     with webapps_hq.project(document) as project:
         state, app_id = project.unit, project.app_id
@@ -980,7 +1002,7 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         before_app = operations.held_app(state, app_id)
         before = dict(before_app.translations["en"])
         assert before[old_key] == old_heading and before.get(current_key) == dormant_heading
-        original = worker_headings(project, "legacy-search-heading")
+        original = worker_search(project, "legacy-search-heading")
 
         # Use the actual saved Case List request as the starting point.
         # Apply only the key update its sortable array emits for this group.
@@ -1008,7 +1030,7 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         assert actual == expected
         assert [(row["name"], row["group_key"], row["is_group"]) for row in posted] == expected
         assert dict(saved.translations["en"]) == before
-        saved_heading = worker_headings(project, "canonical-search-heading")
+        saved_heading = worker_search(project, "canonical-search-heading")
         migrated_heading = None
         if dormant_heading is None:
             # The paired source rewrite Nova emits for a unique heading.
@@ -1020,15 +1042,24 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
             rekeyed = operations.held_app(state, app_id)
             assert dict(rekeyed.translations["en"]) == canonical_words
             assert old_key not in rekeyed.translations["en"]
-            migrated_heading = worker_headings(project, "rekeyed-search-heading")
+            migrated_heading = worker_search(project, "rekeyed-search-heading")
 
     evidence("canonical-search-heading", {
-        "beforeHeadings": original, "afterHeadings": saved_heading, "oldKey": old_key,
+        "before": original, "afterStockSave": saved_heading, "afterRekey": migrated_heading, "oldKey": old_key,
         "canonicalKey": current_key, "translations": before, "savedRows": actual,
-        "rekeyedHeadings": migrated_heading,
     })
-    assert original == [old_heading, "Case details"]
-    assert saved_heading == [dormant_heading or "Personal details", "Case details"]
+    expected_query = {
+        "inputs": [{"first_name": "North", "case_name": "River"}],
+        "matches": [f"row-{wanted.case_id}"],
+    }
+    assert original == {**expected_query, "headings": [old_heading, "Case details"]}
+    assert saved_heading == {
+        **expected_query, "headings": [dormant_heading or "Personal details", "Case details"],
+    }
+    if dormant_heading is None:
+        assert migrated_heading == original
+    else:
+        assert migrated_heading is None
 
 
 def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
