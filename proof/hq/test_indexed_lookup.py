@@ -10,20 +10,22 @@ from proof.hq.check import hq_check
 from proof.hq.seams import api_rate_limits, build_seams
 from proof.hq.test_lookup_upload import _held
 from proof.observe import casedata, publish
-from proof.observe.build import build_state
+from proof.observe.build import arrange, build_state
+from proof.observe.sessions import admitted
 
 DOCUMENT = "targeted-indexed-lookup"
 
 
-def _compiled_form(state, record, app_id):
+def _compiled_app(state, record, app_id, directory):
+    app = operations.held_app(state, app_id)
     with build_seams():
-        built, _ = build_state(operations.held_app(state, app_id), record, "indexed-table")
+        built, _ = build_state(app, record, "indexed-table")
     assert not built.errors and not built.raised, (built.errors, built.raised)
     assert built.files is not None
-    return built.files["modules-0/forms-0.xml"]
+    return arrange(built.files, directory), app.get_module(0).get_form(0).xmlns
 
 
-def test_indexed_lookup_survives_publish_and_native_worker_search(hq, core_runner, documents):
+def test_indexed_lookup_survives_publish_and_native_worker_search(hq, core_runner, documents, tmp_path):
     export = documents[DOCUMENT].exports["minimum"]
     workbook = export.content.lookups
     assert workbook is not None
@@ -62,25 +64,29 @@ def test_indexed_lookup_survives_publish_and_native_worker_search(hq, core_runne
         assert _held(state) == held, "Republishing identical rows must preserve HQ table and row identities"
         filled = operations.apply_upload(state, operations.with_app_id(export.content.upload(), app_id))
         assert filled.status == 200, filled.response
-        form = _compiled_form(state, record, app_id)
+        archive, xmlns = _compiled_app(state, record, app_id, tmp_path / "archive")
 
         (native_items,) = casedata.served_fixtures(state, worker.user_id)
         items = ElementTree.fromstring(b"<items>" + native_items + b"</items>")
         assert [item.tag for item in items] == ["schema", "fixture"], native_items
         restored = casedata.restore(worker, state.domain, [native_items])
 
-    for key, name in (("west", "West clinic"), ("east", "East clinic"), ("absent", "")):
-        report = core_runner.evaluate(
-            formBase64=base64.b64encode(form).decode(),
-            restoreBase64=base64.b64encode(restored).decode(),
-            answers=[{"path": "/data/site_code", "value": key}],
-            expressions=["/data/site_name"],
-        )
-        assert report["answers"][0]["result"] == "ok", report
-        assert report["values"][0]["value"] == name, report
+    with admitted(core_runner, archive) as install:
+        assert install["admitted"], install["problems"]
+        for key, name in (("west", "West clinic"), ("east", "East clinic"), ("absent", "")):
+            report = core_runner.evaluate(
+                app=install["app"],
+                xmlns=xmlns,
+                locale="en",
+                restoreBase64=base64.b64encode(restored).decode(),
+                answers=[{"path": "/data/site_code", "value": key}],
+                expressions=["/data/site_name"],
+            )
+            assert report["answers"][0]["result"] == "ok", report
+            assert report["values"][0]["value"] == name, report
 
 
-def test_republishing_the_hq_authored_app_preserves_its_indexed_village_filter(hq, core_runner, documents):
+def test_republishing_the_hq_authored_app_preserves_its_indexed_village_filter(hq, core_runner, documents, tmp_path):
     document = documents["hq-lookups"]
     export = document.exports["minimum"]
     worker = casedata.CaseDatabase(casedata.USER_ID, "village-proof-worker", (), ())
@@ -97,19 +103,23 @@ def test_republishing_the_hq_authored_app_preserves_its_indexed_village_filter(h
         assert refusal is None and uploaded is None
         assert _held(state) == before
 
-        form = _compiled_form(state, record, app_id)
+        archive, xmlns = _compiled_app(state, record, app_id, tmp_path / "archive")
         restored = casedata.restore(worker, state.domain, casedata.served_fixtures(state, worker.user_id))
 
-    for district, village, available in (("1", "v2", ["v1", "v2"]), ("2", "v3", ["v3"])):
-        result = core_runner.evaluate(
-            formBase64=base64.b64encode(form).decode(),
-            restoreBase64=base64.b64encode(restored).decode(),
-            answers=[
-                {"path": "/data/district", "value": district},
-                {"path": "/data/village", "value": str(len(available))},
-            ],
-            expressions=["/data/village"],
-        )
-        assert [answer["result"] for answer in result["answers"]] == ["ok", "ok"], result
-        assert [choice["value"] for choice in result["answers"][1]["choices"]] == available, result
-        assert result["values"][0]["value"] == village, result
+    with admitted(core_runner, archive) as install:
+        assert install["admitted"], install["problems"]
+        for district, village, available in (("1", "v2", ["v1", "v2"]), ("2", "v3", ["v3"])):
+            result = core_runner.evaluate(
+                app=install["app"],
+                xmlns=xmlns,
+                locale="en",
+                restoreBase64=base64.b64encode(restored).decode(),
+                answers=[
+                    {"path": "/data/district", "value": district},
+                    {"path": "/data/village", "value": str(len(available))},
+                ],
+                expressions=["/data/village"],
+            )
+            assert [answer["result"] for answer in result["answers"]] == ["ok", "ok"], result
+            assert [choice["value"] for choice in result["answers"][1]["choices"]] == available, result
+            assert result["values"][0]["value"] == village, result
