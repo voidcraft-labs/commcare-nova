@@ -78,8 +78,13 @@ def test_lookup_resource_claims_compare_referenced_sources_to_hq_definitions():
     def claim(tag):
         return parity.Record("lookup-tables", f"/{tag}/tag", None, lookup_parity.ALIAS_ENTRY, "held")
 
-    assert lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "locations", "__proto__", "hasOwnProperty")]) == []
-    drift = lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "groups", "search_selected_cases", "__proto__", "hasOwnProperty")])
+    # A tag every JavaScript object inherits (__proto__, hasOwnProperty) is refused, not held under an alias:
+    # HQ's form builder cannot hold a form reading it (lib/lookup/constants.ts::FORM_EDITOR_RESERVED_TAGS).
+    assert lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "locations")]) == []
+    assert [one.at for one in lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "locations", "__proto__")])] == [
+        "/lookup-model:LookupTable.tag/unseen@lookup-tables/__proto__/tag",
+    ]
+    drift = lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "groups", "search_selected_cases")])
     assert [one.at for one in drift] == [
         "/lookup-model:LookupTable.tag/unseen@lookup-tables/groups/tag",
         "/lookup-model:LookupTable.tag/unclaimed@lookup-tables/locations/tag",
