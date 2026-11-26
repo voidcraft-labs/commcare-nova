@@ -7,19 +7,26 @@
  * the read columns writes the stored elements (`caseList/index.ts`).
  */
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
+import {
+	caseListOrderPlan,
+	choicePrefixLength,
+} from "@/lib/domain/caseListOrder";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
+	type CalculatedSort,
 	columnFieldText,
 	columnSort,
 	defaultSortBlanks,
+	type SortComparison,
 	type SortDirection,
 	sortBlanks,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
+import type { LookupWireNaming } from "../../lookup/naming";
 import { caseListOrderOptions } from "../../suite/case-list/orderPlanOptions";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
@@ -33,8 +40,10 @@ import {
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { pythonBlank } from "../heldText";
+import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
-import { sameXPathText } from "../syntaxCompare";
+import { pendingPlaceholder } from "../pendingExpressions";
+import { recordSyntaxKey, sameXPathText } from "../syntaxCompare";
 import {
 	appCodes,
 	type ColumnOptions,
@@ -47,6 +56,7 @@ import {
 	shownTexts,
 	sourceCode,
 	sourceText,
+	translatedTexts,
 } from "./columns";
 import {
 	displayNames,
@@ -123,16 +133,16 @@ export const ORDER_CLAIMS = defineClaims("caseList.order", {
 		`${A}type-string-not-a-menu-value`,
 		"schema:SortElement.type",
 	),
-	typeDistance: refuse(`${A}type-distance`, "schema:SortElement.type"),
+	typeDistance: take(`${A}type-distance`, "schema:SortElement.type"),
 	typeIndex: refuse(
 		`${A}type-index-cache-and-index-order-2`,
 		"schema:SortElement.type",
 	),
-	typeNumeric: refuse(
+	typeNumeric: take(
 		`${A}type-int-or-double-differing-from-the-derived-type-on-a-column`,
 		"schema:SortElement.type",
 	),
-	typeText: refuse(
+	typeText: take(
 		`${A}type-plain-date-or-string-or-none-where-nova-derives-int-or-double`,
 		"schema:SortElement.type",
 	),
@@ -157,13 +167,21 @@ export const ORDER_CLAIMS = defineClaims("caseList.order", {
 		`${A}field-and-a-differing-sort-calculation-on-a-column-whose-format`,
 		"schema:SortElement.sort_calculation",
 	),
-	calculationAuthored: refuse(
+	calculationAuthored: take(
 		`${A}sort-calculation-authored-calculation-row-field`,
 		"schema:SortElement.sort_calculation",
 	),
-	calculationRowField: refuse(
+	calculationRowField: take(
 		`${A}sort-calculation-authored-calculation-row-field`,
 		"schema:SortElement.field",
+	),
+	translatedDistance: refuse(
+		`${A}distance-on-a-translated-calculated-field`,
+		"schema:SortElement.type",
+	),
+	calculationDistanceWithoutProperty: refuse(
+		`${A}distance-sort-without-a-location-field`,
+		"schema:SortElement.type",
 	),
 	calculationOther: refuse(
 		`${A}field-and-a-differing-sort-calculation-on-any-other-column`,
@@ -190,6 +208,8 @@ export interface SortReading {
 	readonly ok: boolean;
 	/** Each kept element's index in the stored list, in the order HQ keeps them. */
 	readonly kept: readonly number[];
+	readonly sources: readonly JsonCursor[];
+	readonly calculations: readonly CalculatedSort[];
 	/** Each kept element's stored `type` where it is `int` or `double`, by element index, on a
 	 *  column whose format has no sort of its own. */
 	readonly numeric: ReadonlyMap<number, string>;
@@ -233,6 +253,8 @@ function orderKeyClass(column: JoinedColumn | undefined): string | undefined {
 	switch (body.kind) {
 		case "link":
 			return "link-text";
+		case "overdue-marker":
+			return `overdue-marker ${field} ${body.afterDays}`;
 		case "interval":
 			return `interval-text ${JSON.stringify(body.text)}`;
 		case "id-mapping":
@@ -308,19 +330,21 @@ function menuTextType(type: unknown): boolean {
  */
 export function readSortElements(
 	ctx: ReadContext,
-	_module: DraftModule,
+	module: DraftModule,
 	short: JsonCursor,
 	joined: JoinedDetails,
 	shortColumns: readonly JsonCursor[],
 	relation: Pick<ColumnOptions, "offersSearch" | "relationVia">,
 ): SortReading {
-	const tileList = short.peek("case_tile_template") === "custom";
+	const template = short.peek("case_tile_template");
+	const tileList = template === "custom" || template === "icon_text_grid";
 	const stored = short.peek("sort_elements");
 	const elements = Array.isArray(stored) ? stored : [];
 	const numeric = new Map<number, string>();
 	const numericColumns = new Map<number, "int" | "double">();
 	const textual = new Set<number>();
 	const dates = new Set<number>();
+	const calculations: CalculatedSort[] = [];
 	const codes = appCodes(ctx);
 	if (elements.length === 0) {
 		short.derived("sort_elements", O.none);
@@ -342,6 +366,8 @@ export function readSortElements(
 			return {
 				ok: true,
 				kept: [],
+				sources: [],
+				calculations,
 				numeric,
 				textual,
 				dates,
@@ -352,6 +378,8 @@ export function readSortElements(
 		return {
 			ok: true,
 			kept: [],
+			sources: [],
+			calculations,
 			numeric,
 			textual,
 			dates,
@@ -360,30 +388,60 @@ export function readSortElements(
 		};
 	}
 	const cursors = short.list("sort_elements", "SortElement", O.elements);
-	// A later element with one `field` replaces an earlier one.
+	// HQ has separate last-value maps for named fields and calculation text.
+	// Malformed empty rows have no join key and receive their own finding.
+	const joinKey = (cursor: JsonCursor) => {
+		const field = cursor.peek("field");
+		if (typeof field !== "string") return undefined;
+		if (field) return JSON.stringify(["field", field]);
+		const value = cursor.peek("sort_calculation");
+		return typeof value === "string" && value.trim()
+			? JSON.stringify(["calculation", value])
+			: undefined;
+	};
+	const firstOf = new Map<string, number>();
 	const lastOf = new Map<string, number>();
 	cursors.forEach((cursor, index) => {
-		const field = cursor.peek("field");
-		if (typeof field === "string") lastOf.set(field, index);
+		const key = joinKey(cursor);
+		if (key !== undefined) {
+			lastOf.set(key, index);
+			if (!firstOf.has(key)) firstOf.set(key, index);
+		}
 	});
 	let ok = true;
 	const kept: number[] = [];
+	// Assign equal expressions their ordinal in first-insertion order too.
+	const calculationCounts = new Map<string, number>();
+	const expressionKeys = new Map<string, { key: string; ordinal: number }>();
+	for (const cursor of cursors) {
+		const formula = cursor.peek("sort_calculation");
+		if (
+			cursor.peek("field") !== "" ||
+			typeof formula !== "string" ||
+			!formula.trim() ||
+			expressionKeys.has(formula)
+		)
+			continue;
+		const key = recordSyntaxKey(formula);
+		const ordinal = calculationCounts.get(key) ?? 0;
+		expressionKeys.set(formula, { key, ordinal });
+		calculationCounts.set(key, ordinal + 1);
+	}
+	const firstCalculationPosition = new Map<Uuid, number>();
+	const firstHiddenPropertyPosition = new Map<number, number>();
+	const firstCarrierPosition = new Map<number, number>();
 	cursors.forEach((cursor, index) => {
 		const field = cursor.peek("field");
 		const text = typeof field === "string" ? field : "";
-		if (lastOf.get(text) !== index) {
+		const key = joinKey(cursor);
+		if (key !== undefined && lastOf.get(key) !== index) {
 			cursor.drop("field", O.earlier);
 			cursor.drop("type", O.earlierType);
 			cursor.drop("direction", O.earlierDirection);
 			cursor.drop("blanks", O.earlierBlanks);
 			cursor.drop("display", O.earlierDisplay);
 			cursor.drop("sort_calculation", O.earlierCalculation);
-			sameState(
-				ctx,
-				O.earlier.entry,
-				cursor.pointer,
-				"list-settings-respelled",
-			);
+			// The settled projection identifies earlier rows needed to keep a worker choice in position.
 			return;
 		}
 		const priority = kept.length;
@@ -407,7 +465,9 @@ export function readSortElements(
 					"list-settings-respelled",
 				);
 		}
-		const sort = columnSort(direction, priority, blanks);
+		const comparison =
+			cursor.peek("type") === "distance" ? "distance" : undefined;
+		const sort = columnSort(direction, priority, blanks, undefined, comparison);
 		// Whether HQ's build lists the element's field in Sort by: some display text is not blank
 		// to Python (`SortElement.has_display_values`).
 		const storedDisplay = cursor.peek("display");
@@ -431,11 +491,60 @@ export function readSortElements(
 		const authoredCalculation =
 			typeof calculation === "string" && calculation.trim() !== "";
 		const calculated = CALCULATED_FIELD.exec(text);
-		if (text === "" && authoredCalculation) {
-			// HQ's calculation row stores no field: the empty field is the row's own, refused with
-			// its calculation as one finding.
-			cursor.refuse("field", O.calculationRowField);
-			ok = false;
+		let independent: CalculatedSort | undefined;
+		if (field === "" && authoredCalculation) {
+			cursor.take("field", O.calculationRowField, String).value;
+			const identity = expressionKeys.get(calculation);
+			if (!identity)
+				throw new Error(
+					"Missing identity for an independent order calculation.",
+				);
+			const uuid = ctx.accounting.identity(
+				ctx.identities.claim(
+					externalKey.caseListSort(
+						module.uniqueId,
+						identity.key,
+						identity.ordinal,
+					),
+					cursor.pointer,
+				),
+				cursor.place,
+				"schema:SortElement.sort_calculation",
+			);
+			if (uuid === undefined) {
+				ok = false;
+			} else {
+				const type = cursor.peek("type");
+				independent = {
+					uuid,
+					expression: pendingPlaceholder("value"),
+					direction,
+					priority,
+					...(sort.blanks !== undefined && { blanks: sort.blanks }),
+					comparator:
+						type === "int" ? "integer" : type === "double" ? "decimal" : "text",
+				};
+				calculations.push(independent);
+				firstCalculationPosition.set(
+					uuid,
+					key === undefined ? index : (firstOf.get(key) ?? index),
+				);
+				ctx.pending.register(
+					{
+						ref: {
+							entity: "module",
+							uuid: module.uuid,
+							slot: "case_list_sort_expression",
+							member: { sortUuid: uuid },
+						},
+						text: calculation,
+						mode: { target: "hq-json", interpolation: "none" },
+						place: cursor.place,
+						key: "schema:SortElement.sort_calculation",
+					},
+					{ json: cursor, key: "sort_calculation" },
+				);
+			}
 		} else if (calculated !== null) {
 			// HQ joins `_cc_calculated_<n>` to stored short column `n` where that column is an
 			// expression column, whatever its format, and raises for any other `n`; it sorts the
@@ -519,6 +628,11 @@ export function readSortElements(
 								body.field !== "case_id"
 							);
 						});
+			if (linked !== undefined)
+				firstCarrierPosition.set(
+					linked,
+					key === undefined ? index : (firstOf.get(key) ?? index),
+				);
 			if (shortIndex !== undefined || linked !== undefined) {
 				target = shortIndex ?? linked;
 				if (shortIndex !== undefined) landingFormat = storedFormat(shortIndex);
@@ -538,7 +652,12 @@ export function readSortElements(
 				const related = readRelationField(text, relation);
 				const read =
 					related?.kind === "property"
-						? { field: related.name, via: related.via }
+						? {
+								field: related.name,
+								...(related.via && { via: related.via }),
+								...(related.readFrom && { readFrom: related.readFrom }),
+								...(related.showOwner && { showOwner: related.showOwner }),
+							}
 						: { field: renamedField(text) };
 				const property = renamedField(text);
 				sameState(
@@ -610,6 +729,15 @@ export function readSortElements(
 				}
 			}
 		}
+		if (sortOnly && target !== undefined) {
+			const positions = tileList
+				? firstCarrierPosition
+				: firstHiddenPropertyPosition;
+			positions.set(
+				target,
+				key === undefined ? index : (firstOf.get(key) ?? index),
+			);
+		}
 		// Every other key of the element is claimed whether or not it lands on a column.
 		const column = target === undefined ? undefined : joined.columns[target];
 		if (column !== undefined) column.sort = sort;
@@ -619,7 +747,7 @@ export function readSortElements(
 		// lands on, which HQ's build writes under the column's own locale id
 		// (`detail_screen.py::Invisible.header`).
 		const nameIn = (shown: Readonly<Record<string, string>>) => {
-			if (column === undefined) return;
+			if (column === undefined && independent === undefined) return;
 			const text = sourceText(ctx, shown);
 			if (pythonBlank(text)) return false;
 			// A name is never blank in a language: HQ's build fills a blank one from another
@@ -630,7 +758,17 @@ export function readSortElements(
 					pythonBlank(one) ? text : one,
 				]),
 			);
-			column.sort = columnSort(direction, priority, blanks, text);
+			if (independent !== undefined) {
+				independent.label = text;
+				ctx.translations.set(
+					makeTranslationUnitId("case-sort", independent.uuid, "label"),
+					"text",
+					translatedTexts(ctx, texts),
+				);
+				return true;
+			}
+			if (column === undefined) return;
+			column.sort = columnSort(direction, priority, blanks, text, comparison);
 			column.sortName = texts;
 			if (column.carrier === true && column.visibleInDetail === false) {
 				column.proposal = {
@@ -649,9 +787,23 @@ export function readSortElements(
 		const type = cursor.peek("type");
 		const ownSort =
 			typeof landingFormat === "string" && OWN_SORT_FORMATS.has(landingFormat);
-		if (type === "distance") {
-			cursor.refuse("type", O.typeDistance);
+		if (type === "distance" && independent !== undefined) {
+			// FormattedDetailColumn replaces the calculation with Distance's
+			// template over the temporary column's empty property.
+			cursor.refuse("type", O.calculationDistanceWithoutProperty);
 			ok = false;
+		} else if (
+			type === "distance" &&
+			landingFormat === "translatable-enum" &&
+			target !== undefined &&
+			shortColumns[joined.columns[target]?.short ?? -1]?.peek(
+				"useXpathExpression",
+			) === true
+		) {
+			cursor.refuse("type", O.translatedDistance);
+			ok = false;
+		} else if (type === "distance") {
+			cursor.take("type", O.typeDistance, String).value;
 		} else if (type === "index") {
 			cursor.refuse("type", O.typeIndex);
 			ok = false;
@@ -760,9 +912,8 @@ export function readSortElements(
 					`${cursor.pointer}/sort_calculation`,
 					"list-settings-respelled",
 				);
-			} else if (text === "") {
-				cursor.refuse("sort_calculation", O.calculationAuthored);
-				ok = false;
+			} else if (field === "") {
+				// The expression stage claims the actual text after binding its case, tables and session.
 			} else if (ownSort) {
 				// HQ's build reads the stored short column's format, not the joined proposal's: a
 				// list column hidden from Results is `invisible`, which sorts by the calculation.
@@ -773,15 +924,129 @@ export function readSortElements(
 			}
 		}
 	});
+	// HQ appends unmatched property fields in first-insertion order. Their
+	// final rules still decide the list's priorities and the names of choices.
+	const hidden = [...firstHiddenPropertyPosition.entries()]
+		.sort((a, b) => a[1] - b[1])
+		.map(([column]) => column);
+	const carriers = [...firstCarrierPosition.entries()].sort(
+		(a, b) => a[1] - b[1],
+	);
+	const carrierPrefix = choicePrefixLength(
+		carriers,
+		([index]) => joined.columns[index]?.sort?.priority ?? 0,
+	);
+	carriers.slice(0, carrierPrefix).forEach(([index], menuPosition) => {
+		const sort = joined.columns[index]?.sort;
+		if (sort) sort.menuPosition = menuPosition;
+	});
+	let nextHidden = 0;
+	for (const [position, column] of joined.listOrder.entries()) {
+		if (firstHiddenPropertyPosition.has(column))
+			joined.listOrder[position] = hidden[nextHidden++];
+	}
+
 	return {
 		ok,
 		kept,
+		sources: cursors,
+		calculations: calculations.sort(
+			(a, b) =>
+				(firstCalculationPosition.get(a.uuid) ?? 0) -
+				(firstCalculationPosition.get(b.uuid) ?? 0),
+		),
 		numeric,
 		textual,
 		dates,
 		numericColumns,
 		defaulted: false,
 	};
+}
+
+/** Keep a native comparison which the final writer types do not imply.
+ * Both a hidden carrier and a displayed field can receive a rule. The
+ * order plan identifies its landing, while priority identifies its author.
+ * Format-owned comparisons were already settled when reading the column. */
+export function retainSortComparisons(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	reading: SortReading,
+	mediaOn: boolean,
+	lookupNaming?: LookupWireNaming,
+): BlueprintDoc {
+	if (
+		!reading.calculations.length &&
+		!reading.defaulted &&
+		reading.numeric.size === 0 &&
+		reading.textual.size === 0
+	)
+		return doc;
+	const mod = doc.modules[moduleUuid];
+	const config = mod?.caseListConfig;
+	if (!mod || !config) return doc;
+	const properties =
+		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
+			?.properties ?? [];
+	const plan = caseListOrderPlan(
+		config,
+		properties,
+		caseListOrderOptions(mod, doc, mediaOn, lookupNaming),
+	);
+	const byOrder = new Map(
+		[...plan.fields, ...plan.carriers].flatMap((field) =>
+			field.rule ? [[field.rule.order, field.comparator] as const] : [],
+		),
+	);
+	const overrides = new Map<number, SortComparison>();
+	for (const column of config.columns) {
+		const rule = column.sort;
+		if (!rule) continue;
+		const index = reading.kept[rule.priority];
+		const numeric =
+			index === undefined ? undefined : reading.numeric.get(index);
+		const comparison =
+			numeric === "int"
+				? "integer"
+				: numeric === "double"
+					? "decimal"
+					: reading.defaulted ||
+							(index !== undefined && reading.textual.has(index))
+						? "text"
+						: undefined;
+		const derived = byOrder.get(
+			plan.introductionOrders.length + rule.priority + 1,
+		);
+		if (
+			comparison === undefined ||
+			derived === undefined ||
+			comparison === derived
+		)
+			continue;
+		overrides.set(rule.priority, comparison);
+		if (index !== undefined) {
+			const source = reading.sources[index];
+			const claim = comparison === "text" ? O.typeText : O.typeNumeric;
+			if (source?.used("type")) source.takePart("type", "comparison", claim);
+			else source?.takeDefault("type", claim);
+		}
+	}
+	const derivedCalculations = new Set(
+		plan.calculations
+			.filter((one) => one.sort.comparator === one.defaultComparison)
+			.map((one) => one.sort.uuid),
+	);
+	if (!overrides.size && !derivedCalculations.size) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const rule of draft.modules[moduleUuid]?.caseListConfig
+			?.calculatedSorts ?? [])
+			if (derivedCalculations.has(rule.uuid)) delete rule.comparator;
+		for (const column of draft.modules[moduleUuid]?.caseListConfig?.columns ??
+			[]) {
+			const comparison = column.sort && overrides.get(column.sort.priority);
+			if (column.sort && comparison !== undefined)
+				column.sort.comparator = comparison;
+		}
+	});
 }
 
 /** The property types whose raw value Nova's sort element names a `date` comparison
@@ -807,6 +1072,7 @@ export function dateSortDeclarations(
 	moduleUuid: Uuid,
 	sort: SortReading,
 	mediaOn: boolean,
+	lookupNaming?: LookupWireNaming,
 ): {
 	readonly caseType: string;
 	readonly property: string;
@@ -826,7 +1092,7 @@ export function dateSortDeclarations(
 		plan = caseListOrderPlan(
 			config,
 			properties,
-			caseListOrderOptions(mod, doc, mediaOn),
+			caseListOrderOptions(mod, doc, mediaOn, lookupNaming),
 		);
 	} catch (error) {
 		rethrowWorkStop(error);
@@ -861,7 +1127,9 @@ export function dateSortDeclarations(
 	}[] = [];
 	sort.kept.forEach((index, position) => {
 		if (!sort.dates.has(index)) return;
-		const key = written.find((one) => one.order === position + 1)?.key;
+		const key = written.find(
+			(one) => one.order === plan.introductionOrders.length + position + 1,
+		)?.key;
 		if (key?.kind !== "property" || isStandardCaseListProperty(key.property))
 			return;
 		// A key read through a relation orders by the property of the type its walk reaches.
@@ -916,6 +1184,7 @@ export function implicitRuleColumn(
 	const sorted = config.columns.filter((column) => column.sort !== undefined);
 	const only = sorted[0];
 	if (
+		(config.calculatedSorts?.length ?? 0) > 0 ||
 		sorted.length !== 1 ||
 		only?.sort === undefined ||
 		only.sort.direction !== "asc" ||
@@ -1075,33 +1344,81 @@ export function orderPrioritiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 		const listed = new Map(
 			config.listColumnOrder.map((uuid, index) => [uuid, index]),
 		);
-		const sorted = config.columns
-			.map((column, index) => ({ column, index }))
-			.filter(({ column }) => column.sort !== undefined)
-			.sort(
-				(a, b) =>
-					(a.column.sort?.priority ?? 0) - (b.column.sort?.priority ?? 0) ||
-					(listed.get(a.column.uuid) ?? Number.POSITIVE_INFINITY) -
-						(listed.get(b.column.uuid) ?? Number.POSITIVE_INFINITY) ||
-					a.index - b.index,
+		const columns = config.columns.flatMap((column, index) =>
+			column.sort === undefined
+				? []
+				: [
+						{
+							uuid: column.uuid,
+							priority: column.sort.priority,
+							position: listed.get(column.uuid) ?? Number.POSITIVE_INFINITY,
+							index,
+						},
+					],
+		);
+		const calculations = (config.calculatedSorts ?? []).map((sort, index) => ({
+			uuid: sort.uuid,
+			priority: sort.priority,
+			position: Number.POSITIVE_INFINITY,
+			index: config.columns.length + index,
+		}));
+		const sorted = [...columns, ...calculations].sort(
+			(a, b) =>
+				a.priority - b.priority || a.position - b.position || a.index - b.index,
+		);
+		const menuRanks = new Map<Uuid, number>();
+		const mod = doc.modules[moduleUuid];
+		if (
+			mod &&
+			config.columns.some((column) => column.sort?.menuPosition !== undefined)
+		) {
+			const properties =
+				effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
+					?.properties ?? [];
+			const plan = caseListOrderPlan(
+				config,
+				properties,
+				caseListOrderOptions(mod, doc, true),
 			);
-		if (sorted.every(({ column }, rank) => column.sort?.priority === rank))
+			const introductions = new Set(plan.introductionOrders);
+			for (const carrier of plan.carriers) {
+				if (introductions.has(carrier.rule.order))
+					menuRanks.set(carrier.column, menuRanks.size);
+			}
+		}
+		if (
+			sorted.every((rule, rank) => rule.priority === rank) &&
+			config.columns.every(
+				(column) => column.sort?.menuPosition === menuRanks.get(column.uuid),
+			)
+		)
 			return [];
 		return [
 			{
 				moduleUuid,
-				ranks: new Map(sorted.map(({ column }, rank) => [column.uuid, rank])),
+				ranks: new Map(sorted.map((rule, rank) => [rule.uuid, rank])),
+				menuRanks,
 			},
 		];
 	});
 	if (renumbered.length === 0) return doc;
 	return withCandidate(doc, (draft) => {
-		for (const { moduleUuid, ranks } of renumbered)
-			for (const column of draft.modules[moduleUuid]?.caseListConfig?.columns ??
-				[]) {
+		for (const { moduleUuid, ranks, menuRanks } of renumbered) {
+			const config = draft.modules[moduleUuid]?.caseListConfig;
+			if (config === undefined) continue;
+			for (const column of config.columns) {
 				const rank = ranks.get(column.uuid);
-				if (rank !== undefined && column.sort !== undefined)
+				if (rank !== undefined && column.sort !== undefined) {
 					column.sort.priority = rank;
+					const menuPosition = menuRanks.get(column.uuid);
+					if (menuPosition === undefined) delete column.sort.menuPosition;
+					else column.sort.menuPosition = menuPosition;
+				}
 			}
+			for (const rule of config.calculatedSorts ?? []) {
+				const rank = ranks.get(rule.uuid);
+				if (rank !== undefined) rule.priority = rank;
+			}
+		}
 	});
 }

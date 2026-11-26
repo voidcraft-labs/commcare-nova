@@ -8,6 +8,8 @@
 import tablerDecimal from "@iconify-icons/tabler/decimal";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
+import { androidAppQuestionSchema } from "./androidApp";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -16,8 +18,11 @@ import {
 
 export const decimalFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("decimal"),
+	inputWidth: displaySchemas.inputWidth.optional(),
+	androidApp: androidAppQuestionSchema.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
+	extended_validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),
 });
 

@@ -79,7 +79,7 @@ function emptyDoc(): BlueprintDoc {
 	return {
 		appId: "app-1",
 		appName: "App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
@@ -259,57 +259,22 @@ describe("mediaAttachVerdict", () => {
 		}
 	});
 
-	it("rejects when the attach would push the byte aggregate past the export ceiling", async () => {
-		// One ready row whose recorded size alone exceeds the 200 MB budget.
-		seed(testMediaAssetId("a-huge"), { sizeBytes: 201 * 1024 * 1024 });
-		const verdict = await mediaAttachVerdict({
-			projectId: "project-1",
-			doc: emptyDoc(),
-			expectations: [imageExpectation(testMediaAssetId("a-huge"))],
-		});
-		expect(verdict.ok).toBe(false);
-		if (verdict.ok) return;
-		expect(verdict.error).toContain("export limit");
-		expect(verdict.error).toContain("MB");
-	});
-
-	it("rejects when the attach would push the COUNT aggregate past the export ceiling", async () => {
+	it("attaches whatever the app's media totals: every export streams its files one at a time", async () => {
+		seed(testMediaAssetId("a-existing"), { sizeBytes: 150 * 1024 * 1024 });
 		const expectations: MediaAttachExpectation[] = [];
 		for (let i = 0; i < 501; i++) {
 			const id = testMediaAssetId(`a-${i}`);
-			seed(id);
+			seed(id, { sizeBytes: 1024 * 1024 });
 			expectations.push(imageExpectation(id));
 		}
-		const verdict = await mediaAttachVerdict({
-			projectId: "project-1",
-			doc: emptyDoc(),
-			expectations,
-		});
-		expect(verdict.ok).toBe(false);
-		if (verdict.ok) return;
-		expect(verdict.error).toContain("501 attachments");
-	});
-
-	it("counts the doc's EXISTING ready refs against the ceiling", async () => {
-		seed(testMediaAssetId("a-existing"), { sizeBytes: 150 * 1024 * 1024 });
-		seed(testMediaAssetId("a-new"), { sizeBytes: 60 * 1024 * 1024 });
 		const doc = emptyDoc();
 		doc.logo = testMediaAssetId("a-existing");
-		const verdict = await mediaAttachVerdict({
-			projectId: "project-1",
-			doc,
-			// The new ref alone is under budget; existing + new is over.
-			expectations: [
-				{
-					assetId: testMediaAssetId("a-new"),
-					kind: "image",
-					slot: 'the icon on module "M"',
-				},
-			],
-		});
-		expect(verdict.ok).toBe(false);
-		if (verdict.ok) return;
-		expect(verdict.error).toContain("export limit");
+		expect(
+			await mediaAttachVerdict({ projectId: "project-1", doc, expectations }),
+		).toEqual({ ok: true });
+		/* Only the files being attached are read, never the app's other references. */
+		expect(loadAssetsByIdsMock).toHaveBeenCalledTimes(1);
+		expect(loadAssetsByIdsMock.mock.calls[0]?.[0]).toHaveLength(501);
 	});
 
 	it("short-circuits on zero expectations without reading the asset table", async () => {

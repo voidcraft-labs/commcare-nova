@@ -30,9 +30,11 @@
 // `tests/data/suite/reports_module_menu_multimedia.xml`.
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import { el, xel } from "@/lib/commcare/elementBuilders";
 import type { IconRef } from "@/lib/domain/builtinIcons";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import type { ProjectedMenuBadge } from "../menuBadge";
+import type { InstanceSink } from "../xpath/wire/instances";
 import { type AssetManifest, requireAssetRef } from "./assetWirePath";
 
 /** The HQ-shell media dicts a carrier needs stamped. Empty objects when
@@ -71,6 +73,55 @@ export function buildNavMediaDicts(
 	return { media_image, media_audio };
 }
 
+/** Sparse menu files keep a language absent when its installation's default table
+ * supplies the file. A stored empty key can itself affect the fallback order. */
+export function localizedNavMediaDicts(
+	carrier: import("@/lib/domain/navigationMedia").NavigationMedia | undefined,
+	manifest: AssetManifest | undefined,
+	where: string,
+	localization: import("../localization").CommCareLocalization,
+): NavMediaDicts {
+	if (!carrier?.mediaByLanguage && !carrier?.mediaByFormerCode)
+		return buildNavMediaDicts(
+			carrier?.icon,
+			carrier?.audioLabel,
+			manifest,
+			where,
+			localization.languages,
+		);
+	const media_image: Record<string, string> = {};
+	const media_audio: Record<string, string> = {};
+	if (manifest)
+		for (const code of localization.languages) {
+			const stored = localization.storedMenuMedia(code, carrier);
+			for (const [role, dictionary] of [
+				["icon", media_image],
+				["audioLabel", media_audio],
+			] as const) {
+				const asset = stored[role];
+				if (asset != null)
+					dictionary[code] =
+						asset === "blank" ? "" : requireAssetRef(asset, manifest, where);
+			}
+		}
+	if (manifest)
+		for (const [code, slots] of Object.entries(
+			carrier.mediaByFormerCode ?? {},
+		)) {
+			if (localization.languages.includes(code)) continue;
+			for (const [role, dictionary] of [
+				["icon", media_image],
+				["audioLabel", media_audio],
+			] as const) {
+				const asset = slots[role];
+				if (asset != null)
+					dictionary[code] =
+						asset === "blank" ? "" : requireAssetRef(asset, manifest, where);
+			}
+		}
+	return { media_image, media_audio };
+}
+
 /** The local-suite nav node + the app_strings entries its media locales
  *  resolve against. `strings` is empty when the carrier has no media. */
 export interface NavMenuNode {
@@ -102,6 +153,7 @@ export function buildNavMenuNode(
 	audioLabel: MediaAssetId | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
+	badge?: { value: ProjectedMenuBadge; instances: InstanceSink },
 ): NavMenuNode {
 	const mainText = el("text", {}, [el("locale", { id: textLocaleId })]);
 	const media = mediaTextsOf(
@@ -111,13 +163,25 @@ export function buildNavMenuNode(
 		manifest,
 		where,
 	);
-	if (media.texts.length === 0) {
+	const texts = [...media.texts];
+	if (badge !== undefined) {
+		const content =
+			badge.value.kind === "text"
+				? el("locale", { id: `${mediaLocaleBase}.badge` })
+				: xel(
+						"xpath",
+						{ xpath: { function: badge.value.expression } },
+						{ mode: { target: "suite" }, instances: badge.instances },
+					);
+		texts.push(el("text", { form: "badge" }, [content]));
+	}
+	if (texts.length === 0) {
 		// No media — the carrier keeps the bare `<text>` child Nova has
 		// always emitted; no `<display>` wrapper, no extra app_strings.
 		return { node: mainText, strings: {} };
 	}
 	return {
-		node: el("display", {}, [mainText, ...media.texts]),
+		node: el("display", {}, [mainText, ...texts]),
 		strings: media.strings,
 	};
 }

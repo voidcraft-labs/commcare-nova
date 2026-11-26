@@ -1,4 +1,5 @@
 // lib/domain/forms.ts
+
 import { z } from "zod";
 import { formIconRefSchema } from "./builtinIcons";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
@@ -9,19 +10,66 @@ import {
 	type Expression,
 	formLinkDatumNameSchema,
 	formLogicSchema,
+	itextUnitSchema,
 	type RelationStep,
 	relationStepSchema,
 	valueSchema,
 } from "./expression/types";
+import { formRootNameSchema } from "./formAnswerRoot";
+import {
+	computedEntryValueSchema,
+	formCaseSelectionSchema,
+	sharedFormSchema,
+} from "./formEntryCases";
 import { firstModuleListingForm } from "./formMembership";
-import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
+import { menuBadgeSchema } from "./menuBadge";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
+	formerNavigationMediaSchema,
+	navigationMediaSchema,
+} from "./navigationMedia";
+import {
+	advancedTagSchema,
 	type CasePlacement,
 	casePlacementSchema,
 	ownClosePlacementSchema,
 } from "./placements";
 import { type Uuid, uuidSchema } from "./uuid";
+
+/** One physical form text, even when several question or choice slots use it:
+ *  the slot that carries it and every other slot that shares it. */
+export const behaviorTextSchema = z.strictObject({
+	carrier: itextUnitSchema,
+	alsoUsedBy: z.array(itextUnitSchema).min(1).optional(),
+});
+export type BehaviorText = z.infer<typeof behaviorTextSchema>;
+export const formBehaviorRoleNames = {
+	automaticSubmissionText: "Automatic submission",
+	skipAutomaticSyncText: "Skip automatic sync",
+	validateChangedAnswersText: "Check changed answers",
+	activityKeyText: "Activity notice key",
+	activityTitleText: "Activity notice record title",
+	activityWindowText: "Activity notice window",
+	savedFormDescriptorText: "Saved form label",
+} as const;
+export type FormBehaviorRole = keyof typeof formBehaviorRoleNames;
+export type FormBehaviorTexts = Partial<Record<FormBehaviorRole, BehaviorText>>;
+export const formBehaviorRoles = Object.keys(
+	formBehaviorRoleNames,
+) as FormBehaviorRole[];
+export function formBehaviorTextsOf(
+	form: FormBehaviorTexts,
+): FormBehaviorTexts {
+	const texts: FormBehaviorTexts = {};
+	for (const role of formBehaviorRoles)
+		if (form[role]) texts[role] = form[role];
+	return texts;
+}
+export function behaviorTextUnits(
+	text: BehaviorText,
+): readonly z.infer<typeof itextUnitSchema>[] {
+	return [text.carrier, ...(text.alsoUsedBy ?? [])];
+}
 
 export const FORM_TYPES = [
 	"registration",
@@ -321,10 +369,16 @@ export function formLinkEntries(
  * one operation per form) because those require the containing
  * form/module/doc.
  */
-const newCaseTargetSchema = z.strictObject({
-	kind: z.literal("new"),
-	idFrom: uuidSchema.optional(),
-});
+const newCaseTargetSchema = z
+	.strictObject({
+		kind: z.literal("new"),
+		idFrom: uuidSchema.optional(),
+		expr: valueSchema.optional(),
+	})
+	.refine(
+		({ idFrom, expr }) => idFrom === undefined || expr === undefined,
+		"Choose a keyed field or an exact case ID expression.",
+	);
 
 const operationCaseTargetSchema = z.strictObject({
 	kind: z.literal("op"),
@@ -402,6 +456,21 @@ export const caseWriteViaSchema = z.tuple(
 	relationStepSchema,
 );
 export type CaseWriteVia = [RelationStep, ...RelationStep[]];
+
+/** A case editor's one-time assignment after the form's opening defaults.
+ * Its owning load determines when it runs and which selected record it reads. */
+export const formOpeningAssignmentSchema = z.strictObject({
+	uuid: uuidSchema,
+	field: uuidSchema,
+	source: z.discriminatedUnion("kind", [
+		z.strictObject({ kind: z.literal("own") }),
+		z.strictObject({ kind: z.literal("worker-record") }),
+		z.strictObject({ kind: z.literal("selection"), selection: uuidSchema }),
+	]),
+	via: caseWriteViaSchema.optional(),
+	property: authoredCasePropertyNameSchema,
+});
+export type FormOpeningAssignment = z.infer<typeof formOpeningAssignmentSchema>;
 
 export const caseOperationWriteSchema = z.strictObject({
 	property: authoredCasePropertyNameSchema,
@@ -481,6 +550,8 @@ const caseOperationCommonShape = {
 	id: z.string(),
 	caseType: z.string(),
 	condition: conditionSchema.optional(),
+	/** The close leaf is conditional independently of the block. */
+	closeCondition: conditionSchema.optional(),
 	forEach: z.strictObject({ repeat: uuidSchema }).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 	placement: casePlacementSchema.optional(),
@@ -501,57 +572,174 @@ export const ownCaseOperationSchema = z.strictObject({
 	/** Registration: the new case's name. Follow-up and close: a rename of
 	 *  the case the form loaded. */
 	name: valueSchema.optional(),
+	/** Follow-up and close: the rename is saved only when it differs from
+	 *  the case's name (`caseFacetOnlyIfChanged`). */
+	nameOnlyIfChanged: z.literal(true).optional(),
 	owner: valueSchema.optional(),
+	ownerCondition: z.never().optional(),
+	/** The owner is saved only when the answer is not blank
+	 *  (`caseFacetOnlyIfChanged`). */
+	ownerOnlyIfChanged: z.literal(true).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 	links: z.array(caseOperationLinkSchema).optional(),
 	placement: casePlacementSchema.optional(),
 	caseType: z.never().optional(),
 	target: z.never().optional(),
 	condition: z.never().optional(),
+	closeCondition: z.never().optional(),
+	closeAfter: z.never().optional(),
 	forEach: z.never().optional(),
 	rename: z.never().optional(),
+	renameOnlyIfChanged: z.never().optional(),
 	retype: z.never().optional(),
 });
+
+// An imported create can retain a calculation without making its case type
+// dynamic. The commit gate checks that the concatenation gives `caseType`.
+const caseTypeLiteralTermSchema = z.strictObject({
+	kind: z.literal("term"),
+	term: z.strictObject({ kind: z.literal("literal"), value: z.string() }),
+});
+const caseTypeCalculationSchema = z.strictObject({
+	kind: z.literal("concat"),
+	parts: z.tuple(
+		[caseTypeLiteralTermSchema, caseTypeLiteralTermSchema],
+		caseTypeLiteralTermSchema,
+	),
+});
+export type CaseTypeCalculation = z.infer<typeof caseTypeCalculationSchema>;
+
+const caseTypeChoiceSchema = z.strictObject({
+	condition: conditionSchema,
+	otherwise: z.string(),
+});
+export type CaseTypeChoice = z.infer<typeof caseTypeChoiceSchema>;
+
+export function fixedCaseTypeOf(calculation: CaseTypeCalculation): string {
+	return calculation.parts.map(({ term }) => term.value).join("");
+}
 
 export const caseOperationSchema = z.discriminatedUnion("action", [
 	ownCaseOperationSchema,
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("create"),
+		typeCalculation: caseTypeCalculationSchema.optional(),
+		typeChoice: caseTypeChoiceSchema.optional(),
+		ownerCondition: conditionSchema.optional(),
+		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
 		name: valueSchema,
+		nameOnlyIfChanged: z.never().optional(),
 		owner: valueSchema.optional(),
+		ownerOnlyIfChanged: z.literal(true).optional(),
 		links: z.array(caseOperationLinkSchema).optional(),
 		rename: z.never().optional(),
+		renameOnlyIfChanged: z.never().optional(),
 		retype: z.never().optional(),
 	}),
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("update"),
+		ownerCondition: conditionSchema.optional(),
+		closeAfter: z.literal(true).optional(),
 		target: updateCaseTargetSchema,
 		name: z.never().optional(),
+		nameOnlyIfChanged: z.never().optional(),
 		owner: valueSchema.optional(),
+		ownerOnlyIfChanged: z.literal(true).optional(),
 		rename: valueSchema.optional(),
+		renameOnlyIfChanged: z.literal(true).optional(),
 		retype: z.string().optional(),
 		links: z.array(caseOperationLinkSchema).optional(),
 	}),
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("close"),
+		ownerCondition: z.never().optional(),
+		closeAfter: z.never().optional(),
 		target: existingCaseTargetSchema,
 		name: z.never().optional(),
+		nameOnlyIfChanged: z.never().optional(),
 		owner: z.never().optional(),
+		ownerOnlyIfChanged: z.never().optional(),
 		rename: z.never().optional(),
+		renameOnlyIfChanged: z.never().optional(),
 		retype: z.never().optional(),
 		links: z.never().optional(),
 	}),
 ]);
 
+/** A block which closes is a close operation unless it also carries
+ * a facet that only an update can represent. Plain property writes fit both. */
+export function hasUpdateOnlyCaseFacets(operation: {
+	readonly rename?: unknown;
+	readonly retype?: unknown;
+	readonly owner?: unknown;
+	readonly links?: readonly unknown[];
+}): boolean {
+	return (
+		operation.rename !== undefined ||
+		operation.retype !== undefined ||
+		operation.owner !== undefined ||
+		(operation.links?.length ?? 0) > 0
+	);
+}
+
+/**
+ * The name and owner facets an operation saves only when changed, as HQ's
+ * build applies `update_mode: "edit"` to the `name` and `owner_id` keys of
+ * an update map (`xform.py::XFormCaseBlock.add_case_updates`): the key's
+ * leaf is relevant only while the answer differs from the case's
+ * `case/<key>` in the casedb when the form opened. A case holds its name as
+ * `case_name`, so a rename is saved only when it differs from the name; a
+ * case holds its owner as an attribute, so `case/owner_id` is empty
+ * (`XPathNodeset.unpack` of no node is "") and the owner is saved only when
+ * the answer is not blank. On a case the form creates, HQ's build then
+ * leaves the create block's own owner as `-` (`autoset_owner_id_for_*`
+ * finds `owner_id` among the updates), so a blank answer leaves it unowned.
+ *
+ * - `nameOnlyIfChanged`: the own arm's rename on a follow-up or close form.
+ * - `renameOnlyIfChanged`: an update's rename.
+ * - `ownerOnlyIfChanged`: the owner of the own arm, a create or an update.
+ */
+export type CaseFacetOnlyIfChanged =
+	| "nameOnlyIfChanged"
+	| "renameOnlyIfChanged"
+	| "ownerOnlyIfChanged";
+
+/** The facet each flag saves only when changed. */
+export const CASE_FACET_OF_ONLY_IF_CHANGED = {
+	nameOnlyIfChanged: "name",
+	renameOnlyIfChanged: "rename",
+	ownerOnlyIfChanged: "owner",
+} as const satisfies Record<
+	CaseFacetOnlyIfChanged,
+	"name" | "rename" | "owner"
+>;
+
+/** Whether some write or facet of `operation` is saved only when changed. */
+export function operationSavesOnlyChanged(operation: {
+	readonly writes?: readonly CaseOperationWrite[];
+	readonly nameOnlyIfChanged?: true;
+	readonly renameOnlyIfChanged?: true;
+	readonly ownerOnlyIfChanged?: true;
+}): boolean {
+	return (
+		operation.nameOnlyIfChanged === true ||
+		operation.renameOnlyIfChanged === true ||
+		operation.ownerOnlyIfChanged === true ||
+		(operation.writes ?? []).some((write) => write.onlyIfChanged === true)
+	);
+}
+
 type CaseOperationFacets = {
 	uuid: Uuid;
 	id: string;
 	name?: Expression;
+	nameOnlyIfChanged?: true;
 	owner?: Expression;
+	ownerOnlyIfChanged?: true;
 	writes?: CaseOperationWrite[];
 	links?: CaseOperationLink[];
 	placement?: CasePlacement;
@@ -563,8 +751,12 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	caseType?: undefined;
 	target?: undefined;
 	condition?: undefined;
+	ownerCondition?: undefined;
+	closeCondition?: undefined;
+	closeAfter?: undefined;
 	forEach?: undefined;
 	rename?: undefined;
+	renameOnlyIfChanged?: undefined;
 	retype?: undefined;
 };
 
@@ -572,10 +764,16 @@ export type OwnCaseOperation = CaseOperationFacets & {
 export type TargetedCaseOperation = CaseOperationFacets & {
 	action: Exclude<CaseOperationAction, "own">;
 	caseType: string;
+	typeCalculation?: CaseTypeCalculation;
+	typeChoice?: CaseTypeChoice;
 	target: CaseTarget;
 	condition?: Expression;
+	ownerCondition?: Expression;
+	closeCondition?: Expression;
+	closeAfter?: true;
 	forEach?: { repeat: Uuid };
 	rename?: Expression;
+	renameOnlyIfChanged?: true;
 	retype?: string;
 };
 
@@ -679,121 +877,36 @@ export function orderedCaseOperations(form: {
 	return [...(form.caseOperations ?? [])];
 }
 
-// Connect config. Persisted blocks are complete: partial sub-configs and
-// omitted ids belong only to builder/tool draft types and are finalized before
-// a Form is constructed. All four ids share this one stored bound; the exact
-// rule is the question-id grammar (`lib/commcare/connectSlugs.ts`), and
-// app-wide uniqueness and app-mode compatibility need the owning Blueprint
-// and are enforced by `blueprintTopologyIssues`.
-export const CONNECT_ID_MAX_LENGTH = 50;
-/** The stored bound of a Connect id; `connectSlugs.ts` holds the exact rule. */
-export const CONNECT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
-export const connectIdSchema = z
-	.string()
-	.min(1)
-	.max(CONNECT_ID_MAX_LENGTH)
-	.regex(CONNECT_ID_PATTERN);
-
-const connectLearnModuleSchema = z.strictObject({
-	id: connectIdSchema,
-	name: z.string(),
-	description: z.string(),
-	time_estimate: persistableJsonPositiveIntegerSchema,
-});
-const connectAssessmentSchema = z.strictObject({
-	id: connectIdSchema,
-	// An XPath expression consumed only by the XForm bind emitter. Either
-	// side may set it (the SA points it at a hidden score field; the UI
-	// panel lets a user override), but if absent the wire layer in
-	// `lib/commcare/xform/builder.ts` emits the canonical default at bind
-	// time — the same contract `deliver_unit.entity_id` / `entity_name`
-	// hold. Optional here matches what's true: the doc tracks what was
-	// set, the wire layer fills the rest.
-	user_score: formLogicSchema.optional(),
-});
-const connectDeliverUnitSchema = z.strictObject({
-	id: connectIdSchema,
-	name: z.string(),
-	// `entity_id` / `entity_name` are XPath expressions consumed only by
-	// the XForm bind emitter. Either side may set them (the SA can opt
-	// into custom expressions; a UI panel could let a user override),
-	// but if absent the wire layer in `lib/commcare/xform/builder.ts`
-	// emits the canonical defaults at bind time. Optional here matches
-	// what's true: the doc tracks what was set, the wire layer fills
-	// the rest.
-	entity_id: formLogicSchema.optional(),
-	entity_name: formLogicSchema.optional(),
-});
-const connectTaskSchema = z.strictObject({
-	id: connectIdSchema,
-	name: z.string(),
-	description: z.string(),
-});
-export const connectLearnConfigSchema = z
-	.strictObject({
-		learn_module: connectLearnModuleSchema.optional(),
-		assessment: connectAssessmentSchema.optional(),
-	})
-	.refine(
-		(config) =>
-			config.learn_module !== undefined || config.assessment !== undefined,
-		"Connect learn configuration must contain a learn module or assessment.",
-	);
-
-export const connectDeliverConfigSchema = z
-	.strictObject({
-		deliver_unit: connectDeliverUnitSchema.optional(),
-		task: connectTaskSchema.optional(),
-	})
-	.refine(
-		(config) => config.deliver_unit !== undefined || config.task !== undefined,
-		"Connect deliver configuration must contain a deliver unit or task.",
-	);
-
-export const connectConfigSchema = z.union([
-	connectLearnConfigSchema,
-	connectDeliverConfigSchema,
-]);
-
-export type ConnectLearnConfig = z.infer<typeof connectLearnConfigSchema>;
-export type ConnectDeliverConfig = z.infer<typeof connectDeliverConfigSchema>;
-export type ConnectConfig = z.infer<typeof connectConfigSchema>;
-
-export function isConnectLearnConfig(
-	config: ConnectConfig,
-): config is ConnectLearnConfig {
-	return "learn_module" in config || "assessment" in config;
-}
-
-/**
- * Whether a deliver config holds both a deliver unit and a task. Connect
- * reads a submission's deliver unit before its task and turns the delivery
- * away while the worker has a pending task (commcare-connect
- * `form_receiver/processor.py::process_deliver_form`,
- * `_has_blocking_pending_task`), so the visit made in the form that also
- * completes the task is never paid. A task goes in a form of its own. The
- * validator, the builder and the tools ask this one predicate;
- * it takes a stored config or a draft alike.
- */
-export function connectDeliverFormHoldsTask(
-	config:
-		| ConnectConfig
-		| { readonly deliver_unit?: unknown; readonly task?: unknown },
-): boolean {
-	return (
-		"deliver_unit" in config &&
-		config.deliver_unit !== undefined &&
-		"task" in config &&
-		config.task !== undefined
-	);
-}
-export type ConnectLearnModule = z.infer<typeof connectLearnModuleSchema>;
-export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>;
-export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
-export type ConnectTask = z.infer<typeof connectTaskSchema>;
-
 export const formSchema = z.strictObject({
+	/** Source or first-published names of the records this form opens. */
+	heldSelectionTags: z.record(uuidSchema, advancedTagSchema).optional(),
+	/** Absent derives the ordinary menu choices. An empty list explicitly opens without a selection. */
+	caseSelections: z.array(formCaseSelectionSchema).optional(),
+	/** A second way to open an ordinary form, in its own menu position. */
+	shadowOf: sharedFormSchema.optional(),
+	computedDatums: z.array(computedEntryValueSchema).optional(),
+	openingAssignments: z.array(formOpeningAssignmentSchema).optional(),
+	/** The opened record's saved assignment map in an adopted basic form.
+	 * Its case editor preserves that map. New forms get an editor with an
+	 * Add property control for these values. */
+	heldBasicOpening: z.literal(true).optional(),
+	/** The finish button on Web Apps. An absent source uses the platform's
+	 * default; an explicitly empty source is a button with no text. Other
+	 * languages use the form's submit-label translation unit. */
+	submitLabel: z.strictObject({ text: z.string().optional() }).optional(),
+	dataRootName: formRootNameSchema.optional(),
 	entryPoint: formEntryPointSchema.optional(),
+	/** Case creations whose IDs a caller supplies when opening this form through a deep link.
+	 * The source form owns these choices even when only a second menu offers the link. */
+	entryCaseCreations: z.array(uuidSchema).min(1).optional(),
+	/** The existing form text whose presence submits this form when Web Apps opens it. */
+	automaticSubmissionText: behaviorTextSchema.optional(),
+	skipAutomaticSyncText: behaviorTextSchema.optional(),
+	validateChangedAnswersText: behaviorTextSchema.optional(),
+	activityKeyText: behaviorTextSchema.optional(),
+	activityTitleText: behaviorTextSchema.optional(),
+	activityWindowText: behaviorTextSchema.optional(),
+	savedFormDescriptorText: behaviorTextSchema.optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),
@@ -805,6 +918,7 @@ export const formSchema = z.strictObject({
 	 * terms are meaningful for this form's navigation position.
 	 */
 	displayCondition: conditionSchema.optional(),
+	badge: menuBadgeSchema.optional(),
 	/**
 	 * Present when the form is off the menu: no menu lists it, whatever
 	 * `displayCondition` says. The condition keeps applying once the form
@@ -812,6 +926,8 @@ export const formSchema = z.strictObject({
 	 * after-submit link and from an entry point.
 	 */
 	hiddenFromMenu: z.literal(true).optional(),
+	/** Independently requests device location when this form opens on Android. */
+	captureLocation: z.literal(true).optional(),
 	/** Text formatting is off for the whole form: no label, choice or help text writes a markdown
 	 *  form, so each shows as its platform shows a text without one. */
 	plainText: z.literal(true).optional(),
@@ -833,7 +949,6 @@ export const formSchema = z.strictObject({
 	 * mutation payload carries it.
 	 */
 	ownClosePlacement: ownClosePlacementSchema.optional(),
-	connect: connectConfigSchema.optional(),
 	/**
 	 * Where a form without destinations goes after submit. Refused beside
 	 * `formLinks` (`POST_SUBMIT_BESIDE_FORM_LINKS`); a form with destinations
@@ -866,10 +981,31 @@ export const formSchema = z.strictObject({
 	 * affordance within a module's menu.
 	 */
 	icon: formIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(formIconRefSchema).optional(),
+	mediaByFormerCode: formerNavigationMediaSchema(formIconRefSchema).optional(),
 	/** Audio version of the form's menu label, for audio-prompt playback. */
 	audioLabel: mediaAssetIdSchema.optional(),
 });
 export type Form = z.infer<typeof formSchema>;
+/** A worker starting value runs on an editable worker load. HQ's basic
+ * User Properties editor can create updates, but has no starting-value control. */
+export function opensWithWorkerValue(form: Form): boolean {
+	return Boolean(
+		form.openingAssignments?.some((row) => row.source.kind === "worker-record"),
+	);
+}
+
+export function usesFormEntryActions(form: Form): boolean {
+	return (
+		form.caseSelections !== undefined ||
+		Boolean(form.computedDatums?.length) ||
+		Boolean(
+			form.openingAssignments?.some(
+				(row) => row.source.kind !== "own" || !form.heldBasicOpening,
+			),
+		)
+	);
+}
 
 export type FormKindMetadata = {
 	icon: string;

@@ -19,10 +19,20 @@
 
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { unreadableMediaIdentity } from "@/lib/commcare/hq/mediaMap";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import { pythonStrip } from "@/lib/commcare/localeFile";
-import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	identityLookupWireNaming,
+	lookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
+import { readsTrimmedSibling } from "@/lib/commcare/placement";
+import { renamedField } from "@/lib/commcare/reader/caseList/columns";
+import { generatedKeyOwner } from "@/lib/commcare/reader/generatedTranslationKeys";
+import { readerLookupNamingDefinitions } from "@/lib/commcare/reader/projectionInputs";
 import type {
+	MediaRecipients,
+	ReaderLookupCatalog,
 	ReadFacts,
 	ReadFormFacts,
 	ReadGeneratedNode,
@@ -31,53 +41,67 @@ import {
 	buildRuntimeCsqlPromptValidations,
 	composeXPathQueryEmission,
 } from "@/lib/commcare/suite/case-search/xpathQuery";
+import {
+	type ColumnFieldWordRow,
+	targetWireIdentity,
+} from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import {
 	type GeneratedNodePurpose,
 	generatedNodePaths,
 } from "@/lib/commcare/xform/generatedNodes";
-import { type BlueprintDoc, declaresWebApps, type Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Column,
+	declaresWebApps,
+	type Uuid,
+} from "@/lib/domain";
+import { isCaseScalarTextProperty } from "@/lib/domain/caseScalarTextGuard";
+import { formCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { datetimeSplitFieldUuid } from "@/lib/domain/datetimeSplitIdentity";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
-import { operationCaseType } from "@/lib/domain/forms";
+import { formLinkEntries, operationCaseType } from "@/lib/domain/forms";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Platform } from "@/lib/domain/platforms";
 import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import {
+	ANSWERED_FIRST_PUBLISH_CHANGES,
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+	type CurrentFirstPublishChangeId,
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
 	type FirstPublishView,
 } from "@/lib/publish/firstPublishChangeIds";
-import {
-	type AdoptedMediaFile,
-	assignMediaPaths,
-	type MediaPathAssignment,
-} from "../adoption";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import type { AdoptedMediaFile, MediaPathAssignment } from "../adoption";
+import { readingMediaPaths } from "./adoptionBoundary";
 import {
 	FIRST_PUBLISH_PLACE_KINDS,
 	type FirstPublishPlaceKind,
-	FOLDED_TEXT_PATHS,
 	type FormPosition,
 	type FormPositions,
 	firstPublishPlaceKind,
 	formPositionsOf,
+	type MediaReferenceAt,
 	mapPath,
 	nodePlace,
 	partPlace,
 	placeOf,
 	placeOfStoredPointer,
 	placeSteps,
-	placesOfGeneratedKey,
 	placesOfMediaReference,
 	placesOfSlot,
 	sortedPlaces,
 } from "./firstPublishPlaces";
-import { reviewMediaId } from "./mediaIds";
 import type { HqMediaClaim } from "./projectData/media";
+import {
+	ownerGivenToWorker,
+	reverseHopOwnerChanges,
+} from "./projectData/ownerRules";
 
 // ── The generated difference ────────────────────────────────────────────
 
@@ -234,6 +258,8 @@ export function emittedGeneratedNodes(
 
 export interface FirstPublishFacts {
 	readonly source: HqAppSource;
+	readonly lookup: ReaderLookupCatalog;
+	readonly columnFieldWords: readonly ColumnFieldWordRow[];
 	/** The document under the declaration choice being judged. */
 	readonly doc: BlueprintDoc;
 	readonly facts: ReadFacts;
@@ -258,6 +284,13 @@ export interface FirstPublishFacts {
 		readonly runsOnlyOn: Platform | null;
 		readonly split: boolean;
 	};
+	/**
+	 * The reading's own document under the choice, where the person's answers
+	 * to the review made `doc` of it (`withAnsweredChanges`); absent where
+	 * `doc` is the reading's own. Only an entry a reading never gives alone
+	 * reads it.
+	 */
+	readonly read?: BlueprintDoc;
 }
 
 export interface FirstPublishChange {
@@ -315,6 +348,7 @@ export const MEDIA_REFERENCE_PATHS: readonly string[] = [
 	"/modules/*/forms/*/media_image/*",
 	"/modules/*/forms/*/media_audio/*",
 	"/modules/*/case_details/*/columns/*/enum/*/value/*",
+	"/modules/*/case_details/short/lookup_image",
 	"/logo_refs/*",
 ];
 
@@ -440,6 +474,10 @@ export const RESPELLED_FORM_PARTS = [
 	"/_attachments/*/data/*/:control/@vellum:jr__count",
 	"/_attachments/*/data/*/:control/itemset/@nodeset/:respelled",
 	"/_attachments/*/data/*/:control/itemset/@vellum:nodeset",
+	// The read of a row an itemset's label names, printed from its lookup read
+	// (`buildLookupItemset`), where it is the same expression over the row: Core
+	// parses it as one (`XFormParser.parseItemset`'s `labelRef`).
+	"/_attachments/*/data/*/:control/itemset/label/@ref/:respelled",
 	// A hint writes no markdown form (`buildXFormSource`'s itext); Core reads a
 	// hint's text alone (`FormEntryPrompt.getHintText`).
 	"/_attachments/*/data/*/:itext/hint/*/markdown",
@@ -450,12 +488,17 @@ export const RESPELLED_FORM_PARTS = [
 
 /** A Search field's keys a reading takes as spelled another way (`search/prompts.ts`). */
 const SEARCH_FIELD_RESPELLED_KEYS: readonly string[] = [
+	"name",
+	"group_key",
 	"label",
 	"hint",
 	"receiver_expression",
 	"default_value",
 	"required",
 	"validations/*/text",
+	// The instance HQ's Case List page names an itemset's table by, which the first publish names
+	// as the nodeset's (`search/prompts.ts::readPrompt`).
+	"itemset/instance_id",
 ];
 
 const generatedAdds =
@@ -518,7 +561,7 @@ function inactiveAutoLaunchRespelled(facts: FirstPublishFacts): boolean {
  * on the platform that shows it (`firstPublishViewFromStored` uses the same rule).
  */
 function platformOnlyRecorded(
-	id: FirstPublishChangeId,
+	id: CurrentFirstPublishChangeId,
 	entry: Pick<FirstPublishChange, "touchesWorkers" | "paths" | "at">,
 ): FirstPublishChange {
 	const recorded = recordedIn(id);
@@ -927,17 +970,26 @@ function asList(value: unknown): readonly unknown[] {
  * stores there.
  */
 function sortColumnPlaces(facts: FirstPublishFacts): string[] {
-	const menus = new Set<number>();
-	for (const place of recordedPlaces(
-		facts,
-		"sort-rule-kept-as-hidden-column",
-	)) {
+	const fieldsByMenu = new Map<number, Set<string>>();
+	for (const record of facts.facts.sameStateRewrites) {
+		if (record.register !== "sort-rule-kept-as-hidden-column") continue;
+		const place = placeOfStoredPointer(facts.positions, record.path);
+		if (place === null) continue;
 		const [root, menu] = placeSteps(place);
-		if (root === "menu" && menu !== undefined) menus.add(Number(menu));
+		const field = storedAt(facts.source.raw, record.path);
+		if (root !== "menu" || menu === undefined || typeof field !== "string")
+			continue;
+		const m = Number(menu);
+		const fields = fieldsByMenu.get(m) ?? new Set<string>();
+		fields.add(renamedField(field));
+		fieldsByMenu.set(m, fields);
 	}
+	if (fieldsByMenu.size === 0) return [];
+	const naming = lookupWireNaming(readerLookupNamingDefinitions(facts.lookup));
+	const { columnFieldWord } = targetWireIdentity([], facts.columnFieldWords);
 	const order = projectedModulePreorder(facts.doc);
 	const places: string[] = [];
-	for (const m of menus) {
+	for (const [m, fields] of fieldsByMenu) {
 		const uuid = order[m];
 		const module = uuid === undefined ? undefined : facts.doc.modules[uuid];
 		if (module === undefined) continue;
@@ -949,20 +1001,32 @@ function sortColumnPlaces(facts: FirstPublishFacts): string[] {
 			),
 		)) {
 			const field = at(column, "field");
-			if (typeof field === "string")
+			if (
+				typeof field === "string" &&
+				at(column, "useXpathExpression") !== true
+			)
 				stored.set(field, (stored.get(field) ?? 0) + 1);
 		}
-		projectCaseListForHq(module, facts.doc).caseDetails.short.columns.forEach(
-			(column, index) => {
-				if (column.useXpathExpression) return;
-				const left = stored.get(column.field) ?? 0;
-				if (left > 0) stored.set(column.field, left - 1);
-				else
-					places.push(
-						placeOf("menu", m, "case_details", "short", "columns", index),
-					);
-			},
-		);
+		projectCaseListForHq(
+			module,
+			facts.doc,
+			undefined,
+			naming,
+			undefined,
+			undefined,
+			columnFieldWord,
+		).caseDetails.short.columns.forEach((column, index) => {
+			if (column.useXpathExpression) return;
+			const left = stored.get(column.field) ?? 0;
+			if (left > 0) stored.set(column.field, left - 1);
+			else if (
+				column.format === "invisible" &&
+				fields.has(renamedField(column.field))
+			)
+				places.push(
+					placeOf("menu", m, "case_details", "short", "columns", index),
+				);
+		});
 	}
 	return places;
 }
@@ -1021,7 +1085,7 @@ function unshownMediaPlaces(facts: FirstPublishFacts): string[] {
 		const position = `${place.menu}.${place.form}` as const;
 		const places = [
 			nodePlace(position, `/data/${place.path}`) +
-				placeOf(":itext", ref.role, ref.languageCode, ref.mediaKind),
+				placeOf(":itext", ...ref.role, ref.languageCode, ref.form),
 		];
 		if (!retained.has(ref.path))
 			places.push(placeOf("app", "multimedia_map", ref.path));
@@ -1044,19 +1108,17 @@ function leftOutMediaPlaces(
 }
 
 /** A source map entry is in use even when the slot or logo that names it has no available file. */
-function unusedMediaPaths(facts: FirstPublishFacts): string[] {
+export function unusedMediaEntries(source: HqAppSource, facts: ReadFacts) {
 	// HQ's logo_paths takes the stored value verbatim. ApplicationMediaReference strips surrounding
 	// whitespace from other slots, and remove_unused_mappings compares the actual map keys to those paths.
-	const named = logoPaths(facts.source);
+	const named = logoPaths(source);
 	for (const reference of [
-		...facts.facts.unheldMedia,
-		...facts.facts.mediaReferences,
-		...facts.facts.pendingMedia,
+		...facts.unheldMedia,
+		...facts.mediaReferences,
+		...facts.pendingMedia,
 	])
 		if (reference.slot !== "app_logo") named.add(pythonStrip(reference.path));
-	return (facts.source.multimediaMap ?? [])
-		.map((item) => item.path)
-		.filter((path) => !named.has(path));
+	return (source.multimediaMap ?? []).filter((item) => !named.has(item.path));
 }
 
 /** The menus whose search the shell's `auto_launch` respells (`inactiveAutoLaunchRespelled`). */
@@ -1127,11 +1189,14 @@ function datetimeNodePlaces(
 }
 
 /**
- * The register, in the order of `FIRST_PUBLISH_CHANGE_IDS`. Each entry's doc
+ * The register, in the order of `CURRENT_FIRST_PUBLISH_CHANGE_IDS`. Each entry's doc
  * comment names where the change comes from.
  */
 export const FIRST_PUBLISH_CHANGES: Readonly<
-	Record<FirstPublishChangeId, FirstPublishChange>
+	Record<
+		Exclude<FirstPublishChangeId, "hidden-value-defaults-dropped">,
+		FirstPublishChange
+	>
 > = {
 	/**
 	 * Nova writes every form and setting again in its own spelling
@@ -1327,10 +1392,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"search-today-device-day": {
 		touchesWorkers: true,
 		scope: "reading",
-		applies: rewriteReported("search-today-device-day"),
+		applies: () => false,
 		at: {
 			kinds: ["menu"],
-			places: (facts) => rewritePlaces(facts, "search-today-device-day"),
+			places: () => [],
 		},
 		paths: ["/modules/*/search_config/*"],
 	},
@@ -1350,6 +1415,40 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/modules/*/forms/*/actions", "/_attachments/*"],
 	},
+	/**
+	 * A question's or group's appearance written in Nova's spelling of the
+	 * display settings it read (`xform/appearance.ts::writeFieldAppearance`),
+	 * every runtime reading the two alike (`readDisplaySettings.ts::
+	 * readFieldAppearance`), or dropped where no runtime reads it on that
+	 * control: recorded by `xform/appearances.ts::claimAppearance`
+	 * (`ReadFormFacts.respelledAppearances`, `inertAppearances`).
+	 */
+	"question-display-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: (facts) =>
+			facts.facts.forms.some(
+				(form) =>
+					form.respelledAppearances.length > 0 ||
+					form.inertAppearances.length > 0,
+			),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) =>
+				facts.generatedByForm.flatMap(({ position, form }) =>
+					position === null
+						? []
+						: [...form.respelledAppearances, ...form.inertAppearances].map(
+								(path) =>
+									nodePlace(
+										position,
+										path.startsWith("/") ? path : `/data/${path}`,
+									),
+							),
+				),
+		},
+		paths: ["/_attachments/*"],
+	},
 	/** A search's filter rows cut another way (`hqJson/caseList.ts::projectCaseListForHq`), recorded by `search/rows.ts`. */
 	"search-filter-rows-recut": {
 		touchesWorkers: false,
@@ -1360,6 +1459,17 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			places: (facts) => recordedPlaces(facts, "search-filter-rows-recut"),
 		},
 		paths: ["/modules/*/search_config/default_properties"],
+	},
+	"search-order-direction-signs-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("search-order-direction-signs-respelled"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "search-order-direction-signs-respelled"),
+		},
+		paths: ["/modules/*/search_config/default_properties/*/defaultValue"],
 	},
 	/**
 	 * A sort rule over a property the list doesn't show, written as a hidden
@@ -1382,6 +1492,23 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/short/columns",
 			"/modules/*/case_details/short/sort_elements/*/field",
 			"/modules/*/case_details/short/sort_elements/*/display",
+		],
+	},
+	/** HQ accepts stored legacy related-property text, and its editor keeps
+	 * Translatable Text only on calculated columns. The worker's text and
+	 * ordering are the same with the calculation's generated keys. */
+	"legacy-related-case-text-rekeyed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("legacy-related-case-text-rekeyed"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "legacy-related-case-text-rekeyed"),
+		},
+		paths: [
+			"/modules/*/case_details/short/columns/*",
+			"/modules/*/case_details/long/columns/*",
 		],
 	},
 	/**
@@ -1412,6 +1539,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: [
 			"/modules/*/case_details/short/max_select_value",
+			"/modules/*/case_details/short/persist_tile_on_forms",
 			"/modules/*/case_details/short/sort_elements",
 			"/modules/*/search_config/title_label",
 			"/modules/*/search_config/description",
@@ -1428,6 +1556,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/*/columns/*/enum/*/value",
 			"/modules/*/case_details/*/no_items_text",
 			"/modules/*/case_details/*/select_text",
+			"/modules/*/case_details/short/lookup_field_header",
 			"/modules/*/search_config/search_button_label",
 			"/modules/*/case_details/*/columns/*/enum/*/alt_text",
 		],
@@ -1436,10 +1565,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"search-filter-joined-to-list": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: sameStateRecorded("search-filter-joined-to-list"),
+		applies: () => false,
 		at: {
 			kinds: ["menu"],
-			places: (facts) => recordedPlaces(facts, "search-filter-joined-to-list"),
+			places: () => [],
 		},
 		paths: ["/modules/*/case_details/short/filter"],
 	},
@@ -1447,10 +1576,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"search-restates-list-filter": {
 		touchesWorkers: true,
 		scope: "reading",
-		applies: sameStateRecorded("search-restates-list-filter"),
+		applies: () => false,
 		at: {
 			kinds: ["menu"],
-			places: (facts) => recordedPlaces(facts, "search-restates-list-filter"),
+			places: () => [],
 		},
 		paths: ["/modules/*/search_config/default_properties"],
 	},
@@ -1506,7 +1635,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: (facts) =>
-			facts.doc.connectType !== null &&
+			facts.doc.connectRoles.length > 0 &&
 			facts.source.raw.auto_gps_capture !== true,
 		at: {
 			kinds: ["app", "form-node"],
@@ -1520,26 +1649,33 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/auto_gps_capture"],
 	},
 	/**
-	 * A generated translation key folded into the text it names
-	 * (`reader/assemble.ts::decideGeneratedKeys`): the key leaves `translations`, and the text
-	 * takes its value at each slot `firstPublishPlaces.ts::FOLDED_TEXT_SLOTS` names for its kind.
+	 * A generated translation key the reading read as having no effect (blank, naming no string of
+	 * the app, or the string HQ's build generates there; `reader/assemble.ts::decideGeneratedKeys`):
+	 * Nova words no such key, so it leaves `translations`.
 	 */
-	"translation-overrides-folded": {
+	"unused-translation-keys-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => facts.facts.foldedTranslationKeys.length > 0,
+		applies: (facts) => facts.facts.unusedTranslationKeys.length > 0,
 		at: {
-			kinds: ["app", "menu", "form", "form-part", "form-node"],
+			kinds: ["app", "menu", "form"],
+			// The stored key, and the menu, form or app its built string is of, which the string HQ's
+			// build no longer writes stands at.
 			places: (facts) =>
-				facts.facts.foldedTranslationKeys.flatMap((pointer) => {
+				facts.facts.unusedTranslationKeys.flatMap((pointer) => {
 					const stored = placeOfStoredPointer(facts.positions, pointer);
+					const owner = generatedKeyOwner(placeSteps(pointer).at(-1) ?? "");
 					return [
 						...(stored === null ? [] : [stored]),
-						...placesOfGeneratedKey(placeSteps(pointer).at(-1) ?? ""),
+						owner.kind === "form"
+							? placeOf("form", `${owner.menu}.${owner.form}`)
+							: owner.kind === "menu"
+								? placeOf("menu", owner.menu)
+								: placeOf("app"),
 					];
 				}),
 		},
-		paths: ["/translations/*/*", ...FOLDED_TEXT_PATHS],
+		paths: ["/translations/*/*"],
 	},
 	/** Every app writes `location_fixture_restore: project_default` (`hqShells.ts::applicationShell`). */
 	"location-list-setting-reset": {
@@ -1688,11 +1824,12 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"unused-media-entries-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => unusedMediaPaths(facts).length > 0,
+		applies: (facts) =>
+			unusedMediaEntries(facts.source, facts.facts).length > 0,
 		at: {
 			kinds: ["app"],
 			places: (facts) =>
-				unusedMediaPaths(facts).map((path) =>
+				unusedMediaEntries(facts.source, facts.facts).map(({ path }) =>
 					placeOf("app", "multimedia_map", path),
 				),
 		},
@@ -1716,12 +1853,33 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/forms/*/name",
 			"/name",
 			"/translations/*/app.display.name",
+			"/translations/*/homescreen.title",
 		],
 	},
+	"badge-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("badge-respelled"),
+		at: {
+			kinds: ["menu", "form"],
+			places: (facts) => recordedPlaces(facts, "badge-respelled"),
+		},
+		paths: [
+			"/modules/*/custom_icons",
+			"/modules/*/custom_icons/0/text",
+			"/modules/*/custom_icons/0/xpath",
+			"/modules/*/forms/*/custom_icons",
+			"/modules/*/forms/*/custom_icons/0/text",
+			"/modules/*/forms/*/custom_icons/0/xpath",
+		],
+	},
+
 	/**
-	 * A navigation media map read as the file HQ's build shows in each language
-	 * and written under every language with the switches off
-	 * (`multimedia/navMenuMedia.ts::buildNavMediaDicts`), recorded by
+	 * A navigation media map Nova writes with other paths than HQ stores:
+	 * one read under a "use for all" switch, written as each language's file
+	 * with the switches off (`multimedia/navMenuMedia.ts::buildNavMediaDicts`).
+	 * A sparse map, a blank entry and a former language's file are held as
+	 * stored, so they predict no change. Recorded by
 	 * `menus/navMedia.ts::recordRespelling`.
 	 */
 	"media-maps-respelled": {
@@ -1762,6 +1920,8 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/search_config/properties/*/hint",
 			"/modules/*/search_config/properties/*/required/text",
 			"/modules/*/search_config/properties/*/validations/*/text",
+			"/modules/*/custom_icons/0/text",
+			"/modules/*/forms/*/custom_icons/0/text",
 		],
 	},
 	/**
@@ -1788,28 +1948,40 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/_attachments/*"],
 	},
 	/**
-	 * A Hidden Value whose source holds both a starting value and a
-	 * calculation, where no runtime can read the starting value before the
-	 * calculation replaces it: the reading holds the calculation alone, so the
-	 * form's load-time setvalue goes, and with it the form builder's case load
-	 * of it that HQ's app summary reads. Recorded by
-	 * `reader/xform/afterBinding.ts`.
+	 * A Hidden Value whose bind `type` the source spells another way than the
+	 * one Nova writes for the same answer class (`xsd:integer` for `xsd:int`):
+	 * Core reads both spellings as one data class, and the publish writes
+	 * Nova's. Recorded by `reader/xform/afterBinding.ts::recordHiddenAnswerSpellings`.
 	 */
-	"hidden-value-defaults-dropped": {
+	"hidden-answer-types-respelled": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: sameStateRecorded("hidden-value-defaults-dropped"),
+		applies: sameStateRecorded("hidden-answer-types-respelled"),
 		at: {
-			kinds: ["form-part", "form"],
-			places: (facts) =>
-				recordedForms(facts, "hidden-value-defaults-dropped").flatMap(
-					(position) => [
-						partPlace(position, ":setvalue"),
-						placeOf("form", position, "case_references_data", "load"),
-					],
-				),
+			kinds: ["form-node"],
+			places: (facts) => recordedPlaces(facts, "hidden-answer-types-respelled"),
 		},
-		paths: ["/_attachments/*", "/modules/*/forms/*/case_references_data/load"],
+		paths: ["/_attachments/*"],
+	},
+	/**
+	 * A model iteration's display condition on its container's bind, which the
+	 * form builder discards (`parser.js::parseBindElement`: its question is the
+	 * rows, `modeliteration.js::getPathName`). The publish writes it on the rows
+	 * (`buildQueryRepeat`), so while it is false the submission holds the
+	 * container and its ids where the source left both out
+	 * (`XFormSerializingVisitor.serializeNode`). Recorded by
+	 * `reader/xform/afterBinding.ts::moveContainerConditions`.
+	 */
+	"model-iteration-conditions-moved-to-rows": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: sameStateRecorded("model-iteration-conditions-moved-to-rows"),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) =>
+				recordedPlaces(facts, "model-iteration-conditions-moved-to-rows"),
+		},
+		paths: ["/_attachments/*"],
 	},
 	/**
 	 * A case list's `invisible` column whose sort element has display text, under
@@ -1882,6 +2054,45 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/_attachments/*"],
 	},
+	/**
+	 * A case owner rule the places CommCare HQ holds cannot satisfy, given to
+	 * the worker who fills in the form by the person's answer to the review
+	 * (`projectData/ownerRules.ts::workerOwnerMutations`). No reading gives it
+	 * alone: it applies where the document committed (`doc`) gives such a case
+	 * change to that worker and the reading (`read`) gives it to a place
+	 * (`withAnsweredChanges`, only where an answer stands behind it). It stands at each such change's owner in the
+	 * form's case block, and the stored owner update.
+	 */
+	"owner-rule-given-to-worker": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: (facts) =>
+			facts.read !== undefined && ownerGivenToWorker(facts.read, facts.doc),
+		at: {
+			kinds: ["form-part"],
+			places: (facts) =>
+				reverseHopOwnerChanges(facts.read ?? facts.doc).flatMap(
+					({ formUuid, operation }) => {
+						const position = facts.formPositions.get(formUuid);
+						return position === undefined
+							? []
+							: [
+									blockWritePlace(
+										position,
+										operation.action === "create" ? "create" : "update",
+										"owner_id",
+									),
+								];
+					},
+				),
+		},
+		paths: [
+			"/_attachments/*",
+			"/modules/*/forms/*/actions/update_case/update/owner_id",
+			"/modules/*/forms/*/actions/load_update_cases/*/case_properties/owner_id",
+			"/modules/*/forms/*/actions/open_cases/*/case_properties/owner_id",
+		],
+	},
 };
 
 /**
@@ -1906,6 +2117,8 @@ export function pointerCovers(pattern: string, path: string): boolean {
 /** The one builder of a `FirstPublishFacts`. */
 export function firstPublishFactsOf(input: {
 	readonly source: HqAppSource;
+	readonly lookup: ReaderLookupCatalog;
+	readonly columnFieldWords: readonly ColumnFieldWordRow[];
 	/** The document under the declaration choice being judged. */
 	readonly doc: BlueprintDoc;
 	readonly facts: ReadFacts;
@@ -1937,6 +2150,8 @@ export function firstPublishFactsOf(input: {
 	});
 	return {
 		source: input.source,
+		lookup: input.lookup,
+		columnFieldWords: input.columnFieldWords,
 		doc: input.doc,
 		facts: input.facts,
 		generated: generatedDifference(before, after),
@@ -1953,12 +2168,7 @@ export function firstPublishFactsOf(input: {
 		// Keyed by content: a reading names each of HQ's media documents by a
 		// provisional id and a create by its published one, so two documents of
 		// one content are one asset only under an id their bytes give.
-		media: assignMediaPaths(
-			input.mediaFiles.map((file) => ({
-				...file,
-				assetId: reviewMediaId(file.contentHash),
-			})),
-		),
+		media: readingMediaPaths(input.mediaFiles),
 		mediaClaims: input.mediaClaims,
 		choice: input.choice,
 	};
@@ -1966,7 +2176,7 @@ export function firstPublishFactsOf(input: {
 
 /** Whether a stored list keeps `id`: every id but the two Web Apps lines, which it works out again from
  *  the stored Web App setting alone. */
-export function storedInAList(id: FirstPublishChangeId): boolean {
+export function storedInAList(id: CurrentFirstPublishChangeId): boolean {
 	const entry = FIRST_PUBLISH_CHANGES[id];
 	return entry.scope === "reading" || entry.recorded !== undefined;
 }
@@ -1983,7 +2193,7 @@ export function firstPublishListToStore(
 	facts: ReadFacts,
 ): FirstPublishView {
 	const given = new Set(chosen.ids);
-	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => {
+	const ids = CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) => {
 		const recorded = FIRST_PUBLISH_CHANGES[id].recorded;
 		if (recorded !== undefined) return recorded(facts);
 		return given.has(id) && storedInAList(id);
@@ -1995,11 +2205,52 @@ export function firstPublishListToStore(
 	};
 }
 
+/**
+ * `view`, the list of a reading worked out from `facts`, with each change in
+ * `answered` that `committed`, the document the birth or the bring-in
+ * commits, makes of the reading's own (`facts.doc`). In registry order.
+ *
+ * `answered` names the changes the person's answers stand behind: those the
+ * answers of this request make, and those the list a take replaces already
+ * holds. A change no answer stands behind is never inferred from the two
+ * documents alone, since an author's own edit in Nova can make the same
+ * difference (an owner rule set to the worker in the builder) with no
+ * question asked.
+ */
+export function withAnsweredChanges(
+	view: FirstPublishView,
+	facts: FirstPublishFacts,
+	committed: BlueprintDoc,
+	answered: readonly FirstPublishChangeId[],
+): FirstPublishView {
+	if (committed === facts.doc) return view;
+	const asked: FirstPublishFacts = {
+		...facts,
+		read: facts.doc,
+		doc: committed,
+	};
+	const added = ANSWERED_FIRST_PUBLISH_CHANGES.filter(
+		(id) =>
+			answered.includes(id) &&
+			!view.ids.includes(id) &&
+			FIRST_PUBLISH_CHANGES[id].applies(asked),
+	);
+	if (added.length === 0) return view;
+	const ids = new Set<FirstPublishChangeId>([...view.ids, ...added]);
+	return {
+		...view,
+		ids: FIRST_PUBLISH_CHANGE_IDS.filter((id) => ids.has(id)),
+		touchesWorkers:
+			view.touchesWorkers ||
+			added.some((id) => FIRST_PUBLISH_CHANGES[id].touchesWorkers),
+	};
+}
+
 /** The ids whose `applies` is true, in registry order. */
 export function firstPublishChangesFor(
 	facts: FirstPublishFacts,
 ): FirstPublishView {
-	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) =>
+	const ids = CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) =>
 		FIRST_PUBLISH_CHANGES[id].applies(facts),
 	);
 	return {
@@ -2030,23 +2281,576 @@ export function firstPublishChangePlaces(
 	ids: readonly FirstPublishChangeId[],
 ): readonly FirstPublishChangePlaces[] {
 	const listed = new Set(ids);
-	return FIRST_PUBLISH_CHANGE_IDS.filter((id) => listed.has(id)).map((id) => {
-		const entry = FIRST_PUBLISH_CHANGES[id].at;
-		if ("appWide" in entry) return { id, places: [""] };
-		const places = sortedPlaces(entry.places(facts));
-		if (places.length === 0)
-			throw new Error(
-				`The first-publish change ${id} applies on this reading and its entry names no place it stands at. An entry says where its change stands wherever it applies, from what the reading records of it; look at its at.places in lib/deployment/reading/firstPublishChanges.ts and at what the reading records under the id.`,
-			);
-		for (const place of places) {
-			const kind = firstPublishPlaceKind(place);
-			if (kind === null || kind === "app-wide" || !entry.kinds.includes(kind))
+	return CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) => listed.has(id)).map(
+		(id) => {
+			const entry = FIRST_PUBLISH_CHANGES[id].at;
+			if ("appWide" in entry) return { id, places: [""] };
+			const places = sortedPlaces(entry.places(facts));
+			if (places.length === 0)
 				throw new Error(
-					`The first-publish change ${id} names the place ${JSON.stringify(place)}, which is ${kind === null ? "no place lib/deployment/reading/firstPublishPlaces.ts holds" : `of the kind ${kind}, one its entry does not declare (${entry.kinds.join(", ")})`}. Declare the kind in its at.kinds where the change stands there, or name the place it does stand at.`,
+					`The first-publish change ${id} applies on this reading and its entry names no place it stands at. An entry says where its change stands wherever it applies, from what the reading records of it; look at its at.places in lib/deployment/reading/firstPublishChanges.ts and at what the reading records under the id.`,
 				);
+			for (const place of places) {
+				const kind = firstPublishPlaceKind(place);
+				if (kind === null || kind === "app-wide" || !entry.kinds.includes(kind))
+					throw new Error(
+						`The first-publish change ${id} names the place ${JSON.stringify(place)}, which is ${kind === null ? "no place lib/deployment/reading/firstPublishPlaces.ts holds" : `of the kind ${kind}, one its entry does not declare (${entry.kinds.join(", ")})`}. Declare the kind in its at.kinds where the change stands there, or name the place it does stand at.`,
+					);
+			}
+			return { id, places };
+		},
+	);
+}
+
+/** The proof register also names results in the emitted XML, stored cases and
+ * generated HQ rows. Only a concrete source operand can authorize replacing
+ * its value. A menu, form, attachment or the whole app is never such a slot. */
+function storedSubjectValue(facts: FirstPublishFacts, place: string): unknown {
+	const [root, at, ...rest] = placeSteps(place);
+	if (root === "app" && at && at !== "modules" && at !== "_attachments")
+		return storedAt(facts.source.raw, placeOf(at, ...rest));
+	if (root === "menu" && rest.length && rest[0] !== "forms")
+		return storedAt(facts.source.raw, placeOf("modules", at, ...rest));
+	if (root === "form" && rest.length && rest[0] !== "xform") {
+		const [menu, form] = at.split(".");
+		return storedAt(
+			facts.source.raw,
+			placeOf("modules", menu, "forms", form, ...rest),
+		);
+	}
+	return undefined;
+}
+
+/** Proof locations follow HQ's document order. Review compares the owner the two readings
+ * rematched, so changing a menu or form's position changes only its displayed location. */
+/** A column as what it shows, without the identities a reading mints for it
+ *  and its display rules, which follow the column's position. */
+function columnMeaning(column: Column): unknown {
+	const { uuid: _uuid, ...rest } = column;
+	if ("mapping" in rest)
+		return {
+			...rest,
+			mapping: rest.mapping.map(({ uuid: _row, ...row }) => row),
+		};
+	return rest;
+}
+
+function reviewPlaceOf(facts: FirstPublishFacts) {
+	const forms = new Map(
+		[...facts.formPositions].map(([uuid, position]) => [position, uuid]),
+	);
+	const menus = projectedModulePreorder(facts.doc);
+	const links = new Map(
+		facts.facts.formLinkOwners.map(({ pointer, uuid }) => [pointer, uuid]),
+	);
+	const columnAt = new Map(
+		facts.facts.detailColumnOwners.flatMap((owner) =>
+			[owner.short, owner.long].flatMap((path) =>
+				path ? [[path, owner] as const] : [],
+			),
+		),
+	);
+	const columns = new Map(
+		Object.values(facts.doc.modules).flatMap((menu) =>
+			(menu.caseListConfig?.columns ?? []).map(
+				(column) => [column.uuid, column] as const,
+			),
+		),
+	);
+	const formLinks = new Map(
+		Object.values(facts.doc.forms).flatMap((form) =>
+			formLinkEntries(form).map((entry) => [entry.link.uuid, entry] as const),
+		),
+	);
+	const searchInputs = new Map(
+		Object.values(facts.doc.modules).flatMap((menu) =>
+			(menu.caseListConfig?.searchInputs ?? []).map(
+				(input) => [placeOf(menu.uuid, input.name), input] as const,
+			),
+		),
+	);
+	const slots = new Map<string, readonly string[]>();
+	function rowKeys(
+		menu: string,
+		path: string[],
+		index: string,
+		source: readonly unknown[],
+		key: (value: unknown, index: number) => unknown,
+		distinguish?: (
+			value: unknown,
+			index: number,
+		) => { meaning: unknown; source: unknown },
+		alwaysBind = false,
+	): string {
+		const list = placeOf(menu, ...path);
+		let keys = slots.get(list);
+		if (!keys) {
+			const groups = source.map((item, i) => JSON.stringify(key(item, i)));
+			const repeated = new Set<string>();
+			const seenGroups = new Set<string>();
+			for (const group of groups) {
+				if (seenGroups.has(group)) repeated.add(group);
+				seenGroups.add(group);
+			}
+			const seen = new Map<string, number>();
+			keys = source.map((item, i) => {
+				const group = groups[i];
+				// Identical normalized recipients have no independent identity on
+				// HQ. Keep their occurrence AND exact physical source. Only peers
+				// with distinguishable behavior can carry a receipt across a reorder.
+				const peer =
+					alwaysBind || repeated.has(group)
+						? (distinguish?.(item, i) ?? { meaning: null, source: item })
+						: null;
+				const semantic = peer
+					? canonicalJsonDigest([group, peer.meaning])
+					: group;
+				const ord = seen.get(semantic) ?? 0;
+				seen.set(semantic, ord + 1);
+				return canonicalJsonDigest([semantic, ord, peer?.source ?? null]);
+			});
+			slots.set(list, keys);
 		}
-		return { id, places };
-	});
+		return keys[Number(index)] ?? index;
+	}
+	return (place: string): string => {
+		const [root, position, ...rest] = placeSteps(place);
+		if (root === "form") {
+			if (rest[0] === "form_links" && /^\d+$/.test(rest[1] ?? "")) {
+				const [menu, form] = position.split(".");
+				const pointer = placeOf(
+					"modules",
+					menu,
+					"forms",
+					form,
+					rest[0],
+					rest[1],
+				);
+				const owner = links.get(pointer);
+				if (owner) {
+					if (rest[2] === "datums" && /^\d+$/.test(rest[3] ?? "")) {
+						const rows = asList(
+							storedAt(facts.source.raw, `${pointer}/datums`),
+						);
+						rest[3] = rowKeys(
+							pointer,
+							["datums"],
+							rest[3],
+							rows,
+							(row) => at(row, "name") ?? null,
+						);
+					}
+					const list = placeOf("modules", menu, "forms", form, "form_links");
+					const rows = asList(storedAt(facts.source.raw, list));
+					const linkAt = (index: number) => {
+						const id = links.get(`${list}/${index}`);
+						return id ? formLinks.get(id) : undefined;
+					};
+					rest[1] = rowKeys(
+						list,
+						[],
+						rest[1],
+						rows,
+						(_, i) => linkAt(i)?.link.target ?? null,
+						(row, i) => {
+							const entry = linkAt(i);
+							if (!entry) return { meaning: null, source: row };
+							const { uuid: _uuid, ...meaning } = entry.link;
+							// HQ rekeys form references in every export. The reader has
+							// already resolved them against this reading's target ledger.
+							const {
+								form_id: _form,
+								form_module_id: _menu,
+								module_unique_id: _target,
+								...physical
+							} = asRecord(row);
+							return { meaning: [entry.role, meaning], source: physical };
+						},
+						true,
+					);
+				}
+			}
+			return placeOf(root, forms.get(position) ?? position, ...rest);
+		}
+		if (root !== "menu") return place;
+		const menu =
+			menus[Number(position)] ??
+			facts.source.modules[Number(position)]?.uniqueId ??
+			position;
+		if (
+			rest[0] === "case_details" &&
+			(rest[2] === "columns" || rest[2] === "sort_elements") &&
+			/^\d+$/.test(rest[3] ?? "")
+		) {
+			const path = rest.slice(0, 3);
+			let rows = asList(
+				storedAt(facts.source.raw, placeOf("modules", position, ...path)),
+			);
+			if (
+				!rows[Number(rest[3])] &&
+				rest[1] === "short" &&
+				rest[2] === "columns"
+			) {
+				const mod = facts.doc.modules[menus[Number(position)]];
+				if (mod)
+					rows = [
+						...projectCaseListForHq(mod, facts.doc).caseDetails.short.columns,
+					];
+			}
+			const columnIndex = rest[3];
+			if (rest[4] === "enum" && /^\d+$/.test(rest[5] ?? "")) {
+				const entries = asList(at(rows[Number(columnIndex)], "enum"));
+				rest[5] = rowKeys(
+					menu,
+					[...path, columnIndex, "enum"],
+					rest[5],
+					entries,
+					(entry) => at(entry, "key") ?? null,
+				);
+			}
+			rest[3] = rowKeys(
+				menu,
+				path,
+				columnIndex,
+				rows,
+				(row) => [at(row, "field") ?? null, at(row, "format") ?? null],
+				(row, i) => {
+					const pointer = placeOf("modules", position, ...path, i);
+					const owner = columnAt.get(pointer);
+					const column = owner && columns.get(owner.uuid);
+					if (!owner || !column) return { meaning: null, source: row };
+					const meaning = columnMeaning(column);
+					const other = owner.short === pointer ? owner.long : owner.short;
+					return {
+						meaning,
+						source: [row, other ? storedAt(facts.source.raw, other) : null],
+					};
+				},
+			);
+		} else if (
+			rest[0] === "search_config" &&
+			rest[1] === "properties" &&
+			/^\d+$/.test(rest[2] ?? "")
+		) {
+			const path = rest.slice(0, 2);
+			const rows = asList(
+				storedAt(facts.source.raw, placeOf("modules", position, ...path)),
+			);
+			const name = at(rows[Number(rest[2])], "name");
+			if (
+				rest[3] === "validations" &&
+				rest[4] === "0" &&
+				typeof name === "string"
+			) {
+				// HQ's reader admits one validation per prompt. Its message belongs
+				// to the normalized rule, even if another rule uses the same text.
+				const input = searchInputs.get(placeOf(menu, name));
+				if (input && input.kind !== "hidden")
+					rest[4] = canonicalJsonDigest([
+						"validation",
+						input.validation?.rule ?? null,
+					]);
+			}
+			rest[2] = rowKeys(
+				menu,
+				path,
+				rest[2],
+				rows,
+				(row) => at(row, "name") ?? null,
+			);
+		}
+		return placeOf(root, menu, ...rest);
+	};
+}
+
+/** Resolve the actual source question to every affected case-write slot.
+ * Both the guard and case-value emitter use this view. Other actions of the
+ * form, other cases, and current datetime writers retain their own meaning. */
+function caseWriterSubjects(
+	facts: FirstPublishFacts,
+	result: Map<FirstPublishChangeId, Map<string, string>>,
+	reviewPlace: (place: string) => string,
+) {
+	const names = result.get("case-names-checked");
+	const dates = result.get("date-and-time-saved-as-hq-stores-it");
+	if (!names && !dates) return;
+	const earlierDates = new Map<string, Set<string>>();
+	if (dates)
+		for (const row of facts.facts.sameStateRewrites) {
+			if (row.register !== "date-and-time-saved-as-hq-stores-it") continue;
+			const place = placeOfStoredPointer(facts.positions, row.path);
+			if (!place) continue;
+			const position = placeSteps(place)[1];
+			const fields = earlierDates.get(position) ?? new Set<string>();
+			for (const [kind, field] of row.removedInputs ?? [])
+				if (kind === "datetime-question") fields.add(field);
+			if (fields.size) earlierDates.set(position, fields);
+		}
+	const byPosition = new Map(
+		[...facts.formPositions].map(([id, position]) => [position, id]),
+	);
+	for (const { position, difference } of facts.generatedByForm) {
+		if (position === null) continue;
+		const trimmed = new Set(
+			names
+				? difference.added
+						.filter((node) => node.purpose === "trimmed")
+						.map((node) => node.owner)
+				: [],
+		);
+		const datetime = earlierDates.get(position);
+		const form = byPosition.get(position);
+		if ((!trimmed.size && !datetime) || !form) continue;
+		const locations = collectFieldLocations(facts.doc, form);
+		const operations = new Map(
+			(facts.doc.forms[form]?.caseOperations ?? []).map((op) => [op.uuid, op]),
+		);
+		const reads = readsTrimmedSibling(facts.doc, form);
+		for (const [uuid, views] of formCaseWriteViews(facts.doc, form)) {
+			const field = locations.get(uuid)?.path.toXPath();
+			if (!field || (!trimmed.has(field) && !datetime?.has(field))) continue;
+			const place = nodePlace(position, field);
+			for (const view of views) {
+				const op = operations.get(view.operationUuid);
+				if (!op) continue;
+				const key = canonicalJsonDigest([
+					reviewPlace(place),
+					op.id,
+					op.action,
+					view.slot,
+					view.caseType,
+					view.property,
+					view.via ?? null,
+					view.destination,
+					view.onlyIfChanged,
+				]);
+				if (datetime?.has(field)) dates?.set(key, place);
+				if (
+					trimmed.has(field) &&
+					!view.link &&
+					view.destination !== "worker-record" &&
+					isCaseScalarTextProperty(view.property) &&
+					reads(op.uuid)
+				)
+					names?.set(key, place);
+			}
+		}
+	}
+}
+
+/** The physical recipient of a media loss, independent of proof locations
+ * such as the app's media directory. Keep every shared XForm recipient,
+ * and the concrete native value of a JSON-backed media slot. */
+function mediaSubjects(
+	facts: FirstPublishFacts,
+	result: Map<FirstPublishChangeId, Map<string, string>>,
+	reviewPlace: (place: string) => string,
+) {
+	const mediaChanges = [
+		"media-paths-joined",
+		"media-files-renamed",
+		"unshown-form-media-removed",
+		"broken-pictures-removed",
+		"media-references-with-no-file-removed",
+	] as const;
+	if (!mediaChanges.some((id) => result.has(id))) return;
+	const files = new Map(
+		facts.source.multimediaMap?.map((file) => [file.path, file]),
+	);
+	const storedSlots = new Map<string, string>();
+	const add = (
+		id: FirstPublishChangeId,
+		ref: MediaReferenceAt & MediaRecipients & { readonly slot: string },
+		kind: string,
+		move?: unknown,
+	) => {
+		const subjects = result.get(id);
+		if (!subjects) return;
+		const source =
+			ref.pointer === undefined
+				? null
+				: placeOfStoredPointer(facts.positions, ref.pointer);
+		const place =
+			source ??
+			(ref.place.kind === "question"
+				? nodePlace(
+						`${ref.place.menu}.${ref.place.form}`,
+						`/data/${ref.place.path}`,
+					)
+				: null);
+		if (!place || (!source && !ref.itextRecipients?.length))
+			throw new Error(
+				"A media change has no physical recipient in this reading.",
+			);
+		const file = files.get(ref.path);
+		let storedSlot: string | undefined;
+		if (ref.pointer !== undefined) {
+			storedSlot = storedSlots.get(ref.pointer);
+			if (storedSlot === undefined) {
+				storedSlot = canonicalJsonDigest(
+					storedAt(facts.source.raw, ref.pointer) ?? null,
+				);
+				storedSlots.set(ref.pointer, storedSlot);
+			}
+		}
+		const base = canonicalJsonDigest([
+			reviewPlace(place),
+			ref.slot,
+			kind,
+			ref.path,
+			file?.multimediaId ?? null,
+			file?.mediaType ?? null,
+			move ?? null,
+			ref.shownLanguages ?? null,
+			file?.unreadable
+				? unreadableMediaIdentity(facts.source.raw, ref.path)
+				: null,
+			storedSlot ?? null,
+		]);
+		if (ref.itextRecipients?.length) {
+			for (const recipient of ref.itextRecipients) {
+				subjects.set(canonicalJsonDigest([base, "stored", recipient]), place);
+				subjects.set(
+					canonicalJsonDigest([base, "effective", recipient]),
+					place,
+				);
+			}
+			for (const recipient of ref.inheritedItextRecipients ?? [])
+				subjects.set(
+					canonicalJsonDigest([base, "effective", recipient]),
+					place,
+				);
+		} else subjects.set(base, place);
+	};
+	for (const ref of facts.facts.unheldMedia)
+		add("unshown-form-media-removed", ref, ref.form);
+	for (const claim of facts.mediaClaims)
+		add(
+			claim.brokenPicture
+				? "broken-pictures-removed"
+				: "media-references-with-no-file-removed",
+			claim.reference,
+			claim.reference.kind,
+		);
+	const renamed = new Map(
+		facts.media.rederived.map((move) => [mapPath(move.from), move]),
+	);
+	const joined = new Map(
+		facts.media.collapsed.flatMap((move) =>
+			move.dropped.map(
+				(path) =>
+					[mapPath(path), { kept: move.kept, assetId: move.assetId }] as const,
+			),
+		),
+	);
+	for (const ref of [
+		...facts.facts.mediaReferences,
+		...facts.facts.pendingMedia,
+	]) {
+		const path = mapPath(ref.path);
+		const replacement = renamed.get(path);
+		if (replacement)
+			add("media-files-renamed", ref, ref.mediaKind, replacement);
+		const kept = joined.get(path);
+		if (kept) add("media-paths-joined", ref, ref.mediaKind, kept);
+	}
+}
+
+export function publishChangeSubjects(
+	facts: FirstPublishFacts,
+	ids: readonly FirstPublishChangeId[],
+): ReadonlyMap<FirstPublishChangeId, ReadonlyMap<string, string>> {
+	const result = new Map(ids.map((id) => [id, new Map<string, string>()]));
+	const reviewPlace = reviewPlaceOf(facts);
+	caseWriterSubjects(facts, result, reviewPlace);
+	// These changes have owning reader facts, not proof locations. In
+	// particular /case/... has no corresponding node in the JSON source.
+	const ordinary = ids.filter(
+		(id) =>
+			id !== "case-names-checked" &&
+			id !== "date-and-time-saved-as-hq-stores-it" &&
+			id !== "case-settings-respelled",
+	);
+	for (const { id, places } of firstPublishChangePlaces(facts, ordinary)) {
+		const subjects = new Map<string, string>();
+		result.set(id, subjects);
+		for (const place of places) {
+			const value = storedSubjectValue(facts, place);
+			// Maps and lists at output locations may hold unrelated settings.
+			// The reader records its actual object/list operand below.
+			subjects.set(
+				canonicalJsonDigest([
+					reviewPlace(place),
+					typeof value === "object" ? null : (value ?? null),
+				]),
+				place,
+			);
+		}
+	}
+	const storedOperands = new Map<string, string>();
+	for (const record of facts.facts.sameStateRewrites) {
+		const subjects = result.get(record.register);
+		if (!subjects) continue;
+		const place = placeOfStoredPointer(facts.positions, record.path);
+		if (!place) continue;
+		if (record.removedInputs?.length) {
+			for (const item of record.removedInputs)
+				subjects.set(canonicalJsonDigest([reviewPlace(place), ...item]), place);
+		} else if (!record.path.startsWith("/_attachments/")) {
+			let key = storedOperands.get(place);
+			if (key === undefined) {
+				key = canonicalJsonDigest([
+					reviewPlace(place),
+					storedSubjectValue(facts, place) ?? null,
+				]);
+				storedOperands.set(place, key);
+			}
+			subjects.set(key, place);
+		}
+	}
+	for (const { position, form } of facts.generatedByForm) {
+		const blanks = result.get("blank-translations-filled");
+		if (!blanks || position === null) continue;
+		const place = partPlace(position, ":itext");
+		for (const slot of form.blankTranslationSlots ?? [])
+			blanks.set(canonicalJsonDigest([reviewPlace(place), slot]), place);
+	}
+	for (const rewrite of facts.facts.rewrites) {
+		const id = CURRENT_FIRST_PUBLISH_CHANGE_IDS.find(
+			(item) => item === rewrite.id,
+		);
+		const set = id && result.get(id);
+		if (!set || !rewrite.formExpression) continue;
+		for (const place of placesOfSlot(facts.positions, rewrite))
+			set.set(
+				canonicalJsonDigest([
+					reviewPlace(place),
+					rewrite.key,
+					rewrite.formExpression,
+				]),
+				place,
+			);
+	}
+	mediaSubjects(facts, result, reviewPlace);
+	return result;
+}
+
+/** The input to each registered consequence in one birth review. Generated
+ * spelling alone and the file list a first content import must inspect at its
+ * actual target have no approval at the birth. */
+export function birthPublishSubjects(
+	facts: FirstPublishFacts,
+	view: FirstPublishView,
+) {
+	const ids = firstPublishListToStore(view, facts.facts).ids.filter(
+		(id) =>
+			id !== "forms-and-settings-rewritten" &&
+			id !== "unused-media-entries-removed",
+	);
+	return [...publishChangeSubjects(facts, ids)].map(([id, subjects]) => [
+		id,
+		[...subjects.keys()].sort(),
+	]);
 }
 
 /**
@@ -2098,7 +2902,7 @@ if (REGISTER_REFUSALS.length > 0) throw new Error(REGISTER_REFUSALS.join("\n"));
 /** The kinds of place each entry declares, as the proof lane's copy of the register states them
  *  (`proof/first-publish-changes.json`'s `placeKinds`): `["app-wide"]` for the app-wide entry. */
 export function firstPublishPlaceKindsOf(
-	id: FirstPublishChangeId,
+	id: CurrentFirstPublishChangeId,
 ): readonly FirstPublishPlaceKind[] {
 	const entry = FIRST_PUBLISH_CHANGES[id].at;
 	return "appWide" in entry ? ["app-wide"] : entry.kinds;

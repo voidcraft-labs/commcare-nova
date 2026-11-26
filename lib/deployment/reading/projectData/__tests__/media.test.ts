@@ -124,6 +124,7 @@ describe("hqMediaReferencesOf", () => {
 		["form_audio_label", "tile"],
 		["case_list_icon", "tile"],
 		["case_list_audio_label", "tile"],
+		["case_list_lookup_icon", "lookup-action"],
 		["case_list_registration_icon", "register-action"],
 		["case_list_registration_audio_label", "register-action"],
 		["app_logo", "logo"],
@@ -307,7 +308,7 @@ describe("planHqMedia", () => {
 		expect(out.files[1]?.references).toHaveLength(3);
 	});
 
-	it("lists every one of 501 files and raises the budget finding before any is fetched", () => {
+	it("lists every one of 501 files, past what one in-memory export takes, with no finding", () => {
 		const count = MAX_MEDIA_EXPORT_ASSETS + 1;
 		const paths = Array.from({ length: count }, (_, i) => `jr://file/${i}.png`);
 		const out = plan(
@@ -315,15 +316,7 @@ describe("planHqMedia", () => {
 			paths.map((path, i) => entry(path, "CommCareImage", `id${i}`)),
 		);
 		expect(out.files).toHaveLength(count);
-		expect(out.findings).toEqual([
-			{
-				code: `${E}an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
-				standing: "not-yet",
-				place: { kind: "app" },
-				subject: "media-files",
-				detail: { name: "501 media files (Nova takes 500 in one app)" },
-			},
-		]);
+		expect(out.findings).toEqual([]);
 	});
 
 	it("leaves out what nothing the app runs on draws, and files it under the INERT entry", () => {
@@ -439,9 +432,15 @@ describe("the first-match rule over every slot, declaration and install setting"
 		tile: (kind) => kind === "audio",
 		"list-image": () => false,
 		"register-action": () => false,
+		"lookup-action": () => false,
 		logo: () => false,
 	};
-	const DRAWN_ON_ANDROID = new Set(["form", "choice", "list-image"]);
+	const DRAWN_ON_ANDROID = new Set([
+		"form",
+		"choice",
+		"list-image",
+		"lookup-action",
+	]);
 	/* An icon whose map entry has no usable file id: Web Apps can show a broken picture, and
 	 * it is left out, said by the first publish. */
 	const brokenPicture = (
@@ -458,7 +457,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 		missing: "no-entry" | "no-file",
 	) =>
 		missing === "no-file"
-			? slot !== "choice" && slot !== "unheld-itext"
+			? slot !== "choice" && slot !== "unheld-itext" && slot !== "lookup-action"
 			: slot === "list-image" ||
 				(slot === "form" && (kind === "audio" || kind === "video"));
 	const KINDS: Readonly<
@@ -470,6 +469,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 		tile: ["image", "audio"],
 		"list-image": ["image"],
 		"register-action": ["image", "audio"],
+		"lookup-action": ["image"],
 		logo: ["image"],
 	};
 	const PLACE: Readonly<Record<HqMediaReference["slot"], HqPlace>> = {
@@ -479,6 +479,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 		tile: FORM,
 		"list-image": CASE_LIST,
 		"register-action": CASE_LIST,
+		"lookup-action": CASE_LIST,
 		logo: { kind: "app" },
 	};
 	const DECLARATIONS = [
@@ -544,7 +545,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 								]);
 							cases++;
 						}
-		expect(cases).toBe(14 * 3 * 3 * 2);
+		expect(cases).toBe(15 * 3 * 3 * 2);
 	});
 });
 
@@ -796,14 +797,50 @@ describe("mediaFindings", () => {
 	it("words each verdict with its entry, standing and name", () => {
 		const cases: readonly [HqMediaVerdict, unknown][] = [
 			[
-				{ kind: "over-limit", mediaKind: "image", capBytes: 5 * 1024 * 1024 },
 				{
-					code: `${E}an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
-					standing: "not-yet",
+					kind: "over-limit",
+					mediaKind: "image",
+					capBytes: 64 * 1024 * 1024,
+				},
+				{
+					code: "media-file-too-large",
+					standing: "fix-in-hq",
 					place: { kind: "media", path: "jr://file/a.png" },
-					subject: "media-files",
+					subject: null,
 					detail: {
-						name: "jr://file/a.png (over 5 MB, the most Nova takes for a picture)",
+						name: "jr://file/a.png (over 64 MB, the most Nova reads of a picture)",
+					},
+				},
+			],
+			[
+				{
+					kind: "over-limit",
+					mediaKind: "video",
+					capBytes: 1024 * 1024 * 1024,
+				},
+				{
+					code: "media-file-too-large",
+					standing: "fix-in-hq",
+					place: { kind: "media", path: "jr://file/a.png" },
+					subject: null,
+					detail: {
+						name: "jr://file/a.png (over 1 GB, the most Nova reads of a video)",
+					},
+				},
+			],
+			[
+				{
+					kind: "refused",
+					reason: "picture-too-many-pixels",
+					sniffedMime: "image/png",
+				},
+				{
+					code: "media-picture-too-many-pixels",
+					standing: "fix-in-hq",
+					place: { kind: "media", path: "jr://file/a.png" },
+					subject: null,
+					detail: {
+						name: "jr://file/a.png (more than 178,956,970 pixels)",
 					},
 				},
 			],
@@ -1043,7 +1080,7 @@ describe("mediaFindings", () => {
 			runsOn: ["web-apps", "android"],
 		});
 		expect(out.findings.map((finding) => finding.code)).toEqual([
-			`${E}an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+			"media-file-too-large",
 			`${E}image-tiff-heif`,
 		]);
 		expect(out.complete).toBe(true);

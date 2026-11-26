@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
@@ -39,6 +40,7 @@ import {
 import {
 	createLookupTableTool,
 	editLookupColumnsTool,
+	getLookupTableRowsInputSchema,
 	LOOKUP_TOOL_MAX_CREATED_IDENTITIES,
 	LOOKUP_TOOL_RESULT_MAX_BYTES,
 	removeLookupTableTool,
@@ -179,6 +181,55 @@ describe("lookup shared-tool output bounds", () => {
 		}
 	});
 
+	it("pages every row and occurrence detail by stable identity when their metadata spans results", async () => {
+		const details = Array.from({ length: 180 }, (_, i) => ({
+			id: lookupMemberIdSchema.parse(rawId(i + 3100)),
+			wireName: `word_${i}`,
+			label: "界".repeat(100),
+		}));
+		const column = {
+			id: columnId(3000),
+			label: "Translations",
+			wireName: "names",
+			dataType: "text" as const,
+			repeated: true as const,
+			properties: details,
+			index: "unobserved" as const,
+		};
+		mocks.readCatalog.mockResolvedValue({
+			projectId: "project-1",
+			projectRevision: REVISION,
+			definitions: [
+				{
+					id: TABLE_ID,
+					name: "Clinics",
+					tag: "clinics",
+					columns: [column],
+					attributes: details.map((member, i) => ({
+						...member,
+						id: lookupMemberIdSchema.parse(rawId(i + 3400)),
+					})),
+					definitionRevision: REVISION,
+				},
+			],
+		});
+		const { segments, pages } = await readAllSegments();
+		expect(pages).toBeGreaterThan(1);
+		expect(segments.flatMap((segment) => segment.columns)).toMatchObject([
+			{ id: column.id, repeated: true, index: "unobserved" },
+		]);
+		const all = segments.flatMap((segment) => segment.details ?? []);
+		expect(
+			all
+				.filter((member) => member.columnId === column.id)
+				.map((member) => member.id),
+		).toEqual(details.map((member) => member.id));
+		expect(all.filter((member) => member.columnId === undefined)).toHaveLength(
+			180,
+		);
+		expect(new Set(all.map((member) => member.id)).size).toBe(360);
+	});
+
 	it("marks every segment of a table CommCare HQ manages, and no table Nova manages", async () => {
 		const origin: LookupHqOrigin = {
 			server: "india",
@@ -245,6 +296,71 @@ describe("lookup shared-tool output bounds", () => {
 		]);
 		for (const segment of others)
 			expect(segment).not.toHaveProperty("managed_in_commcare_hq");
+	});
+
+	it.each([
+		{ inventory: "unavailable", distribution: "global" },
+		{ inventory: "complete", distribution: "assigned" },
+		{ inventory: "complete", distribution: "global", storage: "generation" },
+	] as const)(
+		"omits physical row metrics for protected sources %#",
+		async (source) => {
+			const base = hugeCatalog("project-1");
+			const table = base.definitions[0];
+			mocks.readCatalog.mockResolvedValue({
+				...base,
+				definitions: [
+					{
+						...table,
+						rowCount: 17,
+						dataBytes: 2850,
+						hq: {
+							managedBy: "commcare-hq",
+							domain: "health",
+							refreshedAt: "2026-10-01T00:00:00Z",
+							source: { ...source, indexEvidence: "unobserved" },
+						},
+					},
+				],
+			});
+			const { segments } = await readAllSegments();
+			for (const item of segments) {
+				expect(item.rowsRequireSourceAccess).toBe(true);
+				expect(item).not.toHaveProperty("rowCount");
+				expect(item).not.toHaveProperty("dataBytes");
+				expect(item.managed_in_commcare_hq).toMatchObject({
+					inventory: source.inventory,
+					distribution: source.distribution,
+				});
+			}
+		},
+	);
+	it("requires a single addressed read so no row or review request is ignored", () => {
+		const tableId = TABLE_ID,
+			readerPage = { offset: 0 };
+		const valueSlice = {
+			rowId: rowId(1),
+			slot: { kind: "cell", columnId: columnId(1) },
+			expectedTableRevision: REVISION,
+		};
+		expect(
+			getLookupTableRowsInputSchema.safeParse({ tableId, valueSlice }).success,
+		).toBe(true);
+		expect(
+			getLookupTableRowsInputSchema.safeParse({ tableId, readerPage }).success,
+		).toBe(true);
+		for (const extra of [
+			{ query: "clinic" },
+			{ rowId: rowId(2) },
+			{ valueSlice },
+		])
+			expect(
+				getLookupTableRowsInputSchema.safeParse({
+					tableId,
+					readerPage,
+					...extra,
+				}).success,
+			).toBe(false);
 	});
 
 	it("rejects a catalog cursor reused by another Project at the same revision", async () => {

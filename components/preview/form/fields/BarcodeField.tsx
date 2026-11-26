@@ -2,12 +2,19 @@
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import {
 	BarcodeScanner,
+	type BarcodeScanSupport,
 	useBarcodeScanSupport,
 } from "@/components/preview/shared/BarcodeScanner";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { BarcodeField as BarcodeFieldEntity } from "@/lib/domain";
+import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
+import {
+	useEditMode,
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
 
 interface BarcodeFieldProps {
@@ -31,9 +38,14 @@ interface BarcodeFieldProps {
  * Search field uses (`BarcodeScanner`), as Android's barcode widget scans
  * or takes typed text (`lib/preview/platform.ts`, `barcodeQuestion`). The
  * scanner shows only where the browser can scan; elsewhere a line says so
- * and typing stays available. Edit mode draws the text box alone.
+ * and typing stays available. Android takes the scanned text alone unless the
+ * question lets the worker edit it (`BarcodeWidget.java`, `editable`), so the
+ * box is read-only where Preview can scan; where the browser cannot, typing
+ * stands in for the scan, since nothing else could answer the question. Edit
+ * mode draws the text box alone.
  */
 export function BarcodeField({
+	field,
 	state,
 	labelledBy,
 	questionLabel,
@@ -43,12 +55,27 @@ export function BarcodeField({
 	const isEditMode = useEditMode() === "edit";
 	const rules = usePreviewPlatformRules();
 	const scans = !isEditMode && rules.barcodeQuestion === "scan-or-text";
+	const support = useBarcodeScanSupport();
+	const platform = usePreviewPlatform();
+	const project = useProseProjection();
+	const hint = field.extended_hint ?? field.hint;
 	const showError = state.touched && !state.valid;
 	return (
 		<div>
 			<div className="flex items-start gap-2">
 				<input
 					type="text"
+					inputMode={usesNumberKeypad(field, platform) ? "tel" : undefined}
+					placeholder={
+						rules.hintPlacement === "as-authored" &&
+						field.hintPlacement === "placeholder" &&
+						hint
+							? (state.resolvedHint ?? project(hint))
+							: undefined
+					}
+					readOnly={
+						scans && support.kind !== "unsupported" && !field.canEditScan
+					}
 					aria-labelledby={labelledBy}
 					aria-invalid={showError || undefined}
 					value={state.value}
@@ -62,7 +89,9 @@ export function BarcodeField({
 				/>
 				{scans ? (
 					<BarcodeScan
+						support={support}
 						label={questionLabel ?? ""}
+						openOnMount={!!field.scanOnOpen && !state.value}
 						onScan={(value) => {
 							onChange(value);
 							onBlur();
@@ -78,18 +107,22 @@ export function BarcodeField({
 }
 
 function BarcodeScan({
+	support,
+	openOnMount,
 	label,
 	onScan,
 }: {
+	readonly support: BarcodeScanSupport;
 	readonly label: string;
+	readonly openOnMount: boolean;
 	readonly onScan: (value: string) => void;
 }) {
 	const { language } = useBuilderLanguage();
-	const support = useBarcodeScanSupport();
 	if (support.kind === "supported")
 		return (
 			<BarcodeScanner
 				label={label}
+				openOnMount={openOnMount}
 				scanLabel={runtimeMessage(language, "scanBarcode")}
 				support={support}
 				onScan={onScan}

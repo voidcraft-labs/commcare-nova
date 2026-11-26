@@ -1,3 +1,5 @@
+import { generatedFormInstances, sourceFactories } from "../sourceFactories";
+import { builtFormInstanceSources } from "./buildInstances";
 /**
  * The form reader: each form's source read into the draft's fields (stage 3),
  * then each field minted in document order and its expressions registered for
@@ -9,19 +11,24 @@
 import type { Element } from "domhandler";
 import { cloneNode, isTag } from "domhandler";
 import type { FieldKind, Uuid } from "@/lib/domain";
-import type { FormStructureConnect } from "@/lib/domain/expression/formStructure";
 import type {
 	FieldExpressionSlotRef,
 	ItextUnit,
 	ProseSlotRef,
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
+import { formBehaviorRoles } from "@/lib/domain/forms";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { activeActions, isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
+import {
+	activeActions,
+	isMultiSelectMenu,
+	menuMayLoadRegistryCase,
+} from "../../hq/publishedCaseBlocks";
 import {
 	type GeneratedNodePurpose,
 	generatedBaseName,
 } from "../../xform/generatedNodes";
+import { behaviorWireIds } from "../../xform/itextIds";
 import { splitName } from "../../xmlNamespaces";
 import { heldXmlParse } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
@@ -37,10 +44,15 @@ import { placeKey, whereText } from "../place";
 import { dateRangeGuesses } from "../search/dateRangeGuesses";
 import type { ReadGeneratedNode } from "../types";
 import type { XmlCursor } from "../xmlCursor";
+import {
+	claimAndroidApp,
+	mintAndroidApp,
+	type ReadAndroidApp,
+} from "./androidApp";
 import type { AppearanceForm } from "./appearances";
 import { type ControlNode, readControls } from "./body";
 import { X } from "./claims";
-import { CONNECT_READS, readConnectBlocks, readConnectType } from "./connect";
+import { readConnectBlocks, readConnectRoles } from "./connect";
 import { labelCarriesMedia, readContainers, rootSections } from "./containers";
 import {
 	absolutePath,
@@ -49,7 +61,12 @@ import {
 	datetimeSpelling,
 	isAllocatedName,
 } from "./generated";
-import { EMPTY_ITEXT_TABLE, type ItextTable, readItext } from "./itext";
+import {
+	EMPTY_ITEXT_TABLE,
+	type ItextTable,
+	pragmaClaim,
+	readItext,
+} from "./itext";
 import { joinForm, registerGeneratedUses } from "./join";
 import { pendingLogic } from "./logic";
 import { readMediaForms } from "./media";
@@ -73,7 +90,7 @@ import {
 	parseXFormSource,
 	type RefusedSource,
 } from "./parse";
-import { readText, rememberFormText, unitOf } from "./prose";
+import { formText, readText, rememberFormText, unitOf } from "./prose";
 import {
 	type FormRefusals,
 	refusingCursor,
@@ -128,17 +145,19 @@ export interface ReadSaveToCaseBlock {
 	readonly setvalues: readonly SetvalueFacts[];
 	/** Its ancestors between its scope and itself, outermost first, each a `case-region` node. */
 	readonly wrappers: readonly DataNode[];
+	/** An ordinary root, group or repeat holds the block among its submitted fields. */
+	readonly authoredScopeLength?: number;
 	/** The refusal of the data tree that covers the block (two siblings of one name in it or
 	 *  at it), which has claimed it with its binds and setvalues: the case management stage
 	 *  reads nothing of it and refuses what stands around it for it alone under that refusal. */
 	readonly refusal?: NodeRefusal;
 }
 
-/** One Connect element, read here and listed for the case management stage's `connectType`. */
+/** A positioned Connect activity and the source wrapper used to account for its role. */
 export interface ReadConnectBlock {
 	readonly block: "learn_module" | "assessment" | "deliver_unit" | "task";
 	readonly id: string;
-	readonly path: readonly string[];
+	readonly node: DataNode;
 }
 
 /** One expression read from a field's source, registered once the field has its UUID. */
@@ -147,6 +166,10 @@ export interface DraftExpression {
 	readonly slot: FieldExpressionSlotRef["slot"] | ProseSlotRef["slot"];
 	/** For a choice's label, the option's position in the field's inline options. */
 	readonly option?: number;
+	readonly androidAppInput?: {
+		readonly name: string;
+		readonly occurrence: number;
+	};
 	/** HQ's text, as the source holds it. */
 	readonly text: string;
 	/** The node it was read from. */
@@ -158,15 +181,24 @@ export interface DraftExpression {
 	readonly event?: DefaultEvent;
 	/** A text whose uses alone the expression stage claims (`PendingExpression.usesOnly`). */
 	readonly usesOnly?: true;
+	readonly translatedOutput?: true;
 }
 
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
 export interface DraftField {
+	androidApp?:
+		| { readonly kind: "open-app"; readonly app: ReadAndroidApp }
+		| { readonly kind: "use-question"; readonly source: DraftField };
 	readonly node: DataNode;
 	/** A root Question List becomes a section once the form's root is known. */
 	kind: FieldKind;
 	readonly id: string;
 	readonly parent: DraftField | null;
+	/** The submitted parent, resolved after all controls have been read. */
+	dataParent: DraftField | null;
+	/** The value stands under a group the form designer can't keep it under
+	 *  (`join.ts`): refused, so it carries no placement. */
+	dataParentRefused?: true;
 	/** True for the stand-in of a question that got a finding; never in a returned document. */
 	readonly standIn: boolean;
 	/** The refusal a stand-in got (its kind's, its repeat's, or its data node's), which covers
@@ -256,11 +288,12 @@ export interface ReadXForm {
 	readonly caseRegion: readonly DataNode[];
 	/** Every Save to Case block of the form, in document order, wherever it stands. */
 	readonly saveToCaseBlocks: readonly ReadSaveToCaseBlock[];
+	attachCaseChange(node: DataNode, operationUuid: Uuid): void;
 	readonly connectBlocks: readonly ReadConnectBlock[];
-	readonly connect: FormStructureConnect;
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly readSources: ReadonlyMap<string, string>;
 	/** The instance ids a choice list's lookup itemset reads. */
 	readonly carrierInstances: ReadonlySet<string>;
 	/** Set by `mintFields`. */
@@ -268,6 +301,9 @@ export interface ReadXForm {
 	/** The data path of every control whose appearance was accounted under an inert entry, in
 	 *  body order: what `ReadFormFacts.inertAppearances` lists. */
 	readonly inertAppearances: readonly string[];
+	/** The data path of every control whose appearance's settings Nova writes in another spelling,
+	 *  in body order: what `ReadFormFacts.respelledAppearances` lists. */
+	readonly respelledAppearances: readonly string[];
 	/** Each select's case choices, which stage 10 settles over the bound filter. */
 	readonly caseChoices: ReadonlyMap<DraftField, CaseChoicesProposal>;
 	/** The model-iteration repeats, which stage 10 holds to where model iteration is held. */
@@ -296,16 +332,23 @@ function saveToCaseBlocks(
 		.map((node) => {
 			const refusal = tree.refused.get(node);
 			let repeat: DraftField | null = null;
+			let authoredScopeLength = 0;
 			const wrappers: DataNode[] = [];
 			for (let at = node.parent; at !== null; at = at.parent) {
 				const role = roles.get(at);
 				if (role?.kind === "case-region") wrappers.unshift(at);
 				else if (role?.kind === "query-row") {
 					repeat = role.repeat;
+					authoredScopeLength = at.path.length;
 					break;
 				} else if (role?.kind === "field") {
-					if (role.field.kind === "repeat") repeat = role.field;
-					break;
+					if (role.field.kind === "repeat") {
+						repeat = role.field;
+						authoredScopeLength = at.path.length;
+						break;
+					}
+					if (role.field.kind !== "group" && role.field.kind !== "section")
+						break;
 				}
 			}
 			return {
@@ -319,6 +362,7 @@ function saveToCaseBlocks(
 					(one) => one.target !== undefined && under(node.path, one.target),
 				),
 				wrappers,
+				...(wrappers.length === 0 && { authoredScopeLength }),
 				...(refusal === undefined ? {} : { refusal }),
 			};
 		});
@@ -381,6 +425,8 @@ function readForm(
 		intentIds: root === undefined ? new Set() : intentIdsOf(root),
 	});
 	if ("refused" in parsed) return parsed;
+	if (parsed.dataRoot.name !== "data")
+		form.form.dataRootName = parsed.dataRoot.name;
 	if (parsed.ignore.includes("markdown")) form.form.plainText = true;
 	const tree = readDataTree(
 		parsed,
@@ -406,7 +452,6 @@ function readForm(
 	);
 	const setvalues = readSetvalues(parsed, tree);
 	const instanceSources = readInstances(parsed, cursor, formPlace);
-	const carrierInstances = new Set<string>();
 	const controls = readControls({
 		parsed,
 		tree,
@@ -415,6 +460,47 @@ function readForm(
 		accounting,
 		formPlace,
 	});
+	const uploads = new Set(
+		controls.all
+			.filter((control) => control.tag === "upload")
+			.map((control) => control.element.attribs.ref),
+	);
+	const buildInstances = generatedFormInstances(ctx.input, form, uploads);
+	// The case/meta builder uses literal local IDs and never replaces a
+	// declaration. selected_cases is supplied for authored expressions only.
+	for (const instance of parsed.instances) {
+		const required = buildInstances.get(instance.id);
+		if (
+			required !== undefined &&
+			instance.id !== "selected_cases" &&
+			instance.src !== required
+		) {
+			accounting.circumstance("form-data-source-conflict", formPlace, {
+				name: instance.id,
+			});
+		}
+	}
+	const readSources = builtFormInstanceSources(
+		parsed,
+		ctx.input.source,
+		instanceSources,
+		sourceFactories(ctx.input),
+		buildInstances,
+		(id) =>
+			accounting.circumstance("unbuildable-data-source-name", formPlace, {
+				name: id,
+			}),
+		ctx.input.observeFactory &&
+			((profile) => (kind, id) =>
+				ctx.input.observeFactory?.(kind, id, {
+					menu: form.menu,
+					form: form.index,
+					xmlns: form.xmlns,
+					profile,
+				})),
+	);
+	const carrierInstances = new Set<string>();
+
 	const intents: AppearanceForm = {
 		intents: new Set(
 			parsed.head.children
@@ -450,15 +536,28 @@ function readForm(
 		setvalues,
 		controls,
 		cursor,
+		refusals,
 		accounting,
 		formPlace,
 		lookup: ctx.input.lookup,
-		instanceSources,
+		instanceSources: readSources,
 		intents,
 		unreadTable: (table) => ctx.facts.unreadTables.push(table),
 		carrierRead: (id) => carrierInstances.add(id),
 		target: ctx.input.target,
 	});
+	const connectBlocks = readConnectBlocks({
+		parsed,
+		order: tree.order,
+		roles: joined.roles,
+		binds: binds.byNode,
+		cursor,
+		accounting,
+		formPlace,
+		attachActivity: joined.attachActivity,
+		refusals,
+	});
+
 	const sectioned = rootSections({
 		root: joined.childrenOf(null),
 		binds: binds.byNode,
@@ -467,6 +566,7 @@ function readForm(
 			field.control !== undefined && labelCarriesMedia(field.control, parsed),
 	});
 	const inertAppearances = [...joined.inertAppearances];
+	const respelledAppearances = [...joined.respelledAppearances];
 	readContainers({
 		cursor,
 		accounting,
@@ -478,6 +578,7 @@ function readForm(
 		placeOf: (field) => field.place,
 		intents,
 		inertAppearance: (path) => inertAppearances.push(path),
+		respelledAppearance: (path) => respelledAppearances.push(path),
 	});
 	const bodyIndex = new Map<string, number>();
 	for (const field of joined.fields)
@@ -486,9 +587,8 @@ function readForm(
 				field.node.path.join("/"),
 				controls.all.indexOf(field.control),
 			);
-	inertAppearances.sort(
-		(a, b) => (bodyIndex.get(a) ?? 0) - (bodyIndex.get(b) ?? 0),
-	);
+	for (const paths of [inertAppearances, respelledAppearances])
+		paths.sort((a, b) => (bodyIndex.get(a) ?? 0) - (bodyIndex.get(b) ?? 0));
 
 	// A finding on a node stands at the nearest question, else at the form: a data node, its
 	// bind, its control and its setvalues stand for it, and a generated node for its owner.
@@ -560,18 +660,6 @@ function readForm(
 			return undefined;
 		},
 	});
-	const connect = readConnectBlocks({
-		parsed,
-		order: tree.order,
-		roles: joined.roles,
-		binds: binds.byNode,
-		cursor,
-		accounting,
-		formPlace,
-		formUuid: form.uuid,
-		refusals,
-	});
-
 	const caseRegion = tree.order.filter(
 		(node) => joined.roles.get(node)?.kind === "case-region",
 	);
@@ -675,6 +763,7 @@ function readForm(
 				entry: DATETIME_SIBLING_ENTRY,
 				path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
 				register: "date-and-time-saved-as-hq-stores-it",
+				removedInputs: [["datetime-question", ownerPath.toXPath()]],
 			});
 		}
 	};
@@ -736,6 +825,7 @@ function readForm(
 		binds: binds.byNode,
 		setvalues,
 		childrenOf: joined.childrenOf,
+		attachCaseChange: joined.attachCaseChange,
 		candidates,
 		settle,
 		generated,
@@ -748,17 +838,17 @@ function readForm(
 			binds.byNode,
 			setvalues,
 		),
-		connectBlocks: connect.blocks,
-		connect: connect.connect,
+		connectBlocks,
 		itext: itext ?? EMPTY_ITEXT_TABLE,
 		instanceSources,
+		readSources,
 		carrierInstances,
 		sourceNames: undefined,
 		inertAppearances,
+		respelledAppearances,
 		caseChoices: joined.caseChoices,
 		modelIterations: new Set(joined.modelIterations.keys()),
 	};
-	CONNECT_READS.set(xform, connect);
 	if (text !== undefined) {
 		rememberFormText(xform, text);
 		readMediaForms(ctx, xform);
@@ -788,7 +878,16 @@ function appendedRootNames(
 	const multi =
 		module !== undefined &&
 		isMultiSelectMenu({ case_details: module.json.peek("case_details") });
-	if (active.size > 0 && !(requires === "none" && !opens) && (!multi || opens))
+	const registry =
+		module !== undefined &&
+		menuMayLoadRegistryCase({
+			search_config: module.json.peek("search_config"),
+		});
+	if (
+		active.size > 0 &&
+		!(requires === "none" && !opens) &&
+		((!multi && !registry) || opens)
+	)
 		names.add("case");
 	if (active.has("usercase_update")) names.add("commcare_usercase");
 	return names;
@@ -823,8 +922,11 @@ const FORMS_PER_STEP = 100;
 export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 	const attachments = applicationReading(ctx)?.attachments?.value;
 	let read = 0;
+	const refused = new Map<Uuid, RefusedSource>();
 	for (const module of ctx.draft.modules)
 		for (const form of [...module.forms]) {
+			// A second entry reads its parent's source; it has none of its own.
+			if (form.docType === "ShadowForm") continue;
 			if (read > 0 && read % FORMS_PER_STEP === 0) yield;
 			read += 1;
 			const readId =
@@ -845,15 +947,28 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 				// is (`structure.ts`): nothing else of it is read, so the one finding stands alone.
 				form.json.refuseWhole(reading.refused, reading.detail);
 				module.forms.splice(module.forms.indexOf(form), 1);
+				refused.set(form.uuid, reading);
 			});
 		}
-	readConnectType(ctx);
+	// A second entry opens its parent's source, so a source refused whole
+	// refuses each entry that opens it under the same refusal.
+	for (const module of ctx.draft.modules)
+		for (const form of [...module.forms]) {
+			const parent = form.form.shadowOf?.form;
+			const refusal = parent === undefined ? undefined : refused.get(parent);
+			if (form.docType !== "ShadowForm" || refusal === undefined) continue;
+			ctx.writeDraft(() => {
+				form.json.refuseWhole(refusal.refused, refusal.detail);
+				module.forms.splice(module.forms.indexOf(form), 1);
+			});
+		}
+	readConnectRoles(ctx);
 }
 
 /** A field's ids from the form's root, a query repeat's row left out: its identity key's path. */
 function fieldPath(field: DraftField): string[] {
 	const path: string[] = [];
-	for (let at: DraftField | null = field; at !== null; at = at.parent)
+	for (let at: DraftField | null = field; at !== null; at = at.dataParent)
 		path.unshift(at.id);
 	return path;
 }
@@ -909,7 +1024,46 @@ export function mintFields(ctx: ReadContext): void {
 								"xform:select1/item/value",
 							);
 				}
+				const byNode = new Map(fields.map((field) => [field.node, field]));
+				const refusedActions = new Set<DraftField>();
+				// A second invoking question can come before the question that
+				// owns its action, so settle every owner before binding users.
 				for (const field of fields) {
+					if (
+						field.androidApp?.kind === "open-app" &&
+						!mintAndroidApp(field, byNode)
+					) {
+						refusedActions.add(field);
+					}
+				}
+				for (const field of fields) {
+					const app = field.androidApp;
+					if (app && field.control) {
+						const refused =
+							refusedActions.has(field) ||
+							(app.kind === "use-question" &&
+								(refusedActions.has(app.source) ||
+									!mintAndroidApp(field, byNode)));
+						const appearance = {
+							element: field.control.element,
+							attribute: "appearance",
+						};
+						if (refused)
+							xform.cursor.refuse(
+								appearance,
+								X.androidAppRefused.appearance,
+								field.place,
+							);
+						else {
+							const claim =
+								app.kind === "open-app"
+									? X.kind.androidApp.appearance
+									: X.androidAppAnswer;
+							if (claim) xform.cursor.take(appearance, claim).value;
+						}
+						if (app.kind === "open-app")
+							claimAndroidApp(xform.cursor, app.app, field, !refused);
+					}
 					const uuid = field.uuid;
 					if (uuid === undefined) continue;
 					field.field.uuid = uuid;
@@ -923,7 +1077,12 @@ export function mintFields(ctx: ReadContext): void {
 								mode: expression.mode,
 								place: field.place,
 								key: expression.key,
-								...(expression.usesOnly === true && { usesOnly: true }),
+								...((expression.usesOnly === true ||
+									(expression.slot === "android_app_input" &&
+										refusedActions.has(field))) && { usesOnly: true }),
+								...(expression.translatedOutput === true && {
+									translatedOutput: true,
+								}),
 							},
 							expression.at,
 							expression.event === undefined
@@ -932,6 +1091,39 @@ export function mintFields(ctx: ReadContext): void {
 						);
 					}
 				}
+				// A parent may appear later in the body, so materialize data
+				// placement only after all identities have been minted.
+				for (const field of fields) {
+					if (
+						field.control === undefined ||
+						field.dataParentRefused === true ||
+						field.dataParent === field.parent ||
+						field.dataParent === null
+					)
+						continue;
+					const parent = field.dataParent.uuid;
+					if (parent !== undefined)
+						field.field.submissionPlacement = { parent };
+				}
+				// A pragma text HQ keeps is the form's behavior: the first slot
+				// that references it carries it, every other slot shares it.
+				const text = formText(xform)?.itext;
+				if (text)
+					for (const role of formBehaviorRoles) {
+						const id = behaviorWireIds[role];
+						const owners = text.owners(id);
+						if (!owners.length || pragmaClaim(text, id).use !== "take")
+							continue;
+						const [carrier, ...alsoUsedBy] = owners.map(unitOf);
+						if (
+							carrier === undefined ||
+							!alsoUsedBy.every((unit) => unit !== undefined)
+						)
+							continue;
+						form.form[role] = alsoUsedBy.length
+							? { carrier, alsoUsedBy }
+							: { carrier };
+					}
 				xform.sourceNames = sourceNames(xform, fields);
 			});
 		}
@@ -944,7 +1136,19 @@ function draftExpressionRef(
 	uuid: Uuid,
 	expression: DraftExpression,
 ): SlotContextRef | undefined {
-	if (expression.slot !== "option_label")
+	if (expression.slot === "android_app_input")
+		return (
+			expression.androidAppInput && {
+				entity: "field",
+				uuid,
+				slot: expression.slot,
+				member: expression.androidAppInput,
+			}
+		);
+	if (
+		expression.slot !== "option_label" &&
+		expression.slot !== "option_extended_text"
+	)
 		return { entity: "field", uuid, slot: expression.slot } as SlotContextRef;
 	const source = field.field.optionsSource as
 		| { options?: readonly { uuid?: Uuid }[] }
@@ -955,7 +1159,7 @@ function draftExpressionRef(
 			: source?.options?.[expression.option]?.uuid;
 	return optionUuid === undefined
 		? undefined
-		: { entity: "field", uuid, slot: "option_label", member: { optionUuid } };
+		: { entity: "field", uuid, slot: expression.slot, member: { optionUuid } };
 }
 
 function sourceNames(
@@ -1072,6 +1276,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 	const sourceNames = new Map<Uuid, ReadSourceNames>();
 	const itextUnits = new Map<Uuid, ReadonlyMap<string, ItextUnit>>();
 	const instanceSources = new Map<Uuid, ReadonlyMap<string, string>>();
+	const formReadSources = new Map<Uuid, ReadonlyMap<string, string>>();
 	const generatedValues = new Map<Uuid, ReadonlyMap<string, GeneratedValue>>();
 	const operationIdPaths = new Map<Uuid, ReadonlyMap<string, Uuid>>();
 	const formPlaces = new Map<Uuid, HqPlace>();
@@ -1087,6 +1292,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 			if (xform.sourceNames !== undefined)
 				sourceNames.set(form.uuid, xform.sourceNames);
 			instanceSources.set(form.uuid, xform.instanceSources);
+			formReadSources.set(form.uuid, xform.readSources);
 			generatedValues.set(form.uuid, xform.generatedValues);
 			const units = new Map<string, ItextUnit>();
 			for (const id of xform.itext.ids()) {
@@ -1098,9 +1304,11 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		}
 	return {
 		lookup: ctx.input.lookup.definitions,
+		factories: sourceFactories(ctx.input),
 		sourceNames,
 		itextUnits,
 		instanceSources,
+		formReadSources,
 		generatedValues,
 		operationIdPaths,
 		recordDialect: ctx.input.recordDialect,

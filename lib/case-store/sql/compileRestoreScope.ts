@@ -56,6 +56,7 @@ import {
 	type AliasableExpression,
 	type Kysely,
 	type RawBuilder,
+	type SelectQueryBuilder,
 	sql,
 } from "kysely";
 import type { Database } from "./database";
@@ -88,6 +89,12 @@ export interface RestoreScopeQuery {
 	 * from it. Every existing filter, sort key, and join stays where it is.
 	 */
 	readonly creator: Kysely<Database>;
+	/** Start a complete-device read with each live identity exactly once. */
+	readonly liveRows: SelectQueryBuilder<
+		Database & { live: { case_id: string } },
+		"live",
+		Record<never, never>
+	>;
 	/**
 	 * Restrict one `cases` row source to the closure.
 	 *
@@ -143,7 +150,7 @@ export function buildRestoreScope(
 	db: Kysely<Database>,
 	args: RestoreScopeArgs,
 ): RestoreScopeQuery {
-	const { appId, projectId, ownerIds } = args;
+	const { ownerIds } = args;
 
 	if (ownerIds.length === 0) {
 		// Not a state a caller can reach honestly: `personaOwnerIds` always
@@ -161,17 +168,46 @@ export function buildRestoreScope(
 		);
 	}
 
+	return buildLiveCaseScope(db, args, {
+		column: "seed.owner_id",
+		values: ownerIds,
+	});
+}
+
+/** HQ seeds the same live-case algorithm with every search hit and
+ * explicitly related record. Those roots are treated as open for traversal
+ * even when a related record was closed. Returned rows keep their status. */
+export function searchRelatedLiveScope(
+	db: Kysely<Database>,
+	tenant: Pick<RestoreScopeArgs, "appId" | "projectId">,
+	caseIds: readonly string[],
+): RestoreScopeQuery {
+	return buildLiveCaseScope(db, tenant, {
+		column: "seed.case_id",
+		values: caseIds,
+	});
+}
+
+function buildLiveCaseScope(
+	db: Kysely<Database>,
+	{ appId, projectId }: Pick<RestoreScopeArgs, "appId" | "projectId">,
+	seed: { column: "seed.case_id" | "seed.owner_id"; values: readonly string[] },
+): RestoreScopeQuery {
 	const scoped = db
 		.withRecursive("avail(case_id, is_open)", (qb) =>
 			qb
-				// Seed: the worker's own open cases. `owner_id` seeds the fixpoint;
-				// it is not a filter on the result.
+				// Restore supplies the worker's open cases. Search supplies its
+				// selected IDs, including closed explicit related records.
 				.selectFrom("cases as seed")
 				.select((eb) => ["seed.case_id", eb.lit<boolean>(true).as("is_open")])
 				.where("seed.app_id", "=", appId)
 				.where("seed.project_id", "=", projectId)
-				.where("seed.status", "is distinct from", CLOSED)
-				.where("seed.owner_id", "in", ownerIds)
+				.$if(seed.column === "seed.owner_id", (owned) =>
+					owned.where("seed.status", "is distinct from", CLOSED),
+				)
+				.where(
+					sql<boolean>`${sql.ref(seed.column)} = any(${seed.values}::text[])`,
+				)
 				// Walk UP extension edges toward the host, carrying whether each
 				// host is itself open. The walk continues only FROM an open row,
 				// which is what makes a closed host terminate the chain rather than
@@ -238,11 +274,21 @@ export function buildRestoreScope(
 							// cross-tenant edge unable to answer the question.
 							eb
 								.selectFrom("case_indices as probe")
-								.innerJoin("cases as probe_far", (join) =>
-									join
-										.onRef("probe_far.case_id", "=", "probe.ancestor_id")
-										.on("probe_far.app_id", "=", appId)
-										.on("probe_far.project_id", "=", projectId),
+								// Resolve the real edge before its far endpoint. Without
+								// this boundary an unanalyzed new tenant can scan all
+								// its cases once per seed even when it has no edges.
+								.innerJoinLateral(
+									(qb) =>
+										qb
+											.selectFrom("cases as far")
+											.select(["far.app_id", "far.project_id"])
+											.whereRef("far.case_id", "=", "probe.ancestor_id")
+											.limit(1)
+											.as("probe_far"),
+									(join) =>
+										join
+											.on("probe_far.app_id", "=", appId)
+											.on("probe_far.project_id", "=", projectId),
 								)
 								.select((probe) => probe.lit(1).as("is_extension_case"))
 								.whereRef("probe.case_id", "=", "avail.case_id")
@@ -298,7 +344,7 @@ export function buildRestoreScope(
 							(lateral) =>
 								lateral
 									.selectFrom("cases as next_case")
-									.select("next_case.status")
+									.select(["next_case.case_id", "next_case.status"])
 									.where((eb) =>
 										eb(eb.ref("next_case.case_id"), "=", nextCaseId(eb)),
 									)
@@ -315,9 +361,12 @@ export function buildRestoreScope(
 								// parent and a live extension pulls in its host even when
 								// that ancestor is closed.
 								inner(inner.ref("ci.case_id"), "=", inner.ref("live.case_id")),
-								// Downward requires the extension itself to be open —
-								// HQ's `extensions_by_host` only ever holds open ones.
+								// HQ treats every explicit search seed as open for
+								// traversal. Other extension rows must really be open.
 								inner("nxt.status", "is distinct from", CLOSED),
+								...(seed.column === "seed.case_id"
+									? [sql<boolean>`nxt.case_id = any(${seed.values}::text[])`]
+									: []),
 							]),
 						),
 				),
@@ -344,6 +393,9 @@ export function buildRestoreScope(
 
 	return {
 		creator: scoped as unknown as Kysely<Database>,
+		liveRows: (
+			scoped as unknown as Kysely<Database & { live: { case_id: string } }>
+		).selectFrom("live"),
 		restrict: <QB>(qb: QB, casesAlias: string): QB =>
 			(
 				qb as {

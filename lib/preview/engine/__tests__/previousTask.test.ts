@@ -9,12 +9,14 @@ import {
 } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { afterSubmitRoute } from "@/lib/preview/afterSubmitRouting";
 import { ANDROID_RULES } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import type { CaseRow } from "../caseDataBindingTypes";
 import { formNavigation } from "../navigationProjection";
 import {
 	previousTaskFormSelectors,
 	resolvePreviousTask,
 	selectionsForModuleTask,
+	selectionsForStaticModuleTask,
 } from "../previousTask";
 
 const MODULE = testUuid("records");
@@ -154,6 +156,7 @@ describe("the native preceding task", () => {
 	it("reopens the exact forms-first selector and drops even a deep-linked own record", () => {
 		const blueprint = doc(true);
 		const result = resolvePreviousTask({
+			platform: "web-apps",
 			doc: blueprint,
 			formUuid: FORM,
 			submittedCaseIds: ["a"],
@@ -185,6 +188,7 @@ describe("the native preceding task", () => {
 			const blueprint = doc(false, multiple);
 			const ids = multiple ? ["b", "a"] : ["a"];
 			const result = resolvePreviousTask({
+				platform: "web-apps",
 				doc: blueprint,
 				formUuid: FORM,
 				submittedCaseIds: ids,
@@ -213,6 +217,7 @@ describe("the native preceding task", () => {
 			const blueprint = doc(true);
 			if (!mixed) blueprint.formOrder[MODULE] = [testUuid("register")];
 			const result = resolvePreviousTask({
+				platform: "web-apps",
 				doc: blueprint,
 				formUuid: testUuid("register"),
 				submittedCaseIds: ["created"],
@@ -244,6 +249,7 @@ describe("the native preceding task", () => {
 	it("refuses a retained record missing from the receipt world", () => {
 		expect(() =>
 			resolvePreviousTask({
+				platform: "web-apps",
 				doc: doc(false),
 				formUuid: FORM,
 				submittedCaseIds: ["missing"],
@@ -264,6 +270,7 @@ describe("the native preceding task", () => {
 		const { root, child, childForm } = nestSecondModule(blueprint);
 		if (!childForm) throw new Error("Missing child form");
 		const result = resolvePreviousTask({
+			platform: "web-apps",
 			doc: blueprint,
 			formUuid: childForm,
 			submittedCaseIds: ["child"],
@@ -312,6 +319,7 @@ describe("the native preceding task", () => {
 			if (!childForm) throw new Error("Missing child form");
 			if (explicitParent) blueprint.modules[child].parentCaseModuleUuid = root;
 			const result = resolvePreviousTask({
+				platform: "web-apps",
 				doc: blueprint,
 				formUuid: childForm,
 				submittedCaseIds: ["created-service"],
@@ -338,6 +346,7 @@ describe("the native preceding task", () => {
 		const { root, childForm } = nestSecondModule(blueprint);
 		if (!childForm) throw new Error("Missing child form");
 		const result = resolvePreviousTask({
+			platform: "web-apps",
 			doc: blueprint,
 			formUuid: childForm,
 			submittedCaseIds: ["child"],
@@ -351,6 +360,7 @@ describe("the native preceding task", () => {
 	it("uses the same preceding task for a false link fallback and leaves a true link authoritative", () => {
 		const blueprint = doc(true);
 		const task = resolvePreviousTask({
+			platform: "web-apps",
 			doc: blueprint,
 			formUuid: FORM,
 			submittedCaseIds: ["a"],
@@ -391,5 +401,85 @@ describe("the native preceding task", () => {
 				},
 			}),
 		).toMatchObject({ kind: "module", moduleUuid: MODULE });
+	});
+});
+
+it("returns a submenu with the submitted record even when another menu last selected a different record of the same type", () => {
+	const root = testUuid("static-root");
+	const leaf = testUuid("static-leaf");
+	const app = buildDoc(
+		{
+			caseTypes: [{ name: "record", properties: [] }],
+			modules: [root, leaf].map((uuid) => ({
+				uuid,
+				name: uuid === root ? "Visits" : "Checks",
+				caseType: "record",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Follow up",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			})),
+		},
+		(draft) => {
+			draft.modules[root].formsInMenuAbove = true;
+			draft.modules[leaf].parentModuleUuid = root;
+		},
+	);
+	const picked = selectionsForStaticModuleTask(
+		app,
+		leaf,
+		{
+			[root]: { caseType: "record", cases: [{ caseId: "earlier" }] },
+			[leaf]: { caseType: "record", cases: [{ caseId: "another" }] },
+		},
+		new Map([["case_id", { value: "submitted" }]]),
+		{ rows: [row("submitted")], indices: [] },
+	);
+	expect(picked[root]?.cases).toMatchObject([
+		{ caseId: "submitted", caseProperties: { note: "Saved" } },
+	]);
+	expect(picked[leaf]?.cases).toMatchObject([{ caseId: "submitted" }]);
+});
+
+describe("the preceding task of a form that walks its own choices", () => {
+	it("keeps the earlier choice the frame retains by its identity, not as a menu's", () => {
+		const blueprint = independentChoicesBlueprint("practice");
+		const form = Object.values(blueprint.forms).find(
+			(one) => one.name === "Visit two people",
+		);
+		const [first, second] =
+			form?.caseSelections?.filter((row) => row.source.kind === "choose") ?? [];
+		if (!form || !first || !second)
+			throw new Error("The independent choices fixture lacks its visit");
+		const person = (caseId: string) => ({
+			...row(caseId),
+			case_type: "person",
+		});
+		const task = resolvePreviousTask({
+			doc: blueprint,
+			formUuid: form.uuid,
+			platform: "android",
+			submittedCaseIds: ["ada", "bea"],
+			selections: {},
+			entryChoices: [
+				{ selectionUuid: first.uuid, caseId: "ada" },
+				{ selectionUuid: second.uuid, caseId: "bea" },
+			],
+			caseDatabase: { rows: [person("ada"), person("bea")], indices: [] },
+		});
+		expect(task.destination).toMatchObject({
+			kind: "record-selection",
+			formUuid: form.uuid,
+		});
+		expect(task.entryChoices).toEqual([
+			{ selectionUuid: first.uuid, caseId: "ada", caseName: "ada" },
+		]);
+		expect(task.selections).toEqual({});
 	});
 });

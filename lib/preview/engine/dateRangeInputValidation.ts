@@ -1,4 +1,3 @@
-import { isValid, parseISO } from "date-fns";
 import {
 	DATE_RANGE_CONFIGURATION_MESSAGE,
 	DATE_RANGE_INVALID_MESSAGE,
@@ -7,9 +6,7 @@ import {
 	type SearchInputDef,
 	simpleSearchInputHasCoherentRangeWidget,
 } from "@/lib/domain";
-
-/** Wire-form calendar date accepted by CommCare's daterange encoding. */
-export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+import { isValidCalendarDate } from "@/lib/domain/calendarDate";
 
 export {
 	DATE_RANGE_CONFIGURATION_MESSAGE,
@@ -17,8 +14,40 @@ export {
 	DATE_RANGE_ORDER_MESSAGE,
 	DATE_RANGE_PAIR_REQUIRED_MESSAGE,
 } from "@/lib/domain";
+export {
+	ISO_DATE_PATTERN,
+	isValidCalendarDate,
+} from "@/lib/domain/calendarDate";
 
 export type SearchInputValuesLike = ReadonlyMap<string, string>;
+
+type RawRangeCriterion =
+	| { kind: "bad-range" }
+	| { kind: "range"; from: string; to: string; missing: boolean }
+	| { kind: "text"; values: string[]; missing: boolean };
+
+/** The answers Core sends after Java's split, and HQ’s SearchCriteria
+ * classification before it chooses a property, missing-value or range filter. */
+export function rawRangeCriterion(starting: string): RawRangeCriterion {
+	const answers = starting.split("#,#");
+	if (starting !== "") while (answers.at(-1) === "") answers.pop();
+	const missing = answers.includes("");
+	const values = answers.filter((answer) => answer !== "");
+	if (!values.some((value) => value.startsWith("__range__")))
+		return { kind: "text", values, missing };
+	const match = /^__range__(\d{4}-\d{2}-\d{2})__(\d{4}-\d{2}-\d{2})$/.exec(
+		values[0],
+	);
+	if (
+		values.length !== 1 ||
+		answers.length > 2 ||
+		!match ||
+		!isValidCalendarDate(match[1]) ||
+		!isValidCalendarDate(match[2])
+	)
+		return { kind: "bad-range" };
+	return { kind: "range", from: match[1], to: match[2], missing };
+}
 
 /**
  * Errors that must block a search submission before Preview or CommCare runs.
@@ -46,6 +75,19 @@ export function dateRangeInputErrors(
 		if (input.kind === "hidden" || input.type !== "date-range") continue;
 		const lower = values.get(`${input.name}:from`)?.trim() ?? "";
 		const upper = values.get(`${input.name}:to`)?.trim() ?? "";
+		const starting = values.get(`${input.name}:starting`);
+		if (
+			starting !== undefined &&
+			(!("default" in input) ||
+				input.default === undefined ||
+				(input.kind === "simple" &&
+					lower === "" &&
+					upper === "" &&
+					rawRangeCriterion(starting).kind === "bad-range"))
+		) {
+			errors.set(input.name, DATE_RANGE_INVALID_MESSAGE);
+			continue;
+		}
 		if (lower === "" && upper === "") continue;
 		if (lower === "" || upper === "") {
 			errors.set(input.name, DATE_RANGE_PAIR_REQUIRED_MESSAGE);
@@ -56,13 +98,10 @@ export function dateRangeInputErrors(
 			continue;
 		}
 		// ISO calendar dates sort chronologically by code point.
-		if (lower > upper) errors.set(input.name, DATE_RANGE_ORDER_MESSAGE);
+		if (lower > upper && starting === undefined)
+			errors.set(input.name, DATE_RANGE_ORDER_MESSAGE);
 	}
 	return errors;
-}
-
-export function isValidCalendarDate(value: string): boolean {
-	return ISO_DATE_PATTERN.test(value) && isValid(parseISO(value));
 }
 
 /** Typed boundary for server-side callers that bypass the form. */

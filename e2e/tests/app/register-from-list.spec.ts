@@ -28,7 +28,7 @@ test("a case list offers another menu's registration form and returns to the lis
 			page.getByRole("heading", { name: "Results", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
 		await expect(
-			setting.getByRole("heading", { name: "Register from this list" }),
+			setting.getByRole("heading", { name: "Form button on the list" }),
 		).toBeVisible();
 		await expect(setting).toHaveAttribute("data-register-from-list", "none");
 		const saved = page.waitForResponse(

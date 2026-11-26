@@ -38,18 +38,35 @@ export const evaluateFormInputSchema = formAddressSchema
 			.array(
 				z.strictObject({
 					path: pathSchema,
-					count: z.number().int().min(1).max(30),
+					count: z.number().int().min(0).max(30),
 				}),
 			)
 			.max(50)
 			.optional()
-			.describe("Row counts for user-controlled repeats, if needed."),
+			.describe(
+				"How many entries to add to each worker-controlled repeating group. A new group starts empty. Use zero to clear an existing group.",
+			),
 		caseIds: z
 			.array(z.string().min(1))
 			.max(100)
 			.optional()
 			.describe(
 				"Records selected for a follow-up or close form. Use supplied IDs when evaluating a scenario.",
+			),
+		openingRecords: z
+			.array(
+				z.strictObject({
+					name: z
+						.string()
+						.min(1)
+						.describe("The opening record's name, as getForm lists it."),
+					caseId: z.string().min(1),
+				}),
+			)
+			.max(20)
+			.optional()
+			.describe(
+				"For a form whose openingChoicesFrom is form: the record for each opening record the worker chooses from a list. Use instead of caseIds.",
 			),
 		scenario: evaluationScenarioSchema.optional(),
 		personaUuid: uuidSchema
@@ -60,7 +77,7 @@ export const evaluateFormInputSchema = formAddressSchema
 			.max(100)
 			.optional()
 			.describe(
-				"Values from the preceding Search. Date ranges use name:from and name:to.",
+				"Values from the preceding Search, by visible Search field name. Date ranges use name:from and name:to. On Web Apps, a field the worker also searched for blank adds name:blank, set to true; Android's Search screen has no such box. Hidden values are worked out by the search, so leave them out.",
 			),
 		language: languageTagSchema.optional(),
 		platform: z

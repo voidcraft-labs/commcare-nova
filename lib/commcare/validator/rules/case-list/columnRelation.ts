@@ -1,36 +1,8 @@
-/**
- * Rule: a property column read through a relation (`via`) reaches one case
- * type CommCare HQ's build reads as Nova does.
- *
- * HQ stores the column's `field` as its indices and property joined by `/`
- * and walks each index over `casedb` with no case-type test
- * (`detail_screen.py::PropertyXpathGenerator.xpath`). So the walk must say
- * what the field cannot: every step reaches one type the catalog knows
- * (`parent` the catalog's parent type, any other index the type it names),
- * and the field's spelling must read back to the same walk. Five shapes are
- * refused (`CASE_LIST_COLUMN_RELATION_INVALID`, by `details.reason`):
- *
- *   - `unresolved`: the walk reaches no single type (a `parent` step from a
- *     type with no parent, another index naming no type or an unknown one).
- *   - `parent-type`: a `parent` step names a type. The catalog already gives
- *     the parent's type, and HQ's field holds none, so the app would read
- *     back without it.
- *   - `worker`: the first step is `user`, which HQ reads as the worker's own
- *     record rather than an index of the case.
- *   - `index-name`: the field HQ stores is outside its field grammar, which
- *     takes only words that start with a letter (`suite/wire.ts::isHqDetailField`),
- *     where an index may start with `_`. HQ's build refuses such a field in a
- *     sort element and its Case List page will not keep the column, and the
- *     field is written wherever the column is a property column, is hidden
- *     from Results, or carries a sort, so every column kind is held to it.
- *   - `search`: the list offers Search. HQ reads such a column in its
- *     results through the search's own instance, where Nova writes a column
- *     reading a related case as a calculation that carries the case type
- *     (`suite/case-search/relatedCaseProjection.ts`).
- *
- * Whether the property exists on the type the walk reaches is
- * `columnReferences`' finding.
- */
+import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
+/** A native detail reads its saved index names from the local or Search
+ * roster. The menu needs a case, HQ must keep the path in the field editor,
+ * and the default parent step carries no per-column type annotation. A field
+ * of a Details tab over child cases walks from that child type. */
 
 import {
 	type BlueprintDoc,
@@ -38,14 +10,21 @@ import {
 	type ColumnVia,
 	columnFieldText,
 	effectiveCaseSearchConfig,
+	hqStoresColumnAsExpression,
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
-import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import {
+	columnPropertyCaseType,
+	namedWorkerColumnProperty,
+} from "@/lib/domain/columnRelation";
 import { hqColumnFieldText, isHqDetailField } from "../../../suite/wire";
 import { type ValidationError, validationError } from "../../errors";
 
 type RelationReason =
+	| "worker-info"
+	| "worker-walk"
+	| "owner-field"
 	| "unresolved"
 	| "parent-type"
 	| "worker"
@@ -60,13 +39,43 @@ export function columnRelation(
 	const config = mod.caseListConfig;
 	if (config === undefined) return [];
 	const errors: ValidationError[] = [];
-	const offersSearch = effectiveCaseSearchConfig(mod) !== undefined;
 	for (let index = 0; index < config.columns.length; index++) {
 		const column = config.columns[index];
-		if (column.kind === "calculated" || column.via === undefined) continue;
-		const reason = relationReason(column, column.via, mod, doc, offersSearch);
-		if (reason !== undefined)
-			errors.push(relationError(mod, moduleUuid, index, column, reason));
+		if (column.kind === "calculated") continue;
+		const binding = column.readFrom
+			? namedWorkerColumnProperty(
+					column.field,
+					Object.values(doc.userProperties ?? {}),
+				)
+			: undefined;
+		const own =
+			binding?.uuid !== column.workerPropertyUuid
+				? "worker-info"
+				: column.showOwner && column.field !== "owner_id"
+					? "owner-field"
+					: column.readFrom && column.via
+						? "worker-walk"
+						: undefined;
+		if (own !== undefined) {
+			errors.push(relationError(mod, moduleUuid, index, column, own));
+			continue;
+		}
+		if (column.via === undefined) continue;
+		const origins = columnCaseScopes(doc, mod, column);
+		const reasons = new Set(
+			(origins.length > 0 ? origins : [undefined]).map((origin) =>
+				relationReason(
+					column,
+					column.via as ColumnVia,
+					origin,
+					doc,
+					effectiveCaseSearchConfig(mod) !== undefined,
+				),
+			),
+		);
+		for (const reason of reasons)
+			if (reason !== undefined)
+				errors.push(relationError(mod, moduleUuid, index, column, reason));
 	}
 	return errors;
 }
@@ -74,7 +83,7 @@ export function columnRelation(
 function relationReason(
 	column: Exclude<Column, { kind: "calculated" }>,
 	via: ColumnVia,
-	mod: Module,
+	origin: string | undefined,
 	doc: BlueprintDoc,
 	offersSearch: boolean,
 ): RelationReason | undefined {
@@ -88,27 +97,54 @@ function relationReason(
 		)
 	)
 		return "parent-type";
-	const destination = resolveRelationDestination(
-		{ kind: "ancestor", via },
-		mod.caseType,
-		doc.caseTypes ?? [],
-	);
-	if (!destination.ok) return "unresolved";
-	if (offersSearch) return "search";
+	// HQ builds a native case-property path without a type filter. The
+	// stored case index determines the reached row, including in Search
+	// for a column HQ keeps as a property field.
+	if (
+		origin === undefined ||
+		!doc.caseTypes?.some((one) => one.name === origin)
+	)
+		return "unresolved";
+	if (
+		via.some(
+			(step) =>
+				step.throughCaseType !== undefined &&
+				!doc.caseTypes?.some((type) => type.name === step.throughCaseType),
+		)
+	)
+		return "unresolved";
+	// HQ stores a link, an interval and a plain column showing option labels
+	// as an expression it copies verbatim into the Search results detail,
+	// where its walk still starts in the local case database: a related case
+	// the worker doesn't hold reads blank for every case Search finds. A
+	// property field is re-rooted at the results roster and reads correctly.
+	if (offersSearch) {
+		const reached = columnPropertyCaseType(column, origin, doc.caseTypes ?? []);
+		const property = doc.caseTypes
+			?.find((type) => type.name === reached)
+			?.properties.find((one) => one.name === column.field);
+		if (hqStoresColumnAsExpression(column, property)) return "search";
+	}
 	return undefined;
 }
 
 const REASON_SENTENCE: Record<RelationReason, (column: string) => string> = {
+	"worker-info": (column) =>
+		`"${column}" needs its worker information to match the selected field. Choose that information again.`,
+	"worker-walk": (column) =>
+		`"${column}" reads the worker’s record. Choose a worker property, or choose a related case instead.`,
+	"owner-field": (column) =>
+		`"${column}" shows the owner’s name. Choose the owner ID for its information, or show the saved value instead.`,
 	unresolved: (column) =>
-		`"${column}" reads its value through a link that doesn't lead to one case type: a parent step needs the case type to have a parent, and any other link needs to name the case type it reaches. You can choose the case above again, or show information of this case itself.`,
+		`"${column}" reads its value through a link from a case type this app doesn't have: either the menu's own case type, or a case type a step of the link names. You can choose the case above again, or show information of this case itself.`,
 	"parent-type": (column) =>
 		`"${column}" reads through a parent link that names its case type, but the parent's case type comes from this case type's own parent, and CommCare HQ keeps no type on the column. You can leave the type off the parent step.`,
 	worker: (column) =>
 		`"${column}" reads through a link called user, but CommCare HQ reads a column starting with user as the worker's own information, not a case above this one. You can rename the link, or show the worker's information another way.`,
-	"index-name": (column) =>
-		`"${column}" reads through a link whose name doesn't start with a letter, and CommCare HQ keeps a case list column's links only where each name starts with one. You can rename the link so it starts with a letter.`,
 	search: (column) =>
-		`"${column}" shows information of the case above, but this case list offers Search, and its results show such a column only as a calculated value. You can add a calculated value that reads the case above instead.`,
+		`"${column}" shows a related case's value as a link, a time since or an option label, and this case list offers Search. CommCare HQ reads such a value from the cases on the worker's device, so it would show blank for the cases Search finds. You can show the related value's saved text instead.`,
+	"index-name": (column) =>
+		`"${column}" reads through a link CommCare HQ can't keep on a case list column: each link name there starts with a letter and holds only letters, numbers, underscores and hyphens, with no dots. You can read it through a link named that way, or use a calculated value that reads the related case.`,
 };
 
 function relationError(

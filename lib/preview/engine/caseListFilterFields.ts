@@ -34,6 +34,7 @@ import {
 	type MediaAssetId,
 	type Uuid,
 } from "@/lib/domain";
+import { caseSortDistanceValue } from "@/lib/domain/caseListOrder";
 import {
 	type CaseListSortChoice,
 	LIST_ORDER,
@@ -132,7 +133,11 @@ export function columnDeviceText(
 			const position = mappingPositionText(column, row, context.reading);
 			if (position === "") return "";
 			const entry = column.mapping[Number(position)];
-			return entry === undefined ? "" : (imageReference(entry.assetId) ?? "");
+			if (entry === undefined) return "";
+			// Core retains a blank app-string as a nonbreaking space. No matching arm is the empty string.
+			return entry.assetId === undefined
+				? "\u00a0"
+				: (imageReference(entry.assetId) ?? "");
 		}
 		case "calculated":
 			return calculatedDeviceText(
@@ -192,8 +197,19 @@ export function caseListFilterFields(
 			fields.push({ text: shownText(column), sortText: null });
 	for (const carrier of plan.carriers) {
 		const raw = carrierRawText(carrier, row, context);
-		fields.push({ text: raw, sortText: raw });
+		fields.push({
+			text: raw,
+			sortText:
+				carrier.key.kind === "distance-property"
+					? String(row.calculated[caseSortDistanceValue(carrier.column)] ?? "")
+					: raw,
+		});
 	}
+	for (const calc of plan.calculations)
+		fields.push({
+			text: "",
+			sortText: String(row.calculated[calc.sort.uuid] ?? ""),
+		});
 	return fields;
 }
 
@@ -241,9 +257,16 @@ function sortKeyText(
 ): string {
 	const { column } = field;
 	switch (key.kind) {
+		case "distance-property":
+		case "distance-calculated":
+			return String(row.calculated[caseSortDistanceValue(key.column)] ?? "");
+		case "independent-calculation":
+			return String(row.calculated[key.sort.uuid] ?? "");
 		case "property":
 			return keyRawText(key, column, row, context);
 		case "option-label":
+		case "mapping-label":
+		case "overdue-marker":
 		case "interval-text":
 			return projectColumnDisplay(column, row, context).text;
 		case "calculated":
@@ -303,12 +326,27 @@ export function caseListOrderTerms(
 			terms: fieldOrderTerms(field.key, field.comparator, field, row, context),
 		});
 	}
+	for (const calc of plan.calculations)
+		rules.push({
+			order: calc.order,
+			terms: [
+				{
+					text: String(row.calculated[calc.sort.uuid] ?? ""),
+					comparator: calc.comparator,
+				},
+			],
+		});
 	for (const carrier of plan.carriers)
 		rules.push({
 			order: carrier.rule.order,
 			terms: [
 				{
-					text: carrierRawText(carrier, row, context),
+					text:
+						carrier.key.kind === "distance-property"
+							? String(
+									row.calculated[caseSortDistanceValue(carrier.column)] ?? "",
+								)
+							: carrierRawText(carrier, row, context),
 					comparator: carrier.comparator,
 				},
 			],
@@ -329,13 +367,25 @@ function pickOrderTerms(
 ): OrderTerm[] {
 	const order = caseListSingleFieldOrder(plan, column, reversed);
 	if (order === undefined) return [];
+	if (order.key.kind === "independent-calculation")
+		return [
+			{
+				text: String(row.calculated[order.key.sort.uuid] ?? ""),
+				comparator: order.comparator,
+			},
+		];
 	const carrier = plan.carriers.find(
 		(candidate) => candidate.column === column,
 	);
 	if (carrier !== undefined)
 		return [
 			{
-				text: carrierRawText(carrier, row, context),
+				text:
+					carrier.key.kind === "distance-property"
+						? String(
+								row.calculated[caseSortDistanceValue(carrier.column)] ?? "",
+							)
+						: carrierRawText(carrier, row, context),
 				comparator: order.comparator,
 			},
 		];
@@ -359,7 +409,11 @@ function fieldOrderTerms(
 			{
 				text: sortKeyText(key, field, row, context),
 				comparator:
-					key.kind === "property" || key.kind === "calculated"
+					key.kind === "property" ||
+					key.kind === "calculated" ||
+					key.kind === "distance-property" ||
+					key.kind === "distance-calculated" ||
+					key.kind === "independent-calculation"
 						? comparator
 						: "text",
 			},

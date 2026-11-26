@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
+import { HQ_LOOKUP_JSON_WRITE_DEADLINE_MS } from "@/lib/commcare/hq/lookupJson";
+import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import "server-only";
 
-import { createHash } from "node:crypto";
-import { gunzipSync } from "node:zlib";
 import {
 	type Kysely,
 	type Selectable,
@@ -9,17 +10,23 @@ import {
 	sql,
 	type Transaction,
 } from "kysely";
+import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { HqAppsSeen } from "@/lib/commcare/hq/apps";
-import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
 	type TargetFacts,
 	targetFactsFromSource,
 } from "@/lib/commcare/targetFacts";
 import type { ColumnFieldWordRow } from "@/lib/commcare/wireIdentity";
+import { entityRowStatements } from "@/lib/db/blueprintRows";
+import {
+	loadAppInRepeatableReadSnapshot,
+	loadAppInTransaction,
+} from "@/lib/db/canonicalCommitKernel";
 import {
 	admitRemoteWritesInTransaction,
+	deploymentManagesInstallations,
 	endDeploymentInTransaction,
 	HqAppAlreadyClaimedError,
 	type HqRemoteWriteKind,
@@ -39,16 +46,24 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { deepEqual } from "@/lib/doc/deepEqual";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { ownRecordValue } from "@/lib/domain/records";
 import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
 import { lockLookupTablesForPublishInTransaction } from "@/lib/lookup/managed";
 import {
+	ANSWERED_FIRST_PUBLISH_CHANGES,
 	FIRST_PUBLISH_CHANGE_IDS,
 	type FirstPublishChangeId,
 	type FirstPublishView,
+	hasRegisteredPublishInputs,
+	needsStoredPublishReview,
 	type StoredFirstPublish,
 	storedFirstPublishSchema,
 } from "@/lib/publish/firstPublishChangeIds";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { heldMediaPathRows } from "./adoption";
 import type { PublishedEntryPointManifest } from "./entryPointTypes";
@@ -60,7 +75,25 @@ import {
 	DeploymentError,
 	deploymentNotFound,
 } from "./errors";
-import { type HqMediaRecord, hqMediaRecordSchema } from "./hqMedia";
+import {
+	type HqMediaObservation,
+	type HqMediaRecord,
+	hqMediaRecordMoves,
+	hqMediaRecordSchema,
+	mergeHqMediaObservation,
+	movedRecordedPaths,
+} from "./hqMedia";
+import { diffHqAppSource } from "./hqSourceBaseline";
+import type { InstallationProfileCheckpoint } from "./installationProfileReview";
+import {
+	journalLookupJsonOperation,
+	type LookupJsonDestinationKey,
+	type LookupJsonJournalEntry,
+	type LookupJsonSettlement,
+	settleLookupJsonOperationInTransaction,
+} from "./lookupJsonLedger";
+import { readPreviewDeploymentRecordsIn } from "./previewRecords";
+import type { ProjectSearchDestinationEdit } from "./projectSearchDestinationInput";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
 import {
 	applyAttemptOutcome,
@@ -72,6 +105,7 @@ import {
 import {
 	canonicalTargetIdentity,
 	EMPTY_TARGET_IDENTITY,
+	projectSearchDestinationRows,
 	sameTargetIdentity,
 	type TargetIdentity,
 } from "./targetIdentity";
@@ -84,6 +118,7 @@ import {
 	confirmationSubject,
 	DEPLOYMENT_CONFIRMATION_KINDS,
 	DEPLOYMENT_END_REASONS,
+	DEPLOYMENT_PHASES,
 	type DeploymentConfirmation,
 	type DeploymentConfirmationKey,
 	type DeploymentConfirmationKind,
@@ -109,6 +144,15 @@ import {
 	type ResourceBaselineRef,
 	type ResourceBaselineWrite,
 } from "./types";
+import {
+	appOwnershipFromRow,
+	verifiedBaselineSource,
+} from "./verifiedBaselineSource";
+import { baselineWebApps } from "./webApps";
+import {
+	type WorkbookAuthority,
+	workbookAuthorityMatches,
+} from "./workbookAuthority";
 
 /**
  * An authorized handle on one app's deployments.
@@ -119,7 +163,17 @@ import {
  * because every member of an app's Project shares its deployments the
  * same way they share its case rows.
  */
+export type HqManagementGrant = (
+	tx?: Transaction<AppDatabase>,
+	afterInstallationImport?: boolean,
+) => void | Promise<void>;
 export interface DeploymentScope {
+	/** Recheck the calling credential in the transaction admitting its change.
+	 * A write already sent to HQ must still be accounted for when HQ answers. */
+	readonly requireOperation?: HqManagementGrant;
+	/** The bearer’s additional grants for a management decision. Browser sessions
+	 * use the authenticated Project editor gate instead. Pure reads never call it. */
+	readonly requireInstallationManagement?: HqManagementGrant;
 	readonly appId: string;
 	readonly projectId: string;
 	readonly role: string;
@@ -337,6 +391,30 @@ function numberOrNull(value: string | number | null): number | null {
  * future vocabulary change fail loudly at the read instead of flowing
  * into a switch that silently has no arm for it.
  */
+/** A saved phase is visible to every viewer of the Project. The detailed
+ * installation review belongs only to the publisher's request and checkpoint. */
+function sharedDeploymentPhases(
+	phases: DeploymentPhaseOutcomes,
+): DeploymentPhaseOutcomes {
+	const shared = { ...phases };
+	for (const phase of DEPLOYMENT_PHASES) {
+		const outcome = phases[phase];
+		if (
+			outcome?.status === "failed" &&
+			outcome.failure.code === "hq_installation_profile_review"
+		)
+			shared[phase] = {
+				...outcome,
+				failure: {
+					code: "hq_installation_profile_review",
+					message:
+						"An editor can publish again to review the installation profiles for this project space.",
+					details: [],
+				},
+			};
+	}
+	return shared;
+}
 function toDeploymentRecord(
 	row: Selectable<AppDeploymentsTable>,
 ): DeploymentRecord {
@@ -377,7 +455,7 @@ function toDeploymentRecord(
 		domain: row.domain,
 		state: state.data,
 		resumePhase: resumePhase === null ? null : resumePhase.data,
-		phases: phases.data,
+		phases: sharedDeploymentPhases(phases.data),
 		createdBy: row.created_by,
 		createdAt: row.created_at.toISOString(),
 		updatedAt: row.updated_at.toISOString(),
@@ -435,6 +513,7 @@ function toDeploymentResource(
 		pushedRevision: numberOrNull(row.pushed_revision),
 		pushedAt: isoOrNull(row.pushed_at),
 		pushToken: row.push_token,
+		...(row.review_generation && { reviewGeneration: row.review_generation }),
 		remoteRevision: numberOrNull(row.remote_revision),
 		remoteObservedAt: isoOrNull(row.remote_observed_at),
 		supersededAt: isoOrNull(row.superseded_at),
@@ -531,7 +610,7 @@ async function loadResources(
 				])
 				.as("held_by_another_app"),
 		)
-		.where("r.deployment_id", "in", ids)
+		.where(sql<SqlBool>`r.deployment_id = ANY(${sql.val(ids)}::uuid[])`)
 		.orderBy("r.created_at", "asc")
 		.execute();
 	const confirmationRows = await db
@@ -543,7 +622,7 @@ async function loadResources(
 			"confirmed_by",
 			"confirmed_at",
 		])
-		.where("deployment_id", "in", ids)
+		.where(sql<SqlBool>`deployment_id = ANY(${sql.val(ids)}::uuid[])`)
 		.where("withdrawn_at", "is", null)
 		.orderBy("confirmed_at", "asc")
 		.orderBy("id", "asc")
@@ -674,62 +753,9 @@ export async function readDeploymentPreviewRecords(
 		"state" | "resumePhase" | "server" | "domain"
 	>[]
 > {
-	return readingIn(from, "view", (snapshot) => previewRecordsIn(snapshot));
-}
-
-async function previewRecordsIn(
-	snapshot: DeploymentReadSnapshot,
-): Promise<
-	readonly Pick<
-		DeploymentRecord,
-		"state" | "resumePhase" | "server" | "domain"
-	>[]
-> {
-	const { scope } = snapshot;
-	/* A deployment whose live app mapping is released still displays as
-	 * uploaded, but no publish goes there until a settle takes the HQ app
-	 * back, so Preview does not name its project space. */
-	const rows = await snapshot.db
-		.selectFrom("app_deployments as d")
-		.select(["d.state", "d.resume_phase", "d.server", "d.domain"])
-		.where("d.app_id", "=", scope.appId)
-		.where("d.project_id", "=", scope.projectId)
-		.where(({ not, exists, selectFrom }) =>
-			not(
-				exists(
-					selectFrom("app_deployment_resources as r")
-						.select(sql<number>`1`.as("one"))
-						.whereRef("r.deployment_id", "=", "d.id")
-						.where("r.kind", "=", "app")
-						.where("r.superseded_at", "is", null)
-						.where("r.released_at", "is not", null),
-				),
-			),
-		)
-		.execute();
-	return rows.map((row) => {
-		const state = deploymentStateSchema.safeParse(row.state);
-		const resumePhase =
-			row.resume_phase === null
-				? null
-				: deploymentPhaseSchema.safeParse(row.resume_phase);
-		if (!state.success || (resumePhase !== null && !resumePhase.success)) {
-			throw new Error(
-				`A deployment of app ${scope.appId} is stored in a state Nova does not know.`,
-			);
-		}
-		if (!isDeploymentServer(row.server)) {
-			throw new Error(
-				`A deployment of app ${scope.appId} names CommCare server "${row.server}", which Nova does not know.`,
-			);
-		}
-		return {
-			state: state.data,
-			resumePhase: resumePhase === null ? null : resumePhase.data,
-			server: row.server,
-			domain: row.domain,
-		};
-	});
+	return readingIn(from, "view", (snapshot) =>
+		readPreviewDeploymentRecordsIn(snapshot.db, snapshot.scope),
+	);
 }
 
 /** One deployment by target with its ledger, from one authorized snapshot, or `null` when the
@@ -848,34 +874,233 @@ export async function readTargetIdentity(
 	});
 }
 
-/** The record's rows of one deployment, through `db` or a caller's transaction. */
-async function readTargetIdentityRows(
-	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+/** Editors can learn that this target still needs reconciliation. Only the
+ * reviewer who saw a checkpoint may read its contents. */
+export async function hasPendingInstallationReviews(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<boolean> {
+	return withDeploymentReadSnapshot(scope, "edit", async ({ db }) => {
+		const pending = await db
+			.selectFrom("app_deployment_installation_reviews as r")
+			.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+			.select("d.id")
+			.where("d.app_id", "=", scope.appId)
+			.where("d.project_id", "=", scope.projectId)
+			.where("d.server", "=", target.server)
+			.where("d.domain", "=", target.domain)
+			.executeTakeFirst();
+		return pending !== undefined;
+	});
+}
+
+/** A review is private to the person who saw the target, including when another
+ * editor works on the same installation profiles at the same time. */
+export async function readInstallationReview(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+) {
+	return withDeploymentReadSnapshot(scope, "edit", async ({ db }) => {
+		const row = await db
+			.selectFrom("app_deployment_installation_reviews as r")
+			.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+			.select("r.checkpoint")
+			.where("d.app_id", "=", scope.appId)
+			.where("d.project_id", "=", scope.projectId)
+			.where("d.server", "=", target.server)
+			.where("d.domain", "=", target.domain)
+			.where("r.actor_id", "=", scope.actorUserId)
+			.executeTakeFirst();
+		return row?.checkpoint;
+	});
+}
+
+/** Check both revisions under the app/deployment locks before recording a review or
+ * promoting its verified bindings. A replay cannot supersede another tab's newer review. */
+async function installationReviewMatches(
+	tx: Kysely<AppDatabase>,
+	deploymentId: string,
+	scope: DeploymentScope,
+	sequence: number,
+	previous: InstallationProfileCheckpoint | undefined,
+): Promise<boolean> {
+	const app = await tx
+		.selectFrom("apps")
+		.select("mutation_seq")
+		.where("id", "=", scope.appId)
+		.executeTakeFirst();
+	if (!app || Number(app.mutation_seq) !== sequence) return false;
+	const held = await tx
+		.selectFrom("app_deployment_installation_reviews")
+		.select("checkpoint")
+		.where("deployment_id", "=", deploymentId)
+		.where("actor_id", "=", scope.actorUserId)
+		.executeTakeFirst();
+	return (
+		canonicalJsonText(held?.checkpoint ?? null) ===
+		canonicalJsonText(previous ?? null)
+	);
+}
+
+/** The runtime owns INSERT and DELETE on private checkpoints. The caller
+ * holds the deployment row and has compared the exact previous receipt. */
+async function replaceInstallationReview(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	actorId: string,
+	next?: InstallationProfileCheckpoint,
+) {
+	await tx
+		.deleteFrom("app_deployment_installation_reviews")
+		.where("deployment_id", "=", deploymentId)
+		.where("actor_id", "=", actorId)
+		.execute();
+	if (next)
+		await tx
+			.insertInto("app_deployment_installation_reviews")
+			.values({
+				deployment_id: deploymentId,
+				actor_id: actorId,
+				checkpoint: JSON.stringify(next),
+			})
+			.execute();
+}
+
+export async function writeInstallationReview(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: {
+		readonly sequence: number;
+		readonly claim: InstallationProfileCheckpoint["claim"];
+		readonly remoteAppId: string;
+		readonly previous: InstallationProfileCheckpoint | undefined;
+		readonly next?: InstallationProfileCheckpoint;
+		readonly bindings?: NonNullable<TargetIdentity["installationProfiles"]>;
+		readonly identity: TargetIdentity;
+		readonly requireHqImport: HqManagementGrant | null;
+	},
+): Promise<boolean> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			await input.requireHqImport?.(tx);
+			if (row.endings !== input.claim.endings) return false;
+			const mapping = await tx
+				.selectFrom("app_deployment_resources")
+				.select("id")
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", "app")
+				.where("nova_resource_id", "=", scope.appId)
+				.where("push_token", "=", input.claim.mapping)
+				.where("remote_id", "=", input.remoteAppId)
+				.where("superseded_at", "is", null)
+				.where("released_at", "is", null)
+				.executeTakeFirst();
+			if (!mapping) return false;
+			if (
+				!(await installationReviewMatches(
+					tx,
+					row.id,
+					scope,
+					input.sequence,
+					input.previous,
+				))
+			)
+				return false;
+			await replaceInstallationReview(
+				tx,
+				row.id,
+				scope.actorUserId,
+				input.next,
+			);
+			if (input.bindings)
+				await writeTargetIdentityInTransaction(
+					tx,
+					row.id,
+					{ appId: scope.appId, server: target.server },
+					{
+						read: input.identity,
+						next: { ...input.identity, installationProfiles: input.bindings },
+					},
+				);
+			return true;
+		},
+	);
+}
+
+/** The released schema has no profile/search bindings. Read any installed
+ * tables during the rehearsal and writer so both hash the same target facts
+ * as their migrations add initially empty tables. */
+export async function readCutoverTargetIdentityRows(
+	tx: Transaction<AppDatabase>,
 	deploymentId: string,
 	context: { readonly appId: string; readonly server: string },
 ): Promise<TargetIdentity> {
-	const [entityRows, keyedRows, pathRows, wordRows] = await Promise.all([
-		db
-			.selectFrom("app_deployment_identities")
-			.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_keyed_case_ids")
-			.select(["nova_operation_uuid", "case_type", "case_id_prefix"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_media_paths")
-			.select(["media_asset_id", "wire_path"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_column_field_words")
-			.select(["nova_column_uuid", "screen", "field_word"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-	]);
+	const {
+		rows: [shape],
+	} = await sql<{
+		installationProfiles: boolean;
+		projectSearches: boolean;
+	}>`
+		SELECT to_regclass('public.app_deployment_installation_profiles') IS NOT NULL AS "installationProfiles",
+			to_regclass('public.app_deployment_search_bindings') IS NOT NULL AS "projectSearches"
+	`.execute(tx);
+	if (!shape)
+		throw new Error("The deployment identity table inventory is unavailable.");
+	return readTargetIdentityRows(tx, deploymentId, context, shape);
+}
+
+/** The record's rows of one deployment, through `db` or a caller's transaction. */
+export async function readTargetIdentityRows(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	deploymentId: string,
+	context: { readonly appId: string; readonly server: string },
+	shape = { installationProfiles: true, projectSearches: true },
+): Promise<TargetIdentity> {
+	const [profileRows, entityRows, keyedRows, pathRows, wordRows, searchRows] =
+		await Promise.all([
+			shape.installationProfiles
+				? db
+						.selectFrom("app_deployment_installation_profiles")
+						.select([
+							"nova_profile_uuid",
+							"profile_key",
+							"practice_worker_id",
+							"practice_witness",
+						])
+						.where("deployment_id", "=", deploymentId)
+						.execute()
+				: Promise.resolve([]),
+			db
+				.selectFrom("app_deployment_identities")
+				.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_keyed_case_ids")
+				.select(["nova_operation_uuid", "case_type", "case_id_prefix"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_media_paths")
+				.select(["media_asset_id", "wire_path"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_column_field_words")
+				.select(["nova_column_uuid", "screen", "field_word"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			shape.projectSearches
+				? db
+						.selectFrom("app_deployment_search_bindings")
+						.select(["search_uuid", "endpoint_id"])
+						.where("deployment_id", "=", deploymentId)
+						.execute()
+				: Promise.resolve([]),
+		]);
 	const entities = entityRows.map((row): DeploymentIdentityOverride => {
 		if (row.entity_kind !== "module" && row.entity_kind !== "form") {
 			throw new Error(
@@ -917,6 +1142,18 @@ async function readTargetIdentityRows(
 			assetId,
 			wirePath,
 		})),
+		projectSearches: searchRows.map((row) => ({
+			searchUuid: asUuid(row.search_uuid),
+			endpointId: row.endpoint_id,
+		})),
+		installationProfiles: profileRows.map((row) => ({
+			uuid: asUuid(row.nova_profile_uuid),
+			key: row.profile_key,
+			...(row.practice_worker_id && {
+				practiceWorkerId: row.practice_worker_id,
+				...(row.practice_witness && { practiceWitness: row.practice_witness }),
+			}),
+		})),
 		columnWords: wordRows.map((row): ColumnFieldWordRow => {
 			if (row.screen !== "short" && row.screen !== "long")
 				throw new Error(
@@ -929,6 +1166,16 @@ async function readTargetIdentityRows(
 			};
 		}),
 	});
+}
+
+/** A changed review crosses an admitted write that HQ may still apply. */
+export class HqReviewWriteInFlightError extends Error {
+	constructor() {
+		super(
+			"A publish to this project space is still finishing. You can bring these changes in when it finishes.",
+		);
+		this.name = "HqReviewWriteInFlightError";
+	}
 }
 
 /**
@@ -944,6 +1191,8 @@ class TargetIdentityMovedError extends Error {
 		this.name = "TargetIdentityMovedError";
 	}
 }
+
+class SearchConnectionInUseError extends TargetIdentityMovedError {}
 
 /**
  * THE ONE WRITER of a deployment's target-identity record, inside a caller's
@@ -987,6 +1236,39 @@ export async function writeTargetIdentityInTransaction(
 		return rows.filter((row) => !kept.has(key(row)));
 	};
 
+	const searchKey = (row: { searchUuid: string; endpointId: number }) =>
+		JSON.stringify([row.searchUuid, row.endpointId]);
+	const oldSearches = stored.projectSearches ?? [];
+	const nextSearches = next.projectSearches ?? [];
+	const goneSearches = without(oldSearches, nextSearches, searchKey);
+	const newSearches = without(nextSearches, oldSearches, searchKey);
+	const changesSearch = goneSearches.length > 0 || newSearches.length > 0;
+	if (!sameTargetIdentity(stored, next)) {
+		let sending = tx
+			.selectFrom("hq_remote_writes")
+			.select("id")
+			.where("deployment_id", "=", deploymentId)
+			.where(openRemoteWrite);
+		if (!changesSearch)
+			sending = sending.where("write_kind", "in", ["import", "media"]);
+		if (await sending.executeTakeFirst()) {
+			// Search bindings also gate creation and dependencies. A passive
+			// refresh returns superseded before mutating any identity rows.
+			if (changesSearch) throw new SearchConnectionInUseError(deploymentId);
+			throw new HqReviewWriteInFlightError();
+		}
+		await tx
+			.updateTable("app_deployments")
+			.set({
+				content_generation: crypto.randomUUID(),
+				entry_point_manifest: null,
+				entry_point_observation: null,
+			})
+			.where("id", "=", deploymentId)
+			.where("content_generation", "is not", null)
+			.execute();
+	}
+
 	/* Every stored row, read whole: a media row the read rule refused is no
 	 * row of `stored`, and it goes too. */
 	const storedPathRows = await tx
@@ -1008,9 +1290,7 @@ export async function writeTargetIdentityInTransaction(
 			.deleteFrom("app_deployment_keyed_case_ids")
 			.where("deployment_id", "=", deploymentId)
 			.where(
-				"nova_operation_uuid",
-				"in",
-				goneKeyed.map((row) => row.operationUuid),
+				sql<boolean>`nova_operation_uuid = ANY(${goneKeyed.map((row) => row.operationUuid)}::uuid[])`,
 			)
 			.execute();
 	const keptPaths = new Set(next.mediaPaths.map(pathKey));
@@ -1025,12 +1305,74 @@ export async function writeTargetIdentityInTransaction(
 			.deleteFrom("app_deployment_media_paths")
 			.where("deployment_id", "=", deploymentId)
 			.where(
-				"media_asset_id",
-				"in",
-				gonePaths.map((row) => row.media_asset_id),
+				sql<boolean>`media_asset_id = ANY(${gonePaths.map((row) => row.media_asset_id)}::uuid[])`,
 			)
 			.execute();
 
+	if (goneSearches.length)
+		await tx
+			.deleteFrom("app_deployment_search_bindings")
+			.where("deployment_id", "=", deploymentId)
+			.where(
+				sql<boolean>`search_uuid = ANY(${goneSearches.map((row) => row.searchUuid)}::uuid[])`,
+			)
+			.execute();
+	for (const rows of entityRowStatements(newSearches))
+		await tx
+			.insertInto("app_deployment_search_bindings")
+			.values(
+				rows.map((row) => ({
+					deployment_id: deploymentId,
+					search_uuid: row.searchUuid,
+					endpoint_id: row.endpointId,
+				})),
+			)
+			.execute();
+	const profileKey = (
+		row: NonNullable<TargetIdentity["installationProfiles"]>[number],
+	) =>
+		canonicalJsonText([
+			row.uuid,
+			row.key,
+			row.practiceWorkerId ?? null,
+			row.practiceWitness ?? null,
+		]);
+	const goneProfiles = without(
+		stored.installationProfiles ?? [],
+		next.installationProfiles ?? [],
+		profileKey,
+	);
+	for (let offset = 0; offset < goneProfiles.length; offset += 1000)
+		await tx
+			.deleteFrom("app_deployment_installation_profiles")
+			.where("deployment_id", "=", deploymentId)
+			.where(
+				"nova_profile_uuid",
+				"in",
+				goneProfiles.slice(offset, offset + 1000).map((row) => row.uuid),
+			)
+			.execute();
+	const newProfiles = without(
+		next.installationProfiles ?? [],
+		stored.installationProfiles ?? [],
+		profileKey,
+	);
+	// The deployment lock covers every batch, including all removals before insert.
+	for (let offset = 0; offset < newProfiles.length; offset += 1000)
+		await tx
+			.insertInto("app_deployment_installation_profiles")
+			.values(
+				newProfiles.slice(offset, offset + 1000).map((row) => ({
+					deployment_id: deploymentId,
+					nova_profile_uuid: row.uuid,
+					profile_key: row.key,
+					practice_worker_id: row.practiceWorkerId ?? null,
+					practice_witness: row.practiceWitness
+						? JSON.stringify(row.practiceWitness)
+						: null,
+				})),
+			)
+			.execute();
 	const goneWords = without(stored.columnWords, next.columnWords, wordKey);
 	for (const row of goneWords)
 		await tx
@@ -1041,11 +1383,11 @@ export async function writeTargetIdentityInTransaction(
 			.execute();
 
 	const newEntities = without(next.entities, stored.entities, entityKey);
-	if (newEntities.length > 0)
+	for (const rows of entityRowStatements(newEntities))
 		await tx
 			.insertInto("app_deployment_identities")
 			.values(
-				newEntities.map((row) => ({
+				rows.map((row) => ({
 					deployment_id: deploymentId,
 					entity_kind: row.entityKind,
 					nova_entity_uuid: row.novaEntityUuid,
@@ -1055,11 +1397,11 @@ export async function writeTargetIdentityInTransaction(
 			)
 			.execute();
 	const newKeyed = without(next.keyedCaseIds, stored.keyedCaseIds, keyedKey);
-	if (newKeyed.length > 0)
+	for (const rows of entityRowStatements(newKeyed))
 		await tx
 			.insertInto("app_deployment_keyed_case_ids")
 			.values(
-				newKeyed.map((row) => ({
+				rows.map((row) => ({
 					deployment_id: deploymentId,
 					nova_operation_uuid: row.operationUuid,
 					case_type: row.caseType,
@@ -1075,11 +1417,11 @@ export async function writeTargetIdentityInTransaction(
 	const newPaths = next.mediaPaths.filter(
 		(row) => !storedPaths.has(pathKey(row)),
 	);
-	if (newPaths.length > 0)
+	for (const rows of entityRowStatements(newPaths))
 		await tx
 			.insertInto("app_deployment_media_paths")
 			.values(
-				newPaths.map((row) => ({
+				rows.map((row) => ({
 					deployment_id: deploymentId,
 					media_asset_id: row.assetId,
 					wire_path: row.wirePath,
@@ -1087,11 +1429,11 @@ export async function writeTargetIdentityInTransaction(
 			)
 			.execute();
 	const newWords = without(next.columnWords, stored.columnWords, wordKey);
-	if (newWords.length > 0)
+	for (const rows of entityRowStatements(newWords))
 		await tx
 			.insertInto("app_deployment_column_field_words")
 			.values(
-				newWords.map((row) => ({
+				rows.map((row) => ({
 					deployment_id: deploymentId,
 					nova_column_uuid: row.columnUuid,
 					screen: row.screen,
@@ -1099,6 +1441,55 @@ export async function writeTargetIdentityInTransaction(
 				})),
 			)
 			.execute();
+}
+
+/**
+ * The tags under which the Project's lookup tables are on a project space
+ * through a workbook, by table id: each live mapping any of the Project's
+ * apps holds there with its pushed name, and each table taken over from
+ * there under the tag CommCare HQ held it by. A direct upload keeps such a
+ * table under such a tag in its workbook
+ * (`lib/export/boundaryFindings.ts::travelsAsJson`); a table that also has
+ * a JSON destination there goes on through the JSON resources. `view`.
+ */
+export async function readWorkbookLookupTags(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const [mapped, takenOver] = await Promise.all([
+		db
+			.selectFrom("app_deployment_resources as r")
+			.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+			.select(["r.nova_resource_id", "r.pushed_identity"])
+			.where("d.project_id", "=", scope.projectId)
+			.where("d.server", "=", target.server)
+			.where("d.domain", "=", target.domain)
+			.where("r.kind", "=", "lookup-table")
+			.where("r.superseded_at", "is", null)
+			.where("r.pushed_identity", "is not", null)
+			.execute(),
+		db
+			.selectFrom("lookup_tables")
+			.select(["id", "hq_canonical"])
+			.where("project_id", "=", scope.projectId)
+			.where("hq_server", "=", target.server)
+			.where("hq_domain", "=", target.domain)
+			.where("hq_taken_over_at", "is not", null)
+			.execute(),
+	]);
+	const tags = new Map<string, Set<string>>();
+	const add = (tableId: string, tag: string | null | undefined) => {
+		if (typeof tag !== "string") return;
+		const held = tags.get(tableId) ?? new Set<string>();
+		held.add(tag);
+		tags.set(tableId, held);
+	};
+	for (const row of mapped) add(row.nova_resource_id, row.pushed_identity);
+	for (const row of takenOver)
+		add(row.id, (row.hq_canonical as { tag?: unknown } | null)?.tag as string);
+	return tags;
 }
 
 /** One live lookup-table mapping another app of the Project holds on a project space. */
@@ -1110,6 +1501,14 @@ export interface SiblingLookupMapping {
 	readonly ownership: DeploymentResourceOwnership;
 	readonly adoptedAt: string | null;
 	readonly adoptedBy: string | null;
+	/**
+	 * Present where the mapping is the table's JSON destination on that
+	 * project space (`lookup_json_destinations`, the same CommCare HQ table):
+	 * a direct publish put it there through CommCare HQ's JSON resources, not
+	 * a workbook, and keeps carrying it that way
+	 * (`lib/export/boundaryFindings.ts::travelsAsJson`).
+	 */
+	readonly jsonDestination?: true;
 }
 
 /**
@@ -1137,6 +1536,14 @@ export async function readSiblingLookupMappings(
 	const rows = await db
 		.selectFrom("app_deployment_resources as r")
 		.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+		.leftJoin("lookup_json_destinations as j", (join) =>
+			join
+				.onRef("j.project_id", "=", "d.project_id")
+				.onRef("j.server", "=", "d.server")
+				.onRef("j.domain", "=", "d.domain")
+				.onRef("j.remote_table_id", "=", "r.remote_id")
+				.on(sql<SqlBool>`j.table_id::text = r.nova_resource_id`),
+		)
 		.select([
 			"r.nova_resource_id",
 			"d.app_id",
@@ -1145,6 +1552,7 @@ export async function readSiblingLookupMappings(
 			"r.ownership",
 			"r.adopted_at",
 			"r.adopted_by",
+			"j.table_id as json_table_id",
 		])
 		.where("d.project_id", "=", scope.projectId)
 		.where("d.server", "=", target.server)
@@ -1153,7 +1561,7 @@ export async function readSiblingLookupMappings(
 		.where("r.kind", "=", "lookup-table")
 		.where("r.superseded_at", "is", null)
 		.where("r.pushed_identity", "is not", null)
-		.where("r.nova_resource_id", "in", [...tableIds])
+		.where(sql<SqlBool>`r.nova_resource_id = ANY(${sql.val(tableIds)}::text[])`)
 		.orderBy("r.nova_resource_id")
 		.orderBy("r.adopted_at", (order) => order.asc().nullsLast())
 		.orderBy("r.created_at")
@@ -1181,6 +1589,7 @@ export async function readSiblingLookupMappings(
 			ownership: ownership.data,
 			adoptedAt: isoOrNull(row.adopted_at),
 			adoptedBy: row.adopted_by,
+			...(row.json_table_id !== null && { jsonDestination: true as const }),
 		};
 	});
 }
@@ -1191,7 +1600,7 @@ export interface ReachedDeploymentTargetRow {
 	readonly domain: string;
 	readonly hqAppId: string;
 	/**
-	 * The target's `USH_EMPTY_CASE_LIST_TEXT` as the last publish read it;
+	 * The target's empty case list text flag (`lib/commcare` names it) as the last publish read it;
 	 * false where no publish has read it.
 	 */
 	readonly emptyCaseListText: boolean;
@@ -1417,14 +1826,15 @@ async function lockDeploymentRow(
 async function withDeploymentRow<T>(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	options: { readonly ensure: boolean; readonly expectedEndings?: number },
+	options: { readonly ensure: boolean } & Partial<DeploymentFence>,
 	body: (
 		tx: Transaction<AppDatabase>,
 		row: Selectable<AppDeploymentsTable>,
+		role: string,
 	) => Promise<T>,
 ): Promise<T> {
 	return withAppTx(async (tx) => {
-		await lockAppForDeploymentWrite(tx, scope, "edit");
+		const role = await lockAppForDeploymentWrite(tx, scope, "edit");
 		if (options.ensure) {
 			/* Creation is the honest starting state, not a placeholder:
 			 * `preflight` means "prerequisites are being checked and nothing
@@ -1460,14 +1870,278 @@ async function withDeploymentRow<T>(
 				row.endings,
 			);
 		}
-		return body(tx, row);
+		await holdSearchConnections(tx, row.id, options.searchConnections);
+		return body(tx, row, role);
 	});
+}
+
+/** The app row lock and deployment row lock that protect an accepted edit are
+ * held by the caller. An initial preflight row with no remote app has the same
+ * search state as a destination that has never been configured. */
+async function projectSearchDestinationIn(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	row:
+		| Pick<
+				Selectable<AppDeploymentsTable>,
+				"id" | "endings" | "content_generation"
+		  >
+		| undefined,
+	reader: typeof loadAppInTransaction = loadAppInTransaction,
+) {
+	const app = await reader(tx, scope.appId);
+	if (!app || app.project_id !== scope.projectId || app.deleted_at !== null)
+		throw deploymentNotFound();
+	const doc = hydratePersistedBlueprint(app.blueprint);
+	const stored = row
+		? await readTargetIdentityRows(tx, row.id, {
+				appId: scope.appId,
+				server: target.server,
+			})
+		: EMPTY_TARGET_IDENTITY;
+	const remote =
+		row &&
+		(await tx
+			.selectFrom("app_deployment_resources")
+			.select(["id", "remote_id", "push_token"])
+			.where("deployment_id", "=", row.id)
+			.where("kind", "=", "app")
+			.where("superseded_at", "is", null)
+			.where("released_at", "is", null)
+			.executeTakeFirst());
+	const version = createHash("sha256")
+		.update(
+			JSON.stringify([
+				scope.actorUserId,
+				scope.role,
+				scope.appId,
+				scope.projectId,
+				target.server,
+				target.domain,
+				app.mutation_seq,
+				row?.endings ?? 0,
+				row?.content_generation ?? null,
+				remote ? [remote.id, remote.remote_id, remote.push_token] : null,
+				canonicalTargetIdentity(stored).projectSearches ?? [],
+			]),
+		)
+		.digest("hex");
+	const searches = projectSearchDestinationRows(doc, stored.projectSearches);
+	return { doc, stored, review: { version, searches } };
+}
+
+export async function inspectProjectSearchDestination(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	capability: "view" | "edit" = "view",
+) {
+	return withDeploymentReadSnapshot(scope, capability, async (snapshot) => {
+		const row = await snapshot.db
+			.selectFrom("app_deployments")
+			.select(["id", "endings", "content_generation"])
+			.where("app_id", "=", scope.appId)
+			.where("project_id", "=", scope.projectId)
+			.where("server", "=", target.server)
+			.where("domain", "=", target.domain)
+			.executeTakeFirst();
+		const { doc, review } = await projectSearchDestinationIn(
+			snapshot.db,
+			{ ...scope, role: snapshot.role },
+			target,
+			row,
+			loadAppInRepeatableReadSnapshot,
+		);
+		return { doc, review };
+	});
+}
+
+export async function saveProjectSearchDestination(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	edit: ProjectSearchDestinationEdit,
+	requireManagement?: HqManagementGrant,
+) {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: true },
+		async (tx, row, role) => {
+			await (requireManagement ?? scope.requireOperation)?.(tx);
+			const currentScope = { ...scope, role };
+			const { review, stored } = await projectSearchDestinationIn(
+				tx,
+				currentScope,
+				target,
+				row,
+			);
+			if (review.version !== edit.version)
+				throw new DeploymentError(
+					"invalid",
+					"This app or destination changed. Review its searches again before connecting them.",
+				);
+			const current = new Set(
+				review.searches.map((search) => search.searchUuid),
+			);
+			const submitted = new Set(
+				edit.bindings.map((binding) => binding.searchUuid),
+			);
+			if (
+				current.size !== edit.bindings.length ||
+				submitted.size !== current.size ||
+				edit.bindings.some((binding) => !current.has(binding.searchUuid))
+			)
+				throw new DeploymentError(
+					"invalid",
+					"Choose a destination for each search in the current app.",
+				);
+			const inactive = new Map(
+				review.searches
+					.filter((search) => !search.menus.length)
+					.map((search) => [search.searchUuid, search.endpointId]),
+			);
+			if (
+				edit.bindings.some(
+					({ searchUuid, endpointId }) =>
+						endpointId !== null &&
+						inactive.has(searchUuid) &&
+						inactive.get(searchUuid) !== endpointId,
+				)
+			) {
+				throw new DeploymentError(
+					"invalid",
+					"Choose this search in a menu before connecting it to a new ID.",
+				);
+			}
+			const bindings = edit.bindings.flatMap(({ searchUuid, endpointId }) =>
+				endpointId === null ? [] : [{ searchUuid, endpointId }],
+			);
+			if (
+				new Set(bindings.map((binding) => binding.endpointId)).size !==
+				bindings.length
+			)
+				throw new DeploymentError(
+					"invalid",
+					"Two searches use the same ID in this project space. Choose a different ID, or use one shared search in the app.",
+				);
+			const next = { ...stored, projectSearches: bindings };
+			if (!sameTargetIdentity(stored, next)) {
+				try {
+					await writeTargetIdentityInTransaction(
+						tx,
+						row.id,
+						{ appId: scope.appId, server: target.server },
+						{ read: stored, next },
+					);
+				} catch (error) {
+					if (!(error instanceof SearchConnectionInUseError)) throw error;
+					throw new DeploymentError(
+						"invalid",
+						"A publish is sending this app. Review its searches again after the publish finishes.",
+					);
+				}
+				await notifyAppDeployments(tx, scope.appId);
+			}
+			return (await projectSearchDestinationIn(tx, currentScope, target, row))
+				.review;
+		},
+	);
 }
 
 /** The count of endings a publish read first, which each of its store writes carries. */
 export interface DeploymentFence {
+	readonly manageInstallations?: HqManagementGrant | null;
 	readonly expectedEndings: number;
+	/** Only the services this publish will dispatch to. */
+	readonly searchConnections?: TargetIdentity["projectSearches"];
 }
+
+async function holdSearchConnections(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	expected: TargetIdentity["projectSearches"],
+) {
+	if (!expected?.length) return;
+	const rows = await tx
+		.selectFrom("app_deployment_search_bindings")
+		.select(["search_uuid", "endpoint_id"])
+		.where("deployment_id", "=", deploymentId)
+		.where(
+			sql<boolean>`search_uuid = ANY(${expected.map((row) => row.searchUuid)}::uuid[])`,
+		)
+		.execute();
+	const current = new Map(
+		rows.map((row) => [row.search_uuid, row.endpoint_id]),
+	);
+	if (expected.some((row) => current.get(row.searchUuid) !== row.endpointId))
+		throw new DeploymentError(
+			"stale",
+			"The search connections changed during this publish. Review the destination and publish again to use its current searches.",
+		);
+}
+
+/** A fresh local publish decision needs the current credential for either the
+ * requested management or the protected physical deployment under this lock. */
+async function authorizePublishDecision(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	deploymentId: string,
+	grant?: HqManagementGrant | null,
+) {
+	if (grant) await grant(tx);
+	else if (
+		scope.requireInstallationManagement &&
+		(await deploymentManagesInstallations(tx, deploymentId))
+	)
+		await scope.requireInstallationManagement(tx);
+}
+
+/** A placement or Project-data refresh starts outside the deployment row.
+ * Lock the app first (also serializing a first target's creation), then the
+ * exact target. Only requested or currently held management consumes the
+ * additional grant. A prior portable/identity read cannot attest to a
+ * pending review written by a different publisher.
+ */
+export function publishManagementGrant(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	requested: boolean,
+	grant: HqManagementGrant | null | undefined,
+): HqManagementGrant | null {
+	if (!grant) return null;
+	const check = async (tx: Transaction<AppDatabase>) => {
+		const app = await tx
+			.selectFrom("apps")
+			.select(["project_id", "deleted_at"])
+			.where("id", "=", scope.appId)
+			.forUpdate()
+			.executeTakeFirst();
+		await authorizeDeploymentApp(app, scope, "edit", "write", (projectId) =>
+			projectRoleForInTransaction(tx, scope.actorUserId, projectId),
+		);
+		const row = await tx
+			.selectFrom("app_deployments")
+			.select("id")
+			.where("app_id", "=", scope.appId)
+			.where("project_id", "=", scope.projectId)
+			.where("server", "=", target.server)
+			.where("domain", "=", target.domain)
+			.forUpdate()
+			.executeTakeFirst();
+		if (
+			requested ||
+			(row && (await deploymentManagesInstallations(tx, row.id)))
+		)
+			await grant(tx);
+	};
+	return (tx) => (tx ? check(tx) : withAppTx(check));
+}
+
+/** The concrete remote request whose answer supplies this failure. */
+export type PublishWriteResponse = {
+	readonly kind: "create" | "import" | "workbook" | "places";
+	readonly writeIds: readonly string[];
+};
 
 /** Refuse a publish's write where the deployment was ended since the publish read it. */
 function holdFence(
@@ -1549,6 +2223,17 @@ export interface RecordedImport extends RecordAnswer {
 	/** This import's mapping token, or null when a later import already stood there. */
 	readonly pushToken: string | null;
 	readonly dependencies: PublishedEntryPointManifest["dependencies"];
+	/** HQ acknowledged content from a retired fold after its admission expired. */
+	readonly obsoleteFold?: true;
+	/** The app import answered after another claim took over this HQ app. */
+	readonly obsoleteClaim?: true;
+	/** A reviewed save on this claim is at least as recent, or this acknowledgement cannot order itself against it. */
+	readonly retainedTake?: true;
+	/** A later read of this HQ app stood before the accepted import recorded. */
+	readonly laterObservation?: {
+		readonly digest: string | null;
+		readonly compatible: boolean;
+	};
 }
 
 /** The live table and place mappings of a deployment, as an entry-point manifest names them. */
@@ -1625,6 +2310,9 @@ async function withRecordRow<T>(
 		readonly admitted: AdmittedRecord | undefined;
 		/** The kinds of admitted write this record states the outcome of. */
 		readonly writeKinds: readonly HqRemoteWriteKind[];
+		readonly liveDecision?: Pick<DeploymentFence, "manageInstallations">;
+		/** At least one admitted transport for every resource kind being recorded. */
+		readonly requiredWriteGroups?: readonly (readonly HqRemoteWriteKind[])[];
 	},
 	body: (
 		tx: Transaction<AppDatabase>,
@@ -1634,9 +2322,8 @@ async function withRecordRow<T>(
 ): Promise<T> {
 	const writeIds = record.admitted?.writeIds ?? [];
 	const settle = record.admitted?.settle ?? [];
-	if (
-		settle.some((ended) => ended.writeIds.some((id) => !writeIds.includes(id)))
-	) {
+	const knownIds = new Set(writeIds);
+	if (settle.some((ended) => ended.writeIds.some((id) => !knownIds.has(id)))) {
 		throw new Error(
 			"A record settles only the writes it rests on, and was asked to settle one it does not name in its writeIds.",
 		);
@@ -1653,8 +2340,16 @@ async function withRecordRow<T>(
 					target,
 					writeIds,
 					record.writeKinds,
+					record.requiredWriteGroups,
 				);
 			const row = await lockDeploymentRow(tx, scope, target);
+			if (!writeIds.length && record.liveDecision)
+				await authorizePublishDecision(
+					tx,
+					scope,
+					row.id,
+					record.liveDecision.manageInstallations,
+				);
 			const result = await body(tx, row, access);
 			for (const ended of settle)
 				await settleRemoteWritesIn(tx, ended.writeIds, ended.how);
@@ -1686,7 +2381,7 @@ function progressUpdate(
 	return {
 		state: next.state,
 		resume_phase: next.resumePhase,
-		phases: JSON.stringify(phases),
+		phases: JSON.stringify(sharedDeploymentPhases(phases)),
 		updated_at: now,
 	};
 }
@@ -1717,6 +2412,7 @@ export async function foldDeploymentAttempt(
 	outcome: DeploymentPhaseOutcome,
 	options: DeploymentFence & {
 		readonly ensure?: boolean;
+		readonly responseTo?: PublishWriteResponse;
 		readonly confirmations?: readonly DeploymentConfirmationKey[];
 		/**
 		 * The confirmations CommCare HQ's own answer contradicted, withdrawn in
@@ -1752,8 +2448,46 @@ export async function foldDeploymentAttempt(
 			expectedEndings: options.expectedEndings,
 		},
 		async (tx, row) => {
+			if (phase === "preflight") await scope.requireOperation?.(tx);
 			const record = toDeploymentRecord(row);
 			const next = applyAttemptOutcome(record, phase, outcome);
+			if (
+				options.ensure ||
+				next !== record ||
+				confirmations.length ||
+				withdraw.length
+			) {
+				const reply = options.responseTo;
+				if (reply) {
+					const appOperation =
+						reply.kind === "create" || reply.kind === "import";
+					if (
+						outcome.status !== "failed" ||
+						outcome.failure.code !==
+							(appOperation
+								? "hq_rejected_upload"
+								: "hq_rejected_resource_push") ||
+						options.ensure ||
+						withdraw.length ||
+						confirmations.length ||
+						!reply.writeIds.length ||
+						phase !== (reply.kind === "import" ? "upload" : "resources")
+					) {
+						throw new Error(
+							"A remote reply can account only for its own failed publish operation.",
+						);
+					}
+					await verifyAdmittedWrites(tx, scope, target, reply.writeIds, [
+						reply.kind,
+					]);
+				} else
+					await authorizePublishDecision(
+						tx,
+						scope,
+						row.id,
+						options.manageInstallations,
+					);
+			}
 			if (next !== record) {
 				await tx
 					.updateTable("app_deployments")
@@ -1837,6 +2571,7 @@ export async function withdrawDeploymentConfirmation(
 		target,
 		{ ensure: false },
 		async (tx, row) => {
+			await scope.requireOperation?.(tx);
 			const withdrawn = await tx
 				.updateTable("app_deployment_confirmations")
 				.set({ withdrawn_by: scope.actorUserId, withdrawn_at: sql`now()` })
@@ -1967,7 +2702,8 @@ export async function recordAdoptedDeploymentInTransaction(
 }
 
 /**
- * Settle every released claim of the scope's app: take back each HQ app
+ * Settle the selected target’s released claim, or all released claims if the caller
+ * requests app-wide restoration. Take back each HQ app
  * nobody holds, take it back from a holder in recently deleted, or end the
  * deployment where a live Nova app publishes there now.
  *
@@ -1981,7 +2717,10 @@ export async function recordAdoptedDeploymentInTransaction(
  * claim whose HQ app another app's write has not settled on stays released
  * (`waiting`).
  */
-export async function settleReleasedClaims(scope: DeploymentScope): Promise<
+export async function settleReleasedClaims(
+	scope: DeploymentScope,
+	target?: DeploymentTargetKey,
+): Promise<
 	| {
 			readonly settled: true;
 			/** The project spaces the settle ended, because a live Nova app publishes there now. */
@@ -1997,7 +2736,11 @@ export async function settleReleasedClaims(scope: DeploymentScope): Promise<
 > {
 	for (let attempt = 0; attempt < SETTLE_CLAIM_TRIES; attempt++) {
 		const settled = await withAppTx(async (tx) => {
-			const locks = await lockReleasedClaimsInTransaction(tx, scope.appId);
+			const locks = await lockReleasedClaimsInTransaction(
+				tx,
+				scope.appId,
+				target,
+			);
 			if (locks === null) return null;
 			await authorizeDeploymentApp(
 				locks.app,
@@ -2007,11 +2750,13 @@ export async function settleReleasedClaims(scope: DeploymentScope): Promise<
 				(projectId) =>
 					projectRoleForInTransaction(tx, scope.actorUserId, projectId),
 			);
+			await scope.requireOperation?.(tx);
 			return settleReleasedClaimsInTransaction(tx, {
 				appId: scope.appId,
 				actorUserId: scope.actorUserId,
 				at: new Date(),
 				locks,
+				grant: scope.requireInstallationManagement,
 			});
 		});
 		if (settled !== null) {
@@ -2065,12 +2810,14 @@ export async function endDeployment(
 			);
 		}
 		const row = await lockDeploymentRow(tx, scope, target);
+		await scope.requireOperation?.(tx);
 		const { ended } = await endDeploymentInTransaction(tx, {
 			deploymentId: row.id,
 			appId: scope.appId,
 			remoteAppId: hqAppId,
 			byUserId: scope.actorUserId,
 			reason: "stopped",
+			grant: scope.requireInstallationManagement,
 			at: new Date(),
 		});
 		if (ended) return loadWithinTransaction(tx, row.id);
@@ -2148,8 +2895,28 @@ export interface RecordRemoteAppInput
 	extends RecordRemoteResourceInput,
 		DeploymentFence {
 	readonly uploadedAt: string;
+	readonly expectedInstallationMapping?: string;
+	/** All three installation sets were empty on this admitted import and its
+	 * exact native save-to-source read-back. */
+	readonly emptyInstallations?: EmptyInstallationClaim & {
+		readonly requireGrant: HqManagementGrant | null;
+	};
+	readonly practicePublication?: {
+		readonly expected: InstallationProfileCheckpoint;
+		/** Install the final manifest with the exact prepared-content promotion. */
+		readonly promotedEntry?: Pick<
+			PublishedEntryPointManifest,
+			"generation" | "entries"
+		>;
+		readonly next?: InstallationProfileCheckpoint;
+		readonly requireHqImport: HqManagementGrant | null;
+		readonly failure?: NonNullable<
+			Extract<DeploymentPhaseOutcome, { status: "failed" }>["failure"]
+		>;
+	};
+
 	/**
-	 * The target's `USH_EMPTY_CASE_LIST_TEXT` as this publish read it, written
+	 * The target's empty case list text flag (`lib/commcare` names it) as this publish read it, written
 	 * with the upload's fold. Left out where the read failed, so the column
 	 * keeps what an earlier publish read.
 	 */
@@ -2164,6 +2931,72 @@ export interface RecordRemoteAppInput
 	 * could not read it, written with the mapping so the two never disagree.
 	 */
 	readonly baseline: AppBaselineWrite;
+}
+
+/** An admission belongs to one uninterrupted claim of a particular HQ app.
+ * Other imports on that claim are ordered by HQ's own save counter. The
+ * mapping's id represents the initial claim without updating existing rows. */
+async function admittedAppState(
+	tx: Transaction<AppDatabase>,
+	deployment: Pick<Selectable<AppDeploymentsTable>, "id" | "app_id" | "server">,
+	remoteAppId: string,
+	mapping:
+		| {
+				id: string;
+				remote_id: string;
+				released_at: Date | null;
+				claim_generation: string | null;
+				review_generation: string | null;
+		  }
+		| undefined,
+	admitted: AdmittedRecord | undefined,
+): Promise<"current" | "review-changed" | "claim-changed"> {
+	const ids = admitted?.writeIds ?? [];
+	if (ids.length === 0) {
+		// A direct record has no prior admission to identify a later claim.
+		return !mapping ||
+			(mapping.released_at === null && mapping.claim_generation === null)
+			? "current"
+			: "claim-changed";
+	}
+	if (
+		!mapping ||
+		mapping.released_at !== null ||
+		mapping.remote_id !== remoteAppId
+	)
+		return "claim-changed";
+	const writes = await tx
+		.selectFrom("hq_remote_writes")
+		.select([
+			"write_kind",
+			"resource_id",
+			"claim_generation",
+			"identity_digest",
+			"review_generation",
+		])
+		.where("id", "in", ids)
+		.where("deployment_id", "=", deployment.id)
+		.where("write_kind", "in", ["import", "media"])
+		.execute();
+	const identity = await readTargetIdentityRows(tx, deployment.id, {
+		appId: deployment.app_id,
+		server: deployment.server,
+	});
+	const digest = canonicalJsonDigest(identity);
+	const held =
+		writes.filter((write) => write.write_kind === "import").length === 1 &&
+		writes.every(
+			(write) =>
+				write.identity_digest === digest &&
+				write.resource_id === remoteAppId &&
+				write.claim_generation === (mapping.claim_generation ?? mapping.id),
+		);
+	if (!held) return "claim-changed";
+	return writes.every(
+		(write) => write.review_generation === mapping.review_generation,
+	)
+		? "current"
+		: "review-changed";
 }
 
 /**
@@ -2200,7 +3033,7 @@ export async function recordRemoteResource(
 	return withRecordRow(
 		scope,
 		target,
-		{ admitted, writeKinds: ["import"] },
+		{ admitted, writeKinds: ["import"], liveDecision: input },
 		async (tx, row, access) => {
 			holdFence(row, input.expectedEndings);
 			const answer = async (
@@ -2212,12 +3045,98 @@ export async function recordRemoteResource(
 			});
 			const live = await tx
 				.selectFrom("app_deployment_resources")
-				.select(["remote_id", "pushed_remote_revision"])
+				.select([
+					"id",
+					"remote_id",
+					"push_token",
+					"pushed_revision",
+					"pushed_remote_revision",
+					"reviewed_remote_revision",
+					"released_at",
+					"claim_generation",
+					"review_generation",
+				])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", input.kind)
 				.where("nova_resource_id", "=", input.novaResourceId)
 				.where("superseded_at", "is", null)
 				.executeTakeFirst();
+			// A second publish on this same claim may already have recorded.
+			// Its HQ counter below orders the two. A release and reclaim retires
+			// the admission even if the remote id, source and counter all match.
+			const practice = input.practicePublication;
+			// A prepared installation is promoted locally under its exact
+			// checkpoint, with no outstanding remote write to acknowledge.
+			const authority =
+				practice?.promotedEntry && !admitted?.writeIds.length
+					? "current"
+					: await admittedAppState(tx, row, input.remoteId, live, admitted);
+			if (authority === "claim-changed")
+				return { ...(await answer(null)), obsoleteClaim: true };
+			if (authority === "review-changed")
+				return { ...(await answer(null)), retainedTake: true };
+			if (
+				input.expectedInstallationMapping &&
+				(live?.push_token !== input.expectedInstallationMapping ||
+					live.remote_id !== input.remoteId ||
+					live.released_at !== null)
+			)
+				throw new DeploymentError(
+					"invalid",
+					"The installation’s app mapping changed during the upload. Publish again to review this project space.",
+				);
+			if (practice) {
+				await practice.requireHqImport?.(
+					tx,
+					Boolean(admitted?.writeIds.length),
+				);
+				await lockAppForDeploymentWrite(tx, scope, "edit");
+				if (practice.promotedEntry)
+					await holdSearchConnections(tx, row.id, input.searchConnections);
+				const saved = await tx
+					.selectFrom("app_deployment_baselines")
+					.select("source_digest")
+					.where("deployment_id", "=", row.id)
+					.executeTakeFirst();
+				const competingWrite =
+					practice.promotedEntry &&
+					(await tx
+						.selectFrom("hq_remote_writes")
+						.select("id")
+						.where("deployment_id", "=", row.id)
+						.where("write_kind", "!=", "worker")
+						.where(openRemoteWrite)
+						.executeTakeFirst());
+				if (
+					competingWrite ||
+					(practice.promotedEntry &&
+						(input.pushedRevision === null ||
+							input.pushedRevision !== practice.expected.sequence ||
+							input.remoteRevision !== practice.expected.workingVersion)) ||
+					(practice.promotedEntry &&
+						(saved?.source_digest !==
+							practice.expected.preparedContent?.baselineDigest ||
+							live?.pushed_revision !== null)) ||
+					!practice.expected.claim ||
+					row.endings !== practice.expected.claim.endings ||
+					live?.push_token !== practice.expected.claim.mapping ||
+					live?.remote_id !== input.remoteId ||
+					live.released_at !== null ||
+					!(await installationReviewMatches(
+						tx,
+						row.id,
+						scope,
+						practice.expected.sequence,
+						practice.expected,
+					))
+				)
+					throw new DeploymentError(
+						"invalid",
+						admitted?.writeIds.length
+							? "CommCare HQ received the app. Its installation review changed during the upload. Publish again to review the current project space."
+							: "The app or its installation review changed. Publish again to review the current project space.",
+					);
+			}
 			const recorded =
 				live === undefined ? null : numberOrNull(live.pushed_remote_revision);
 			if (
@@ -2226,6 +3145,11 @@ export async function recordRemoteResource(
 				input.remoteRevision !== null &&
 				input.remoteRevision < recorded
 			) {
+				if (practice)
+					throw new DeploymentError(
+						"invalid",
+						"Another publish reached CommCare HQ first. Publish again to review the current installation.",
+					);
 				log.info("[deployment] a later publish recorded first", {
 					appId: scope.appId,
 					domain: target.domain,
@@ -2235,15 +3159,149 @@ export async function recordRemoteResource(
 				});
 				return answer(null);
 			}
+			// An outstanding import normally prevents a fold. An acknowledgement
+			// from a suspended process can arrive after its durable hold ended.
+			if (
+				admitted &&
+				input.pushedRevision !== null &&
+				((await greatestFoldBaselineSeq(tx, scope.appId)) ?? -1) >
+					input.pushedRevision
+			)
+				return { ...(await answer(null)), obsoleteFold: true };
+			// A verified take can only be superseded by a later HQ save. An
+			// admitted import on its still-current review generation can also
+			// land an exact observation from that later counter: HQ prunes
+			// unused media in an extra save. This ends the list and retains the
+			// source for settings, without attributing either save's content.
+			const reviewed =
+				live?.remote_id === input.remoteId
+					? numberOrNull(live.reviewed_remote_revision)
+					: null;
+			if (reviewed !== null) {
+				const orderedObservation =
+					(admitted?.writeIds?.length ?? 0) > 0 &&
+					input.baseline.origin === "unread";
+				if (
+					input.remoteRevision === null ||
+					input.remoteRevision <= reviewed ||
+					(input.baseline.origin !== "push" && !orderedObservation) ||
+					!verifiedBaselineSource({
+						deployment_id: row.id,
+						source_digest: input.baseline.sourceDigest,
+						source_gzip: input.baseline.sourceGzip,
+						source_bytes: input.baseline.sourceBytes,
+						ownership: input.baseline.ownership,
+					})
+				)
+					return { ...(await answer(null)), retainedTake: true };
+			}
+			const empty = input.emptyInstallations;
+			if (empty) {
+				await lockAppForDeploymentWrite(tx, scope, "edit");
+				await empty.requireGrant?.(tx, true);
+				if (
+					admitted?.writeIds.length !== 1 ||
+					live?.push_token !== empty.mapping ||
+					input.remoteRevision === null ||
+					input.baseline.sourceDigest === null ||
+					!(await emptyInstallationHead(tx, scope, row.id, empty.sequence))
+				)
+					throw staleEmptyInstallationReview();
+				const acknowledged = await tx
+					.selectFrom("hq_remote_writes")
+					.select("id")
+					.where("id", "=", admitted.writeIds[0])
+					.where("resource_id", "=", input.remoteId)
+					.where("import_acknowledged_at", "is not", null)
+					.where(
+						"import_acknowledged_version",
+						"=",
+						String(input.remoteRevision),
+					)
+					.executeTakeFirst();
+				// A review of an HQ save after this acknowledgement remains current.
+				const newer = await tx
+					.selectFrom("app_deployment_installation_reviews")
+					.select("deployment_id")
+					.where("deployment_id", "=", row.id)
+					.where(sql<SqlBool>`checkpoint->'claim'->>'mapping' = ${empty.mapping}
+						AND checkpoint->'workingVersion' > to_jsonb(${input.remoteRevision}::bigint)`)
+					.executeTakeFirst();
+				if (!acknowledged || newer) throw staleEmptyInstallationReview();
+				// The deployment lock and mapping CAS serialize new reviews for the
+				// successor. Existing rows for this destination belong to retiring claims.
+				await tx
+					.deleteFrom("app_deployment_installation_reviews")
+					.where("deployment_id", "=", row.id)
+					.execute();
+			}
 			const now = new Date();
 			const pushToken = await writeResourceMapping(tx, row.id, input, now);
-			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline);
+			const wrote = await writeAppBaseline(
+				tx,
+				row.id,
+				scope.actorUserId,
+				input.baseline,
+				{
+					supersedesReviewedVersion: reviewed,
+					readbackPushToken:
+						input.baseline.origin === "push" ? pushToken : null,
+				},
+			);
+			const laterObservation =
+				!wrote &&
+				(input.baseline.origin === "push" || input.baseline.origin === "unread")
+					? await reconcileAcceptedImport(
+							tx,
+							row.id,
+							scope.actorUserId,
+							input,
+							pushToken,
+						)
+					: undefined;
+			if ((empty || practice) && !wrote)
+				throw new DeploymentError(
+					"invalid",
+					"CommCare HQ received the app. Its source changed while Nova recorded it. Publish again to review the current project space.",
+				);
+			if (practice)
+				await replaceInstallationReview(
+					tx,
+					row.id,
+					scope.actorUserId,
+					practice.next
+						? {
+								...practice.next,
+								claim: { mapping: pushToken, endings: row.endings },
+							}
+						: undefined,
+				);
+
+			const entryManifest: PublishedEntryPointManifest | undefined =
+				practice?.promotedEntry && input.pushedRevision !== null
+					? {
+							...practice.promotedEntry,
+							remoteAppId: input.remoteId,
+							sourceSequence: input.pushedRevision,
+							dependencies: await contentDependencies(tx, row.id),
+						}
+					: undefined;
 
 			const record = toDeploymentRecord(row);
-			const progress = applyPhaseOutcome(record, "upload", {
-				status: "succeeded",
-				at: input.uploadedAt,
-			});
+			const progress = applyPhaseOutcome(
+				record,
+				"upload",
+				practice?.failure
+					? {
+							status: "failed",
+							at: input.uploadedAt,
+							failure: practice.failure,
+						}
+					: {
+							status: "succeeded",
+							at: input.uploadedAt,
+						},
+			);
 			await tx
 				.updateTable("app_deployments")
 				.set({
@@ -2252,6 +3310,10 @@ export async function recordRemoteResource(
 						clearObservationOutcomes(progress.phases),
 						now,
 					),
+					...(entryManifest && {
+						content_generation: entryManifest.generation,
+						entry_point_manifest: JSON.stringify(entryManifest),
+					}),
 					...(input.targetEmptyCaseListText !== undefined && {
 						target_empty_case_list_text: input.targetEmptyCaseListText,
 					}),
@@ -2263,7 +3325,12 @@ export async function recordRemoteResource(
 				.execute();
 			await notifyAppDeployments(tx, scope.appId);
 
-			return answer(pushToken);
+			return {
+				...(await answer(
+					laterObservation?.compatible === false ? null : pushToken,
+				)),
+				...(laterObservation && { laterObservation }),
+			};
 		},
 	);
 }
@@ -2309,7 +3376,7 @@ export async function recordCreatedRemoteApp(
 	return withRecordRow(
 		scope,
 		target,
-		{ admitted, writeKinds: ["create"] },
+		{ admitted, writeKinds: ["create"], liveDecision: input },
 		async (tx, row, access) => {
 			holdFence(row, input.expectedEndings);
 			await writeResourceMapping(tx, row.id, mapping, new Date());
@@ -2334,13 +3401,17 @@ export async function recordCreatedRemoteApp(
 export async function recordOrphanedRemoteApp(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	input: { readonly remoteId: string; readonly publishStartedAt: Date },
+	input: {
+		readonly remoteId: string;
+		readonly publishStartedAt: Date;
+		readonly manageInstallations?: HqManagementGrant | null;
+	},
 	admitted?: AdmittedRecord,
 ): Promise<void> {
 	await withRecordRow(
 		scope,
 		target,
-		{ admitted, writeKinds: ["create"] },
+		{ admitted, writeKinds: ["create"], liveDecision: input },
 		async (tx, row) => {
 			const named = await tx
 				.selectFrom("app_deployment_resources")
@@ -2384,6 +3455,8 @@ const REMOTE_WRITE_HOLD_SECONDS = {
 	media: 60 + 45 + 60 * 60,
 	/** The workbook upload's deadline, then five minutes. */
 	workbook: 60 + 5 * 60,
+	/** One permission check and JSON write share a deadline, then five minutes. */
+	"lookup-json": HQ_LOOKUP_JSON_WRITE_DEADLINE_MS / 1_000 + 5 * 60,
 	/** One batch of places: its 30-second deadline, then five minutes. */
 	places: 30 + 5 * 60,
 	/** A worker's create and its places' update, 30 seconds each, then five minutes. */
@@ -2395,15 +3468,66 @@ const UNANSWERED_WRITE_GRACE_SECONDS = 5 * 60;
 /** How long a media job HQ accepted stays open: the hour HQ keeps its status (`hqmedia/cache.py`). */
 const MEDIA_JOB_HOLD_SECONDS = 60 * 60;
 
+function staleEmptyInstallationReview(): DeploymentError {
+	return new DeploymentError(
+		"stale",
+		"CommCare HQ received the app. The installation review changed while Nova was checking it. Publish again to review the current project space.",
+	);
+}
+
+interface EmptyInstallationClaim {
+	readonly mapping: string;
+	readonly sequence: number;
+}
+
+/** Both queries run while the app and its current deployment are locked. */
+async function emptyInstallationHead(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	deploymentId: string,
+	sequence: number,
+): Promise<boolean> {
+	const current = await tx
+		.selectFrom("apps")
+		.select("id")
+		.where("id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.where("mutation_seq", "=", sequence)
+		.where((eb) =>
+			eb.not(
+				eb.exists(
+					eb
+						.selectFrom("app_deployment_installation_profiles")
+						.select("deployment_id")
+						.where("deployment_id", "=", deploymentId),
+				),
+			),
+		)
+		.executeTakeFirst();
+	return current !== undefined;
+}
+
 /** What an admission of a write to the deployment's HQ app answered. */
+type AdmittedAppWrite = {
+	readonly kind: "admitted";
+	readonly writeId: string;
+	readonly emptyInstallations?: EmptyInstallationClaim;
+	/** The released entry temporarily hidden by this attempt's first import admission. */
+	readonly previousEntry?: {
+		readonly generation: string;
+		readonly manifest: PublishedEntryPointManifest;
+		readonly admittedGeneration: string;
+	};
+};
 export type AppWriteAdmission =
-	| { readonly kind: "admitted"; readonly writeId: string }
+	| AdmittedAppWrite
 	/**
 	 * The deployment's live app mapping no longer names that HQ app, or another
 	 * Nova app took it: this publish no longer publishes there. Nothing was
 	 * recorded, and nothing may be sent.
 	 */
-	| { readonly kind: "mapping-moved" };
+	| { readonly kind: "mapping-moved" }
+	| { readonly kind: "fold-moved" };
 
 /**
  * Admit one write to the HQ app the deployment publishes to, immediately
@@ -2425,8 +3549,26 @@ export async function admitAppWrite(
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
 		readonly remoteAppId: string;
-		readonly writeKind: "import" | "media";
-	},
+		readonly installationReview?: InstallationProfileCheckpoint;
+		readonly emptyInstallations?: EmptyInstallationClaim & {
+			readonly previouslyPending: boolean;
+		};
+		readonly expectedInstallationMapping?: string;
+		readonly requireHqImport?: HqManagementGrant | null;
+		readonly observedPushToken: string;
+		readonly compiledIdentity: TargetIdentity;
+		readonly reviewedRole?: string;
+		readonly firstContentGeneration?: string;
+		readonly comparedReview?: string | null;
+		readonly comparedSource?: string | null;
+		readonly comparedFiles?: {
+			readonly files: HqMediaRecord | null;
+			readonly paths: readonly string[];
+		};
+	} & (
+			| { readonly writeKind: "import"; readonly compiledAtSeq: number }
+			| { readonly writeKind: "media"; readonly compiledAtSeq?: number }
+		),
 ): Promise<AppWriteAdmission> {
 	return withAppTx(async (tx) => {
 		await lockHqApp(tx, {
@@ -2434,8 +3576,16 @@ export async function admitAppWrite(
 			domain: target.domain,
 			remoteAppId: input.remoteAppId,
 		});
-		await lockAppForDeploymentWrite(tx, scope, "edit");
+		const role = await lockAppForDeploymentWrite(tx, scope, "edit");
+		if (input.reviewedRole !== undefined && role !== input.reviewedRole)
+			return { kind: "mapping-moved" };
 		const row = await lockDeploymentRow(tx, scope, target);
+		await authorizePublishDecision(
+			tx,
+			scope,
+			row.id,
+			input.requireHqImport ?? input.manageInstallations,
+		);
 		if (row.endings !== input.expectedEndings) {
 			throw new DeploymentEndedError(
 				row.id,
@@ -2443,9 +3593,29 @@ export async function admitAppWrite(
 				row.endings,
 			);
 		}
+		await holdSearchConnections(tx, row.id, input.searchConnections);
+		if (
+			input.installationReview &&
+			!(await installationReviewMatches(
+				tx,
+				row.id,
+				scope,
+				input.installationReview.sequence,
+				input.installationReview,
+			))
+		)
+			return { kind: "mapping-moved" };
 		const live = await tx
 			.selectFrom("app_deployment_resources")
-			.select(["remote_id", "released_at"])
+			.select([
+				"id",
+				"claim_generation",
+				"review_generation",
+				"reviewed_nova_revision",
+				"remote_id",
+				"released_at",
+				"push_token",
+			])
 			.where("deployment_id", "=", row.id)
 			.where("kind", "=", "app")
 			.where("superseded_at", "is", null)
@@ -2453,28 +3623,205 @@ export async function admitAppWrite(
 		if (
 			live === undefined ||
 			live.remote_id !== input.remoteAppId ||
-			live.released_at !== null
+			(input.expectedInstallationMapping !== undefined &&
+				live.push_token !== input.expectedInstallationMapping) ||
+			(input.installationReview &&
+				(input.installationReview.claim?.mapping !== live.push_token ||
+					input.installationReview.claim.endings !== row.endings)) ||
+			live.released_at !== null ||
+			live.push_token !== input.observedPushToken ||
+			live.review_generation !== (input.comparedReview ?? null) ||
+			(input.writeKind === "import" &&
+				live.reviewed_nova_revision !== null &&
+				Number(live.reviewed_nova_revision) > input.compiledAtSeq)
 		) {
 			return { kind: "mapping-moved" };
 		}
-		const [writeId] = await admitRemoteWritesInTransaction(tx, [
-			{
-				deploymentId: row.id,
-				server: target.server,
-				domain: target.domain,
-				appId: scope.appId,
-				projectId: scope.projectId,
-				actorUserId: scope.actorUserId,
-				resourceKind: "app",
-				resourceId: input.remoteAppId,
-				writeKind: input.writeKind,
-				holdSeconds: REMOTE_WRITE_HOLD_SECONDS[input.writeKind],
-			},
-		]);
+		if (
+			input.writeKind === "import" &&
+			((await greatestFoldBaselineSeq(tx, scope.appId)) ?? -1) >
+				input.compiledAtSeq
+		)
+			return { kind: "fold-moved" };
+		if (
+			input.comparedSource !== undefined ||
+			input.comparedFiles?.paths.length
+		) {
+			const baseline = await tx
+				.selectFrom("app_deployment_baselines")
+				.select(["source_digest", "media_files"])
+				.where("deployment_id", "=", row.id)
+				.where("remote_app_id", "=", input.remoteAppId)
+				.executeTakeFirst();
+			if (
+				input.comparedSource !== undefined &&
+				(baseline?.source_digest ?? null) !== input.comparedSource
+			)
+				return { kind: "mapping-moved" };
+			const compared = input.comparedFiles;
+			if (compared?.paths.length) {
+				const current = storedMediaFiles(row.id, baseline?.media_files ?? null);
+				if (
+					compared.paths.some(
+						(path) =>
+							ownRecordValue(compared.files ?? undefined, path) !==
+							ownRecordValue(current ?? undefined, path),
+					)
+				)
+					return { kind: "mapping-moved" };
+			}
+		}
+		const identity = await readTargetIdentityRows(tx, row.id, {
+			appId: scope.appId,
+			server: target.server,
+		});
+		if (!sameTargetIdentity(input.compiledIdentity, identity))
+			return { kind: "mapping-moved" };
+		await scope.requireOperation?.(tx);
+		// A profile review can appear or be cleared during preflight. An attempt
+		// that saw protection retains its original grant and claim.
+		const candidate = input.emptyInstallations;
+		let emptyInstallations: EmptyInstallationClaim | undefined;
+		if (
+			input.writeKind === "import" &&
+			candidate &&
+			(candidate.previouslyPending ||
+				(await deploymentManagesInstallations(tx, row.id)))
+		) {
+			if (
+				live.push_token !== candidate.mapping ||
+				!(await emptyInstallationHead(tx, scope, row.id, candidate.sequence))
+			)
+				return { kind: "mapping-moved" };
+			emptyInstallations = {
+				mapping: live.push_token,
+				sequence: candidate.sequence,
+			};
+		}
+		const [writeId] = await admitRemoteWritesInTransaction(
+			tx,
+			[
+				{
+					deploymentId: row.id,
+					server: target.server,
+					domain: target.domain,
+					appId: scope.appId,
+					projectId: scope.projectId,
+					actorUserId: scope.actorUserId,
+					resourceKind: "app",
+					claimGeneration: live.claim_generation ?? live.id,
+					identityDigest: canonicalJsonDigest(identity),
+					reviewGeneration: live.review_generation,
+					resourceId: input.remoteAppId,
+					writeKind: input.writeKind,
+					holdSeconds: REMOTE_WRITE_HOLD_SECONDS[input.writeKind],
+				},
+			],
+			input.firstContentGeneration,
+		);
 		if (writeId === undefined) {
 			throw new Error("An admitted write to CommCare HQ returned no id.");
 		}
-		return { kind: "admitted", writeId };
+		return {
+			kind: "admitted",
+			writeId,
+			...(emptyInstallations && { emptyInstallations }),
+			...(input.writeKind === "import" &&
+				input.firstContentGeneration &&
+				row.content_generation &&
+				row.entry_point_manifest && {
+					previousEntry: {
+						generation: row.content_generation,
+						manifest: row.entry_point_manifest,
+						admittedGeneration: input.firstContentGeneration,
+					},
+				}),
+		};
+	});
+}
+
+/** The last read stopped an admitted import before a byte was sent. Settle
+ * its hold even if the actor lost access. Restore a suspended release only
+ * for its original uninterrupted claim with no other overlapping write. */
+export async function cancelUnsentImport(
+	admission: AdmittedAppWrite,
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		const write = await tx
+			.selectFrom("hq_remote_writes")
+			.select(["deployment_id", "claim_generation", "resource_id"])
+			.where("id", "=", admission.writeId)
+			.where("write_kind", "=", "import")
+			.executeTakeFirstOrThrow();
+		const prior = admission.previousEntry;
+		if (prior) {
+			const row = await tx
+				.selectFrom("app_deployments")
+				.select(["content_generation", "entry_point_manifest"])
+				.where("id", "=", write.deployment_id)
+				.forUpdate()
+				.executeTakeFirstOrThrow();
+			if (
+				row.content_generation === prior.admittedGeneration &&
+				row.entry_point_manifest === null &&
+				write.resource_id &&
+				write.claim_generation
+			) {
+				const mapping = await tx
+					.selectFrom("app_deployment_resources")
+					.select(["id", "claim_generation"])
+					.where("deployment_id", "=", write.deployment_id)
+					.where("kind", "=", "app")
+					.where("remote_id", "=", write.resource_id)
+					.where("superseded_at", "is", null)
+					.where("released_at", "is", null)
+					.executeTakeFirst();
+				const overlap = await tx
+					.selectFrom("hq_remote_writes")
+					.select("id")
+					.where("deployment_id", "=", write.deployment_id)
+					.where("id", "!=", admission.writeId)
+					.where("write_kind", "!=", "worker")
+					.where((eb) =>
+						eb.or([
+							eb(
+								"settled_at",
+								">=",
+								eb
+									.selectFrom("hq_remote_writes as own")
+									.select("own.opened_at")
+									.where("own.id", "=", admission.writeId),
+							),
+							eb.and([
+								eb("settled_at", "is", null),
+								eb(
+									"held_until",
+									">=",
+									eb
+										.selectFrom("hq_remote_writes as own")
+										.select("own.opened_at")
+										.where("own.id", "=", admission.writeId),
+								),
+							]),
+						]),
+					)
+					.executeTakeFirst();
+				if (
+					mapping &&
+					(mapping.claim_generation ?? mapping.id) === write.claim_generation &&
+					!overlap
+				)
+					await tx
+						.updateTable("app_deployments")
+						.set({
+							content_generation: prior.generation,
+							entry_point_manifest: JSON.stringify(prior.manifest),
+						})
+						.where("id", "=", write.deployment_id)
+						.execute();
+			}
+		}
+		await settleRemoteWritesIn(tx, [admission.writeId], { kind: "settled" });
 	});
 }
 
@@ -2488,27 +3835,43 @@ export async function admitAppWrite(
 export async function admitAppCreate(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	fence: DeploymentFence,
+	fence: DeploymentFence & { readonly firstContentGeneration?: string },
+	requireHqImport?: HqManagementGrant | null,
 ): Promise<string> {
 	return withDeploymentRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: fence.expectedEndings },
+		{
+			ensure: false,
+			expectedEndings: fence.expectedEndings,
+			searchConnections: fence.searchConnections,
+		},
 		async (tx, row) => {
-			const [writeId] = await admitRemoteWritesInTransaction(tx, [
-				{
-					deploymentId: row.id,
-					server: target.server,
-					domain: target.domain,
-					appId: scope.appId,
-					projectId: scope.projectId,
-					actorUserId: scope.actorUserId,
-					resourceKind: "app",
-					resourceId: null,
-					writeKind: "create",
-					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.create,
-				},
-			]);
+			await scope.requireOperation?.(tx);
+			await authorizePublishDecision(
+				tx,
+				scope,
+				row.id,
+				requireHqImport ?? fence.manageInstallations,
+			);
+			const [writeId] = await admitRemoteWritesInTransaction(
+				tx,
+				[
+					{
+						deploymentId: row.id,
+						server: target.server,
+						domain: target.domain,
+						appId: scope.appId,
+						projectId: scope.projectId,
+						actorUserId: scope.actorUserId,
+						resourceKind: "app",
+						resourceId: null,
+						writeKind: "create",
+						holdSeconds: REMOTE_WRITE_HOLD_SECONDS.create,
+					},
+				],
+				fence.firstContentGeneration,
+			);
 			if (writeId === undefined) {
 				throw new Error("An admitted create on CommCare HQ returned no id.");
 			}
@@ -2519,6 +3882,7 @@ export async function admitAppCreate(
 
 /** What an admission of a lookup table workbook answered. */
 export type WorkbookAdmission =
+	| { readonly kind: "changed" }
 	| { readonly kind: "admitted"; readonly writeIds: readonly string[] }
 	/** Tables handed back to CommCare HQ from this project space, by tag in tag order. Nothing was recorded. */
 	| { readonly kind: "handed-back"; readonly tags: readonly string[] };
@@ -2538,13 +3902,28 @@ export type WorkbookAdmission =
 export async function admitWorkbookWrite(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	input: DeploymentFence & { readonly tableIds: readonly string[] },
+	input: DeploymentFence & {
+		readonly firstContentGeneration?: string;
+		readonly tableIds: readonly LookupTableId[];
+		readonly authority: WorkbookAuthority;
+		readonly observedOnly?: boolean;
+	},
 ): Promise<WorkbookAdmission> {
 	return withDeploymentRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: input.expectedEndings },
+		{
+			ensure: false,
+			expectedEndings: input.expectedEndings,
+			searchConnections: input.searchConnections,
+		},
 		async (tx, row) => {
+			await authorizePublishDecision(
+				tx,
+				scope,
+				row.id,
+				input.manageInstallations,
+			);
 			const tables = await lockLookupTablesForPublishInTransaction(
 				tx,
 				{ projectId: scope.projectId, actorId: scope.actorUserId },
@@ -2559,8 +3938,19 @@ export async function admitWorkbookWrite(
 				)
 				.map((table) => table.tag)
 				.sort();
+			const matches = await workbookAuthorityMatches(
+				tx,
+				scope,
+				target,
+				input.authority,
+				input.tableIds,
+				tables,
+			);
 			if (handedBack.length > 0)
 				return { kind: "handed-back", tags: handedBack };
+			if (!matches) return { kind: "changed" };
+			if (input.observedOnly) return { kind: "admitted", writeIds: [] };
+			await scope.requireOperation?.(tx);
 			const writeIds = await admitRemoteWritesInTransaction(
 				tx,
 				tables.map((table) => ({
@@ -2575,10 +3965,157 @@ export async function admitWorkbookWrite(
 					writeKind: "workbook" as const,
 					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.workbook,
 				})),
+				input.firstContentGeneration,
 			);
 			return { kind: "admitted", writeIds };
 		},
 	);
+}
+
+/**
+ * Admit one request of a table's JSON publish, immediately before it is
+ * sent (`lookupJsonExecutor.ts`): under the fence, for a live app whose
+ * caller may edit it, with the Project's lookup fence taken, the table not
+ * handed back to CommCare HQ on this project space, and the publisher's
+ * grant and the table's revisions still what preflight planned
+ * (`workbookAuthorityMatches`), it journals the operation over the
+ * destination at `expectedRevision` and records the write open for its hold.
+ * CommCare HQ checks no lookup permission on these resources, so this is
+ * the check every request passes.
+ */
+export async function admitLookupJsonWrite(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: DeploymentFence & {
+		readonly firstContentGeneration?: string;
+		readonly manualInstall?: boolean;
+		readonly tableId: LookupTableId;
+		readonly authority: WorkbookAuthority;
+		readonly entry: LookupJsonJournalEntry;
+		readonly expectedRevision: string | null;
+	},
+): Promise<
+	| {
+			readonly kind: "admitted";
+			readonly operationId: string;
+			readonly writeIds: readonly string[];
+	  }
+	| { readonly kind: "stale" }
+	| { readonly kind: "busy" }
+	| { readonly kind: "refused"; readonly reason: "handed-back" | "changed" }
+> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{
+			ensure: input.manualInstall === true,
+			expectedEndings: input.expectedEndings,
+			searchConnections: input.searchConnections,
+		},
+		async (tx, row) => {
+			await authorizePublishDecision(
+				tx,
+				scope,
+				row.id,
+				input.manageInstallations,
+			);
+			const tables = await lockLookupTablesForPublishInTransaction(
+				tx,
+				{ projectId: scope.projectId, actorId: scope.actorUserId },
+				[input.tableId],
+			);
+			if (
+				tables.some(
+					(table) =>
+						table.hqServer === target.server &&
+						table.hqDomain === target.domain &&
+						!table.takenOver,
+				)
+			)
+				return { kind: "refused", reason: "handed-back" };
+			if (
+				!(await workbookAuthorityMatches(
+					tx,
+					scope,
+					target,
+					input.authority,
+					[input.tableId],
+					tables,
+				))
+			)
+				return { kind: "refused", reason: "changed" };
+			await scope.requireOperation?.(tx);
+			const journaled = await journalLookupJsonOperation(
+				tx,
+				{
+					projectId: scope.projectId,
+					server: target.server,
+					domain: target.domain,
+					tableId: input.tableId,
+				},
+				{
+					expectedRevision: input.expectedRevision,
+					appId: scope.appId,
+					actorUserId: scope.actorUserId,
+					entry: input.entry,
+				},
+			);
+			if (journaled.kind !== "journaled") return journaled;
+			const writeIds = await admitRemoteWritesInTransaction(
+				tx,
+				[
+					{
+						deploymentId: row.id,
+						server: target.server,
+						domain: target.domain,
+						appId: scope.appId,
+						projectId: scope.projectId,
+						actorUserId: scope.actorUserId,
+						resourceKind: "lookup-table",
+						resourceId: input.tableId,
+						writeKind: "lookup-json",
+						holdSeconds: REMOTE_WRITE_HOLD_SECONDS["lookup-json"],
+					},
+				],
+				input.firstContentGeneration,
+			);
+			return {
+				kind: "admitted",
+				operationId: journaled.operationId,
+				writeIds,
+			};
+		},
+	);
+}
+
+/** How long after its admission a JSON request can no longer land. */
+export const LOOKUP_JSON_HOLD_MS =
+	REMOTE_WRITE_HOLD_SECONDS["lookup-json"] * 1000;
+
+/**
+ * Settle a table's JSON request and its remote write in one transaction:
+ * the journal and the destination ledger move together with the write's
+ * settlement, so a crash between them leaves the operation open for the
+ * next publish to read, never a ledger ahead of the journal.
+ */
+export async function settleLookupJsonWrite(
+	key: LookupJsonDestinationKey,
+	operationId: string,
+	settlement: LookupJsonSettlement,
+	writes: { readonly writeIds: readonly string[]; readonly answered: boolean },
+): Promise<string> {
+	return withAppTx(async (tx) => {
+		const revision = await settleLookupJsonOperationInTransaction(
+			tx,
+			key,
+			operationId,
+			settlement,
+		);
+		await settleRemoteWritesIn(tx, writes.writeIds, {
+			kind: writes.answered ? "settled" : "unanswered",
+		});
+		return revision;
+	});
 }
 
 /**
@@ -2591,14 +4128,42 @@ export async function admitWorkbookWrite(
 export async function admitPlacesWrite(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	input: DeploymentFence & { readonly locationUuids: readonly string[] },
+	input: DeploymentFence & {
+		readonly firstContentGeneration?: string;
+		readonly locationUuids: readonly string[];
+		readonly organizationRevision?: string;
+	},
 ): Promise<readonly string[]> {
 	return withDeploymentRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: input.expectedEndings },
-		async (tx, row) =>
-			admitRemoteWritesInTransaction(
+		{
+			ensure: false,
+			expectedEndings: input.expectedEndings,
+			searchConnections: input.searchConnections,
+		},
+		async (tx, row) => {
+			await authorizePublishDecision(
+				tx,
+				scope,
+				row.id,
+				input.manageInstallations,
+			);
+			if (input.organizationRevision !== undefined) {
+				const state = await tx
+					.selectFrom("app_organization_state")
+					.select("revision")
+					.where("app_id", "=", scope.appId)
+					.forShare()
+					.executeTakeFirst();
+				if (String(state?.revision ?? 0) !== input.organizationRevision)
+					throw new DeploymentError(
+						"stale",
+						"The organization changed while these places were being published. Publish again to continue with the current places.",
+					);
+			}
+			await scope.requireOperation?.(tx);
+			return admitRemoteWritesInTransaction(
 				tx,
 				input.locationUuids.map((locationUuid) => ({
 					deploymentId: row.id,
@@ -2612,8 +4177,40 @@ export async function admitPlacesWrite(
 					writeKind: "places" as const,
 					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.places,
 				})),
-			),
+				input.firstContentGeneration,
+			);
+		},
 	);
+}
+
+/** When the private decision fails or returns early, settle only the held
+ * write whose successful reply was independently recorded. Other operations
+ * on the same destination keep their own admissions and results. */
+export async function finishAcknowledgedInstallationImport(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	writeId: string,
+	remoteAppId: string,
+): Promise<void> {
+	await (await getAppDb())
+		.updateTable("hq_remote_writes")
+		.set({
+			settled_at: sql<Date>`now()`,
+			settled_generation: sql<string | null>`COALESCE(settled_generation, (
+				SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id
+			))`,
+		})
+		.where("id", "=", writeId)
+		.where("write_kind", "=", "import")
+		.where("resource_id", "=", remoteAppId)
+		.where("app_id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.where("actor_user_id", "=", scope.actorUserId)
+		.where("server", "=", target.server)
+		.where("domain", "=", target.domain)
+		.where("import_acknowledged_at", "is not", null)
+		.where("settled_at", "is", null)
+		.execute();
 }
 
 /** How a write CommCare HQ was sent ended, as `settleRemoteWrites` records it. */
@@ -2621,6 +4218,59 @@ export type RemoteWriteSettlement =
 	| { readonly kind: "settled"; readonly resourceId?: string }
 	| { readonly kind: "unanswered"; readonly resourceId?: string }
 	| { readonly kind: "media-job"; readonly jobId: string };
+
+/** Record the physical import's reply against its exact admission. The hold
+ * stays open until read-back finishes, including after private authority ends.
+ * A valid counter orders later reviews independently of installation management. */
+export async function recordImportAcknowledgement(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	writeId: string,
+	appId: string,
+	reply: {
+		readonly version: number | null;
+		readonly acceptedVersion: number | null;
+		readonly managesInstallations: boolean;
+	},
+): Promise<void> {
+	const { version, acceptedVersion, managesInstallations } = reply;
+	if (acceptedVersion === null && !managesInstallations) return;
+	await (await getAppDb())
+		.updateTable("hq_remote_writes")
+		.set({
+			...(managesInstallations && {
+				import_acknowledged_at: sql<Date>`COALESCE(import_acknowledged_at, now())`,
+				import_acknowledged_version: version,
+			}),
+			...(acceptedVersion !== null && {
+				accepted_remote_revision: acceptedVersion,
+				settled_generation: sql<string | null>`COALESCE(settled_generation, (
+					SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id
+				))`,
+			}),
+		})
+		.where("id", "=", writeId)
+		.where("write_kind", "=", "import")
+		.where("resource_kind", "=", "app")
+		.where("resource_id", "=", appId)
+		.where("app_id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.where("actor_user_id", "=", scope.actorUserId)
+		.where("server", "=", target.server)
+		.where("domain", "=", target.domain)
+		.$if(managesInstallations, (query) =>
+			query.where(
+				sql<SqlBool>`(import_acknowledged_at IS NULL OR import_acknowledged_version IS NOT DISTINCT FROM ${version}::bigint)`,
+			),
+		)
+		.$if(acceptedVersion !== null, (query) =>
+			query.where(
+				sql<SqlBool>`(accepted_remote_revision IS NULL OR accepted_remote_revision = ${acceptedVersion}::bigint)`,
+			),
+		)
+		.returning("id")
+		.executeTakeFirstOrThrow();
+}
 
 /**
  * Say how a write ended, once its process knows: `settled` where CommCare HQ
@@ -2655,7 +4305,16 @@ async function settleRemoteWritesIn(
 		.updateTable("hq_remote_writes")
 		.set({
 			...(how.kind === "settled"
-				? { settled_at: sql<Date>`now()` }
+				? {
+						settled_at: sql<Date>`COALESCE(settled_at, now())`,
+						// The peer has already finished this write. A later generation
+						// is ordered after it, including after transfer to a new claim.
+						settled_generation: sql<
+							string | null
+						>`CASE WHEN settled_at IS NULL THEN COALESCE(settled_generation, (
+						SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id
+					)) ELSE settled_generation END`,
+					}
 				: {
 						held_until: sql<Date>`greatest(opened_at, now() + make_interval(secs => ${holdSeconds}))`,
 					}),
@@ -2663,7 +4322,7 @@ async function settleRemoteWritesIn(
 				how.resourceId !== undefined && { resource_id: how.resourceId }),
 			...(how.kind === "media-job" && { hq_job_id: how.jobId }),
 		})
-		.where("id", "in", [...writeIds])
+		.where(sql<SqlBool>`id = ANY(${sql.val(writeIds)}::uuid[])`)
 		.execute();
 }
 
@@ -2713,30 +4372,71 @@ export async function readOpenMediaJobs(key: {
  * is taken before its request was sent, so it never outdates a publish that
  * imported after that moment.
  *
- * A stored baseline that already holds this read's digest is `current`
- * whatever moved it there: another refresh that read the same, or a publish
- * whose read-back is this read, so two refreshes of an unchanged project
- * space both answer as refreshed, whichever lands first. It is written again
- * only where this read is the later, which moves the date and nothing else.
- * `superseded` therefore names a newer read that differs from this one, a
- * publish's or another refresh's, or a publish that moved the app or could
- * not read it back.
+ * Two refreshes of the same source both answer as current when the compared
+ * claim, revision and fold still stand. A kept-values read may also report a
+ * later publish's verified read-back as current, with no writes: the same
+ * HQ app has a new push, its read is at least as recent as the request, its
+ * bytes match, and its recorded media agree with the response. When only
+ * the claim changed, the old request cannot acknowledge the target.
  *
  * The stored origin, ownership and Nova revision are kept: they say how the
  * app came to be there, what Nova's upload owned in it and which revision of
  * the app it describes, which a read without a publish does not change. A
  * stored discard record is kept too, and so are the media record and the
  * first-publish list unless the input carries what the next publish changes:
- * that keeps a stored list of that kind by `hqChangesFirstPublishList`, and
- * never touches the list of an app brought in and not yet published.
+ * a full changes reading then updates the first or next publish’s list by
+ * `hqChangesFirstPublishList`. A passive refresh and a media-only read keep it.
  */
+/** A review a person accepted for this specific working-app mapping and head. */
+interface InstallationReviewReceipt {
+	readonly digest: string;
+	readonly headSeq: number;
+	readonly mapping: string;
+}
+async function recordInstallationConsent(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	scope: DeploymentScope,
+	remoteAppId: string,
+	receipt: InstallationReviewReceipt,
+) {
+	await scope.requireInstallationManagement?.(tx);
+	await tx
+		.updateTable("app_deployment_baselines")
+		.set({
+			installation_review: JSON.stringify({
+				...receipt,
+				actor: scope.actorUserId,
+				remoteAppId,
+			}),
+		})
+		.where("deployment_id", "=", deploymentId)
+		.executeTakeFirstOrThrow();
+}
 export async function recordRefreshedAppBaseline(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
+		readonly installationReview?: InstallationReviewReceipt;
 		readonly remoteAppId: string;
 		/** The `sourceDigest` of the baseline the read was compared with. */
 		readonly comparedDigest: string;
+		readonly comparedPushToken: string;
+		/** A kept-values refresh may acknowledge an independently verified
+		 * later push without writing. A changes review must keep its token. */
+		readonly keptMediaMap?: Parameters<typeof movedRecordedPaths>[1];
+		readonly keptRemovalFiles?: {
+			readonly read: HqMediaRecord | null;
+			readonly paths: readonly string[];
+		};
+		/** Revision and certified fold the verified read used. Older callers with
+		 * neither can refresh only an ordinary, uncertified baseline. */
+		readonly comparedRevision?: number | null;
+		readonly comparedFold?: number;
+		/** The reviewed Nova head, when recording an HQ changes decision. */
+		readonly comparedHead?: number;
+		/** A changes review bracketed the reading with HQ’s working-app save counter. */
+		readonly reviewedVersion?: number;
 		/** The fresh read: gzip, bytes, digest and `observedAt`. */
 		readonly read: Pick<
 			AppBaselineWrite,
@@ -2749,7 +4449,7 @@ export async function recordRefreshedAppBaseline(
 		 */
 		readonly nextPublish?: HqChangesFirstPublish;
 		/** The media record with an id a review learned. Absent: it stays. */
-		readonly mediaFiles?: HqMediaRecord;
+		readonly mediaFiles?: HqMediaObservation;
 		/**
 		 * The target-identity record a review that read the same app
 		 * resolved, and the record it resolved over, written whether or not
@@ -2765,11 +4465,12 @@ export async function recordRefreshedAppBaseline(
 	readonly outcome: "current" | "superseded";
 	readonly deployment: DeploymentWithResources;
 }> {
-	return withDeploymentRow(
+	const result = await withDeploymentRow(
 		scope,
 		target,
 		{ ensure: false, expectedEndings: input.expectedEndings },
-		async (tx, row) => {
+		async (tx, row, role) => {
+			await scope.requireOperation?.(tx);
 			const stored = await tx
 				.selectFrom("app_deployment_baselines")
 				.select([
@@ -2778,18 +4479,29 @@ export async function recordRefreshedAppBaseline(
 					"source_digest",
 					"ownership",
 					"nova_revision",
+					"reference_fold_seq",
+					"readback_push_token",
+					"readback_source_digest",
 					"observed_at",
 					"first_publish_changes",
+					"media_files",
 				])
 				.where("deployment_id", "=", row.id)
 				.executeTakeFirst();
 			const liveMapping = await tx
 				.selectFrom("app_deployment_resources")
-				.select("remote_id")
+				.select([
+					"remote_id",
+					"push_token",
+					"pushed_at",
+					"remote_missing_at",
+					"reviewed_remote_revision",
+				])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
 				.where("superseded_at", "is", null)
+				.where("released_at", "is", null)
 				.executeTakeFirst();
 			const ownership =
 				stored === undefined ? null : appOwnershipFromRow(stored.ownership);
@@ -2801,6 +4513,7 @@ export async function recordRefreshedAppBaseline(
 			/* Every origin that holds a read Nova compares as a publish's is
 			 * refreshed; a shell's and a failed read's are not. */
 			if (
+				(input.reviewedVersion !== undefined && role !== scope.role) ||
 				stored === undefined ||
 				stored.remote_app_id !== input.remoteAppId ||
 				(origin !== "push" &&
@@ -2812,84 +4525,251 @@ export async function recordRefreshedAppBaseline(
 			) {
 				return superseded();
 			}
+			if (
+				input.reviewedVersion !== undefined &&
+				liveMapping.reviewed_remote_revision !== null &&
+				input.reviewedVersion < Number(liveMapping.reviewed_remote_revision)
+			)
+				return superseded();
+			if (input.comparedHead !== undefined) {
+				const head = await tx
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", scope.appId)
+					.executeTakeFirstOrThrow();
+				if (safePersistedSequence(head.mutation_seq) !== input.comparedHead)
+					return superseded();
+			}
+			const currentMedia = storedMediaFiles(row.id, stored.media_files);
+			// A media upload can finish during the HTTP read without changing
+			// the token, source or observation time. Recheck its saved files
+			// against the response before acknowledging or recording that read.
+			if (
+				input.keptMediaMap !== undefined &&
+				movedRecordedPaths(currentMedia, input.keptMediaMap) !== 0
+			)
+				return superseded();
+			const pruned = input.keptRemovalFiles;
+			if (
+				pruned?.paths.some(
+					(path) =>
+						ownRecordValue(pruned.read ?? undefined, path) !==
+						ownRecordValue(currentMedia ?? undefined, path),
+				)
+			)
+				return superseded();
+			if (input.installationReview) {
+				const app = await tx
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", scope.appId)
+					.executeTakeFirstOrThrow();
+				if (
+					Number(app.mutation_seq) !== input.installationReview.headSeq ||
+					stored.source_digest !== input.comparedDigest ||
+					liveMapping.push_token !== input.installationReview.mapping
+				)
+					return superseded();
+			}
 			const readAt = Date.parse(input.read.observedAt);
+			const matchesPublishedRead =
+				stored.readback_push_token === liveMapping.push_token &&
+				stored.readback_source_digest === input.read.sourceDigest;
+			if (liveMapping.push_token !== input.comparedPushToken) {
+				// A release/reclaim after a publish preserves its time and bytes
+				// but rotates its claim. A later publish can vouch for the read
+				// only while its own mapping token still holds.
+				if (
+					input.keptMediaMap === undefined ||
+					!matchesPublishedRead ||
+					liveMapping.remote_missing_at !== null ||
+					input.targetIdentity !== undefined ||
+					input.mediaFiles !== undefined ||
+					input.nextPublish !== undefined ||
+					origin !== "push" ||
+					stored.reference_fold_seq !== null ||
+					stored.source_digest !== input.read.sourceDigest ||
+					stored.observed_at.getTime() < readAt ||
+					liveMapping.pushed_at === null ||
+					liveMapping.pushed_at.getTime() < readAt
+				)
+					return superseded();
+				return {
+					outcome: "verify-publish" as const,
+					deployment: await loadWithinTransaction(tx, row.id),
+					baseline: await appBaselineRow(tx, scope, target),
+				};
+			}
+			const media =
+				input.mediaFiles &&
+				mergeHqMediaObservation(currentMedia, input.mediaFiles);
+			if (media?.conflict) return superseded();
 			const storedList = storedFirstPublish(
 				row.id,
 				stored.first_publish_changes,
 			);
-			/* Where CommCare HQ keeps things is no part of the source's digest
-			 * (a form's id normalizes out), so the record goes where the fences
-			 * pass, whether or not the source does. */
-			if (input.targetIdentity !== undefined) {
-				try {
-					await writeTargetIdentityInTransaction(
-						tx,
-						row.id,
-						{ appId: scope.appId, server: target.server },
-						input.targetIdentity,
-					);
-				} catch (error) {
-					if (error instanceof TargetIdentityMovedError) return superseded();
-					throw error;
+			if (!fileReviewStillCurrent(storedList, input.nextPublish))
+				return superseded();
+			const nextList =
+				input.nextPublish === undefined
+					? storedList
+					: hqChangesFirstPublishList(storedList, input.nextPublish);
+			/* Check the read date, its revision and its fold before changing any
+			 * side record. A repeated observation succeeds only when its requested
+			 * target identities already stand. */
+			if (
+				(input.comparedRevision !== undefined &&
+					input.comparedRevision !== numberOrNull(stored.nova_revision)) ||
+				(input.comparedFold ?? null) !==
+					numberOrNull(stored.reference_fold_seq) ||
+				(stored.reference_fold_seq !== null &&
+					input.comparedRevision === undefined)
+			)
+				return superseded();
+			if (
+				stored.observed_at.getTime() >= readAt ||
+				stored.source_digest !== input.comparedDigest
+			) {
+				if (stored.source_digest !== input.read.sourceDigest)
+					return superseded();
+				if (
+					media !== undefined &&
+					hqMediaRecordMoves(currentMedia, media.files)
+				)
+					return superseded();
+				if (!deepEqual(storedList, nextList)) return superseded();
+				if (input.targetIdentity !== undefined) {
+					const current = await readTargetIdentityRows(tx, row.id, {
+						appId: scope.appId,
+						server: target.server,
+					});
+					if (!sameTargetIdentity(current, input.targetIdentity.next))
+						return superseded();
 				}
+				if (readAt > stored.observed_at.getTime()) {
+					await tx
+						.updateTable("app_deployment_baselines")
+						.set({
+							observed_at: input.read.observedAt,
+							observed_by: scope.actorUserId,
+						})
+						.where("deployment_id", "=", row.id)
+						.execute();
+					await notifyAppDeployments(tx, scope.appId);
+				}
+				return {
+					outcome: "current" as const,
+					deployment: await loadWithinTransaction(tx, row.id),
+				};
 			}
-			/* The stored baseline already holds what this read saw: another
-			 * refresh that read the same landed first, or a publish whose
-			 * read-back is byte for byte this read. The row is current either
-			 * way, and only a later date moves it. */
-			if (stored.source_digest === input.read.sourceDigest) {
-				if (stored.observed_at.getTime() >= readAt) {
+			if (input.targetIdentity !== undefined) {
+				const context = { appId: scope.appId, server: target.server };
+				if (
+					sameTargetIdentity(
+						input.targetIdentity.read,
+						input.targetIdentity.next,
+					)
+				) {
 					if (
-						input.targetIdentity !== undefined &&
 						!sameTargetIdentity(
+							await readTargetIdentityRows(tx, row.id, context),
 							input.targetIdentity.read,
-							input.targetIdentity.next,
 						)
 					)
-						await notifyAppDeployments(tx, scope.appId);
-					return {
-						outcome: "current",
-						deployment: await loadWithinTransaction(tx, row.id),
-					};
+						return superseded();
+				} else {
+					try {
+						await writeTargetIdentityInTransaction(
+							tx,
+							row.id,
+							context,
+							input.targetIdentity,
+						);
+					} catch (error) {
+						if (error instanceof TargetIdentityMovedError) return superseded();
+						throw error;
+					}
 				}
-			} else if (
-				stored.source_digest !== input.comparedDigest ||
-				stored.observed_at.getTime() > readAt
-			) {
-				return superseded();
 			}
-			await writeAppBaseline(tx, row.id, scope.actorUserId, {
-				origin,
-				remoteAppId: input.remoteAppId,
-				sourceGzip: input.read.sourceGzip,
-				sourceBytes: input.read.sourceBytes,
-				sourceDigest: input.read.sourceDigest,
-				ownership,
-				observedAt: input.read.observedAt,
-				discard: null,
-				novaRevision: numberOrNull(stored.nova_revision),
-				mediaFiles:
-					input.mediaFiles === undefined
-						? { kind: "keep" }
-						: { kind: "set", files: input.mediaFiles },
-				/* An app brought in and not yet published keeps its own list: the
-				 * first publish still makes every change of it, and a read that
-				 * compared equal reads the same app it was given for. */
-				firstPublish:
-					input.nextPublish === undefined || storedList?.of === "first-publish"
-						? { kind: "keep" }
-						: {
-								kind: "set",
-								list: hqChangesFirstPublishList(storedList, input.nextPublish),
-							},
-			});
+			if (input.installationReview)
+				await recordInstallationConsent(
+					tx,
+					row.id,
+					scope,
+					input.remoteAppId,
+					input.installationReview,
+				);
+			const changed =
+				stored.source_digest !== input.read.sourceDigest ||
+				(media !== undefined &&
+					hqMediaRecordMoves(currentMedia, media.files)) ||
+				!deepEqual(storedList, nextList) ||
+				(input.targetIdentity !== undefined &&
+					!sameTargetIdentity(
+						input.targetIdentity.read,
+						input.targetIdentity.next,
+					));
+			await writeAppBaseline(
+				tx,
+				row.id,
+				scope.actorUserId,
+				{
+					origin,
+					remoteAppId: input.remoteAppId,
+					sourceGzip: input.read.sourceGzip,
+					sourceBytes: input.read.sourceBytes,
+					sourceDigest: input.read.sourceDigest,
+					ownership,
+					observedAt: input.read.observedAt,
+					discard: null,
+					novaRevision: numberOrNull(stored.nova_revision),
+					mediaFiles:
+						media === undefined ||
+						!hqMediaRecordMoves(currentMedia, media.files)
+							? { kind: "keep" }
+							: { kind: "set", files: media.files },
+					firstPublish:
+						input.nextPublish === undefined
+							? { kind: "keep" }
+							: { kind: "set", list: nextList },
+				},
+				{
+					reviewedVersion: input.reviewedVersion,
+					rebindFold: input.comparedFold !== undefined,
+					// Another identical refresh can advance the date without
+					// changing which still-held publish returned these bytes.
+					readbackPushToken: matchesPublishedRead
+						? liveMapping.push_token
+						: null,
+				},
+			);
+			if (input.reviewedVersion !== undefined)
+				await markReviewedSave(
+					tx,
+					row.id,
+					input.remoteAppId,
+					input.reviewedVersion,
+					changed,
+				);
 			await notifyAppDeployments(tx, scope.appId);
 			return {
-				outcome: "current",
+				outcome: "current" as const,
 				deployment: await loadWithinTransaction(tx, row.id),
 			};
 		},
 	);
+	if (result.outcome !== "verify-publish") return result;
+	// Verify the winner read under the lock, without holding the connection
+	// while unzipping it. This path never updates the date or any side record.
+	const baseline = verifiedAppBaseline(scope, result.baseline);
+	return {
+		outcome:
+			baseline?.origin === "push" &&
+			baseline.sourceBytes === input.read.sourceBytes
+				? "current"
+				: "superseded",
+		deployment: result.deployment,
+	};
 }
 
 /**
@@ -2918,49 +4798,94 @@ export async function recordDeploymentMediaFiles(
 		readonly pushToken: string | null;
 		/** The digest of the baseline this publish wrote; null when HQ returned no verifiable source. */
 		readonly sourceDigest: string | null;
-		readonly files: HqMediaRecord;
+		readonly novaRevision: number | null;
+		readonly files: HqMediaObservation;
 		readonly admitted?: AdmittedRecord;
 	},
-): Promise<void> {
-	await withRecordRow(
+): Promise<"recorded" | "superseded"> {
+	return withRecordRow(
 		scope,
 		target,
-		{ admitted: input.admitted, writeKinds: ["import", "media"] },
+		{
+			admitted: input.admitted,
+			writeKinds: ["import", "media"],
+			liveDecision: input,
+		},
 		async (tx, row) => {
-			const { pushToken } = input;
-			if (row.endings !== input.expectedEndings || pushToken === null) return;
-			await tx
-				.updateTable("app_deployment_baselines")
-				.set({ media_files: JSON.stringify(input.files) })
-				.where("deployment_id", "=", row.id)
-				.where("remote_app_id", "=", input.remoteAppId)
-				.where((eb) =>
-					eb.exists(
-						tx
-							.selectFrom("app_deployment_resources as r")
-							.select("r.id")
-							.where("r.deployment_id", "=", row.id)
-							.where("r.kind", "=", "app")
-							.where("r.remote_id", "=", input.remoteAppId)
-							.where("r.superseded_at", "is", null)
-							.where("r.push_token", "=", pushToken),
-					),
+			if (row.endings !== input.expectedEndings || input.pushToken === null)
+				return "superseded";
+			const baseline = await tx
+				.selectFrom("app_deployment_baselines as b")
+				.innerJoin(
+					"app_deployment_resources as r",
+					"r.deployment_id",
+					"b.deployment_id",
 				)
-				.where((eb) =>
-					input.sourceDigest === null
-						? eb("source_digest", "is", null)
-						: eb("source_digest", "=", input.sourceDigest),
-				)
-				.execute();
+				.select([
+					"b.media_files",
+					"b.nova_revision",
+					"b.source_digest",
+					"r.id",
+					"r.remote_id",
+					"r.released_at",
+					"r.claim_generation",
+					"r.review_generation",
+				])
+				.where("b.deployment_id", "=", row.id)
+				.where("b.remote_app_id", "=", input.remoteAppId)
+				.where("r.kind", "=", "app")
+				.where("r.nova_resource_id", "=", scope.appId)
+				.whereRef("r.remote_id", "=", "b.remote_app_id")
+				.where("r.superseded_at", "is", null)
+				.where("r.released_at", "is", null)
+				.where("r.push_token", "=", input.pushToken)
+				.executeTakeFirst();
+			if (
+				!baseline ||
+				baseline.source_digest !== input.sourceDigest ||
+				numberOrNull(baseline.nova_revision) !== input.novaRevision
+			)
+				return "superseded";
+			if (
+				input.admitted?.writeIds.length &&
+				(await admittedAppState(
+					tx,
+					row,
+					input.remoteAppId,
+					baseline,
+					input.admitted,
+				)) !== "current"
+			)
+				return "superseded";
+			const current = storedMediaFiles(row.id, baseline.media_files);
+			const media = mergeHqMediaObservation(current, input.files);
+			if (
+				baseline.media_files === null ||
+				hqMediaRecordMoves(current, media.files)
+			) {
+				await tx
+					.updateTable("app_deployment_baselines")
+					.set({ media_files: JSON.stringify(media.files) })
+					.where("deployment_id", "=", row.id)
+					.execute();
+				await notifyAppDeployments(tx, scope.appId);
+			}
+			return media.conflict ? "superseded" : "recorded";
 		},
 	);
 }
 
 /** Which of the baseline's facts a bring-in of changes found moved under its lock. */
 export type HqChangesBaselineFence =
+	| "project-role"
+	| "app-head"
+	| "remote-version"
 	| "source-digest"
+	| "media-files"
+	| "mapping-token"
 	| "nova-revision"
 	| "remote-app"
+	| "app-head"
 	| "observed-at"
 	| "target-identity";
 
@@ -2979,13 +4904,19 @@ export class HqChangesBaselineMovedError extends Error {
 		expected: string,
 		found: string | null,
 	) {
-		const what = {
+		const names: Record<HqChangesBaselineFence, string> = {
+			"project-role": "Project role",
+			"remote-version": "CommCare HQ save",
 			"source-digest": "source digest",
+			"app-head": "reviewed app revision",
 			"nova-revision": "Nova revision",
 			"remote-app": "CommCare HQ app",
+			"mapping-token": "HQ app mapping token",
+			"media-files": "recorded HQ files",
 			"observed-at": "read no later than",
 			"target-identity": "target identity",
-		}[fence];
+		};
+		const what = names[fence];
 		super(
 			`The deployment's baseline is not the one this plan read (expected ${what} ${expected}, found ${found ?? "none"}), so nothing was recorded. Another write landed in between; the caller answers the review as it now stands.`,
 		);
@@ -3004,6 +4935,10 @@ const WEB_APPS_LINES: ReadonlySet<FirstPublishChangeId> = new Set([
 
 /** What the list a bring-in of changes leaves on the baseline is made from. */
 export interface HqChangesFirstPublish {
+	readonly removedFiles?: {
+		readonly compared: readonly string[];
+		readonly accepted: readonly string[];
+	};
 	/** The list acceptance gave this request's reading for the app's declaration, as a list stores it
 	 *  (`reading/firstPublishChanges.ts::firstPublishListToStore`). */
 	readonly accepted: FirstPublishView;
@@ -3011,6 +4946,21 @@ export interface HqChangesFirstPublish {
 	readonly publishChanges: readonly FirstPublishChangeId[];
 	/** The Web App setting the source CommCare HQ served holds (`HqAppSource.cloudcareEnabled`). */
 	readonly webAppsOnInHq: boolean;
+	/** A previously recorded hidden starting answer is still absent from the taken app. */
+	readonly stillOmitsHiddenStartingAnswer?: boolean;
+}
+
+/** A later review can accept a different set even at the same source digest. */
+function fileReviewStillCurrent(
+	stored: StoredFirstPublish | null,
+	input: HqChangesFirstPublish | undefined,
+): boolean {
+	if (!input?.removedFiles) return true;
+	const current = stored?.reviewed === 1 ? (stored.removedFiles ?? []) : [];
+	return (
+		deepEqual(current, input.removedFiles.compared) ||
+		deepEqual(current, input.removedFiles.accepted)
+	);
 }
 
 /** `ids` in registry order, once each, less the two Web App lines. */
@@ -3036,21 +4986,51 @@ function hqChangesFirstPublishList(
 	stored: StoredFirstPublish | null,
 	input: HqChangesFirstPublish,
 ): StoredFirstPublish | null {
+	const given = new Set(input.accepted.ids);
+	if (
+		input.stillOmitsHiddenStartingAnswer &&
+		stored?.ids.includes("hidden-value-defaults-dropped")
+	) {
+		given.add("hidden-value-defaults-dropped");
+	}
+	const removed =
+		input.removedFiles?.accepted ??
+		(stored?.reviewed === 1 ? stored.removedFiles : undefined) ??
+		[];
+	const judged =
+		input.removedFiles !== undefined &&
+		input.accepted.ids.includes("unused-media-entries-removed");
+	const approval =
+		removed.length || judged
+			? { removedFiles: removed, reviewed: 1 as const }
+			: {};
 	if (stored?.of === "first-publish") {
 		return {
-			ids: storedIds(input.accepted.ids),
+			...approval,
+			...(input.removedFiles &&
+				hasRegisteredPublishInputs(input.accepted.ids) && {
+					reviewedInputs: 1 as const,
+				}),
+			ids: storedIds([...given]),
+			reviewed: 1,
 			webAppsOnInHq: input.webAppsOnInHq,
 			of: "first-publish",
 		};
 	}
-	const given = new Set(input.accepted.ids);
 	const carried =
 		stored?.of === "next-publish"
 			? stored.ids.filter((id) => given.has(id))
 			: [];
-	const ids = storedIds([...carried, ...input.publishChanges]);
+	const ids = storedIds([
+		...carried,
+		...input.publishChanges,
+		...(removed.length ? ["unused-media-entries-removed" as const] : []),
+	]);
 	if (ids.length === 0) return null;
 	return {
+		...approval,
+		...(input.removedFiles &&
+			hasRegisteredPublishInputs(ids) && { reviewedInputs: 1 as const }),
 		ids,
 		webAppsOnInHq: input.webAppsOnInHq,
 		of: "next-publish",
@@ -3059,6 +5039,8 @@ function hqChangesFirstPublishList(
 
 /** What a bring-in of changes made in CommCare HQ records beside its commit. */
 export interface HqChangesTaken extends DeploymentFence {
+	readonly comparedPushToken: string;
+	readonly reviewedVersion: number;
 	readonly scope: DeploymentScope;
 	readonly target: DeploymentTargetKey;
 	/** The CommCare HQ app the review read: the live app mapping must still name it. */
@@ -3079,13 +5061,14 @@ export interface HqChangesTaken extends DeploymentFence {
 	/** The ownership the next publish's body gives over that source and the document taken. */
 	readonly ownership: AppOwnership;
 	/** Which CommCare HQ file stands at each path the app publishes. */
-	readonly mediaFiles: HqMediaRecord;
+	readonly mediaFiles: HqMediaObservation;
 	/**
 	 * The deployment's target-identity record as the take read it (`read`)
 	 * and as the reading resolves it (`next`,
 	 * `targetIdentity.ts::resolveTargetIdentity`), the record the take's export
 	 * and ownership were computed over.
 	 */
+	readonly installationReview?: InstallationReviewReceipt;
 	readonly targetIdentity: {
 		readonly read: TargetIdentity;
 		readonly next: TargetIdentity;
@@ -3138,16 +5121,91 @@ export async function recordHqChangesTaken(
 			input.scope,
 			input.target,
 			{ ensure: false, expectedEndings: input.expectedEndings },
-			(tx, row) => recordHqChangesInTransaction(tx, row.id, at.headSeq, input),
+			async (tx, row, role) => {
+				if (role !== input.scope.role)
+					throw new HqChangesBaselineMovedError(
+						"project-role",
+						input.scope.role,
+						role,
+					);
+				// The mutation-bearing path checks the head in the commit kernel.
+				// An empty take has no commit to do that for it. A fold advances
+				// this sequence even when the HQ source and claim are unchanged.
+				const head = await tx
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", input.scope.appId)
+					.executeTakeFirstOrThrow();
+				if (safePersistedSequence(head.mutation_seq) !== at.headSeq)
+					throw new HqChangesBaselineMovedError(
+						"app-head",
+						String(at.headSeq),
+						String(head.mutation_seq),
+					);
+				return recordHqChangesInTransaction(tx, row.id, at.headSeq, input);
+			},
 		);
 	}
 	const { tx } = at;
-	await lockAppForDeploymentWrite(tx, input.scope, "edit");
+	const role = await lockAppForDeploymentWrite(tx, input.scope, "edit");
+	if (role !== input.scope.role)
+		throw new HqChangesBaselineMovedError(
+			"project-role",
+			input.scope.role,
+			role,
+		);
 	const row = await lockDeploymentRow(tx, input.scope, input.target);
 	if (row.endings !== input.expectedEndings) {
 		throw new DeploymentEndedError(row.id, input.expectedEndings, row.endings);
 	}
 	return recordHqChangesInTransaction(tx, row.id, at.seq, input);
+}
+
+/** The mapping owns the highest taken save on this continuous claim. A later
+ * passive refresh changes its source row, without changing this fact. */
+async function markReviewedSave(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	remoteAppId: string,
+	version: number,
+	changed: boolean,
+	reviewedNovaRevision?: number,
+) {
+	if (changed) {
+		// An HTTP request can still be about to send even though its admission
+		// is already durable. Only HQ's positive acknowledgement orders an
+		// outstanding import before this review. A media job has no such save.
+		const pending = await tx
+			.selectFrom("hq_remote_writes")
+			.select("id")
+			.where("deployment_id", "=", deploymentId)
+			.where("resource_id", "=", remoteAppId)
+			.where("write_kind", "in", ["import", "media"])
+			.where(openRemoteWrite)
+			.where((eb) =>
+				eb.or([
+					eb("accepted_remote_revision", "is", null),
+					eb("accepted_remote_revision", ">", version),
+				]),
+			)
+			.executeTakeFirst();
+		if (pending) throw new HqReviewWriteInFlightError();
+	}
+	await tx
+		.updateTable("app_deployment_resources")
+		.set({
+			reviewed_remote_revision: version,
+			...(changed && { review_generation: crypto.randomUUID() }),
+			...(reviewedNovaRevision !== undefined && {
+				reviewed_nova_revision: reviewedNovaRevision,
+			}),
+		})
+		.where("deployment_id", "=", deploymentId)
+		.where("kind", "=", "app")
+		.where("remote_id", "=", remoteAppId)
+		.where("superseded_at", "is", null)
+		.where("released_at", "is", null)
+		.executeTakeFirstOrThrow();
 }
 
 async function recordHqChangesInTransaction(
@@ -3157,6 +5215,7 @@ async function recordHqChangesInTransaction(
 	input: HqChangesTaken,
 ): Promise<DeploymentWithResources> {
 	const { scope } = input;
+	await scope.requireOperation?.(tx);
 	// 1. The fences.
 	const stored = await tx
 		.selectFrom("app_deployment_baselines")
@@ -3166,18 +5225,36 @@ async function recordHqChangesInTransaction(
 			"nova_revision",
 			"observed_at",
 			"first_publish_changes",
+			"media_files",
 		])
 		.where("deployment_id", "=", deploymentId)
 		.executeTakeFirst();
 	const liveMapping = await tx
 		.selectFrom("app_deployment_resources")
-		.select("remote_id")
+		.select(["remote_id", "push_token", "reviewed_remote_revision"])
 		.where("deployment_id", "=", deploymentId)
 		.where("kind", "=", "app")
 		.where("nova_resource_id", "=", scope.appId)
 		.where("superseded_at", "is", null)
 		.where("released_at", "is", null)
 		.executeTakeFirst();
+	if (input.installationReview) {
+		const head = await tx
+			.selectFrom("apps")
+			.select("mutation_seq")
+			.where("id", "=", scope.appId)
+			.executeTakeFirstOrThrow();
+		if (
+			Number(head.mutation_seq) !== input.installationReview.headSeq ||
+			liveMapping?.push_token !== input.installationReview.mapping
+		)
+			throw new HqChangesBaselineMovedError(
+				"target-identity",
+				"the reviewed head and app mapping",
+				null,
+			);
+	}
+
 	if (liveMapping?.remote_id !== input.remoteAppId) {
 		throw new HqChangesBaselineMovedError(
 			"remote-app",
@@ -3185,6 +5262,21 @@ async function recordHqChangesInTransaction(
 			liveMapping?.remote_id ?? null,
 		);
 	}
+	if (
+		liveMapping.reviewed_remote_revision !== null &&
+		input.reviewedVersion < Number(liveMapping.reviewed_remote_revision)
+	)
+		throw new HqChangesBaselineMovedError(
+			"remote-version",
+			String(input.reviewedVersion),
+			String(liveMapping.reviewed_remote_revision),
+		);
+	if (liveMapping.push_token !== input.comparedPushToken)
+		throw new HqChangesBaselineMovedError(
+			"mapping-token",
+			input.comparedPushToken,
+			liveMapping.push_token,
+		);
 	const holdsAPair =
 		stored !== undefined &&
 		(stored.origin === "push" ||
@@ -3213,29 +5305,63 @@ async function recordHqChangesInTransaction(
 		);
 	}
 
+	const list = storedFirstPublish(deploymentId, stored.first_publish_changes);
+	if (!fileReviewStillCurrent(list, input.firstPublish))
+		throw new HqChangesBaselineMovedError(
+			"media-files",
+			"the reviewed file references",
+			"a later reading",
+		);
+	const currentMedia = storedMediaFiles(deploymentId, stored.media_files);
+	const media = mergeHqMediaObservation(currentMedia, input.mediaFiles);
+	if (media.conflict)
+		throw new HqChangesBaselineMovedError(
+			"media-files",
+			"the reviewed file ids",
+			"a newer observation",
+		);
 	// 2. The pair, and 4. the next publish's list.
-	await writeAppBaseline(tx, deploymentId, scope.actorUserId, {
-		origin: "changes",
-		remoteAppId: input.remoteAppId,
-		sourceGzip: input.source.sourceGzip,
-		sourceBytes: input.source.sourceBytes,
-		sourceDigest: input.source.sourceDigest,
-		ownership: input.ownership,
-		observedAt: input.source.observedAt,
-		discard: null,
-		novaRevision,
-		mediaFiles: { kind: "set", files: input.mediaFiles },
-		firstPublish: {
-			kind: "set",
-			list: hqChangesFirstPublishList(
-				storedFirstPublish(deploymentId, stored.first_publish_changes),
-				input.firstPublish,
-			),
+	await writeAppBaseline(
+		tx,
+		deploymentId,
+		scope.actorUserId,
+		{
+			origin: "changes",
+			remoteAppId: input.remoteAppId,
+			sourceGzip: input.source.sourceGzip,
+			sourceBytes: input.source.sourceBytes,
+			sourceDigest: input.source.sourceDigest,
+			ownership: input.ownership,
+			observedAt: input.source.observedAt,
+			discard: null,
+			novaRevision,
+			mediaFiles: { kind: "set", files: media.files },
+			firstPublish: {
+				kind: "set",
+				list: hqChangesFirstPublishList(list, input.firstPublish),
+			},
 		},
-	});
+		{ reviewedVersion: input.reviewedVersion },
+	);
+	await markReviewedSave(
+		tx,
+		deploymentId,
+		input.remoteAppId,
+		input.reviewedVersion,
+		true,
+		novaRevision,
+	);
 
 	// 3. Where CommCare HQ keeps the app's menus, forms, keyed creates and files.
 	await writeTakenTargetIdentity(tx, deploymentId, input);
+	if (input.installationReview)
+		await recordInstallationConsent(
+			tx,
+			deploymentId,
+			scope,
+			input.remoteAppId,
+			input.installationReview,
+		);
 
 	await notifyAppDeployments(tx, scope.appId);
 	return loadWithinTransaction(tx, deploymentId);
@@ -3269,6 +5395,81 @@ async function writeTakenTargetIdentity(
 	}
 }
 
+/** A later observation already landed after this acknowledged import sampled HQ.
+ * Keep its exact bytes, observer, date and learned files. Only a verified source
+ * that agrees on the content the import owns can stand for its Nova revision. */
+async function reconcileAcceptedImport(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	actor: string,
+	input: RecordRemoteAppInput,
+	pushToken: string,
+) {
+	const later = await tx
+		.selectFrom("app_deployment_baselines")
+		.select([
+			"deployment_id",
+			"ownership",
+			"source_gzip",
+			"source_digest",
+			"source_bytes",
+			"origin",
+		])
+		.where("deployment_id", "=", deploymentId)
+		.executeTakeFirstOrThrow();
+	const incoming = input.baseline;
+	const verified =
+		later.source_digest && later.source_gzip
+			? verifiedBaselineSource(later)
+			: null;
+	const accepted =
+		incoming.origin === "push" && incoming.sourceDigest && incoming.sourceGzip
+			? verifiedBaselineSource({
+					deployment_id: deploymentId,
+					source_digest: incoming.sourceDigest,
+					source_gzip: incoming.sourceGzip,
+					source_bytes: incoming.sourceBytes,
+					ownership: incoming.ownership,
+				})
+			: null;
+	const compatible =
+		!!verified &&
+		!!accepted &&
+		(later.source_digest === incoming.sourceDigest ||
+			(baselineWebApps(verified.source) === baselineWebApps(accepted.source) &&
+				diffHqAppSource({
+					baseline: accepted.source,
+					current: verified.source,
+					ownership: accepted.ownership,
+					shell: false,
+					languageNames: input.ownership === "adopted" ? "target" : "nova",
+				}).length === 0));
+	await tx
+		.updateTable("app_deployment_baselines")
+		.set({
+			origin: compatible ? "push" : "unread",
+			nova_revision: compatible ? incoming.novaRevision : null,
+			ownership: incoming.ownership
+				? JSON.stringify(incoming.ownership)
+				: later.ownership
+					? JSON.stringify(later.ownership)
+					: null,
+			readback_push_token: compatible ? pushToken : null,
+			readback_source_digest: compatible ? incoming.sourceDigest : null,
+			reference_fold_seq: null,
+			reference_source_digest: null,
+			first_publish_changes: null,
+			...(incoming.discard && {
+				discarded_digest: incoming.discard.digest,
+				discarded_at: sql<Date>`now()`,
+				discarded_by: actor,
+			}),
+		})
+		.where("deployment_id", "=", deploymentId)
+		.execute();
+	return { digest: later.source_digest, compatible };
+}
+
 /**
  * Upsert the one app baseline of a deployment, inside a caller's
  * transaction.
@@ -3292,7 +5493,13 @@ async function writeAppBaseline(
 	deploymentId: string,
 	observedBy: string,
 	baseline: AppBaselineWrite,
-): Promise<void> {
+	options: {
+		readonly rebindFold?: boolean;
+		readonly reviewedVersion?: number;
+		readonly supersedesReviewedVersion?: number | null;
+		readonly readbackPushToken?: string | null;
+	} = {},
+): Promise<boolean> {
 	const discarded = baseline.discard !== null;
 	const keepMediaFiles = baseline.mediaFiles.kind === "keep";
 	const mediaFiles =
@@ -3304,12 +5511,12 @@ async function writeAppBaseline(
 		baseline.firstPublish.kind === "set" && baseline.firstPublish.list !== null
 			? JSON.stringify(baseline.firstPublish.list)
 			: null;
-	await sql`
+	const result = await sql`
 		INSERT INTO app_deployment_baselines AS existing (
 			deployment_id, remote_app_id, origin, source_gzip, source_bytes,
 			source_digest, ownership, observed_at, observed_by,
 			discarded_digest, discarded_by, discarded_at,
-			nova_revision, media_files, first_publish_changes
+			nova_revision, media_files, first_publish_changes, readback_push_token, readback_source_digest, reviewed_remote_revision
 		) VALUES (
 			${deploymentId}, ${baseline.remoteAppId}, ${baseline.origin},
 			${baseline.sourceGzip}, ${baseline.sourceBytes},
@@ -3321,7 +5528,8 @@ async function writeAppBaseline(
 			${discarded ? sql`now()` : null},
 			${baseline.novaRevision}::bigint,
 			${mediaFiles}::jsonb,
-			${firstPublish}::jsonb
+			${firstPublish}::jsonb, ${options.readbackPushToken ?? null}::uuid,
+			${options.readbackPushToken ? baseline.sourceDigest : null}, ${options.reviewedVersion ?? null}::bigint
 		)
 		ON CONFLICT (deployment_id) DO UPDATE SET
 			remote_app_id = EXCLUDED.remote_app_id,
@@ -3342,6 +5550,11 @@ async function writeAppBaseline(
 				THEN COALESCE(EXCLUDED.discarded_at, existing.discarded_at)
 				ELSE EXCLUDED.discarded_at END,
 			nova_revision = EXCLUDED.nova_revision,
+			readback_push_token = EXCLUDED.readback_push_token,
+			readback_source_digest = EXCLUDED.readback_source_digest,
+			reviewed_remote_revision = EXCLUDED.reviewed_remote_revision,
+			reference_fold_seq = CASE WHEN ${options.rebindFold ?? false} THEN existing.reference_fold_seq END,
+			reference_source_digest = CASE WHEN ${options.rebindFold ?? false} THEN EXCLUDED.source_digest END,
 			media_files = CASE
 				WHEN ${keepMediaFiles}::boolean AND EXCLUDED.remote_app_id = existing.remote_app_id
 					THEN existing.media_files
@@ -3352,7 +5565,10 @@ async function writeAppBaseline(
 				ELSE EXCLUDED.first_publish_changes END
 		WHERE existing.remote_app_id <> EXCLUDED.remote_app_id
 			OR existing.observed_at <= EXCLUDED.observed_at
+			OR existing.reviewed_remote_revision = ${options.supersedesReviewedVersion ?? null}::bigint
+		RETURNING deployment_id
 	`.execute(tx);
+	return result.rows.length === 1;
 }
 
 function compareResourceBaselines(
@@ -3432,6 +5648,14 @@ async function writeResourceBaselines(
 	`.execute(tx);
 }
 
+function resourceWriteKindGroups(kinds: Iterable<DeploymentResourceKind>) {
+	return [...new Set(kinds)].map((kind) => {
+		if (kind === "lookup-table") return ["workbook", "lookup-json"] as const;
+		if (kind === "location") return ["places"] as const;
+		throw new Error("A resource push records tables and places.");
+	});
+}
+
 /**
  * Record that Nova could not read back some of the tables and places a push
  * may have changed, so the next publish asks before writing over them.
@@ -3450,10 +5674,20 @@ export async function markResourceBaselinesUnread(
 ): Promise<void> {
 	if (refs.length === 0 && (admitted?.settle ?? []).length === 0) return;
 	const observedAt = new Date().toISOString();
+	const requiredWriteGroups = resourceWriteKindGroups(
+		refs.map((ref) => ref.kind),
+	);
 	await withRecordRow(
 		scope,
 		target,
-		{ admitted, writeKinds: ["workbook", "places"] },
+		{
+			admitted,
+			writeKinds: requiredWriteGroups.length
+				? requiredWriteGroups.flat()
+				: ["workbook", "lookup-json", "places"],
+			requiredWriteGroups,
+			liveDecision: fence,
+		},
 		async (tx, row) => {
 			if (admitted === undefined || admitted.writeIds.length === 0)
 				holdFence(row, fence.expectedEndings);
@@ -3489,9 +5723,39 @@ export async function readAppBaseline(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 ): Promise<AppBaseline | null> {
-	if (!roleAllowsApp(scope.role, "edit")) throw deploymentNotFound();
-	const db = await getAppDb();
-	const row = await db
+	const row = await withDeploymentReadSnapshot(scope, "edit", ({ db }) =>
+		appBaselineRow(db, scope, target),
+	);
+	return verifiedAppBaseline(scope, row);
+}
+
+/** A maintenance transaction preserves a dormant comparison for a released
+ * claim. Only the pre-DDL scan can request the previous schema. */
+export async function readFoldOperatorBaseline(
+	db: Transaction<AppDatabase>,
+	scope: Pick<DeploymentScope, "appId" | "projectId">,
+	target: DeploymentTargetKey,
+	schema: "prior" | "certificates",
+): Promise<AppBaseline | null> {
+	const row =
+		schema === "prior"
+			? await baselineSourceRow(db, scope, target)
+					.select([
+						sql<null>`NULL`.as("certified_mapping_token"),
+						sql<null>`NULL`.as("reference_fold_seq"),
+						sql<null>`NULL`.as("reference_source_digest"),
+					])
+					.executeTakeFirst()
+			: await appBaselineRow(db, scope, target, "preserve-released");
+	return verifiedAppBaseline(scope, row);
+}
+
+function baselineSourceRow(
+	db: Kysely<AppDatabase>,
+	scope: Pick<DeploymentScope, "appId" | "projectId">,
+	target: DeploymentTargetKey,
+) {
+	return db
 		.selectFrom("app_deployment_baselines as b")
 		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
 		.select([
@@ -3506,14 +5770,72 @@ export async function readAppBaseline(
 			"b.observed_by",
 			"b.nova_revision",
 			"b.media_files",
+			"b.first_publish_changes",
 		])
 		.where("d.app_id", "=", scope.appId)
 		.where("d.project_id", "=", scope.projectId)
 		.where("d.server", "=", target.server)
-		.where("d.domain", "=", target.domain)
+		.where("d.domain", "=", target.domain);
+}
+
+function appBaselineRow(
+	db: Kysely<AppDatabase>,
+	scope: Pick<DeploymentScope, "appId" | "projectId">,
+	target: DeploymentTargetKey,
+	claim: "held" | "preserve-released" = "held",
+) {
+	return baselineSourceRow(db, scope, target)
+		.leftJoin("app_deployment_fold_references as f", (join) =>
+			join
+				.onRef("f.deployment_id", "=", "b.deployment_id")
+				.onRef("f.app_id", "=", "d.app_id")
+				.onRef("f.fold_seq", "=", "b.reference_fold_seq")
+				.onRef("f.published_revision", "=", "b.nova_revision"),
+		)
+		.leftJoin("app_deployment_resources as r", (join) => {
+			const mapping = join
+				.onRef("r.id", "=", "f.mapping_id")
+				.onRef("r.deployment_id", "=", "d.id")
+				.onRef("r.remote_id", "=", "b.remote_app_id")
+				.onRef("r.nova_resource_id", "=", "d.app_id")
+				.on("r.kind", "=", "app")
+				.on("r.superseded_at", "is", null);
+			return claim === "held"
+				? mapping.on("r.released_at", "is", null)
+				: mapping;
+		})
+		.select([
+			"r.push_token as certified_mapping_token",
+			"b.reference_fold_seq",
+			"b.reference_source_digest",
+		])
 		.executeTakeFirst();
+}
+
+function verifiedAppBaseline(
+	scope: Pick<DeploymentScope, "appId" | "projectId">,
+	row: Awaited<ReturnType<typeof appBaselineRow>>,
+): AppBaseline | null {
 	if (row === undefined) return null;
+	const list = storedFirstPublish(row.deployment_id, row.first_publish_changes);
+	const answeredPublishChanges = ANSWERED_FIRST_PUBLISH_CHANGES.filter((id) =>
+		list?.ids.includes(id),
+	);
 	const observed = {
+		...(list?.reviewed === 1 && list.removedFiles?.length
+			? { approvedFileRemovals: list.removedFiles }
+			: {}),
+		...(list?.of === "next-publish" &&
+			needsStoredPublishReview(list) && { unverifiedNextChanges: list.ids }),
+		...(answeredPublishChanges.length > 0 && { answeredPublishChanges }),
+		...(((list && needsStoredPublishReview(list)) ||
+			row.first_publish_changes?.of === "first-publish" ||
+			(row.first_publish_changes !== null && list === null)) && {
+			firstPublishReview:
+				list && !needsStoredPublishReview(list)
+					? ("current" as const)
+					: ("required" as const),
+		}),
 		remoteAppId: row.remote_app_id,
 		observedAt: row.observed_at.toISOString(),
 		observedBy: row.observed_by,
@@ -3544,6 +5866,28 @@ export async function readAppBaseline(
 		sourceDigest: row.source_digest,
 		ownership: verified.ownership,
 		sourceBytes: row.source_bytes,
+		...(list?.removedFiles === undefined &&
+			list?.ids.includes("unused-media-entries-removed") && {
+				hasFileRemovalWarning: true as const,
+			}),
+		...(row.first_publish_changes !== null && {
+			hasPublishList: true as const,
+		}),
+		...(row.certified_mapping_token !== null &&
+			row.reference_fold_seq !== null &&
+			row.reference_source_digest !== null &&
+			observed.novaRevision !== null && {
+				foldBinding: {
+					deploymentId: row.deployment_id,
+					mappingToken: row.certified_mapping_token,
+					appId: scope.appId,
+					projectId: scope.projectId,
+					remoteAppId: row.remote_app_id,
+					sourceDigest: row.reference_source_digest,
+					novaRevision: observed.novaRevision,
+					foldSeq: safePersistedSequence(row.reference_fold_seq),
+				},
+			}),
 	};
 }
 
@@ -3584,50 +5928,6 @@ function knownReadOrigin(
 	throw new Error(
 		`Deployment ${deploymentId} stores an app baseline of origin "${origin}", which Nova does not know.`,
 	);
-}
-
-/**
- * Gunzip, check the digest, parse the JSON and read the ownership of one
- * stored baseline row.
- *
- * A row that does not verify is no read Nova can use: it is logged and
- * answers null, which `readAppBaseline` reports as `unread` and
- * `readTargetFacts` as no facts.
- */
-function verifiedBaselineSource(row: {
-	readonly deployment_id: string;
-	readonly source_gzip: Buffer | null;
-	readonly source_digest: string | null;
-	readonly ownership: unknown;
-}): { readonly source: unknown; readonly ownership: AppOwnership } | null {
-	const unverified = (reason: string): null => {
-		log.error("[deployment] app baseline does not verify", undefined, {
-			deploymentId: row.deployment_id,
-			reason,
-		});
-		return null;
-	};
-	if (row.source_gzip === null || row.source_digest === null) {
-		return unverified("missing source");
-	}
-	let text: Buffer;
-	try {
-		text = gunzipSync(row.source_gzip);
-	} catch {
-		return unverified("gzip");
-	}
-	if (createHash("sha256").update(text).digest("hex") !== row.source_digest) {
-		return unverified("digest");
-	}
-	let source: unknown;
-	try {
-		source = parseHqJsonText(text.toString("utf8"));
-	} catch {
-		return unverified("json");
-	}
-	const ownership = appOwnershipFromRow(row.ownership);
-	if (ownership === null) return unverified("ownership");
-	return { source, ownership };
 }
 
 /** At most this many projections are held per instance. */
@@ -3738,8 +6038,20 @@ function storedFirstPublish(
 	if (typeof value !== "object" || value === null || Array.isArray(value))
 		return unreadable("not an object");
 	const record = value as Record<string, unknown>;
-	const keys = Object.keys(record).sort();
-	if (keys.join(",") !== "ids,of,webAppsOnInHq")
+	const keys = Object.keys(record);
+	if (
+		keys.some(
+			(key) =>
+				![
+					"ids",
+					"of",
+					"reviewed",
+					"reviewedInputs",
+					"removedFiles",
+					"webAppsOnInHq",
+				].includes(key),
+		)
+	)
 		return unreadable(`keys ${keys.join(", ")}`);
 	if (!Array.isArray(record.ids)) return unreadable("ids is not a list");
 	const ids = record.ids.filter((id) => {
@@ -3798,6 +6110,33 @@ export type HeldTargetFacts =
 			readonly observedAt: Date;
 			readonly adopted: boolean;
 	  };
+
+/**
+ * Whether a person's confirmation that the project space's plan has the
+ * plan feature `subject` is in force on the app's deployment to `target`:
+ * what a Preview bound to that project space reads as a confirmed fact.
+ */
+export async function planFeatureConfirmedOn(
+	snapshot: DeploymentReadSnapshot,
+	target: DeploymentTargetKey,
+	subject: string,
+): Promise<boolean> {
+	if (!roleAllowsApp(snapshot.role, "view")) throw deploymentNotFound();
+	const { scope, db } = snapshot;
+	const row = await db
+		.selectFrom("app_deployment_confirmations as c")
+		.innerJoin("app_deployments as d", "d.id", "c.deployment_id")
+		.select("c.id")
+		.where("d.app_id", "=", scope.appId)
+		.where("d.project_id", "=", scope.projectId)
+		.where("d.server", "=", target.server)
+		.where("d.domain", "=", target.domain)
+		.where("c.kind", "=", "plan-feature")
+		.where("c.subject", "=", subject)
+		.where("c.withdrawn_at", "is", null)
+		.executeTakeFirst();
+	return row !== undefined;
+}
 
 /**
  * Read inside `snapshot` what `targetFactsOf` needs for one target's kept
@@ -3926,34 +6265,6 @@ export function targetFactsOf(held: HeldTargetFacts): TargetFacts | null {
 		facts,
 	);
 	return facts;
-}
-
-function stringList(value: unknown): readonly string[] | null {
-	return Array.isArray(value) &&
-		value.every((item): item is string => typeof item === "string")
-		? value
-		: null;
-}
-
-function appOwnershipFromRow(value: unknown): AppOwnership | null {
-	if (typeof value !== "object" || value === null) return null;
-	const stored = value as Record<string, unknown>;
-	const addOns = stringList(stored.addOns);
-	const profileProperties = stringList(stored.profileProperties);
-	const profileCustomProperties = stringList(stored.profileCustomProperties);
-	if (
-		addOns === null ||
-		profileProperties === null ||
-		profileCustomProperties === null ||
-		typeof stored.autoGpsCapture !== "boolean"
-	)
-		return null;
-	return {
-		addOns,
-		profileProperties,
-		profileCustomProperties,
-		autoGpsCapture: stored.autoGpsCapture,
-	};
 }
 
 /**
@@ -4099,6 +6410,15 @@ async function writeResourceMapping(
 		pushed_identity: input.pushedIdentity ?? null,
 	} as const;
 
+	if (input.kind === "app") {
+		await tx
+			.updateTable("app_deployment_baselines")
+			.set({ reference_fold_seq: null, reference_source_digest: null })
+			.where("deployment_id", "=", deploymentId)
+			.where("remote_app_id", "!=", input.remoteId)
+			.where("reference_fold_seq", "is not", null)
+			.execute();
+	}
 	await tx
 		.updateTable("app_deployment_resources")
 		.set({ superseded_at: now })
@@ -4142,6 +6462,7 @@ async function writeResourceMapping(
 				.doUpdateSet({
 					remote_id: input.remoteId,
 					...conflictAttribution,
+					reviewed_remote_revision: null,
 					pushed_revision: input.pushedRevision,
 					pushed_at: input.pushedRevision === null ? null : now,
 					pushed_remote_revision: pushedRemoteRevision,
@@ -4183,6 +6504,11 @@ export type ResourcePushOutcome =
 			 */
 			readonly status: "complete";
 			readonly kinds: readonly DeploymentResourceKind[];
+			/** Earlier complete workbooks from this same publish, verified by their exact live mapping. */
+			readonly previousLookups?: readonly {
+				novaResourceId: string;
+				remoteId: string;
+			}[];
 			readonly pushedAt: string;
 	  }
 	| {
@@ -4245,10 +6571,23 @@ export async function recordPushedResources(
 	const admitted =
 		write.admitted !== undefined && write.admitted.writeIds.length > 0;
 	const landed = inputs.map(landedResource);
+	const kinds = new Set<DeploymentResourceKind>([
+		...inputs.map((input) => input.kind),
+		...(write.baselines ?? []).map((baseline) => baseline.kind),
+		...(outcome.status === "complete" ? outcome.kinds : []),
+	]);
+	const requiredWriteGroups = resourceWriteKindGroups(kinds);
 	return withRecordRow(
 		scope,
 		target,
-		{ admitted: write.admitted, writeKinds: ["workbook", "places"] },
+		{
+			admitted: write.admitted,
+			writeKinds: requiredWriteGroups.length
+				? requiredWriteGroups.flat()
+				: ["workbook", "lookup-json", "places"],
+			requiredWriteGroups,
+			liveDecision: write,
+		},
 		async (tx, row, access) => {
 			const ended = row.endings !== write.expectedEndings;
 			if (ended && !admitted) holdFence(row, write.expectedEndings);
@@ -4272,17 +6611,44 @@ export async function recordPushedResources(
 					.where("kind", "=", kind)
 					.where("superseded_at", "is", null)
 					.$if(stillUsed.length > 0, (qb) =>
-						qb.where("nova_resource_id", "not in", stillUsed),
+						qb.where(
+							sql<SqlBool>`nova_resource_id <> ALL(${sql.val(stillUsed)}::text[])`,
+						),
 					)
 					.execute();
 			};
+			const retained = outcome.previousLookups ?? [];
+			if (retained.length) {
+				const earlier = await tx
+					.selectFrom("app_deployment_resources")
+					.select(["nova_resource_id", "remote_id"])
+					.where("deployment_id", "=", row.id)
+					.where("kind", "=", "lookup-table")
+					.where("superseded_at", "is", null)
+					.where(
+						"nova_resource_id",
+						"in",
+						retained.map((r) => r.novaResourceId),
+					)
+					.forShare()
+					.execute();
+				const current = new Map(
+					earlier.map((r) => [r.nova_resource_id, r.remote_id]),
+				);
+				if (retained.some((r) => current.get(r.novaResourceId) !== r.remoteId))
+					throw new Error(
+						"A table from an earlier workbook changed during this publish.",
+					);
+			}
 			for (const kind of outcome.kinds) {
-				await supersede(
-					kind,
-					inputs
+				await supersede(kind, [
+					...inputs
 						.filter((input) => input.kind === kind)
 						.map((input) => input.novaResourceId),
-				);
+					...(kind === "lookup-table"
+						? retained.map((r) => r.novaResourceId)
+						: []),
+				]);
 			}
 			const record = toDeploymentRecord(row);
 			const progress = applyAttemptOutcome(record, "resources", {
@@ -4321,6 +6687,7 @@ export async function recordWorkerLevelConfirmations(
 		target,
 		{ ensure: false, expectedEndings: fence.expectedEndings },
 		async (tx, row) => {
+			await scope.requireOperation?.(tx);
 			await insertDeploymentConfirmationsInTransaction(
 				tx,
 				row.id,
@@ -4349,6 +6716,7 @@ export async function admitWorkerWrite(
 		target,
 		{ ensure: false, expectedEndings: input.expectedEndings },
 		async (tx, row) => {
+			await scope.requireOperation?.(tx);
 			const [writeId] = await admitRemoteWritesInTransaction(tx, [
 				{
 					deploymentId: row.id,
@@ -4443,7 +6811,9 @@ export async function recordProvisionedWorkers(
 					.where("kind", "=", "worker")
 					.where("superseded_at", "is", null)
 					.$if(input.stillUsed.length > 0, (qb) =>
-						qb.where("nova_resource_id", "not in", input.stillUsed),
+						qb.where(
+							sql<SqlBool>`nova_resource_id <> ALL(${sql.val(input.stillUsed)}::text[])`,
+						),
 					)
 					.execute();
 			await notifyAppDeployments(tx, scope.appId);
@@ -4472,6 +6842,7 @@ async function lockAppForAdmittedRecord(
 	target: DeploymentTargetKey,
 	writeIds: readonly string[],
 	writeKinds: readonly HqRemoteWriteKind[],
+	requiredWriteGroups?: readonly (readonly HqRemoteWriteKind[])[],
 ): Promise<RecordAccess> {
 	const app = await tx
 		.selectFrom("apps")
@@ -4481,18 +6852,14 @@ async function lockAppForAdmittedRecord(
 		.executeTakeFirst();
 	if (app === undefined || app.project_id !== scope.projectId)
 		throw deploymentNotFound();
-	const admitted = await tx
-		.selectFrom("hq_remote_writes")
-		.select("id")
-		.where("id", "in", writeIds)
-		.where("app_id", "=", scope.appId)
-		.where("project_id", "=", scope.projectId)
-		.where("actor_user_id", "=", scope.actorUserId)
-		.where("server", "=", target.server)
-		.where("domain", "=", target.domain)
-		.where("write_kind", "in", [...writeKinds])
-		.execute();
-	if (admitted.length !== new Set(writeIds).size) throw deploymentNotFound();
+	await verifyAdmittedWrites(
+		tx,
+		scope,
+		target,
+		writeIds,
+		writeKinds,
+		requiredWriteGroups,
+	);
 	try {
 		const role = await authorizeDeploymentApp(
 			app,
@@ -4511,7 +6878,46 @@ async function lockAppForAdmittedRecord(
 	}
 }
 
+async function verifyAdmittedWrites(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	writeIds: readonly string[],
+	writeKinds: readonly HqRemoteWriteKind[],
+	requiredWriteGroups?: readonly (readonly HqRemoteWriteKind[])[],
+	remoteId?: string,
+): Promise<void> {
+	let query = tx
+		.selectFrom("hq_remote_writes")
+		.select(["id", "write_kind"])
+		.where(sql<SqlBool>`id = ANY(${sql.val(writeIds)}::uuid[])`)
+		.where("app_id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.where("actor_user_id", "=", scope.actorUserId)
+		.where("server", "=", target.server)
+		.where("domain", "=", target.domain)
+		.where("write_kind", "in", [...writeKinds]);
+	if (remoteId !== undefined) query = query.where("resource_id", "=", remoteId);
+	const admitted = await query.execute();
+	if (admitted.length !== new Set(writeIds).size) throw deploymentNotFound();
+	const admittedKinds = new Set(admitted.map((write) => write.write_kind));
+	if (
+		requiredWriteGroups?.some(
+			(group) => !group.some((kind) => admittedKinds.has(kind)),
+		)
+	)
+		throw deploymentNotFound();
+}
+
 export interface ApplyObservationInput {
+	readonly importReplyId?: string;
+	/** A publish read can determine that the next publish must create a replacement.
+	 * Check its management authority at the accepted mapping. Independent status
+	 * reads and an admitted import’s own reply retain their original authority. */
+	readonly publishRead?: {
+		readonly documentManagesInstallations: boolean;
+		readonly grant: HqManagementGrant | null;
+	};
 	/** The CommCare HQ app the observation asked about. */
 	readonly observedRemoteId: string;
 	/** The accepted push identity read before asking CommCare HQ. A republish
@@ -4546,6 +6952,7 @@ export async function applyDeploymentObservation(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	input: ApplyObservationInput,
+	requireRefresh?: HqManagementGrant,
 ): Promise<{
 	readonly view: DeploymentWithResources;
 	readonly applied: boolean;
@@ -4555,6 +6962,7 @@ export async function applyDeploymentObservation(
 		target,
 		{ ensure: false },
 		async (tx, row) => {
+			await requireRefresh?.(tx);
 			const now = new Date();
 			const active = await tx
 				.selectFrom("app_deployment_resources")
@@ -4577,6 +6985,25 @@ export async function applyDeploymentObservation(
 			}
 			const record = toDeploymentRecord(row);
 			const next = applyObservation(record, input.outcomes);
+			if (input.importReplyId)
+				await verifyAdmittedWrites(
+					tx,
+					scope,
+					target,
+					[input.importReplyId],
+					["import"],
+					undefined,
+					input.observedRemoteId,
+				);
+			else if (input.publishRead)
+				await authorizePublishDecision(
+					tx,
+					scope,
+					row.id,
+					input.publishRead.documentManagesInstallations
+						? input.publishRead.grant
+						: null,
+				);
 			await tx
 				.updateTable("app_deployments")
 				.set({
@@ -4625,38 +7052,20 @@ export async function applyDeploymentObservation(
 	);
 }
 
-/** Invalidate link evidence BEFORE any remote dependency or app mutation. */
-export async function beginDeploymentContentWrite(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-	fence: DeploymentFence,
-): Promise<string> {
-	return withDeploymentRow(
-		scope,
-		target,
-		{ ensure: false, expectedEndings: fence.expectedEndings },
-		async (tx, row) => {
-			const generation = crypto.randomUUID();
-			await tx
-				.updateTable("app_deployments")
-				.set({ content_generation: generation, entry_point_manifest: null })
-				.where("id", "=", row.id)
-				.execute();
-			return generation;
-		},
-	);
-}
-
 /**
  * Superseded completion proves the remote write order uncertain. Fail closed.
  *
+ * When every admission was already settled under an earlier generation, the
+ * current generation began after everything the publisher sent. Its evidence stands.
  * A deployment ended since the publish read it answers false and writes
  * nothing: the ending already cleared the manifest and rotated the
  * generation.
  *
  * `admitted` names every write the publish let out, which authorize the
- * write: the manifest is the record of what the import made, so an app
- * deleted, or a publisher who lost edit, since keeps it. It settles none.
+ * write. Only a real remote write can leave the ordering uncertain enough
+ * to invalidate another publisher's accepted generation. With no admission
+ * a failed attempt leaves the later generation alone. Finishing a previously
+ * acknowledged import without a new remote write consumes the current grant.
  */
 export async function finishDeploymentContentWrite(
 	scope: DeploymentScope,
@@ -4666,16 +7075,48 @@ export async function finishDeploymentContentWrite(
 	fence: DeploymentFence,
 	admitted?: AdmittedRecord,
 ): Promise<boolean> {
+	const hasRemoteWrite = !!admitted?.writeIds.length;
+	if (!hasRemoteWrite && !manifest) return false;
 	return withRecordRow(
 		scope,
 		target,
 		{
 			admitted,
-			writeKinds: ["create", "import", "media", "workbook", "places"],
+			writeKinds: [
+				"create",
+				"import",
+				"media",
+				"workbook",
+				"lookup-json",
+				"places",
+			],
 		},
 		async (tx, row) => {
-			if (row.endings !== fence.expectedEndings) return false;
+			if (
+				row.endings !== fence.expectedEndings ||
+				admitted?.writeIds.length === 0
+			)
+				return false;
 			if (row.content_generation !== generation) {
+				if (!hasRemoteWrite) return false;
+				const ids = admitted?.writeIds ?? [];
+				const currentGeneration = row.content_generation;
+				if (currentGeneration && ids.length) {
+					// Admission ownership was checked by withRecordRow. Only a
+					// positive receipt for every write orders this whole attempt.
+					const unknown = await tx
+						.selectFrom("hq_remote_writes")
+						.select("id")
+						.where("id", "in", ids)
+						.where((eb) =>
+							eb.or([
+								eb("settled_generation", "is", null),
+								eb("settled_generation", "=", currentGeneration),
+							]),
+						)
+						.executeTakeFirst();
+					if (!unknown) return false;
+				}
 				await tx
 					.updateTable("app_deployments")
 					.set({
@@ -4686,15 +7127,37 @@ export async function finishDeploymentContentWrite(
 					.execute();
 				return false;
 			}
+			if (!hasRemoteWrite)
+				await authorizePublishDecision(
+					tx,
+					scope,
+					row.id,
+					fence.manageInstallations,
+				);
 			const active = await tx
 				.selectFrom("app_deployment_resources")
-				.select("remote_id")
+				.select([
+					"id",
+					"remote_id",
+					"released_at",
+					"claim_generation",
+					"review_generation",
+				])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("superseded_at", "is", null)
 				.executeTakeFirst();
 			const accepted =
-				manifest !== null && active?.remote_id === manifest.remoteAppId;
+				manifest !== null &&
+				manifest.generation === generation &&
+				active?.remote_id === manifest.remoteAppId &&
+				(await admittedAppState(
+					tx,
+					row,
+					manifest.remoteAppId,
+					active,
+					admitted,
+				)) === "current";
 			await tx
 				.updateTable("app_deployments")
 				.set({
@@ -4727,6 +7190,7 @@ export async function readEntryPointEvidence(
 export async function recordEntryPointObservation(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
+	observedPushToken: string,
 	observation: import("./entryPointTypes").EntryPointObservation,
 ): Promise<boolean> {
 	return withDeploymentRow(
@@ -4734,6 +7198,7 @@ export async function recordEntryPointObservation(
 		target,
 		{ ensure: false },
 		async (tx, row) => {
+			await scope.requireOperation?.(tx);
 			const app = await tx
 				.selectFrom("apps")
 				.select("mutation_seq")
@@ -4755,12 +7220,17 @@ export async function recordEntryPointObservation(
 				return false;
 			const active = await tx
 				.selectFrom("app_deployment_resources")
-				.select("remote_id")
+				.select(["remote_id", "push_token"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("superseded_at", "is", null)
+				.where("released_at", "is", null)
 				.executeTakeFirst();
-			if (active?.remote_id !== observation.remoteAppId) return false;
+			if (
+				active?.remote_id !== observation.remoteAppId ||
+				active.push_token !== observedPushToken
+			)
+				return false;
 			await tx
 				.updateTable("app_deployments")
 				.set({ entry_point_observation: JSON.stringify(observation) })

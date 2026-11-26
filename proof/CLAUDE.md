@@ -135,9 +135,12 @@ harness keeps, each with its reason.
   - *HQ names a map layer with a placeholder token*
     (`proof/hq/localsettings.py::MAPBOX_ACCESS_TOKEN`). The client draws no
     map, and takes no answer to a location question, without one
-    (`entries.js::GeoPointEntry`); production names one. The token is no
-    credential, and the layer's pictures are on a host the browser does not
-    reach, so the map is drawn without them and moves and answers the same.
+    (`entries.js::GeoPointEntry`), and its address search reads the token's
+    public payload before it draws (`entries.js::AddressEntry`), so the
+    token has a public token's shape around a synthetic payload; production
+    names one. The token is no credential, and the provider's hosts are ones
+    the browser does not reach, so the map is drawn without its pictures and
+    moves and answers the same.
   - *A step waits for the client's own timers under a second*
     (`proof/editors/driver/steps/page/timers.js`). A worker acts once the
     page has settled (an answer's throttle, a dialog's transition), and a
@@ -225,7 +228,14 @@ harness keeps, each with its reason.
   files held by name, `readerbundle.py::held_runtime`; built by
   `proof/reader/build.mjs` in the corpus job) under the image's Node, through
   `proof/checks/readerbundle.py`; the first-publish judge reads the claim log
-  parity's judge read (`parity.claim_places_of`). The bundle reads its requests file
+  parity's judge read (`parity.claim_places_of`). Parity joins an appearance
+  attribute once, on the inventory row the lane's own classifier puts its
+  whole value in (`proof/checks/appearance_rows.py`, written from the rows'
+  predicates and the upstream readers, never from Nova's reader), because the
+  inventory sorts an appearance into one row while the manifest check makes a
+  use of each token a runtime reads in it; an appearance the classifier does
+  not decide is listed in the evidence, and one a retained base exhibits
+  fails `test_appearance_rows.py`. The bundle reads its requests file
   and nothing else, and its digest is part of every corpus document's judged
   key (`proof/store/keys.py::judged_under`), so a judgment stands for the
   reader that made it. No other judge runs a product of Nova's while it
@@ -291,6 +301,11 @@ harness keeps, each with its reason.
   HQ's save counter too, which a publish binds its baseline to: the capture
   records the peer's counter around each import and media upload, including
   the extra save when an import prunes an unused media mapping. The HQ side
+  replays each physical media POST in order, comparing the actual mapped file
+  with the submitted ZIP member. An unchanged recorded file is checked by
+  path and SHA-256 after import and sends no POST. An import with multiple
+  uploads names each body and counter in `mediaBatches`; retained one-body
+  sidecars still use `media` and `mediaSaveCounter`. The HQ side
   compares the change in HQ's own counter over the same write
   (`proof/observe/publish.py`, `operations.hold_save_counter`), the facts the
   model rests on held to HQ's views by `proof/hq/test_publish.py`. So does a
@@ -319,7 +334,14 @@ harness keeps, each with its reason.
   from its stored document (`proof/hq/operations.py::save_authored_app`,
   `Application.from_source` and `save_attachments`) and never through Nova's
   import. Its case database is seeded from A alone (`proof/matrix/seed.py`),
-  so a reader that drops something cannot empty both walks. What a person
+  so a reader that drops something cannot empty both walks. A base that uses
+  a project search retains its synthetic active service in `project-searches.json`
+  beside the app. HQ recreates the service on the original project space. For
+  its ProjectDB provider the lane owns a separate database and domain SQL role,
+  pools their real connections before a unit opens, and populates the service's
+  visit table with the cases that walk is given. Formplayer's request executes
+  through HQ's service, and the worker's submitted instance identifies the case
+  they claimed and updated. What a person
   writes about a base (`proof/matrix/hand/`) is written from A's authored
   meaning, never from a reading. A retained base is written only by
   `python3 -m proof.matrix.adopt` over every output of a run, never deleted

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 interface TimeFieldProps {
 	/** The raw typed text: parsing belongs to the caller's commit boundary. */
 	value: string;
+	placeholder?: string;
 	onValueChange: (next: string) => void;
 	id?: string;
 	disabled?: boolean;
@@ -38,6 +39,7 @@ interface TimeFieldProps {
  * spellings, shape + ranges checked).
  */
 function TimeField({
+	placeholder = "2:30 PM",
 	value,
 	onValueChange,
 	id,
@@ -61,7 +63,7 @@ function TimeField({
 			onChange={(event) => onValueChange(event.target.value)}
 			onFocus={onFocus}
 			onBlur={(event) => onBlur?.(event.target.value)}
-			placeholder="2:30 PM"
+			placeholder={placeholder}
 			aria-label={ariaLabel}
 			aria-labelledby={ariaLabelledBy}
 			aria-invalid={ariaInvalid}

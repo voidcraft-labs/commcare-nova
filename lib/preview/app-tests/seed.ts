@@ -88,28 +88,37 @@ export async function seedAppTest(
 					)
 					.execute();
 			}
-			if (snapshot.locations.length > 0) {
-				await isolated
-					.insertInto("app_locations")
-					.values(
-						snapshot.locations.map((location) => ({
-							id: location.id,
-							app_id: scope.appId,
-							level_uuid: asUuid(location.levelUuid),
-							parent_id: location.parentId,
-							name: location.name,
-							site_code: location.siteCode,
-							external_id: location.externalId,
-							latitude: location.latitude,
-							longitude: location.longitude,
-							values: JSON.stringify(location.values),
-							archived_at: location.archivedAt,
-							order_key: location.orderKey,
-							created_by: scope.actorUserId,
-							updated_by: scope.actorUserId,
-						})),
-					)
-					.execute();
+			// Saved rows are in parent-first order. Keep the fictional rows (up
+			// to 100, supplied in any order) in their own single statement so
+			// every synthetic foreign key exists at statement completion.
+			const testIds = new Set(snapshot.testPlaceIds);
+			for (const records of [
+				snapshot.locations.filter((row) => !testIds.has(row.id)),
+				snapshot.locations.filter((row) => testIds.has(row.id)),
+			]) {
+				for (let start = 0; start < records.length; start += 500) {
+					await isolated
+						.insertInto("app_locations")
+						.values(
+							records.slice(start, start + 500).map((location) => ({
+								id: location.id,
+								app_id: scope.appId,
+								level_uuid: asUuid(location.levelUuid),
+								parent_id: location.parentId,
+								name: location.name,
+								site_code: location.siteCode,
+								external_id: location.externalId,
+								latitude: location.latitude,
+								longitude: location.longitude,
+								values: JSON.stringify(location.values),
+								archived_at: location.archivedAt,
+								order_key: location.orderKey,
+								created_by: scope.actorUserId,
+								updated_by: scope.actorUserId,
+							})),
+						)
+						.execute();
+				}
 			}
 			const organizationTx = isolated as unknown as Transaction<AppDatabase>;
 			await assertLocationPlacementsValid(organizationTx, {
@@ -161,6 +170,10 @@ export async function seedAppTest(
 								id: row.id,
 								order_key: rowOrder[offset + index],
 								values: JSON.stringify(row.values),
+								content: JSON.stringify({
+									attributes: row.attributes,
+									occurrences: row.occurrences,
+								}),
 								created_by: scope.actorUserId,
 								updated_by: scope.actorUserId,
 							})),

@@ -11,11 +11,37 @@ import {
 	columnPropertyCaseType,
 	type PropertyColumn,
 	sameColumnVia,
+	USERCASE_CASE_TYPE,
+	type UserProperty,
 } from "@/lib/domain";
+import {
+	CASE_LIST_LINK_NAME_PATTERN,
+	declaredCaseRelations,
+} from "@/lib/domain/caseRelations";
+import { withStandardCaseProperties } from "@/lib/domain/expression/context";
+import { humanizeId } from "@/lib/domain/idSlug";
+import { usercaseCaseType } from "@/lib/domain/usercase";
+
+/** Case views may read the worker's own record, including worker information
+ * declared in this app. It stays outside the types a menu can manage. */
+export function caseViewWorkerRecord(
+	properties: readonly UserProperty[],
+): CaseType {
+	const userProperties = Object.fromEntries(
+		properties.map((property) => [property.uuid, property]),
+	);
+	const [record] = withStandardCaseProperties([
+		usercaseCaseType({ userProperties }),
+	]);
+	if (!record)
+		throw new Error("The case-view catalog lost the worker’s record.");
+	return record;
+}
 
 /** One case a column can read from: its walk (none for this case), the case
  *  type it reaches, and what the picker calls it. */
 export interface ColumnSource {
+	readonly readFrom?: "worker-record";
 	readonly key: string;
 	readonly via: ColumnVia | undefined;
 	readonly caseType: string | undefined;
@@ -62,6 +88,45 @@ export function columnSources(
 		});
 		at = parent;
 	}
+	const origin = caseTypes.find((type) => type.name === currentCaseType);
+	if (origin !== undefined) {
+		// A link HQ's column field can't hold (a dot, a leading underscore) or
+		// one called user (HQ reads it as the worker's own information) is
+		// never offered: the gate would refuse the column.
+		const firstSteps = new Set(
+			declaredCaseRelations(origin)
+				.map((edge) => edge.identifier)
+				.filter(
+					(identifier) =>
+						identifier !== "user" &&
+						CASE_LIST_LINK_NAME_PATTERN.test(identifier),
+				),
+		);
+		for (const identifier of firstSteps) {
+			if (
+				sources.some(
+					(source) =>
+						source.via?.length === 1 && source.via[0].identifier === identifier,
+				)
+			)
+				continue;
+			const via: ColumnVia = [{ identifier }];
+			const reached = columnPropertyCaseType(
+				{ via },
+				currentCaseType,
+				caseTypes,
+			);
+			sources.push({
+				key: `link-${identifier}`,
+				via,
+				caseType: reached,
+				label:
+					reached === undefined
+						? `Related case through ${identifier}`
+						: `${humanizeId(reached)} through ${identifier}`,
+			});
+		}
+	}
 	if (
 		current !== undefined &&
 		!sources.some((source) => sameColumnVia(source.via, current))
@@ -82,6 +147,13 @@ export function columnSources(
 					: `The ${reached}, through ${links}`,
 		});
 	}
+	sources.push({
+		key: "worker",
+		via: undefined,
+		readFrom: "worker-record",
+		caseType: USERCASE_CASE_TYPE,
+		label: "The worker’s record",
+	});
 	return sources;
 }
 
@@ -91,9 +163,20 @@ export function columnWithSource<C extends PropertyColumn>(
 	column: C,
 	via: ColumnVia | undefined,
 	field: string,
+	readFrom?: "worker-record",
+	showOwner?: "name",
 ): C {
-	const { via: _previous, ...rest } = column;
-	return (
-		via === undefined ? { ...rest, field } : { ...rest, field, via }
-	) as C;
+	const {
+		via: _previous,
+		readFrom: _oldSource,
+		showOwner: _oldDisplay,
+		...rest
+	} = column;
+	return {
+		...rest,
+		field,
+		...(via && { via }),
+		...(readFrom && { readFrom }),
+		...(field === "owner_id" && showOwner && { showOwner }),
+	} as C;
 }

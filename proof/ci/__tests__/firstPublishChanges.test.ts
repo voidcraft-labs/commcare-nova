@@ -25,8 +25,8 @@ import {
 	RESPELLED_FORM_PARTS,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import {
-	FIRST_PUBLISH_CHANGE_IDS,
-	type FirstPublishChangeId,
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+	type CurrentFirstPublishChangeId,
 } from "@/lib/publish/firstPublishChangeIds";
 
 interface Row {
@@ -74,7 +74,7 @@ function load(): Change[] {
 describe("proof/first-publish-changes.json", () => {
 	it("holds one object a change, in registry order", () => {
 		expect(load().map((one) => one.change)).toEqual([
-			...FIRST_PUBLISH_CHANGE_IDS,
+			...CURRENT_FIRST_PUBLISH_CHANGE_IDS,
 		]);
 	});
 
@@ -82,13 +82,18 @@ describe("proof/first-publish-changes.json", () => {
 		for (const one of load())
 			expect([one.change, one.placeKinds]).toEqual([
 				one.change,
-				[...firstPublishPlaceKindsOf(one.change as FirstPublishChangeId)],
+				[
+					...firstPublishPlaceKindsOf(
+						one.change as CurrentFirstPublishChangeId,
+					),
+				],
 			]);
 	});
 
 	it("holds as each change's source rows exactly the stored-app pointers its entry allows, but a form's source where the change stands everywhere", () => {
 		for (const one of load()) {
-			const entry = FIRST_PUBLISH_CHANGES[one.change as FirstPublishChangeId];
+			const entry =
+				FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId];
 			const appWide = "appWide" in entry.at;
 			const source = one.rows.filter((row) => row.check === "source");
 			for (const row of source)
@@ -154,7 +159,7 @@ describe("proof/first-publish-changes.json", () => {
 			if (one.rows.some((row) => row.check === "proof3" && !searchSent(row)))
 				expect([
 					one.change,
-					FIRST_PUBLISH_CHANGES[one.change as FirstPublishChangeId]
+					FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId]
 						.touchesWorkers,
 				]).toEqual([one.change, true]);
 	});

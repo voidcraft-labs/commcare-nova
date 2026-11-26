@@ -219,7 +219,7 @@ const BOTH_MENUS: readonly SearchingMenu[] = [
 		key: "recent",
 		name: "Recent patients",
 		caseType: "patient",
-		search: { workflow: "skipToResults" },
+		search: { workflow: "skipToResults", searchOnClear: true },
 		inputs: "visible",
 	},
 ];
@@ -274,6 +274,13 @@ const ANDROID_MENUS: readonly SearchingMenu[] = [
 		name: "Find patient",
 		caseType: "patient",
 		search: { workflow: "listFirst" },
+		inputs: "visible",
+	},
+	{
+		key: "follow",
+		name: "Find returning patient",
+		caseType: "patient",
+		search: { workflow: "listFirstWithDefaultResults" },
 		inputs: "visible",
 	},
 ];

@@ -27,7 +27,14 @@
 // wire shape in `lib/db/mediaAssets.ts`.
 
 import { z } from "zod";
+import { languageTagSchema } from "./localization";
 import type { Platform } from "./platforms";
+import {
+	ownRecordSchema,
+	ownRecordValue,
+	recordFromEntries,
+	recordWithValue,
+} from "./records";
 import { CANONICAL_UUID_PATTERN, type Uuid } from "./uuid";
 
 /**
@@ -754,20 +761,29 @@ export const ASSET_SIZE_CAPS_BYTES: Record<AssetKind, number> = {
 };
 
 /**
- * Aggregate export budget for a single compile / HQ upload. The media-ON
- * paths load EVERY referenced ready asset's bytes into memory at once —
- * the `.ccz` bundles them in one ZIP buffer, the HQ path POSTs them
- * per-file from the same manifest — so the cost scales with the SUM of
- * referenced media, which the per-asset caps above don't bound. Without
- * an aggregate ceiling an app that references hundreds of distinct owned
- * assets could balloon a shared worker's heap (CWE-770). These bound the
- * whole export: the media validator sums the referenced ready assets and
- * rejects an over-budget app before `resolveMediaManifest` downloads a
- * single object.
- *
- * Set generously — a real media-rich app never approaches them (200 MB /
- * 500 attachments is already far past any sane CommCare deployment) — so
- * the only thing they catch is the pathological case.
+ * The most pixels (width × height, each side counted as at least 1) a picture
+ * CommCare HQ stores may hold. Every path HQ stores a picture through opens it
+ * with Pillow (`hqmedia/models.py::CommCareImage.attach_data` →
+ * `get_image_object` → `Image.open`): its bulk upload, which Nova's publish
+ * sends, and its one-file upload. `Image.open` raises `DecompressionBombError`
+ * past twice `PIL.Image.MAX_IMAGE_PIXELS` (Pillow 12.3.0 at HQ's pin:
+ * `int(1024 * 1024 * 1024 // 4 // 3)` = 89,478,485), and the bulk upload turns
+ * that into an error that stops the whole upload and saves none of its files
+ * (`hqmedia/tasks.py::process_bulk_upload_zip`). Held natively by
+ * `proof/hq/test_media_bounds.py`. The bound counts pixels, not bytes: a
+ * picture of one colour this large compresses to a few kilobytes.
+ */
+export const HQ_PICTURE_MAX_PIXELS =
+	2 * Math.floor((1024 * 1024 * 1024) / 4 / 3);
+
+/**
+ * Aggregate budget of the export boundary's in-memory mode
+ * (`lib/export/boundaryValidation.ts` without `streamMedia`), which loads
+ * EVERY referenced ready asset's bytes at once and so must bound their SUM
+ * (CWE-770): it refuses an over-budget app before `resolveMediaManifest`
+ * downloads a single object. Every production export streams its media one
+ * file at a time instead, so no app is held to these, and neither an attach
+ * nor a bring-in from CommCare HQ counts against them.
  */
 export const MAX_MEDIA_EXPORT_ASSETS = 500;
 export const MAX_MEDIA_EXPORT_BYTES = 200 * 1024 * 1024;
@@ -916,10 +932,36 @@ export function resolveUploadMimeType(
 }
 
 /**
+ * The roles a carrier's `Media` bundle holds, each the key of one slot. Three
+ * are named by the kind they hold; `videoInline` holds a video too, drawn in
+ * the question's media pane rather than behind a play button, and only a
+ * question's label carries it (`LABEL_ONLY_MEDIA_ROLES`): commcare-android
+ * asks a question's label alone for its `video-inline` form
+ * (`QuestionWidget.java`, `MediaLayout.setAVT`). Their order is the order the
+ * emitter writes them in.
+ */
+export const MEDIA_ROLES = ["image", "audio", "video", "videoInline"] as const;
+export type MediaRole = (typeof MEDIA_ROLES)[number];
+
+/** The kind of asset each role holds. */
+export const MEDIA_ROLE_KIND: Readonly<Record<MediaRole, MediaKind>> = {
+	image: "image",
+	audio: "audio",
+	video: "video",
+	videoInline: "video",
+};
+
+/** The roles only a question's label carries. */
+export const LABEL_ONLY_MEDIA_ROLES = ["videoInline"] as const;
+
+/** The roles a help text and a choice carry. */
+export const SHARED_MEDIA_ROLES = ["image", "audio", "video"] as const;
+
+/**
  * Carrier-side slot bundle. Each slot is independent: a question
  * can have image+audio+video simultaneously, or any subset, or
- * none. Slot key encodes the kind; the value is the asset id, full
- * stop.
+ * none. Slot key encodes the role; the value is the asset id, full
+ * stop. A help text and a choice hold no inline video (`helpOrChoiceMediaSchema`).
  *
  * Menu-style carriers and the app logo use direct parent slots rather than
  * this bundle because their slot count is small + asymmetric (image + audio,
@@ -927,12 +969,185 @@ export function resolveUploadMimeType(
  * `MediaAssetId`s; menu icons use the slot-specific `ModuleIconRef` /
  * `FormIconRef` unions in `builtinIcons.ts`.
  */
-export const mediaSchema = z.strictObject({
+export const mediaValuesSchema = z.strictObject({
 	image: mediaAssetIdSchema.optional(),
 	audio: mediaAssetIdSchema.optional(),
 	video: mediaAssetIdSchema.optional(),
+	videoInline: mediaAssetIdSchema.optional(),
 });
+export type MediaValues = z.infer<typeof mediaValuesSchema>;
+
+/** The bundle a help text or a choice takes from a tool: no inline video. */
+export const sharedMediaValuesSchema = mediaValuesSchema.omit({
+	videoInline: true,
+});
+
+/** A null role on an adopted translation inherits the form's default value.
+ * An omitted role follows the ordinary shared value an author chose. */
+export const translatedMediaSchema = z.strictObject({
+	image: mediaAssetIdSchema.nullable().optional(),
+	audio: mediaAssetIdSchema.nullable().optional(),
+	video: mediaAssetIdSchema.nullable().optional(),
+	videoInline: mediaAssetIdSchema.nullable().optional(),
+});
+export const mediaSchema = mediaValuesSchema
+	.extend({
+		mediaByLanguage: ownRecordSchema(
+			languageTagSchema,
+			translatedMediaSchema,
+		).optional(),
+		formDefaultLanguage: languageTagSchema.optional(),
+	})
+	.superRefine((media, ctx) => {
+		for (const [language, values] of Object.entries(
+			media.mediaByLanguage ?? {},
+		)) {
+			for (const role of MEDIA_ROLES) {
+				if (values[role] !== undefined && !media[role])
+					ctx.addIssue({
+						code: "custom",
+						path: ["mediaByLanguage", language, role],
+						message:
+							"Choose a shared file before adding this file in another language.",
+					});
+			}
+		}
+	});
 export type Media = z.infer<typeof mediaSchema>;
+
+/** Whether a bundle holds a role only a question's label carries, in any
+ *  language. */
+export function holdsLabelOnlyMedia(
+	media: Pick<Media, "videoInline" | "mediaByLanguage"> | undefined,
+): boolean {
+	if (!media) return false;
+	return LABEL_ONLY_MEDIA_ROLES.some(
+		(role) =>
+			media[role] !== undefined ||
+			Object.values(media.mediaByLanguage ?? {}).some(
+				(values) => values[role] !== undefined,
+			),
+	);
+}
+
+/** What a help text or a choice holding an inline video is told. */
+export const LABEL_ONLY_MEDIA_MESSAGE =
+	"Only a question's label plays an inline video. You can attach the video to the question's label, or as a video here.";
+
+/** A help text's or a choice's bundle: every role but the inline video. */
+export const helpOrChoiceMediaSchema = mediaSchema.refine(
+	(media) => !holdsLabelOnlyMedia(media),
+	{ message: LABEL_ONLY_MEDIA_MESSAGE },
+);
+
+/** The files that this language actually shows. Legacy bundles keep their identity. */
+export function mediaInLanguage(
+	media: Media | undefined,
+	language: string,
+	defaultLanguage: string,
+): MediaValues | undefined {
+	if (!media?.mediaByLanguage) return media;
+	const translation = ownRecordValue(media.mediaByLanguage, language);
+	const fallback = ownRecordValue(
+		media.mediaByLanguage,
+		media.formDefaultLanguage ?? defaultLanguage,
+	);
+	const result: MediaValues = {};
+	for (const role of MEDIA_ROLES) {
+		const file = translation?.[role];
+		const shown =
+			file === null ? (fallback?.[role] ?? media[role]) : (file ?? media[role]);
+		if (shown) result[role] = shown;
+	}
+	return result;
+}
+
+/** Files explicitly carried by this translation. An inherited role stays absent
+ * in the form resource, since a named installation can omit the original default. */
+export function storedFormMedia(
+	media: Media | undefined,
+	language: string,
+	defaultLanguage: string,
+): MediaValues | undefined {
+	const effective = mediaInLanguage(media, language, defaultLanguage);
+	const values = ownRecordValue(media?.mediaByLanguage, language);
+	if (!effective || !values || language === defaultLanguage) return effective;
+	const out = { ...effective };
+	for (const role of MEDIA_ROLES) if (values[role] === null) delete out[role];
+	return out;
+}
+
+/** Core rejects a locale that introduces a key absent in the build's default.
+ * An installation with no translated key at all simply shows no file. */
+export function installedFormMedia(
+	media: Media | undefined,
+	language: string,
+	appDefault: string,
+	installation: readonly string[],
+):
+	| { kind: "files"; files: MediaValues }
+	| { kind: "missing-default"; role: MediaRole } {
+	const first = installation[0];
+	if (!first) return { kind: "files", files: {} };
+	const fallback = storedFormMedia(media, first, appDefault);
+	const chosen = storedFormMedia(media, language, appDefault);
+	const files: MediaValues = {};
+	for (const role of MEDIA_ROLES) {
+		if (
+			!fallback?.[role] &&
+			installation.some(
+				(tag) => storedFormMedia(media, tag, appDefault)?.[role],
+			)
+		)
+			return { kind: "missing-default", role };
+		const file = chosen?.[role] ?? fallback?.[role];
+		if (file) files[role] = file;
+	}
+	return { kind: "files", files };
+}
+
+/** Replace the files for one language. A cleared translated file uses the shared
+ * file. Each edit applies to the current carrier, preserving every other language. */
+export function editMediaInLanguage(
+	current: Media | undefined,
+	files: MediaValues | null,
+	language: string,
+	sourceLanguage: string,
+	defaultLanguage: string,
+): Media | undefined {
+	const result: Media = {};
+	const translations = recordFromEntries(
+		Object.entries(current?.mediaByLanguage ?? {}).map(([tag, row]) => [
+			tag,
+			{ ...row },
+		]),
+	);
+	const previous = mediaInLanguage(current, language, defaultLanguage);
+	const translated = translations[language] ?? {};
+	for (const role of MEDIA_ROLES) {
+		const wanted = files?.[role];
+		const shared = language === sourceLanguage ? wanted : current?.[role];
+		if (shared) result[role] = shared;
+		if (files && wanted !== undefined && wanted === previous?.[role]) continue;
+		if (language === sourceLanguage) {
+			delete translated[role];
+			if (!shared)
+				for (const row of Object.values(translations))
+					if (row[role] === null) delete row[role];
+		} else if (wanted === undefined || wanted === shared)
+			delete translated[role];
+		else translated[role] = wanted;
+	}
+	translations[language] = translated;
+	for (const [tag, row] of Object.entries(translations))
+		if (!Object.keys(row).length) delete translations[tag];
+	if (Object.keys(translations).length) {
+		result.mediaByLanguage = translations;
+		if (current?.formDefaultLanguage)
+			result.formDefaultLanguage = current.formDefaultLanguage;
+	}
+	return Object.keys(result).length ? result : undefined;
+}
 
 /**
  * Lifecycle status of a stored media asset. Two states only:
@@ -1116,3 +1331,23 @@ export function pendingGcsObjectKeyFor(
  * `MediaAssetId` brand.
  */
 export type { Uuid };
+
+/** A scoped edit arriving from another editor replaces just this language.
+ * Deleting the final override restores the compact legacy shared carrier. */
+export function replaceMediaLanguageEntry<T>(
+	carrier: { mediaByLanguage?: Record<string, T> },
+	tag: string,
+	value: T | null,
+): void {
+	if (value !== null) {
+		carrier.mediaByLanguage = recordWithValue<T>(
+			carrier.mediaByLanguage,
+			tag,
+			structuredClone(value),
+		);
+	} else if (carrier.mediaByLanguage) {
+		delete carrier.mediaByLanguage[tag];
+		if (!Object.keys(carrier.mediaByLanguage).length)
+			delete carrier.mediaByLanguage;
+	}
+}

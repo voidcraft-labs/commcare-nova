@@ -3,7 +3,7 @@
  * repeat is a `group` field over its data node; `field-list` in any letter
  * case is a Question List, which the runtimes read so (Core's
  * `FormEntryController.isHostWithAppearance` compares ignoring case). A form
- * whose root is made only of Question Lists reads as sections, the document
+ * whose root questions are all Question Lists reads them as sections, the document
  * Nova's own editors make of that wire (`xform/builder.ts::buildContainer`:
  * a section is always a field-list).
  */
@@ -111,14 +111,16 @@ export interface RootSectionsInput {
 }
 
 /**
- * Whether the form's root fields all become sections: there is at least one, every one is a
+ * Whether the form's root questions all become sections. Bodyless Connect activities keep their
+ * submitted position without contributing a page. There is at least one question, every one is a
  * Question List, none has a bind `relevant` or label media, and none holds, at any depth, a
  * repeat whose rows the worker adds.
  */
 export function rootSections(input: RootSectionsInput): boolean {
+	const pages = input.root.filter((field) => field.kind !== "connect_activity");
 	return (
-		input.root.length > 0 &&
-		input.root.every(
+		pages.length > 0 &&
+		pages.every(
 			(field) =>
 				field.kind === "group" &&
 				field.field.fieldList === true &&
@@ -146,6 +148,8 @@ export interface ReadContainersInput {
 	readonly intents: AppearanceForm;
 	/** Appends a control's data path where its appearance was accounted under an inert entry. */
 	readonly inertAppearance: (path: string) => void;
+	/** Appends a control's data path where its appearance's settings are written in another spelling. */
+	readonly respelledAppearance: (path: string) => void;
 }
 
 /**
@@ -212,8 +216,8 @@ export function readContainers(input: ReadContainersInput): void {
 					{ element: control.element, attribute: "appearance" },
 					sites.appearance,
 				).value;
-			else if (
-				claimAppearance(
+			else {
+				const claimed = claimAppearance(
 					cursor,
 					accounting,
 					control,
@@ -224,9 +228,12 @@ export function readContainers(input: ReadContainersInput): void {
 						input.intents,
 					),
 					place,
-				).inert
-			)
-				input.inertAppearance(field.node.path.join("/"));
+					field,
+				);
+				if (claimed.inert) input.inertAppearance(field.node.path.join("/"));
+				if (claimed.respelled)
+					input.respelledAppearance(field.node.path.join("/"));
+			}
 		}
 		if (fieldList) refuseUserRepeats(field, input, accounting);
 	}

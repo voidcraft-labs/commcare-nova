@@ -197,6 +197,7 @@ from __future__ import annotations
 import copy
 import functools
 import hashlib
+import re
 from dataclasses import dataclass, replace
 from urllib.parse import urlsplit
 
@@ -1398,9 +1399,10 @@ def verified_caption_renames(document, name, records, local_files, differences):
     matched = {row["path"] for row in upload.get("matched") or () if row.get("class") == "CommCareImage"}
     wanted = matched.intersection(row.after for row in candidates if row.artifact == f"{FORMPLAYER}@B")
     pushed = {}
-    if captured and captured.media and wanted and not upload.get("refused"):
-        with zipfile.ZipFile(io.BytesIO(upload_field(captured.media.upload(), "bulk_upload_file"))) as archive:
-            pushed = {entry: archive.read(entry) for entry in archive.namelist() if MEDIA_ROOT + entry in wanted}
+    if captured and wanted and not upload.get("refused"):
+        for request, _ in captured.media_uploads():
+            with zipfile.ZipFile(io.BytesIO(upload_field(request.upload(), "bulk_upload_file"))) as archive:
+                pushed.update((entry, archive.read(entry)) for entry in archive.namelist() if MEDIA_ROOT + entry in wanted)
     verified = set()
     for difference in candidates:
         digest, extension = originals.get(difference.before), extensions.get(difference.before)
@@ -1410,6 +1412,79 @@ def verified_caption_renames(document, name, records, local_files, differences):
         content = delivered.get(difference.after.removeprefix(MEDIA_ROOT))
         if content is not None and hashlib.sha256(content).hexdigest() == digest:
             verified.add((difference.artifact, difference.at))
+    return [
+        replace(row, path=f"{row.path}:renamed-file") if (row.artifact, row.at) in verified else row
+        for row in differences
+    ]
+
+
+# The address Web Apps shows a mapped file at: HQ's multimedia view, by the file's media class, its document and
+# the last segment of the path the app maps it at (``hqmedia/views.py::ViewMultimediaFile``).
+WEB_APPS_MEDIA_SRC = re.compile(r"^/hq/multimedia/file/(?P<media_class>\w+)/(?P<id>[^/]+)/(?P<name>[^/]+)$")
+
+
+def verified_webapps_media_renames(document, name, records, differences):
+    """Name a changed Web Apps media address on B as a rename only where it is one file under a new name.
+
+    Both addresses must name the same stored document of the same media class, so HQ serves the same bytes at
+    each. The old name must be the last segment of a path HQ served at A, the new one that file's digest and
+    extension (the path Nova's publish gives a file it cannot keep at its own), and HQ's bulk upload on B must
+    have matched that new path to bytes of that digest Nova sent."""
+    import io
+    import zipfile
+
+    from proof.hq.operations import upload_field
+
+    candidates = [
+        difference for difference in differences
+        if difference.artifact == f"{WEBAPPS}@B" and difference.kind == "changed"
+        and difference.path.endswith("/src")
+        and isinstance(difference.before, str) and isinstance(difference.after, str)
+    ]
+    if not candidates or document.authored is None:
+        return differences
+    parts = records.configurations[name]
+    authored_reads = ((parts.a or {}).get("apiReads") or {}).get("authored") or {}
+    originals = [
+        row for row in authored_reads.get("media") or ()
+        if row.get("status") == 200 and row.get("mediaType") and row.get("sha256")
+    ]
+    extensions = {row["path"]: row["extension"] for row in document.authored.media_rows()}
+    upload = ((parts.b or {}).get("publish") or {}).get("media") or {}
+    matched = {(row["path"], row.get("class")) for row in upload.get("matched") or ()}
+    captured = document.exports[name].republish
+    matched_paths = {path for path, _ in matched}
+    pushed = {}
+    if captured and matched and not upload.get("refused"):
+        for request, _ in captured.media_uploads():
+            with zipfile.ZipFile(io.BytesIO(upload_field(request.upload(), "bulk_upload_file"))) as archive:
+                for entry in archive.namelist():
+                    if MEDIA_ROOT + entry not in matched_paths:
+                        continue
+                    with archive.open(entry) as content:
+                        digest = hashlib.file_digest(content, "sha256").hexdigest()
+                    # Two payloads under one path cannot attest a unique rename.
+                    pushed[entry] = digest if entry not in pushed else None
+    verified = set()
+    for difference in candidates:
+        before, after = WEB_APPS_MEDIA_SRC.match(difference.before), WEB_APPS_MEDIA_SRC.match(difference.after)
+        if before is None or after is None or before.group("id", "media_class") != after.group("id", "media_class"):
+            continue
+        media_class = after.group("media_class")
+        for row in originals:
+            extension = extensions.get(row["path"])
+            entry = f"commcare/{row['sha256']}.{extension}"
+            if (
+                row["mediaType"] == media_class
+                and row.get("multimediaId") == before.group("id")
+                and extension
+                and row["path"].rsplit("/", 1)[-1] == before.group("name")
+                and after.group("name") == f"{row['sha256']}.{extension}"
+                and (MEDIA_ROOT + entry, media_class) in matched
+                and pushed.get(entry) == row["sha256"]
+            ):
+                verified.add((difference.artifact, difference.at))
+                break
     return [
         replace(row, path=f"{row.path}:renamed-file") if (row.artifact, row.at) in verified else row
         for row in differences
@@ -1538,7 +1613,9 @@ def document_behavior(document, records, *, native_sites=None):
             reviewed_sites=reviewed_sites,
             declared=declared,
         )
-        native = verified_caption_renames(document, name, records, local_files, served)
+        native = verified_webapps_media_renames(
+            document, name, records, verified_caption_renames(document, name, records, local_files, served)
+        )
         if _served_a(records, name) is not None and (
             (records.configurations[name].b_aligned or {}).get("served") or {}
         ).get("local"):
@@ -1584,6 +1661,9 @@ def document_behavior(document, records, *, native_sites=None):
         compared,
         authored_app=None if authored is None else authored.app_json(),
     )
+    from proof.checks.discards import discarded
+
+    found = discarded(CHECK, document.id, document.hq_side, found, compared)
     return found + observations.soft_assertion_differences(records, CHECK)
 
 

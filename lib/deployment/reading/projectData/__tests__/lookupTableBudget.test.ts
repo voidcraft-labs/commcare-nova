@@ -14,10 +14,6 @@ import path from "node:path";
 import type { MockAgent } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
-import {
-	classifyHqFailure,
-	hqReadCircumstance,
-} from "@/lib/commcare/hq/failure";
 import { readHqLookupTablesForReading } from "../lookupTableStore";
 import { lookupTableFindings } from "../lookupTables";
 
@@ -46,8 +42,6 @@ const LOOKUPS = path.join(process.cwd(), "proof/hq-reads/lookups");
 const LIST = "/a/clinic/api/lookup_table/v1/?limit=1000";
 const PLAIN_ID = "09948f8373da4c86a86b7707a0e9fbcd";
 const RICH_ID = "9ea70d486f644cc4a2f22c063294e197";
-const SOURCE =
-	'<instance id="a" src="jr://fixture/item-list:plain"/> instance(\'item-list:rich\')';
 
 function retained(name: string): {
 	readonly status: number;
@@ -80,7 +74,7 @@ afterEach(() => {
 });
 
 describe("a bring-in's lookup rows", () => {
-	it("hold a table past one table's bound as that table's finding, and still read the others", async () => {
+	it("hold a table past one table's bound as that table's own, with no finding of its size, and still read the others", async () => {
 		/* `plain` fits; `rich` passes one table's bound with room in the request. */
 		limits.table = bytesOf(RICH) - 1;
 		limits.request = 10 * bytesOf(RICH);
@@ -91,7 +85,7 @@ describe("a bring-in's lookup rows", () => {
 			return readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: "clinic",
-				sourceText: SOURCE,
+				referencedTags: async () => new Set(["plain", "rich"]),
 			});
 		});
 		if ("success" in answer) throw new Error("the read failed");
@@ -103,15 +97,16 @@ describe("a bring-in's lookup rows", () => {
 		);
 		const [, rich] = answer.tables;
 		if (rich === undefined) throw new Error("rich was not answered");
-		expect(
-			lookupTableFindings(rich, null).map((finding) =>
-				"detail" in finding ? finding.detail : null,
-			),
-		).toContainEqual({ name: "rich: more data than Nova reads for one table" });
+		/* No size of a table is past what Nova holds: the table comes in as
+		 * its confirmed definition, and a Project data refresh reads its rows
+		 * in pages. */
+		expect(lookupTableFindings(rich)).toEqual([]);
 	});
 
-	it("answer a request whose tables together pass the request's bound as more lookup data than Nova brings in", async () => {
-		/* Each table fits one table's bound; the two together pass the request's. */
+	it("hold the table that passes what is left of the request's bound as that table's own, and still read the first", async () => {
+		/* Each table fits one table's bound; the two together pass the
+		 * request's. The second is then too large for this one interactive
+		 * read, and section 1C admits it as a reference to its source. */
 		limits.table = bytesOf(RICH) + 1;
 		limits.request = bytesOf(PLAIN) + bytesOf(RICH) - 1;
 		const answer = await withHttpPeer(async (peer) => {
@@ -121,18 +116,15 @@ describe("a bring-in's lookup rows", () => {
 			return readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: "clinic",
-				sourceText: SOURCE,
+				referencedTags: async () => new Set(["plain", "rich"]),
 			});
 		});
-		expect(answer).toEqual({
-			success: false,
-			status: 502,
-			cause: "too-large",
-			request: "lookup-rows",
-		});
-		if (!("success" in answer)) throw new Error("the read did not fail");
-		expect(hqReadCircumstance(classifyHqFailure(answer, answer.request))).toBe(
-			"lookup-data-too-large",
+		if ("success" in answer) throw new Error("the read failed");
+		expect(answer.tables.map((table) => [table.kind, table.table.tag])).toEqual(
+			[
+				["read", "plain"],
+				["over-byte-limit", "rich"],
+			],
 		);
 	});
 });

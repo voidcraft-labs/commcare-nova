@@ -39,6 +39,7 @@ import {
 	advancedHeldKind,
 	advancedModule,
 	extensionCarried,
+	parentIndexAgainstSelection,
 	rootCaseBlockNames,
 } from "../documents/advancedModules";
 
@@ -126,6 +127,29 @@ describe("targeted-extension-carried", () => {
 			client: { kind: "basic", slot: "own" },
 			referral: { kind: "save-to-case", path: ["nova_operations", "referral"] },
 		});
+	});
+});
+
+describe("targeted-parent-index-against-selection", () => {
+	const { doc, uuid } = made(parentIndexAgainstSelection());
+
+	it("opens the relative on an action indexed to the chosen member, and the catalog gives the member no parent", () => {
+		expect(kinds(doc)).toEqual({
+			Households: "basic",
+			"Member visits": "advanced",
+			Visits: "basic",
+		});
+		expect(places(doc, uuid("visit-member"))).toEqual({
+			member: open("load_member1"),
+			relative: open("open_member_0"),
+			visit: open("open_visit_1"),
+		});
+		expect(doc.modules[uuid("member-visits")]?.parentCaseModuleUuid).toBe(
+			uuid("households"),
+		);
+		expect(
+			doc.caseTypes?.find((type) => type.name === "member")?.parent_type,
+		).toBeUndefined();
 	});
 });
 

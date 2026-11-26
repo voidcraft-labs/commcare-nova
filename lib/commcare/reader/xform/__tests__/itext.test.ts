@@ -17,7 +17,10 @@
 
 import { describe, expect, it } from "vitest";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
-import { inputFor } from "../../__tests__/novaExport";
+import { formBehaviorRoles } from "@/lib/domain/forms";
+import { formBehaviorTextIssue } from "../../../xform/behaviorTexts";
+import { behaviorWireIds } from "../../../xform/itextIds";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { retainedSourceBody } from "../../__tests__/readerInput";
 import { readHqApp } from "../../index";
 import type { ReadOutcome } from "../../types";
@@ -184,10 +187,12 @@ describe("the forms of a text", () => {
 					<value form="video-inline">jr://file/v.mp4</value><value form="mine">M</value></text>`,
 			}),
 		);
-		expect(codes(reading).sort()).toEqual(
-			[Q("label-video-inline"), Q("long-form")].sort(),
-		);
+		// A question label's inline video is its label media's: a path with no
+		// file is handed off to project data, as another media form's is.
+		expect(codes(reading)).toEqual([]);
 		expect(unclaimedText(reading)).toEqual([]);
+		// A label's `long` form is its extended text.
+		expect(field(reading, "q").extended_text).toEqual(proseText("L"));
 	});
 });
 
@@ -212,7 +217,6 @@ describe("pragma keys", () => {
 		);
 		expect(codes(reading).sort()).toEqual(
 			[
-				Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 				Q("itext-pragma-entries-pragma-form-descriptor-pragma-skip-full"),
 				Q("itext-entry-referenced-only-from-jr-itext-in-an-expression"),
 			].sort(),
@@ -220,6 +224,13 @@ describe("pragma keys", () => {
 		expect(field(reading, "a").label).toEqual(proseText("Title"));
 	});
 });
+
+const blankFrenchLabel = {
+	blankTranslations: 1,
+	blankTranslationSlots: [
+		{ fieldPath: ["q"], slot: "label", language: "fra", choiceValue: null },
+	],
+};
 
 describe("blank values", () => {
 	it("reads a blank second language beside first-language text as no translation, and counts it", async () => {
@@ -231,7 +242,35 @@ describe("blank values", () => {
 			{ langs: ["en", "fr"] },
 		);
 		expect(codes(reading)).toEqual([]);
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(1);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual(
+			blankFrenchLabel,
+		);
+		expect(unclaimedText(reading)).toEqual([]);
+	});
+
+	it("counts a label's blank extended text beside the default's as a filled translation", async () => {
+		// Core shows French workers the blank `long` form as it stands; the next publish writes
+		// the English text there, so the review lists it as the label's own blank is listed.
+		const reading = await readForm(
+			oneLabel("l", {
+				en: `<text id="l"><value>Hello</value><value form="long">Hello there</value></text>`,
+				fr: `<text id="l"><value>Bonjour</value><value form="long"/></text>`,
+			}),
+			{ langs: ["en", "fr"] },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(field(reading, "q").extended_text).toEqual(proseText("Hello there"));
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 1,
+			blankTranslationSlots: [
+				{
+					fieldPath: ["q"],
+					slot: "extended_text",
+					language: "fra",
+					choiceValue: null,
+				},
+			],
+		});
 		expect(unclaimedText(reading)).toEqual([]);
 	});
 
@@ -248,7 +287,9 @@ describe("blank values", () => {
 				"an-explicitly-blank-value-in-the-first-language-where-another-holds-text",
 			),
 		]);
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 
 	it("reads a text blank in every language as a blank text, with no flag", async () => {
@@ -262,7 +303,9 @@ describe("blank values", () => {
 		expect(codes(reading)).toEqual([]);
 		expect(field(reading, "q").label).toEqual({ parts: [] });
 		expect(field(reading, "q").plainLabel).toBeUndefined();
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 
 	it("reads a language with no translation as untranslated", async () => {
@@ -272,7 +315,9 @@ describe("blank values", () => {
 		);
 		expect(codes(reading)).toEqual([]);
 		expect(field(reading, "q").label).toEqual(proseText("Hello"));
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 });
 
@@ -341,22 +386,22 @@ describe("more forms of a text", () => {
 			expect(field(reading, "q").label).toEqual(proseText("**A**"));
 			// Markdown on: the text shows its copy in every language.
 			expect(field(reading, "q").plainLabel).toBeUndefined();
-			expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(
-				blanks,
+			expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual(
+				blanks ? blankFrenchLabel : { blankTranslations: 0 },
 			);
 		});
 
-	it("refuses a big image, a QR code and a spoken form on a label", async () => {
+	it("refuses a big image on a label, and holds its QR code and spoken text", async () => {
 		const reading = await readForm(
 			oneLabel("l", {
 				en: `<text id="l"><value>A</value><value form="big-image">jr://file/b.png</value>
 					<value form="qrcode">code</value><value form="tts">say</value></text>`,
 			}),
 		);
-		expect(codes(reading).sort()).toEqual(
-			[Q("label-big-image"), Q("label-qrcode"), Q("label-tts")].sort(),
-		);
+		expect(codes(reading)).toEqual([Q("label-big-image")]);
 		expect(unclaimedText(reading)).toEqual([]);
+		expect(field(reading, "q").qr_code).toEqual(proseText("code"));
+		expect(field(reading, "q").spoken_text).toEqual(proseText("say"));
 	});
 
 	it("reads a choice's and a help text's forms by their own rows", async () => {
@@ -604,6 +649,91 @@ describe("texts read only by an expression", () => {
 });
 
 describe("pragma rows", () => {
+	it("preserves two question labels sharing automatic submission and their translations", async () => {
+		const id = "Pragma-Submit-Automatically";
+		const source = xformSource({
+			data: "<first/><second/>",
+			model: `<bind nodeset="/data/first" type="xsd:string"/><bind nodeset="/data/second" type="xsd:string"/>${itext({ en: `<text id="${id}"><value>Visit</value></text>`, fr: `<text id="${id}"><value>Visite</value></text>` })}`,
+			body: `<input ref="/data/first"><label ref="jr:itext('${id}')"/></input><input ref="/data/second"><label ref="jr:itext('${id}')"/></input>`,
+		});
+		const doc = documentOf(await readApp(source, ["en", "fr"]));
+		const form = Object.values(doc.forms)[0];
+		const [first, second] = doc.fieldOrder[form.uuid];
+		expect(form.automaticSubmissionText).toEqual({
+			carrier: { field: first, role: "field-label" },
+			alsoUsedBy: [{ field: second, role: "field-label" }],
+		});
+		expect(formBehaviorTextIssue(doc, form.uuid)).toBeUndefined();
+		// Nova's export writes the text once under the pragma id with both
+		// labels reading it, so reading it back holds the same sharing.
+		const again = documentOf(
+			await readHqApp(await inputFor(exportedBody(doc))),
+		);
+		const back = Object.values(again.forms)[0];
+		const [firstBack, secondBack] = again.fieldOrder[back.uuid];
+		expect(back.automaticSubmissionText).toEqual({
+			carrier: { field: firstBack, role: "field-label" },
+			alsoUsedBy: [{ field: secondBack, role: "field-label" }],
+		});
+		const field = doc.fields[second];
+		const changed = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[second]: { ...field, label: proseText("Different label") },
+			},
+		};
+		expect(formBehaviorTextIssue(changed, form.uuid)).toMatchObject({
+			reason: "shared-text-differs",
+		});
+	});
+
+	it("holds each Web Apps behavior on its own localized question through read, write and read-back", async () => {
+		const bindings = Object.entries(behaviorWireIds);
+		const ids = bindings.map((_, index) => `q${index}`);
+		const xml = xformSource({
+			data: ids.map((id) => `<${id}/>`).join(""),
+			model:
+				ids
+					.map((id) => `<bind nodeset="/data/${id}" type="xsd:string"/>`)
+					.join("") +
+				itext({
+					en: bindings
+						.map(
+							([role, id]) =>
+								`<text id="${id}"><value>English ${role}</value></text>`,
+						)
+						.join(""),
+					fr: bindings
+						.map(
+							([role, id]) =>
+								`<text id="${id}"><value>Français ${role}</value></text>`,
+						)
+						.join(""),
+				}),
+			body: bindings
+				.map(
+					([, id], index) =>
+						`<input ref="/data/${ids[index]}"><label ref="jr:itext('${id}')"/></input>`,
+				)
+				.join(""),
+		});
+		const first = documentOf(await readApp(xml, ["en", "fr"]));
+		const second = documentOf(
+			await readHqApp(await inputFor(exportedBody(first))),
+		);
+		for (const doc of [first, second]) {
+			const form = Object.values(doc.forms)[0];
+			expect(formBehaviorTextIssue(doc, form.uuid)).toBeUndefined();
+			for (const [index, role] of formBehaviorRoles.entries())
+				expect(form[role]).toEqual({
+					carrier: {
+						field: doc.fieldOrder[form.uuid][index],
+						role: "field-label",
+					},
+				});
+		}
+	});
 	it("reads a question text HQ's build merges into an earlier equal text as the question's own", async () => {
 		const reading = await readForm(
 			oneLabel("Pragma-Submit-Automatically", {
@@ -621,7 +751,7 @@ describe("pragma rows", () => {
 		expect(unclaimedText(reading)).toEqual([]);
 	});
 
-	it("refuses any other referenced pragma key, a volatility title beside a volatility key among them", async () => {
+	it("holds suppression, accounts for a title without an active key and refuses the unreferenced key", async () => {
 		const reading = await readForm(
 			xformSource({
 				data: "<a/><b/>",
@@ -636,16 +766,34 @@ describe("pragma rows", () => {
 					<input ref="/data/b"><label ref="jr:itext('Pragma-Volatility-Entity-Title')"/></input>`,
 			}),
 		);
-		const generic = Q(
+		expect(codes(reading)).toEqual([
+			Q("itext-pragma-entries-pragma-form-descriptor-pragma-skip-full"),
+		]);
+	});
+
+	it("holds an activity key and the title beside it", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<a/><b/>",
+				model: `<bind nodeset="/data/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/>${itext(
+					{
+						en: `<text id="Pragma-Volatility-Key"><value>key</value></text>
+							<text id="Pragma-Volatility-Entity-Title"><value>Title</value></text>`,
+					},
+				)}`,
+				body: `<input ref="/data/a"><label ref="jr:itext('Pragma-Volatility-Key')"/></input>
+					<input ref="/data/b"><label ref="jr:itext('Pragma-Volatility-Entity-Title')"/></input>`,
+			}),
+		);
+		const activity = Q(
 			"a-question-text-label-hint-help-validation-message-repeat-add",
 		);
-		expect(codes(reading).sort()).toEqual(
-			[
-				generic,
-				generic,
-				Q("itext-pragma-entries-pragma-form-descriptor-pragma-skip-full"),
-			].sort(),
-		);
+		expect(codes(reading)).toEqual([]);
+		expect(
+			[...reading.closed.claims.records()].filter(
+				(record) => record.entry === activity,
+			),
+		).toHaveLength(2);
 	});
 });
 
@@ -757,28 +905,87 @@ describe("translations, read whole", () => {
 			).toEqual([1]);
 	});
 
-	it("refuses an output of one language with no twin in the source, at the question", async () => {
+	it.each([
+		["Hi", 'Salut <output value="/data/n"/>', 1],
+		['Hi <output value="/data/n"/>', "Salut", 0],
+		[
+			'Hi <output value="/data/n"/>',
+			'Salut <output value="/data/n"/> et <output value="/data/n"/>',
+			2,
+		],
+	])(
+		"reads independently chosen outputs in the French label %s / %s",
+		async (en, fr, count) => {
+			const outcome = await readApp(
+				labelReading({ en: String(en), fr: String(fr) }),
+				["en", "fr"],
+			);
+			const doc = documentOf(outcome);
+			if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+			const translated = Object.values(
+				doc.localization?.translations.fra ?? {},
+			).find((entry) => entry.valueMode === "independent-values");
+			expect(
+				translated,
+				JSON.stringify(doc.localization?.translations),
+			).toBeDefined();
+			const target = translated?.value;
+			if (typeof target === "string" || target === undefined)
+				throw new Error("Missing translated label");
+			expect(
+				target.parts.filter((part) => part.kind === "field-ref"),
+			).toHaveLength(count as number);
+		},
+	);
+
+	/** The French label's translation entry, where the reading made one. */
+	const frenchLabel = (doc: BlueprintDoc) => {
+		const uuid = Object.values(doc.fields).find((one) => one.id === "q")?.uuid;
+		const entry = Object.entries(doc.localization?.translations.fra ?? {}).find(
+			([unit]) =>
+				uuid !== undefined && unit.includes(uuid) && unit.includes("label"),
+		)?.[1];
+		if (entry === undefined || typeof entry.value === "string")
+			throw new Error(JSON.stringify(doc.localization?.translations));
+		return { entry, parts: entry.value.parts };
+	};
+
+	it("reads an output one language alone writes as Nova writes literal text as that text, with no values of its own", async () => {
+		// Nova writes the bracket after `instance` as an output (`builder.ts::literalLabelNodes`).
 		const outcome = await readApp(
 			labelReading({
 				en: "Hi",
-				fr: `Salut <output value="/data/n"/>`,
+				fr: `Voir instance<output value="'('"/>'x')`,
 			}),
 			["en", "fr"],
 		);
-		expect(outcome.kind).toBe("account");
-		if (outcome.kind !== "account") return;
-		expect(
-			outcome.findings
-				.filter(
-					(finding) =>
-						finding.place.kind === "question" && finding.place.path === "q",
-				)
-				.map((finding) => finding.code),
-		).toEqual([Q("a-text-whose-languages-show-different-values")]);
-		expect(outcome.defects).toEqual([]);
+		const doc = documentOf(outcome);
+		if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+		const { entry, parts } = frenchLabel(doc);
+		expect(entry).not.toHaveProperty("valueMode");
+		expect(parts).toEqual([{ kind: "text", text: "Voir instance('x')" }]);
 	});
 
-	it("compares a Hidden Value's bind type beside another finding of its form", async () => {
+	it("keeps an output one language alone holds that is only a literal as that literal value", async () => {
+		const outcome = await readApp(
+			labelReading({ en: "Hi", fr: `Salut<output value="'['"/>ami` }),
+			["en", "fr"],
+		);
+		const doc = documentOf(outcome);
+		if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+		const { entry, parts } = frenchLabel(doc);
+		expect(entry.valueMode).toBe("independent-values");
+		expect(parts).toEqual([
+			{ kind: "text", text: "Salut" },
+			{
+				kind: "value",
+				expression: { kind: "term", term: { kind: "literal", value: "[" } },
+			},
+			{ kind: "text", text: "ami" },
+		]);
+	});
+
+	it("keeps other findings beside an admitted hidden answer type", async () => {
 		const outcome = await readApp(
 			xformSource({
 				data: "<x/><x/><h/>",
@@ -790,12 +997,12 @@ describe("translations, read whole", () => {
 		if (outcome.kind !== "account") return;
 		const codesOf = outcome.findings.map((finding) => finding.code);
 		expect(codesOf).toContain(Q("two-sibling-data-nodes-with-one-name"));
-		expect(codesOf).toContain(
+		expect(codesOf).not.toContain(
 			Q("hidden-value-bound-a-type-nova-would-not-write"),
 		);
 	});
 
-	it("refuses a Hidden Value typed as a date and time that writes no date-and-time property", async () => {
+	it("keeps an explicit date and time on a hidden answer that saves nowhere", async () => {
 		const outcome = await readApp(
 			xformSource({
 				data: "<h/>",
@@ -803,10 +1010,13 @@ describe("translations, read whole", () => {
 			}),
 			["en"],
 		);
-		expect(outcome.kind).toBe("account");
-		if (outcome.kind !== "account") return;
-		expect(outcome.findings.map((finding) => finding.code)).toEqual([
-			Q("hidden-value-bound-a-type-nova-would-not-write"),
-		]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") throw new Error("Expected a readable form");
+		expect(
+			Object.values(outcome.draft.doc.fields).find((field) => field.id === "h"),
+		).toMatchObject({
+			kind: "hidden",
+			answerType: "datetime",
+		});
 	});
 });

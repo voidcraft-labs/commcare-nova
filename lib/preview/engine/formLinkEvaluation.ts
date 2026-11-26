@@ -1,3 +1,5 @@
+import { moduleUuidOfForm } from "@/lib/domain";
+import type { CompletedFormSearch } from "./xpathInstances";
 /**
  * After-submit destinations in the running preview.
  *
@@ -40,6 +42,7 @@
  *     as on a device.
  */
 
+import { homeSelectionConsumers } from "@/lib/commcare";
 import {
 	entryDatumIdResolver,
 	entryFrameDatums,
@@ -132,6 +135,7 @@ export interface CarriedSubmission {
 
 /** Everything a link condition or datum can read. */
 export interface FormLinkEvaluationInput {
+	readonly routeMenuUuid?: Uuid;
 	readonly doc: BlueprintDoc;
 	readonly formUuid: Uuid;
 	readonly session: PreviewSearchSessionValues;
@@ -148,6 +152,7 @@ export interface FormLinkEvaluationInput {
 	/** What the source entry's search returned, in a search-first module:
 	 *  the session keeps it on its query step after the form closes. */
 	readonly searchResults?: SearchResultsSnapshot;
+	readonly searches?: readonly CompletedFormSearch[];
 }
 
 export type FormLinkAsyncEvaluator = (
@@ -296,6 +301,7 @@ function candidateFrames(
 		doc,
 		formLinkEvaluationProjectionContext(input),
 		formUuid,
+		input.routeMenuUuid,
 	);
 	if (projected === undefined) return [];
 	const print = (link: { readonly xpath?: ProjectedFormLink["xpath"] }) =>
@@ -358,6 +364,9 @@ export type CarriedCase =
  * visible so the target form's own carried-case datum can be identified
  * without re-running HQ's matching algorithm. */
 export interface TargetCaseSelection {
+	readonly firstMenuConsumers?: readonly Uuid[];
+	readonly destinationConsumers?: readonly Uuid[];
+	readonly selectionUuid?: Uuid;
 	readonly datumId: string;
 	readonly moduleUuid: Uuid;
 	readonly caseType: string;
@@ -420,9 +429,14 @@ function formLinkSecondaryInstances(
 		lookupData: input.lookupData ?? null,
 		caseDatabase: input.caseDatabase ?? null,
 		caseTypes: materializableCaseTypes(input.doc),
+		menus: input.doc.modules,
+		searchResultsName:
+			input.doc.modules[moduleUuidOfForm(input.doc, input.formUuid) ?? ""]
+				?.searchResultsName,
 		sessionData: Object.fromEntries(
 			[...input.sessionDatums].map(([name, datum]) => [name, datum.value]),
 		),
+		...(input.searches === undefined ? {} : { searches: input.searches }),
 		...(input.searchResults === undefined
 			? {}
 			: { searchResults: input.searchResults }),
@@ -536,8 +550,14 @@ function resolvedEntryTarget(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	entry: FormLinkEntry,
+	routeMenuUuid?: Uuid,
 ) {
-	const target = resolveFormLinkTarget(doc, formUuid, entry.link.target);
+	const target = resolveFormLinkTarget(
+		doc,
+		formUuid,
+		entry.link.target,
+		routeMenuUuid,
+	);
 	if (target === undefined)
 		throw new Error(
 			"This destination starts the form again, but the form is in no menu.",
@@ -569,7 +589,12 @@ export function carriedCaseFromSelections(
 	selections: readonly TargetCaseSelection[],
 ): CarriedCase {
 	const { doc } = input;
-	const target = resolvedEntryTarget(doc, input.formUuid, entry);
+	const target = resolvedEntryTarget(
+		doc,
+		input.formUuid,
+		entry,
+		input.routeMenuUuid,
+	);
 	if (target.type !== "form") return { kind: "none" };
 	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const targetCaseDatumId = selectedCaseDatumId(
@@ -599,6 +624,7 @@ function targetSelectionPlan(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	entry: FormLinkEntry,
+	routeMenuUuid?: Uuid,
 ) {
 	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const sourceModuleUuid = owningModuleOf(ctx, formUuid);
@@ -607,10 +633,15 @@ function targetSelectionPlan(
 			`Cannot follow a form link: the form ${formUuid} it leaves from belongs to no module`,
 		);
 	}
-	const target = resolvedEntryTarget(doc, formUuid, entry);
+	const target = resolvedEntryTarget(doc, formUuid, entry, routeMenuUuid);
 	const targetChildren = targetFrameChildren(doc, ctx, target);
-	const targetDatumId = entryDatumIdResolver(
-		formLinkTargetDatumIds(doc, ctx, target),
+	const bindings = formLinkTargetDatumIds(doc, ctx, target);
+	const targetDatumId = entryDatumIdResolver(bindings);
+	const choices = new Map(
+		bindings.map((row) => [
+			row.id,
+			row.refs.find((ref) => ref.kind === "form-selection")?.selection,
+		]),
 	);
 	const targetSelections = targetChildren.flatMap((child) =>
 		child.type === "datum" &&
@@ -629,7 +660,28 @@ function targetSelectionPlan(
 					).matched.map((match) => [match.id, match.sourceId]),
 				)
 			: undefined;
-	return { targetDatumId, targetSelections, automaticMatches };
+	return {
+		targetDatumId,
+		targetSelections,
+		choices,
+		automaticMatches,
+		home: homeSelectionConsumers(doc, ctx, targetChildren),
+	};
+}
+
+function firstMenuRecipients(
+	owners:
+		| { modules: ReadonlySet<Uuid>; destinationModules: ReadonlySet<Uuid> }
+		| undefined,
+) {
+	return (
+		owners && {
+			firstMenuConsumers: [...owners.modules],
+			...(owners.destinationModules.size > 0 && {
+				destinationConsumers: [...owners.destinationModules],
+			}),
+		}
+	);
 }
 
 /** The display name the entry's session holds for `value`, when it names a
@@ -657,8 +709,8 @@ export function projectTargetCaseSelections(
 	formUuid: Uuid,
 	entry: FormLinkEntry,
 ): readonly TargetCaseSelection[] {
-	const { targetDatumId, targetSelections, automaticMatches } =
-		targetSelectionPlan(input.doc, formUuid, entry);
+	const { targetDatumId, targetSelections, automaticMatches, home, choices } =
+		targetSelectionPlan(input.doc, formUuid, entry, input.routeMenuUuid);
 	const { link } = entry;
 	return targetSelections.flatMap((datum) => {
 		const moduleUuid = datum.selectionSourceModuleUuid;
@@ -680,6 +732,8 @@ export function projectTargetCaseSelections(
 		return [
 			{
 				datumId: datum.id,
+				...firstMenuRecipients(home.get(datum)),
+				...(choices.get(datum.id) && { selectionUuid: choices.get(datum.id) }),
 				moduleUuid,
 				caseType: datum.caseType,
 				caseId: held.value,
@@ -696,8 +750,8 @@ export async function projectTargetCaseSelectionsAsync(
 	evaluateAsync: FormLinkAsyncEvaluator,
 	world?: FormLinkWorkerWorld,
 ): Promise<readonly TargetCaseSelection[]> {
-	const { targetDatumId, targetSelections, automaticMatches } =
-		targetSelectionPlan(input.doc, formUuid, entry);
+	const { targetDatumId, targetSelections, automaticMatches, home, choices } =
+		targetSelectionPlan(input.doc, formUuid, entry, input.routeMenuUuid);
 	const { link } = entry;
 	const projected: TargetCaseSelection[] = [];
 	for (const datum of targetSelections) {
@@ -727,6 +781,8 @@ export async function projectTargetCaseSelectionsAsync(
 		}
 		projected.push({
 			datumId: datum.id,
+			...firstMenuRecipients(home.get(datum)),
+			...(choices.get(datum.id) && { selectionUuid: choices.get(datum.id) }),
 			moduleUuid,
 			caseType: datum.caseType,
 			caseId: held.value,

@@ -8,6 +8,8 @@
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
+import { androidAppQuestionSchema } from "./androidApp";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -16,8 +18,12 @@ import {
 
 export const dateFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("date"),
+	inputWidth: displaySchemas.inputWidth.optional(),
+	calendar: displaySchemas.calendar.optional(),
+	androidApp: androidAppQuestionSchema.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
+	extended_validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),
 });
 

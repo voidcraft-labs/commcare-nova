@@ -53,6 +53,7 @@ export {
 	SubmissionRejectedError,
 } from "./errors";
 export { withProjectContext, withSchemaContext } from "./projectContext";
+export { isInvalidCaseLocationError } from "./sql/compileCaseDistance";
 export type { LookupTableSchemas } from "./sql/compileLookup";
 export type {
 	FormFieldBindingValue,
@@ -106,6 +107,7 @@ export {
 	buildCaseTypeMap,
 	CASEDB_READING,
 	CasePropertyRenameStorageConflictError,
+	removalRetiresCaseProperty,
 	SEARCH_READING,
 } from "./store";
 export type {
@@ -113,6 +115,7 @@ export type {
 	CaseOperationProgram,
 	CreatedChildCaseReceipt,
 	EnvelopeCaseOperation,
+	OpeningReadSet,
 	OperationEffectRecord,
 	OperationIterationBindings,
 	OperationScopeIterations,

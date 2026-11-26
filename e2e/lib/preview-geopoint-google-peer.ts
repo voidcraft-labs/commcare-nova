@@ -23,14 +23,21 @@ export async function settleGooglePeer() {
 const suggestionSchema = z.array(
 	z.object({ id: z.string(), label: z.string() }),
 );
+const addressComponent = z.object({
+	longText: z.string(),
+	shortText: z.string().optional(),
+	types: z.array(z.string()),
+});
 const detailSchema = z.object({
 	lat: z.number(),
 	lng: z.number(),
 	label: z.string(),
+	addressComponents: z.array(addressComponent).optional(),
 });
 class Place {
 	location?: { lat(): number; lng(): number };
 	formattedAddress?: string;
+	addressComponents?: z.infer<typeof addressComponent>[];
 	constructor(private id: string) {}
 	async fetchFields() {
 		const detail = detailSchema.parse(
@@ -38,6 +45,7 @@ class Place {
 		);
 		this.location = { lat: () => detail.lat, lng: () => detail.lng };
 		this.formattedAddress = detail.label;
+		this.addressComponents = detail.addressComponents;
 	}
 }
 export async function importLibrary(name: string) {

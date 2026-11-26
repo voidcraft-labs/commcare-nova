@@ -12,7 +12,7 @@
  *
  * A set runs the at-source asset verdict before the gated commit
  * (`attachGuardedMutate` — exists / owned / ready / kind-matched /
- * inside the export ceiling), so a committed reference can't dangle; a
+ * plays where the app runs), so a committed reference can't dangle; a
  * `null` clear carries no expectations and skips the asset read.
  *
  * Both the SA chat factory and the MCP adapter call this through the

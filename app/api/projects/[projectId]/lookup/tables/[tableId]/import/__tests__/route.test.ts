@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -11,7 +12,8 @@ const mocks = vi.hoisted(() => {
 	return {
 		requireSession: vi.fn(),
 		resolveProjectAccess: vi.fn(),
-		getLookupTable: vi.fn(),
+		getLookupImportDefinition: vi.fn(),
+		replayLookupCsvImport: vi.fn(),
 		replaceLookupRows: vi.fn(),
 		logError: vi.fn(),
 		logWarn: vi.fn(),
@@ -24,7 +26,8 @@ vi.mock("@/lib/db/appAccess", async (original) => ({
 	resolveProjectAccess: mocks.resolveProjectAccess,
 }));
 vi.mock("@/lib/lookup/service", () => ({
-	getLookupTable: mocks.getLookupTable,
+	getLookupImportDefinition: mocks.getLookupImportDefinition,
+	replayLookupCsvImport: mocks.replayLookupCsvImport,
 	replaceLookupRows: mocks.replaceLookupRows,
 }));
 vi.mock("@/lib/logger", () => ({
@@ -77,6 +80,7 @@ function request(options: {
 	contentType?: string;
 	contentLength?: string;
 	revision?: string;
+	operationId?: string;
 }) {
 	const body =
 		options.body ?? new TextEncoder().encode("name,count\nClinic,2\n");
@@ -89,7 +93,7 @@ function request(options: {
 	}
 	const revision = options.revision ?? "7";
 	const req = new NextRequest(
-		`http://localhost/api/projects/project-1/lookup/tables/${TABLE_ID}/import?expectedTableRevision=${revision}`,
+		`http://localhost/api/projects/project-1/lookup/tables/${TABLE_ID}/import?expectedTableRevision=${revision}${options.operationId ? `&operationId=${options.operationId}` : ""}`,
 		{ method: "POST", headers, body: new Uint8Array(body) },
 	);
 	ownedRequests.push(req);
@@ -110,7 +114,7 @@ beforeEach(() => {
 		role: "editor",
 		actorUserId: "user-1",
 	});
-	mocks.getLookupTable.mockResolvedValue(TABLE);
+	mocks.getLookupImportDefinition.mockResolvedValue(TABLE);
 	mocks.replaceLookupRows.mockResolvedValue({
 		projectRevision: "8",
 		definitionRevision: "7",
@@ -149,7 +153,7 @@ describe("POST lookup CSV import", () => {
 			"project-foreign",
 			"edit",
 		);
-		expect(mocks.getLookupTable).not.toHaveBeenCalled();
+		expect(mocks.getLookupImportDefinition).not.toHaveBeenCalled();
 		expect(req.bodyUsed).toBe(false);
 	});
 
@@ -186,7 +190,7 @@ describe("POST lookup CSV import", () => {
 		expect(payload.totalDetailCount).toBeGreaterThanOrEqual(2);
 		expect(mocks.requireSession).toHaveBeenCalled();
 		expect(mocks.resolveProjectAccess).not.toHaveBeenCalled();
-		expect(mocks.getLookupTable).not.toHaveBeenCalled();
+		expect(mocks.getLookupImportDefinition).not.toHaveBeenCalled();
 		expect(req.bodyUsed).toBe(false);
 	});
 
@@ -198,6 +202,35 @@ describe("POST lookup CSV import", () => {
 		expect(response.status).toBe(400);
 		expect((await response.json()).code).toBe("invalid_input");
 		expect(req.bodyUsed).toBe(false);
+	});
+
+	it("matches the exact uploaded bytes before a stale definition check on a replayed import", async () => {
+		const operationId = "018d797f-5761-4c05-9fb8-3b2298c86e85";
+		const body = new TextEncoder().encode('name,count\r\n"Clinic",2\r\n');
+		const receipt = {
+			projectRevision: "8",
+			definitionRevision: "7",
+			rowsRevision: "8",
+			tableRevision: "8",
+		};
+		mocks.replayLookupCsvImport.mockResolvedValue(receipt);
+		const { req } = request({
+			contentType: "text/csv",
+			body,
+			revision: "6",
+			operationId,
+		});
+		const response = await POST(req, context());
+		expect(await response.json()).toEqual({ success: true, value: receipt });
+		expect(mocks.replayLookupCsvImport).toHaveBeenCalledWith(
+			{ projectId: "project-1", actorId: "user-1", role: "editor" },
+			TABLE_ID,
+			"6",
+			operationId,
+			createHash("sha256").update(body).digest("hex"),
+		);
+		expect(mocks.getLookupImportDefinition).not.toHaveBeenCalled();
+		expect(mocks.replaceLookupRows).not.toHaveBeenCalled();
 	});
 
 	it("rejects a stale table revision before buffering", async () => {
@@ -217,7 +250,7 @@ describe("POST lookup CSV import", () => {
 	});
 
 	it("refuses a table CommCare HQ manages before its revision or the CSV is judged", async () => {
-		mocks.getLookupTable.mockResolvedValue({
+		mocks.getLookupImportDefinition.mockResolvedValue({
 			...TABLE,
 			hq: {
 				server: "production",
@@ -299,7 +332,7 @@ describe("POST lookup CSV import", () => {
 	it("treats a downstream Zod failure as an internal fault", async () => {
 		const downstream = z.string().safeParse(42);
 		if (downstream.success) throw new Error("expected a synthetic Zod failure");
-		mocks.getLookupTable.mockRejectedValue(downstream.error);
+		mocks.getLookupImportDefinition.mockRejectedValue(downstream.error);
 		const { req } = request({ contentType: "text/csv" });
 
 		const response = await POST(req, context());

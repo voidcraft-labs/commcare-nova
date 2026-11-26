@@ -17,6 +17,10 @@ export const getAllLookupDefinitionsAction: typeof Lookup.getAllLookupDefinition
 	async (...args) => request("catalog", args);
 export const readOrganizationAction: typeof Organization.readOrganizationAction =
 	async (...args) => request("organization", args);
+export const readPlacePageAction: typeof Organization.readPlacePageAction =
+	async (...args) => request("place-page", args);
+export const readPlaceRuleIssuesAction: typeof Organization.readPlaceRuleIssuesAction =
+	async (...args) => request("place-rules", args);
 export const countCasesOwnedByAction: typeof Cases.countCasesOwnedByAction =
 	async (...args) => request("count", args);
 const unexpectedWrite = async () => {

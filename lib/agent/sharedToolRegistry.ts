@@ -23,10 +23,12 @@ import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCa
 import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
 import { configureCaseListTool } from "@/lib/agent/tools/case-list-config/configureCaseList";
 import { configureCaseSelectionTool } from "@/lib/agent/tools/case-list-config/configureCaseSelection";
+import { editSearchFilterTool } from "@/lib/agent/tools/case-list-config/editSearchFilter";
 import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "@/lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { reorderSearchInputsTool } from "@/lib/agent/tools/case-list-config/reorderSearchInputs";
+import { setCaseDetailTabsTool } from "@/lib/agent/tools/case-list-config/setCaseDetailTabs";
 import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCaseListFilter";
 import { setCaseListTileTool } from "@/lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
@@ -36,6 +38,7 @@ import { getCaseOperationsTool } from "@/lib/agent/tools/case-operations/getCase
 import { moveCaseOperationTool } from "@/lib/agent/tools/case-operations/moveCaseOperation";
 import { removeCaseOperationTool } from "@/lib/agent/tools/case-operations/removeCaseOperation";
 import { updateCaseOperationTool } from "@/lib/agent/tools/case-operations/updateCaseOperation";
+import { configureProjectSearchTool } from "@/lib/agent/tools/case-search-config/configureProjectSearch";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import {
@@ -47,6 +50,7 @@ import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
+import { editFormEntryTool } from "@/lib/agent/tools/editFormEntry";
 import {
 	addEntryPointTool,
 	getEntryPointsTool,
@@ -127,9 +131,17 @@ import {
 	updateUserPropertyTool,
 	updateUserTypeTool,
 } from "@/lib/agent/tools/users";
+import {
+	editWorkerGroupTool,
+	getWorkerGroupsTool,
+} from "@/lib/agent/tools/workerGroups";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
 import type { SHARED_TOOL_PRESENTATION } from "./toolPresentation";
+import {
+	getPreviewSearchSettingsTool,
+	setPreviewSearchSettingsTool,
+} from "./tools/previewSearchSettings";
 
 /**
  * Runtime capabilities a tool's execution requires. The policy test keeps
@@ -147,7 +159,8 @@ export type ToolRuntimeCapability =
 	| "lookup-write"
 	| "case-read"
 	| "case-store-migration"
-	| "deployment-write";
+	| "deployment-write"
+	| "preview-search-write";
 
 /**
  * Execution policy for one shared tool — the reviewed classification the
@@ -378,6 +391,24 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: LOOKUP_WRITE_POLICY,
 	},
 	{
+		saName: "getWorkerGroups",
+		mcpName: "get_worker_groups",
+		tool: getWorkerGroupsTool,
+		requires: "edit",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			capabilities: ["lookup-read"],
+		},
+	},
+	{
+		saName: "editWorkerGroup",
+		mcpName: "edit_worker_group",
+		tool: editWorkerGroupTool,
+		requires: "edit",
+		policy: LOOKUP_WRITE_POLICY,
+	},
+	{
 		saName: "editLookupRows",
 		mcpName: "edit_lookup_rows",
 		tool: editLookupRowsTool,
@@ -488,6 +519,24 @@ export const SHARED_TOOL_REGISTRY = [
 			effect: "read-blueprint",
 			staging: "allowed",
 			capabilities: ["case-read", "lookup-read", "organization-read"],
+		},
+	},
+	{
+		saName: "getPreviewSearchSettings",
+		mcpName: "get_preview_search_settings",
+		tool: getPreviewSearchSettingsTool,
+		requires: "view",
+		policy: READ_POLICY,
+	},
+	{
+		saName: "setPreviewSearchSettings",
+		mcpName: "set_preview_search_settings",
+		tool: setPreviewSearchSettingsTool,
+		requires: "edit",
+		policy: {
+			effect: "mutate-external",
+			staging: "forbidden",
+			capabilities: ["preview-search-write"],
 		},
 	},
 	{
@@ -664,6 +713,13 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
+		saName: "editFormEntry",
+		mcpName: "edit_form_entry",
+		tool: editFormEntryTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
 		saName: "updateFormLink",
 		mcpName: "update_form_link",
 		tool: updateFormLinkTool,
@@ -748,9 +804,23 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
+		saName: "editSearchFilter",
+		mcpName: "edit_search_filter",
+		tool: editSearchFilterTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
 		saName: "setCaseListFilter",
 		mcpName: "set_case_list_filter",
 		tool: setCaseListFilterTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "setCaseDetailTabs",
+		mcpName: "set_case_detail_tabs",
+		tool: setCaseDetailTabsTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},
@@ -772,6 +842,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "updateSearchInput",
 		mcpName: "update_search_input",
 		tool: updateSearchInputTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "configureProjectSearch",
+		mcpName: "configure_project_search",
+		tool: configureProjectSearchTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

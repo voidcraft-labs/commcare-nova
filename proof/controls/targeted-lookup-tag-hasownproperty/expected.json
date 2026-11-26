@@ -1,0 +1,27 @@
+{
+	"intent": [
+		{
+			"id": "site-picked",
+			"export": "A",
+			"form": "0df03e70-1ee9-501c-a9d6-3a4e9648d600",
+			"restore": "restore.xml",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/site",
+						"value": "2"
+					}
+				],
+				"expressions": [
+					"/data/site"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "south"
+				}
+			]
+		}
+	]
+}

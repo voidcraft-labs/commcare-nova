@@ -160,6 +160,15 @@ export type LookupResourcePlan =
 	  };
 
 export interface PlanLookupResourcePushInput {
+	/** Proven complete workbook definition. A rich field or row detail is
+	 * safe to retain only when every existing member has a destination slot. */
+	readonly intended?: ReadonlyMap<
+		string,
+		{
+			fieldProperties: Readonly<Record<string, readonly string[]>>;
+			attributes: readonly string[];
+		}
+	>;
 	/** Every table the app references, from the validated generation. */
 	readonly tables: readonly PlannedLookupTable[];
 	/** The deployment's live mappings — every kind; this filters its own. */
@@ -217,7 +226,22 @@ export function planLookupResourcePush(
 		(table): LookupTableUnsupported[] => {
 			const remote = remoteByTag.get(table.tag);
 			if (remote === undefined) return [];
-			const holds = unsupportedLookupContent(remote);
+			const intended = input.intended?.get(table.tableId);
+			const holds = unsupportedLookupContent(remote).filter((held) => {
+				if (!intended) return true;
+				if (held === "field-properties")
+					return Object.entries(remote.fieldProperties).some(([field, props]) =>
+						props.some(
+							(prop) => !intended.fieldProperties[field]?.includes(prop),
+						),
+					);
+				if (held === "row-attributes")
+					return remote.itemAttributes.some(
+						(attr) => !intended.attributes.includes(attr),
+					);
+				// Its owners cannot be attested from the table definition.
+				return true;
+			});
 			return holds.length === 0
 				? []
 				: [

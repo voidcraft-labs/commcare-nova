@@ -33,13 +33,7 @@
  * Pure: every projection reads only its arguments.
  */
 
-import {
-	generatedAppStringPattern,
-	generatedAppStringPatternSpells,
-} from "@/lib/commcare/appStringKeys";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
-import { generatedKeyOwner } from "@/lib/commcare/reader/generatedTranslationKeys";
-import { type SourceTable, tableOf } from "@/lib/commcare/sourceKeys";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 
 /** Every kind of place, by the tree's first step and, in a form, by its XForm part. */
@@ -134,13 +128,16 @@ export function formPositionsOf(source: HqAppSource): FormPositions {
 	return { byXmlns, byReadId, all };
 }
 
-/** The place of a data node of the form at `position`, `dataPath` absolute (`/data/...`). */
+/** A question in the first-publish vocabulary, independent of the name of the
+ * submission envelope. The reader proof compares the envelope name itself at
+ * its own slot and uses `data` as the stable kind for a node. */
 export function nodePlace(position: FormPosition, dataPath: string): string {
 	return placeOf(
 		"form",
 		position,
 		"xform",
-		...dataPath.split("/").filter((step) => step !== ""),
+		"data",
+		...dataPath.split("/").slice(2),
 	);
 }
 
@@ -293,266 +290,6 @@ export function placesOfMediaReference(
 			`A reading recorded a media reference of the ${place.kind} with no pointer into the stored app. Every media reference outside a form's itext is read from a key of the app's JSON, whose pointer the reading carries (lib/commcare/reader/xform/media.ts::readMediaMap, appShell.ts::readLogos).`,
 		);
 	return places;
-}
-
-/** A step of a stored text's slot that the key spells: the menu's or the form's position, the
- *  detail's word, the column's position. */
-interface KeyStep {
-	readonly spelled: "menu" | "form" | "detail" | "column";
-}
-
-const MENU: KeyStep = { spelled: "menu" };
-const FORM: KeyStep = { spelled: "form" };
-const DETAIL: KeyStep = { spelled: "detail" };
-const COLUMN: KeyStep = { spelled: "column" };
-
-/** A step of a slot of CommCare HQ's stored app: a key, `*` for any position or language, or a
- *  step the key spells. */
-type SlotStep = string | KeyStep;
-
-/** The text one kind of generated key names in CommCare HQ's stored app. */
-export interface FoldedTextSlots {
-	/** HQ's id pattern (`appStringKeys.ts::GENERATED_APP_STRING_PATTERNS`), which the key is
-	 *  spelled by whole (`generatedAppStringPatternSpells`). */
-	readonly pattern: string;
-	/** Each slot of the stored app that holds the text, as steps from the app's root. */
-	readonly slots: readonly (readonly SlotStep[])[];
-	/** Each part of the XForm of the form the key names that holds the text, as the proof lane
-	 *  names a part (`proof/checks/xform_parts.py`), in the form's attachment. */
-	readonly formParts?: readonly (readonly string[])[];
-}
-
-/** Where the projection writes a search property's text (`hqJson/caseList.ts::projectSearchInput`). */
-const SEARCH_PROPERTY: readonly SlotStep[] = [
-	"modules",
-	MENU,
-	"search_config",
-	"properties",
-	"*",
-];
-
-/**
- * Every kind of generated translation key a reading can fold
- * (`reader/assemble.ts::decideGeneratedKeys`, and the first language's `app.display.name`,
- * `reader/appShell.ts::readTranslations`), with the slots of CommCare HQ's stored app that hold
- * the text it names: the app strings HQ's build writes from each
- * (`app_strings.py::_create_custom_app_strings`, `id_strings.py`), which are where Nova's
- * projection writes the text of the translation unit the key's id feeds in Nova's own strings
- * (`hqJson/caseList.ts`, `expander.ts`). A key folds only where that id's source is one unit
- * (`generatedTranslationKeys.ts::classifyGeneratedTranslationKeys`), so every other generated
- * key, a media key, a constant (the Search button's label, a detail's empty-list and select
- * texts, a form's submit label), a string Nova never writes (a detail tab's title, a graph's
- * texts, an alt text, a callout header) and `homescreen.title`, which the app shell reads and
- * never folds, is no row. A more exact pattern stands before a wider one that also spells its
- * keys (a Search field's hint before its label).
- *
- * The register's entry allows exactly these slots' paths (`FOLDED_TEXT_PATHS`), and its places
- * are these slots at the positions each folded key spells (`placesOfGeneratedKey`), so a place
- * the entry stands at always lies under a path it allows.
- */
-export const FOLDED_TEXT_SLOTS: readonly FoldedTextSlots[] = [
-	// The first language's `app.display.name` over the app's `name`
-	// (`reader/appShell.ts::readTranslations`, the one generated key the reading folds outside the
-	// classifier); every other language's is the name's translation, a key Nova writes itself.
-	{ pattern: "app.display.name", slots: [["name"]] },
-	{ pattern: "modules.m#", slots: [["modules", MENU, "name", "*"]] },
-	// A form's name, and in the app's first language its `<h:title>` and its data node's `name`,
-	// which Nova writes from it (`lib/domain/formWireName.ts::formWireName`).
-	{
-		pattern: "forms.m#f#",
-		slots: [["modules", MENU, "forms", FORM, "name", "*"]],
-		formParts: [["title"], ["data", "@name"]],
-	},
-	{
-		pattern: "case_lists.m#",
-		slots: [["modules", MENU, "case_list", "label", "*"]],
-	},
-	{
-		pattern: "case_list_form.m#",
-		slots: [["modules", MENU, "case_list_form", "label", "*"]],
-	},
-	// A column's header, and a sort-only field's (`app_strings.py`, `create_temp_sort_column`),
-	// which is its sort element's name in Sort by.
-	{
-		pattern: "m#.*.*_*_#.header",
-		slots: [
-			[
-				"modules",
-				MENU,
-				"case_details",
-				DETAIL,
-				"columns",
-				COLUMN,
-				"header",
-				"*",
-			],
-			[
-				"modules",
-				MENU,
-				"case_details",
-				DETAIL,
-				"sort_elements",
-				"*",
-				"display",
-				"*",
-			],
-		],
-	},
-	// An enum's label: a mapping's label, an interval's text, a case property's choice label.
-	{
-		pattern: "m#.*.*_*_*.enum.*",
-		slots: [
-			[
-				"modules",
-				MENU,
-				"case_details",
-				DETAIL,
-				"columns",
-				COLUMN,
-				"enum",
-				"*",
-				"value",
-				"*",
-			],
-		],
-	},
-	{
-		pattern: "search_property.m#.*.hint",
-		slots: [[...SEARCH_PROPERTY, "hint", "*"]],
-	},
-	{
-		pattern: "search_property.m#.*.required.text",
-		slots: [[...SEARCH_PROPERTY, "required", "text", "*"]],
-	},
-	{
-		pattern: "search_property.m#.*.validation.#.text",
-		slots: [[...SEARCH_PROPERTY, "validations", "*", "text", "*"]],
-	},
-	{
-		pattern: "search_property.m#.*",
-		slots: [[...SEARCH_PROPERTY, "label", "*"]],
-	},
-	{
-		pattern: "case_search.m#.inputs",
-		slots: [["modules", MENU, "search_config", "title_label", "*"]],
-	},
-	{
-		pattern: "case_search.m#.description",
-		slots: [["modules", MENU, "search_config", "description", "*"]],
-	},
-];
-
-/** A slot's path over the stored app: every step a key spells is `*`. */
-function slotPath(slot: readonly SlotStep[]): string {
-	return slot
-		.map(
-			(step) =>
-				`/${typeof step === "string" ? step.replaceAll("~", "~0").replaceAll("/", "~1") : "*"}`,
-		)
-		.join("");
-}
-
-/** A form's source in the stored app. */
-const FORM_SOURCE_PATH = "/_attachments/*";
-
-/** The paths of the slots of one row, a form's source where it names a part of one. */
-export function foldedTextPathsOf(row: FoldedTextSlots): readonly string[] {
-	return [
-		...row.slots.map(slotPath),
-		...(row.formParts === undefined ? [] : [FORM_SOURCE_PATH]),
-	];
-}
-
-/** The path of every slot a fold can set, each once, in `FOLDED_TEXT_SLOTS`' order. */
-export const FOLDED_TEXT_PATHS: readonly string[] = [
-	...new Set(FOLDED_TEXT_SLOTS.flatMap(foldedTextPathsOf)),
-];
-
-/** The row whose pattern spells `key` whole, the first in order; undefined for a key no fold sets. */
-export function foldedTextSlotsOf(key: string): FoldedTextSlots | undefined {
-	return FOLDED_TEXT_SLOTS.find((row) =>
-		generatedAppStringPatternSpells(row.pattern, key),
-	);
-}
-
-/** HQ's detail types by the word a key spells them with (`id_strings.py::detail_column_header_locale`,
- *  `ModuleBase.get_details`): a search's details are copies of the case list's
- *  (`Module.search_detail`). */
-const DETAIL_OF_KEY: SourceTable<string> = tableOf({
-	case_short: "short",
-	case_long: "long",
-	search_short: "short",
-	search_long: "long",
-});
-
-/**
- * The position in its detail's `columns` of the column a detail key names,
- * `m<m>.<detail>.<model>_<field>_<column + 1>.header` or `...<column + 1>.enum.<key>`
- * (`id_strings.py::detail_column_header_locale`, `detail_column_enum_variable`), or undefined
- * where the key spells none.
- */
-function detailColumnIndex(key: string): number | undefined {
-	const [menu, word] = key.split(".", 2) as [string, string?];
-	if (word === undefined) return undefined;
-	const rest = key.slice(menu.length + word.length + 2);
-	const end = rest.endsWith(".header")
-		? rest.length - ".header".length
-		: rest.indexOf(".enum.");
-	if (end < 0) return undefined;
-	const token = rest.slice(0, end);
-	const id = token.slice(token.lastIndexOf("_") + 1);
-	if (!/^[0-9]+$/.test(id) || Number(id) < 1) return undefined;
-	return Number(id) - 1;
-}
-
-/** The steps of `slot` at the positions `key` spells, up to the first step it does not: a
- *  position or a language no key names (`*`), or a part of the key it cannot read. */
-function slotStepsOf(key: string, slot: readonly SlotStep[]): string[] {
-	const owner = generatedKeyOwner(key);
-	const steps: string[] = [];
-	for (const step of slot) {
-		let at: string | undefined;
-		if (typeof step === "string") at = step === "*" ? undefined : step;
-		else if (step.spelled === "menu")
-			at = owner.kind === "app" ? undefined : String(owner.menu);
-		else if (step.spelled === "form")
-			at = owner.kind === "form" ? String(owner.form) : undefined;
-		else if (step.spelled === "detail")
-			at = DETAIL_OF_KEY.get(key.split(".")[1] ?? "");
-		else {
-			const column = detailColumnIndex(key);
-			at = column === undefined ? undefined : String(column);
-		}
-		if (at === undefined) break;
-		steps.push(at);
-	}
-	return steps;
-}
-
-/**
- * The places of the text a generated translation key names, which a fold of the key sets: each
- * slot of its row of `FOLDED_TEXT_SLOTS` at the positions the key spells
- * (`generatedTranslationKeys.ts::generatedKeyOwner`, the detail and the column a detail key
- * spells), up to the first it does not, and each part of the XForm of the form it names. Throws for a key no row spells, which the reader never
- * folds: Nova's strings hold no other generated id whose source is one translation unit.
- */
-export function placesOfGeneratedKey(key: string): readonly string[] {
-	const row = foldedTextSlotsOf(key);
-	if (row === undefined)
-		throw new Error(
-			`A reading folded a generated translation key of the pattern ${JSON.stringify(generatedAppStringPattern(key) ?? "none")} that no row of FOLDED_TEXT_SLOTS spells, so the register cannot say where its text stands. A key folds only where Nova's own strings feed its id from one translation unit; add the row naming the stored slots of that unit's text in lib/deployment/reading/firstPublishPlaces.ts.`,
-		);
-	const owner = generatedKeyOwner(key);
-	const position =
-		owner.kind === "form" ? `${owner.menu}.${owner.form}` : undefined;
-	return [
-		...row.slots.map((slot) => placeOfAppSteps(slotStepsOf(key, slot))),
-		...(position === undefined
-			? []
-			: (row.formParts ?? []).map((part) =>
-					placeOf("form", position, "xform", ...part),
-				)),
-	];
 }
 
 /** `places` in code-unit order, each once. */

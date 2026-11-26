@@ -46,14 +46,19 @@ const BI_BITFIELDS = 3;
 const LCS_SRGB = 0x73524742;
 const INFO_HEADER_DEPTHS: ReadonlySet<number> = new Set([1, 4, 8, 16, 24, 32]);
 
-/** Read a BMP's header and say whether the upload gate accepts it. */
-export function readBmp(bytes: Uint8Array): BmpReading {
+/** How much of a BMP's head the reader needs: the file header and the longest DIB header. */
+export const BMP_HEAD_BYTES = FILE_HEADER_BYTES + V5_HEADER_BYTES;
+
+/**
+ * Read a BMP's header and say whether the upload gate accepts it. `bytes` is
+ * the file, or its first `BMP_HEAD_BYTES` at least, with `size` the file's.
+ */
+export function readBmp(
+	bytes: Uint8Array,
+	size: number = bytes.byteLength,
+): BmpReading {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-	if (
-		bytes.byteLength < FILE_HEADER_BYTES + 4 ||
-		bytes[0] !== 0x42 ||
-		bytes[1] !== 0x4d
-	) {
+	if (size < FILE_HEADER_BYTES + 4 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) {
 		return { kind: "malformed", detail: "it has no BMP file header" };
 	}
 	const pixelOffset = view.getUint32(10, true);
@@ -64,7 +69,7 @@ export function readBmp(bytes: Uint8Array): BmpReading {
 			detail: `its ${headerSize}-byte header is neither a BITMAPINFOHEADER nor a BITMAPV5HEADER`,
 		};
 	}
-	if (bytes.byteLength < FILE_HEADER_BYTES + headerSize) {
+	if (size < FILE_HEADER_BYTES + headerSize) {
 		return { kind: "malformed", detail: "its header is cut short" };
 	}
 	const width = view.getInt32(18, true);
@@ -111,7 +116,7 @@ export function readBmp(bytes: Uint8Array): BmpReading {
 	const pixelBytes = rowBytes * height;
 	if (
 		pixelOffset < FILE_HEADER_BYTES + headerSize ||
-		pixelOffset + pixelBytes > bytes.byteLength
+		pixelOffset + pixelBytes > size
 	) {
 		return {
 			kind: "malformed",

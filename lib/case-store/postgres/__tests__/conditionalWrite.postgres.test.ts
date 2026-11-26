@@ -7,7 +7,7 @@ import {
 } from "kysely";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { withAppTestNamespace } from "@/lib/case-store/appTestNamespace";
 import type { AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -826,8 +826,10 @@ describe("a yes or no answer as a case change's condition", () => {
 	// Core holds a Hidden Value calculated by a condition as `BooleanData`
 	// and reads it back as its truth (`Recalculate.wrapData`,
 	// `XPathPathExpr.unpackValue`), so the referral opens exactly when the
-	// calculation holds. Preview's form submits the answer's text, `false`
-	// included, which only the answer's held class keeps from reading true.
+	// calculation holds. Preview's form submits the text Core's serializer
+	// writes for it, `1` or `0` (`XFormAnswerDataSerializer.serializeAnswerData
+	// (BooleanData)`), and only the answer's held class keeps `0` from reading
+	// true.
 	it.each([
 		["a note given", "needs work", 1],
 		["no note given", "", 0],
@@ -900,7 +902,7 @@ describe("a yes or no answer as a case change's condition", () => {
 		if (!built.program) throw new Error("Expected a submission program");
 		expect(built.program.formFieldHeld?.get(flag)).toBe("boolean");
 		expect(built.program.scopes[0]?.iterations[0]?.formFields.get(flag)).toBe(
-			note === "" ? "false" : "true",
+			note === "" ? "0" : "1",
 		);
 		const store = makeStore();
 		await submit(store, built.program);
@@ -1169,5 +1171,116 @@ describe("a number or a date saved to a text property", () => {
 			caseType: INSPECTION.name,
 		});
 		expect(rows.map((row) => row.properties.note)).toEqual([text]);
+	});
+});
+
+it("keeps a typed hidden clock in Preview and saves its local day in Postgres", async () => {
+	const recorded = testUuid("hidden-day-source");
+	const visitDay = {
+		name: "visit_day",
+		label: proseText("Visit day"),
+		data_type: "date" as const,
+	};
+	const doc = buildDoc({
+		caseTypes: [
+			{ ...INSPECTION, properties: [...INSPECTION.properties, visitDay] },
+		],
+		modules: [
+			{
+				name: "Inspections",
+				caseType: INSPECTION.name,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: FORM_UUID,
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								uuid: recorded,
+								id: "recorded_at",
+								kind: "hidden",
+								answerType: "datetime",
+								calculate: { kind: "now" },
+								caseWrite: {
+									caseType: INSPECTION.name,
+									property: visitDay.name,
+								},
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const store = makeStore();
+	await store.applySchemaChange({
+		appId: APP_ID,
+		caseType: INSPECTION.name,
+		caseTypeSchemas: buildCaseTypeMap(doc),
+	});
+	const { caseId } = await store.insert({
+		appId: APP_ID,
+		row: {
+			case_type: INSPECTION.name,
+			case_name: "Inspection",
+			properties: {},
+		},
+	});
+	const zone = "Asia/Tokyo";
+	const savedZone = process.env.TZ;
+	const submitted = () => {
+		try {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			process.env.TZ = zone;
+			vi.setSystemTime(new Date("2025-04-05T23:24:47.321Z"));
+			const engine = engineFor(doc, FORM_UUID);
+			expect(engine.getState("/data/recorded_at").value).toBe(
+				"2025-04-06T08:24:47.321+09:00",
+			);
+			return engine.computeSubmissionMutation({
+				caseIds: [caseId],
+				entryKey: "44444444-4444-4444-8444-444444444445",
+			});
+		} finally {
+			vi.useRealTimers();
+			if (savedZone === undefined) delete process.env.TZ;
+			else process.env.TZ = savedZone;
+		}
+	};
+	const mutation = submitted();
+	expect(mutation.operationAnswers?.root).toContainEqual({
+		fieldUuid: recorded,
+		value: "2025-04-06T08:24:47.321+09:00",
+	});
+	const built = buildCaseOperationProgramFromDoc({
+		device: webAppsDevice(),
+		blueprint: doc,
+		mutation,
+		projection: validateCaptureSubmissionProjection(mutation),
+		identity: {
+			actorUserId: ACTOR,
+			ownerId: ACTOR,
+			session: {
+				context: { userid: ACTOR, username: "worker" },
+				user: {},
+				userPropertySlugs: {},
+			},
+			usercase: {},
+		},
+		viewerTimeZone: zone,
+	});
+	if (!built.program) throw new Error("Expected a submission program");
+	expect(built.program.formFieldTypes?.get(recorded)).toBe("datetime");
+	await submit(store, built.program);
+	const rows = await store.query({
+		reading: SEARCH_READING,
+		appId: APP_ID,
+		caseType: INSPECTION.name,
+	});
+	expect(rows.find((row) => row.case_id === caseId)?.properties).toEqual({
+		visit_day: "2025-04-06",
 	});
 });

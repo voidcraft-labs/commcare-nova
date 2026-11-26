@@ -139,7 +139,7 @@ describe("the value a row may keep beside its siblings", () => {
 		expect(optionValueRefusal(draft, 9)).toBeUndefined();
 	});
 
-	it("keeps one kind of quote mark and refuses a value holding both", () => {
+	it("keeps exact choice values with either or both kinds of quote mark", () => {
 		const draft = [
 			option("It's", "it's"),
 			option("Say hi", 'say"hi"'),
@@ -147,9 +147,7 @@ describe("the value a row may keep beside its siblings", () => {
 		];
 		expect(optionValueRefusal(draft, 0)).toBeUndefined();
 		expect(optionValueRefusal(draft, 1)).toBeUndefined();
-		expect(optionValueRefusal(draft, 2)).toBe(
-			"This value holds both an apostrophe and a double quote. Keeping one kind works.",
-		);
+		expect(optionValueRefusal(draft, 2)).toBeUndefined();
 	});
 
 	it("refuses a value CommCare HQ reads as a data source, offering the gate's repair", () => {

@@ -1,3 +1,5 @@
+import { CaseTextCard } from "./cards/expression/CaseTextCard";
+import { editorLookupReads } from "./lookupTablePresentation";
 // components/builder/shared/expressionEditorSchemas.ts
 //
 // Declarative registry mapping every Expression kind to its
@@ -39,6 +41,7 @@ import type { ComponentType } from "react";
 import type { CaseType, UserProperty, Uuid } from "@/lib/domain";
 import {
 	caseListSearchTextReachable,
+	choiceCandidatePositionAvailable,
 	type Expression,
 	type ExpressionContext,
 	type ExpressionOfKind,
@@ -69,7 +72,9 @@ import {
 	formatDateDefault,
 } from "./cards/expression/FormatDateCard";
 import {
+	CaseListLookupCountCard,
 	CaseListSearchTextCard,
+	ChoicePositionCard,
 	HereCard,
 	NegateCard,
 	ValueListCard,
@@ -146,14 +151,19 @@ export interface OperationValueScope {
  * Contextual availability lives in isAuthorableExpressionKind and the actual
  * slot-choice planner in ExpressionPicker, without a parallel type oracle.
  */
-export type CardValueKind = Exclude<
-	ValueArm["kind"],
-	"call" | "itext" | "choice-name"
->;
+export type CardValueKind = Exclude<ValueArm["kind"], "itext" | "choice-name">;
 
 export function isCardValue(
 	value: Expression,
 ): value is ExpressionOfKind<CardValueKind> {
+	if (value.kind === "call")
+		return (
+			value.fn === "position" &&
+			(value.args.length === 0 ||
+				(value.args.length === 1 &&
+					value.args[0].kind === "term" &&
+					value.args[0].term.kind === "field"))
+		);
 	return Object.hasOwn(expressionCardSchemas, value.kind);
 }
 
@@ -187,6 +197,14 @@ export interface ExpressionCardSchema<K extends CardValueKind> {
 export const expressionCardSchemas: {
 	readonly [K in CardValueKind]: ExpressionCardSchema<K>;
 } = {
+	call: {
+		kind: "call",
+		label: "Source row position",
+		icon: tablerHash,
+		description: "The candidate’s place in the source before sorting",
+		component: ChoicePositionCard,
+		defaultValue: () => ({ kind: "call", fn: "position", args: [] }),
+	},
 	negate: {
 		kind: "negate",
 		label: "Negative of",
@@ -198,6 +216,19 @@ export const expressionCardSchemas: {
 			value: { kind: "term", term: { kind: "literal", value: 0 } },
 		}),
 	},
+	"case-text": {
+		kind: "case-text",
+		label: "Translated text",
+		icon: tablerVariable,
+		description: "Use this field’s wording in the worker’s language",
+		component: CaseTextCard,
+		defaultValue: (ctx) => {
+			const first = ctx.expressionContext.caseTexts?.[0];
+			if (!first)
+				throw new Error("Add translated text to this calculated field first.");
+			return { kind: "case-text", textUuid: first.uuid };
+		},
+	},
 	here: {
 		kind: "here",
 		label: "Where you are now",
@@ -205,6 +236,21 @@ export const expressionCardSchemas: {
 		description: "The worker's location when the case list shows",
 		component: HereCard,
 		defaultValue: () => ({ kind: "here" }),
+	},
+	"case-list-lookup-count": {
+		kind: "case-list-lookup-count",
+		label: "Companion lookup count",
+		icon: tablerHash,
+		description: "How many distinct results the Android companion app returned",
+		component: CaseListLookupCountCard,
+		defaultValue: ({ expressionContext }) => {
+			const module = expressionContext.caseListLookupCountSource;
+			if (module === undefined)
+				throw new Error(
+					"This form does not open from a single supported companion lookup.",
+				);
+			return { kind: "case-list-lookup-count", module };
+		},
 	},
 	"case-list-search-text": {
 		kind: "case-list-search-text",
@@ -415,14 +461,22 @@ export function isAuthorableExpressionKind(
 			ctx?.expressionContext !== undefined &&
 			serverOnlySearchSlot(ctx.expressionContext.profile)
 		);
-	// The worker's location has a handler only in a case list's calculated
-	// column, which the slot's profile says (`SlotProfile.here`).
+	if (kind === "call")
+		return (
+			ctx?.expressionContext !== undefined &&
+			choiceCandidatePositionAvailable(ctx.expressionContext)
+		);
+	if (kind === "case-text")
+		return Boolean(ctx?.expressionContext?.caseTexts?.length);
+	// The worker's location has a handler only in a case list's calculated column.
 	if (kind === "here") return ctx?.expressionContext?.profile.here === true;
 	// A case list's search text reaches a form's questions and Connect
 	// settings after exactly one case list
 	// (`typeChecker.ts::caseListSearchTextReachable`). A declared platform
 	// that lacks it leaves the choice offered, disabled by the rule
 	// admission with that platform's picker line.
+	if (kind === "case-list-lookup-count")
+		return ctx?.expressionContext?.caseListLookupCountSource !== undefined;
 	if (kind === "case-list-search-text")
 		return (
 			ctx?.expressionContext !== undefined &&
@@ -446,7 +500,9 @@ export function isAuthorableExpressionKind(
 	if (kind === "table-lookup") {
 		return (
 			ctx?.tableScope === undefined &&
-			(ctx?.lookupTables ?? []).some((table) => table.columns.length > 0)
+			(ctx?.lookupTables ?? []).some(
+				(table) => editorLookupReads(table).length > 0,
+			)
 		);
 	}
 	return true;

@@ -60,16 +60,18 @@ import {
 	publishRefuses,
 } from "@/lib/commcare/reader/__tests__/publishedDocuments";
 import { sourceFromBody } from "@/lib/commcare/reader/__tests__/readerInput";
+import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { kindAppearanceToken } from "@/lib/commcare/xform/appearance";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
+import { acceptReading } from "../acceptance";
 import { readingEmission } from "../emission";
 import {
 	holdsNovaAppearance,
 	identityDifferences,
 	sourceApplication,
 } from "../identityAgreement";
-import { DOMAIN, HOST, readingInput } from "./acceptanceInput";
+import { acceptanceInput, DOMAIN, HOST, readingInput } from "./acceptanceInput";
 import {
 	controlAt,
 	editXml,
@@ -81,7 +83,7 @@ import {
 
 const TARGET = { origin: HOST, domain: DOMAIN };
 
-/** One form holding each control whose appearance Nova writes, and two it does not. */
+/** A mix of ordinary controls and independently observable worker presentations. */
 const APPEARANCES = buildDoc({
 	appName: "Appearances",
 	modules: [
@@ -103,6 +105,18 @@ const APPEARANCES = buildDoc({
 						f({ kind: "text", id: "phone", keypad: "numbers" }),
 						f({ kind: "decimal", id: "weight" }),
 						f({ kind: "text", id: "plain" }),
+						f({ kind: "secret", id: "masked", keypad: "numbers" }),
+						f({
+							kind: "date",
+							id: "local_day",
+							calendar: "ethiopian",
+							itemsPerRow: "2",
+						}),
+						f({
+							kind: "group",
+							id: "directions",
+							children: [f({ kind: "text", id: "turn" })],
+						}),
 					],
 				},
 			],
@@ -150,6 +164,85 @@ function appearanceAt(path: string, appearance: string) {
 }
 
 describe("identityDifferences", () => {
+	it("keeps a named envelope, a generated count and an inert appearance on adoption and on a later HQ reading", async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "int", id: "length", label: proseText("How many?") }),
+								f({ kind: "text", id: "plain", label: proseText("Notes") }),
+								f({
+									kind: "repeat",
+									id: "visits",
+									repeat_mode: "count_bound",
+									repeat_count: "#form/length + 1",
+									children: [
+										f({ kind: "text", id: "name", label: proseText("Name") }),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const form = Object.values(doc.forms)[0];
+		form.dataRootName = "visit";
+		const source = await servedSource(
+			doc,
+			appearanceAt("/visit/plain", "compact"),
+		);
+		const first = servedReading(source);
+		const changed = await servedSource(doc, (xml) =>
+			appearanceAt(
+				"/visit/plain",
+				"compact",
+			)(xml).replaceAll(">Notes<", ">Visit notes<"),
+		);
+		const later = servedReading(changed, {
+			resolver: matchingResolver(
+				first.reader.appId,
+				first.outcome.draft.identities.entries,
+			),
+		});
+		for (const read of [first, later]) {
+			const [facts] = read.outcome.draft.facts.forms;
+			expect(
+				facts.generated.some(
+					(node) => node.purpose === "count" && node.path.startsWith("/visit/"),
+				),
+			).toBe(true);
+			expect(facts.inertAppearances).toContain("plain");
+			const accepted = acceptReading(
+				acceptanceInput(read.reader, read.outcome),
+			);
+			expect(accepted.ok ? [] : accepted.differences).toEqual([]);
+			expect(Object.values(read.outcome.draft.doc.forms)[0].dataRootName).toBe(
+				"visit",
+			);
+		}
+		expect(
+			Object.values(later.outcome.draft.doc.fields).map((f) => f.uuid),
+		).toEqual(Object.values(first.outcome.draft.doc.fields).map((f) => f.uuid));
+		const other = structuredClone(doc);
+		Object.values(other.forms)[0].dataRootName = "round";
+		const switched = await servedSource(other);
+		const differences = identityDifferences({
+			source: switched,
+			emission: first.emission,
+			draft: first.outcome.draft,
+			attachmentTarget: TARGET,
+		}).differences;
+		expect(differences.map((one) => one.signature)).toContain(
+			"identity/form/dataRootName",
+		);
+	});
+
 	it("finds none between a reading's source and Nova's emission of its document", async () => {
 		expect(await signatures(undefined)).toEqual([]);
 	});
@@ -160,7 +253,7 @@ describe("identityDifferences", () => {
 		expect(await signatures(edit)).toEqual(["identity/leaf/appearance"]);
 	});
 
-	it("never takes one of Nova's four appearances as inert", async () => {
+	it("keeps authored presentations even where a reading calls one inert", async () => {
 		expect(
 			await signatures(undefined, ["note", "sig", "grp", "phone"]),
 		).toEqual([
@@ -169,6 +262,24 @@ describe("identityDifferences", () => {
 			"identity/appearance/inert-held",
 			"identity/appearance/inert-held",
 		]);
+	});
+
+	it("protects the active widget on each platform while accepting an equivalent spelling or an inert repeat style", async () => {
+		const changedWidget = await signatures(
+			appearanceAt("/data/local_day", "ethiopian"),
+		);
+		expect(changedWidget).toContain("identity/leaf/appearance");
+		expect(
+			await signatures(appearanceAt("/data/local_day", "2-per-row ethiopian")),
+		).toEqual([]);
+		expect(await signatures(undefined, ["masked"])).toContain(
+			"identity/appearance/inert-held",
+		);
+		expect(
+			await signatures(appearanceAt("/data/directions", "2-per-row-repeat"), [
+				"directions",
+			]),
+		).toEqual([]);
 	});
 
 	it("takes numeric on a decimal input as inert", async () => {
@@ -598,7 +709,7 @@ describe("identityDifferences", () => {
 	});
 });
 
-describe("Nova's four appearances", () => {
+describe("protected worker presentations", () => {
 	it("are exactly what the emitter writes", {
 		timeout: 120_000,
 	}, async () => {

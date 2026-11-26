@@ -120,13 +120,34 @@ export interface PreviewPlatformRules {
 	 *  gravity draws at the top, so `top` and `bottom` both draw there
 	 *  (`proof/android/test_case_lists.py` reads each cell's gravity). */
 	readonly tileVerticalAlign: "as-authored" | "middle-only";
+	/** Formplayer reads a form's Web Apps behavior texts by presence
+	 *  (`FormSession.setAutoSubmitFlag`, `setSuppressAutosyncFlag`,
+	 *  `setSkipValidation`, `setVolatilityIndicators`): a form submits as soon
+	 *  as it opens, skips its sync, or rechecks only changed answers. CommCare
+	 *  Android reads none of these texts. */
+	readonly webAppsFormPragmas: boolean;
+	/** Formplayer's case-list field exposes the link target. CommCare Android
+	 *  shows the stored media path as plain text. */
+	readonly caseListIconActions: boolean;
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
 	readonly linkColumnInList: "link" | "raw-text";
+	/** A Details tile's layout. Web Apps draws the long detail's own grid
+	 *  (`formplayer` `EntityDetailResponse` carries each field's style, and
+	 *  `case-layout.js` reads its grid area); Android draws a long detail's
+	 *  fields as ordinary labeled rows (`views/EntityDetailView.java`). */
+	readonly detailTile: "laid-out" | "rows";
+	/** A Search Only field placed on a custom tile. Web Apps hides a field
+	 *  whose header width is zero; Android draws every placed cell of its
+	 *  list tile unless the cell's coordinate is negative
+	 *  (`EntityViewTile.java`). */
+	readonly searchOnlyTileCell: "hidden" | "drawn";
 	/** A search's title, description and field hints (manifest
 	 *  `case-search/title-label-lang-non-empty`, `description-lang-markdown`,
 	 *  `hint-lang`, which Android ignores). */
 	readonly searchScreenText: boolean;
+	readonly searchAddressPicker: boolean;
+	readonly searchFieldGroups: boolean;
 	/** The pinned case tile above the search screen. Formplayer sets it on
 	 *  every response, a search's included
 	 *  (`MenuSessionRunnerService.getNextMenu`, `setPersistentCaseTile`);
@@ -147,9 +168,33 @@ export interface PreviewPlatformRules {
 	/** A Search field's required condition and checks (manifest
 	 *  `case-search/required-test-text`, `validations-0-test-text`). */
 	readonly searchFieldChecks: boolean;
-	/** A hidden Search field with a starting value (manifest
-	 *  `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`). */
-	readonly hiddenSearchFieldWithDefault: "hidden" | "editable";
+	/** A hidden Search field: a hidden value or a field Web Apps does not
+	 *  draw (manifest `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`,
+	 *  `hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
+	 *  `hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
+	 *  `hidden-on-a-prompt-that-carries-an-itemset-input-type-or`). Web Apps
+	 *  hides the prompt's row whole (`query.js`, `d-none`); Android reads no
+	 *  `hidden` and draws it as any field, where the worker can change it. */
+	readonly hiddenSearchField: "hidden" | "editable";
+	/** "Include results where … is blank" under a Search field that allows it
+	 *  (manifest `case-search/allow-blank-value`): Web Apps draws the box from
+	 *  Formplayer's `allow_blank_value` (`query/item.html`); Android reads no
+	 *  such setting and shows the field alone. */
+	readonly searchForBlank: boolean;
+	/** HQ's Web Apps model indexes labels by value; Android enumerates Core's itemset rows. */
+	readonly searchChoiceOrder: "values" | "rows";
+	/** A date-range Search field's starting value. Web Apps' range picker
+	 *  reads it by the client's strict Moment formats and shows each end in the
+	 *  browser's calendar (`cloudcare/js/utils.js`, `menus/views/query.js`;
+	 *  `searchRangeAnswer.ts::webSearchRangeDraft`), refusing the screen where
+	 *  it cannot; Android's prompt shows the stored text
+	 *  (`androidStartingRangeLabel`). */
+	readonly searchRangeStartingValue: "date-picker" | "text";
+	/** A day the worker picks for a date-range end. Android's Material range
+	 *  picker supplies UTC midnight, which its callback prints in the worker's
+	 *  zone (`androidSelectedRangeDay`); Web Apps' picker gives the calendar
+	 *  day itself. */
+	readonly searchRangeChosenDay: "calendar-day" | "utc-midnight";
 	/** A barcode Search field (manifest `case-search/appearance-barcode-scan`:
 	 *  a plain text box in Web Apps). */
 	readonly barcodeSearchField: "text" | "scan-or-text";
@@ -164,6 +209,13 @@ export interface PreviewPlatformRules {
 	 *  error line alone (`activities/QueryRequestUiController.kt`, layout
 	 *  `http_request_layout.xml`), and `QueryRequestActivity` clears no field. */
 	readonly searchClear: boolean;
+	/** The narrowest window, in CSS pixels, at which Clear also runs the
+	 *  search where the menu asks for it (`caseSearchConfig.searchOnClear`),
+	 *  or `undefined` where Clear never searches. Web Apps'
+	 *  `menus/views/query.js::clearAction` searches only while the screen is
+	 *  not small (`utils.js::smallScreenIsEnabled`, `SMALL_SCREEN_WIDTH_PX`
+	 *  992); Android has no Clear. */
+	readonly searchOnClearMinWidth: number | undefined;
 	/** Whether the case list's Search action launches on its own: search first
 	 *  and skip to results. Core's cli `EntityScreen.evaluateAutoLaunch`, which
 	 *  Formplayer runs; commcare-android holds no reader of `auto_launch`, so it
@@ -219,6 +271,8 @@ export interface PreviewPlatformRules {
 	/** Web Apps `question.html` renders the hint through `markdown.render`;
 	 *  Android `QuestionWidget::addHintText` as plain text. */
 	readonly hint: "markdown" | "plain";
+	/** HQ submits OK for info questions. Android reads a checkbox on an interactive message. */
+	readonly messageConfirmation: "automatic" | "checkbox";
 	/** Label markdown. Both runtimes format the label Core hands them with
 	 *  its values already substituted (`FormEntryCaption.getSpecialFormQuestionText`
 	 *  → `FormDef.fillTemplateString`), so a value's own formatting shows.
@@ -232,6 +286,8 @@ export interface PreviewPlatformRules {
 	 *  is inside the label and describes one at any other address, so label
 	 *  text never makes the builder's page request anything
 	 *  (`lib/markdown.tsx::labelMarkdownOptions`). */
+	readonly readsCaseImageDescriptions: boolean;
+	readonly caseLocationDetail: "text" | "show-address";
 	readonly labelMarkdown: {
 		readonly singleNewline: "break" | "space";
 		readonly html: "literal" | "dropped";
@@ -255,17 +311,124 @@ export interface PreviewPlatformRules {
 	/** Android `views/QuestionsView.java::deriveGroupText`: one header line
 	 *  per screen, the enclosing groups joined with ` > `. */
 	readonly groupLabel: "card" | "screen-header";
+	/** A text, password or barcode question that asks for address search.
+	 *  Web Apps builds its geocoder entry (`form_entry/entries.js::getEntry`,
+	 *  `AddressEntry`), under the project space's gates; Android reads the
+	 *  question as ordinary text (`WidgetFactory.buildBasicWidget`). */
+	readonly addressQuestion: "search" | "text";
+	/** A text or number question under a compact group. Android draws a
+	 *  compact widget, its label's one line beside the answer box and no
+	 *  media, hint or help (`QuestionWidget`, `WidgetFactory.buildBasicWidget`,
+	 *  `lib/preview/androidCompact.ts`); Web Apps reads no compact setting. */
+	readonly compactGroup: "ignored" | "beside-label";
+	/** A hint placed in the entry box or hidden. Web Apps reads
+	 *  `hint-as-placeholder` (`form_entry/entries.js::EntrySingleAnswer`, the
+	 *  placeholder; `form_ui.js::Question`, the hint's line); Android's
+	 *  `views/widgets/QuestionWidget.java::addHintText` reads no appearance, so
+	 *  the hint stays below the question. */
+	readonly hintPlacement: "as-authored" | "below-question";
+	/** How a search box matches what the worker types. Web Apps
+	 *  `form_entry/entries.js::ComboboxEntry` (the trimmed text, a whole-word
+	 *  or close-spelling match); Android `views/widgets/ComboboxWidget.java`
+	 *  over Core's `StandardFilterRule`, `MultiWordFilterRule` and
+	 *  `FuzzyMatchFilterRule`, whose `views/Combobox.java` puts the cursor
+	 *  back on an edit that leaves no choice matching. */
+	readonly choiceSearch: "combobox" | "filter-rule";
+	/** A date question with no answer. Web Apps' `form_entry/entries.js::DateEntry`
+	 *  can be emptied and shows nothing until a day is chosen; Android's
+	 *  `views/widgets/DateWidget.java` builds its picker on the answer or the
+	 *  device's day, which it saves as the worker leaves, and has no clear
+	 *  (only `gregorian-with-clear` and the Ethiopian and Nepali widgets can be
+	 *  empty, `workerCalendar.ts::androidCalendarCanBeEmpty`). */
+	readonly datePicker: "clearable" | "shows-a-day";
+	/** Which calendars a date question draws. Web Apps builds
+	 *  `EthiopianDateEntry` for `ethiopian` alone (`form_entry/entries.js::getEntry`);
+	 *  Android's `views/widgets/WidgetFactory.java` builds the Ethiopian,
+	 *  Nepali and Gregorian-with-clear widgets, the Ethiopian one only for an
+	 *  appearance of that word alone. */
+	readonly alternateCalendar: "ethiopian" | "authored";
+	/** A time question's clock. Web Apps reads `12-hour`
+	 *  (`form_entry/entries.js::DateTimeEntryBase`, `TIME_12_HOUR`) and is a
+	 *  24-hour clock otherwise; Android's `views/widgets/TimeWidget.java`
+	 *  follows the phone's settings, which Preview draws as a 12-hour clock. */
+	readonly timeClock: "as-authored" | "device";
+	/** A group's collapse and border. Web Apps `form_entry/form_ui.js::Group`
+	 *  (`collapsible`, `groupBorder`); Android draws a group as its screen's
+	 *  header line (`views/QuestionsView.java::deriveGroupText`). */
+	readonly groupFrame: "as-authored" | "plain";
+	/** Questions and repeat entries sharing a row. Web Apps
+	 *  `form_entry/form_ui.js` (`PER_ROW_PATTERN`, `PER_ROW_REPEAT_PATTERN`);
+	 *  commcare-android reads neither appearance. */
+	readonly questionsPerRow: boolean;
+	/** A question's text alignment. Web Apps
+	 *  `cloudcare/partials/form_entry/question.html` (`text-align-center`,
+	 *  `text-align-right`); commcare-android reads neither. */
+	readonly questionAlignment: boolean;
+	/** A short or medium entry box. Web Apps `form_entry/form_ui.js::Question`
+	 *  (`SHORT`, `MEDIUM`); Android keeps the box's width and reads `short`
+	 *  only for the keyboard action (`keyboardAction`). */
+	readonly inputWidth: boolean;
+	/** A password with a number keypad. Web Apps builds a `PhoneEntry` for the
+	 *  numeric appearance, a plain text box (`form_entry/entries.js::getEntry`;
+	 *  `FreeTextEntry` alone masks a secret); Android's
+	 *  `views/widgets/StringNumberWidget.java` keeps the answer masked. */
+	readonly secretKeypad: "visible" | "masked";
+	/** Nova's "Sign on Web Apps" setting, offered only beside another display
+	 *  setting (`lib/domain/questionDisplay.ts::canOfferDisplaySetting`). Web
+	 *  Apps builds a `SignatureEntry` where the appearance holds `signature`
+	 *  (`form_entry/entries.js::getEntry`); Android's
+	 *  `views/widgets/WidgetFactory.java` builds a `SignatureWidget` only for
+	 *  an appearance of that word alone. */
+	readonly combinedSignature: boolean;
+	/** A label shown as a colored banner above the screen. Android
+	 *  `activities/components/FormNavigationUI.java::updateFloatingLabels`;
+	 *  Web Apps draws the label in its place (`form_entry/entries.js::InfoEntry`). */
+	readonly questionBanner: boolean;
+	/** A label's text selection. Android's `views/widgets/TriggerWidget.java`
+	 *  makes the text selectable for `selectable` alone and not otherwise;
+	 *  Web Apps leaves selection to the browser. */
+	readonly labelTextSelection: "browser" | "by-setting";
+	/** The keyboard's Next or Done action on an entry box. Android
+	 *  `views/widgets/StringWidget.java`, `IntegerWidget.java`, `DecimalWidget.java`
+	 *  (`setImeOptions`), marked by `views/QuestionsView.java`; Web Apps sets
+	 *  none. */
+	readonly keyboardAction: boolean;
+	/** Questions that share their answers over a channel. Web Apps
+	 *  `form_entry/entries.js::getEntry` reads `broadcast-*` and `receive-*`;
+	 *  commcare-android reads neither, so each question keeps its own answer. */
+	readonly questionChannels: boolean;
 	/** Android `activities/FormEntryActivityUIController.java::createRepeatDialog`. */
 	readonly repeatAdd: "buttons" | "prompt";
 	/** Choice images, audio and video (manifest `questions/choice-image`,
 	 *  `choice-audio-video`; Android `views/media/MediaLayout.java`). */
 	readonly choiceMedia: boolean;
+	/** A label's inline video (`label_media.videoInline`, its `video-inline`
+	 *  form). Android plays it inside the question, in the label's media pane
+	 *  ahead of a QR code and the label image
+	 *  (`views/media/MediaLayout.java::setAVT`, `setupInlineVideoView`);
+	 *  Formplayer sends no such form (`api/json/PromptToJson.java`), so Web
+	 *  Apps shows none. Neither shows one on a question shown compact. */
+	readonly labelInlineVideo: "played" | "ignored";
+	/** A label's QR code (`qr_code`, its `qrcode` form). Android draws it in
+	 *  the label's media pane in place of the label image
+	 *  (`views/media/MediaLayout.java::setAVT`, `setupQRView`); Formplayer
+	 *  sends no such form (`api/json/PromptToJson.java`), so Web Apps draws
+	 *  none. Neither draws one on a question shown compact. */
+	readonly labelQrCode: "drawn" | "ignored";
+	/** A label's spoken text (`spoken_text`, its `tts` form). Android shows a
+	 *  speaker button that reads it aloud where the label has no audio
+	 *  (`MediaLayout.java::buildComprehensiveLayout`, `showTtsButton`);
+	 *  Formplayer sends no such form, so Web Apps shows none. */
+	readonly labelSpeech: "button" | "ignored";
 	/** Web Apps `form_entry/entries.js::GeoPointEntry`; Android
 	 *  `views/widgets/GeoPointWidget.java`, `activities/GeoPointActivity.java`. */
 	readonly locationQuestion: "map" | "record-location";
 	/** Web Apps `entries.js::getEntry` (a barcode question falls through to
 	 *  `FreeTextEntry`); manifest `questions/barcode-barcode`. */
 	readonly barcodeQuestion: "text" | "scan-or-text";
+	/** Android WidgetFactory opens an intent in place of the input. Web Apps
+	 *  keeps the ordinary auxiliary input and cannot open the owner. */
+	readonly androidAppAnswers: boolean;
 	/** A Text question with a number keypad. Web Apps `form_entry/entries.js::PhoneEntry` stores an
 	 *  answer only where it matches its pattern; Android `views/widgets/StringNumberWidget.java` limits
 	 *  the keys and stores what its key listener leaves in the box: a + or - only as its first
@@ -277,6 +440,22 @@ export interface PreviewPlatformRules {
 	readonly capture: "attach" | "device";
 	/** Android's last screen reads `form.entry.finish.button`. */
 	readonly submitLabel: "submit" | "finish";
+	/** A case list's own empty-list text and Continue label, the detail's
+	 *  `no_items_text` and `select_text`. Formplayer sends both
+	 *  (`beans/menus/EntityListResponse.java`, `setNoItemsText`,
+	 *  `setSelectText`) and Web Apps draws the empty text on an empty list and
+	 *  the select text on its several-case Continue only
+	 *  (`cloudcare/js/formplayer/menus/views.js`,
+	 *  `partials/case_list/multi_select_continue_button.html`);
+	 *  commcare-android holds no reader of `Detail.getNoItemsText` or
+	 *  `getSelectText`, so its list keeps its own wording. */
+	readonly caseListDetailWording: boolean;
+	/** A form that requests the device location when it opens. Android
+	 *  registers the `pollsensor` action (`engine/extensions/PollSensorExtensionParser.java`,
+	 *  `android/javarosa/PollSensorAction.java`) and sends the fix it gets;
+	 *  Formplayer registers no reader of it, so Web Apps sends the form with
+	 *  no location. */
+	readonly automaticLocation: boolean;
 	/** Manifest `application-and-settings/logo-refs-hq-logo-web-apps`
 	 *  (Android ignores it). */
 	readonly logo: boolean;
@@ -381,6 +560,32 @@ export interface PreviewPlatformRules {
 		readonly back: "address" | "new-list";
 		readonly search: "keeps-sort" | "new-list";
 	};
+	/** A menu or form badge's evaluated text. Web Apps shows the text
+	 *  Formplayer returns as the command's `badgeText` whole, in list and grid
+	 *  styles (`menus/views.js`); Android's `MenuAdapter.updateBadgeView`
+	 *  hides an empty or exactly `0` badge and shortens one longer than three
+	 *  UTF-16 units (`shortened`): `999+` where `Integer.parseInt` reads it,
+	 *  else its first three units and `..`. */
+	readonly menuBadge: "whole" | "shortened";
+	/** A grid tile's spoken label. Web Apps draws a grid with its own
+	 *  template, which has no audio control (`menus/views.js` chooses the grid
+	 *  template before the audio one); Android plays it when the worker holds
+	 *  the tile (`MenuGrid.onItemLongClick` prepares and starts a
+	 *  `MediaPlayer`) and, returning false, leaves the tap that opens the
+	 *  tile to the release. A list row offers its audio on both. */
+	readonly gridMenuAudio: "none" | "hold";
+	/**
+	 * The case list's map. Web Apps offers it only where the project's
+	 * CASE_LIST_MAP switch is on and the list has an address, and marks each
+	 * case at the first address column's value alone
+	 * (`cloudcare/js/formplayer/menus/views.js`, `mapAvailable` and
+	 * `addressIndex`). Android offers it whenever the list has an address,
+	 * marks each case at its first address that parses, and draws the
+	 * boundary and point layers with their colors
+	 * (`gis/EntityMapUtils.kt::getEntityLocation`, `getEntityBoundary`,
+	 * `getEntityPoints`).
+	 */
+	readonly caseMap: "switched-first-address" | "address-and-layers";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -402,15 +607,26 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileGrouping: "grouped",
 		tileBorderShading: true,
 		tileVerticalAlign: "as-authored",
+		webAppsFormPragmas: true,
+		caseListIconActions: true,
 		linkColumnInList: "link",
+		detailTile: "laid-out",
+		searchOnlyTileCell: "hidden",
 		searchScreenText: true,
+		searchAddressPicker: true,
+		searchFieldGroups: true,
 		searchScreenCaseTile: true,
 		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
-		hiddenSearchFieldWithDefault: "hidden",
+		hiddenSearchField: "hidden",
+		searchForBlank: true,
+		searchChoiceOrder: "values",
+		searchRangeStartingValue: "date-picker",
+		searchRangeChosenDay: "calendar-day",
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
 		searchClear: true,
+		searchOnClearMinWidth: 992,
 		searchActionAutoLaunch: true,
 		searchReplay: "latest-answers",
 		poppedEntrySelections: "address",
@@ -421,6 +637,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "label-icon",
 		helpMediaWithoutText: "hidden",
 		hint: "markdown",
+		readsCaseImageDescriptions: true,
+		caseLocationDetail: "text",
+		messageConfirmation: "automatic",
 		labelMarkdown: Object.freeze({
 			singleNewline: "break",
 			html: "literal",
@@ -429,13 +648,36 @@ export const PREVIEW_PLATFORM_RULES = {
 		plainChoice: "markdown",
 		plainHelp: "markdown",
 		groupLabel: "card",
+		addressQuestion: "search",
+		compactGroup: "ignored",
+		hintPlacement: "as-authored",
+		choiceSearch: "combobox",
+		datePicker: "clearable",
+		alternateCalendar: "ethiopian",
+		timeClock: "as-authored",
+		groupFrame: "as-authored",
+		questionsPerRow: true,
+		questionAlignment: true,
+		inputWidth: true,
+		secretKeypad: "visible",
+		combinedSignature: true,
+		questionBanner: false,
+		labelTextSelection: "browser",
+		keyboardAction: false,
+		questionChannels: true,
 		repeatAdd: "buttons",
 		choiceMedia: false,
+		labelInlineVideo: "ignored",
+		labelQrCode: "ignored",
+		labelSpeech: "ignored",
 		locationQuestion: "map",
 		barcodeQuestion: "text",
+		androidAppAnswers: false,
 		numberKeypad: "pattern",
 		capture: "attach",
 		submitLabel: "submit",
+		caseListDetailWording: true,
+		automaticLocation: false,
 		logo: true,
 		caseListActionMedia: "text-only",
 		listFilter: Object.freeze({
@@ -452,6 +694,9 @@ export const PREVIEW_PLATFORM_RULES = {
 			marks: "pick-only",
 		}),
 		caseListReturn: Object.freeze({ back: "address", search: "keeps-sort" }),
+		menuBadge: "whole",
+		gridMenuAudio: "none",
+		caseMap: "switched-first-address",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -469,15 +714,26 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileGrouping: "flat",
 		tileBorderShading: false,
 		tileVerticalAlign: "middle-only",
+		webAppsFormPragmas: false,
+		caseListIconActions: false,
 		linkColumnInList: "raw-text",
+		detailTile: "rows",
+		searchOnlyTileCell: "drawn",
 		searchScreenText: false,
+		searchAddressPicker: false,
+		searchFieldGroups: false,
 		searchScreenCaseTile: false,
 		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
-		hiddenSearchFieldWithDefault: "editable",
+		hiddenSearchField: "editable",
+		searchForBlank: false,
+		searchChoiceOrder: "rows",
+		searchRangeStartingValue: "text",
+		searchRangeChosenDay: "utc-midnight",
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
 		searchClear: false,
+		searchOnClearMinWidth: undefined,
 		searchActionAutoLaunch: false,
 		searchReplay: "own-answers",
 		poppedEntrySelections: "session",
@@ -488,6 +744,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "info-button",
 		helpMediaWithoutText: "shown",
 		hint: "plain",
+		readsCaseImageDescriptions: false,
+		caseLocationDetail: "show-address",
+		messageConfirmation: "checkbox",
 		labelMarkdown: Object.freeze({
 			singleNewline: "space",
 			html: "dropped",
@@ -496,13 +755,36 @@ export const PREVIEW_PLATFORM_RULES = {
 		plainChoice: "literal",
 		plainHelp: "literal",
 		groupLabel: "screen-header",
+		addressQuestion: "text",
+		compactGroup: "beside-label",
+		hintPlacement: "below-question",
+		choiceSearch: "filter-rule",
+		datePicker: "shows-a-day",
+		alternateCalendar: "authored",
+		timeClock: "device",
+		groupFrame: "plain",
+		questionsPerRow: false,
+		questionAlignment: false,
+		inputWidth: false,
+		secretKeypad: "masked",
+		combinedSignature: false,
+		questionBanner: true,
+		labelTextSelection: "by-setting",
+		keyboardAction: true,
+		questionChannels: false,
 		repeatAdd: "prompt",
 		choiceMedia: true,
+		labelInlineVideo: "played",
+		labelQrCode: "drawn",
+		labelSpeech: "button",
 		locationQuestion: "record-location",
 		barcodeQuestion: "scan-or-text",
+		androidAppAnswers: true,
 		numberKeypad: "keys",
 		capture: "device",
 		submitLabel: "finish",
+		caseListDetailWording: false,
+		automaticLocation: true,
 		logo: false,
 		caseListActionMedia: "shown",
 		listFilter: Object.freeze({
@@ -519,6 +801,9 @@ export const PREVIEW_PLATFORM_RULES = {
 			marks: "list-order-and-pick",
 		}),
 		caseListReturn: Object.freeze({ back: "new-list", search: "new-list" }),
+		menuBadge: "shortened",
+		gridMenuAudio: "hold",
+		caseMap: "address-and-layers",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 

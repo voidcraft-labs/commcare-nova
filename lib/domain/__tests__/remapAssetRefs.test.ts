@@ -43,14 +43,14 @@ function admittedPersisted(input: unknown) {
 
 /** A blueprint with a distinct asset id in EVERY slot `walkAssetRefs` covers:
  *  app logo; a bare case list module's icon/audioLabel + its case list menu
- *  entry's icon/audioLabel + an image-map column's mapping; a regular module's
+ *  entry's icon/audioLabel + its lookup button icon + an image-map column's mapping; a regular module's
  *  icon/audioLabel; a form's icon/audioLabel; all four field media bundles (label has image/audio/video); and select-option media. Plus a built-in icon ref to
  *  prove pass-through. */
 function fixtureDoc() {
 	return admittedPersisted({
 		appId: "app-1",
 		appName: "Fixture",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [{ name: "patient", properties: [] }],
 		logo: media("logo"),
@@ -70,6 +70,13 @@ function fixtureDoc() {
 				icon: media("mod-a-icon"),
 				audioLabel: media("mod-a-audio"),
 				caseListConfig: {
+					deviceLookup: {
+						action: "org.example.LOOKUP",
+						label: "Find a patient",
+						icon: media("lookup-icon"),
+						extras: [{ name: "mode", value: "patient" }],
+						responses: ["first"],
+					},
 					columns: [
 						{
 							uuid: COLUMN,
@@ -156,6 +163,7 @@ describe("remapAssetRefs", () => {
 			"mod-a-audio",
 			"cl-icon",
 			"cl-audio",
+			"lookup-icon",
 			"imgmap-1",
 			"imgmap-2",
 			"mod-b-audio",
@@ -222,7 +230,7 @@ function docWithCaseListEntryBesideForm() {
 	return admittedPersisted({
 		appId: "app-2",
 		appName: "Beside",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [{ name: "patient", properties: [] }],
 		moduleOrder: [moduleUuid],
@@ -274,7 +282,7 @@ function docWithDormantImageMap() {
 	return admittedPersisted({
 		appId: "app-3",
 		appName: "Dormant image",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [{ name: "patient", properties: [] }],
 		moduleOrder: [moduleUuid],

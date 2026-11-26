@@ -72,7 +72,6 @@
 
 import { commCareLocalization } from "@/lib/commcare/localization";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -82,7 +81,6 @@ import {
 	type Field,
 	fieldKindCarriesValidation,
 	formCaseWriteViews,
-	formConnectIds,
 	isCaptureField,
 	isContainer,
 	makeTranslationUnitId,
@@ -97,7 +95,7 @@ import {
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { writesMoment } from "@/lib/domain/fieldValueType";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
 import { planFormCaseWire } from "../casePlacementPlan";
@@ -286,10 +284,15 @@ export interface GeneratedNodePlan {
 	readonly nodes: readonly GeneratedNode[];
 }
 
-/** A write to `external_id`, the one fixed text column an operation's
- * writes reach: its value is normalized and held by the text guard. */
+/** A write to a fixed text column an operation's writes reach: `external_id`,
+ * `location_id`, and `hq_user_id`, which HQ copies into the external id. Its
+ * value is normalized and held by the text guard. */
 export function writesFixedTextColumn(write: { property: string }): boolean {
-	return write.property === "external_id";
+	return (
+		write.property === "external_id" ||
+		write.property === "location_id" ||
+		write.property === "hq_user_id"
+	);
 }
 
 /**
@@ -520,10 +523,18 @@ function allocateGeneratedNodes(
 			)
 		)
 			return false;
-		if ((field as { validate_msg?: unknown }).validate_msg === undefined)
+		const slot =
+			"extended_validate_msg" in field &&
+			field.extended_validate_msg !== undefined
+				? "extended_validate_msg"
+				: "validate_msg";
+		if (
+			slot === "validate_msg" &&
+			(!("validate_msg" in field) || field.validate_msg === undefined)
+		)
 			return false;
 		localization ??= commCareLocalization(doc);
-		const unitId = makeTranslationUnitId("field", field.uuid, "validate_msg");
+		const unitId = makeTranslationUnitId("field", field.uuid, slot);
 		const active = localization;
 		return constraintMessageNeedsProtection(
 			active.languages.map((language) => active.prose(language, unitId)),
@@ -539,17 +550,19 @@ function allocateGeneratedNodes(
 
 	// Field namespaces: one per container's child element, in field order.
 	const fieldScopes = new Map<string, Namespace>();
+	const positioned = new Map<Uuid, { scope: Namespace; fieldId: string }>();
 	const heldContainerScopes = new Map<string, Uuid | undefined>();
 	const repeatScopes = new Map<Uuid, FormPath>();
 	const walk = (parentUuid: Uuid, parentPath: FormPath, root: boolean) => {
-		const children = orderedFieldUuids(doc, parentUuid).flatMap((uuid) => {
-			const field = doc.fields[uuid];
-			return field === undefined ? [] : [field];
-		});
+		const children = (structure.fieldOrder.get(parentUuid) ?? []).flatMap(
+			(uuid) => {
+				const field = doc.fields[uuid];
+				return field === undefined ? [] : [field];
+			},
+		);
 		const scopeKey: Uuid | undefined = root ? undefined : parentUuid;
 		const scope = new Namespace([
 			...children.map((field) => field.id),
-			...(root ? formConnectIds(doc, formUuid) : []),
 			...held.firstSegments(scopeKey),
 		]);
 		heldContainerScopes.set(parentPath.toXPath(), scopeKey);
@@ -562,6 +575,8 @@ function allocateGeneratedNodes(
 		}
 		for (const field of children) {
 			const path = parentPath.child(field.id);
+			if (field.kind === "case_change")
+				positioned.set(field.operationUuid, { scope, fieldId: field.id });
 			const expression = expressionSlotValue(doc, {
 				entity: "field",
 				uuid: field.uuid,
@@ -589,9 +604,11 @@ function allocateGeneratedNodes(
 					field.uuid,
 					scope.allocate(generatedBaseName("url", field.id)),
 				);
+			const caseTypes = effectiveCaseTypes(doc);
 			if (
-				views.some((view) => !view.link) &&
-				fieldValueType(field, effectiveCaseTypes(doc), views) === "datetime"
+				views.some(
+					(view) => !view.link && writesMoment(field, caseTypes, views, view),
+				)
 			)
 				record(
 					"datetime",
@@ -634,14 +651,17 @@ function allocateGeneratedNodes(
 			if (field.kind === "repeat") repeatScopes.set(field.uuid, childPath);
 		}
 	};
-	walk(formUuid, FormPath.root(), true);
+	walk(formUuid, FormPath.root(form.dataRootName), true);
 
 	// Each scope's containers, after its questions' generated siblings.
 	const containers = new Map<
 		string,
 		{ operations: string; subcases: string; selectedCases: string }
 	>();
-	for (const scopePath of [FormPath.root(), ...repeatScopes.values()]) {
+	for (const scopePath of [
+		FormPath.root(form.dataRootName),
+		...repeatScopes.values(),
+	]) {
 		const scope = fieldScopes.get(scopePath.toXPath()) ?? new Namespace([]);
 		// A held path that passes through a container names that container:
 		// the scope's one group of its kind, which unheld blocks share.
@@ -663,8 +683,8 @@ function allocateGeneratedNodes(
 		const repeat = operation.forEach?.repeat;
 		return (
 			repeat === undefined
-				? FormPath.root()
-				: (repeatScopes.get(repeat) ?? FormPath.root())
+				? FormPath.root(form.dataRootName)
+				: (repeatScopes.get(repeat) ?? FormPath.root(form.dataRootName))
 		).toXPath();
 	};
 	// Every held segment after the first is taken in its scope's operations
@@ -673,7 +693,7 @@ function allocateGeneratedNodes(
 	for (const path of held.paths) {
 		const scopePath =
 			path.repeat === undefined
-				? FormPath.root()
+				? FormPath.root(form.dataRootName)
 				: repeatScopes.get(path.repeat);
 		if (scopePath === undefined) continue;
 		const key = scopePath.toXPath();
@@ -754,15 +774,22 @@ function allocateGeneratedNodes(
 				operation.uuid,
 				allocate(generatedBaseName("condition", operation.id)),
 			);
-		for (const kind of operationGuardKinds(operation))
+		const position = positioned.get(operation.uuid);
+		for (const kind of operationGuardKinds(operation)) {
+			const base = generatedBaseName(
+				"guard",
+				position?.fieldId ?? operation.id,
+				kind,
+			);
 			record(
 				"guard",
 				operation.uuid,
-				allocate(generatedBaseName("guard", operation.id, kind)),
+				position === undefined ? allocate(base) : position.scope.allocate(base),
 				kind,
 			);
+		}
 	}
-	const root = FormPath.root().toXPath();
+	const root = FormPath.root(form.dataRootName).toXPath();
 	const rootOperations = operationNamespace(root);
 	const conditionUpdateSelectedCases = rootOperations.allocate(
 		generatedBaseName("condition", UPDATE_SELECTED_CASES.slice("nova_".length)),

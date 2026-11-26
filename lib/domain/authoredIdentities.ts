@@ -1,5 +1,8 @@
+import { ownedFormSelections } from "@/lib/domain/formEntryCases";
 import type { BlueprintDoc } from "./blueprint";
-import type { Uuid } from "./uuid";
+import { caseMappingRowUuid } from "./caseMappingRows";
+import { projectSearchOf } from "./modules";
+import { asUuid, type Uuid } from "./uuid";
 
 export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"module",
@@ -7,10 +10,21 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"field",
 	"selectOption",
 	"caseListColumn",
+	"caseMappingRow",
+	"caseListSort",
+	"caseDetailTab",
 	"searchInput",
+	"searchInputGroup",
+	"searchFilter",
+	"projectSearch",
+	"projectSearchParameter",
 	"caseOperation",
+	"formSelection",
+	"entryValue",
+	"openingAssignment",
 	"formLink",
 	"entryPoint",
+	"installationProfile",
 	"userProperty",
 	"userType",
 	"persona",
@@ -47,10 +61,27 @@ export interface BlueprintAuthoredIdentity {
 export function authoredBlueprintIdentities(
 	doc: BlueprintDoc,
 ): BlueprintAuthoredIdentity[] {
-	const identities: BlueprintAuthoredIdentity[] = [];
+	const identities: BlueprintAuthoredIdentity[] = Object.keys(
+		doc.appSettings.projectSearches ?? {},
+	).map((key) => ({ uuid: asUuid(key), kind: "projectSearch" }));
+	for (const profile of Object.values(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		identities.push({ uuid: profile.uuid, kind: "installationProfile" });
+	}
 	for (const module of Object.values(doc.modules)) {
 		identities.push({ uuid: module.uuid, kind: "module" });
-		for (const entryPoint of [module.entryPoint, module.caseListEntryPoint])
+		for (const parameter of projectSearchOf(module)?.defaults ?? [])
+			identities.push({
+				uuid: parameter.uuid,
+				kind: "projectSearchParameter",
+				ownerUuid: module.uuid,
+			});
+		for (const entryPoint of [
+			module.entryPoint,
+			module.caseListEntryPoint,
+			...(module.formsFromMenu?.entryPoints ?? []).map((row) => row.entryPoint),
+		])
 			if (entryPoint)
 				identities.push({
 					uuid: entryPoint.uuid,
@@ -63,7 +94,58 @@ export function authoredBlueprintIdentities(
 				kind: "caseListColumn",
 				ownerUuid: module.uuid,
 			});
+			if (column.kind === "calculated") {
+				for (const piece of column.texts ?? [])
+					identities.push({
+						uuid: piece.uuid,
+						kind: "caseMappingRow",
+						ownerUuid: column.uuid,
+					});
+			}
+			if (column.kind === "image-map" || column.kind === "id-mapping") {
+				/* A row with no stored identity is known by its column and
+				 * comparison; two such rows of one comparison are the column's
+				 * duplicate-rule finding, not a second identity. */
+				const derived = new Set<string>();
+				for (const row of column.mapping) {
+					const uuid = caseMappingRowUuid(column.uuid, row);
+					if (row.uuid === undefined) {
+						if (derived.has(uuid)) continue;
+						derived.add(uuid);
+					}
+					identities.push({
+						uuid,
+						kind: "caseMappingRow",
+						ownerUuid: column.uuid,
+					});
+				}
+			}
 		}
+		for (const rule of module.caseListConfig?.calculatedSorts ?? [])
+			identities.push({
+				uuid: rule.uuid,
+				kind: "caseListSort",
+				ownerUuid: module.uuid,
+			});
+		for (const tab of module.caseListConfig?.detailTabs ?? []) {
+			identities.push({
+				uuid: tab.uuid,
+				kind: "caseDetailTab",
+				ownerUuid: module.uuid,
+			});
+		}
+		for (const filter of module.caseListConfig?.searchFilters ?? [])
+			identities.push({
+				uuid: filter.uuid,
+				kind: "searchFilter",
+				ownerUuid: module.uuid,
+			});
+		for (const group of module.caseListConfig?.searchInputGroups ?? [])
+			identities.push({
+				uuid: group.uuid,
+				kind: "searchInputGroup",
+				ownerUuid: module.uuid,
+			});
 		for (const input of module.caseListConfig?.searchInputs ?? []) {
 			identities.push({
 				uuid: input.uuid,
@@ -78,6 +160,24 @@ export function authoredBlueprintIdentities(
 			identities.push({
 				uuid: form.entryPoint.uuid,
 				kind: "entryPoint",
+				ownerUuid: form.uuid,
+			});
+		for (const assignment of form.openingAssignments ?? [])
+			identities.push({
+				uuid: assignment.uuid,
+				kind: "openingAssignment",
+				ownerUuid: form.uuid,
+			});
+		for (const selection of ownedFormSelections(form))
+			identities.push({
+				uuid: selection.uuid,
+				kind: "formSelection",
+				ownerUuid: form.uuid,
+			});
+		for (const value of form.computedDatums ?? [])
+			identities.push({
+				uuid: value.uuid,
+				kind: "entryValue",
 				ownerUuid: form.uuid,
 			});
 		for (const operation of form.caseOperations ?? []) {

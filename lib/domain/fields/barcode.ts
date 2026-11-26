@@ -9,6 +9,8 @@
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
+import { androidAppQuestionSchema } from "./androidApp";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -17,8 +19,17 @@ import {
 
 export const barcodeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("barcode"),
+	keypad: z.literal("numbers").optional(),
+	inputWidth: displaySchemas.inputWidth.optional(),
+	addressLookup: displaySchemas.addressLookup.optional(),
+	sendTopics: displaySchemas.sendTopics.optional(),
+	receiveFrom: displaySchemas.receiveFrom.optional(),
+	scanOnOpen: displaySchemas.scanOnOpen.optional(),
+	canEditScan: displaySchemas.canEditScan.optional(),
+	androidApp: androidAppQuestionSchema.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
+	extended_validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),
 });
 

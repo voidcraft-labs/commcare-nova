@@ -125,6 +125,7 @@ import { createHash } from "node:crypto";
 import AdmZip from "adm-zip";
 import { type AnyNode, type Element, isTag } from "domhandler";
 import { beforeAll, describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { HqApplication } from "@/lib/commcare";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -181,7 +182,13 @@ import {
 	publishFindings,
 } from "../editBatches";
 import { docAfter, uuidTokensOf } from "../editContext";
-import { batchFootprint, type WireModule, wireLayout } from "../footprint";
+import { EDIT_KIND_GENERATORS, type GenContext } from "../editKinds";
+import {
+	batchFootprint,
+	type WireModule,
+	wireLanguages,
+	wireLayout,
+} from "../footprint";
 import { producerDocuments } from "../producers";
 import { workforceDocuments } from "../workforce";
 
@@ -763,6 +770,13 @@ describe("the footprint's derivations", () => {
 	const renameFlag: Mutation[] = [
 		{ kind: "updateUserProperty", uuid: flag, patch: { slug: "flag_renamed" } },
 	];
+	/** A condition on the worker's id: it reads the session, as `readsFlag` does,
+	 *  without the flag's slug. */
+	const readsWorker = {
+		kind: "eq",
+		left: { kind: "term", term: { kind: "session-context", field: "userid" } },
+		right: { kind: "term", term: { kind: "literal", value: "w" } },
+	} as const;
 	/** A condition that reads nothing at run time: it reaches no instance. */
 	const literalOnly = {
 		kind: "eq",
@@ -902,7 +916,10 @@ describe("the footprint's derivations", () => {
 	const setFilter =
 		(
 			module: string,
-			filter: typeof readsFlag | ReturnType<typeof literalFilter>,
+			filter:
+				| typeof readsFlag
+				| typeof readsWorker
+				| ReturnType<typeof literalFilter>,
 		) =>
 		(doc: BlueprintDoc): Mutation[] => [
 			{
@@ -1654,13 +1671,20 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Visits"),
 		},
 		// The instances the module's case-loading entries declare.
+		// A search button condition reads only what every entry showing the list
+		// already loads (`suite/case-search/buttonCondition.ts`: HQ's build never
+		// declares an action's `relevant`), so it adds no instance to an entry.
 		{
-			name: "a search button condition that reads the worker reaches its module's case-loading forms",
+			name: "a search button condition that reads the worker reaches none of its module's forms where the list's filter reads the worker",
 			document: "tile",
-			setup: (doc) => [addFlag, ...enableSearch("Visits")(doc)],
+			setup: (doc) => [
+				addFlag,
+				...enableSearch("Visits")(doc),
+				...setFilter("Visits", readsFlag)(doc),
+			],
 			batch: searchButton("Visits", readsFlag),
-			reaches: (doc) => formOfType(doc, "Visits", "followup"),
-			leaves: (doc) => formOfType(doc, "Visits", "registration"),
+			reaches: () => [],
+			leaves: (doc) => formsOf(doc, "Visits"),
 		},
 		{
 			name: "a search button condition that reads nothing reaches none of its module's forms",
@@ -1670,9 +1694,13 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
-			name: "a worker property's slug reaches none of the forms of a module whose search button condition reads it",
+			name: "a worker property's slug reaches none of the forms of a module whose search button condition reads it over a list that loads the session",
 			document: "search-remote",
-			setup: (doc) => [addFlag, ...searchButton("Followup", readsFlag)(doc)],
+			setup: (doc) => [
+				addFlag,
+				...setFilter("Followup", readsWorker)(doc),
+				...searchButton("Followup", readsFlag)(doc),
+			],
 			batch: () => renameFlag,
 			reaches: () => [],
 			leaves: (doc) => formsOf(doc, "Followup"),
@@ -2077,5 +2105,36 @@ describe("the footprint's derivations", () => {
 			expect(diff.app).toBe(derivation.app);
 			expect(footprint.app).toBe(derivation.app);
 		}
+	});
+});
+
+describe("a recoded language", () => {
+	/* A language's code changes only where HQ's Languages page renamed it, and
+	 * Nova brings that in. The corpus's recode is that one: a spelling a
+	 * person can give there, never a code minted as if the language's own were
+	 * someone else's (`eng-`), and the identity check pairs the language by
+	 * its tag through the batch's footprint. */
+	const before = buildDoc({ appName: "Visits" });
+	const plain = (doc: BlueprintDoc) => ({ doc }) as unknown as GenContext;
+
+	it("takes another spelling HQ accepts, and the footprint holds the language and no other", () => {
+		const [candidate] = EDIT_KIND_GENERATORS.rebindLanguageCodes(plain(before));
+		if (candidate === undefined || !("mutations" in candidate))
+			throw new Error("The recode drew no batch for an English app.");
+		expect(candidate.mutations).toEqual([
+			{
+				kind: "rebindLanguageCodes",
+				changes: [{ language: "eng", from: "en", to: "eng" }],
+			},
+		]);
+		const after = docAfter(before, candidate.mutations);
+		expect(wireLanguages(after)).toEqual([{ tag: "eng", code: "eng" }]);
+		expect(
+			batchFootprint(before, after, candidate.mutations).entities,
+		).toContain("eng");
+		const renamed: Mutation[] = [{ kind: "setAppName", name: "Clinic" }];
+		expect(
+			batchFootprint(before, docAfter(before, renamed), renamed).entities,
+		).not.toContain("eng");
 	});
 });

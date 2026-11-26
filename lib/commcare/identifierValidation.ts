@@ -16,9 +16,9 @@ export function validateCaseType(ct: string): string {
 }
 
 /** Validate an XForm data path (e.g. /data/name). Throws on invalid. */
-export function validateXFormPath(p: string): string {
+export function validateXFormPath(p: string, rootName = "data"): string {
 	try {
-		const path = FormPath.parse(p);
+		const path = FormPath.parse(p, rootName);
 		if (path.segments().length === 1 || path.endsInAttribute()) {
 			throw new Error("An answer path must name a non-root element");
 		}

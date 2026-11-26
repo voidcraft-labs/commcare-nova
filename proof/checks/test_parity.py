@@ -9,7 +9,12 @@ record that names a key is a use the lane extracted there. The plausible
 failures: a value one classifier holds and the other refuses, a key the reader
 claims at another place than its value sits (the two place vocabularies
 drifted), and a container the reader claims and never reads inside. What the
-lane does not decide is counted by key in the evidence (``undecided``). No
+lane does not decide is counted by key in the evidence (``undecided``). An
+appearance attribute is judged once, on the inventory row the lane's own
+classifier puts its value in (``proof.checks.appearance_rows``), and the
+reader's record there must name that row; an appearance the classifier does not
+decide is listed by place and value in the evidence (``undecidedAppearances``).
+No
 register entry names ``parity``, so any difference fails, with ``parity.disagreement``'s message.
 
 A run whose documents hold no app made in HQ (a sample, documents named by
@@ -34,7 +39,14 @@ if PARITY:
         records = observations.records_for(document, core_runner, editor_driver=editor_driver)
         found = parity.differences(document, records)
         try:
-            cases.hold("parity", document, found, cases.load_register(), undecided=parity.undecided(document, records))
+            cases.hold(
+                "parity",
+                document,
+                found,
+                cases.load_register(),
+                undecided=parity.undecided(document, records),
+                undecidedAppearances=parity.undecided_appearances(document, records),
+            )
         except AssertionError as error:
             lines = [parity.disagreement(document.id, difference) for difference in found]
             raise AssertionError("\n".join([*lines, str(error)])) from error

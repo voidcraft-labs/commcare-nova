@@ -14,8 +14,9 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import type {
@@ -31,6 +32,7 @@ import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import type { PinnedTileSearchReading } from "@/lib/preview/pinnedCaseTile";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
+import { CaseDetailFields } from "./CaseDetailFields";
 import { CaseTile } from "./CaseTile";
 import { PreviewDataRefusalPanel } from "./PreviewDataRefusal";
 import { useColumnDisplayContext } from "./useColumnDisplayContext";
@@ -38,6 +40,10 @@ import { useWorkerMessage } from "./WorkerText";
 
 interface PersistentCaseTileProps {
 	readonly blueprint: BlueprintDoc;
+	readonly inlineModuleUuid?: Uuid;
+	readonly inlineConfig?: CaseListConfig;
+	readonly selectionMenuUuid?: Uuid;
+	readonly mode?: "tile" | "line";
 	readonly moduleUuid: Uuid;
 	readonly appId: string | undefined;
 	readonly caseType: string | undefined;
@@ -60,25 +66,32 @@ interface PersistentCaseTileProps {
 	readonly searchReading?: PinnedTileSearchReading;
 }
 
-export function PersistentCaseTile({
-	blueprint,
-	moduleUuid,
-	appId,
-	caseType,
-	caseId,
-	config,
-	caseTypes,
-	fallbackProperties,
-	restoreScopeKey,
-	searchReading,
-}: PersistentCaseTileProps) {
+export function PersistentCaseTile(props: PersistentCaseTileProps) {
+	const {
+		blueprint,
+		inlineModuleUuid,
+		selectionMenuUuid,
+		mode,
+		moduleUuid,
+		appId,
+		caseType,
+		caseId,
+		config,
+		caseTypes,
+		fallbackProperties,
+		restoreScopeKey,
+		searchReading,
+	} = props;
+	const [expanded, setExpanded] = useState(false);
 	const message = useWorkerMessage();
 	/* A read of its own, with the display config attached, so calculated
 	 * cells project exactly as they did in Results. The form's own case
 	 * read deliberately carries no display config: it feeds the engine,
 	 * not a screen, and widening it would put this band's concerns inside
 	 * the engine's preload identity. */
+	const language = useBuilderLanguage();
 	const { state, reload } = useCaseData({
+		language: language.language,
 		appId,
 		caseType,
 		caseId,
@@ -86,6 +99,7 @@ export function PersistentCaseTile({
 		caseListConfig: blueprint.modules[moduleUuid]?.caseListConfig,
 		blueprint,
 		moduleUuid,
+		selectionMenuUuid,
 		caseTypes,
 		// The pinned tile draws the case the worker selected: on their device,
 		// or as the search the list reads found it, with its answers.
@@ -127,7 +141,11 @@ export function PersistentCaseTile({
 
 	/* A blank id is a case the navigation bound to nothing (a carried value
 	 * that evaluated empty); there is no row to draw. */
-	if (!caseId || projection.cells.length === 0) return null;
+	const line = mode === "line";
+	if (!caseId || (!line && projection.cells.length === 0)) return null;
+	const inlineConfig =
+		props.inlineConfig ??
+		(inlineModuleUuid && blueprint.modules[inlineModuleUuid]?.caseListConfig);
 
 	return (
 		<div
@@ -137,14 +155,54 @@ export function PersistentCaseTile({
 			<ContentFrame width="5xl" className="px-6 py-3">
 				<div className="w-full min-w-[18rem] overflow-x-auto">
 					{state.kind === "row" ? (
-						<CaseTile
-							projection={projection}
-							columns={tileColumns}
-							row={state.row}
-							caseProperties={displayContext.caseProperties}
-							displayContext={displayContext}
-							surface="persistent"
-						/>
+						line ? (
+							<p className="text-center text-lg">
+								{String(state.row.calculated[moduleUuid] ?? "")}
+							</p>
+						) : (
+							<>
+								<CaseTile
+									projection={projection}
+									columns={tileColumns}
+									row={state.row}
+									caseProperties={displayContext.caseProperties}
+									displayContext={displayContext}
+									surface="persistent"
+								/>
+								{inlineConfig && inlineModuleUuid && (
+									<>
+										<Button
+											type="button"
+											variant="ghost"
+											aria-expanded={expanded}
+											onClick={() => setExpanded(!expanded)}
+										>
+											{message(
+												expanded ? "collapseCaseDetails" : "expandCaseDetails",
+											)}
+										</Button>
+										{expanded &&
+											(inlineModuleUuid === moduleUuid ? (
+												<CaseDetailFields
+													config={inlineConfig}
+													columns={orderedColumns(
+														inlineConfig,
+														"detail",
+													).filter((col) => col.visibleInDetail !== false)}
+													row={state.row}
+													displayContext={displayContext}
+												/>
+											) : (
+												<InlineCaseDetails
+													{...props}
+													moduleUuid={inlineModuleUuid}
+													config={inlineConfig}
+												/>
+											))}
+									</>
+								)}
+							</>
+						)
 					) : state.kind === "idle" || state.kind === "loading" ? (
 						<Skeleton
 							className="h-14 w-full max-w-3xl rounded-lg"
@@ -167,6 +225,69 @@ export function PersistentCaseTile({
 	);
 }
 
+/** A local long detail can supply the expanded view when the pinned tile's
+ * own menu has no Details. Its expressions belong to that local menu. */
+function InlineCaseDetails({
+	blueprint,
+	moduleUuid,
+	caseTypes,
+	caseType,
+	caseId,
+	appId,
+	config,
+	restoreScopeKey,
+	searchReading,
+	selectionMenuUuid,
+	fallbackProperties,
+}: PersistentCaseTileProps) {
+	const message = useWorkerMessage();
+	const { state, reload } = useCaseData({
+		blueprint,
+		moduleUuid,
+		selectionMenuUuid,
+		caseTypes,
+		caseType,
+		caseId,
+		appId,
+		caseListConfig: blueprint.modules[moduleUuid]?.caseListConfig,
+		scopeKey: restoreScopeKey,
+		ancestorDepth: 0,
+		deviceScoped: true,
+		search: !!searchReading,
+		searchAnswers: searchReading?.answers,
+		positionScreen: "detail",
+	});
+	const display = useColumnDisplayContext(
+		config,
+		caseType,
+		fallbackProperties,
+		{
+			doc: blueprint,
+			moduleUuid,
+			reading: searchReading ? "results" : "casedb",
+		},
+	);
+	if (state.kind === "idle" || state.kind === "loading")
+		return (
+			<Skeleton className="h-14 w-full" aria-label={message("loadingCase")} />
+		);
+	if (state.kind === "data-refused")
+		return <PreviewDataRefusalPanel surface="list" reason={state.reason} />;
+	if (state.kind !== "row")
+		return (
+			<CaseUnavailableNotice kind={state.kind} onRetry={() => void reload()} />
+		);
+	return (
+		<CaseDetailFields
+			config={config}
+			columns={orderedColumns(config, "detail").filter(
+				(col) => col.visibleInDetail !== false,
+			)}
+			row={state.row}
+			displayContext={display}
+		/>
+	);
+}
 /**
  * The band still says something when the case behind it can't be shown:
  * a silently empty strip above a form reads as a rendering bug. Retry is

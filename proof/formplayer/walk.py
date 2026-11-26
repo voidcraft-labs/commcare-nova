@@ -259,6 +259,21 @@ def answerable(question: Mapping[str, Any], *, web_apps: bool = True) -> bool:
     return datatype in CLIENT_DATA_TYPES or (not web_apps and datatype == "datetime")
 
 
+def headings_only(question: Mapping[str, Any]) -> bool:
+    """Whether the Web Apps client draws a select or multi-select as a row of its choices' labels and nothing to
+    choose with (``entries.js::getEntry``: ``ChoiceLabelEntry`` without ``hideLabel``, drawn by
+    ``entry_choice_label.html``): a select whose style holds ``label`` but not ``minimal``, ``combobox``,
+    ``button-select`` or ``list-nolabel``, and a multi-select whose style holds ``label`` but not ``minimal``.
+    It is a question list's heading row; a worker answers nothing there, so the walk gives it no answer."""
+    style = question.get("style") if isinstance(question.get("style"), dict) else {}
+    styles = set(str(style.get("raw") or "").split(" "))
+    if "label" not in styles or "minimal" in styles:
+        return False
+    if question.get("datatype") == "select":
+        return not styles & {"combobox", "button-select", "list-nolabel"}
+    return question.get("datatype") == "multiselect"
+
+
 def number_keypad(question: Mapping[str, Any], *, web_apps: bool = True) -> bool:
     """Whether a worker answers ``question`` on a number keypad, which takes no letter: in Web Apps the client
     draws ``PhoneEntry`` for a text or barcode question whose style holds ``numeric`` but not ``address``, which
@@ -350,12 +365,14 @@ def submission(
     tree: Sequence[Mapping[str, Any]], refused: set[str], held: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     """What the Web Apps client submits of a form (``web_form_session.js::submitForm``, ``accumulateAnswers``):
-    each question it holds valid, by its index, with the answer Formplayer last handed it (a label's as ``OK``),
-    and ``prevalidated`` only where it holds every question valid. A question is not valid while Formplayer's
+    each question it holds valid, by its index, with the answer it holds (a label's as ``OK``), and
+    ``prevalidated`` only where it holds every question valid. A question is not valid while Formplayer's
     last answer to it was a validation error (``form_ui.js``, ``session.reconcile`` sets its ``serverError``, and
-    the next answer it takes clears it): ``refused`` holds those, by index. A question the client drew no widget
-    for after Formplayer's last answer still holds its unsupported entry's text, which the client submits as its
-    answer: ``held`` is what the client holds of each question (``Walk._fill``), and names those."""
+    the next answer it takes clears it): ``refused`` holds those, by index. ``held`` is what the client holds of
+    each question (``Walk._fill``): mostly the answer Formplayer last handed it, but what it sent where
+    Formplayer took that answer and handed back another (``_held_after``: the question stays dirty, as a hidden
+    answer type's text Formplayer echoes as none), and its unsupported entry's text for a question it drew no
+    widget for. Without ``held``, Formplayer's answers stand for it."""
     answers, prevalidated = {}, True
     for node in questions(tree):
         if node.get("type") != "question":
@@ -365,8 +382,8 @@ def submission(
             continue
         if node.get("datatype") == "info":
             answers[node["ix"]] = "OK"
-        elif held is not None and not answerable(node) and held.get(str(node.get("ix"))) == UNSUPPORTED:
-            answers[node["ix"]] = UNSUPPORTED
+        elif held is not None and str(node.get("ix")) in held:
+            answers[node["ix"]] = held[str(node.get("ix"))]
         else:
             answers[node["ix"]] = node.get("answer")
     return {"answers": answers, "prevalidated": prevalidated}
@@ -553,7 +570,7 @@ class Walk:
         )
 
     def _values(self, question: Mapping[str, Any], given: Mapping[str, Any] | None = None) -> list[Any]:
-        if not answerable(question, web_apps=self.web_apps):
+        if not answerable(question, web_apps=self.web_apps) or (self.web_apps and headings_only(question)):
             # Nothing a worker in Web Apps can give it.
             return []
         if given and question.get("datatype") == "geo":
@@ -669,6 +686,10 @@ class Walk:
                     refused.add(str(pending["ix"]))
                 else:
                     refused.discard(str(pending["ix"]))
+                if kind is None and value is not CLEARED and answered.get("status") != "accepted":
+                    # Formplayer took no answer: the client keeps what was typed in its widget (still dirty) and
+                    # submits it unless Formplayer refused it as invalid.
+                    held[str(pending["ix"])] = value
                 if answered.get("status") == "accepted":
                     held[str(pending["ix"])] = _held_after(answered.get("tree"), pending["ix"], value, kind, held)
                     tree = self._reconcile(

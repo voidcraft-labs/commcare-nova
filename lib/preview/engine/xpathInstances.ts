@@ -1,7 +1,9 @@
 import type { CaseIndexRow } from "@/lib/case-store";
-import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
+import { workerFixtureRow } from "@/lib/commcare/lookup/row";
 import { INLINE_SEARCH_RESULTS_INSTANCE } from "@/lib/commcare/session";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "@/lib/commcare/sessionContext";
+import { inlineSearchInstance } from "@/lib/commcare/suite/case-search/types";
+import { GROUPS_INSTANCE } from "@/lib/commcare/workerGroupsWire";
 import {
 	LOCATION_ROWS,
 	locationsInstance,
@@ -19,10 +21,19 @@ import {
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	entryDatumSupplies,
+	loadedSearchModules,
+} from "@/lib/domain/entryDatumSupplies";
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import type { Expression } from "@/lib/domain/expression/types";
-import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import {
+	walkExpressionNodes,
+	walkInputRefs,
+	walkPropertyRefs,
+} from "@/lib/domain/expression/walk";
 import type { LocationFixtureRow } from "@/lib/organization/footprint";
+import { javaTrim } from "@/lib/preview/xpath/javaString";
 import type {
 	XPathInstance,
 	XPathNode,
@@ -38,6 +49,7 @@ import { PREVIEW_UNKNOWN_WORKER_KEYS } from "./workerSessionKeys";
  * their device. Rows are already authorization- and restore-scoped server-side;
  * this client shape deliberately carries no Project or actor identifier. */
 export interface CaseDatabaseSnapshot {
+	readonly workerGroups?: readonly import("@/lib/domain/workerGroups").WorkerGroupRow[];
 	readonly rows: readonly CaseRow[];
 	readonly indices: readonly CaseIndexRow[];
 	/** Stored-schema types survive case-type retirement and let Preview preserve
@@ -54,6 +66,7 @@ export interface CaseDatabaseSnapshot {
 
 /** One case a completed search found, as plain JSON. */
 export interface SearchResultRow {
+	readonly status?: "open" | "closed";
 	readonly case_id: string;
 	readonly case_type: string;
 	readonly owner_id: string | null;
@@ -71,9 +84,8 @@ export interface SearchResultRow {
 	}[];
 }
 
-/** What a completed search returned to the forms of its module: the first
- * `SEARCH_RESULTS_CAP` open matches in Results' order, and how many
- * matched in all. */
+/** What a completed search returned to the forms of its module: the primary
+ * matches the server returned within its cap, before the detail filters them. */
 export interface SearchResultsSnapshot {
 	readonly rows: readonly SearchResultRow[];
 	readonly totalMatches: number;
@@ -81,7 +93,11 @@ export interface SearchResultsSnapshot {
 
 export type LoadSearchResultsSnapshotResult =
 	| { readonly kind: "data"; readonly snapshot: SearchResultsSnapshot }
-	| { readonly kind: "invalid-search"; readonly message: string }
+	| {
+			readonly kind: "invalid-search";
+			readonly message: string;
+			readonly reason?: import("@/lib/case-store/searchRequest").SearchUnavailableReason;
+	  }
 	| {
 			readonly kind: "data-refused";
 			readonly reason: PreviewDataRefusalReason;
@@ -458,6 +474,13 @@ function caseElement(
 			...(row.external_id === null
 				? []
 				: [{ name: "external_id", value: row.external_id }]),
+			// The case's own location column, which CommCare HQ's restore
+			// writes as a `location_id` element where it holds text
+			// (`V2CaseXMLGenerator.add_custom_properties`) and a device's own
+			// write keeps as a property of that name (`CaseXmlParser.updateCase`).
+			...(typeof row.location_id === "string" && row.location_id !== ""
+				? [{ name: "location_id", value: row.location_id }]
+				: []),
 			...properties,
 			{
 				...CASE_INDEX_TEMPLATE,
@@ -569,7 +592,22 @@ export function commcareSessionXPathInstance(
 	});
 }
 
-/** Build every XForm-local lookup instance (`instance('<tag>')`) from the
+/** A fixture row as a device holds it: Core's `TreeElementParser.parse`
+ * keeps each attribute as written and each element's text trimmed as Java's
+ * `String.trim` trims it, so a cell HQ serves as ` 007 ` reads `007`. */
+function deviceFixtureRow(
+	row: ReturnType<typeof workerFixtureRow>,
+): ReturnType<typeof workerFixtureRow> {
+	return {
+		...row,
+		children: row.children.map((child) => ({
+			...child,
+			value: javaTrim(child.value),
+		})),
+	};
+}
+
+/** Build every XForm-local lookup instance from the
  * exact lookup snapshot the engine captured at activation.
  *
  * A device parses a lookup table into a plain `TreeElement`
@@ -584,24 +622,19 @@ export function lookupXPathInstances(
 	if (data === null) return new Map();
 	return new Map(
 		data.naming.tables.flatMap((table) => {
-			const rows = data.rowsByTable.get(table.tableId) ?? [];
+			const rows = data.rowsByTable.get(table.tableId);
+			if (rows === undefined) return [];
 			const create = (instanceId: string) =>
 				new StaticXPathInstance(instanceId, {
 					name: table.listElementName,
-					children: rows.map((row) => ({
-						name: table.rowElementName,
-						children: table.columns.map((column) => ({
-							name: column.wireName,
-							value: lookupFixtureCellText(
-								column.dataType,
-								row.values[column.id],
-							),
-						})),
-					})),
+					children: rows.map((row) =>
+						deviceFixtureRow(workerFixtureRow(table, row)),
+					),
 				});
 			return [
 				[table.xformInstanceId, create(table.xformInstanceId)] as const,
-				...(options.includeFixtureAliases
+				...(options.includeFixtureAliases &&
+				table.fixtureId !== table.xformInstanceId
 					? ([[table.fixtureId, create(table.fixtureId)] as const] as const)
 					: []),
 			];
@@ -784,11 +817,8 @@ function searchResultPropertyText(
  * has one), `external_id` only when set, `date_opened` (the UTC day of
  * `opened_on`, as text, not a device date), each stored property, and
  * `index` (present only when the case has indices, its children sorted by
- * identifier, `@relationship` written only for an extension). Every row is
- * open: HQ's search finds open cases only. Related cases, their
- * `commcare_is_related_case` mark and `commcare_search_score` are not
- * built, because the read always excludes the first and no catalog
- * property names the others.
+ * identifier, `@relationship` written only for an extension). The primary hits come first. Supporting rows carry their actual status
+ * and the related-case marker HQ supplies.
  *
  * The suite declares the instance `template="case"`, so Core checks its
  * paths against the casedb spec ({@link caseTemplate}), not its data: every
@@ -800,6 +830,7 @@ function searchResultPropertyText(
 export function searchResultsXPathInstance(
 	rows: readonly SearchResultRow[],
 	catalog: readonly CaseType[],
+	instanceId: string = INLINE_SEARCH_RESULTS_INSTANCE,
 ): XPathInstance {
 	const propertyTypes = new Map(
 		catalog.map((caseType) => [
@@ -812,7 +843,7 @@ export function searchResultsXPathInstance(
 			),
 		]),
 	);
-	return new StaticXPathInstance(INLINE_SEARCH_RESULTS_INSTANCE, {
+	return new StaticXPathInstance(instanceId, {
 		name: "results",
 		childTemplates: ["case"],
 		templateChildren: [caseTemplate()],
@@ -828,7 +859,7 @@ export function searchResultsXPathInstance(
 					case_id: row.case_id,
 					case_type: row.case_type,
 					owner_id: row.owner_id ?? "",
-					status: "open",
+					status: row.status ?? "open",
 				},
 				attributeTemplates: CASE_ATTRIBUTE_TEMPLATES,
 				templateChildren: [CASE_INDEX_TEMPLATE, CASE_ATTACHMENT_TEMPLATE],
@@ -877,6 +908,53 @@ export function searchResultsXPathInstance(
 	});
 }
 
+/** A completed query step of a form entry. Menu and attempt identify the source even when two
+ * searches use the same prompt names. Only result sets read by the form are materialized. */
+export interface CompletedFormSearch {
+	readonly menu: Uuid;
+	readonly submission: string;
+	readonly answers: readonly [string, string][];
+	readonly results?: SearchResultsSnapshot;
+}
+
+export function formSearchReads(doc: BlueprintDoc, formUuid: Uuid, menu: Uuid) {
+	const sources = new Map<
+		Uuid,
+		{ readsResults: boolean; readsAnswers: boolean }
+	>();
+	function need(supplier: Uuid) {
+		let source = sources.get(supplier);
+		if (!source) {
+			source = { readsResults: false, readsAnswers: false };
+			sources.set(supplier, source);
+		}
+		return source;
+	}
+	const loaded = loadedSearchModules(
+		entryDatumSupplies(doc, { kind: "form", module: menu, form: formUuid }),
+	);
+	const lastQuery = loaded.at(-1) ?? menu;
+	for (const { expression } of formExpressionSlotValues(doc, formUuid)) {
+		walkInputRefs(expression, (input) => {
+			need(input.supplier ?? menu).readsAnswers = true;
+		});
+		walkExpressionNodes(expression, (node) => {
+			if (node.kind === "cases" && node.source === "search-results")
+				need(node.supplier ?? lastQuery).readsResults = true;
+		});
+	}
+	const ordered = new Map<
+		Uuid,
+		{ readsResults: boolean; readsAnswers: boolean }
+	>();
+	for (const supplier of [...loaded, ...sources.keys()]) {
+		const source = sources.get(supplier);
+		if (source) ordered.set(supplier, source);
+	}
+	return ordered;
+}
+
+/** Whether any path in this expression reads the results of a query. */
 function readsSearchResults(expression: Expression): boolean {
 	let found = false;
 	walkExpressionNodes(expression, (node) => {
@@ -885,8 +963,6 @@ function readsSearchResults(expression: Expression): boolean {
 	return found;
 }
 
-/** Whether a form's questions, its own slots or its after-submit links read
- * what its search found, so its entry needs the search's snapshot. */
 export function formReadsSearchResults(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -894,6 +970,33 @@ export function formReadsSearchResults(
 	return formExpressionSlotValues(doc, formUuid).some(({ expression }) =>
 		readsSearchResults(expression),
 	);
+}
+
+/** A form can read a persisted score from its restore and a different
+ * result-only score from the submitted search. Only the latter needs HQ. */
+export function formReadsSearchScore(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): boolean {
+	return formExpressionSlotValues(doc, formUuid).some(({ expression }) => {
+		let found = false;
+		const scoreIn = (where: Expression) =>
+			walkPropertyRefs(where, (ref) => {
+				if (ref.property === "commcare_search_score") found = true;
+			});
+		walkExpressionNodes(expression, (node) => {
+			if (node.kind === "cases" && node.source === "search-results")
+				for (const condition of node.where) scoreIn(condition);
+			if (
+				node.kind === "project" &&
+				readsSearchResults(node.of) &&
+				node.value.kind === "prop" &&
+				node.value.property === "commcare_search_score"
+			)
+				found = true;
+		});
+		return found;
+	});
 }
 
 /** One resolver map for a form engine's immutable evaluation world. */
@@ -907,6 +1010,9 @@ export function secondaryXPathInstances(args: {
 	readonly sessionData?: Readonly<Record<string, string>>;
 	/** Present only for an admitted no-matches registration form. */
 	readonly searchAnswers?: ReadonlyMap<string, string>;
+	readonly searchResultsName?: string;
+	readonly searches?: readonly CompletedFormSearch[];
+	readonly menus?: BlueprintDoc["modules"];
 	/** The entry's several-case selections: datum id → case ids in
 	 * selection order. */
 	readonly selectedCases?: Readonly<Record<string, readonly string[]>>;
@@ -920,6 +1026,9 @@ export function secondaryXPathInstances(args: {
 	readonly includeFixtureAliases?: boolean;
 }): ReadonlyMap<string, XPathInstance> {
 	const locations = args.caseDatabase?.locations;
+	const groups = args.caseDatabase?.workerGroups;
+	const ownResults = inlineSearchInstance(args.searchResultsName);
+	const ownInputs = `search-input:${ownResults}`;
 	return new Map<string, XPathInstance>([
 		[
 			"commcaresession",
@@ -929,6 +1038,9 @@ export function secondaryXPathInstances(args: {
 			"casedb",
 			caseDatabaseXPathInstance(args.caseDatabase, args.caseTypes ?? []),
 		],
+		...(groups
+			? [[GROUPS_INSTANCE.id, workerGroupsXPathInstance(groups)] as const]
+			: []),
 		...lookupXPathInstances(args.lookupData, {
 			includeFixtureAliases: args.includeFixtureAliases,
 		}),
@@ -936,8 +1048,8 @@ export function secondaryXPathInstances(args: {
 			? []
 			: [
 					[
-						INLINE_SEARCH_INPUT_INSTANCE_ID,
-						searchInputXPathInstance(args.searchAnswers),
+						ownInputs,
+						searchInputXPathInstance(args.searchAnswers, ownInputs),
 					] as const,
 				]),
 		...Object.entries(args.selectedCases ?? {}).map(
@@ -948,13 +1060,33 @@ export function secondaryXPathInstances(args: {
 			? []
 			: [
 					[
-						INLINE_SEARCH_RESULTS_INSTANCE,
+						ownResults,
 						searchResultsXPathInstance(
 							args.searchResults.rows,
 							args.caseTypes ?? [],
+							ownResults,
 						),
 					] as const,
 				]),
+		...(args.searches ?? []).flatMap((search): [string, XPathInstance][] => {
+			const menu = args.menus?.[search.menu];
+			if (!menu) return [];
+			const result = inlineSearchInstance(menu.searchResultsName);
+			const answers = `search-input:${result}`;
+			const instances: [string, XPathInstance][] = [
+				[answers, searchInputXPathInstance(new Map(search.answers), answers)],
+			];
+			if (search.results !== undefined)
+				instances.push([
+					result,
+					searchResultsXPathInstance(
+						search.results.rows,
+						args.caseTypes ?? [],
+						result,
+					),
+				]);
+			return instances;
+		}),
 		...(locations === undefined || args.organization === undefined
 			? []
 			: [
@@ -1057,4 +1189,32 @@ export function xpathNodeAtPath(
 		return undefined;
 	};
 	return visit(instance.root());
+}
+
+export function workerGroupsXPathInstance(
+	groups: NonNullable<CaseDatabaseSnapshot["workerGroups"]>,
+): XPathInstance {
+	return new StaticXPathInstance(GROUPS_INSTANCE.id, {
+		name: "groups",
+		children: groups.map((group) => ({
+			name: "group",
+			attributes: { id: group.id },
+			// A device reads each text trimmed (Core's `TreeElementParser.parse`).
+			children: [
+				{ name: "name", value: javaTrim(group.name) },
+				...(group.details.length
+					? [
+							{
+								name: "group_data",
+								children: group.details.map((detail) => ({
+									name: "data",
+									attributes: { key: detail.key },
+									value: javaTrim(detail.value),
+								})),
+							},
+						]
+					: []),
+			],
+		})),
+	});
 }

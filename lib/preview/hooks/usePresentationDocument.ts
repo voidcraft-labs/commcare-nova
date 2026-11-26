@@ -7,6 +7,7 @@ import {
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { BlueprintDocState } from "@/lib/doc/store";
 import type { Uuid } from "@/lib/domain";
+import { formIsSectioned } from "@/lib/domain/fieldForm";
 import { useEngineController } from "./useEngineController";
 
 /** Runtime publication and rendered topology belong to the same snapshot.
@@ -38,14 +39,11 @@ export function usePresentationHasFields(
 	);
 }
 
-/** Admission keeps a sectioned root homogeneous; its first field decides
- * the rendered page branch for the currently published presentation. */
+/** Read the page layout on the same revision as the rendered questions. */
 export function usePresentationFormIsSectioned(
 	formUuid: Uuid | undefined,
 ): boolean {
-	return usePresentationSelector((doc) => {
-		const first =
-			formUuid === undefined ? undefined : doc.fieldOrder[formUuid]?.[0];
-		return first !== undefined && doc.fields[first]?.kind === "section";
-	});
+	return usePresentationSelector(
+		(doc) => formUuid !== undefined && formIsSectioned(doc, formUuid),
+	);
 }

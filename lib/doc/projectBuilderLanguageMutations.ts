@@ -3,11 +3,16 @@
  * overlay while preserving structural edits in the canonical source document.
  */
 
+import { mappingRowUnitMoves } from "@/lib/doc/caseListColumnMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	authoredTranslationValueMode,
+	caseListWordingUnitId,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	effectiveAppLocalization,
+	FIELD_PROSE_SLOTS,
+	isOrdinaryCaseSearchConfig,
 	type LanguageTag,
 	type LocalizedValue,
 	localizeTranslationUnit,
@@ -16,10 +21,10 @@ import {
 	searchScreenTitleSchema,
 	type TranslationEntry,
 	type TranslationUnitId,
+	translationEntryIntegrityIssue,
 	translationUnitsById,
-	translationValueIntegrityIssue,
-	type Uuid,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 
 export type BuilderLanguageMutationProjection =
@@ -75,7 +80,11 @@ export function projectBuilderLanguageMutations(
 	): LocalizedValue | undefined => {
 		const unit = units.get(id);
 		if (unit === undefined) return undefined;
-		const issue = translationValueIntegrityIssue(unit, presented);
+		const mode = authoredTranslationValueMode(unit, presented);
+		const issue = translationEntryIntegrityIssue(unit, {
+			value: presented,
+			...mode,
+		});
 		if (issue !== undefined) {
 			refusal =
 				issue === "protected-content"
@@ -91,6 +100,7 @@ export function projectBuilderLanguageMutations(
 		if (!sameValue(current, presented)) {
 			targetWrites.set(id, {
 				value: structuredClone(presented),
+				...mode,
 				sourceFingerprint: unit.sourceFingerprint,
 				origin: "human",
 				review: "reviewed",
@@ -98,6 +108,24 @@ export function projectBuilderLanguageMutations(
 			});
 		}
 		return unit.source;
+	};
+
+	/** `redirect` for a row whose unit this batch moves (`mappingRowUnitMoves`):
+	 * the words are compared with the row's old unit, and a changed value is
+	 * written under the unit it moves to, where the batch's carry puts the
+	 * row's existing translation. */
+	const redirectMoved = (
+		from: TranslationUnitId,
+		to: TranslationUnitId,
+		presented: LocalizedValue,
+	): LocalizedValue | undefined => {
+		const pending = targetWrites.has(from);
+		const source = redirect(from, presented);
+		if (!pending && targetWrites.has(from)) {
+			targetWrites.set(to, targetWrites.get(from) ?? null);
+			targetWrites.delete(from);
+		}
+		return source;
 	};
 
 	/** A reset on a localized configuration slot means use source fallback. */
@@ -153,17 +181,26 @@ export function projectBuilderLanguageMutations(
 						if (!hasOwn(searchPatch, slot)) continue;
 						const id = makeTranslationUnitId("module", mutation.uuid, unitSlot);
 						const value = searchPatch[slot];
-						// No title is one setting for every language, with no translation
-						// unit: the source takes turning it off, and turning it back on
-						// (a `null` while the source holds the `none` arm).
+						// Showing a title is the source's setting, in every language:
+						// the source takes turning it off, and this language drops a
+						// title of its own, so it shows none. Turning it back on clears
+						// the source's `none`, so every language shows its title again;
+						// clearing a title of this language's own over a source that
+						// shows one is a translation's clear. A brought-in language with
+						// a title of its own over the source's `none` keeps it
+						// (`searchTitleLanguages.ts`).
+						if (slot === "searchScreenTitle" && isNoSearchScreenTitle(value)) {
+							if (units.has(id)) redirectClear(id);
+							continue;
+						}
+						const stored = doc.modules[mutation.uuid]?.caseSearchConfig;
 						if (
 							slot === "searchScreenTitle" &&
-							(isNoSearchScreenTitle(value) ||
-								(value === null &&
-									isNoSearchScreenTitle(
-										sourceSearchScreenTitle(doc, mutation.uuid),
-									)))
+							value === null &&
+							isOrdinaryCaseSearchConfig(stored) &&
+							isNoSearchScreenTitle(stored.searchScreenTitle)
 						) {
+							if (units.has(id)) redirectClear(id);
 							continue;
 						}
 						let handled = false;
@@ -198,6 +235,7 @@ export function projectBuilderLanguageMutations(
 				const next = structuredClone(mutation);
 				if (
 					Object.keys(next.patch).length > 0 ||
+					next.entryChange !== undefined ||
 					next.caseOperationChange !== undefined ||
 					next.caseOperationPatch !== undefined
 				) {
@@ -209,7 +247,7 @@ export function projectBuilderLanguageMutations(
 				const next = structuredClone(mutation);
 				const patch = next.patch as Record<string, unknown>;
 				const currentField = doc.fields[mutation.uuid];
-				for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
+				for (const slot of FIELD_PROSE_SLOTS) {
 					if (!hasOwn(patch, slot)) continue;
 					const id = makeTranslationUnitId("field", mutation.uuid, slot);
 					if (!units.has(id) && currentField !== undefined) {
@@ -267,6 +305,60 @@ export function projectBuilderLanguageMutations(
 				if (Object.keys(next.patch).length > 0) projected.push(next);
 				break;
 			}
+			case "setCaseListMeta": {
+				// A case list's own wording edited in a target language is that
+				// language's translation; the source keeps its text.
+				const next = structuredClone(mutation);
+				const patch = next.patch;
+				for (const group of patch.searchInputGroups ?? []) {
+					const sourceGroup = doc.modules[
+						mutation.uuid
+					]?.caseListConfig?.searchInputGroups?.find(
+						(candidate) => candidate.uuid === group.uuid,
+					);
+					if (sourceGroup === undefined) continue;
+					const id = makeTranslationUnitId(
+						"search-input-group",
+						group.uuid,
+						"label",
+					);
+					redirect(id, group.label);
+					group.label = sourceGroup.label;
+				}
+
+				for (const [key, slot] of [
+					["emptyText", "empty"],
+					["selectButtonText", "select"],
+				] as const) {
+					if (!hasOwn(patch, key)) continue;
+					const id = caseListWordingUnitId(mutation.uuid, slot);
+					const value = patch[key];
+					if (!units.has(id)) {
+						if (value != null) refuseMissingSource();
+					} else if (value === null) redirectClear(id);
+					else if (typeof value === "string") redirect(id, value);
+					delete patch[key];
+				}
+				if (Object.keys(patch).length > 0) projected.push(next);
+				break;
+			}
+			case "updateCalculatedSort": {
+				if (!hasOwn(mutation.patch, "label")) {
+					projected.push(mutation);
+					break;
+				}
+				const next = structuredClone(mutation);
+				const id = makeTranslationUnitId("case-sort", mutation.uuid, "label");
+				if (!units.has(id)) {
+					if (next.patch.label != null) refuseMissingSource();
+				} else if (next.patch.label === null) redirectClear(id);
+				else if (typeof next.patch.label === "string")
+					redirect(id, next.patch.label);
+				delete next.patch.label;
+				if (next.after !== undefined || Object.keys(next.patch).length > 0)
+					projected.push(next);
+				break;
+			}
 			case "updateColumn": {
 				if (mutation.column === undefined) {
 					projected.push(mutation);
@@ -294,30 +386,33 @@ export function projectBuilderLanguageMutations(
 					refuseMissingSource();
 				}
 				if (column.kind === "id-mapping" && current.kind === "id-mapping") {
-					if (
-						column.mapping.some(
-							(mapping) =>
-								!current.mapping.some(
-									(candidate) => candidate.value === mapping.value,
-								),
-						)
-					) {
-						refuseMissingSource();
-					}
-					column.mapping = column.mapping.map((mapping) => {
+					// A row the edit moves to another unit (a row saved before rows
+					// carried identities, given one or a new value) is the row it was:
+					// its words are read against its old unit, and a changed label is
+					// this language's translation under the unit it moves to.
+					const moves = mappingRowUnitMoves(
+						mutation.uuid,
+						current.mapping,
+						column.mapping,
+						"mapping",
+					);
+					column.mapping = column.mapping.map((mapping, index) => {
+						const unitId = caseMappingTextUnit(
+							mutation.uuid,
+							mapping,
+							"mapping",
+						);
 						const prior = current.mapping.find(
-							(candidate) => candidate.value === mapping.value,
+							(candidate) =>
+								caseMappingTextUnit(mutation.uuid, candidate, "mapping") ===
+								unitId,
 						);
-						if (prior === undefined) return mapping;
-						const source = redirect(
-							makeTranslationUnitId(
-								"column",
-								mutation.uuid,
-								"mapping",
-								mapping.value,
-							),
-							mapping.label,
-						);
+						const move = moves.get(index);
+						let source: LocalizedValue | undefined;
+						if (prior !== undefined) source = redirect(unitId, mapping.label);
+						else if (move !== undefined)
+							source = redirectMoved(move.from, move.to, mapping.label);
+						else refuseMissingSource();
 						return typeof source === "string"
 							? { ...mapping, label: source }
 							: mapping;
@@ -325,6 +420,67 @@ export function projectBuilderLanguageMutations(
 				}
 				if (column.kind === "id-mapping" && current.kind !== "id-mapping") {
 					if (column.mapping.length > 0) refuseMissingSource();
+				}
+				if (column.kind === "calculated" && column.texts) {
+					const prior =
+						current.kind === "calculated" ? current.texts : undefined;
+					column.texts = column.texts.map((piece) => {
+						if (!prior?.some((item) => item.uuid === piece.uuid))
+							refuseMissingSource();
+						const original = redirect(
+							makeTranslationUnitId(
+								"column",
+								mutation.uuid,
+								"calculation-text",
+								piece.uuid,
+							),
+							piece.label,
+						);
+						if (typeof original !== "string") refuseMissingSource();
+						return {
+							...piece,
+							label: typeof original === "string" ? original : piece.label,
+						};
+					});
+				}
+				if (column.kind === "image-map") {
+					const moves =
+						current.kind === "image-map"
+							? mappingRowUnitMoves(
+									mutation.uuid,
+									current.mapping,
+									column.mapping,
+									"image-description",
+								)
+							: undefined;
+					column.mapping = column.mapping.map((row, index) => {
+						const move = moves?.get(index);
+						const id =
+							move?.from ??
+							caseMappingTextUnit(mutation.uuid, row, "image-description");
+						if (row.altText === undefined) {
+							if (units.has(id)) {
+								if (move === undefined) redirectClear(id);
+								else if (
+									localization.translations[language]?.[id] !== undefined
+								)
+									targetWrites.set(move.to, null);
+								const original = units.get(id)?.source;
+								if (typeof original === "string")
+									return { ...row, altText: original };
+							}
+							return row;
+						}
+						const original =
+							move === undefined
+								? redirect(id, row.altText)
+								: redirectMoved(move.from, move.to, row.altText);
+						if (typeof original !== "string") refuseMissingSource();
+						return {
+							...row,
+							altText: typeof original === "string" ? original : row.altText,
+						};
+					});
 				}
 				if (column.kind === "interval") {
 					if (current.kind === "interval") {
@@ -505,12 +661,4 @@ export function projectBuilderLanguageMutations(
 function isNoSearchScreenTitle(value: unknown): boolean {
 	const parsed = searchScreenTitleSchema.safeParse(value);
 	return parsed.success && typeof parsed.data !== "string";
-}
-
-/** The source document's stored search title of a module, if any. */
-function sourceSearchScreenTitle(doc: BlueprintDoc, moduleUuid: Uuid): unknown {
-	const config = doc.modules[moduleUuid]?.caseSearchConfig;
-	return config !== undefined && "searchScreenTitle" in config
-		? config.searchScreenTitle
-		: undefined;
 }

@@ -1,3 +1,8 @@
+import type {
+	InstallationReviewChange,
+	InstallationReviewState,
+} from "@/lib/deployment/targetIdentity";
+import { languageEnglishName } from "@/lib/domain/languageRegistry";
 /**
  * What a person reads about changes made in CommCare HQ that Nova can bring
  * in to the app: the panel's headings, leads, buttons and the sentence under
@@ -22,6 +27,7 @@ import type {
 	HqChangesStage,
 	HqChangesUnavailable,
 } from "./hqChangesKinds";
+import { renameNamesReused } from "./hqChangesKinds";
 import { namesInWords } from "./planFeatures";
 
 const COUNT_FORMAT = new Intl.NumberFormat("en-US");
@@ -125,6 +131,13 @@ export function showAllAction(n: number): string {
 }
 export const CHECK_AGAIN_ACTION = "Check again";
 
+/** Shared recovery beside complete rename evidence in the Builder and MCP pages. */
+export function renameRecoveryLine(reused: boolean): string {
+	return reused
+		? "A name was reused, so reversing the listed changes could move the wrong case values. You can check your case properties and saved values in Nova before deciding which app to keep."
+		: "If these names still identify the same case properties, you can rename them back in Nova and check again. Their saved values move with them.";
+}
+
 /**
  * A case property renamed in Nova since then holds "Use CommCare HQ's
  * version" back, and this line stands in its place. A property is a case type's, so each is named with its
@@ -133,10 +146,17 @@ export const CHECK_AGAIN_ACTION = "Check again";
  */
 export function renamedInNovaLine(
 	renames: readonly CasePropertyRename[],
+	reused = renameNamesReused(renames),
 ): string {
+	if (reused) {
+		const listed = renames
+			.map((move) => `“${move.from}” to “${move.to}” on “${move.caseType}”`)
+			.join(", ");
+		return `Nova’s published comparison records ${listed}. ${renameRecoveryLine(true)}`;
+	}
 	if (renames.length === 1) {
 		const [rename] = renames;
-		return `Since then, the case property “${rename.from}” of the case type “${rename.caseType}” was renamed to “${rename.to}” in Nova, which moved saved case data to the new name. To use CommCare HQ's version, you can rename it back in Nova, so the data moves back with it, and then check again.`;
+		return `Since then, the case property “${rename.from}” of the case type “${rename.caseType}” was renamed to “${rename.to}” in Nova. If “${rename.to}” still names the same property, you can rename it back in Nova and check again. Its saved values move with it.`;
 	}
 	const types = new Set(renames.map((rename) => rename.caseType));
 	const oneType = types.size === 1;
@@ -145,8 +165,8 @@ export function renamedInNovaLine(
 			`“${rename.from}” to “${rename.to}”${oneType ? "" : ` on “${rename.caseType}”`}`,
 	);
 	const listed = `${pairs.slice(0, -1).join(", ")}, and ${pairs[pairs.length - 1]}`;
-	const whose = oneType ? ` of the case type “${renames[0].caseType}”` : "";
-	return `Since then, these case properties${whose} were renamed in Nova: ${listed}, which moved saved case data to the new names. To use CommCare HQ's version, you can rename them back in Nova, so the data moves back with them, and then check again.`;
+	const where = oneType ? ` on the case type “${renames[0].caseType}”` : "";
+	return `Since then, Nova recorded ${listed}${where}. ${renameRecoveryLine(false)}`;
 }
 
 // ── The case data lines ──────────────────────────────────────────────
@@ -192,6 +212,21 @@ export function caseTypesLine(caseTypes: readonly string[]): string {
 	return `The app no longer has the case types ${quotedNames(caseTypes)}. Their cases saved in Nova are kept, and no list in this app shows them.`;
 }
 
+export function installationDescription(p: InstallationReviewState): string {
+	const names =
+		p.languageNames ??
+		p.languages.map(
+			(tag) => languageEnglishName(tag) ?? "Language name unavailable",
+		);
+	const languages = names.join(" → ");
+	const worker = p.worker
+		? `practice worker ${p.worker}`
+		: p.requiresPracticeWorker
+			? "a practice worker still needs to be selected here"
+			: "no practice worker";
+	return `“${p.name || "Unnamed profile"}”${p.key ? ` (ID ${p.key})` : ""}, starting in ${names[0]}, with languages ${languages} and ${worker}`;
+}
+
 /**
  * The lines a review says for where CommCare HQ now keeps what the document
  * doesn't hold: a form's id, the case id a create keyed by an answer files its
@@ -200,20 +235,85 @@ export function caseTypesLine(caseTypes: readonly string[]): string {
  * `formIds` and `keyedPrefixes` are form names, `columnFields` menu names.
  */
 export function whereHqKeepsLines(changes: {
+	readonly installationProfiles?: readonly InstallationReviewChange[];
 	readonly formIds: readonly string[];
 	readonly keyedPrefixes: readonly string[];
 	readonly mediaPaths: number;
 	readonly columnFields: readonly string[];
+	readonly searchConnections?: readonly import("@/lib/deployment/targetIdentity").SearchConnectionChange[];
+	readonly projectSearches?: readonly import("@/lib/deployment/targetIdentity").SearchDestinationChange[];
 }): readonly string[] {
 	const quoted = (names: readonly string[]) =>
 		namesInWords(names.map((name) => `“${name}”`));
 	const lines: string[] = [];
+	for (const search of changes.projectSearches ?? []) {
+		const describe = (value: typeof search.before) =>
+			value === null
+				? "ordinary case search"
+				: `“${value.name}” (${value.id === null ? "no connected ID" : `search ${value.id}`})`;
+		const contract = (value: typeof search.before) => {
+			if (!value) return describe(value);
+			const parameters = value.parameters.length
+				? value.parameters.join(", ")
+				: "no named values";
+			const results = value.results
+				.map((field) => `${field.name} (${field.type})`)
+				.join(", ");
+			return `${describe(value)}, sending ${parameters} and reading ${results}`;
+		};
+		lines.push(
+			`In “${search.menu}”, the search changed from ${contract(search.before)} to ${contract(search.after)}.`,
+		);
+
+		if (search.after)
+			lines.push(
+				"This project space controls which cases the connected search returns. Its results can change there.",
+			);
+	}
+	for (const connection of changes.searchConnections ?? []) {
+		const prior =
+			connection.before === null ? "no connection" : `ID ${connection.before}`;
+		const next =
+			connection.after === null ? "no connection" : `ID ${connection.after}`;
+		lines.push(
+			`For the next publish here, the saved connection for “${connection.name}” will change from ${prior} to ${next}.`,
+		);
+	}
 	if (changes.keyedPrefixes.length > 0) {
 		const one = changes.keyedPrefixes.length === 1;
 		lines.push(
 			`In CommCare HQ, ${quoted(changes.keyedPrefixes)} now ${one ? "files the cases it makes" : "file the cases they make"} from an answer under a new case id. Nova follows it, so a key a worker enters again reaches the case CommCare HQ holds for it.`,
 		);
 	}
+
+	for (const {
+		before,
+		after,
+		localBefore,
+		remainsRemoved,
+	} of changes.installationProfiles ?? []) {
+		if (before && after)
+			lines.push(
+				`Change this project space’s installation from ${installationDescription(before)} to ${installationDescription(after)}.`,
+			);
+		else if (after)
+			lines.push(
+				`Bring in this project space’s installation ${installationDescription(after)}.`,
+			);
+		else if (before)
+			lines.push(
+				`Remove this project space’s installation ${installationDescription(before)} from Nova.`,
+			);
+		if (remainsRemoved)
+			lines.push(
+				"This installation stays removed in Nova. Accepting records the HQ binding that Nova will use if you restore it.",
+			);
+		else if (localBefore)
+			lines.push(
+				`Your current Nova installation is ${installationDescription(localBefore)}.`,
+			);
+	}
+
 	if (changes.formIds.length > 0) {
 		const one = changes.formIds.length === 1;
 		lines.push(
@@ -233,6 +333,24 @@ export function whereHqKeepsLines(changes: {
 		);
 	}
 	return lines;
+}
+
+/**
+ * The line a review says where CommCare HQ no longer lists the Android apps
+ * the app needs because the project space lost App Dependencies
+ * (`androidAppDependencies.ts::androidRequirementsPrivilegeLost`). Nova keeps
+ * them, since no one chose to remove them.
+ */
+export const ANDROID_APPS_PRIVILEGE_LOST_LINE =
+	"CommCare HQ no longer lists the Android apps workers need, as it does when a project space loses App Dependencies. Nova keeps them in the app, since no one chose to remove them.";
+
+/**
+ * The line for changes that give the app its first question searching for
+ * an address in Web Apps, which works only on a project space with advanced
+ * case search and the Geocoder plan feature.
+ */
+export function hqChangesAddressSearchLine(domain: string): string {
+	return `A question changed in CommCare HQ now searches for an address in Web Apps, which works only where “${domain}” has advanced case search and the Geocoder plan feature. Your next publish checks advanced case search and asks you to confirm Geocoder unless someone already has.`;
 }
 
 /** The panel's lead over what the next publish changes, each line the register's own sentence. */
@@ -344,11 +462,15 @@ export function baselineUnknownSentence(
 	}
 }
 
+export const REQUIRED_FIRST_PUBLISH_RECOVERY =
+	"A Project admin or owner can choose Stop publishing here for this project space. Once any publish in progress finishes, you can bring this HQ app in as a new Nova app. You can also publish the current Nova app to a different project space.";
+
 const AFTER_NEXT_PUBLISH =
 	"Nova can bring in changes made in CommCare HQ after your next publish here.";
 
 /** What an unavailable review's line reads: the project space and what the change is measured against. */
 export interface HqChangesLineContext {
+	readonly requiresReview?: true;
 	readonly domain: string;
 	readonly since: DriftReference;
 	readonly options?: DriftDateOptions;
@@ -368,6 +490,12 @@ export function hqChangesUnavailableLine(
 ): string {
 	const { domain } = context;
 	const since = sincePhrase(context.since, domain, context.options);
+	const next = context.requiresReview
+		? REQUIRED_FIRST_PUBLISH_RECOVERY
+		: AFTER_NEXT_PUBLISH;
+	const otherWays = context.requiresReview
+		? REQUIRED_FIRST_PUBLISH_RECOVERY
+		: "You can publish over the change, or stop publishing here.";
 	switch (reason) {
 		case "not-published":
 			return `Nova hasn't published this app to “${domain}”, so there's nothing there to bring in. Publishing there makes a new app.`;
@@ -378,23 +506,23 @@ export function hqChangesUnavailableLine(
 		case "hq-app-taken":
 			return `Another Nova app took this app's app in “${domain}” while this app was in recently deleted, so there's nothing there to bring in. You can publish there again. Nova updates that app if no other Nova app publishes to it by then, and makes a new one beside it otherwise.`;
 		case "no-reference":
-			return `Nova can't tell CommCare HQ's changes from this app's here, because its record of the last publish to “${domain}” doesn't hold what that takes. ${AFTER_NEXT_PUBLISH}`;
+			return `Nova can't tell CommCare HQ's changes from this app's here, because its record of the last publish to “${domain}” doesn't hold what that takes. ${next}`;
 		case "baseline-unread":
-			return `${baselineUnknownSentence(context.since, context.options)} ${AFTER_NEXT_PUBLISH}`;
+			return `${baselineUnknownSentence(context.since, context.options)} ${next}`;
 		case "base-needs-project-data":
-			return `This Project's lookup tables or organization changed since ${since}, so Nova can't read its own record of what it left in “${domain}”, and can't tell what changed there. ${AFTER_NEXT_PUBLISH}`;
+			return `This Project's lookup tables or organization changed since ${since}, so Nova can't read its own record of what it left in “${domain}”, and can't tell what changed there. ${next}`;
 		case "base-unreadable":
-			return `Nova couldn't read its own record of what it left in “${domain}”, so it can't tell what changed there. That's Nova's to fix, and Nova has reported it. ${AFTER_NEXT_PUBLISH}`;
+			return `Nova couldn't read its own record of what it left in “${domain}”, so it can't tell what changed there. That's Nova's to fix, and Nova has reported it. ${next}`;
 		case "base-too-large":
-			return `Nova's record of what it left in “${domain}” is larger than Nova compares, so it can't tell what changed there. That limit is Nova's, not the app's. You can publish over the change, or stop publishing here.`;
+			return `Nova's record of what it left in “${domain}” is larger than Nova compares, so it can't tell what changed there. That limit is Nova's, not the app's. ${otherWays}`;
 		case "comparison-too-intricate":
-			return `Comparing CommCare HQ's version with what Nova left in “${domain}” takes more checking than Nova gives one app, so it can't tell what changed there. That limit is Nova's, not the app's. You can publish over the change, or stop publishing here.`;
+			return `Comparing CommCare HQ's version with what Nova left in “${domain}” takes more checking than Nova gives one app, so it can't tell what changed there. That limit is Nova's, not the app's. ${otherWays}`;
 		case "nova-updated":
-			return `Nova updated how this app is stored since ${since}, so it can't tell this app's changes from CommCare HQ's here. ${AFTER_NEXT_PUBLISH}`;
+			return `Nova updated how this app is stored since ${since}, so it can't tell this app's changes from CommCare HQ's here. ${next}`;
 		case "nova-defect":
-			return "Nova read what changed in CommCare HQ and couldn't fit it to this app, so it changed nothing. That's Nova's to fix, and Nova has reported it. You can check again later, publish over the change, or stop publishing here.";
+			return `Nova read what changed in CommCare HQ and couldn't fit it to this app, so it changed nothing. That's Nova's to fix, and Nova has reported it. ${context.requiresReview ? `You can check again later. ${REQUIRED_FIRST_PUBLISH_RECOVERY}` : "You can check again later, publish over the change, or stop publishing here."}`;
 		case "app-moved":
-			return `This app moved to another Project after it was changed in Nova and before it was published to “${domain}” again, so Nova can't tell this app's changes from CommCare HQ's here. ${AFTER_NEXT_PUBLISH}`;
+			return `This app moved to another Project after it was changed in Nova and before it was published to “${domain}” again, so Nova can't tell this app's changes from CommCare HQ's here. ${next}`;
 		default: {
 			const unplaced: never = reason;
 			return unplaced;
@@ -413,16 +541,25 @@ export function hqChangesHeldLine(
 		readonly app: readonly Platform[];
 		readonly hq: readonly Platform[];
 	} | null,
+	requiresReview = false,
+	translation?: import("./hqChangesKinds").HqSourceTranslationRecovery,
 ): string {
+	const next = requiresReview
+		? " and check again."
+		: " and check again, or publish over the change.";
 	switch (reason) {
-		case "languages-reordered":
-			return "The language this app's own text is written in changed in CommCare HQ, and Nova can't bring that in. You can put the app's languages and its name in each language back as they were in CommCare HQ and check again, or publish over the change.";
+		case "stale-source-translation": {
+			const phrase = translation
+				? `“${translation.breadcrumb.join(" › ")}” in ${translation.languageName}`
+				: "a phrase in the new source language";
+			return `CommCare HQ now uses ${translation?.languageName ?? "another language"} for the original wording. In Languages, you can keep, replace or clear the out-of-date translation of ${phrase}, then check again.`;
+		}
 		case "runs-elsewhere": {
 			const where =
 				runs === null
 					? ""
 					: ` This app runs ${namesInWords(runs.app.map(inPlatform))}, and what changed in CommCare HQ runs only ${namesInWords(runs.hq.map(inPlatform))}.`;
-			return `CommCare HQ's version doesn't run everywhere this app does.${where} You can change where this app runs in App settings and check again, or publish over the change.`;
+			return `CommCare HQ's version doesn't run everywhere this app does.${where} You can change where this app runs in App settings${next}`;
 		}
 		default: {
 			const unplaced: never = reason;
@@ -461,6 +598,14 @@ export const HQ_CHANGES_NOTHING_TAKEN_LINE = "Nova brought nothing in.";
 /** A bring-in whose request left a table that asks its choice unanswered. */
 export const HQ_CHANGES_TABLE_CHOICE_MISSING =
 	"A lookup table these changes read needs your choice before Nova can bring them in. You can choose what to do with it in the list of changes.";
+
+/** A bring-in whose request left an owner rule the places cannot satisfy unanswered. */
+export const HQ_CHANGES_OWNER_RULE_MISSING =
+	"A case owner rule in these changes needs your choice before Nova can bring them in. You can choose who owns those cases in the list of changes, or change the places in CommCare HQ and check again.";
+
+/** A bring-in whose request answered an owner rule the review does not ask about. */
+export const HQ_CHANGES_OWNER_RULE_NOT_OFFERED =
+	"One of the owner rule choices sent isn't one this list of changes asks about. The list may have changed, so you can check again and choose again.";
 
 /** A bring-in whose request sent an answer the review does not offer. */
 export const HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED =

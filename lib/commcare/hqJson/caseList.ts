@@ -1,3 +1,13 @@
+import {
+	caseTextKeyVariants,
+	caseTextWireKey,
+} from "../suite/case-list/calculationText";
+import { detailBindings } from "../suite/case-list/detailBindings";
+import {
+	deviceLookupExtraWire,
+	lookupCaseKeyWire,
+} from "../suite/case-list/deviceLookup";
+
 // lib/commcare/hqJson/caseList.ts
 //
 // Per-module case-list HQ JSON projection. Translates a domain
@@ -41,7 +51,10 @@
 //     stay consistent with the suite-XML side via the shared
 //     `PROMPT_ATTRIBUTE_MAPPINGS` table.
 
-import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	type LookupWireNaming,
+	lookupTypeIndexFromNaming,
+} from "@/lib/commcare/lookup/naming";
 import type {
 	BlueprintDoc,
 	CaseListComparator,
@@ -58,31 +71,48 @@ import type {
 	CaseSearchConfig as DomainCaseSearchConfig,
 	Module,
 	SearchInputDef,
+	TileCell,
 	Uuid,
 } from "@/lib/domain";
 import {
 	caseListOrderPlan,
+	caseListWordingUnitId,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	casePropertyShowsOptionLabels,
 	columnFieldText,
 	columnPropertyCaseType,
+	columnSupportsLoadBehavior,
+	DATE_COUNT_DAYS,
 	declaresWebApps,
+	EMPTY_CASE_LIST_ORDER_PLAN,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	imageMapShowsImages,
+	isDedicatedOwnerFilter,
 	makeTranslationUnitId,
+	moduleFormsReadSearch,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
-	searchScreenTitleText,
+	searchOwnerOverride,
 	tileCellFor,
+	translatedDistanceProperty,
 } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import {
+	detailTabForColumn,
+	detailTabSearchChildType,
+	detailTabSpans,
+} from "@/lib/domain/detailTabs";
 import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
 	substituteUnansweredSearchInputs,
 } from "@/lib/domain/expression";
+import { detailColumnRowScope } from "@/lib/domain/expression/detailRowScope";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import type { CalculatedSort } from "@/lib/domain/modules";
 import { type RewriteControl, rewriteWithheld } from "../emissionRewrites";
 import {
 	type ModuleExpressionContexts,
@@ -90,6 +120,7 @@ import {
 } from "../expressionContext";
 import { caseListStepDatumId } from "../formLinkProjection";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
+import { listIconEndpointId } from "../listIconAction";
 import {
 	type CommCareLocalization,
 	commCareLocalization,
@@ -99,7 +130,13 @@ import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
-import { imageMapEnumExpression } from "../suite/case-list/columns";
+import { detailTabConditionWire } from "../suite/case-list/detailTabCondition";
+import { detailTabOrderField } from "../suite/case-list/detailTabOrder";
+import { detailRowExpressionWire } from "../suite/case-list/detailTabRows";
+import { fixtureRowFieldName } from "../suite/case-list/fixtureRowField";
+import { CASE_MAP_FORMATS } from "../suite/case-list/mapLayers";
+import { nativeMappingKeys } from "../suite/case-list/mappingCondition";
+import { namedTileWireSlot } from "../suite/case-list/namedTile";
 import {
 	emitExcludedOwnerFilterExpression,
 	emitNormalizedExcludedOwnerIdsExpression,
@@ -109,14 +146,29 @@ import {
 	caseListOrderOptions,
 	columnProperty,
 	columnStoredAsExpression,
+	hqCalculatedSortExpression,
 	hqEnumPlaceholder,
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
 import { SORT_DIRECTION_WIRE_MAP } from "../suite/case-list/sortKeys";
-import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
-import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
+import {
+	storedTileCell,
+	TILE_VERTICAL_ALIGN_WIRE,
+} from "../suite/case-list/tileStyle";
+import {
+	emitSearchRequestValue,
+	searchRequestKey,
+} from "../suite/case-search/nativeFilters";
+import {
+	projectSearchValues,
+	requiredProjectSearchId,
+} from "../suite/case-search/projectSearch";
+import { includeSearchHierarchy } from "../suite/case-search/relatedCaseProjection";
+import { projectRequestOrder } from "../suite/case-search/requestOrder";
+import { groupedSearchWire } from "../suite/case-search/searchGroups";
 import {
 	type RuntimeCsqlPromptValidation,
+	type SearchPromptAssertion,
 	type SearchPromptSlot,
 	searchPromptWire,
 } from "../suite/case-search/searchPrompts";
@@ -138,7 +190,11 @@ import type {
 	CaseSearchConfig as WireCaseSearchConfig,
 	DetailColumn as WireDetailColumn,
 } from "../types";
-import type { ColumnFieldWordOf, ColumnScreen } from "../wireIdentity";
+import {
+	type ColumnFieldWordOf,
+	type ColumnScreen,
+	DERIVED_WIRE_IDENTITY,
+} from "../wireIdentity";
 import { w } from "../xpath/wire/builders";
 import { toWire } from "../xpath/wire/fromExpression";
 import type { WireExpr } from "../xpath/wire/tree";
@@ -165,6 +221,7 @@ interface ColumnProjectionContext {
 	readonly lookupNaming?: LookupWireNaming;
 	/** The reader's control over each calculated column's print (`CaseListRewrites.column`). */
 	readonly columnRewrites?: ColumnRewrites;
+	readonly mappingRewrites?: CaseListRewrites["mapping"];
 	/** The word each column's property is kept under on each screen, where the export's target holds one. */
 	readonly columnFieldWord?: ColumnFieldWordOf;
 }
@@ -197,36 +254,111 @@ interface ColumnProjectionContext {
  *     local suite writes and sorts by the mapping position
  *     (`detail_screen.py::Enum`).
  *   - `image-map`: `enum-image` wherever `imageMapShowsImages` holds, the
- *     plain column otherwise.
+ *     plain column otherwise; on Results, an icon that submits a form is
+ *     `clickable-icon` naming that form's entry point.
  *   - `link`: `markdown` over the link expression.
  *   - `interval`: `translatable-enum` over the same expression the suite
  *     writes; CCHQ's stock `time-ago` cannot store Nova's threshold text and
  *     its `late-flag` hard-codes `*`.
  */
+/** HQ's spelling of each load behavior (`detail_screen.py::_set_case_list_optimizations`). */
+const HQ_OPTIMIZATION = {
+	cache: "cache",
+	defer: "lazy_load",
+	"cache-and-defer": "cache_and_lazy_load",
+} as const;
+
 function projectColumnToDetail(
 	column: Column,
 	ctx: ColumnProjectionContext,
 	screen: "results" | "details",
 ): WireDetailColumn<HqXPath> {
+	const projected = projectColumnBody(column, ctx, screen);
+	const behavior = "loadBehavior" in column ? column.loadBehavior : undefined;
+	return behavior !== undefined &&
+		ctx.mod.caseListConfig?.optimizations === true &&
+		columnSupportsLoadBehavior(column)
+		? { ...projected, optimization: HQ_OPTIMIZATION[behavior] }
+		: projected;
+}
+
+function projectColumnBody(
+	column: Column,
+	ctx: ColumnProjectionContext,
+	screen: "results" | "details",
+): WireDetailColumn<HqXPath> {
 	const { doc, localization, mod } = ctx;
+	const mappingKeys = (rows: Parameters<typeof nativeMappingKeys>[1]) =>
+		nativeMappingKeys(
+			column.uuid,
+			rows,
+			{
+				expressions: ctx.expressions,
+				lookupNaming: ctx.lookupNaming,
+				inline: moduleFormsReadSearch(mod),
+			},
+			(rowUuid) => ctx.mappingRewrites?.(column.uuid, rowUuid),
+		).map((key) => (typeof key === "string" ? key : hqXPath(key, "enum-key")));
 	const headerRecord = localization.textMap(
 		makeTranslationUnitId("column", column.uuid, "header"),
 	);
-	const expressionField = () =>
-		hqXPath(
-			hqExpressionField(
-				column,
-				mod,
-				doc,
-				screen,
-				ctx.lookupNaming,
-				ctx.expressions,
-				ctx.columnRewrites?.(column.uuid),
-			),
+	const expressionWire = () =>
+		hqExpressionField(
+			column,
+			mod,
+			doc,
+			screen,
+			ctx.lookupNaming,
+			ctx.expressions,
+			ctx.columnRewrites?.(column.uuid),
 		);
-
+	const expressionField = () => hqXPath(expressionWire());
 	if (column.kind === "calculated") {
-		return detailColumn(expressionField(), headerRecord);
+		const wire = expressionWire();
+		const field = hqXPath(wire);
+		const direct =
+			screen === "details"
+				? fixtureRowFieldName(
+						column,
+						wire,
+						ctx.columnFieldWord?.(column.uuid, "long"),
+					)
+				: undefined;
+		const source = translatedDistanceProperty(column);
+		const base = detailColumn(
+			direct ??
+				(source
+					? hqColumnFieldText(
+							columnFieldText(source),
+							ctx.columnFieldWord?.(
+								column.uuid,
+								screen === "results" ? "short" : "long",
+							),
+						)
+					: field),
+			headerRecord,
+		);
+		if (column.texts !== undefined) {
+			const variants = caseTextKeyVariants(field.expression, column.texts);
+			return {
+				...base,
+				format: "translatable-enum",
+				enum: column.texts.map((piece) => ({
+					key: caseTextWireKey(piece.uuid, variants.get(piece.uuid)),
+					value: localization.textMap(
+						makeTranslationUnitId(
+							"column",
+							column.uuid,
+							"calculation-text",
+							piece.uuid,
+						),
+					),
+				})),
+			};
+		}
+		return column.showAs === "formatted-text"
+			? { ...base, format: "markdown" }
+			: base;
 	}
 
 	// A column over `case_id` is the expression reading it, through the
@@ -246,15 +378,21 @@ function projectColumnToDetail(
 				),
 				headerRecord,
 			);
-	const propertyCaseType =
-		columnPropertyCaseType(column, mod.caseType, ctx.caseTypes) ??
-		mod.caseType ??
-		"";
+	const propertyCaseType = columnPropertyCaseType(
+		column,
+		mod.caseType,
+		ctx.caseTypes,
+	);
 
 	switch (column.kind) {
 		case "plain": {
 			const property = columnProperty(column, mod, ctx.caseTypes);
-			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
+			if (
+				propertyCaseType === undefined ||
+				column.showChoice === "saved-value" ||
+				property === undefined ||
+				!casePropertyShowsOptionLabels(property)
+			) {
 				return base;
 			}
 			const options = property.options ?? [];
@@ -276,30 +414,58 @@ function projectColumnToDetail(
 				})),
 			};
 		}
+		case "worker-distance":
+			return { ...base, format: "distance" };
+		case "map-location":
+			return { ...base, format: "address" };
+		case "map-layer":
+			return { ...base, format: CASE_MAP_FORMATS[column.layer].hq };
+		case "formatted-text":
+			return { ...base, format: "markdown" };
+		case "overdue-marker":
+			return { ...base, format: "late-flag", late_flag: column.afterDays };
+		case "date-count":
+			return {
+				...base,
+				format: "time-ago",
+				time_ago_interval: DATE_COUNT_DAYS[column.period],
+			};
 		case "date":
 			return { ...base, format: "date", date_format: column.pattern };
 		case "phone":
 			return { ...base, format: "phone" };
-		case "id-mapping":
+		case "id-mapping": {
+			const value = (entry: (typeof column.mapping)[number]) =>
+				localization.textMap(
+					caseMappingTextUnit(column.uuid, entry, "mapping"),
+				);
 			// HQ keys each entry by its value and builds the display
 			// `replace(join(' ', if(selected(<xpath>, '<key>'), $k<key>, ''), …),
 			// '\s+', ' ')` and the sort `if(selected(<xpath>, '<key>'), 0, …'')`
-			// itself (`suite_xml/xml_models.py::XPathEnum.build`).
+			// itself (`suite_xml/xml_models.py::XPathEnum.build`). A first-match
+			// mapping is HQ's ordered conditions (`detail_screen.py::ConditionalEnum`).
+			if (column.behavior === "first-match") {
+				const keys = mappingKeys(
+					column.mapping.map((entry) => ({ ...entry, match: "exact" })),
+				);
+				return {
+					...base,
+					format: "conditional-enum",
+					enum: column.mapping.map((entry, index) => ({
+						key: keys[index],
+						value: value(entry),
+					})),
+				};
+			}
 			return {
 				...base,
 				format: "enum",
 				enum: column.mapping.map((entry) => ({
-					key: entry.value,
-					value: localization.textMap(
-						makeTranslationUnitId(
-							"column",
-							column.uuid,
-							"mapping",
-							entry.value,
-						),
-					),
+					key: entry.value ?? "",
+					value: value(entry),
 				})),
 			};
+		}
 		case "image-map": {
 			// `enum-image` shares the id-mapping `enum` shape, but each
 			// entry's value is the IMAGE path (`{lang: jr://...}`), not a
@@ -307,18 +473,38 @@ function projectColumnToDetail(
 			// 'image'`). A map with no entries names no path, so it is the
 			// image column with a manifest and without one.
 			if (!imageMapShowsImages(column, ctx.mediaOn)) return base;
+			const keys = mappingKeys(column.mapping);
+			// Only the case list runs an icon's action, so the case detail
+			// keeps the image (`menus-and-case-lists/16pp-…`).
+			const action =
+				screen === "results" && column.entryPointUuid !== undefined
+					? {
+							format: "clickable-icon" as const,
+							endpoint_action_id: listIconEndpointId(
+								ctx.doc,
+								column.entryPointUuid,
+							),
+						}
+					: { format: "enum-image" as const };
 			return {
 				...base,
-				format: "enum-image",
-				enum: column.mapping.map((entry) => ({
-					key: hqXPath(imageMapEnumExpression(entry.value), "enum-key"),
+				...action,
+				enum: column.mapping.map((entry, index) => ({
+					key: keys[index],
+					...(entry.altText !== undefined && {
+						alt_text: localization.textMap(
+							caseMappingTextUnit(column.uuid, entry, "image-description"),
+						),
+					}),
 					value: repeatForLanguages(
 						localization.languages,
-						requireAssetRef(
-							entry.assetId,
-							ctx.assets ?? new Map(),
-							"projectColumnToDetail image-map",
-						),
+						entry.assetId === undefined
+							? ""
+							: requireAssetRef(
+									entry.assetId,
+									ctx.assets ?? new Map(),
+									"projectColumnToDetail image-map",
+								),
 					),
 				})),
 			};
@@ -470,8 +656,9 @@ function hqJoinText(
  *     and makes the header of a carrier (`util.py::create_temp_sort_column`);
  *     otherwise the first language's wire code with empty text, which the
  *     save adds where it is missing.
- *   - `sort_calculation`: always empty; the save empties it unless the
- *     project has `SORT_CALCULATION_IN_CASE_LIST`.
+ *   - `sort_calculation`: the independent rule's expression beside an empty
+ *     field. HQ saves it under `SORT_CALCULATION_IN_CASE_LIST`. A column rule
+ *     leaves it empty.
  *
  * An unsorted list whose first field is shown writes `[]`, and HQ's build
  * adds its default element for field 0
@@ -485,6 +672,7 @@ function projectSortElements(
 		via: ColumnVia | undefined,
 	) => CaseProperty["data_type"],
 	columnFieldWord: ColumnFieldWordOf | undefined,
+	calculation: (sort: CalculatedSort) => HqXPath,
 ): SortElement<HqXPath>[] {
 	const written: {
 		readonly rule: CaseListOrderRule;
@@ -507,17 +695,13 @@ function projectSortElements(
 		),
 		...plan.carriers.map((carrier) => ({
 			rule: carrier.rule,
-			key: {
-				kind: "property" as const,
-				property: carrier.field,
-				...(carrier.via !== undefined && { via: carrier.via }),
-			},
+			key: carrier.key,
 			comparator: carrier.comparator,
 		})),
 	].filter((entry) => entry.rule.written);
-	return written
-		.sort((a, b) => a.rule.order - b.rule.order)
-		.map(({ rule, key, comparator, word }) => ({
+	const ordinary = written.map(({ rule, key, comparator, word }) => ({
+		order: rule.order,
+		value: {
 			field:
 				rule.element.kind === "property"
 					? hqColumnFieldText(rule.element.property, word)
@@ -526,8 +710,55 @@ function projectSortElements(
 			direction: SORT_DIRECTION_WIRE_MAP[rule.direction],
 			blanks: rule.blanks,
 			display: sortDisplay(rule, localization),
-			sort_calculation: "",
-		}));
+			sort_calculation: "" as const,
+		},
+	}));
+	// HQ keys independent rules by their literal calculation text. Give
+	// distinct choices over the same typed value distinct, equivalent texts.
+	const used = new Set<string>();
+	const calculated = plan.calculations.map(
+		({ order, sort, comparator, blanks }) => {
+			let wire = calculation(sort);
+			let text = hqXPathText(wire);
+			while (used.has(text)) {
+				wire = hqXPath(w.paren(wire.expression), wire.interpolation);
+				text = hqXPathText(wire);
+			}
+			used.add(text);
+			return {
+				order,
+				value: {
+					field: "",
+					type:
+						comparator === "integer"
+							? "int"
+							: comparator === "decimal"
+								? "double"
+								: "plain",
+					direction: SORT_DIRECTION_WIRE_MAP[sort.direction],
+					blanks,
+					display:
+						sort.label === undefined
+							? { [localization.languages[0] ?? "en"]: "" }
+							: localization.textMap(
+									makeTranslationUnitId("case-sort", sort.uuid, "label"),
+								),
+					sort_calculation: wire,
+				},
+			};
+		},
+	);
+	const effective = [...ordinary, ...calculated].sort(
+		(a, b) => a.order - b.order,
+	);
+	const byOrder = new Map(effective.map((row) => [row.order, row.value]));
+	return [
+		...plan.introductionOrders.flatMap((order) => {
+			const value = byOrder.get(order);
+			return value === undefined ? [] : [value];
+		}),
+		...effective.map((row) => row.value),
+	];
 }
 
 /** A written rule's `display`: its name in Sort by, or none. */
@@ -551,8 +782,10 @@ function sortElementType(
 		property: string,
 		via: ColumnVia | undefined,
 	) => CaseProperty["data_type"],
-): "plain" | "date" | "int" | "double" {
+): "plain" | "date" | "int" | "double" | "distance" {
 	if (rule.implicit) return "plain";
+	if (key?.kind === "distance-property" || key?.kind === "distance-calculated")
+		return "distance";
 	if (comparator === "integer") return "int";
 	if (comparator === "decimal") return "double";
 	if (key?.kind === "property") {
@@ -686,7 +919,9 @@ export function projectSearchButtonCondition(
  * list and prints as an export prints it. An export passes none.
  */
 export interface CaseListRewrites {
+	readonly mapping?: (column: Uuid, row: Uuid) => RewriteControl | undefined;
 	readonly column?: ColumnRewrites;
+	readonly sort?: (uuid: Uuid) => RewriteControl | undefined;
 	readonly filter?: () => RewriteControl | undefined;
 }
 
@@ -703,6 +938,10 @@ export type SearchConfigRewrites = (
 	ref:
 		| {
 				readonly slot: "search_button_display_condition" | "excluded_owner_ids";
+		  }
+		| {
+				readonly slot: "project_search_parameter";
+				readonly parameterUuid: Uuid;
 		  }
 		| { readonly slot: SearchPromptSlot; readonly searchInputUuid: string },
 ) => RewriteControl | undefined;
@@ -734,6 +973,7 @@ function projectSearchInput(
 	lookupNaming?: LookupWireNaming,
 	inputInstanceId?: `search-input:${string}`,
 	rewrites?: SearchConfigRewrites,
+	allInputs: readonly SearchInputDef[] = [],
 ): CaseSearchProperty<HqXPath> {
 	const wire = searchPromptWire(
 		input,
@@ -744,6 +984,7 @@ function projectSearchInput(
 		rewrites === undefined
 			? undefined
 			: (slot) => rewrites({ slot, searchInputUuid: input.uuid }),
+		allInputs,
 	);
 	const property: CaseSearchProperty<HqXPath> = {
 		name: wire.key,
@@ -754,6 +995,7 @@ function projectSearchInput(
 	}
 	if (wire.input !== undefined) property.input_ = wire.input;
 	if (wire.appearance !== undefined) property.appearance = wire.appearance;
+	if (wire.receive !== undefined) property.receiver_expression = wire.receive;
 	if (wire.defaultValue !== undefined) {
 		property.default_value = hqXPath(wire.defaultValue);
 	}
@@ -761,6 +1003,7 @@ function projectSearchInput(
 	// semantics, so a `true` value persists and an absent key reads false.
 	if (wire.hidden) property.hidden = true;
 	if (wire.exclude) property.exclude = true;
+	if (wire.allowBlank) property.allow_blank_value = true;
 	if (wire.itemset !== undefined) {
 		property.itemset = {
 			instance_id: wire.itemset.instanceId,
@@ -770,17 +1013,24 @@ function projectSearchInput(
 			sort: hqXPath(wire.itemset.sort),
 		};
 	}
+	// A check with no text of its own (`searchPrompts.ts::SearchPromptAssertion.message`) stores
+	// an empty map, as HQ's Case List page saves a blank message in every language.
+	const textOf = (message: SearchPromptAssertion["message"]) =>
+		message === undefined ||
+		(Array.isArray(message.source) && message.source.length === 0)
+			? {}
+			: localization.textMapFor(message.source);
 	if (wire.required !== undefined) {
 		property.required = {
 			test: hqXPath(wire.required.test, "no-case"),
-			text: localization.textMapFor(wire.required.message.source),
+			text: textOf(wire.required.message),
 		};
 	}
 	if (wire.validation !== undefined) {
 		property.validations = [
 			{
 				test: hqXPath(wire.validation.test, "no-dots"),
-				text: localization.textMapFor(wire.validation.message.source),
+				text: textOf(wire.validation.message),
 			},
 		];
 	}
@@ -796,7 +1046,7 @@ function projectSearchInput(
  * implicit case-property match.
  */
 function projectSearchProperties(
-	searchInputs: ReadonlyArray<SearchInputDef>,
+	config: CaseListConfig | undefined,
 	runtimeValidations: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
 	localization: CommCareLocalization,
 	expressions: ModuleExpressionContexts,
@@ -804,21 +1054,30 @@ function projectSearchProperties(
 	inputInstanceId?: `search-input:${string}`,
 	rewrites?: SearchConfigRewrites,
 ): CaseSearchProperty<HqXPath>[] {
-	const out: CaseSearchProperty<HqXPath>[] = [];
-
-	// Search prompts render in searchInputs array order.
-	for (const input of searchInputs) {
-		out.push(
-			projectSearchInput(
-				input,
-				runtimeValidations.get(input.name),
-				localization,
-				expressions,
-				lookupNaming,
-				inputInstanceId,
-				rewrites,
-			),
+	const inputs = config?.searchInputs ?? [];
+	const project = (input: SearchInputDef) =>
+		projectSearchInput(
+			input,
+			runtimeValidations.get(input.name),
+			localization,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			rewrites,
+			inputs,
 		);
+	if (!config?.searchInputGroups) return inputs.map(project);
+
+	const out: CaseSearchProperty<HqXPath>[] = [];
+	for (const group of groupedSearchWire(inputs, config.searchInputGroups)) {
+		out.push({
+			name: group.key,
+			is_group: true,
+			group_key: group.key,
+			label: localization.textMapFor(group.labelUnit),
+		});
+		for (const input of group.inputs)
+			out.push({ ...project(input), group_key: group.key });
 	}
 	return out;
 }
@@ -904,13 +1163,15 @@ function projectDefaultProperties(
 function buildSearchConfigDocument(
 	caseSearchConfig: OrdinaryCaseSearchConfig | undefined,
 	caseListConfig: CaseListConfig | undefined,
-	_caseType: string | undefined,
+	caseType: string | undefined,
+	searchResultsName: string | undefined,
 	moduleUuid: string,
 	localization: CommCareLocalization,
 	expressions: ModuleExpressionContexts,
 	lookupNaming: LookupWireNaming | undefined,
 	datumId: (ref: DatumRef) => string | undefined,
 	runsInWebApps: boolean,
+	projectSearchId: number | undefined,
 	rewrites?: SearchConfigRewrites,
 ): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
@@ -918,10 +1179,15 @@ function buildSearchConfigDocument(
 	// CCHQ-default baseline lives in one file (any future CCHQ
 	// upstream default change is a one-edit fix).
 	const config = caseSearchConfigShell(localization.languages, runsInWebApps);
+	if (searchResultsName !== undefined) config.instance_name = searchResultsName;
+	if (caseListConfig?.additionalCaseTypes?.length)
+		config.additional_case_types = [
+			...caseListConfig.additionalCaseTypes,
+		].sort();
 	const wire =
 		caseSearchConfig === undefined
 			? undefined
-			: searchWireShape(caseSearchConfig);
+			: searchWireShape(caseSearchConfig, searchResultsName);
 	// Core's answer instance is named after the query's storage instance.
 	// Keep the HQ prompt rules, query operands and owner exclusion on the
 	// same instance that the local suite's Search session supplies.
@@ -929,15 +1195,20 @@ function buildSearchConfigDocument(
 		wire === undefined ? undefined : searchInputInstanceId(wire);
 
 	if (caseSearchConfig !== undefined) {
+		if (caseSearchConfig.searchOnClear === true) config.search_on_clear = true;
 		// Use Nova's shared friendly default so a fresh search never inherits
 		// CCHQ's blank or case-type-derived chrome on either wire path. A
-		// search with no title keeps the shell's blank in every language, the
-		// map HQ's Case List page leaves where nothing was typed.
-		if (searchScreenTitleText(caseSearchConfig) !== null) {
-			config.title_label = localization.textMap(
-				makeTranslationUnitId("module", moduleUuid, "search-title"),
-			);
-		}
+		// search with no title is blank in every language that holds none of
+		// its own, the map HQ's Case List page leaves where nothing was typed;
+		// a language that shows a heading of its own writes it. HQ's build
+		// shows a language's own title, else the first language's
+		// (`app_strings.py::_create_case_search_app_strings`,
+		// `create_default_app_strings`), and Nova's gate admits a title blank
+		// in a language only where the first language's is blank too
+		// (`searchTitleBlankBesideFirst`), so each language shows what it holds.
+		config.title_label = localization.textMap(
+			makeTranslationUnitId("module", moduleUuid, "search-title"),
+		);
 		if (
 			caseSearchConfig.searchScreenSubtitle !== undefined &&
 			caseSearchConfig.searchScreenSubtitle !== ""
@@ -960,7 +1231,29 @@ function buildSearchConfigDocument(
 				rewrites?.({ slot: "search_button_display_condition" }),
 			);
 		}
-		if (caseSearchConfig.excludedOwnerIds !== undefined) {
+		if (caseSearchConfig.requestOrder !== undefined)
+			config.custom_sort_properties = projectRequestOrder(
+				caseSearchConfig.requestOrder,
+			);
+		// The search's own owner exclusion replaces the shared rule for the
+		// search; a default-filter one goes out among the default filters, and
+		// the shared rule then stays off the search so HQ never reads the key
+		// twice (`SearchCriteria._validate_multiple_terms`).
+		const override = searchOwnerOverride(caseListConfig);
+		if (override !== undefined && isDedicatedOwnerFilter(override)) {
+			config.blacklisted_owner_ids_expression = hqXPath(
+				emitSearchRequestValue(
+					override,
+					expressions,
+					inputInstanceId,
+					lookupNaming,
+					datumId,
+				),
+			);
+		} else if (
+			override === undefined &&
+			caseSearchConfig.excludedOwnerIds !== undefined
+		) {
 			config.blacklisted_owner_ids_expression = hqXPath(
 				emitNormalizedExcludedOwnerIdsExpression(
 					caseSearchConfig.excludedOwnerIds,
@@ -979,17 +1272,41 @@ function buildSearchConfigDocument(
 	// `{}`; when it is still undefined this is an ordinary on-device list and
 	// must not acquire a dormant `_xpath_query` merely because the list has a
 	// filter.
-	if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
+	if (caseSearchConfig?.projectSearch) {
+		if (projectSearchId !== undefined)
+			config.case_search_endpoint_id = requiredProjectSearchId(projectSearchId);
+		config.properties = projectSearchProperties(
+			caseListConfig,
+			new Map(),
+			localization,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			rewrites,
+		);
+		config.default_properties = projectSearchValues(
+			caseSearchConfig.projectSearch,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			datumId,
+			(uuid) =>
+				rewrites?.({ slot: "project_search_parameter", parameterUuid: uuid }),
+		).map(({ name, value }) => ({
+			property: name,
+			defaultValue: hqXPath(value),
+		}));
+	} else if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
 		const xpathQueryEmission = composeXPathQueryEmission(
 			caseListConfig,
-			_caseType,
+			caseType,
 			expressions,
 			lookupNaming,
 			inputInstanceId,
 			datumId,
 		);
 		config.properties = projectSearchProperties(
-			caseListConfig.searchInputs,
+			caseListConfig,
 			buildRuntimeCsqlPromptValidations(xpathQueryEmission),
 			localization,
 			expressions,
@@ -999,9 +1316,29 @@ function buildSearchConfigDocument(
 		);
 		// A search with no input and no clause carries the zero-input
 		// sentinel, as the local suite's query does.
-		config.default_properties = projectDefaultProperties(
-			xpathQueryRequestValues(caseListConfig, xpathQueryEmission),
-		);
+		if (caseSearchConfig?.relatedRecordIdProperty) {
+			config.custom_related_case_property =
+				caseSearchConfig.relatedRecordIdProperty;
+		}
+		config.default_properties = [
+			...(caseListConfig.searchFilters ?? [])
+				.filter((row) => !isDedicatedOwnerFilter(row))
+				.map((filter) => ({
+					property: searchRequestKey(filter),
+					defaultValue: hqXPath(
+						emitSearchRequestValue(
+							filter,
+							expressions,
+							inputInstanceId,
+							lookupNaming,
+							datumId,
+						),
+					),
+				})),
+			...projectDefaultProperties(
+				xpathQueryRequestValues(caseListConfig, xpathQueryEmission),
+			),
+		];
 	}
 
 	// `searchWireShape`'s three-flag `WireShape` projects onto the
@@ -1017,10 +1354,15 @@ function buildSearchConfigDocument(
 		config.default_search = wire.defaultSearch;
 		config.inline_search = wire.inlineSearch;
 	}
-	if (wire !== undefined && caseListConfig !== undefined) {
-		config.include_all_related_cases = searchNeedsSupportingCases(
+	if (
+		wire !== undefined &&
+		caseListConfig !== undefined &&
+		!caseSearchConfig?.projectSearch
+	) {
+		config.include_all_related_cases = includeSearchHierarchy(
 			caseListConfig,
 			expressions,
+			caseSearchConfig?.relatedRecords,
 		);
 	}
 
@@ -1118,6 +1460,8 @@ export function projectCaseListForHq(
 	searchRewrites?: SearchConfigRewrites,
 	listRewrites?: CaseListRewrites,
 	columnFieldWord?: ColumnFieldWordOf,
+	moduleUniqueId: (uuid: Uuid) => string = DERIVED_WIRE_IDENTITY.moduleUniqueId,
+	projectSearchId?: number,
 ): CaseListHqProjection {
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
@@ -1138,6 +1482,7 @@ export function projectCaseListForHq(
 		...(lookupNaming !== undefined && { lookupNaming }),
 		...(listRewrites?.column !== undefined && {
 			columnRewrites: listRewrites.column,
+			mappingRewrites: listRewrites.mapping,
 		}),
 		...(columnFieldWord !== undefined && { columnFieldWord }),
 	};
@@ -1147,7 +1492,7 @@ export function projectCaseListForHq(
 	// positional sort element indexes the short one.
 	const plan =
 		caseListConfig === undefined
-			? { fields: [], carriers: [], authored: [] }
+			? EMPTY_CASE_LIST_ORDER_PLAN
 			: caseListOrderPlan(
 					caseListConfig,
 					caseProperties,
@@ -1167,8 +1512,45 @@ export function projectCaseListForHq(
 		plan.fields.length > 0
 			? plan.fields.map((field) => projectColumnForShortDetail(field, ctx))
 			: emptyShortListColumns(localization.languages);
-	const longColumns = longSourceColumns.map((column) =>
-		projectColumnToDetail(column, ctx, "details"),
+	const lookupTypes = lookupTypeIndexFromNaming(lookupNaming);
+	const longColumns = longSourceColumns.map(
+		(column): WireDetailColumn<HqXPath> => {
+			const owner = detailTabForColumn(caseListConfig, column.uuid);
+			const row = detailColumnRowScope(doc, mod, column, lookupTypes);
+			const child = row?.kind === "case" ? row.caseType : undefined;
+			if (owner?.orderFields?.includes(column.uuid)) {
+				const field = detailTabOrderField(
+					column,
+					mod,
+					doc,
+					lookupNaming,
+					columnFieldWord,
+				);
+				const header = localization.textMap(
+					makeTranslationUnitId("column", column.uuid, "header"),
+				);
+				return {
+					...detailColumn(
+						typeof field === "string" ? field : hqXPath(field),
+						header,
+					),
+					format: "invisible" satisfies DetailColumnFormat,
+				};
+			}
+			return projectColumnToDetail(
+				column,
+				child
+					? {
+							...ctx,
+							mod: { ...mod, caseType: child },
+							caseProperties:
+								ctx.caseTypes.find((type) => type.name === child)?.properties ??
+								[],
+						}
+					: ctx,
+				"details",
+			);
+		},
 	);
 	// HQ's build writes this filter into each chain datum's nodeset before
 	// it aligns a child entry with its root menu, then renames session
@@ -1193,6 +1575,97 @@ export function projectCaseListForHq(
 	// comes from the raw config because disabling Search must not widen the
 	// ordinary case list.
 	const pair = detailPair(shortColumns, longColumns);
+	const context = caseListConfig?.contextAboveForm;
+	if (context?.kind === "menu-tile")
+		pair.short.persistent_case_tile_from_module = moduleUniqueId(
+			context.moduleUuid,
+		);
+	if (context && context.kind !== "line" && context.expandDetails)
+		pair.short.pull_down_tile = true;
+	// HQ's Case List page keeps another menu's tile expanded above the forms only with this
+	// menu's persistence switched on: its save writes the pull-down off otherwise
+	// (`details/bootstrap5/screen.js`, `enableTilePullDown`). Its build reads the source menu
+	// first (`entries.py::get_detail_persistent_attr`, `get_detail_inline_attr`), so the switch
+	// changes nothing it builds.
+	if (context?.kind === "menu-tile" && context.expandDetails)
+		pair.short.persist_tile_on_forms = true;
+	const expression = caseContextLine(context);
+	if (expression) {
+		pair.short.persist_case_context = true;
+		pair.short.persistent_case_context_xml = hqXPath(
+			toWire(expression, {
+				target: "hq-json",
+				root: "casedb",
+				types: expressions({ slot: "case_form_context_line" }),
+				bindings: {
+					...detailBindings(doc, mod),
+					...(lookupNaming && {
+						lookup: { naming: lookupNaming, instanceScope: "suite" },
+					}),
+				},
+			}),
+		);
+	}
+	if (caseListConfig?.detailTabs) {
+		const spans = detailTabSpans(caseListConfig.detailTabs, longSourceColumns);
+		if (!spans)
+			throw new Error("The detail tabs do not cover the fields shown.");
+		pair.long.tabs = spans.map(({ tab, start }) => ({
+			doc_type: "DetailTab",
+			isTab: true,
+			header: localization.textMap(
+				makeTranslationUnitId("detail-tab", tab.uuid, "title"),
+			),
+			starting_index: start,
+			has_nodeset: tab.rowSource !== undefined,
+			...(detailTabSearchChildType(tab) && {
+				nodeset_case_type: detailTabSearchChildType(tab),
+			}),
+			...(tab.rowSource?.kind === "children" && {
+				...(tab.rowSource.condition && {
+					nodeset_filter: hqXPath(
+						detailRowExpressionWire(
+							tab.rowSource.condition,
+							tab.uuid,
+							"case_detail_tab_filter",
+							"hq-json",
+							"casedb",
+							expressions,
+							lookupNaming,
+							detailBindings(doc, mod),
+						),
+					),
+				}),
+			}),
+			...(tab.rowSource?.kind === "records" && {
+				nodeset: hqXPath(
+					detailRowExpressionWire(
+						tab.rowSource.rows,
+						tab.uuid,
+						"case_detail_tab_rows",
+						"hq-json",
+						"casedb",
+						expressions,
+						lookupNaming,
+						detailBindings(doc, mod),
+					),
+				),
+			}),
+			...(tab.displayCondition && {
+				relevant: hqXPath(
+					detailTabConditionWire(
+						tab.displayCondition,
+						tab.uuid,
+						expressions,
+						"hq-json",
+						"casedb",
+						lookupNaming,
+						detailBindings(doc, mod),
+					),
+				),
+			}),
+		}));
+	}
 	pair.short.sort_elements = projectSortElements(
 		plan,
 		localization,
@@ -1206,24 +1679,83 @@ export function projectCaseListForHq(
 				caseTypes,
 			)?.data_type,
 		columnFieldWord,
+		(sort) =>
+			hqXPath(
+				hqCalculatedSortExpression(
+					sort,
+					mod,
+					doc,
+					expressions,
+					lookupNaming,
+					listRewrites?.sort?.(sort.uuid),
+				),
+			),
 	);
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {
 		pair.short.multi_select = true;
+		if (caseListConfig.selection.autoSelect) pair.short.auto_select = true;
 		pair.short.max_select_value = caseListConfig.selection.maximum;
 	}
+	const deviceLookup = caseListConfig?.deviceLookup;
+	if (deviceLookup !== undefined) {
+		pair.short.lookup_enabled = true;
+		pair.short.lookup_action = deviceLookup.action;
+		pair.short.lookup_name = deviceLookup.label;
+		if (deviceLookup.icon !== undefined && assets !== undefined)
+			pair.short.lookup_image = requireAssetRef(
+				deviceLookup.icon,
+				assets,
+				"case-list lookup icon",
+			);
+		if (deviceLookup.resultHeading !== undefined) {
+			pair.short.lookup_display_results = true;
+			pair.short.lookup_field_header = localization.textMap(
+				caseListWordingUnitId(mod.uuid, "lookup"),
+			);
+			pair.short.lookup_field_template = hqXPath(lookupCaseKeyWire());
+		}
+		pair.short.lookup_autolaunch = deviceLookup.automatic === true;
+		pair.short.lookup_extras = deviceLookup.extras.map((extra) => ({
+			key: extra.name,
+			value: hqXPath(deviceLookupExtraWire(extra)),
+		}));
+		pair.short.lookup_responses = deviceLookup.responses.map((key) => ({
+			key,
+		}));
+	}
+	// The list's own texts, which HQ's build writes as `m<N>_no_items_text`
+	// (under `USH_EMPTY_CASE_LIST_TEXT`) and `m<N>_select_text` in every
+	// language (`app_strings.py::_create_module_details_app_strings`).
+	if (caseListConfig?.emptyText !== undefined)
+		pair.short.no_items_text = localization.textMap(
+			caseListWordingUnitId(mod.uuid, "empty"),
+		);
+	if (caseListConfig?.selectButtonText !== undefined)
+		pair.short.select_text = localization.textMap(
+			caseListWordingUnitId(mod.uuid, "select"),
+		);
 	applyTileLayoutToShortDetail(pair.short, caseListConfig?.tile, plan.fields);
+	if (caseListConfig?.detailTile) {
+		pair.long.case_tile_template = "custom";
+		for (const [i, column] of longSourceColumns.entries()) {
+			const cell = caseListConfig.detailTile.cells[column.uuid];
+			if (cell) writeTileCell(pair.long.columns[i], cell);
+		}
+	}
 
 	const searchConfig = buildSearchConfigDocument(
 		caseSearchConfig,
 		caseListConfig,
 		mod.caseType,
+		mod.searchResultsName,
 		mod.uuid,
 		localization,
 		expressions,
 		lookupNaming,
 		caseListStepDatumId(doc, mod.uuid, "id"),
 		declaresWebApps(doc),
+		projectSearchId,
 		searchRewrites,
 	);
 
@@ -1276,7 +1808,9 @@ function applyTileLayoutToShortDetail(
 	fields: readonly CaseListShortField[],
 ): void {
 	if (tile === undefined) return;
-	shortDetail.case_tile_template = "custom";
+	shortDetail.case_tile_template = tile.namedSlots
+		? "icon_text_grid"
+		: "custom";
 	if (tile.persistOnForms === true) shortDetail.persist_tile_on_forms = true;
 	if (tile.grouping !== undefined) {
 		shortDetail.case_tile_group = {
@@ -1286,19 +1820,34 @@ function applyTileLayoutToShortDetail(
 		};
 	}
 	for (const [index, field] of fields.entries()) {
-		const cell = tileCellFor(field.column, tile);
 		const target = shortDetail.columns[index];
+		if (tile.namedSlots && target) {
+			target.case_tile_field =
+				namedTileWireSlot(tile.namedSlots, field.column.uuid) ?? null;
+			continue;
+		}
+		const cell = tileCellFor(field.column, tile);
 		if (cell === undefined || target === undefined) continue;
-		target.grid_x = cell.x;
-		target.grid_y = cell.y;
-		target.width = cell.width;
-		target.height = cell.height;
-		target.horizontal_align = cell.horizontalAlign;
-		target.vertical_align = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
-		target.font_size = cell.fontSize;
-		if (cell.showBorder !== undefined) target.show_border = cell.showBorder;
-		if (cell.showShading !== undefined) target.show_shading = cell.showShading;
+		writeTileCell(target, cell);
 	}
+}
+
+function writeTileCell(
+	target: WireDetailColumn<HqXPath>,
+	cell: TileCell,
+): void {
+	target.grid_x = cell.x;
+	target.grid_y = cell.y;
+	target.width = cell.width;
+	target.height = cell.height;
+	target.horizontal_align = cell.horizontalAlign;
+	target.vertical_align = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
+	target.font_size = cell.fontSize;
+	// A switch that is off is no switch, as HQ keeps it (`storedTileCell`).
+	const stored = storedTileCell(cell);
+	if (stored.showBorder !== undefined) target.show_border = stored.showBorder;
+	if (stored.showShading !== undefined)
+		target.show_shading = stored.showShading;
 }
 
 // Re-export the per-column projection so tests can pin per-kind

@@ -34,6 +34,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { normalizedKey } from "@/lib/lookup/orderKeys";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	assertLocationOwnerTargetsValid,
@@ -42,12 +43,7 @@ import {
 } from "./commitIntegrity";
 import { OrganizationError, organizationNotFound } from "./errors";
 import { boundedLocationOrderKeyAtIndex } from "./orderKeys";
-import {
-	fixedLocationOwnerIssue,
-	type OwnerVerdictLocation,
-	ownerVerdictRows,
-	reverseLocationOwnerIssue,
-} from "./ownerTargetVerdicts";
+import { fixedLocationOwnerIssue } from "./ownerTargetVerdicts";
 import {
 	ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH,
 	assertSiteCodeFree,
@@ -56,10 +52,14 @@ import {
 	canonicalCoordinate,
 	deriveSiteCode,
 	locationValuesSchema,
-	MAX_LOCATIONS_PER_APP,
 	parseOrganizationRevision,
 	type UpdateLocationInput,
 } from "./schema";
+import { toPublicLocation, toStoredLocation } from "./storedLocation";
+import {
+	storedOwnerPaths,
+	storedReverseOwnerVerdict,
+} from "./storedOwnerVerdict";
 import type {
 	ArchiveImpact,
 	OrganizationRevision,
@@ -77,23 +77,6 @@ import {
 } from "./writerTransaction";
 
 type LocationRow = Selectable<AppLocationsTable>;
-
-function toStoredLocation(row: LocationRow): StoredLocation {
-	return {
-		id: asUuid(row.id),
-		levelUuid: row.level_uuid,
-		parentId: row.parent_id === null ? null : asUuid(row.parent_id),
-		siteCode: row.site_code,
-		name: row.name,
-		externalId: row.external_id,
-		latitude: row.latitude === null ? null : canonicalCoordinate(row.latitude),
-		longitude:
-			row.longitude === null ? null : canonicalCoordinate(row.longitude),
-		values: row.values,
-		archivedAt: row.archived_at,
-		orderKey: row.order_key,
-	};
-}
 
 /**
  * Read the whole organization at one revision.
@@ -114,6 +97,7 @@ function toStoredLocation(row: LocationRow): StoredLocation {
 async function readOrganizationInTransaction(
 	tx: Transaction<AppDatabase>,
 	scope: OrganizationScope,
+	includeSource = false,
 ): Promise<{
 	readonly access: Awaited<ReturnType<typeof resolveAppScopeInTransaction>>;
 	readonly snapshot: OrganizationSnapshot;
@@ -167,7 +151,9 @@ async function readOrganizationInTransaction(
 			// revision 0 is the honest answer rather than an error.
 			revision:
 				state === undefined ? "0" : parseOrganizationRevision(state.revision),
-			locations: locations.map(toStoredLocation),
+			locations: locations.map(
+				includeSource ? toStoredLocation : toPublicLocation,
+			),
 			// The origin columns are all set or all null (a CHECK holds them
 			// whole), so `hq_server` alone decides.
 			...(state === undefined ||
@@ -194,9 +180,12 @@ async function readOrganizationInTransaction(
 
 export async function readOrganization(
 	scope: OrganizationScope,
+	options?: { includeSource: true },
 ): Promise<OrganizationSnapshot> {
 	return withAppTx(
-		async (tx) => (await readOrganizationInTransaction(tx, scope)).snapshot,
+		async (tx) =>
+			(await readOrganizationInTransaction(tx, scope, options?.includeSource))
+				.snapshot,
 		{ isolationLevel: "repeatable read" },
 	);
 }
@@ -242,114 +231,42 @@ export async function readOrganizationAuthoringSnapshot(
 }
 
 /**
- * The app's place tree in the shape the owner-set and footprint predicates
- * read, plus the revision it was read at.
- *
- * The whole tree rather than a recursive query, for the same reason
- * {@link lockTree} takes the whole tree: it is bounded by
- * {@link MAX_LOCATIONS_PER_APP}, and both callers ask a predicate of EVERY row
- * anyway — an owner set is "which of these do I receive from", a footprint is
- * "which of these can I name". Narrow columns, because neither predicate reads
- * anything else.
- *
- * This is a read of its own rather than a join onto the caller's Blueprint
- * snapshot, and the skew is deliberate rather than overlooked: the Blueprint
- * supplies a persona's assignments and Postgres supplies the places, so a
- * place archived between the two reads is simply filtered out here, and one
- * created between them is absent until the next read. Neither can authorize
- * anything — authorization is the acting member, resolved elsewhere — and the
- * returned revision is the cursor the caller invalidates on, which is what
- * closes the window rather than a longer lock.
- */
-export async function readOrganizationTopology(appId: string): Promise<{
-	readonly rows: readonly OwnerVerdictLocation[];
-	readonly revision: OrganizationRevision;
-}> {
-	return withAppTx(
-		async (tx) => {
-			const state = await tx
-				.selectFrom("app_organization_state")
-				.select("revision")
-				.where("app_id", "=", appId)
-				.executeTakeFirst();
-			const rows = await tx
-				.selectFrom("app_locations")
-				.select(["id", "name", "level_uuid", "parent_id", "archived_at"])
-				.where("app_id", "=", appId)
-				.execute();
-			return {
-				rows: ownerVerdictRows(rows),
-				// An app that has never had an organization has no state row, and
-				// revision 0 is the honest answer rather than an error.
-				revision:
-					state === undefined ? "0" : parseOrganizationRevision(state.revision),
-			};
-		},
-		{ isolationLevel: "repeatable read" },
-	);
-}
-
-/**
- * Every place in the app with everything a device's `locations` fixture
- * prints of it, archived places included (a fixture walks a place's parents
- * whatever their state; the footprint drops archived places itself).
- *
- * Like {@link readOrganizationTopology} this reads no actor scope: its only
- * caller is a Preview read whose app access the caller has already proven.
- */
-export async function readOrganizationPlaces(
-	appId: string,
-): Promise<readonly StoredLocation[]> {
-	return withAppTx(
-		async (tx) => {
-			const rows = await tx
-				.selectFrom("app_locations")
-				.selectAll()
-				.where("app_id", "=", appId)
-				.execute();
-			return rows.map(toStoredLocation);
-		},
-		{ isolationLevel: "repeatable read" },
-	);
-}
-
-/**
- * Every place in the app, locked for update, as a map plus a child index.
- *
- * The whole tree rather than a recursive query, deliberately: it is bounded
- * by {@link MAX_LOCATIONS_PER_APP}, every write needs the site-code set and
- * the sibling order anyway, and a subtree walk in TypeScript over a map is
- * both simpler to read and impossible to get subtly wrong about cycles.
+ * The portion of a locked organization needed for this edit. The organization
+ * state row serializes competing edits, including insertion into an empty branch.
  */
 interface LockedTree {
 	readonly byId: Map<string, LocationRow>;
 	readonly childrenOf: Map<string | null, LocationRow[]>;
-	readonly siteCodes: Set<string>;
 }
 
 async function lockTree(
 	tx: Transaction<AppDatabase>,
 	appId: string,
+	rootId: string,
+	includeChildren: boolean,
 ): Promise<LockedTree> {
-	const rows = await tx
-		.selectFrom("app_locations")
-		.selectAll()
-		.where("app_id", "=", appId)
-		.orderBy("order_key")
-		.orderBy("id")
-		.forUpdate()
-		.execute();
+	const selected = await sql<LocationRow>`WITH RECURSIVE
+        below(id,parent_id) AS (
+            SELECT id,parent_id FROM app_locations WHERE app_id=${appId} AND id=${rootId}::uuid
+            UNION SELECT p.id,p.parent_id FROM below b JOIN app_locations p ON p.app_id=${appId} AND p.parent_id=b.id WHERE ${includeChildren}
+        ), above(id,parent_id) AS (
+            SELECT id,parent_id FROM app_locations WHERE app_id=${appId} AND id=${rootId}::uuid
+            UNION SELECT p.id,p.parent_id FROM above a JOIN app_locations p ON p.app_id=${appId} AND p.id=a.parent_id
+        ) SELECT p.* FROM app_locations p WHERE p.app_id=${appId}
+            AND p.id IN (SELECT id FROM below UNION SELECT id FROM above)
+            ORDER BY p.order_key,p.id FOR UPDATE OF p`.execute(tx);
+	return indexPlaces(selected.rows);
+}
+function indexPlaces(rows: readonly LocationRow[]): LockedTree {
 	const byId = new Map<string, LocationRow>();
 	const childrenOf = new Map<string | null, LocationRow[]>();
-	const siteCodes = new Set<string>();
 	for (const row of rows) {
 		byId.set(row.id, row);
 		const siblings = childrenOf.get(row.parent_id);
 		if (siblings === undefined) childrenOf.set(row.parent_id, [row]);
 		else siblings.push(row);
-		siteCodes.add(row.site_code.toLowerCase());
 	}
-	return { byId, childrenOf, siteCodes };
+	return { byId, childrenOf };
 }
 
 /**
@@ -365,8 +282,8 @@ function subtreeIds(tree: LockedTree, rootId: string): string[] {
 	const collected: string[] = [];
 	const seen = new Set<string>();
 	const queue = [rootId];
-	while (queue.length > 0) {
-		const id = queue.shift();
+	for (let index = 0; index < queue.length; index++) {
+		const id = queue[index];
 		if (id === undefined || seen.has(id)) continue;
 		seen.add(id);
 		if (!tree.byId.has(id)) continue;
@@ -391,16 +308,59 @@ function subtreeIds(tree: LockedTree, rootId: string): string[] {
 async function orderKeyForSlot(
 	tx: Transaction<AppDatabase>,
 	appId: string,
-	tree: LockedTree,
 	parentId: string | null,
 	afterSiblingId: string | null | undefined,
 	/** Excluded from the sibling set — a row being moved within its own parent
 	 *  must not be its own neighbour. */
 	movingId?: string,
 ): Promise<{ readonly key: string; readonly rebalanced: boolean }> {
-	const siblings = (tree.childrenOf.get(parentId) ?? []).filter(
-		(row) => row.id !== movingId,
-	);
+	const siblingsFilter =
+		parentId === null
+			? sql`parent_id IS NULL`
+			: sql`parent_id=${parentId}::uuid`;
+	const moving = movingId ? sql`AND id<>${movingId}::uuid` : sql``;
+	const siblingsSql = sql`FROM app_locations WHERE app_id=${appId} AND ${siblingsFilter} ${moving}`;
+	type Neighbor = { id: string; order_key: string };
+	const left =
+		afterSiblingId === null
+			? undefined
+			: (
+					await sql<Neighbor>`SELECT id,order_key ${siblingsSql} ${afterSiblingId === undefined ? sql`ORDER BY order_key DESC,id DESC` : sql`AND id=${afterSiblingId}::uuid`} LIMIT 1`.execute(
+						tx,
+					)
+				).rows[0];
+	if (afterSiblingId && !left)
+		throw new OrganizationError(
+			"rejected",
+			"The place you chose is no longer a sibling. Refresh the organization and choose its position again.",
+		);
+	const right =
+		afterSiblingId === undefined
+			? undefined
+			: (
+					await sql<Neighbor>`SELECT id,order_key ${siblingsSql}
+        ${left ? sql`AND (order_key,id)>(${left.order_key},${left.id}::uuid)` : sql``} ORDER BY order_key,id LIMIT 1`.execute(
+						tx,
+					)
+				).rows[0];
+	if (
+		!right ||
+		normalizedKey(left?.order_key ?? "") !== normalizedKey(right.order_key)
+	) {
+		const near = boundedLocationOrderKeyAtIndex(
+			[...(left ? [left.order_key] : []), ...(right ? [right.order_key] : [])],
+			left ? 1 : 0,
+		);
+		if (!near.rebalancedExistingKeys)
+			return { key: near.key, rebalanced: false };
+	}
+	// Equal imported keys or exhausted fractional space require the ordered
+	// sibling set. Normal inserts and moves read only their two neighbours.
+	const siblings = (
+		await sql<Neighbor>`SELECT id,order_key ${siblingsSql} ORDER BY order_key,id`.execute(
+			tx,
+		)
+	).rows;
 	let slotIndex: number;
 	if (afterSiblingId === null) slotIndex = 0;
 	else if (afterSiblingId === undefined) slotIndex = siblings.length;
@@ -431,29 +391,6 @@ async function orderKeyForSlot(
 			WHERE target.app_id = ${appId}
 				AND target.id = replacement.id
 		`.execute(tx);
-		for (let index = 0; index < siblings.length; index++) {
-			const sibling = siblings[index];
-			const replacementKey: string | undefined =
-				plan.rebalancedExistingKeys[index];
-			if (sibling === undefined || replacementKey === undefined) continue;
-			const rebalanced: LocationRow = {
-				...sibling,
-				order_key: replacementKey,
-			};
-			siblings[index] = rebalanced;
-			tree.byId.set(rebalanced.id, rebalanced);
-			const treeSiblings = tree.childrenOf.get(parentId);
-			const treeIndex = treeSiblings?.findIndex(
-				(candidate: LocationRow) => candidate.id === rebalanced.id,
-			);
-			if (
-				treeSiblings !== undefined &&
-				treeIndex !== undefined &&
-				treeIndex >= 0
-			) {
-				treeSiblings[treeIndex] = rebalanced;
-			}
-		}
 	}
 	return {
 		key: plan.key,
@@ -462,19 +399,28 @@ async function orderKeyForSlot(
 }
 
 /** Whether the requested semantic slot is exactly the row's current slot. */
-function locationAlreadyOccupiesSlot(
-	tree: LockedTree,
+async function locationAlreadyOccupiesSlot(
+	tx: Transaction<AppDatabase>,
+	appId: string,
 	current: LocationRow,
 	parentId: string | null,
 	afterSiblingId: string | null | undefined,
-): boolean {
+): Promise<boolean> {
 	if (current.parent_id !== parentId) return false;
-	const siblings = tree.childrenOf.get(parentId) ?? [];
-	const index = siblings.findIndex((row) => row.id === current.id);
-	if (index === -1) return false;
-	if (afterSiblingId === null) return index === 0;
-	if (afterSiblingId === undefined) return index === siblings.length - 1;
-	return index > 0 && siblings[index - 1]?.id === afterSiblingId;
+	const sqlParent =
+		parentId === null
+			? sql`parent_id IS NULL`
+			: sql`parent_id=${parentId}::uuid`;
+	const direction =
+		afterSiblingId === undefined
+			? sql`(order_key,id)>(${current.order_key},${current.id}::uuid) ORDER BY order_key,id`
+			: sql`(order_key,id)<(${current.order_key},${current.id}::uuid) ORDER BY order_key DESC,id DESC`;
+	const neighbors = await sql<{
+		id: string;
+	}>`SELECT id FROM app_locations WHERE app_id=${appId} AND ${sqlParent} AND ${direction} LIMIT 1`.execute(
+		tx,
+	);
+	return (neighbors.rows[0]?.id ?? null) === (afterSiblingId ?? null);
 }
 
 /**
@@ -633,20 +579,6 @@ export interface CreatedLocationDescendant {
 	readonly locationUuid: Uuid;
 	readonly siteCode: string;
 	readonly descendants: readonly CreatedLocationDescendant[];
-}
-
-function descendantCount(
-	descendants: CreateLocationInput["descendants"],
-): number {
-	let count = 0;
-	const pending = [...(descendants ?? [])];
-	while (pending.length > 0) {
-		const descendant = pending.pop();
-		if (descendant === undefined) continue;
-		count += 1;
-		pending.push(...(descendant.descendants ?? []));
-	}
-	return count;
 }
 
 type OrganizationWriteResult =
@@ -819,15 +751,10 @@ export async function createLocation(
 		input,
 		expectedRevision,
 		false,
-		async (tx, locked) => {
-			const requestedCount = 1 + descendantCount(input.descendants);
-			if (locked.locationCount + requestedCount > MAX_LOCATIONS_PER_APP) {
-				throw new OrganizationError(
-					"limit",
-					`This request would take the app past ${MAX_LOCATIONS_PER_APP.toLocaleString()} places, including archived places, which is as many as Nova stores for one app. Split the organization across apps or add a smaller branch.`,
-				);
-			}
-			const tree = await lockTree(tx, scope.appId);
+		async (tx) => {
+			const tree = input.parentId
+				? await lockTree(tx, scope.appId, input.parentId, false)
+				: indexPlaces([]);
 			const doc = await loadDocInTransaction(tx, scope.appId);
 			const created: LocationRow[] = [];
 			const insert = async (
@@ -849,12 +776,26 @@ export async function createLocation(
 				// Derived when omitted, exactly as `models.py::set_site_code_if_needed`
 				// does, and checked against the locked set either way so two rows in
 				// this batch cannot collide with one another or a concurrent create.
+				const rootCode =
+					candidate.siteCode?.toLowerCase() ??
+					deriveSiteCode(candidate.name, new Set());
+				const condition = candidate.siteCode
+					? sql`lower(site_code)=${rootCode}`
+					: sql`lower(site_code) ~ ${"^" + rootCode + "([0-9]+)?$"}`;
+				const matches = await sql<{
+					site_code: string;
+				}>`SELECT site_code FROM app_locations WHERE app_id=${scope.appId} AND ${condition}`.execute(
+					tx,
+				);
+				const taken = new Set(
+					matches.rows.map((row) => row.site_code.toLowerCase()),
+				);
 				const siteCode =
 					candidate.siteCode === undefined
-						? deriveSiteCode(candidate.name, tree.siteCodes)
+						? deriveSiteCode(candidate.name, taken)
 						: candidate.siteCode.toLowerCase();
 				if (candidate.siteCode !== undefined) {
-					assertSiteCodeFree(siteCode, tree.siteCodes);
+					assertSiteCodeFree(siteCode, taken);
 				}
 				const row = await tx
 					.insertInto("app_locations")
@@ -870,13 +811,7 @@ export async function createLocation(
 						// A jsonb column crosses Kysely as a string on the way in.
 						values: JSON.stringify(candidate.values),
 						order_key: (
-							await orderKeyForSlot(
-								tx,
-								scope.appId,
-								tree,
-								parentId,
-								afterSiblingId,
-							)
+							await orderKeyForSlot(tx, scope.appId, parentId, afterSiblingId)
 						).key,
 						created_by: scope.actorUserId,
 						updated_by: scope.actorUserId,
@@ -892,7 +827,6 @@ export async function createLocation(
 						left.id.localeCompare(right.id),
 				);
 				tree.childrenOf.set(parentId, siblings);
-				tree.siteCodes.add(siteCode);
 				created.push(row);
 				return row;
 			};
@@ -968,7 +902,7 @@ export async function updateLocation(
 		expectedRevision,
 		false,
 		async (tx, locked) => {
-			const tree = await lockTree(tx, scope.appId);
+			const tree = await lockTree(tx, scope.appId, locationId, false);
 			const current = tree.byId.get(locationId);
 			if (current === undefined) throw organizationNotFound();
 
@@ -985,6 +919,10 @@ export async function updateLocation(
 				})();
 			const nextParentId =
 				patch.parentId === undefined ? current.parent_id : patch.parentId;
+			if (nextParentId && !tree.byId.has(nextParentId)) {
+				const parent = await lockTree(tx, scope.appId, nextParentId, false);
+				for (const [id, row] of parent.byId) tree.byId.set(id, row);
+			}
 			const changesParent =
 				patch.parentId !== undefined && nextParentId !== current.parent_id;
 			const changesOrder = patch.afterSiblingId !== undefined;
@@ -1010,7 +948,15 @@ export async function updateLocation(
 				// location type of a location with children"). A leaf may move rungs;
 				// a branch cannot, because its children's levels would no longer sit
 				// under their parent's.
-				if ((tree.childrenOf.get(locationId) ?? []).length > 0) {
+				if (
+					await tx
+						.selectFrom("app_locations")
+						.select("id")
+						.where("app_id", "=", scope.appId)
+						.where("parent_id", "=", locationId)
+						.limit(1)
+						.executeTakeFirst()
+				) {
 					throw new OrganizationError(
 						"rejected",
 						`"${current.name}" has places under it, so it can't move to a different level. Move every place under it somewhere else first; bring back any archived child places before moving them.`,
@@ -1023,7 +969,8 @@ export async function updateLocation(
 			if (changesPlacement) {
 				if (
 					nextParentId !== null &&
-					subtreeIds(tree, locationId).includes(nextParentId)
+					(nextParentId === locationId ||
+						ancestorIds(tree, nextParentId).includes(locationId))
 				) {
 					throw new OrganizationError(
 						"rejected",
@@ -1080,17 +1027,17 @@ export async function updateLocation(
 			}
 			if (changesPlacement) {
 				if (
-					!locationAlreadyOccupiesSlot(
-						tree,
+					!(await locationAlreadyOccupiesSlot(
+						tx,
+						scope.appId,
 						current,
 						nextParentId,
 						patch.afterSiblingId,
-					)
+					))
 				) {
 					const orderPlan = await orderKeyForSlot(
 						tx,
 						scope.appId,
-						tree,
 						nextParentId,
 						patch.afterSiblingId,
 						locationId,
@@ -1173,12 +1120,19 @@ export async function moveLocation(
 		expectedRevision,
 		false,
 		async (tx, locked) => {
-			const tree = await lockTree(tx, scope.appId);
+			const tree = await lockTree(tx, scope.appId, locationId, false);
+			if (target.parentId && !tree.byId.has(target.parentId)) {
+				const parent = await lockTree(tx, scope.appId, target.parentId, false);
+				for (const [id, row] of parent.byId) tree.byId.set(id, row);
+			}
 			const current = tree.byId.get(locationId);
 			if (current === undefined) throw organizationNotFound();
 
 			if (target.parentId !== null) {
-				if (subtreeIds(tree, locationId).includes(target.parentId)) {
+				if (
+					target.parentId === locationId ||
+					ancestorIds(tree, target.parentId).includes(locationId)
+				) {
 					throw new OrganizationError(
 						"rejected",
 						`"${current.name}" can't move into itself or into a place under it.`,
@@ -1188,8 +1142,9 @@ export async function moveLocation(
 			const doc = await loadDocInTransaction(tx, scope.appId);
 			assertPlacement(doc, tree, current.level_uuid, target.parentId);
 			if (
-				locationAlreadyOccupiesSlot(
-					tree,
+				await locationAlreadyOccupiesSlot(
+					tx,
+					scope.appId,
 					current,
 					target.parentId,
 					target.afterSiblingId,
@@ -1203,7 +1158,6 @@ export async function moveLocation(
 			const orderPlan = await orderKeyForSlot(
 				tx,
 				scope.appId,
-				tree,
 				target.parentId,
 				target.afterSiblingId,
 				locationId,
@@ -1363,84 +1317,62 @@ async function countCasesOwnedBy(
 	return Number(result.rows[0]?.count ?? "0");
 }
 
-/**
- * The places among `locationIds` that some case of the app names as its
- * owner, open or closed.
- *
- * The other read of case rows here, beside {@link countCasesOwnedBy}, and the
- * one that decides something: a managed copy's refresh past
- * `MAX_LOCATIONS_PER_APP` deletes archived rows (`managed.ts`), and a row
- * whose id is a case's `owner_id` must stay, or that case would name no place
- * in Preview, in a worker's footprint or in an export of its owner. A closed
- * case counts: its `owner_id` names the place as much as an open one's does.
- */
-export async function locationsOwningCases(
+/** Forms whose owner expression would become invalid after this archive. */
+async function archiveBlockingOwnerRuleForms(
 	tx: Transaction<AppDatabase>,
 	appId: string,
-	locationIds: readonly string[],
-): Promise<ReadonlySet<string>> {
-	if (locationIds.length === 0) return new Set();
-	const result = await sql<{ owner_id: string }>`
-		SELECT DISTINCT owner_id
-		FROM cases
-		WHERE app_id = ${appId}
-			AND owner_id = ANY(${sql.val(locationIds)}::text[])
-	`.execute(tx);
-	return new Set(result.rows.map((row) => row.owner_id));
-}
-
-/** Forms whose owner expression would become invalid after this archive. */
-function archiveBlockingOwnerRuleForms(
 	doc: BlueprintDoc,
-	rows: readonly LocationRow[],
-	locationIds: ReadonlySet<string>,
-): readonly { readonly uuid: string; readonly name: string }[] {
-	const forms = new Map<string, string>();
-	const tentativeRows = rows.map((row) => ({
-		id: row.id,
-		name: row.name,
-		levelUuid: row.level_uuid,
-		parentId: row.parent_id,
-		archivedAt: locationIds.has(row.id) ? true : row.archived_at,
-	}));
-	const reverseIssueByLevelUuid = new Map<string, string | undefined>();
-	const fixedIssueByLocationUuid = new Map<string, string | undefined>();
-	const fixedIssue = (locationUuid: string) => {
-		if (!fixedIssueByLocationUuid.has(locationUuid)) {
-			fixedIssueByLocationUuid.set(
-				locationUuid,
-				fixedLocationOwnerIssue(doc, tentativeRows, locationUuid),
-			);
+	archiving: readonly string[],
+): Promise<readonly { uuid: string; name: string }[]> {
+	const rules = new Map<
+		string,
+		{
+			kind: "fixed-location" | "owner-location-at-level";
+			id: string;
+			forms: Map<string, string>;
 		}
-		return fixedIssueByLocationUuid.get(locationUuid);
-	};
-	const reverseIssue = (levelUuid: string) => {
-		if (!reverseIssueByLevelUuid.has(levelUuid)) {
-			reverseIssueByLevelUuid.set(
-				levelUuid,
-				reverseLocationOwnerIssue(doc, tentativeRows, levelUuid),
-			);
-		}
-		return reverseIssueByLevelUuid.get(levelUuid);
-	};
-	for (const form of Object.values(doc.forms)) {
+	>();
+	for (const form of Object.values(doc.forms))
 		for (const operation of form.caseOperations ?? []) {
-			if (operation.owner === undefined) continue;
+			if (!operation.owner) continue;
 			walkExpressionTerms(operation.owner, (term) => {
 				if (
-					(term.kind === "fixed-location" &&
-						fixedIssue(term.locationUuid) !== undefined) ||
-					(term.kind === "owner-location-at-level" &&
-						reverseIssue(term.levelUuid) !== undefined)
-				) {
-					forms.set(form.uuid, form.name);
-				}
+					term.kind !== "fixed-location" &&
+					term.kind !== "owner-location-at-level"
+				)
+					return;
+				const id =
+					term.kind === "fixed-location" ? term.locationUuid : term.levelUuid;
+				const key = term.kind + id;
+				const rule = rules.get(key) ?? {
+					kind: term.kind,
+					id,
+					forms: new Map<string, string>(),
+				};
+				rule.forms.set(form.uuid, form.name);
+				rules.set(key, rule);
 			});
 		}
+	const fixed = [...rules.values()]
+		.filter((rule) => rule.kind === "fixed-location")
+		.map((rule) => rule.id);
+	const archived = new Set(archiving);
+	const paths = fixed.length
+		? (await storedOwnerPaths(tx, appId, doc, fixed)).map((row) =>
+				archived.has(row.id) ? { ...row, archivedAt: true } : row,
+			)
+		: [];
+	const forms = new Map<string, string>();
+	for (const rule of rules.values()) {
+		const blocked =
+			rule.kind === "fixed-location"
+				? fixedLocationOwnerIssue(doc, paths, rule.id)
+				: await storedReverseOwnerVerdict(tx, appId, doc, rule.id, archiving);
+		if (blocked) for (const [id, name] of rule.forms) forms.set(id, name);
 	}
 	return [...forms]
 		.map(([uuid, name]) => ({ uuid, name }))
-		.sort((left, right) => left.uuid.localeCompare(right.uuid));
+		.sort((a, b) => a.uuid.localeCompare(b.uuid));
 }
 
 function archiveBlockingAutomations(
@@ -1485,7 +1417,6 @@ async function buildArchivePlan(
 		readonly appId: string;
 		readonly revision: OrganizationRevision;
 		readonly doc: BlueprintDoc;
-		readonly rows: readonly LocationRow[];
 		readonly locationIds: readonly string[];
 	},
 ): Promise<{
@@ -1503,10 +1434,11 @@ async function buildArchivePlan(
 			: produce(args.doc, (draft) => {
 					applyMutations(draft, admitMutationBatch(planned.mutations));
 				});
-	const blockingForms = archiveBlockingOwnerRuleForms(
+	const blockingForms = await archiveBlockingOwnerRuleForms(
+		tx,
+		args.appId,
 		candidateDoc,
-		args.rows,
-		new Set(locationIds),
+		locationIds,
 	);
 	const blockingAutomations = archiveBlockingAutomations(
 		candidateDoc,
@@ -1578,7 +1510,7 @@ export async function describeArchiveImpact(
 			capability: "view",
 			purpose: "read",
 		});
-		const tree = await lockTree(tx, scope.appId);
+		const tree = await lockTree(tx, scope.appId, locationId, true);
 		if (!tree.byId.has(locationId)) throw organizationNotFound();
 		const ids = subtreeIds(tree, locationId).filter(
 			(id) => tree.byId.get(id)?.archived_at === null,
@@ -1589,7 +1521,6 @@ export async function describeArchiveImpact(
 				appId: scope.appId,
 				revision: locked.revision,
 				doc,
-				rows: [...tree.byId.values()],
 				locationIds: ids,
 			})
 		).impact;
@@ -1647,7 +1578,7 @@ export async function setLocationArchived(
 			expectedRevision,
 			true,
 			async (tx, locked) => {
-				const tree = await lockTree(tx, scope.appId);
+				const tree = await lockTree(tx, scope.appId, locationId, true);
 				const target = tree.byId.get(locationId);
 				if (target === undefined) throw organizationNotFound();
 
@@ -1677,7 +1608,6 @@ export async function setLocationArchived(
 						appId: scope.appId,
 						revision: locked.revision,
 						doc: archiveDoc,
-						rows: [...tree.byId.values()],
 						locationIds: changing,
 					});
 					if (
@@ -1715,7 +1645,7 @@ export async function setLocationArchived(
 						updated_at: new Date(),
 					})
 					.where("app_id", "=", scope.appId)
-					.where("id", "in", changing)
+					.where(sql<boolean>`id=ANY(${changing}::uuid[])`)
 					.execute();
 
 				// Both directions can change the scalar reverse-owner relation:
@@ -1739,7 +1669,6 @@ export async function setLocationArchived(
 							appId: scope.appId,
 							revision: locked.revision,
 							doc: archiveDoc ?? (await loadDocInTransaction(tx, scope.appId)),
-							rows: [...tree.byId.values()],
 							locationIds: changing,
 						}));
 					if (plan.mutations.length > 0) {

@@ -132,11 +132,27 @@ def _usercase_reads(content):
     """Every XPath the app hands HQ that a form reads with: each form's display condition, each XPath of its source
     (``_XPATH_ATTRIBUTES``), and each of its links' conditions and datums (``models/forms.py::FormLink``,
     ``FormDatum``)."""
+    for entity in [*_modules(content), *_forms(content)]:
+        icon = getattr(entity, "custom_icon", None)
+        if icon and icon.xpath:
+            yield icon.xpath
+    for module in _modules(content):
+        if getattr(module, "module_filter", None):
+            yield module.module_filter
+        for _, detail, active in module.get_details():
+            if not active:
+                continue
+            if getattr(detail, "filter", None):
+                yield detail.filter
+            for column in getattr(detail, "columns", []):
+                if column.useXpathExpression and column.field:
+                    yield column.field
     for form in _forms(content):
         condition = getattr(form, "form_filter", None)
         if condition:
             yield condition
     yield from _link_reads(content)
+    yield from _detail_usercase_reads(content)
     for root in _parsed_sources(content):
         for tag, attributes in _XPATH_ATTRIBUTES.items():
             for element in root.iter(tag):
@@ -144,6 +160,31 @@ def _usercase_reads(content):
                     value = element.get(attribute)
                     if value:
                         yield value
+
+
+def _detail_usercase_reads(content):
+    """Each read a case list or case detail column of a menu makes, as the XPath HQ's build gives it: a column over
+    ``user/<property>`` reads ``UsercaseXPath().case()`` (``detail_screen.py::PropertyXpathGenerator``), a calculated
+    column (``useXpathExpression``) reads its own field, and a mapping row whose key HQ treats as a condition
+    (``models/case_list.py::MappingItem.treat_as_expression``) reads that key in the column's ``if()``
+    (``key_as_condition``). A worker reads each read of the record blank where the space makes no record, as a form's
+    read is. Nova asks for the privilege for such a column
+    (``lib/commcare/planPrivileges.ts::menusUsingWorkerRecord``)."""
+    from corehq.apps.app_manager.xpath import UsercaseXPath
+
+    for module in _modules(content):
+        details = getattr(module, "case_details", None)
+        for detail in (getattr(details, "short", None), getattr(details, "long", None)):
+            for column in getattr(detail, "columns", None) or []:
+                field = getattr(column, "field", None) or ""
+                if getattr(column, "useXpathExpression", False):
+                    if field:
+                        yield field
+                elif field.split("/")[0] == "user" and "/" in field:
+                    yield str(UsercaseXPath().case())
+                for item in getattr(column, "enum", None) or []:
+                    if item.treat_as_expression:
+                        yield item.key
 
 
 def _needs_usercase(content):
@@ -329,12 +370,14 @@ def _needs_geocoder(content):
     address (geocoder) appearance, and ``cloudcare/views.py::has_geocoder_privs`` lets Web
     Apps run the geocoder, only under the privilege; the app uses it where a search
     property's appearance is ``address`` (``suite_xml/post_process/remote_requests.py``)
-    or a form control's appearance holds the ``address`` token."""
+    or a form control's appearance holds the ``address`` token in an app a worker opens in
+    Web Apps (``_needs_cloudcare``): Android reads that question as ordinary text, and HQ's
+    form builder offers the appearance on every plan."""
     for module in _modules(content):
         search = getattr(module, "search_config", None)
         if search is not None and any(prop.appearance == "address" for prop in search.properties):
             return True
-    return any(
+    return _needs_cloudcare(content) and any(
         "address" in (element.get("appearance") or "").split()
         for root in _parsed_sources(content)
         for element in root.iter()

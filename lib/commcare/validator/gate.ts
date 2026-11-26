@@ -118,12 +118,15 @@ export type ValidityClass =
  */
 export const VALIDITY_CLASS_BY_CODE = {
 	// ── App-level ────────────────────────────────────────────────────
+	MENU_FORM_SOURCE_INVALID: "soundness",
+	ANDROID_APP_ANSWER_INVALID: "soundness",
 	ENTRY_POINT_INVALID: "soundness",
+	CASE_LIST_ICON_ACTION_INVALID: "soundness",
+	FORM_BEHAVIOR_TEXT_INVALID: "soundness",
 	SUITE_ENDPOINT_INVALID: "oracle",
 	EMPTY_APP_NAME: "soundness",
 	APP_TEXT_UNREPRESENTABLE: "soundness",
 	NO_MODULES: "completeness",
-	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
 	PLATFORM_FEATURE_UNAVAILABLE: "soundness",
 	BLUEPRINT_TOPOLOGY_INVALID: "soundness",
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: "soundness",
@@ -132,10 +135,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MUTATION_TARGET_INVALID: "soundness",
 	MUTATION_CASE_PROPERTY_RENAME_INVALID: "soundness",
 	MUTATION_WIRE_CANONICALITY_INVALID: "soundness",
-	// A catalog choice value that is empty or holds whitespace reaches the
-	// device as a select value it refuses, and one holding both an apostrophe
-	// and a double quote has no XPath string literal to spell it in the
-	// suite's `field = 'value'`; the wire cannot carry either.
+	// The catalog and inline lists use the same stored-answer grammar.
 	CASE_PROPERTY_OPTION_VALUE_INVALID: "soundness",
 	// A saved value of a catalog with two equal choices can't say which.
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: "soundness",
@@ -174,17 +174,18 @@ export const VALIDITY_CLASS_BY_CODE = {
 	LOCATION_PROPERTY_REQUIRED_CAPACITY: "soundness",
 	PERSONA_LOCATION_PRIMARY_REPEATED: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
+	CASE_RELATION_INVALID: "soundness",
 	NO_CASE_TYPE: "soundness",
 	CASE_PARENT_SELECTION_INVALID: "soundness",
 	CASE_PARENT_SELECTION_CONFLICT: "soundness",
 	CASE_LIST_MENU_ITEM_NO_CASE_TYPE: "soundness",
 	NO_FORMS_OR_CASE_LIST: "soundness",
-	NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM: "soundness",
 	NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE: "soundness",
 	INVALID_CASE_TYPE_FORMAT: "soundness",
 	CASE_TYPE_TOO_LONG: "soundness",
 	MISSING_CASE_LIST_COLUMNS: "completeness",
 	MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: "soundness",
+	MENU_BADGE_EXPRESSION: "soundness",
 	MODULE_DISPLAY_CONDITION_TYPE_ERROR: "soundness",
 	FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: "soundness",
 	FORM_DISPLAY_CONDITION_TYPE_ERROR: "soundness",
@@ -199,8 +200,23 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_COLUMN_RELATION_INVALID: "soundness",
 	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_FILTER_TYPE_ERROR: "soundness",
+	// A field move that would change which Details tab shows it is refused
+	// before validation, so the author regroups the field explicitly.
+	CASE_DETAIL_TAB_MOVE_NEEDS_GROUP: "soundness",
+	CASE_DETAIL_TAB_CONDITION_INVALID: "soundness",
+	CASE_DETAIL_TAB_ROWS_INVALID: "soundness",
+	CASE_DETAIL_TABS_INVALID: "soundness",
+	CASE_LIST_LOAD_BEHAVIOR_INVALID: "soundness",
+	CASE_LIST_DEVICE_LOOKUP_INVALID: "soundness",
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: "soundness",
+	CASE_LIST_MAPPING_CONDITION: "soundness",
+	CASE_LIST_CALCULATED_SORT_TYPE_ERROR: "soundness",
+	CASE_LIST_DISTANCE_NEEDS_LOCATION: "soundness",
+	// A map layer and the location it draws on are authored together; a
+	// layer without its location, or two of one kind, is no map a worker sees.
+	CASE_MAP_SOURCE_INVALID: "soundness",
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: "soundness",
+	CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY: "soundness",
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR: "soundness",
@@ -216,8 +232,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_TYPE_ERROR: "soundness",
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_NOT_ON_DEVICE: "soundness",
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: "soundness",
+	CASE_SEARCH_GROUP_FIELD_NAME_COLLISION: "soundness",
 	CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER: "soundness",
+	CASE_SEARCH_FILTER_INVALID: "soundness",
 	CASE_LIST_SEARCH_INPUT_NAME_RESERVED: "soundness",
+	PROJECT_SEARCH_REQUEST: "soundness",
 	CASE_LIST_BARE_SEARCH_INPUT_REF: "soundness",
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: "soundness",
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: "soundness",
@@ -231,6 +250,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK: "soundness",
 	CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE: "soundness",
 	CASE_LIST_MULTI_SELECT_INPUT_NEEDS_DIRECT_MATCH: "soundness",
+	CASE_LIST_SEARCH_FOR_BLANK_NEEDS_OWN_PROPERTY: "soundness",
+	CASE_LIST_SEARCH_ADDRESS_FIELD: "soundness",
+	CASE_LIST_HIDDEN_SEARCH_FIELD_REFUSED: "soundness",
+	CASE_LIST_SEARCH_CHECK_MESSAGE_REFUSED: "soundness",
+	CASE_LIST_SEARCH_TITLE_BLANK_BESIDE_FIRST: "soundness",
 	CASE_LIST_MATCH_MODE_NOT_ON_DEVICE: "soundness",
 	CASE_LIST_DATE_ADD_NOT_ON_DEVICE: "soundness",
 	CASE_LIST_EXPRESSION_NOT_ON_DEVICE: "soundness",
@@ -239,13 +263,17 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_CLOSED_ON_NOT_ON_DEVICE: "soundness",
 	MULTI_SELECT_PERSISTENT_TILE: "soundness",
 	MULTI_SELECT_NO_BATCH_CONSUMER: "soundness",
+	MULTI_SELECT_SEARCH_ON_CLEAR: "soundness",
 	// Tile geometry and coverage are soundness: a cell off the grid, two
 	// cells on one square, or a shown field with nowhere to sit each
 	// produce a layout the running app draws differently from the one the
 	// author arranged.
+	CASE_DETAIL_TILE_LAYOUT_INVALID: "soundness",
+	CASE_FORM_CONTEXT_INVALID: "soundness",
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: "soundness",
 	CASE_LIST_TILE_CELLS_OVERLAP: "soundness",
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: "soundness",
+	CASE_LIST_NAMED_TILE_SLOT_INVALID: "soundness",
 	CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE: "soundness",
 	CASE_LIST_TILE_GROUP_CELL_STRADDLES_HEADER: "soundness",
 	CASE_LIST_TILE_GROUP_HEADER_EMPTY: "soundness",
@@ -261,6 +289,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// ── Case-search-config rules ─────────────────────────────────────
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: "soundness",
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: "soundness",
+	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST: "soundness",
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: "soundness",
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: "soundness",
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: "soundness",
@@ -269,8 +298,10 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORMS_READ_SEARCH_NO_BUTTON_DISPLAY_CONDITION: "soundness",
 	FORMS_READ_SEARCH_UNIQUE_INSTANCE: "soundness",
 	FORMS_READ_SEARCH_WITH_LIST_FIRST: "soundness",
+	CASE_LIST_ACTION_CONDITION_INVALID: "soundness",
 	CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH: "soundness",
 	CASE_LIST_REGISTRATION_NOT_REGISTRATION: "soundness",
+	CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT: "soundness",
 	CASE_LIST_REGISTRATION_MULTIPLE_RETURN: "soundness",
 	CASE_LIST_REGISTRATION_HAS_NAVIGATION: "soundness",
 	CASE_LIST_REGISTRATION_FORM_NOT_IN_MODULE: "soundness",
@@ -287,6 +318,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_SECTION_NOT_TOP_LEVEL: "soundness",
 	FORM_SECTIONS_INCOMPLETE: "soundness",
 	FORM_SECTION_USER_REPEAT: "soundness",
+	QUESTION_DISPLAY_COMBINATION_INVALID: "soundness",
 	FIELD_LIST_USER_REPEAT: "soundness",
 	// A form's own case is one operation, first, on exactly the forms that
 	// have one; its effects stand apart from every other operation's.
@@ -319,6 +351,10 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_OTHERWISE_NOT_OFFERED: "soundness",
 	FORM_OTHERWISE_UNREACHABLE: "soundness",
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
+	FORM_ENTRY_SETUP: "soundness",
+	// A worker-record or automatic-selection list on a menu something keeps
+	// basic (`rules/module.ts::listEntryNeedsAdvancedMenu`).
+	MENU_LIST_ENTRY_NEEDS_ADVANCED: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
 	FORM_LINK_DATUM_TARGET_COLLISION: "soundness",
 	// A link hands its target a new case that no session value carries
@@ -332,12 +368,15 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MULTI_SELECT_AUTHORED_KEY_CREATE: "soundness",
 	MULTI_SELECT_SESSION_OPERATION_LINK: "soundness",
 	MULTI_SELECT_OPERATION_ORDER: "soundness",
+	CONNECT_FORWARDED_ANCESTOR_ID: "soundness",
 	CONNECT_MODE_MISMATCH: "soundness",
 	CONNECT_ID_INVALID_FORMAT: "soundness",
 	CONNECT_ID_TOO_LONG: "soundness",
-	CONNECT_ID_DUPLICATE: "soundness",
 	// Connect turns away the visit in a form that also completes a task.
 	CONNECT_DELIVER_FORM_HOLDS_TASK: "soundness",
+	CONNECT_DUPLICATE_DELIVERY: "soundness",
+	CONNECT_REPEATED_ASSESSMENT: "soundness",
+	CONNECT_REPEATED_LEARNING_MODULE: "soundness",
 	// HQ's build reads a form's name or a Connect block's text as an instance
 	// read, and stops the build or adds a source no formula reads. It binds
 	// every target: HQ builds every form it is sent, and a `.ccz` is made only
@@ -370,11 +409,17 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_HASHTAG_ON_CREATE_FORM: "soundness",
 	USERCASE_WRITE_UNDECLARED_PROPERTY: "soundness",
 	USERCASE_WRITE_MANAGED_PROPERTY: "soundness",
+	FIELD_SUBMISSION_PLACEMENT: "soundness",
 	DUPLICATE_FIELD_ID: "soundness",
 	// A root field and a Connect block of one form would be two elements of
 	// one name in the form's data root.
-	FIELD_ID_NAMES_CONNECT_BLOCK: "soundness",
 	CASE_OPERATION_DUPLICATE_UUID: "soundness",
+	CASE_OPERATION_OWNER_CONDITION_INVALID: "soundness",
+	CASE_OPERATION_CLOSE_CONDITION_INVALID: "soundness",
+	CASE_OPERATION_CLOSE_ACTION_REQUIRED: "soundness",
+	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: "soundness",
+	CASE_OPERATION_TYPE_CHOICE_INVALID: "soundness",
+	CASE_CHANGE_POSITION_INVALID: "soundness",
 	CASE_OPERATION_INVALID_ID: "soundness",
 	CASE_OPERATION_DUPLICATE_ID: "soundness",
 	CASE_OPERATION_INVALID_FACETS: "soundness",
@@ -404,31 +449,35 @@ export const VALIDITY_CLASS_BY_CODE = {
 	HELD_BLOCK_PATH_TAKEN: "soundness",
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_NOT_AN_OPTION: "soundness",
+	// Web Apps clears a starting file and Android stops the form on it.
+	CAPTURE_DEFAULT_NOT_BLANK: "soundness",
 	SELECT_NO_OPTIONS: "shape",
-	// A choice value that is empty, holds whitespace, or holds both an
-	// apostrophe and a double quote: CommCare Android throws on any select
-	// value with a space, a multi-select answer is a space-joined token list,
-	// and no XPath string literal can spell a value holding both quote marks,
-	// so the form cannot run with it.
+	// Empty answers, whitespace-separated tokens and accidental HQ instance
+	// references cannot be stored as an individual choice.
 	SELECT_OPTION_VALUE_INVALID: "soundness",
 	// HQ's form builder refuses two choices of one question with one value.
 	SELECT_OPTION_VALUE_DUPLICATE: "soundness",
 	// A written choice with no label in any language and no media: HQ's form
 	// builder drops its itext on save and HQ's next build refuses the form,
 	// and an option with no `<label>` is one CommCare refuses to parse.
+	FORM_MEDIA_LANGUAGE: "soundness",
+	MENU_MEDIA_LANGUAGE: "soundness",
 	SELECT_OPTION_LABEL_EMPTY: "soundness",
-	// Schema-legal (both slots are optional so history hydrates) but
-	// contradictory; `rules/field.ts::hiddenValueBothSources` has the why.
-	HIDDEN_VALUE_BOTH_SOURCES: "soundness",
+	HIDDEN_ANSWER_CALCULATION: "soundness",
+	HIDDEN_BOOLEAN_STARTING_ANSWER: "soundness",
 	REQUIRED_ON_HIDDEN: "shape",
 	CALCULATE_ON_VISIBLE_INPUT: "shape",
 	INVALID_FIELD_ID: "soundness",
+	SUBMITTED_ANSWER_NAMESPACE: "soundness",
+	// Workers read a group named case around a saved change as a second case change.
+	SUBMITTED_CASE_CHANGE_WRAPPER: "soundness",
 	VALIDATION_ON_NON_INPUT_KIND: "shape",
 	REPEAT_COUNT_TYPE: "soundness",
 	EMPTY_REPEAT_COUNT: "soundness",
 	EMPTY_IDS_QUERY: "soundness",
 	// A held model iteration over a repeat whose rows it can no longer set
 	// right when the form opens.
+	QUERY_REPEAT_TIMING_MOVE: "soundness",
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: "soundness",
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: "soundness",
@@ -572,17 +621,21 @@ export const VALIDITY_CLASS_BY_CODE = {
 	LOOKUP_CONTEXT_UNAVAILABLE: "soundness",
 	LOOKUP_TABLE_NOT_AVAILABLE: "soundness",
 	LOOKUP_TAG_RESERVED_BY_RUNTIME: "soundness",
+	LOOKUP_PATH_NAME_UNAVAILABLE: "soundness",
 	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
+	LOOKUP_WORKER_SOURCE_UNAVAILABLE: "environment",
 	LOOKUP_CELL_TEXT_UNREPRESENTABLE: "environment",
 	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: "environment",
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: "environment",
+	LOOKUP_QUESTION_READ_UNEDITABLE: "soundness",
+	LOOKUP_SELECT_SOURCE_AMBIGUOUS: "environment",
 	LOOKUP_SELECT_SOURCE_EMPTY: "environment",
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: "environment",
 	LOOKUP_HQ_PUSH_TOO_LARGE: "environment",

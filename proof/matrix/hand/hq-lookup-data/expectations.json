@@ -1,0 +1,106 @@
+[
+	{
+		"id": "crop-saved-as-its-row-code",
+		"entry": "questions/itemset-refs-to-attr-or-property-qualified-fields",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crop",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/crop"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "c-beans"
+			}
+		]
+	},
+	{
+		"id": "crop-labelled-by-its-second-name",
+		"entry": "expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crop",
+					"value": "3"
+				}
+			],
+			"expressions": ["/data/crop"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "c-sorghum"
+			}
+		]
+	},
+	{
+		"id": "duplicate-looking-crops-kept-apart-by-code",
+		"entry": "expressions-and-data/item-attributes-and-per-row-attribute-values",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crop",
+					"value": "5"
+				}
+			],
+			"expressions": ["/data/crop"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "c-maize-hill"
+			}
+		]
+	},
+	{
+		"id": "crops-whose-note-reads-empty-offered",
+		"entry": "expressions-and-data/absent-field-vs-zero-values-vs-empty-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/bare_crop",
+					"value": "1"
+				},
+				{
+					"path": "/data/crop",
+					"value": "4"
+				}
+			],
+			"expressions": ["/data/bare_crop", "/data/crop"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "c-beans"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "c-millet"
+			}
+		]
+	}
+]

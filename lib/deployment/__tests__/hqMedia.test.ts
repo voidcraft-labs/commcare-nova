@@ -145,6 +145,18 @@ describe("hqMediaStandings", () => {
 		[paths.unreadable]: "doc-before",
 	};
 
+	it("holds a mapped picture under the wrong class even when its recorded id is unchanged", () => {
+		const file = published(paths.recorded);
+		const image = entry(file.wirePath, record[paths.recorded]);
+		const audio: HqMediaMapItem = { ...image, mediaType: "CommCareAudio" };
+		expect(
+			hqMediaStandings({ published: [file], record, now: [audio] }),
+		).toMatchObject([{ standing: "replaced" }]);
+		expect(mediaMovedBetween([image], [audio], [file])).toMatchObject([
+			{ standing: "replaced" },
+		]);
+	});
+
 	it("judges every combination of a record and an entry", () => {
 		const standings = hqMediaStandings({
 			published: Object.values(paths).map(published),
@@ -438,9 +450,15 @@ describe("diffHqAppSource's media part", () => {
 		]);
 	});
 
-	it("gives none for zero, for no count, or for a shell", () => {
+	it("gives none for zero or for no count, on a shell as on any app", () => {
 		expect(diff({ shell: false, mediaChanged: 0 })).toEqual([]);
 		expect(diff({ shell: false })).toEqual([]);
-		expect(diff({ shell: true, mediaChanged: 2 })).toEqual([]);
+		expect(diff({ shell: true, mediaChanged: 0 })).toEqual([]);
+	});
+
+	it("gives a shell's media part too: the empty app HQ made can hold a file at a path this app publishes", () => {
+		expect(diff({ shell: true, mediaChanged: 2 })).toEqual([
+			{ kind: "media", count: 2 },
+		]);
 	});
 });

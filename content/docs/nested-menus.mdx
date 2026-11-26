@@ -11,6 +11,27 @@ Nova supports one submenu level. A child cannot contain another child, and a
 top-level module that already has children cannot move under another module.
 This is the same menu shape CommCare HQ can author and maintain.
 
+## Choose a list or a grid
+
+In **App settings → Menu layout**, choose how the first menu and the other
+menus look. A list gives long names room. A grid makes the choices easier to
+recognize by their pictures. On Android, workers can press and hold a tile
+to hear its spoken label, and letting go opens it. On Web Apps, spoken labels
+play in a list.
+
+In a menu’s settings, **Use a grid** saves its individual choice. You can set
+it while the app shows lists or grids throughout. To use the saved choices,
+choose **Choose per menu** for the other menus in App settings. If that menu
+shows its forms inside its parent, the parent shows all its choices in one
+grid. A menu that lists another menu's forms follows the layout for the other
+menus. The first menu always uses the layout in App settings. Preview lets you
+try the choices on either platform.
+
+If an older app already has a layout someone chose in CommCare HQ, the next
+publish there lists which choices it would replace. To keep them, match the
+listed choices in App settings and the menus' settings, then publish again.
+To use the layouts in Nova, tick **Publish over this** for that project space.
+
 ## Add or move a submenu
 
 Use the app tree to add a submenu under an eligible top-level module. To move an
@@ -39,6 +60,14 @@ from a case list.
 
 Nova will not remove a parent while it still has children. Move or remove those
 children first, then remove the parent.
+
+## Show the same forms in another menu
+
+A team can keep an intake form and a visit form under **Patients** and give clinic workers a shorter **Today’s visits** menu. Open **Add module** and choose **Forms from another menu**. Choose **Patients** as the source. In the new menu’s settings, choose which forms workers see. New forms in the source appear here too.
+
+Open a form from either menu to edit its questions, translations and case updates. Workers reach the same form through both menus. Each menu has its own name, case list, search and display settings. Hiding a form in one menu keeps the form and all its existing submissions.
+
+If the source menu has submenus, Nova adds a corresponding submenu under the new menu. You can edit its name, list and search there. Adding or removing a source submenu updates the corresponding menu too. To change which source supplies forms, open the parent menu’s settings. Nova names any form links to remove or reassign first.
 
 ## What people see in Preview
 
@@ -118,11 +147,15 @@ first menu, or in its parent menu for a submenu, with no entry for the menu
 itself. It suits one or two forms people should reach without opening a menu,
 such as a registration form on the first screen. The menu keeps its case type
 and case list, so each form still opens the right case. Such a menu has no
-screen of its own, so it can't have a search, a registration from its case list
+screen of its own. It can keep an ordinary search, but its case list shows no
+**Search** button and its forms can't read the search. It can't have a registration from its case list
 or a deep link, and a link or an after-submit destination can't open it; you can
-link and deep link to its forms. A form shown on the first menu returns to the
-first menu after it is sent, since **Previous screen** isn't offered there.
-Where every form shown on the first menu this way opens the same case, Nova asks
-you to give the menu its own screen before you link to one of those forms. On a
+link and deep link to its forms. A form shown on the first menu can return to **Previous screen**. A link to one
+of these forms can carry the selected record. If every form on the first menu
+uses that selection, Android keeps the record when someone presses Back. A
+second form that asks for the same selection then opens on the same record.
+Web Apps opens the first menu with a fresh choice. When the same selection
+could open a different kind of record, Nova shows which menu needs its own
+screen. On a
 screen that lists forms from more than one menu, people choose a case first only
 when every form there opens the same case; otherwise they choose a form first.

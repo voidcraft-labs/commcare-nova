@@ -247,8 +247,8 @@ describe("FormEngine.formScreens", () => {
 
 	/* Every kind of group a form without sections holds: a field-list group
 	 * with a nested field-list group and a counted repeat inside, a group
-	 * with neither label nor flag, a labelled group without the flag over a
-	 * field-list group, an unlabelled field-list group, and a repeat whose
+	 * with neither label nor flag, a labelled compact group without the flag
+	 * over a field-list group, an unlabelled field-list group, and a repeat whose
 	 * entries each hold a field-list group. */
 	const UNSECTIONED: FieldSpec[] = [
 		{ id: "name", kind: "text", label: proseText("Name") },
@@ -295,6 +295,7 @@ describe("FormEngine.formScreens", () => {
 			id: "contact",
 			kind: "group",
 			label: proseText("Contact"),
+			compact: true,
 			children: [
 				{ id: "email", kind: "text", label: proseText("Email") },
 				{ id: "mobile", kind: "text", label: proseText("Mobile") },
@@ -337,11 +338,14 @@ describe("FormEngine.formScreens", () => {
 
 	it("pages an unsectioned form on Android as Core collects its prompts", () => {
 		const engine = on(androidDevice(), UNSECTIONED, ["loose", "together"]);
-		/* The form opens with one entry; add a second. */
+		/* The form opens with no entry, as Core opens a repeat written as a
+		 * template; add two. */
+		engine.addRepeat("/data/visits");
 		engine.addRepeat("/data/visits");
 		/* A group shown on one screen, with its nested field-list group and
 		 * its repeat, is one screen and offers no screen of its own to add an
-		 * entry; a group without the flag is transparent, labelled or not, so
+		 * entry; a group without the flag is transparent, labelled, compact
+		 * (Android reads `compact` as each widget's layout) or not, so
 		 * its questions are a screen each (an irrelevant one skipped) and a
 		 * field-list group inside it is a screen of its own; an unlabelled
 		 * group holding the flag is one screen; a hidden value is on no
@@ -424,6 +428,10 @@ describe("FormEngine.repeatPromptPoints", () => {
 
 	it("places Android's prompt after each user-added repeat's last screen outside a group shown on one screen, and none for a counted repeat", () => {
 		const engine = engineOn(androidDevice(), FIELDS);
+		/* Each repeat opens with no entry; give each one, so each prompt
+		 * follows an entry's last screen. */
+		engine.addRepeat("/data/visits");
+		engine.addRepeat("/data/household/members");
 		const screens = engine.formScreens().map(({ path }) => path);
 		const [visits, members] = engine.repeatPromptPoints();
 		expect(engine.repeatPromptPoints()).toHaveLength(2);

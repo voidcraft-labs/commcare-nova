@@ -22,7 +22,7 @@ function identityFixture(): BlueprintDoc {
 	const doc: BlueprintDoc = {
 		appId: "search-identity",
 		appName: "Search identity",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{

@@ -104,6 +104,34 @@ describe("matchModeOnDeviceCompatibility", () => {
 		expect(hits[0].details?.surface).toBe("filter");
 	});
 
+	it("leaves a fuzzy match in a search's own condition alone, which only HQ's search runs", () => {
+		// The search condition is sent to HQ as CSQL; the list a device runs keeps its own filter.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("c-1")],
+						detailColumnOrder: [testUuid("c-1")],
+						searchCondition: match(
+							prop("patient", "case_name"),
+							"Alice",
+							"fuzzy",
+						),
+						searchInputs: [],
+					},
+					caseSearchConfig: {},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		expect(compatibilityFindings(doc)).toEqual([]);
+	});
+
 	it("fires for phonetic match in caseListConfig.filter", () => {
 		const doc = buildDoc({
 			appName: "T",

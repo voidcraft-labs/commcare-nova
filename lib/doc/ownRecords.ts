@@ -75,6 +75,10 @@ export function normalizeBlueprintOwnRecords(doc: BlueprintDoc): void {
 		doc.automations = normalizeOwnRecord(doc.automations);
 	}
 	if (doc.localization !== undefined) {
+		if (doc.localization.generatedSourceWording)
+			doc.localization.generatedSourceWording = normalizeOwnRecord(
+				doc.localization.generatedSourceWording,
+			);
 		doc.localization.translations = normalizeOwnRecord(
 			doc.localization.translations,
 		);

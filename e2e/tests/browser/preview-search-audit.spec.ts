@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-search-client";
@@ -315,3 +316,209 @@ declare global {
 		};
 	}
 }
+
+test("workers can replace a readable three-date starting value on the search screen", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.clock.setFixedTime(new Date(2024, 0, 15, 12));
+		await page.goto(
+			`${peer.origin}/?platform=web-apps&range=2024-01-02__2024-02-12__2024-05-21`,
+		);
+		await expect(
+			page.getByText("1/2/2024 to 2/12/2024 to 5/21/2024", { exact: true }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect(
+			page.getByText("Choose valid start and end dates", { exact: true }),
+		).toBeVisible();
+		await page.getByLabel("Registered from").click();
+		await page.getByRole("button", { name: /January 2nd, 2024/ }).click();
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect(
+			page.getByText("Choose both a start date and an end date", {
+				exact: true,
+			}),
+		).toBeVisible();
+		await page.getByLabel("Registered to").click();
+		await page.getByRole("button", { name: /January 15th, 2024/ }).click();
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({
+				"registered:from": "2024-01-02",
+				"registered:to": "2024-01-15",
+			});
+	} finally {
+		await peer.close();
+	}
+});
+
+test("Web Apps offers a search for blank under a field that allows it, and Android shows the field alone", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.goto(`${peer.origin}/?platform=web-apps&blank`);
+		const box = page.getByRole("checkbox", {
+			name: "Include results where 'Patient name' is blank",
+		});
+		await expect(box).toBeVisible();
+		await page.getByLabel("Patient name", { exact: true }).fill("Amina");
+		await box.check();
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({ case_name: "Amina", "case_name:blank": "true" });
+		await page.goto(`${peer.origin}/?platform=android&blank`);
+		await expect(
+			page.getByLabel("Patient name", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByText(/Include results where/)).toHaveCount(0);
+	} finally {
+		await peer.close();
+	}
+});
+
+test("Web Apps holds a search for a requirement with no message, marking the field with no words, and shows CommCare's sentence for a check with none, and Android searches", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.goto(`${peer.origin}/?platform=web-apps&unmessaged`);
+		const barcode = page.getByLabel("Barcode", { exact: true });
+		const search = page.getByRole("button", { name: "Search", exact: true });
+		const submitted = async () =>
+			JSON.parse(await page.getByLabel("Submitted search").innerText());
+		await barcode.fill("999");
+		await search.click();
+		await expect(
+			page.getByText("Sorry, this response is invalid!"),
+		).toBeVisible();
+		await barcode.fill("123");
+		await search.click();
+		await expect(
+			page.getByText("Sorry, this response is invalid!"),
+		).toHaveCount(0);
+		// The name is still required and has no message: the search waits, and
+		// the field shows as invalid with no words under it (HQ writes the
+		// blank text as a no-break space, which Web Apps reads as a message).
+		const name = page.getByLabel("Patient name", { exact: true });
+		await expect(name).toHaveAttribute("aria-invalid", "true");
+		await expect(
+			page.getByText("Fill in this answer before searching."),
+		).toHaveCount(0);
+		await expect.poll(submitted).toEqual({});
+		await name.fill("Amina");
+		await search.click();
+		await expect(name).not.toHaveAttribute("aria-invalid", "true");
+		await expect
+			.poll(submitted)
+			.toEqual({ barcode: "123", case_name: "Amina" });
+		await page.goto(`${peer.origin}/?platform=android&unmessaged`);
+		await page.getByLabel("Barcode", { exact: true }).fill("999");
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect.poll(submitted).toEqual({ barcode: "999" });
+	} finally {
+		await peer.close();
+	}
+});
+
+test("Web Apps searches with a hidden field's starting value without drawing it, and Android draws it", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.goto(`${peer.origin}/?platform=web-apps&hidden`);
+		await expect(
+			page.getByLabel("Patient name", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByLabel("Region", { exact: true })).toHaveCount(0);
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({ region: "north" });
+		await page.goto(`${peer.origin}/?platform=android&hidden`);
+		const region = page.getByLabel("Region", { exact: true });
+		await expect(region).toHaveValue("north");
+		await region.fill("south");
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({ region: "south" });
+	} finally {
+		await peer.close();
+	}
+});
+
+test("A chosen address fills Search through its linked field and never sends the address", async ({
+	page,
+}) => {
+	const peer = await componentPeer(
+		"e2e/lib/preview-search-client.tsx",
+		[],
+		{
+			"@googlemaps/js-api-loader": resolve(
+				"e2e/lib/preview-geopoint-google-peer.ts",
+			),
+		},
+		{
+			"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY": '"synthetic-key"',
+			"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": '"synthetic-map"',
+		},
+	);
+	try {
+		await page.route(`${peer.origin}/geopoint-peer/**`, async (route) => {
+			const path = new URL(route.request().url()).pathname;
+			await route.fulfill({
+				json: path.endsWith("/suggestions")
+					? [{ id: "visit-road", label: "18 Visit Road" }]
+					: {
+							label: "18 Visit Road, Example Town",
+							lat: -1.9,
+							lng: 35.12,
+							addressComponents: [
+								{ longText: "Example Town", types: ["locality"] },
+							],
+						},
+			});
+		});
+		await page.goto(`${peer.origin}/?platform=web-apps&address`);
+		const address = page.getByRole("combobox", { name: "Find an address" });
+		const name = page.getByRole("textbox", { name: "Patient name" });
+		await expect(address).toBeEditable();
+		await address.fill("Visit Road");
+		await page.getByRole("option", { name: "18 Visit Road" }).click();
+		await expect(address).toHaveValue("18 Visit Road, Example Town");
+		await expect(name).toHaveValue("Example Town");
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect(page.getByLabel("Submitted search")).toHaveText(
+			'{"case_name":"Example Town"}',
+		);
+		await page.getByRole("button", { name: "Clear the address" }).click();
+		await expect(name).toHaveValue("");
+		await page.goto(`${peer.origin}/?platform=android&address`);
+		await expect(address).toHaveCount(0);
+		await expect(name).toBeEditable();
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewSearchAudit?.dispose());
+		} finally {
+			try {
+				await page.close();
+			} finally {
+				await peer.close();
+			}
+		}
+	}
+});

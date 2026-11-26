@@ -2436,6 +2436,49 @@ The next publish asks before overwriting the app. A post-import read whose
 bracketing versions both equal the acknowledgment still supplies the target's
 kept settings for download, Preview and the deployment card.
 
+### Found while assembling step 7's Project data
+
+78. **A lookup table tagged with an id CommCare HQ's form builder already holds takes that id's place in every
+    form made in CommCare HQ in its project space, at the form's next save there.** HQ's form designer hands
+    the builder the session (`commcaresession`), the case database, a registry's cases (`registry`, where the
+    menu loads one) and every table of the project space under its bare tag
+    (`views/formdesigner.py::get_form_data_schema`, `fixtures/fixturegenerators.py::item_lists_by_domain`,
+    sorted by name). Vellum indexes them by id, a later source taking an earlier one's place
+    (`datasources.js`: `_.indexBy(sources, "id")`), and records each among the instances it knows
+    (`form.js::updateKnownInstances`), the plain object from which it declares an instance a form reads
+    (`form.js::parseInstanceRefs`) and on which it calls `hasOwnProperty`. The comparison is the whole id, case
+    and all. `proof/editors/test_project_space_table_tags.py` saves `hq-plain`'s follow-up form twice in the
+    builder, adds the table and a table sorting after it, and saves it again:
+    - `hasOwnProperty`: no form in the project space opens ("t2.hasOwnProperty is not a function"), one that
+      reads no table included; the table must have an id after its own, which is why exp-2's run with the tag
+      last passed and every control keeps the trailing `zz_after` table (control
+      `targeted-lookup-tag-hasownproperty`).
+    - `commcaresession`: the save drops the form's `#case/` references and HQ refuses the form.
+    - `registry`: the save points `#registry_case/` reads at the table's path, so they read nothing.
+    - `groups`, `reports`, `locations`, `results`, `search-input`, `selected_cases`, `case-search-fixture`,
+      the instance ids HQ's build gives a form that reads one undeclared
+      (`suite_xml/post_process/instances.py`): the save declares the table under that id, HQ's build keeps the
+      declaration, and the form reads the table.
+    The same names in another case or with a character added keep the form, as do `__proto__` where no form
+    reads it, the other `Object.prototype` members, `item-list`, `schedule`, `indicators`, `commtrack`,
+    `commcare`, `commcare-reports`, `commcare-reports-filters`, `ledger`, `data`, `input` and
+    `search_selected_cases`. Nova's own forms read a colliding table under `item-list:<tag>` and the builder
+    keeps them. So Nova refuses the acts by which it would put such a table into a project space (making or
+    renaming a table it manages, taking one over from CommCare HQ, publishing one), and a table CommCare HQ
+    manages comes in, but under `hasOwnProperty`.
+79. **A form reading a table tagged `__proto__` loses that table's declaration on a save in HQ's form builder.**
+    The declaration is keyed by the tag in Vellum's plain objects, and the save writes the form without it, so
+    HQ's validation refuses the form ("Instance: __proto__ Does not exists", control
+    `targeted-lookup-tag-proto-read-by-a-form`). A case list, a calculated column and a display condition read the
+    same table: HQ builds them and Formplayer and Web Apps run them. Nova refuses only a form's read of it.
+80. **A form reading a table whose tag js-xpath cannot read loses that table's declaration on a save in HQ's form
+    builder.** Vellum keeps a declaration it finds a read of with its XPath reader (js-xpath, names
+    `[A-Za-z_][A-Za-z0-9._-]*`), and HQ's validation then refuses the form ("Instance: ζωνες Does not exists",
+    control `targeted-lookup-non-ascii-tag-read-by-a-form`). A column of such a name is kept, in a select's choices
+    and in form logic, once Nova writes no `vellum:` copy of an expression the builder cannot parse
+    (`lib/commcare/xpath/wire/serialize.ts::shadowEligibility`): the builder writes such a copy back as the
+    expression, `#form/` references and all (`util.js::writeHashtags`).
+
 ### Found of the lane itself
 
 64. **No app the lane built was one Web Apps lists.** HQ sets a new app's

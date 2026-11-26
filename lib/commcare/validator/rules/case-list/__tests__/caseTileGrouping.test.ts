@@ -8,7 +8,6 @@ import {
 	type CaseTileLayout,
 	type Column,
 	plainColumn,
-	TILE_GRID_ROWS,
 	type TileCell,
 	tileCell,
 } from "@/lib/domain";
@@ -198,7 +197,7 @@ describe("caseTileGrouping", () => {
 		const cuts = [[1, 2], [], [2, 3], [1], []];
 		for (const [index, columns] of layouts.entries()) {
 			const offered = new Set(cuts[index]);
-			for (let headerRows = 1; headerRows <= TILE_GRID_ROWS - 1; headerRows++) {
+			for (let headerRows = 1; headerRows <= 11; headerRows++) {
 				const clean = codesFor(columns, grouping(headerRows)).length === 0;
 				expect({ headerRows, clean }).toEqual({
 					headerRows,

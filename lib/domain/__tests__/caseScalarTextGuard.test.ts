@@ -228,3 +228,22 @@ it("checks only the questions a basic action reads where the caller knows the pl
 		"reject",
 	);
 });
+
+it("checks a location and an hq_user_id, which HQ keeps in 255-character columns", () => {
+	const doc = app("registration");
+	const own = doc.forms[FORM]?.caseOperations?.find(
+		(operation) => operation.uuid === OWN,
+	);
+	if (own === undefined || own.action !== "own")
+		throw new Error("The fixture's own operation is missing.");
+	own.writes = [
+		{ property: "location_id", value: read(EXTERNAL) },
+		{ property: "hq_user_id", value: read(NOTE) },
+	];
+	expect(byId(doc, caseScalarTextGuards(doc, FORM))).toEqual({
+		name: "reject",
+		external: "allow",
+		note: "allow",
+		visit_name: "reject",
+	});
+});

@@ -346,12 +346,12 @@ export function parseLookupCsv(bytes: Uint8Array): LookupCsvParseResult {
 	 * few and splitting the file. */
 	if (rowLimitReported) {
 		return invalidCsv(
-			`That CSV has ${formatLookupCount(dataRecordCount, "row")} of data, and a table holds at most ${formatLookupCount(LOOKUP_MAX_ROWS, "row")}.`,
+			`That CSV has ${formatLookupCount(dataRecordCount, "row")} of data, and one import takes at most ${formatLookupCount(LOOKUP_MAX_ROWS, "row")}.`,
 			[
 				{
 					code: "row_limit",
 					row: rowLimitFirstSourceRow,
-					message: `Remove ${formatLookupCount(dataRecordCount - LOOKUP_MAX_ROWS, "row")}, or split the data across two tables.`,
+					message: `You can remove ${formatLookupCount(dataRecordCount - LOOKUP_MAX_ROWS, "row")} from this file. The table can grow past that as rows are added after the import.`,
 				},
 			],
 			1,

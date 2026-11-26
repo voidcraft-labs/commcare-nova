@@ -18,7 +18,9 @@ export function caseColumnLabel(
 	col: CaseListConfig["columns"][number],
 	caseProperties: readonly CaseProperty[],
 	project: ProseProjector,
+	surface: "list" | "detail" = "detail",
 ): string {
+	if (surface === "list" && col.kind === "overdue-marker") return "";
 	const authoredHeader = col.header.trim();
 	if (authoredHeader !== "") return authoredHeader;
 	if (col.kind === "calculated") return "Calculated value";

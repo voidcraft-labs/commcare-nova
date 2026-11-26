@@ -21,7 +21,7 @@ export function useImageReference(columns: readonly Column[]): ImageReference {
 		...new Set(
 			columns.flatMap((column) =>
 				column.kind === "image-map"
-					? column.mapping.map((entry) => entry.assetId)
+					? column.mapping.flatMap((entry) => entry.assetId ?? [])
 					: [],
 			),
 		),

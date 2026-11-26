@@ -2,6 +2,7 @@
  * Real app birth, real committed personas and the real case store with its
  * edit-capability fence; only the authenticated request session is supplied
  * at its external boundary. */
+import { sql } from "kysely";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -12,9 +13,22 @@ import { applyBlueprintChangeProposal } from "@/lib/db/__tests__/admittedWriterT
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import type { CaseType } from "@/lib/domain";
-import { eq, prop, term } from "@/lib/domain/expression";
+import {
+	eq,
+	ifExpr,
+	literal,
+	prop,
+	tableColumn,
+	tableLookup,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { log } from "@/lib/logger";
+import {
+	createLookupTable,
+	getLookupDefinitions,
+	replaceLookupRows,
+} from "@/lib/lookup/service";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { loadCasesAction } from "../caseDataBinding";
 import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
@@ -34,6 +48,7 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 			name: session.userId,
 			email: `${session.userId}@dimagi.com`,
 		},
+		session: { id: `${session.userId}-session` },
 	}),
 }));
 
@@ -44,6 +59,11 @@ const h = setupAppStateTestDb("preview_viewer_usercase_", {
 beforeEach(async () => {
 	await h.seedProjectMember(OWNER, PROJECT, "owner");
 	await h.seedProjectMember(VIEWER, PROJECT, "viewer");
+	// Each person's live browser session, which Project data reads lock.
+	for (const userId of [OWNER, VIEWER])
+		await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
+			VALUES (${`${userId}-session`},${`${userId}-token`},${userId},now()+interval '1 hour',now(),now())
+			ON CONFLICT (id) DO NOTHING`.execute(h.db());
 });
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -222,4 +242,97 @@ it("reads a viewer's own worker record in a list as a form reads it, with no row
 	expect(result.rows.map((row) => row.case_name)).toEqual(["Mine"]);
 	expect(await workerRows(appId, VIEWER)).toEqual([]);
 	expect(warn).not.toHaveBeenCalled();
+});
+
+it("orders a viewer’s rows by a calculation that alone uses a Project table", async () => {
+	const appId = await appWithPersona();
+	const scope = { projectId: PROJECT, actorId: OWNER, role: "owner" as const };
+	const table = await createLookupTable(scope, {
+		name: "Visit rules",
+		tag: "visit_rules",
+		columns: [{ wireName: "preferred", label: "Preferred", dataType: "text" }],
+	});
+	const [preferred] = table.columns;
+	if (!preferred) throw new Error("The visit rules table needs its column.");
+	await replaceLookupRows(scope, {
+		tableId: table.id,
+		expectedTableRevision: table.tableRevision,
+		rows: [{ [preferred.id]: "West" }],
+	});
+	const config = {
+		...caseListConfig([{ field: "case_name", header: "Name" }]),
+		calculatedSorts: [
+			{
+				uuid: testUuid("preferred-appointments"),
+				label: "Preferred clinic first",
+				expression: ifExpr(
+					eq(
+						prop(PATIENT.name, "assigned_to"),
+						tableLookup(
+							table.id,
+							preferred.id,
+							eq(tableColumn(table.id, preferred.id), literal("West")),
+						),
+					),
+					term(literal(0)),
+					term(literal(1)),
+				),
+				direction: "asc" as const,
+				priority: 0,
+				blanks: "last" as const,
+			},
+		],
+	};
+	const blueprint = assertAdmittedPreviewDoc(
+		buildDoc({
+			appId,
+			caseTypes: [PATIENT],
+			modules: [
+				{
+					name: "Patients",
+					caseType: PATIENT.name,
+					caseListMenuItem: {},
+					caseListConfig: config,
+					forms: [],
+				},
+			],
+		}),
+		{ kind: "available", ...(await getLookupDefinitions(scope, [table.id])) },
+	);
+	const schema = await withSchemaContext();
+	await schema.applySchemaChange({
+		appId,
+		caseType: PATIENT.name,
+		caseTypeSchemas: buildCaseTypeMap(blueprint),
+	});
+	const writer = await withProjectContext(PROJECT, OWNER, VIEWER);
+	for (const [id, name, clinic] of [
+		["a", "Ana", "East"],
+		["z", "Zuri", "West"],
+	]) {
+		await writer.insert({
+			appId,
+			row: {
+				case_id: id,
+				case_name: name,
+				case_type: PATIENT.name,
+				status: "open",
+				properties: { assigned_to: clinic },
+			},
+		});
+	}
+	session.userId = VIEWER;
+	const result = await loadCasesAction({
+		appId,
+		caseType: PATIENT.name,
+		blueprint,
+		moduleUuid: blueprint.moduleOrder[0],
+		caseListConfig: config,
+		page: { offset: 0, limit: 10 },
+	});
+	if (result.kind !== "rows")
+		throw new Error(
+			`The viewer’s case list returned ${JSON.stringify(result)}.`,
+		);
+	expect(result.rows.map((row) => row.case_name)).toEqual(["Zuri", "Ana"]);
 });

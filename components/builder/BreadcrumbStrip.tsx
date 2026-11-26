@@ -67,6 +67,7 @@ import {
 	useCanEdit,
 	usePreviewAtDeviceHome,
 	usePreviewCaseTarget,
+	usePreviewEntryPointVisit,
 	usePreviewing,
 	usePreviewMenuCaseSelections,
 	usePreviewPlatformRules,
@@ -101,6 +102,13 @@ export function BreadcrumbStrip() {
 		platformRules.appHome === "device-home" &&
 		!atDeviceHome;
 	const canGoBack = loc.kind !== "home" || backToDeviceHome;
+	/* Leaving the first form of an Android visit a deep link opened ends
+	 * the visit: Android resets the session and returns to the app that
+	 * opened the link (`SessionLaunchDelegate.kt::handleFormEntryResult` →
+	 * `exitFromExternalLaunch`), so Back or a crumb shows the phone's home
+	 * screen on a new session. */
+	const entryPointVisit = usePreviewEntryPointVisit();
+	const leavingEndsVisit = previewing && loc.kind === "form" && entryPointVisit;
 
 	/* Every preview/edit surface shares ONE content frame: `5xl` wide with
 	 * a `px-6` inset, so navigating between screens never swaps width OR
@@ -275,7 +283,12 @@ export function BreadcrumbStrip() {
 			navigate.openCaseList(back.moduleUuid);
 			return back.moduleUuid;
 		};
+		const endVisit = () => {
+			navigate.goHome();
+			setPreviewAtDeviceHome(true);
+		};
 		return effectiveBreadcrumbs.map((item) => {
+			if (leavingEndsVisit) return endVisit;
 			const reselectFor = item.reselectCaseFor;
 			const holder = item.holdsCaseOn;
 			const parentOn = item.parentCaseOn;
@@ -364,6 +377,7 @@ export function BreadcrumbStrip() {
 		});
 	}, [
 		effectiveBreadcrumbs,
+		leavingEndsVisit,
 		menuSource,
 		navigate,
 		moduleUuid,
@@ -401,9 +415,13 @@ export function BreadcrumbStrip() {
 				<BuilderPageNavigation
 					hasData={hasData}
 					canGoBack={canGoBack}
-					onBack={() =>
-						backToDeviceHome ? setPreviewAtDeviceHome(true) : navigate.back()
-					}
+					onBack={() => {
+						if (leavingEndsVisit) {
+							navigate.goHome();
+							setPreviewAtDeviceHome(true);
+						} else if (backToDeviceHome) setPreviewAtDeviceHome(true);
+						else navigate.back();
+					}}
 					parts={breadcrumbParts}
 					workerLanguage={previewing ? language : undefined}
 					compactWorkspaceBreadcrumb={compactWorkspaceBreadcrumb}

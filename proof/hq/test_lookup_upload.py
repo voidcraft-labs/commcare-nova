@@ -210,7 +210,7 @@ def test_hqs_upload_view_answers_json_with_its_verdict_and_writes_only_what_it_t
 
 
 def test_owners_take_effect_only_on_a_table_that_is_not_global_and_novas_push_drops_them(hq, core_runner, documents):
-    from casexml.apps.phone.models import OTARestoreCommCareUser
+    from casexml.apps.phone.models import OTARestoreCommCareUser, OTARestoreWebUser
     from corehq.apps.fixtures.fixturegenerators import ItemListsProvider
     from corehq.apps.fixtures.models import LookupTable, LookupTableRow, LookupTableRowOwner, OwnerType
     from corehq.apps.users.models import CommCareUser
@@ -227,23 +227,25 @@ def test_owners_take_effect_only_on_a_table_that_is_not_global_and_novas_push_dr
         )
         provider = ItemListsProvider()
 
-        def served(worker):
+        def served(principal):
             """The rows HQ's restore writes for ``worker``: the global arm for a global table, the owned arm for
             one that is not."""
             if table.is_global:
                 (fixture,) = provider._get_global_items(table, state.domain)
             else:
                 (fixture,), _ = provider.get_user_items_and_count(
-                    {table.id: table}, OTARestoreCommCareUser(state.domain, worker)
+                    {table.id: table}, principal
                 )
             (items,) = list(fixture)
             return len(list(items))
 
+        principals = (OTARestoreCommCareUser(state.domain, owner), OTARestoreCommCareUser(state.domain, other),
+                      OTARestoreWebUser(state.domain, state.web_user))
         assert table.is_global
-        assert (served(owner), served(other)) == (2, 2)
+        assert tuple(map(served, principals)) == (2, 2, 2)
         table.is_global = False
         table.save()
-        assert (served(owner), served(other)) == (1, 0)
+        assert tuple(map(served, principals)) == (1, 0, 0)
 
         table.is_global = True
         table.save()
@@ -300,3 +302,123 @@ def test_a_description_or_an_indexed_field_makes_novas_push_make_the_table_again
             (made,) = LookupTable.objects.filter(domain=state.domain)
             assert made.id != unindexed.id and made.description == "", replace
             unindexed = made
+
+
+def test_indexed_workbook_reupload_keeps_flags_that_the_api_omits(hq, core_runner):
+    from corehq.apps.fixtures.fixturegenerators import ItemListsProvider
+    from corehq.apps.fixtures.models import LookupTable
+
+    index_workbook = workbook([
+        (
+            "types",
+            ("Delete(Y/N)", "table_id", "is_global?", "field 1", "field 1: is_indexed?", "field 2"),
+            [("N", "district", "yes", "code", "yes", "name")],
+        ),
+        (
+            "district",
+            ("UID", "Delete(Y/N)", "field: code", "field: name"),
+            [(None, "N", "north", "Northern clinic")],
+        ),
+    ])
+    with hq_check(CONFIGURATION) as (state, _):
+        assert operations.upload_lookup_workbook(state, index_workbook, replace=True).errors == []
+        held = _held(state)
+        assert held["district"]["indexed"] == [True, False]
+        (table,) = LookupTable.objects.filter(domain=state.domain)
+        schema, fixture = ItemListsProvider()._get_global_items(table, state.domain)
+        assert schema.tag == "schema" and schema.attrib["id"] == "item-list:district"
+        assert [index.text for index in schema.findall("./indices/index")] == ["code"]
+        assert fixture.attrib["indexed"] == "true"
+        assert fixture.findtext("./district_list/district/code") == "north"
+        assert operations.served_lookup_tables(state)["district"]["fields"] == [
+            {"field_name": "code", "properties": []},
+            {"field_name": "name", "properties": []},
+        ]
+        assert operations.upload_lookup_workbook(state, index_workbook, replace=True).errors == []
+        assert _held(state) == held
+
+
+def test_assigned_fixture_joins_worker_group_and_primary_location_ancestors(hq, core_runner):
+    from casexml.apps.phone.models import OTARestoreCommCareUser
+    from corehq.apps.fixtures.fixturegenerators import ItemListsProvider
+    from corehq.apps.fixtures.models import LookupTable
+    from corehq.apps.groups.models import Group
+    from corehq.apps.users.models import CommCareUser
+
+    with hq_check(CONFIGURATION) as (state, _):
+        worker = CommCareUser.wrap(operations.seed_mobile_worker(state, "first", "worker-first"))
+        other = CommCareUser.wrap(operations.seed_mobile_worker(state, "second", "worker-second"))
+        empty = CommCareUser.wrap(operations.seed_mobile_worker(state, "empty", "worker-empty"))
+        state.couch.seed({
+            **Group(domain=state.domain, name="team", users=[worker.user_id]).to_json(),
+            "_id": "owner-team",
+        })
+        region = operations.seed_location(state, "Region", "region")
+        leaf = operations.seed_location(state, "Clinic", "clinic")
+        leaf.parent = region
+        leaf.save()
+        # The restore user reads the primary location ID stored on the user doc.
+        worker.location_id = leaf.location_id
+        assert region.location_id in worker.sql_location.path
+        owned = workbook([
+            (
+                "types",
+                ("Delete(Y/N)", "table_id", "is_global?", "field 1"),
+                [("N", "district", "no", "code")],
+            ),
+            (
+                "district",
+                ("UID", "Delete(Y/N)", "field: code", "user 1", "group 1", "location 1"),
+                [
+                    (None, "N", "direct", "first", "", ""),
+                    (None, "N", "group", "", "team", ""),
+                    (None, "N", "ancestor", "", "", "region"),
+                    (None, "N", "shared", "first", "team", "region"),
+                    (None, "N", "other", "second", "", ""),
+                    (None, "N", "unassigned", "", "", ""),
+                ],
+            ),
+        ])
+        assert operations.upload_lookup_workbook(state, owned, replace=True).errors == []
+        (table,) = LookupTable.objects.filter(domain=state.domain)
+        assert not table.is_global
+
+        def served(user):
+            (fixture,), count = ItemListsProvider().get_user_items_and_count(
+                {table.id: table}, OTARestoreCommCareUser(state.domain, user)
+            )
+            choices = [item.text for item in fixture.findall("./district_list/district/code")]
+            assert count == len(choices)
+            return choices
+
+        assert served(worker) == ["direct", "group", "ancestor", "shared"]
+        assert served(other) == ["other"]
+        assert served(empty) == []
+
+
+def test_workbook_row_ceiling_counts_types_and_data_headers():
+    import pytest
+    from corehq.apps.fixtures.upload.const import MAX_FIXTURE_ROWS
+    from corehq.apps.fixtures.upload.workbook import FixtureUploadError, get_workbook
+    from openpyxl import Workbook
+
+    def at(data_rows):
+        wb = Workbook()
+        types = wb.active
+        types.title = "types"
+        types.append(("Delete(Y/N)", "table_id", "is_global?", "field 1"))
+        types.append(("N", "district", "yes", "code"))
+        district = wb.create_sheet("district")
+        district.append(("UID", "Delete(Y/N)", "field: code"))
+        # The native reader checks sheet dimensions before iterating rows.
+        district.cell(row=data_rows + 1, column=3, value="last")
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output
+
+    with at(MAX_FIXTURE_ROWS - 3) as exactly_at_limit:
+        get_workbook(exactly_at_limit)
+    with at(MAX_FIXTURE_ROWS - 2) as over_limit:
+        with pytest.raises(FixtureUploadError, match=str(MAX_FIXTURE_ROWS + 1)):
+            get_workbook(over_limit)

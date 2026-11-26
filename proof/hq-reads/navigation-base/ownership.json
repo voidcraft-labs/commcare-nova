@@ -1,9 +1,14 @@
 {
+	"menuLayouts": true,
 	"addOns": [],
 	"profileProperties": [
 		"cc-show-saved",
 		"cc-show-incomplete"
 	],
+	"profileFeatures": [
+		"dependencies"
+	],
 	"profileCustomProperties": [],
-	"autoGpsCapture": false
+	"autoGpsCapture": true,
+	"caseSharing": true
 }

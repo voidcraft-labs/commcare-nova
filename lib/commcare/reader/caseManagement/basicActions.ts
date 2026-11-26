@@ -18,8 +18,10 @@ import {
 	captureFieldKinds,
 	type Expression,
 	type FormType,
+	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
 	ownCaseOperationId,
+	RESERVED_CASE_OPERATION_TYPES,
 	type RelationStep,
 	type Uuid,
 } from "@/lib/domain";
@@ -65,14 +67,17 @@ import {
 	sameJson,
 } from "../jsonCursor";
 import { whereText } from "../place";
+import { sharedFormSyntax } from "../syntaxRead";
 import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
 import type { DataNode } from "../xform/model";
 import type { ParsedXForm } from "../xform/parse";
 import {
+	ANSWER_ALONE_CLAIMS,
 	CONDITION_CLAIMS,
 	conditionField,
 	conditionQuestionPath,
+	conditionReadsAnswerAlone,
 	conditionType,
 	readActionCondition,
 	recordRespelledConditions,
@@ -209,8 +214,12 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/conditionalcaseupdate-update-mode-edit`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
-	editNotHeld: refuse(
+	editElsewhere: take(
 		`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		"schema:ConditionalCaseUpdate.update_mode",
+	),
+	editFacet: take(
+		`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
 	editNotApplied: drop(
@@ -229,6 +238,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-key-whose-index-segments-include-user-each-parent-host-or`,
 		"schema:UpdateCaseAction.update",
 	),
+	viaUserHeld: take(
+		`${F}/update-key-through-a-typed-user-index`,
+		"schema:UpdateCaseAction.update",
+	),
 	viaOther: refuse(
 		`${F}/update-key-with-any-other-index-segment-or-user-where-the`,
 		"schema:UpdateCaseAction.update",
@@ -237,21 +250,13 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/index-path-through-a-case-type-the-app-does-not-fix`,
 		"schema:UpdateCaseAction.update",
 	),
-	viaFacet: refuse(
+	viaFacet: take(
 		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
-		"schema:UpdateCaseAction.update",
-	),
-	locationKeys: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
 		"schema:UpdateCaseAction.update",
 	),
 	workerKey: refuse(
 		`${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`,
 		"schema:UpdateCaseAction.update",
-	),
-	locationChildKeys: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
-		"schema:OpenSubCaseAction.case_properties",
 	),
 	illegalKey: refuse(
 		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
@@ -285,8 +290,9 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/a-case-write-name-or-preload-on-a-question-the-picker-does-not`,
 		"schema:ConditionalCaseUpdate.question_path",
 	),
+	hiddenDay: take(`${F}/a-datetime-question-saved-straight-to-a-case`, null),
 	datetimeStraight: refuse(
-		`${F}/a-datetime-question-saved-straight-to-a-case`,
+		`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`,
 		null,
 	),
 	datetimeSibling: take(
@@ -312,6 +318,12 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	categoryStateKey: take(
 		`${F}/update-keys-location-id-hq-user-id-category-state`,
 		"schema:ConditionalCaseUpdate.question_path",
+	),
+	/** The own case's location and worker id, which CommCare HQ's server keeps
+	 *  apart from its properties: recorded at the map, where the key sits. */
+	locationOrWorkerKey: take(
+		`${F}/update-keys-location-id-hq-user-id`,
+		"schema:UpdateCaseAction.update",
 	),
 	/** A key of the own case's update in Nova's grammar that no row above names:
 	 *  recorded at the map, where the key sits. */
@@ -577,6 +589,9 @@ const CASE_SETTINGS_RESPELLED = "case-settings-respelled";
 export interface ProposedValue {
 	readonly field: DraftField;
 	readonly link: boolean;
+	/** A date-and-time question's answer saved as it is, which CommCare keeps
+	 *  as its day: the property it writes is a `date` one. */
+	readonly day?: true;
 }
 
 interface ProposedWrite {
@@ -603,7 +618,9 @@ export interface ProposedOperation {
 	readonly action: "own" | "create" | "close" | "update";
 	readonly caseType?: string;
 	readonly name?: ProposedValue;
+	readonly nameOnlyIfChanged?: true;
 	readonly owner?: ProposedValue;
+	readonly ownerOnlyIfChanged?: true;
 	readonly writes: readonly ProposedWrite[];
 	readonly condition?: ProposedCondition;
 	readonly forEach?: DraftField;
@@ -838,7 +855,7 @@ export function ownerQuestionPath(
 /** A field's ids from the form's root. */
 export function fieldIds(field: DraftField): string[] {
 	const ids: string[] = [];
-	for (let at: DraftField | null = field; at !== null; at = at.parent)
+	for (let at: DraftField | null = field; at !== null; at = at.dataParent)
 		ids.unshift(at.id);
 	return ids;
 }
@@ -850,8 +867,11 @@ function generatedShape(
 	owner: DraftField | undefined,
 ): boolean {
 	if (owner === undefined) return false;
+	// The trimmed value of every key the emitter guards
+	// (`caseScalarTextGuard.ts::isCaseScalarTextProperty`): a case's name, its
+	// external id, its location and the worker id copied into its external id.
 	if (purpose === "trimmed")
-		return property === "name" || property === "external_id";
+		return property === "name" || isCaseScalarTextProperty(property);
 	if (purpose === "url")
 		return (captureFieldKinds as readonly string[]).includes(owner.kind);
 	// A date-and-time question, or a Hidden Value that writes a date-and-time property.
@@ -889,6 +909,7 @@ export function questionValue(
 	form: DraftForm,
 	path: string,
 	property: string,
+	allowHiddenDay = false,
 ): QuestionValue {
 	const xform = form.xform;
 	const relative = conditionQuestionPath(form, path);
@@ -934,17 +955,76 @@ export function questionValue(
 	// A date and time, a question's or a Hidden Value's its bind types
 	// `xsd:dateTime`, named straight: HQ's build binds the leaf of the case block
 	// that copies it with no type, so Core keeps the day alone there
-	// (`Recalculate.wrapData` wraps a date of any other type as a date), while
-	// Nova saves every date and time to a case through its `nova_datetime_`
-	// sibling, which keeps the moment.
-	if (field.kind === "datetime" || boundDateTime(form, field))
-		return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+	// (`Recalculate.wrapData` wraps a date of any other type as a date). A
+	// question's is a write of its day to a `date` property, which Nova saves
+	// straight too (`ruleSets.ts::isAnswerWriteAssignable`). An explicit
+	// hidden clock on a basic follow-up has its own typed source node and
+	// writes the day on an ordinary date property.
+	if (boundDateTime(form, field)) {
+		if (
+			!allowHiddenDay ||
+			!DAY_PROPERTY_CLASS.test(property) ||
+			STANDARD_KEYS.has(property) ||
+			!hiddenClockCalculation(form, field)
+		)
+			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+		// The source bind holds the instant, though the untyped case leaf
+		// saves its day. Keep the explicit field type beside the date catalog.
+		ctx.writeDraft(() => {
+			field.field.answerType = "datetime";
+		});
+		return {
+			kind: "value",
+			value: { field, link: false, day: true },
+			datetimeSibling: false,
+		};
+	}
+	if (field.kind === "datetime") {
+		if (!DAY_PROPERTY_CLASS.test(property) || STANDARD_KEYS.has(property))
+			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+		return {
+			kind: "value",
+			value: { field, link: false, day: true },
+			datetimeSibling: false,
+		};
+	}
 	return {
 		kind: "value",
 		value: { field, link: false },
 		datetimeSibling: false,
 	};
 }
+
+/** A clock reading with no starting value or relevance. */
+function hiddenClockCalculation(form: DraftForm, field: DraftField): boolean {
+	const bind = form.xform?.binds.get(field.node);
+	if (
+		bind?.logic.calculate === undefined ||
+		bind.logic.relevant !== undefined ||
+		field.expressions.some((slot) => slot.slot === "default_value")
+	)
+		return false;
+	const parsed = sharedFormSyntax(bind.logic.calculate);
+	const call = parsed.ok ? parsed.node : undefined;
+	return call?.kind === "call" && call.name === "now" && call.args.length === 0;
+}
+
+/** The keys a day saved straight never names: the case's name and owner,
+ *  and the standard keys a property type cannot be given to
+ *  (`standardCaseProperties.ts`). */
+const STANDARD_KEYS: ReadonlySet<string> = new Set([
+	"name",
+	"case_name",
+	"owner_id",
+	"external_id",
+	"location_id",
+	"hq_user_id",
+	"category",
+	"state",
+]);
+
+/** A property name, no index segment before it. */
+const DAY_PROPERTY_CLASS = /^[^/]+$/;
 
 /** Whether `field` is a Hidden Value whose bind in `form`'s source is typed `xsd:dateTime`. */
 export function boundDateTime(
@@ -1040,19 +1120,6 @@ export function propertyNameClass(key: string): PropertyNameClass | undefined {
 	return "non-ascii";
 }
 
-/**
- * A key CommCare HQ's server stores apart from the case's properties once a
- * case block's `<update>` holds it: `location_id` becomes the case's own
- * location column and `hq_user_id` is also copied to its external id
- * (`form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy.
- * _apply_update_action`). Nova holds it nowhere
- * (`standardCaseProperties.ts::FORBIDDEN_CASE_WRITE_PROPERTIES`). Whether a
- * written key reaches `<update>` is `isServerDivertedWrite`'s.
- */
-export function isServerDivertedKey(property: string): boolean {
-	return property === "location_id" || property === "hq_user_id";
-}
-
 /** Each form's upload refs, collected once per parsed source. */
 const UPLOAD_REFS = new WeakMap<ParsedXForm, ReadonlySet<string>>();
 
@@ -1079,27 +1146,6 @@ function uploadRefs(parsed: ParsedXForm): ReadonlySet<string> {
 	walk(parsed.body, scopeOf(parsed.body, scopeOf(parsed.html, new Map())));
 	UPLOAD_REFS.set(parsed, refs);
 	return refs;
-}
-
-/**
- * Whether HQ's build writes `property`, read from `questionPath`, into a case
- * block's `<update>` as a key its server stores apart (`isServerDivertedKey`).
- * Every action's keys go through `xform.py::XFormCaseBlock.add_case_updates`
- * (a basic update, a case above it, the worker's record, a child case, an
- * advanced load and an open action), which writes a key into `<update>`
- * unless its `question_path` is the `ref` of an `<upload>` in the form's
- * body (`is_attachment`, by the stored text), where the key names an
- * `<attachment>` instead and is no location or external id: that write is
- * the upload question's row (`BASIC_CLAIMS.uploadQuestion`), which reading
- * the value raises. The diverted key's row is
- * `update-keys-location-id-hq-user-id`, under the key of the map that holds it.
- */
-export function isServerDivertedWrite(
-	form: DraftForm,
-	property: string,
-	questionPath: unknown,
-): boolean {
-	return isServerDivertedKey(property) && !namesAttachment(form, questionPath);
 }
 
 /** Whether HQ's build writes an action's key read from `questionPath` as an
@@ -1374,6 +1420,8 @@ function pathClaimOf(
 	keyClaim: Claim<"take"> | undefined,
 ): Claim<"take"> | "join" {
 	if (read.value.link) return BASIC_CLAIMS.captureLink;
+	if (read.value.day === true && read.value.field.kind === "hidden")
+		return BASIC_CLAIMS.hiddenDay;
 	if (read.datetimeSibling)
 		return read.value.field.kind === "hidden"
 			? "join"
@@ -1388,9 +1436,11 @@ function readUpdate(
 	r: FormReading,
 	cursor: JsonCursor,
 	property: string,
-	own: boolean,
+	/** The row a write saved only when changed reads under. */
+	edit: Claim<"take">,
 	pathClaim: Claim<"take">,
 	keyClaim?: Claim<"take">,
+	allowHiddenDay = false,
 ): {
 	readonly value?: ProposedValue;
 	readonly onlyIfChanged?: true;
@@ -1398,27 +1448,25 @@ function readUpdate(
 } {
 	const path = cursor.peek("question_path");
 	let onlyIfChanged: true | undefined;
-	let ok = true;
+	const ok = true;
 	if (cursor.peek("update_mode") === "edit") {
-		if (own) {
-			consume(
-				cursor.take("update_mode", BASIC_CLAIMS.editHeld, (value) => value),
-			);
+		// Without the flag HQ's build saves every time: a follow-up's own update
+		// keeps its row, respelled; anywhere else the mode is inert.
+		if (edit === BASIC_CLAIMS.editHeld || r.applied) {
+			consume(cursor.take("update_mode", edit, (value) => value));
 			if (r.applied) onlyIfChanged = true;
-			else
-				rewrite(
-					r.ctx,
-					BASIC_CLAIMS.editHeld.entry,
-					`${cursor.pointer}/update_mode`,
-				);
-		} else if (r.applied) {
-			cursor.refuse("update_mode", BASIC_CLAIMS.editNotHeld);
-			ok = false;
+			else rewrite(r.ctx, edit.entry, `${cursor.pointer}/update_mode`);
 		} else cursor.drop("update_mode", BASIC_CLAIMS.editNotApplied);
 	}
 	const read =
 		typeof path === "string" && path !== ""
-			? questionValue(r.ctx, r.form, path, property)
+			? questionValue(
+					r.ctx,
+					r.form,
+					path,
+					property,
+					allowHiddenDay && onlyIfChanged === undefined,
+				)
 			: undefined;
 	if (read === undefined || read.kind === "finding") {
 		consume(cursor.take("question_path", pathClaim, (value) => value));
@@ -1471,12 +1519,16 @@ function readUpdateMap(
 ): {
 	readonly writes: ProposedWrite[];
 	name?: ProposedValue;
+	nameOnlyIfChanged?: true;
 	owner?: ProposedValue;
+	ownerOnlyIfChanged?: true;
 } {
 	const out: {
 		writes: ProposedWrite[];
 		name?: ProposedValue;
+		nameOnlyIfChanged?: true;
 		owner?: ProposedValue;
+		ownerOnlyIfChanged?: true;
 	} = {
 		writes: [],
 	};
@@ -1512,11 +1564,12 @@ function readUpdateMap(
 		const segments = key.split("/");
 		const property = segments[segments.length - 1] as string;
 		const indices = segments.slice(0, -1);
+		const directUserIndex = indices.length === 1 && indices[0] === "user";
 		let via: CaseWriteVia | undefined;
 		if (slot === "own" && indices.length > 0) {
-			const known = indices.every(
-				(segment) => segment === "parent" || segment === "host",
-			);
+			const known =
+				directUserIndex ||
+				indices.every((segment) => segment === "parent" || segment === "host");
 			if (!known) {
 				const users = indices.every(
 					(segment) =>
@@ -1534,31 +1587,36 @@ function readUpdateMap(
 				continue;
 			}
 			const steps = ancestorSteps(r.ctx, r.caseType, indices);
-			if (steps === undefined) {
-				refuseEntry(cursor, BASIC_CLAIMS.ancestorUnknown, key);
+			if (
+				steps === undefined ||
+				(directUserIndex &&
+					steps.types.some((type) => RESERVED_CASE_OPERATION_TYPES.has(type)))
+			) {
+				refuseEntry(
+					cursor,
+					directUserIndex ? BASIC_CLAIMS.viaUser : BASIC_CLAIMS.ancestorUnknown,
+					key,
+				);
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
-			// The case above's name and owner: HQ's build writes `name` as that
-			// case's `case_name` (`xform.py::XFormCaseBlock.add_case_updates`) and
-			// `owner_id` as its owner, and Nova renames and gives an owner only to
-			// the operation's own case.
-			if (property === "name" || property === "owner_id") {
-				refuseEntry(cursor, BASIC_CLAIMS.viaFacet, key);
-				continue;
-			}
 		}
-		// HQ's server stores these two elsewhere wherever a case block's
-		// `<update>` holds them (`update_strategy.py::_apply_update_action`): the
-		// form's own case's, a case's above it and the worker's record's alike.
-		if (isServerDivertedWrite(r.form, property, cursor.peek("question_path"))) {
-			refuseEntry(cursor, BASIC_CLAIMS.locationKeys, key);
-			continue;
-		}
+		// `location_id` and `hq_user_id` are read as any other key: HQ's server
+		// keeps the first as the case's location column and copies the second
+		// into its external id wherever a case block's `<update>` holds them
+		// (`update_strategy.py::_apply_update_action`), and the case store does
+		// the same (`standardCaseProperties.ts::WRITABLE_STANDARD_CASE_PROPERTIES`,
+		// `postgres/submissionEnvelope.ts::partitionWrites`).
 		const facet =
 			indices.length === 0 && (property === "name" || property === "owner_id");
+		// The case above's name and owner: HQ's build writes `name` as that
+		// case's `case_name` (`xform.py::XFormCaseBlock.add_case_updates`) and
+		// `owner_id` as its owner, which Nova holds as a write of `case_name`
+		// or `owner_id` through `via` (`CASE_FACETS_THROUGH_INDEX`).
+		const viaFacet =
+			via !== undefined && (property === "name" || property === "owner_id");
 		const categoryOrState = property === "category" || property === "state";
-		if (!facet && !categoryOrState) {
+		if (!facet && !viaFacet && !categoryOrState) {
 			const named = propertyNameFinding(property, false);
 			if (named === "unrecognized") {
 				unrecognizedEntry(r, cursor, "schema:UpdateCaseAction.update");
@@ -1583,25 +1641,64 @@ function readUpdateMap(
 			refuseEntry(cursor, BASIC_CLAIMS.workerKey, key);
 			continue;
 		}
-		const ownWrite = slot === "own" && loads && !facet && via === undefined;
+		// Every write of an update map is saved only when changed where HQ's
+		// build applies the mode (`XFormCaseBlock.add_case_updates`), the own
+		// case's name and owner, its facets, among them
+		// (`CaseFacetOnlyIfChanged`).
+		const edit = facet
+			? BASIC_CLAIMS.editFacet
+			: slot === "own" && loads
+				? BASIC_CLAIMS.editHeld
+				: BASIC_CLAIMS.editElsewhere;
 		// The rows the own case's `update` names by its key: a key through the
 		// cases above the loaded one is its own row's.
 		const keyClaim =
-			via !== undefined
-				? BASIC_CLAIMS.viaOnLoad
-				: slot !== "own" || indices.length > 0
-					? undefined
-					: property === "name" && r.type !== "registration"
-						? BASIC_CLAIMS.nameKey
-						: property === "owner_id"
-							? BASIC_CLAIMS.ownerKey
-							: categoryOrState
-								? BASIC_CLAIMS.categoryStateKey
-								: facet
-									? undefined
-									: BASIC_CLAIMS.asciiKey;
-		const read = readUpdate(r, cursor, property, ownWrite, pathClaim, keyClaim);
+			directUserIndex && via !== undefined
+				? BASIC_CLAIMS.viaUserHeld
+				: viaFacet
+					? BASIC_CLAIMS.viaFacet
+					: via !== undefined
+						? BASIC_CLAIMS.viaOnLoad
+						: slot !== "own" || indices.length > 0
+							? undefined
+							: property === "name" && r.type !== "registration"
+								? BASIC_CLAIMS.nameKey
+								: property === "owner_id"
+									? BASIC_CLAIMS.ownerKey
+									: categoryOrState
+										? BASIC_CLAIMS.categoryStateKey
+										: facet
+											? undefined
+											: property === "location_id" || property === "hq_user_id"
+												? BASIC_CLAIMS.locationOrWorkerKey
+												: BASIC_CLAIMS.asciiKey;
+		const read = readUpdate(
+			r,
+			cursor,
+			property,
+			edit,
+			pathClaim,
+			keyClaim,
+			slot === "own" &&
+				r.type === "followup" &&
+				via === undefined &&
+				!RESERVED_CASE_OPERATION_TYPES.has(r.caseType),
+		);
 		if (!read.ok || read.value === undefined) continue;
+		// A date-and-time question's day is saved straight only to a `date`
+		// property of the action's own case, which the catalog types: the
+		// worker's record is no catalogued type, and Nova saves a date and time
+		// there as its moment.
+		if ((via !== undefined || slot === "usercase") && read.value.day === true) {
+			finding(
+				r.ctx,
+				BASIC_CLAIMS.datetimeStraight,
+				r.form.place,
+				`${cursor.pointer}/question_path`,
+				{ name: key },
+			);
+			continue;
+		}
 		// The own case and the worker's record are written once, from questions in no repeat.
 		if (!valueInScope(read.value, undefined)) {
 			finding(
@@ -1621,14 +1718,16 @@ function readUpdateMap(
 				continue;
 			}
 			out.name = read.value;
+			if (read.onlyIfChanged !== undefined) out.nameOnlyIfChanged = true;
 			continue;
 		}
 		if (facet && property === "owner_id") {
 			out.owner = read.value;
+			if (read.onlyIfChanged !== undefined) out.ownerOnlyIfChanged = true;
 			continue;
 		}
 		out.writes.push({
-			property,
+			property: viaFacet && property === "name" ? "case_name" : property,
 			value: read.value,
 			...(via !== undefined && { via }),
 			...(read.onlyIfChanged !== undefined && {
@@ -1754,7 +1853,9 @@ export function readBasicActions(
 
 	// The own case.
 	let ownName: ProposedValue | undefined;
+	let ownNameOnlyIfChanged: true | undefined;
 	let ownOwner: ProposedValue | undefined;
+	let ownOwnerOnlyIfChanged: true | undefined;
 	const ownWrites: ProposedWrite[] = [];
 	let openCondition: ProposedCondition | undefined;
 	let closeCondition: ProposedCondition | "match-all" | undefined;
@@ -1941,7 +2042,9 @@ export function readBasicActions(
 				);
 				ownWrites.push(...read.writes);
 				if (read.name !== undefined) ownName = read.name;
+				if (read.nameOnlyIfChanged !== undefined) ownNameOnlyIfChanged = true;
 				if (read.owner !== undefined) ownOwner = read.owner;
+				if (read.ownerOnlyIfChanged !== undefined) ownOwnerOnlyIfChanged = true;
 			} else if (U.used("update"))
 				U.drop("update", BASIC_CLAIMS.updateMapUnderNever);
 		}
@@ -2033,7 +2136,13 @@ export function readBasicActions(
 				id: operationId(caseType),
 				action: "own",
 				...(ownName !== undefined && { name: ownName }),
+				...(ownNameOnlyIfChanged !== undefined && {
+					nameOnlyIfChanged: ownNameOnlyIfChanged,
+				}),
 				...(ownOwner !== undefined && { owner: ownOwner }),
+				...(ownOwnerOnlyIfChanged !== undefined && {
+					ownerOnlyIfChanged: ownOwnerOnlyIfChanged,
+				}),
 				writes: ownWrites,
 				placement: { kind: "basic", slot: "own" },
 			});
@@ -2270,13 +2379,14 @@ function readSubcases(
 			S.refuse("reference_id", BASIC_CLAIMS.subcaseReferenceOther);
 			ok = false;
 		}
-		consume(
-			S.take("condition", BASIC_CLAIMS.subcaseCondition, (value) => value),
-		);
+		const conditionClaim = conditionReadsAnswerAlone(form, conditionStored)
+			? ANSWER_ALONE_CLAIMS.subcaseCondition
+			: BASIC_CLAIMS.subcaseCondition;
+		consume(S.take("condition", conditionClaim, (value) => value));
 		noteConditionQuestion(
 			r,
 			conditionStored,
-			BASIC_CLAIMS.subcaseCondition.entry,
+			conditionClaim.entry,
 			`${S.pointer}/condition`,
 		);
 
@@ -2355,6 +2465,7 @@ function readSubcases(
 		}
 		const writes: ProposedWrite[] = [];
 		let owner: ProposedValue | undefined;
+		let ownerOnlyIfChanged: true | undefined;
 		const properties = S.map(
 			"case_properties",
 			"ConditionalCaseUpdate",
@@ -2363,11 +2474,6 @@ function readSubcases(
 		for (const [key, cursor] of properties) {
 			if (key.includes("/")) {
 				refuseEntry(cursor, BASIC_CLAIMS.illegalChildKey, key);
-				ok = false;
-				continue;
-			}
-			if (isServerDivertedWrite(r.form, key, cursor.peek("question_path"))) {
-				refuseEntry(cursor, BASIC_CLAIMS.locationChildKeys, key);
 				ok = false;
 				continue;
 			}
@@ -2391,7 +2497,9 @@ function readSubcases(
 				r,
 				cursor,
 				key,
-				false,
+				key === "owner_id"
+					? BASIC_CLAIMS.editFacet
+					: BASIC_CLAIMS.editElsewhere,
 				BASIC_CLAIMS.subcaseQuestionPath,
 			);
 			if (!read.ok || read.value === undefined) {
@@ -2409,21 +2517,31 @@ function readSubcases(
 				ok = false;
 				continue;
 			}
-			if (key === "owner_id") owner = read.value;
-			else writes.push({ property: key, value: read.value });
+			if (key === "owner_id") {
+				owner = read.value;
+				ownerOnlyIfChanged = read.onlyIfChanged;
+			} else
+				writes.push({
+					property: key,
+					value: read.value,
+					...(read.onlyIfChanged !== undefined && {
+						onlyIfChanged: read.onlyIfChanged,
+					}),
+				});
 		}
 		const closeStored = S.peek("close_condition");
 		const closeType = conditionType(closeStored);
 		if (closeType === "never")
 			S.drop("close_condition", BASIC_CLAIMS.subcaseCloseNever);
 		else {
-			consume(
-				S.take("close_condition", BASIC_CLAIMS.subcaseClose, (value) => value),
-			);
+			const closeClaim = conditionReadsAnswerAlone(form, closeStored)
+				? ANSWER_ALONE_CLAIMS.subcaseClose
+				: BASIC_CLAIMS.subcaseClose;
+			consume(S.take("close_condition", closeClaim, (value) => value));
 			noteConditionQuestion(
 				r,
 				closeStored,
-				BASIC_CLAIMS.subcaseClose.entry,
+				closeClaim.entry,
 				`${S.pointer}/close_condition`,
 			);
 		}
@@ -2469,6 +2587,7 @@ function readSubcases(
 			caseType,
 			name,
 			...(owner !== undefined && { owner }),
+			...(ownerOnlyIfChanged !== undefined && { ownerOnlyIfChanged }),
 			writes,
 			...(condition !== undefined && { condition }),
 			...(repeat !== undefined && { forEach: repeat }),
@@ -2615,6 +2734,10 @@ export function writeBasicOperations(
 			proposal.forEach?.uuid === undefined
 				? undefined
 				: { repeat: proposal.forEach.uuid };
+		const ownerFlag =
+			owner !== undefined && proposal.ownerOnlyIfChanged === true
+				? { ownerOnlyIfChanged: true as const }
+				: {};
 		const common = {
 			uuid: proposal.uuid,
 			id: proposal.id,
@@ -2628,7 +2751,12 @@ export function writeBasicOperations(
 				...common,
 				action: "own",
 				...(name !== undefined && { name }),
+				...(name !== undefined &&
+					proposal.nameOnlyIfChanged === true && {
+						nameOnlyIfChanged: true,
+					}),
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 			});
 		else if (proposal.action === "create" && name !== undefined)
 			operations.push({
@@ -2638,6 +2766,7 @@ export function writeBasicOperations(
 				target: { kind: "new" },
 				name,
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 				...(condition !== undefined && { condition }),
 				...(forEach !== undefined && { forEach }),
 				...(proposal.linksOwn === true && {

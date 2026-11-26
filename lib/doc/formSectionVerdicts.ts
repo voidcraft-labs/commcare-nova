@@ -44,6 +44,7 @@ import {
 	proseReadSlotRef,
 	proseSurfaceReads,
 } from "@/lib/domain/expressionSource";
+import { formIsSectioned } from "@/lib/domain/fieldForm";
 import {
 	type ExpressionCarrierRef,
 	expressionSlotKey,
@@ -65,14 +66,8 @@ export function formSectionsOf(
 	);
 }
 
-/** Whether `formUuid` is split into sections (its root holds one). */
-export function formIsSectioned(doc: BlueprintDoc, formUuid: Uuid): boolean {
-	return orderedFieldUuids(doc, formUuid).some(
-		(uuid) => doc.fields[uuid]?.kind === "section",
-	);
-}
-
 export { formOfField } from "@/lib/domain/fieldForm";
+export { formIsSectioned };
 
 /**
  * The nearest section ABOVE `fieldUuid` (never the field itself): the page
@@ -258,10 +253,10 @@ function sectionPlacementVerdict(
 	}
 
 	if (landsOnForm) {
-		// The root of a sectioned form holds sections only. A field already
+		// A root activity submits without displaying a question. A question already
 		// sitting loose there is a state the gate refused; refusing its
 		// re-anchoring at the same root keeps the answer honest.
-		return formIsSectioned(doc, toParentUuid)
+		return kind !== "connect_activity" && formIsSectioned(doc, toParentUuid)
 			? refuse("loose-field-in-sectioned-form")
 			: OK;
 	}
@@ -473,8 +468,10 @@ function expressionPlacementVerdict(
 /** A prose read's whole identity: its slot and every index of its place
  *  in the field, so a read before the move is compared with the same read
  *  after it. */
-function proseReadKey(read: Pick<ProseRead, "slot" | "indices">): string {
-	return JSON.stringify([read.slot, read.indices]);
+function proseReadKey(
+	read: Pick<ProseRead, "slot" | "indices" | "language">,
+): string {
+	return JSON.stringify([read.slot, read.indices, read.language]);
 }
 
 function firstRefusal(

@@ -3,16 +3,22 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
+import { MenuBadgeSection } from "@/components/builder/conditions/MenuBadgeSection";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { Button } from "@/components/shadcn/button";
+import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { AfterSubmitSection } from "./AfterSubmitSection";
+import { AnswerRootSection } from "./AnswerRootSection";
 import { CaseChangesSection } from "./CaseChangesSection";
-import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
+import { FormBehaviorSection } from "./FormBehaviorSection";
 import { FormEntrySection } from "./FormEntrySection";
+import { FormLocationSection } from "./FormLocationSection";
 import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
 import { OwnCaseSection } from "./OwnCaseSection";
 import { RecordNameSection } from "./RecordNameSection";
+import { SubmitButtonSection } from "./SubmitButtonSection";
 import type { FormSettingsSectionProps } from "./types";
 
 /** Shell prop shape: the standard section props plus a dismiss callback
@@ -27,7 +33,7 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
  * chrome: a labeled header with a dismiss button and a scrollable
  * content region that composes the feature sections in a fixed vertical
  * order. Each section decides whether it renders (close forms only for
- * `OwnCaseSection`, non-null `connectType` for `ConnectSection`,
+ * `OwnCaseSection`,
  * registration forms with somewhere to be offered from for
  * `FormEntrySection`). A case list registration form has a restricted after-submit choice
  * and no menu section: it is on no menu, so it takes neither "Show on the
@@ -39,6 +45,7 @@ export function FormSettingsPanel({
 	formUuid,
 	onClose,
 }: FormSettingsPanelProps) {
+	const shared = useForm(formUuid)?.shadowOf;
 	const noMatches = useIsCaseListRegistrationForm(moduleUuid, formUuid);
 	return (
 		<div className="w-80">
@@ -61,10 +68,16 @@ export function FormSettingsPanel({
 
 			{/* Content */}
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
-				<RecordNameSection moduleUuid={moduleUuid} formUuid={formUuid} />
-				<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				{!shared && (
+					<RecordNameSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
+				{!shared && (
+					<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
 
 				<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />
+				<SubmitButtonSection formUuid={formUuid} />
+				<FormBehaviorSection moduleUuid={moduleUuid} formUuid={formUuid} />
 				{!noMatches && (
 					<EntryPointSettingsShortcut
 						target={{ kind: "form", moduleUuid, formUuid }}
@@ -85,9 +98,13 @@ export function FormSettingsPanel({
 					/>
 				)}
 
-				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
-
+				{!shared && <FormLocationSection formUuid={formUuid} />}
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				{!noMatches && (
+					<MenuBadgeSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
+				<AnswerRootSection formUuid={formUuid} />
+				<ControlWording owner={formUuid} />
 
 				{!noMatches && (
 					<DisplayConditionSection

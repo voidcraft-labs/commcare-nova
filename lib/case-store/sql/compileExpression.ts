@@ -67,6 +67,7 @@ import type {
 	SwitchCase,
 } from "@/lib/domain/expression/types";
 import { isConditionArm, isRelationPath } from "@/lib/domain/expression/types";
+import { CaseSearchUnavailableError } from "../searchRequest";
 import { compileTableLookup } from "./compileLookup";
 import {
 	compileRelationPath,
@@ -172,6 +173,17 @@ export function compileExpression(
 		case "term":
 			return compileTerm(expr.term, ctx);
 		case "today":
+			if (expr.clock === "project-space") {
+				const zone = ctx.bindings.projectTimeZone;
+				if (!zone)
+					throw new CaseSearchUnavailableError({
+						kind: "project-zone-unavailable",
+					});
+				return eb.cast(
+					eb.fn<Date>("timezone", [eb.val(zone), compileNow()]),
+					"date",
+				);
+			}
 			return compileToday(ctx);
 		case "now":
 			return compileNow();
@@ -264,13 +276,16 @@ export function compileExpression(
 				}),
 			);
 		case "call":
+		case "case-text":
 		case "itext":
 		case "choice-name":
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations":
 		case "selected-cases":
 		case "case-list-search-text":
+		case "case-list-lookup-count":
 			throw new Error(
 				compilerBugMessage({
 					where: "compileExpression",

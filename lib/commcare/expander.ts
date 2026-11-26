@@ -1,4 +1,8 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
+import { exposedEntryCaseCreations } from "./entryPointProjection";
+import type { HqApplicationTree } from "./hqJson/xpath";
+import { inlineSearchInstance } from "./suite/case-search/types";
 /**
  * BlueprintDoc → HqApplication expansion.
  *
@@ -38,6 +42,7 @@ import {
 	type WireIdentity,
 } from "@/lib/commcare";
 import { addOnsNeededBy } from "@/lib/commcare/addOns";
+import { requiredAndroidPackages } from "@/lib/commcare/androidAppDependencies";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import {
@@ -50,13 +55,17 @@ import {
 	repeatForLanguages,
 } from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
-import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
+import {
+	type AssetManifest,
+	requireAssetRef,
+} from "@/lib/commcare/multimedia/assetWirePath";
+import { localizedNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
+import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
 import { EMPTY_CASE_LIST_TEXT } from "@/lib/commcare/suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
-	NO_MATCHES_RELEVANCY,
+	noMatchesRelevancy,
 } from "@/lib/commcare/suite/case-search/noMatches";
 import {
 	emitFormDisplayConditionForHq,
@@ -71,7 +80,6 @@ import {
 	declaresWebApps,
 	effectivePostSubmit,
 	makeTranslationUnitId,
-	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
 	moduleParent,
 	moduleShowsFormsInMenuAbove,
@@ -79,11 +87,14 @@ import {
 	projectedModulePreorder,
 	type Uuid,
 } from "@/lib/domain";
+import { projectSearchOf } from "@/lib/domain/modules";
+import type { NavigationMedia } from "@/lib/domain/navigationMedia";
+import { advancedActionsWithEntry } from "./advancedEntryValues";
 import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
-import { buildConnectSlugMap } from "./connectSlugs";
 import {
 	caseListFormLabelUnit,
 	caseListMenuItemLabelUnit,
+	type EmissionPlan,
 	emissionPlan,
 	searchAnswersOf,
 } from "./emissionPlan";
@@ -91,6 +102,8 @@ import { buildCaseReferencesLoad } from "./formActions";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
+	entrySessionDatums,
+	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	type ProjectedFormLink,
@@ -98,16 +111,27 @@ import {
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "./formLinkProjection";
+import {
+	appNameWordingKeys,
+	generatedWordingKeys,
+	generatedWordingOverrides,
+	hasOutputOverrides,
+} from "./generatedWording";
 import { emptyListDetailPair, projectCaseListForHq } from "./hqJson/caseList";
 import {
 	type HqAdvancedFormTree,
 	type HqFormLinkTree,
 	type HqFormTree,
+	type HqShadowFormTree,
 	hqXPath,
 	serializeHqApplication,
 } from "./hqJson/xpath";
+import { wireBuildProfiles } from "./installationProfiles";
+import { hqMenuBadges, projectMenuBadge } from "./menuBadge";
 import { emittedModuleKind } from "./moduleKind";
+import { requiredProjectSearchId } from "./suite/case-search/projectSearch";
 import { buildXFormSource } from "./xform/builder";
+import { serializeWire } from "./xpath/wire/serialize";
 
 /**
  * One projected link in HQ's `FormLink` shape. `xpath` carries the `if` the
@@ -171,6 +195,10 @@ export function toHqFormLink(
  * logo reaches an app built on CommCare HQ when a person adds it there.
  */
 export interface ExpandOptions {
+	/** Compare the partly read form while the reader accounts for its receiver actions and platform choices. */
+	readonly readingComparison?: true;
+	/** Device builds may install an ordered subset of the app languages. */
+	readonly installationProfileUuid?: Uuid;
 	readonly runtimeTarget?: RuntimeTarget;
 	/**
 	 * The ids every menu and form takes. Absent means the derivation; a
@@ -210,6 +238,101 @@ export interface ExpandOptions {
 	readonly keyedCaseIdPrefixes?: ReadonlyMap<Uuid, string>;
 }
 
+/** Build a form with its entry datums and its case context. Both the complete
+ * app and inspections of its XForm source use this projection. */
+function formSourceProjection(
+	authoredDoc: BlueprintDoc,
+	plan: EmissionPlan,
+	linkContext: FormLinkProjectionContext,
+	opts: ExpandOptions,
+) {
+	const { doc } = plan;
+	const identity = opts.identity ?? DERIVED_WIRE_IDENTITY;
+	const assets = opts.assets;
+	return (moduleUuid: Uuid, formUuid: Uuid) => {
+		const mod = doc.modules[moduleUuid];
+		const form = doc.forms[formUuid];
+		const synthetic = plan.synthetic.get(moduleUuid);
+		const xmlns = identity.formXmlns(form);
+
+		const ownCaseDatum = selectedCaseSessionDatum(
+			doc,
+			linkContext,
+			moduleUuid,
+			formUuid,
+		);
+		const ownCaseDatumId = ownCaseDatum?.id;
+		// An entry that selects several cases has no one case for HQ's
+		// basic actions; the source works on each through the
+		// selected-entities instance.
+		const multipleCaseDatum =
+			ownCaseDatum?.maxSelectValue !== undefined ? ownCaseDatum : undefined;
+
+		const source = form.shadowOf
+			? undefined
+			: buildXFormSource(doc, formUuid, {
+					readingComparison: opts.readingComparison,
+					installationProfileUuid: opts.installationProfileUuid,
+					xmlns,
+					expressionDoc: authoredDoc,
+					datumId: entryDatumIdResolver(
+						entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+					),
+					// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
+					// reachable-case-type depth map matches the deep validator's accept
+					// map, which builds from `mod.caseType` directly.
+					...(mod.caseType && { moduleCaseType: mod.caseType }),
+					// A form can read any query that its entry actually loaded. The
+					// generated empty-results command takes its answers from its host.
+					searchAnswers:
+						synthetic === undefined
+							? searchAnswersOf(authoredDoc, moduleUuid, formUuid)
+							: searchAnswersOf(authoredDoc, synthetic.hostModuleUuid),
+					...(ownCaseDatumId !== undefined &&
+						multipleCaseDatum === undefined && {
+							selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
+						}),
+					...(multipleCaseDatum !== undefined && {
+						selectedCasesInstanceId: multipleCaseDatum.id,
+					}),
+					...(assets && { assets }),
+					...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
+					...(opts.attachmentTarget && {
+						attachmentTarget: opts.attachmentTarget,
+					}),
+					...(opts.keyedCaseIdPrefixes && {
+						keyedCaseIdPrefixes: opts.keyedCaseIdPrefixes,
+					}),
+				});
+
+		return { source, xmlns, ownCaseDatumId };
+	};
+}
+
+/** The forms as they will be submitted. A check of these bytes needs the
+ * entry datum names, independently of the destination's menu service IDs. */
+export function expandedFormSources(
+	authoredDoc: BlueprintDoc,
+	opts: ExpandOptions = {},
+) {
+	const plan = emissionPlan(authoredDoc);
+	const linkContext = formLinkProjectionContext(plan.doc, {
+		entryMetadataOnly: true,
+		expressionDoc: authoredDoc,
+		attachmentTarget: opts.attachmentTarget ?? null,
+		...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
+	});
+	const project = formSourceProjection(authoredDoc, plan, linkContext, opts);
+	const sources = new Map<Uuid, string>();
+	for (const moduleUuid of projectedModulePreorder(plan.doc)) {
+		for (const formUuid of orderedFormUuids(plan.doc, moduleUuid)) {
+			const source = project(moduleUuid, formUuid).source;
+			if (source !== undefined) sources.set(formUuid, source.xml);
+		}
+	}
+	return sources;
+}
+
 export function expandDoc(
 	authoredDoc: BlueprintDoc,
 	opts: ExpandOptions = {},
@@ -243,7 +366,10 @@ export function* expandDocSteps(
 	const doc = plan.doc;
 	const attachments: Record<string, string> = {};
 	const assets = opts.assets;
-	const localization = commCareLocalization(authoredDoc);
+	const localization = commCareLocalization(
+		authoredDoc,
+		opts.installationProfileUuid,
+	);
 	const identity = opts.identity ?? DERIVED_WIRE_IDENTITY;
 
 	// `moduleOrder` and each `formOrder` array are the canonical display
@@ -289,19 +415,19 @@ export function* expandDocSteps(
 	// context builds them once (cached) and the shells below consume the
 	// same objects — the projection and the emitted `actions` cannot drift.
 	const linkContext = formLinkProjectionContext(doc, {
+		projectSearchId: opts.identity?.projectSearchId,
 		expressionDoc: authoredDoc,
 		runtimeTarget: opts.runtimeTarget,
 		attachmentTarget: opts.attachmentTarget ?? null,
 		...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
 	});
 
-	// Resolve the per-form Connect configs for emission. `buildConnectSlugMap`
-	// is a typed pass-through — connect ids are already valid + unique + ≤50
-	// by construction (creation autofill + the UI/tool guards), so it asserts
-	// each id is present and narrows the type without transforming. Both the XForm
-	// builder and the case-references load map below read the same per-form
-	// config so their data paths agree. Empty for non-Connect apps.
-	const connectSlugs = buildConnectSlugMap(doc);
+	const projectForm = formSourceProjection(
+		authoredDoc,
+		plan,
+		linkContext,
+		opts,
+	);
 	yield;
 
 	const moduleShellOf = (moduleUuid: Uuid, mIdx: number) => {
@@ -323,7 +449,9 @@ export function* expandDocSteps(
 		const hasCases = caseType !== "";
 		// Every form of a menu emitted advanced is an `AdvancedForm`
 		// (`moduleKind.ts::emittedModuleKind`).
-		const advanced = emittedModuleKind(doc, moduleUuid) === "advanced";
+		const advanced =
+			mod.formsFromMenu === undefined &&
+			emittedModuleKind(doc, moduleUuid) === "advanced";
 
 		const forms = formUuids.map((formUuid) => {
 			const form = doc.forms[formUuid];
@@ -331,18 +459,10 @@ export function* expandDocSteps(
 			if (formUniqueId === undefined) {
 				throw new Error(`Cannot emit form ${formUuid}: no unique id allocated`);
 			}
-			const xmlns = identity.formXmlns(form);
-
-			// The admitted Connect config for this form. buildConnectSlugMap
-			// checks mode/config agreement and preserves authored identities.
-			const effectiveConnect = connectSlugs.get(formUuid);
-			const ownCaseDatum = selectedCaseSessionDatum(
-				doc,
-				linkContext,
+			const { source, xmlns, ownCaseDatumId } = projectForm(
 				moduleUuid,
 				formUuid,
 			);
-			const ownCaseDatumId = ownCaseDatum?.id;
 			// The form's case changes on the wire, the same plan the link
 			// projection reads (`casePlacementPlan.ts::planFormCaseWire`).
 			// The export's identity names a load's list menu the way the
@@ -351,53 +471,7 @@ export function* expandDocSteps(
 				attachmentTarget: opts.attachmentTarget ?? null,
 				identity,
 			});
-			// An entry that selects several cases has no one case for HQ's
-			// basic actions; the source works on each through the
-			// selected-entities instance.
-			const multipleCaseDatum =
-				ownCaseDatum?.maxSelectValue !== undefined ? ownCaseDatum : undefined;
-
-			const source = buildXFormSource(doc, formUuid, {
-				xmlns,
-				expressionDoc: authoredDoc,
-				datumId: entryDatumIdResolver(
-					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
-				),
-				// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
-				// reachable-case-type depth map matches the deep validator's accept
-				// map, which builds from `mod.caseType` directly.
-				...(mod.caseType && { moduleCaseType: mod.caseType }),
-				// The case list registration form and every form of a menu
-				// whose forms read the search read the menu's Search answers from the inline
-				// query's input instance.
-				...(synthetic !== undefined
-					? {
-							searchAnswers: searchAnswersOf(
-								authoredDoc,
-								synthetic.hostModuleUuid,
-							),
-						}
-					: moduleFormsReadSearch(mod)
-						? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
-						: {}),
-				...(ownCaseDatumId !== undefined &&
-					multipleCaseDatum === undefined && {
-						selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
-					}),
-				...(multipleCaseDatum !== undefined && {
-					selectedCasesInstanceId: multipleCaseDatum.id,
-				}),
-				...(effectiveConnect && { connect: effectiveConnect }),
-				...(assets && { assets }),
-				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
-				...(opts.attachmentTarget && {
-					attachmentTarget: opts.attachmentTarget,
-				}),
-				...(opts.keyedCaseIdPrefixes && {
-					keyedCaseIdPrefixes: opts.keyedCaseIdPrefixes,
-				}),
-			});
-			attachments[`${formUniqueId}.xml`] = source.xml;
+			if (source) attachments[`${formUniqueId}.xml`] = source.xml;
 
 			// After-submit navigation. With destinations, HQ reads `form_links`
 			// only under `post_form_workflow = "form"`, and a built-in
@@ -424,12 +498,7 @@ export function* expandDocSteps(
 			// Raw `mod.caseType` for the same reason as `buildXFormSource`'s
 			// `moduleCaseType` above: the depth map must match the deep
 			// validator's accept map.
-			const caseRefsLoad = buildCaseReferencesLoad(
-				doc,
-				formUuid,
-				effectiveConnect,
-				mod.caseType,
-			);
+			const caseRefsLoad = buildCaseReferencesLoad(doc, formUuid, mod.caseType);
 			const postFormWorkflowFallback =
 				projectedLinks?.fallback.kind === "built-in"
 					? toHqWorkflow(projectedLinks.fallback.destination)
@@ -441,7 +510,7 @@ export function* expandDocSteps(
 						xmlns,
 						advancedActions(caseWire, form.type, formUuid),
 						caseRefsLoad,
-						source.caseSaveReferences,
+						source?.caseSaveReferences ?? {},
 						postFormWorkflow,
 						postFormWorkflowFallback,
 						hqFormLinks,
@@ -453,11 +522,40 @@ export function* expandDocSteps(
 						CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
 						basicActions(caseWire, formUuid),
 						caseRefsLoad,
-						source.caseSaveReferences,
+						source?.caseSaveReferences ?? {},
 						postFormWorkflow,
 						postFormWorkflowFallback,
 						hqFormLinks,
 					);
+			if (formShellObj.doc_type === "AdvancedForm") {
+				const datums = entrySessionDatums(
+					doc,
+					linkContext,
+					moduleUuid,
+					formUuid,
+				);
+				formShellObj.actions = advancedActionsWithEntry(
+					formShellObj.actions,
+					datums,
+				);
+				formShellObj.arbitrary_datums = (form.computedDatums ?? []).map(
+					(row) => {
+						const datum = datums.find((d) => d.entryValueUuid === row.uuid);
+						if (!datum?.function)
+							throw new Error(
+								"A calculated entry value needs its session function.",
+							);
+						return {
+							doc_type: "ArbitraryDatum",
+							datum_id: row.key,
+							datum_function: serializeWire(datum.function, { target: "suite" })
+								.text,
+						};
+					},
+				);
+			}
+			if (form.submitLabel !== undefined)
+				formShellObj.submit_label = localization.formSubmitLabels(formUuid);
 			// Whether the form's entry asks for a case first: a basic form's
 			// `requires`, and for an advanced form whether its plan holds a
 			// load that is not the worker's (`AdvancedForm.requires`).
@@ -466,7 +564,30 @@ export function* expandDocSteps(
 					? formShellObj.requires === "case"
 					: caseWire.kind === "advanced" &&
 						caseWire.loads.some((load) => !load.worker);
+			formShellObj.auto_gps_capture = form.captureLocation === true;
 			formShellObj.session_endpoint_id = form.entryPoint?.id ?? "";
+			if (form.entryCaseCreations !== undefined) {
+				const exposed = exposedEntryCaseCreations(
+					doc,
+					{ kind: "form", moduleUuid, formUuid },
+					linkContext,
+				);
+				const argumentsByOperation = new Map(
+					exposed.map((row) => [row.operationUuid, row.argumentId]),
+				);
+				// HQ saves list order and repeats. Its endpoint generator tests membership as it
+				// walks the physical frame, so a repeated source value contributes one argument.
+				formShellObj.function_datum_endpoints = form.entryCaseCreations.map(
+					(uuid) => {
+						const id = argumentsByOperation.get(uuid);
+						if (!id)
+							throw new Error(
+								"A deep link case creation has no argument on its form.",
+							);
+						return id;
+					},
+				);
+			}
 			formShellObj.respect_relevancy =
 				form.entryPoint?.ignoreDisplayConditions !== true;
 			const formFilter = emitFormDisplayConditionForHq(
@@ -482,6 +603,19 @@ export function* expandDocSteps(
 					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
 				),
 			);
+			formShellObj.custom_icons = hqMenuBadges(
+				projectMenuBadge(
+					authoredDoc,
+					{ kind: "form", uuid: formUuid },
+					form.badge,
+					opts.lookupNaming,
+					ownCaseDatumId,
+					entryDatumIdResolver(
+						entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+					),
+				),
+				localization,
+			);
 			formShellObj.form_filter =
 				formFilter === undefined
 					? null
@@ -490,15 +624,27 @@ export function* expandDocSteps(
 			// Stamp the form's menu-command media (icon + audio label) onto
 			// the shell. CCHQ reads these `media_image` / `media_audio` dicts
 			// to regenerate the suite command's `<display>` on import.
-			const formMedia = buildNavMediaDicts(
-				form.icon,
-				form.audioLabel,
+			const formMedia = localizedNavMediaDicts(
+				form,
 				assets,
 				"expandDoc form media",
-				localization.languages,
+				localization,
 			);
 			formShellObj.media_image = formMedia.media_image;
 			formShellObj.media_audio = formMedia.media_audio;
+			if (form.shadowOf) {
+				if (formShellObj.doc_type !== "AdvancedForm")
+					throw new Error("A shared form entry needs an advanced menu.");
+				const { xmlns: _xmlns, actions, ...presentation } = formShellObj;
+				return {
+					...presentation,
+					doc_type: "ShadowForm",
+					xmlns: null,
+					form_type: "shadow_form",
+					shadow_parent_form_id: identity.formUniqueId(form.shadowOf.form),
+					extra_actions: actions,
+				} satisfies HqShadowFormTree;
+			}
 			return formShellObj;
 		});
 
@@ -514,6 +660,7 @@ export function* expandDocSteps(
 		// lands — survey-only modules and modules with no case type
 		// fall back to the empty-detail pair; their `search_config`
 		// stays at the shell defaults regardless of authored content.
+		const search = projectSearchOf(mod);
 		const projection = projectCaseListForHq(
 			mod,
 			doc,
@@ -522,6 +669,9 @@ export function* expandDocSteps(
 			undefined,
 			undefined,
 			identity.columnFieldWord,
+			identity.moduleUniqueId,
+			search &&
+				requiredProjectSearchId(identity.projectSearchId?.(search.searchUuid)),
 		);
 		// A menu with no case list of its own (a survey menu, the hidden menu
 		// of a no-matches form) still holds the one `name` column every new
@@ -546,7 +696,8 @@ export function* expandDocSteps(
 		// page's language as an empty text, which reads blank in an app with
 		// no English. Written on both pairs a menu can take, because the save
 		// writes into a survey menu's short detail too.
-		caseDetails.short.no_items_text = repeatForLanguages(
+		// A case list's own text (`projectCaseListForHq`) keeps its place.
+		caseDetails.short.no_items_text ??= repeatForLanguages(
 			localization.languages,
 			EMPTY_CASE_LIST_TEXT,
 		);
@@ -567,8 +718,8 @@ export function* expandDocSteps(
 					moduleName,
 					mod.caseType ?? "",
 					forms.filter(
-						(form): form is HqAdvancedFormTree =>
-							form.doc_type === "AdvancedForm",
+						(form): form is HqAdvancedFormTree | HqShadowFormTree =>
+							form.doc_type !== "Form",
 					),
 					caseDetails,
 					localization.defaultLanguage,
@@ -584,6 +735,12 @@ export function* expandDocSteps(
 					localization.languages,
 					declaresWebApps(doc),
 				);
+		if (shell.doc_type === "Module" && mod.menuLayout === "grid")
+			shell.display_style = "grid";
+		// Faster loading, which HQ's build reads only with a case list
+		// (`details.py::DetailContributor`, `detail_screen.py`).
+		if (hasCases && mod.caseListConfig?.optimizations === true)
+			shell.show_case_list_optimization_options = true;
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
 		const rootModuleUuid = moduleParent(doc, moduleUuid);
@@ -596,6 +753,8 @@ export function* expandDocSteps(
 			}
 			shell.root_module_id = rootModuleId;
 		}
+		if (mod.autoSelectSingle && shell.doc_type === "AdvancedModule")
+			shell.auto_select_case = true;
 		// A hidden module is never on a menu (`menus.py::_generate_menu`
 		// lowers the filter to `<menu relevant>`); the Register action reaches
 		// it through a stack push, which ignores relevance.
@@ -607,6 +766,16 @@ export function* expandDocSteps(
 						expressions({ slot: "module_display_condition" }),
 						opts.lookupNaming,
 					);
+		if (synthetic === undefined)
+			shell.custom_icons = hqMenuBadges(
+				projectMenuBadge(
+					authoredDoc,
+					{ kind: "module", uuid: moduleUuid },
+					mod.badge,
+					opts.lookupNaming,
+				),
+				localization,
+			);
 		shell.module_filter =
 			moduleFilter === undefined ? null : hqXPath(moduleFilter, "no-case");
 		// A menu that shows its forms in the menu above is HQ's `put_in_root`.
@@ -632,8 +801,17 @@ export function* expandDocSteps(
 						noMatches.formUuid,
 					),
 				),
-				post_form_workflow: "case_list",
-				relevancy_expression: hqXPath(NO_MATCHES_RELEVANCY),
+				post_form_workflow:
+					mod.caseListRegistrationForm?.afterSubmit === "new-case"
+						? "default"
+						: "case_list",
+				relevancy_expression: hqXPath(
+					noMatchesRelevancy(
+						inlineSearchInstance(
+							authoredDoc.modules[noMatches.hostModuleUuid].searchResultsName,
+						),
+					),
+				),
 			};
 		}
 		// A registration the case list always offers names the form where it
@@ -647,16 +825,25 @@ export function* expandDocSteps(
 				? undefined
 				: formUniqueIdOf.get(alwaysOffered.formUuid);
 		if (alwaysOffered !== undefined && alwaysOfferedFormId !== undefined) {
-			const media = buildNavMediaDicts(
-				alwaysOffered.icon,
-				alwaysOffered.audioLabel,
+			const condition = caseListActionCondition(
+				authoredDoc,
+				moduleUuid,
+				alwaysOffered.showWhen,
+				"hq-json",
+				opts.lookupNaming,
+			);
+			const media = localizedNavMediaDicts(
+				alwaysOffered,
 				assets,
 				"expandDoc case list registration media",
-				localization.languages,
+				localization,
 			);
 			shell.case_list_form = {
 				doc_type: "CaseListForm",
 				form_id: alwaysOfferedFormId,
+				...(condition !== undefined && {
+					relevancy_expression: hqXPath(condition),
+				}),
 				label: localization.textMap(
 					caseListFormLabelUnit(
 						authoredDoc,
@@ -664,8 +851,14 @@ export function* expandDocSteps(
 						alwaysOffered.formUuid,
 					),
 				),
+				// A selected parent's follow-up returns to the list: HQ's menu
+				// settings page offers only "Go back to case list" for a form that
+				// registers nothing (`module_view.js::caseListFormModel`).
 				post_form_workflow:
-					alwaysOffered.afterSubmit === "case-list" ? "case_list" : "default",
+					alwaysOffered.afterSubmit === "case-list" ||
+					alwaysOffered.target?.kind === "chosen-parent"
+						? "case_list"
+						: "default",
 				media_image: media.media_image,
 				media_audio: media.media_audio,
 			};
@@ -675,12 +868,11 @@ export function* expandDocSteps(
 		// case-list link's media onto the shell + its `case_list` block.
 		// CCHQ reads these dicts to regenerate the suite `<menu>` /
 		// case-list-command `<display>` on import.
-		const moduleMedia = buildNavMediaDicts(
-			mod.icon,
-			mod.audioLabel,
+		const moduleMedia = localizedNavMediaDicts(
+			mod,
 			assets,
 			"expandDoc module media",
-			localization.languages,
+			localization,
 		);
 		shell.media_image = moduleMedia.media_image;
 		shell.media_audio = moduleMedia.media_audio;
@@ -698,6 +890,8 @@ export function* expandDocSteps(
 		if (hasCases) {
 			shell.search_config = projection.searchConfig;
 		}
+		if (mod.searchResultsName !== undefined)
+			shell.search_config.instance_name = mod.searchResultsName;
 
 		// The case list menu entry (`Module.caseListMenuItem`) is HQ's
 		// `case_list.show`: its own command after the menu's form commands
@@ -716,12 +910,11 @@ export function* expandDocSteps(
 			// `.ccz` compiler reads the same shell, so both artifacts agree.
 			// Empty dicts on the media-OFF path (`assets` undefined), so
 			// byte-free output is unchanged.
-			const caseListMedia = buildNavMediaDicts(
-				mod.caseListMenuItem?.icon,
-				mod.caseListMenuItem?.audioLabel,
+			const caseListMedia = localizedNavMediaDicts(
+				mod.caseListMenuItem,
 				assets,
 				"expandDoc case-list media",
-				localization.languages,
+				localization,
 			);
 			shell.case_list.media_image = caseListMedia.media_image;
 			shell.case_list.media_audio = caseListMedia.media_audio;
@@ -740,6 +933,53 @@ export function* expandDocSteps(
 			};
 		}
 
+		const shared = mod.formsFromMenu;
+		if (shared !== undefined) {
+			if (shell.doc_type !== "Module")
+				throw new Error(
+					"A menu listing another menu's forms needs its own list settings.",
+				);
+			const sourceId = moduleUniqueIdOf.get(shared.menuUuid);
+			if (!sourceId)
+				throw new Error("The menu that provides these forms is missing.");
+			const formId = (uuid: Uuid) => {
+				const id = formUniqueIdOf.get(uuid);
+				if (!id)
+					throw new Error("A listed form is missing its deployment identity.");
+				return id;
+			};
+			const {
+				display_style: _style,
+				case_type: _sourceType,
+				...common
+			} = shell;
+			const mirror: HqApplicationTree["modules"][number] = {
+				...common,
+				doc_type: "ShadowModule",
+				module_type: "shadow",
+				forms: [],
+				shadow_module_version: 2,
+				source_module_id: sourceId,
+				excluded_form_ids: (shared.excludedFormUuids ?? []).map(formId),
+				form_session_endpoints: (doc.formOrder[shared.menuUuid] ?? []).flatMap(
+					(uuid) => {
+						const endpoint = shared.entryPoints?.find(
+							(row) => row.formUuid === uuid,
+						)?.entryPoint;
+						return endpoint
+							? [
+									{
+										doc_type: "ShadowFormEndpoint" as const,
+										form_id: formId(uuid),
+										session_endpoint_id: endpoint.id,
+									},
+								]
+							: [];
+					},
+				),
+			};
+			return mirror;
+		}
 		return shell;
 	};
 	const modules: ReturnType<typeof moduleShellOf>[] = [];
@@ -758,8 +998,12 @@ export function* expandDocSteps(
 	const serialized = serializeHqApplication(
 		applicationShell(doc.appName, modules, attachments, {
 			cloudcareEnabled: declaresWebApps(doc),
-			...appLevelValues(doc, localization),
+			caseSharing: authoredDoc.appSettings.caseSharing,
+			...appLevelValues(authoredDoc, localization, { options: opts, plan }),
 			profileProperties: appProfileProperties(authoredDoc),
+			androidPackages: requiredAndroidPackages(
+				authoredDoc.appSettings.requiredAndroidApps,
+			).map(({ id }) => id),
 			...(Object.keys(derivedProfile).length > 0 && {
 				profileCustomProperties: derivedProfile,
 			}),
@@ -771,8 +1015,10 @@ export function* expandDocSteps(
 		_attachments: printedAttachments,
 		...app
 	} = serialized;
+	const profiles = wireBuildProfiles(authoredDoc, identity);
 	return {
 		...app,
+		...(profiles && { build_profiles: profiles }),
 		...(addOns.length === 0
 			? {}
 			: { add_ons: Object.fromEntries(addOns.map((slug) => [slug, true])) }),
@@ -806,6 +1052,50 @@ function advancedActions(
 	);
 }
 
+/** The stored locale override follows the carrier's current emitted position. */
+function navigationMediaOverrides(
+	plan: EmissionPlan,
+	localization: CommCareLocalization,
+	assets: AssetManifest | undefined,
+): ReadonlyMap<string, Record<string, string>> {
+	const byLanguage = new Map<string, Record<string, string>>();
+	if (!assets) return byLanguage;
+	const add = (prefix: string, carrier: NavigationMedia | undefined) => {
+		if (!carrier?.mediaByLanguage) return;
+		for (const language of localization.languages) {
+			const { icon, audioLabel } = localization.menuMediaOverride(
+				language,
+				carrier,
+			);
+			if (icon === undefined && audioLabel === undefined) continue;
+			const values = byLanguage.get(language) ?? {};
+			if (icon !== undefined)
+				values[`${prefix}.icon`] = requireAssetRef(
+					icon,
+					assets,
+					"navigation icon translation",
+				);
+			if (audioLabel !== undefined)
+				values[`${prefix}.audio`] = requireAssetRef(
+					audioLabel,
+					assets,
+					"navigation audio translation",
+				);
+			byLanguage.set(language, values);
+		}
+	};
+	const doc = plan.doc;
+	for (const [index, uuid] of projectedModulePreorder(doc).entries()) {
+		const menu = doc.modules[uuid];
+		add(`modules.m${index}`, menu);
+		add(`case_lists.m${index}`, menu.caseListMenuItem);
+		add(`case_list_form.m${index}`, alwaysOfferedRegistrationOf(doc, uuid));
+		for (const [at, form] of orderedFormUuids(doc, uuid).entries())
+			add(`forms.m${index}f${at}`, doc.forms[form]);
+	}
+	return byLanguage;
+}
+
 /**
  * The app-level values `expandDoc` and `expandAppShell` both write: the
  * languages, each language's strings, and GPS capture for a Connect app.
@@ -822,11 +1112,32 @@ function advancedActions(
 function appLevelValues(
 	doc: BlueprintDoc,
 	localization: CommCareLocalization,
+	projection?: { options: ExpandOptions; plan: EmissionPlan },
 ): {
-	readonly autoGpsCapture?: boolean;
+	readonly firstMenuGrid: boolean;
+	readonly formMenuStyle: "none" | "all" | "some";
+	readonly autoGpsCapture: boolean;
 	readonly langs: string[];
 	readonly translations: Record<string, Record<string, string>>;
 } {
+	// The app name's two strings are written whatever the projection; every other generated key
+	// only where a projection derives it.
+	const overrides = hasOutputOverrides(doc)
+		? generatedWordingOverrides(
+				doc,
+				projection
+					? generatedWordingKeys(doc, projection.plan, projection.options)
+					: appNameWordingKeys(doc),
+			)
+		: {};
+	const mediaOverrides =
+		projection === undefined
+			? undefined
+			: navigationMediaOverrides(
+					projection.plan,
+					localization,
+					projection.options.assets,
+				);
 	const appNameByLanguage = localization.textMap(
 		makeTranslationUnitId("app", "name"),
 	);
@@ -834,7 +1145,14 @@ function appLevelValues(
 		// A Connect app captures location on every form. Over an app brought
 		// in from CommCare HQ that left it off, the first-publish register
 		// declares the change (`connect-app-captures-location`).
-		...(doc.connectType && { autoGpsCapture: true }),
+		autoGpsCapture: capturesDeviceLocation(doc),
+		firstMenuGrid: doc.appSettings.firstMenuLayout === "grid",
+		formMenuStyle:
+			doc.appSettings.formMenuLayout === "grid"
+				? "all"
+				: doc.appSettings.formMenuLayout === "individual"
+					? "some"
+					: "none",
 		langs: [...localization.languages],
 		translations: Object.fromEntries(
 			localization.languages.map((language) => {
@@ -853,6 +1171,8 @@ function appLevelValues(
 								localization.languageName(code),
 							]),
 						),
+						...overrides[language],
+						...mediaOverrides?.get(language),
 					},
 				];
 			}),
@@ -875,8 +1195,10 @@ export const APP_SHELL_KEYS = [
 	"langs",
 	"translations",
 	"auto_gps_capture",
+	"case_sharing",
 	"modules",
 	"_attachments",
+	"build_profiles",
 ] as const satisfies readonly (keyof HqApplication)[];
 
 export type AppShellKey = (typeof APP_SHELL_KEYS)[number];
@@ -889,13 +1211,15 @@ export type HqAppShell = Pick<HqApplication, AppShellKey>;
  * fills it: no menus, no attachments, no `add_ons`, no `profile` and no
  * `location_fixture_restore`, which the update writes over the shell's
  * source read, and no `build_spec`, `logo_refs` or `multimedia_map`, which
- * Nova never sends. `auto_gps_capture` is there only
- * for a Connect app. With no form there is
+ * Nova never sends. The shell carries the app-wide location choice. With no form there is
  * no form id for HQ to re-mint, and HQ refuses to build an app with no menus
  * (`helpers/validators.py::ApplicationValidator._check_modules`), so no
  * build can hold an id the update did not write.
  */
-export function expandAppShell(doc: BlueprintDoc): HqAppShell {
+export function expandAppShell(
+	doc: BlueprintDoc,
+	identity?: WireIdentity,
+): HqAppShell {
 	const app = serializeHqApplication(
 		applicationShell(
 			doc.appName,
@@ -903,6 +1227,7 @@ export function expandAppShell(doc: BlueprintDoc): HqAppShell {
 			{},
 			{
 				cloudcareEnabled: declaresWebApps(doc),
+				caseSharing: doc.appSettings.caseSharing,
 				...appLevelValues(doc, commCareLocalization(doc)),
 			},
 		),
@@ -911,5 +1236,7 @@ export function expandAppShell(doc: BlueprintDoc): HqAppShell {
 	for (const key of APP_SHELL_KEYS) {
 		if (Object.hasOwn(app, key)) shell[key] = app[key];
 	}
+	const profiles = wireBuildProfiles(doc, identity);
+	if (profiles) shell.build_profiles = profiles;
 	return shell as HqAppShell;
 }

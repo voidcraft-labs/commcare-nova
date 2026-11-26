@@ -15,7 +15,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { lookupHqOriginOf, type StoredLookupHqColumns } from "./managedRules";
-import { parseLookupRevision } from "./schema";
+import { lookupMemberSchema, parseLookupRevision } from "./schema";
 import type {
 	LookupColumn,
 	LookupDefinitionsSnapshot,
@@ -24,15 +24,21 @@ import type {
 
 interface StoredDefinitionRow extends StoredLookupHqColumns {
 	project_revision: string;
+	worker_access: "all" | "assigned" | null;
 	table_id: string | null;
 	table_name: string | null;
 	table_tag: string | null;
 	definition_revision: string | null;
+	rows_revision: string | null;
 	column_table_id: string | null;
 	column_id: string | null;
 	column_wire_name: string | null;
 	column_label: string | null;
 	column_data_type: LookupColumnsTable["data_type"] | null;
+	column_repeated: boolean | null;
+	column_index: "off" | "indexed" | "unobserved" | null;
+	attributes: unknown;
+	properties: unknown;
 }
 
 function compareAscii(left: string, right: string): number {
@@ -53,6 +59,7 @@ export async function readLookupDefinitionsInTransaction(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
 	tableIdsInput: readonly LookupTableId[],
+	includeRowsRevision = false,
 ): Promise<LookupDefinitionsSnapshot> {
 	if (typeof projectId !== "string" || projectId.length === 0) {
 		throw new Error("Lookup definition reader received an invalid Project id.");
@@ -71,10 +78,11 @@ export async function readLookupDefinitionsInTransaction(
 		)
 		SELECT
 			project_snapshot.project_revision,
-			table_row.id::text AS table_id,
+			table_row.id::text AS table_id,table_row.worker_access,
 			table_row.name AS table_name,
 			table_row.tag AS table_tag,
 			table_row.definition_revision::text AS definition_revision,
+			table_row.rows_revision::text AS rows_revision,
 			table_row.hq_server,
 			table_row.hq_domain,
 			table_row.hq_remote_id,
@@ -87,12 +95,21 @@ export async function readLookupDefinitionsInTransaction(
 			column_row.id::text AS column_id,
 			column_row.wire_name AS column_wire_name,
 			column_row.label AS column_label,
-			column_row.data_type AS column_data_type
+			column_row.data_type AS column_data_type,
+			column_row.repeated AS column_repeated,
+			column_row.index_status AS column_index,
+			table_row.attributes, (
+				SELECT jsonb_agg(jsonb_build_object('id', m.id, 'wireName', m.wire_name, 'label', m.label) ORDER BY m.position, m.id)
+				FROM lookup_members m WHERE m.project_id = column_row.project_id AND m.table_id = column_row.table_id AND m.column_id = column_row.id
+			) AS properties
 		FROM project_snapshot
 		LEFT JOIN LATERAL (
-			SELECT id, name, tag, definition_revision, hq_server, hq_domain,
+			SELECT id, name, tag, worker_access, definition_revision, rows_revision, hq_server, hq_domain,
 				hq_remote_id, hq_canonical, hq_brought_in_at, hq_refreshed_at,
-				hq_taken_over_at, hq_taken_over_by
+				hq_taken_over_at, hq_taken_over_by, (
+					SELECT jsonb_agg(jsonb_build_object('id', m.id, 'wireName', m.wire_name, 'label', m.label) ORDER BY m.position, m.id)
+					FROM lookup_members m WHERE m.project_id = lookup_tables.project_id AND m.table_id = lookup_tables.id AND m.column_id IS NULL
+				) AS attributes
 			FROM lookup_tables
 			WHERE project_id = ${projectId}
 				AND id = ANY(${tableIds}::uuid[])
@@ -120,16 +137,26 @@ export async function readLookupDefinitionsInTransaction(
 			if (
 				row.table_name === null ||
 				row.table_tag === null ||
+				row.rows_revision === null ||
 				row.definition_revision === null
 			) {
 				throw new Error("Lookup definition query returned a partial table.");
 			}
 			definition = {
 				id: tableId,
+				...(row.worker_access === "assigned"
+					? { workerAccess: "assigned" as const }
+					: {}),
 				name: row.table_name,
 				tag: row.table_tag,
 				definitionRevision: parseLookupRevision(row.definition_revision),
+				...(includeRowsRevision && {
+					rowsRevision: parseLookupRevision(row.rows_revision),
+				}),
 				columns: [],
+				...(row.attributes === null
+					? {}
+					: { attributes: lookupMemberSchema.array().parse(row.attributes) }),
 			};
 			definitionsById.set(tableId, definition);
 			originsById.set(tableId, row);
@@ -152,6 +179,13 @@ export async function readLookupDefinitionsInTransaction(
 			wireName: row.column_wire_name,
 			label: row.column_label,
 			dataType: row.column_data_type,
+			...(row.column_repeated ? { repeated: true } : {}),
+			...(row.properties === null
+				? {}
+				: { properties: lookupMemberSchema.array().parse(row.properties) }),
+			...(row.column_index === "indexed" || row.column_index === "unobserved"
+				? { index: row.column_index }
+				: {}),
 		});
 	}
 

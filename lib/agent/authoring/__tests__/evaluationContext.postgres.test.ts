@@ -1,8 +1,10 @@
-import { expect, it } from "vitest";
+import { sql } from "kysely";
+import { beforeEach, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { evaluateFormTool } from "@/lib/agent/tools/evaluateForm";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { getAuthDb } from "@/lib/auth/db";
 import {
 	buildCaseTypeMap,
@@ -11,7 +13,7 @@ import {
 } from "@/lib/case-store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { plainColumn, proseText, simpleSearchInputDef } from "@/lib/domain";
-import { count } from "@/lib/domain/expression";
+import { count, literal, term } from "@/lib/domain/expression";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import type { Platform } from "@/lib/domain/platforms";
 import { createEvaluationApp } from "@/lib/preview/engine/__tests__/evaluationFixture";
@@ -30,6 +32,23 @@ const h = setupAppStateTestDb("authoring_evaluation_", {
 });
 const actor = "evaluator";
 const projectId = "evaluation-project";
+const SESSION_ID = "evaluation-session";
+
+/* An evaluation reads the worker's Project data under the request's own
+ * grant, as the MCP adapter hands it to every shared tool call. The grant
+ * here is the evaluator's live browser session. */
+beforeEach(async () => {
+	await h.seedProjectMember(actor, projectId, "owner");
+	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
+		VALUES (${SESSION_ID},'evaluation-token',${actor},now()+interval '1 hour',now(),now())
+		ON CONFLICT (id) DO NOTHING`.execute(h.db());
+});
+
+function mcpRequest<Context extends object>(
+	ctx: Context,
+): Context & { dataGrant: ProjectDataGrant } {
+	return { ...ctx, dataGrant: { kind: "session", sessionId: SESSION_ID } };
+}
 
 it("uses the authorized worker's records and makes no case or blueprint writes", async () => {
 	const source = await createEvaluationApp(
@@ -139,7 +158,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 					answers: [{ path: "condition", value: "Worn" }],
 					caseIds: [ownCase.caseId],
 				},
-				ctx,
+				mcpRequest(ctx),
 			),
 	});
 	// The form's case changes, its own case's included, run at submission,
@@ -180,7 +199,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 						caseIds: [caseId],
 						scenario,
 					},
-					ctx,
+					mcpRequest(ctx),
 				),
 		});
 	expect((await evaluateScenario("example")).data).toMatchObject({
@@ -221,7 +240,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 		execute: (ctx) =>
 			evaluateFormTool.execute(
 				{ moduleUuid, formUuid, answers: [], caseIds: [otherCase.caseId] },
-				ctx,
+				mcpRequest(ctx),
 			),
 	});
 	expect(refused.data).toHaveProperty("error");
@@ -233,7 +252,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 	await expect(
 		foreign.invoke({
 			toolName: "evaluateForm",
-			execute: (ctx) => loadFormEvaluationContext(ctx),
+			execute: (ctx) => loadFormEvaluationContext(mcpRequest(ctx)),
 		}),
 	).rejects.toThrow();
 	const auth = await getAuthDb();
@@ -245,7 +264,8 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 	await expect(
 		workspace.invoke({
 			toolName: "evaluateForm",
-			execute: (ctx) => loadFormEvaluationContext(ctx, undefined, scenario),
+			execute: (ctx) =>
+				loadFormEvaluationContext(mcpRequest(ctx), undefined, scenario),
 		}),
 	).rejects.toThrow();
 });
@@ -258,7 +278,10 @@ it("runs the module's search for a form that reads what it found", async () => {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "note", label: proseText("Note") }],
+				properties: [
+					{ name: "note", label: proseText("Note") },
+					{ name: "period", label: proseText("Visit date"), data_type: "date" },
+				],
 			},
 		],
 		modules: [
@@ -275,6 +298,14 @@ it("runs the module's search for a form that reads what it found", async () => {
 						),
 					],
 					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("evaluation-search-period"),
+							"period",
+							"Visit dates",
+							"date-range",
+							"period",
+							{ default: term(literal("1/2/2024 to 3/9/2024")) },
+						),
 						simpleSearchInputDef(
 							testUuid("evaluation-search-input"),
 							"patient_name",
@@ -293,12 +324,29 @@ it("runs the module's search for a form that reads what it found", async () => {
 						fields: [
 							f({
 								kind: "hidden",
+								id: "accepted_period",
+								calculate: "#search/period",
+							}),
+							f({
+								kind: "hidden",
 								id: "found",
 								calculate: count({
 									kind: "cases",
 									source: "search-results",
 									where: [],
 								}),
+							}),
+						],
+					},
+					{
+						uuid: testUuid("evaluation-linked-dates"),
+						name: "Review dates",
+						type: "followup",
+						fields: [
+							f({
+								kind: "hidden",
+								id: "accepted_period",
+								calculate: "#search/period",
 							}),
 						],
 					},
@@ -318,18 +366,19 @@ it("runs the module's search for a form that reads what it found", async () => {
 		caseTypeSchemas: buildCaseTypeMap(doc),
 	});
 	const own = await withProjectContext(projectId, actor, actor);
-	const patient = (caseName: string) =>
+	const patient = (caseName: string, period: string) =>
 		own.insert({
 			appId,
 			row: {
 				case_type: "patient",
 				case_name: caseName,
 				status: "open",
-				properties: {},
+				properties: { period },
 			},
 		});
-	const kofi = await patient("Kofi");
-	await patient("Ama");
+	const kofi = await patient("Kofi", "2024-01-02");
+	await patient("Ama", "2024-03-09");
+	await patient("Amina", "2024-06-01");
 	const workspace = makeToolWorkspaceHarness(doc, {
 		appId,
 		userId: actor,
@@ -349,7 +398,7 @@ it("runs the module's search for a form that reads what it found", async () => {
 						caseIds: [kofi.caseId],
 						...extra,
 					},
-					ctx,
+					mcpRequest(ctx),
 				),
 		});
 	const found = (data: unknown) =>
@@ -371,6 +420,48 @@ it("runs the module's search for a form that reads what it found", async () => {
 		searchResults: { matched: 1, held: 1 },
 	});
 	expect(found(searched.data)).toBe("1");
+
+	const submitted = "__range__2024-01-02__2024-03-09";
+	const observed = (value: string) =>
+		expect.arrayContaining([
+			expect.objectContaining({ path: "accepted_period", value }),
+		]);
+	expect(everyone.data).toMatchObject({ fields: observed(submitted) });
+	expect(searched.data).toMatchObject({ fields: observed(submitted) });
+	const linked = testUuid("evaluation-linked-dates");
+	expect((await evaluate({ formUuid: linked })).data).toMatchObject({
+		fields: observed("1/2/2024 to 3/9/2024"),
+	});
+	const from = { name: "period:from", value: "2024-06-01" };
+	const to = { name: "period:to", value: "2024-06-30" };
+	for (const selected of [linked, formUuid]) {
+		const changed = await evaluate({
+			formUuid: selected,
+			searchAnswers: [from, to],
+		});
+		expect(changed.data).toMatchObject({
+			fields: observed("__range__2024-06-01__2024-06-30"),
+		});
+		if (selected === formUuid)
+			expect(changed.data).toMatchObject({
+				searchResults: { matched: 1, held: 1 },
+			});
+		for (const [answers, repair] of [
+			[[from], /both period:from and period:to/],
+			[[from, { ...to, value: "2024-02-01" }], /start on or before/],
+			[[{ name: "period", value: submitted }], /name:from and name:to/],
+			[[{ name: "period:starting", value: "held" }], /name:from and name:to/],
+		] as const) {
+			const refused = await evaluate({
+				formUuid: selected,
+				searchAnswers: [...answers],
+			});
+			expect(refused.data).toHaveProperty(
+				"error",
+				expect.stringMatching(repair),
+			);
+		}
+	}
 
 	// Test records give a search nothing to run over.
 	const scenario = await evaluate({
@@ -400,7 +491,7 @@ it("runs a check on the platform it names, with that platform's session values a
 			toolName: "evaluateForm",
 			execute: (ctx) =>
 				loadFormEvaluationContext(
-					ctx,
+					mcpRequest(ctx),
 					undefined,
 					undefined,
 					undefined,
@@ -467,7 +558,7 @@ it("refuses a check on a platform the app does not run on", async () => {
 			toolName: "evaluateForm",
 			execute: (ctx) =>
 				loadFormEvaluationContext(
-					ctx,
+					mcpRequest(ctx),
 					undefined,
 					undefined,
 					undefined,

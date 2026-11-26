@@ -1,7 +1,7 @@
 /**
  * The browser-safe wire contract for one `preview-target-facts` SSE frame:
  * what the one reached project space holds of the two kept settings Preview
- * plays, emitted by `/api/apps/{id}/stream` on connect and again whenever a
+ * plays, and whether its Geocoder plan feature is confirmed, emitted by `/api/apps/{id}/stream` on connect and again whenever a
  * deployment write changes them.
  *
  * The value is the SERVER's resolution (`lib/deployment/previewSpace.ts`),
@@ -17,12 +17,21 @@
  */
 
 import { z } from "zod";
+import { ownRecordSchema } from "@/lib/domain/records";
+import { REQUIRED_ANDROID_APPS } from "@/lib/domain/requiredAndroidApps";
 
 export const previewTargetFactsSchema = z.strictObject({
 	/** The project space's `cc-fuzzy-search-enabled` is `yes`. */
 	fuzzyListSearch: z.boolean(),
 	/** The project space's `cc-label-required-questions-with-asterisk` is `yes`. */
 	markRequiredQuestions: z.boolean(),
+	/** A person confirmed the project space's plan has the Geocoder feature;
+	 *  absent where nobody has. */
+	geocoderConfirmed: z.literal(true).optional(),
+	androidAppLabels: ownRecordSchema(
+		z.string(),
+		z.partialRecord(z.enum(REQUIRED_ANDROID_APPS), z.string()),
+	).optional(),
 });
 
 export type PreviewTargetFacts = z.infer<typeof previewTargetFactsSchema>;

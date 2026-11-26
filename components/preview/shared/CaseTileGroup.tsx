@@ -42,6 +42,7 @@ export function CaseTileGroup({
 	rows,
 	caseProperties,
 	displayContext,
+	groupCaseId,
 	className,
 }: {
 	readonly projection: GroupedTileProjection;
@@ -52,6 +53,7 @@ export function CaseTileGroup({
 	readonly rows: readonly [CaseRowWithCalculated, ...CaseRowWithCalculated[]];
 	readonly caseProperties: readonly CaseProperty[];
 	readonly displayContext: ColumnDisplayContext;
+	readonly groupCaseId?: string;
 	readonly className?: string;
 }) {
 	return (
@@ -75,7 +77,17 @@ export function CaseTileGroup({
 						columns={columns}
 						row={rows[0]}
 						caseProperties={caseProperties}
-						displayContext={displayContext}
+						displayContext={
+							displayContext.listIconAction && groupCaseId
+								? {
+										...displayContext,
+										listIconAction: {
+											...displayContext.listIconAction,
+											groupCaseId,
+										},
+									}
+								: displayContext
+						}
 						surface="results"
 					/>
 				</div>
@@ -96,7 +108,7 @@ export function CaseTileGroup({
 						columns={columns}
 						row={row}
 						caseProperties={caseProperties}
-						displayContext={displayContext}
+						displayContext={{ ...displayContext, listIconAction: undefined }}
 						surface="results"
 					/>
 				))}

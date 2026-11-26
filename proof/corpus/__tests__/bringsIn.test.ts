@@ -178,15 +178,14 @@ describe("a publish over a person's saves to an app's content in CommCare HQ", (
 		expect(step.broughtIn).toBeUndefined();
 	}, 60_000);
 
-	it("records the location list setting it reads as the same app, and lists what the next publish sets back", async () => {
+	it("requires a choice for the new location list warning and records it without a document edit", async () => {
 		const step = await republished(hqChangesLocationList());
 		expect(step.broughtIn?.review).toMatchObject({
-			kind: "nothing",
-			reason: "reads-the-same",
+			kind: "changes",
 		});
 		expect(step.broughtIn?.taken).toBe("recorded");
 		expect(
-			step.broughtIn?.review.kind === "nothing" &&
+			step.broughtIn?.review.kind === "changes" &&
 				step.broughtIn.review.publishChanges.length,
 		).toBe(1);
 		expect(step.broughtIn?.again).toMatchObject({
@@ -206,9 +205,10 @@ describe("a publish over a person's saves to an app's content in CommCare HQ", (
 		).toBe(true);
 		/* The move of the picture's path is the next publish's to make, and the
 		 * review says so before it. */
-		expect(review?.kind === "changes" && review.publishChanges).toEqual(
-			publishChangeSentences(["media-files-renamed"]),
-		);
+		expect(review?.kind === "changes" && review.publishChanges).toEqual([
+			...publishChangeSentences(["media-files-renamed"]),
+			"This publish removes 1 unused file reference.",
+		]);
 		const replaced = document.hqSide?.mediaReplaced;
 		if (replaced === undefined) throw new Error("No picture is replaced.");
 		const theirs = createHash("sha256")
@@ -243,7 +243,10 @@ describe("a publish over a person's saves to an app's content in CommCare HQ", (
 		if (hqSide?.republish !== "brings-in")
 			throw new Error("The picture's statement does not bring the saves in.");
 		await expect(
-			republished({ ...document, hqSide: { ...hqSide, publishChanges: [] } }),
+			republished({
+				...document,
+				hqSide: { ...hqSide, publishChanges: [], removedFileReferences: [] },
+			}),
 		).rejects.toThrow(/lists \[\] for the next publish, and it listed \["/);
 	}, 60_000);
 

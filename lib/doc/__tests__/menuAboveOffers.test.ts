@@ -206,7 +206,6 @@ describe("offers around a menu that shows its forms in the menu above", () => {
 			if (householdsAbove)
 				expect(menuAboveWithheldDestinations(doc, VISIT)).toEqual([
 					{ destination: "module", reason: "menu-forms-in-menu-above" },
-					{ destination: "previous", reason: "menu-forms-on-first-menu" },
 				]);
 			else expect(menuAboveWithheldDestinations(doc, VISIT)).toEqual([]);
 		});
@@ -244,14 +243,14 @@ describe("offers around a menu that shows its forms in the menu above", () => {
 		});
 	}
 
-	it("refuses the module destination a submenu's screen opens with the first menu's shared case, as the chooser shows it", () => {
+	it("offers an explicit module destination supplied by the submitted entry", () => {
 		const doc = app(true, false, false);
 		const offered = postSubmitDestinationChoices(doc, CHECK);
-		expect(offered).not.toContain("module");
+		expect(offered).toContain("module");
 		for (const destination of offered)
 			expect(gate(doc, [goTo(CHECK, destination)]).ok, destination).toBe(true);
 		const withheld = menuAboveWithheldDestinations(doc, CHECK);
-		expect(withheld).toContainEqual({
+		expect(withheld).not.toContainEqual({
 			destination: "module",
 			reason: "menu-opens-with-first-menu-case",
 		});
@@ -259,10 +258,10 @@ describe("offers around a menu that shows its forms in the menu above", () => {
 			expect(gate(doc, [goTo(CHECK, destination)]).ok, destination).toBe(false);
 	});
 
-	it("refuses an entry point the first menu's shared case would open, as the builder shows it", () => {
+	it("offers entry points on both forms that select the same record through the first menu", () => {
 		const doc = app(true, false);
 		const destinations = entryPointDestinations(doc);
-		let refusedShared = 0;
+		const sharedForms = [];
 		for (const destination of destinations) {
 			const plan = planEntryPointAdd(doc, destination.target, {
 				uuid: testUuid(`offers-shared-entry-${destination.label}`),
@@ -270,9 +269,9 @@ describe("offers around a menu that shows its forms in the menu above", () => {
 			});
 			const landed = plan.ok && gate(doc, [...plan.mutations]).ok;
 			expect(landed, destination.label).toBe(destination.issue === undefined);
-			if (destination.issue?.includes("CommCare would keep that case"))
-				refusedShared += 1;
+			if (landed && destination.target.kind === "form")
+				sharedForms.push(destination.target.formUuid);
 		}
-		expect(refusedShared).toBeGreaterThan(0);
+		expect(sharedForms).toEqual(expect.arrayContaining([VISIT, CHECK]));
 	});
 });

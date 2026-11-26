@@ -367,6 +367,7 @@ function batchGroup(unit: TranslationUnit): string {
 			return `form:${unit.owner.formUuid}`;
 		case "case-list-column":
 			return `case-list:${unit.owner.moduleUuid}`;
+		case "search-input-group":
 		case "search-input":
 			return `search:${unit.owner.moduleUuid}`;
 		case "module":
@@ -437,6 +438,7 @@ export function boundedGlossary(
 		"app-name",
 		"module-name",
 		"form-name",
+		"menu-badge",
 		"case-list-menu-item-label",
 		"case-list-registration-label",
 		"search-screen-title",

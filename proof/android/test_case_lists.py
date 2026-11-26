@@ -45,6 +45,7 @@ cell drawn at an alignment Preview does not draw.
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -78,16 +79,19 @@ def _restored(document):
     return casedata.database_of_restore((document.root / "restore.xml").read_bytes())
 
 
-def _list(served, archive, label, command, searches):
+def _list(served, archive, label, command, searches, **device):
     """The first list the walk of ``command`` opens on a device that installed ``archive``."""
     from proof.android import observe
     from proof.observe.record import Blobs
 
     blobs = Blobs()
-    found = observe.app(served, blobs, label=label, archive=archive, commands=[command], searches=searches)
+    found = observe.app(served, blobs, label=label, archive=archive, commands=[command], searches=searches, **device)
     answer = blobs.get_json(found["answer"])
     assert answer["install"] == "Installed", answer["install"]
-    walk = answer["walks"][command]
+    return _first_list(answer["walks"][command])
+
+
+def _first_list(walk):
     raised = walk.get("raised") or {}
     assert "steps" in walk, f"the walk raised {raised.get('class')}: {raised.get('stack', '')[:3000]}"
     (first, *_) = [step["list"] for step in walk["steps"] if step["screen"] == LIST]
@@ -115,9 +119,181 @@ def test_a_list_search_finds_a_hidden_columns_value_on_both_exports(android_docu
         assert _searched(held, "Riverside") == {setting: ["Amina"] for setting in FUZZY}, name
 
 
+def test_a_saved_choice_and_its_label_show_in_default_order_on_both_exports(android_documents, hq):
+    document = android_documents["targeted-case-choice-values"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for name, archive in archives.items():
+            listed = _list(served, archive, name, "m0-f0", [])
+            assert [_texts(row) for row in listed["rows"]] == [
+                ["Ana", "West", "a", "River zone", "Priority", "Visit Ana"], ["Cy", "past", "past", "Unassigned", "Routine", "Visit Cy"], ["Bea", "East", "z", "Routine", "Visit Bea"],
+            ], name
+
+
+def test_reached_choice_columns_show_both_paths_in_each_android_language(android_documents, hq, android_walk_evidence):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-reached-choice-columns"]
+    observations = {}
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            # Walking the worker's menu lets the Android harness choose each
+            # language through its own picker. Command-only reads skip that.
+            found = observe.app(served, blobs, label=label, archive=archive)
+            answer = blobs.get_json(found["answer"])
+            assert answer["install"] == "Installed", answer["install"]
+            heard = {"en": [], "fr": []}
+            for path, walk in answer["walks"].items():
+                locale = "fr" if "@language:fr" in path else "en"
+                for step in walk.get("steps", ()):
+                    listed = step.get("list") or {}
+                    # Passing through a list records the selected case. The
+                    # walk that ends there owns the rows the worker saw.
+                    if step["screen"] != LIST or "rows" not in listed:
+                        continue
+                    rows = [_texts(row) for row in listed["rows"]]
+                    if rows not in heard[locale]:
+                        heard[locale].append(rows)
+            observations[label] = heard
+    android_walk_evidence(observations)
+    expected = {
+        "en": [[["Ada", "East bank", "West bank", "Hello!"], ["Bea", "Hello!"]]],
+        "fr": [[["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "Bonjour!"]]],
+    }
+    assert observations == {"hq": expected, "local": expected}
+
+
+def test_android_shows_signed_relative_dates_on_both_exports(android_documents, hq):
+    document = android_documents["targeted-relative-case-dates"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for name, archive in archives.items():
+            listed = _list(served, archive, name, "m0-f0", [])
+            assert [_texts(row) for row in listed["rows"]] == [["Ana", "1", "-4", "**Bring** the card"], ["Bea", "0", "0", "*"], ["Cy", "*"]], name
+
+
+def test_named_calculation_orders_without_adding_a_display_column(android_documents, hq):
+    document = android_documents["targeted-independent-case-order"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            held = _list(served, archive, label, "m0-f0", [])
+            assert [_texts(row) for row in held["rows"]] == [["Caro"], ["Zuri"], ["Asha"], ["Beno"]], label
+            assert held[f"{LIST}.getSortOptionsList"] == ["2 (^) Name", "1 (^) Appointment number"], label
+            assert [(result["option"], result["rows"]) for result in held["sorted"]] == [
+                ("2 (^) Name", ["Asha", "Beno", "Caro", "Zuri"]),
+                ("1 (^) Appointment number", ["Caro", "Zuri", "Asha", "Beno"]),
+            ], label
+
+
+@pytest.mark.parametrize(("fix", "names"), [
+    (None, ["Asha", "Zuri", "Beno"]),
+    ([0, 0, 0, 5], ["Zuri", "Asha", "Beno"]),
+    ([0, 0.002, 0, 5], ["Asha", "Zuri", "Beno"]),
+], ids=["no-fix", "west", "east"])
+def test_android_orders_clinics_from_the_workers_current_position(android_documents, hq, fix, names):
+    document = android_documents["targeted-nearest-clinics"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            held = _list(served, archive, label, "m0-f0", [], fix=fix, location_granted=True)
+            distances = {} if fix is None else (
+                {"Asha": "0.1 km", "Zuri": "0.4 km"} if fix[1] == 0 else {"Asha": "0.1 km", "Zuri": "0.2 km"}
+            )
+            assert [_texts(row) for row in held["rows"]] == [
+                [name, distances[name]] if name in distances else [name] for name in names
+            ], label
+
+
+
+
+def test_list_first_waits_for_search_on_android_with_either_default_results_preference(
+    android_documents, hq
+):
+    """Both exported apps open the worker's list and draw the prompt before the worker presses Search."""
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-search-workflow-android"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive)
+            answer = blobs.get_json(result["answer"])
+            for menu in ("m0", "m1"):
+                browse = answer["walks"][menu]["steps"]
+                assert browse[-1]["screen"] == LIST, (label, menu, browse)
+                assert all(step["screen"] != "QueryRequestActivity" for step in browse)
+                searched = answer["walks"][f"{menu}/@action:0"]["steps"]
+                query = next(
+                    step["query"]
+                    for step in searched
+                    if step["screen"] == "QueryRequestActivity"
+                )
+                assert query["finishingBeforePress"] is False, (label, menu, query)
+                assert query["opened"] and "patient_name" in query["prompts"], (
+                    label,
+                    menu,
+                    query,
+                )
+
+
 # The first rule's values, set by hand so its order is the reverse of the names'.
 RANKS = {"targeted-amina-visit": "zulu", "targeted-baraka-visit": "mike", "targeted-chausiku-visit": "alpha"}
 PLACED = [["Chausiku", "Lakeside"], ["Baraka", "Hilltop"], ["Amina", "Riverside"]]
+
+
+def test_checkbox_search_sends_each_checked_value_on_both_archives(android_documents, hq):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    from proof.observe import casedata
+
+    document = android_documents["prompt-checkboxes"]
+    # A prompt document is generated, so it holds no restore of its own: its cases are its document's.
+    database = casedata.document_case_database(document)
+    database = replace(
+        database, user_data=(*((k, v) for k, v in database.user_data if k != "region_group"), ("region_group", "A"))
+    )
+    command = "search_command.m0"
+    with _archives(document, database) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command])
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            walk = answer["walks"][command]
+            [query] = [step["query"] for step in walk["steps"] if "typed" in step.get("query", {})]
+            assert query["items"]["regions"] == ["East", "North & coast"], (label, query)
+            assert query["RemoteQuerySessionManager.getRawQueryParams"]["regions"] == ["north"]
+            typed = query["typed"]
+            assert typed["given"]["regions"] == "East"
+            assert typed["RemoteQuerySessionManager.getRawQueryParams"]["regions"] == ["east", "north"]
+
+
+@pytest.mark.parametrize(("document_id","period","screen_text"), [
+    ("prompt-periods","__range__2024-01-01__2024-12-31","2024-01-01 to 2024-12-31"),
+    ("prompt-period-fallback","awaiting dates","awaiting dates"),
+    ("prompt-period-spellings","2024-01-02__2024-02-12__2024-05-21","2024-01-02__2024-02-12__2024-05-21"),
+])
+def test_installed_app_sends_fixed_starting_dates_on_both_archives(android_documents, hq, document_id, period, screen_text):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    from proof.observe import casedata
+
+    document = android_documents[document_id]
+    command = "search_command.m0"
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command])
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", (label, answer)
+            [opened] = [step["query"] for step in answer["walks"][command]["steps"]
+                        if "RemoteQuerySessionManager.getRawQueryParams" in step.get("query", {})]
+            params = opened["RemoteQuerySessionManager.getRawQueryParams"]
+            assert params["period"] == [period], (label, opened)
+            assert opened["pickerText"]["period"] == screen_text, (label, opened)
+            assert set(opened["prompts"]) >= {"period", "visit_date"}, (label, opened)
 
 
 def _ranked(database):
@@ -172,3 +348,366 @@ def test_a_tile_cell_takes_only_middle_vertical_alignment(android_documents, hq)
             "Riverside": "center_vertical",
             "open": "top",
         }, (name, gravities)
+
+
+def test_android_map_uses_locations_shapes_and_colors_from_both_installed_archives(android_documents, hq):
+    document = android_documents["targeted-case-map"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for name, archive in archives.items():
+            listed = _list(served, archive, name, "m0-f0", [])
+            cases = {item["label"]: item for item in listed["caseMap"]}
+            assert cases["Ana"] == {
+                "label": "Ana", "invalid": False, "location": [12, 24],
+                "boundary": [[12, 24], [15, 24], [15, 20], [12, 24]],
+                "boundaryColor": 0x80CBA018 - (1 << 32), "points": [[12, 24], [14, 22]],
+                "pointColors": [0xFFAA2211 - (1 << 32), -16776961],
+            }, name
+            assert cases["Bea"] == {
+                "label": "Bea", "invalid": True, "location": [28, 44],
+                "boundary": [], "points": [[28, 44], [30, 46]],
+            }, name
+
+
+@pytest.mark.parametrize("scenario", ["detail-tabs", "detail-layout", "named-layout"])
+def test_details_and_named_results_on_each_android_archive(android_documents, hq, scenario):
+    from proof.observe.visit_layout_data import visits
+
+    document = android_documents[f"tile-{scenario}"]
+    with _archives(document, visits()) as (served, archives):
+        for name, archive in archives.items():
+            selected = _list(served, archive, name, "m0-f0", [])
+            if scenario == "named-layout":
+                text = _texts(selected["rows"][0])
+                assert "Amina" in text and "Village\u2005West" in text, (name, text)
+                assert "Visit part 7\u2005Amina 7" in text, (name, text)
+                continue
+            detail = selected["detail"]["tabs"]
+            values = [[s for field in tab["fields"] for s in field["texts"]] for tab in detail]
+            if scenario == "detail-tabs":
+                assert [tab["title"] for tab in detail] == ["Visit", "Follow-up"], (name, detail)
+                assert "Amina" in values[0] and "West" in values[0]
+                assert "Monday" not in values[0] and "Monday" in values[1]
+            else:
+                # The Android long-detail adapter lays out ordinary labeled
+                # fields even though the same long detail has Web Apps grid positions.
+                assert len(detail) == 1
+                assert all(label in values[0] for label in ["Name", "Amina", "Village", "West", "Last visit", "Monday"])
+
+
+@pytest.mark.parametrize(
+    ("scenario", "values", "expanded"),
+    [("persistent-line", ["West"], None), ("persistent-inline", ["Amina", "West", "Monday"], "Village"),
+     ("persistent-external", ["Monday"], "Previous visit")],
+)
+def test_selected_case_context_in_android_form_entry(android_documents, hq, scenario, values, expanded):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+    from proof.observe.visit_layout_data import visits
+
+    with _archives(android_documents[f"tile-{scenario}"], visits()) as (served, archives):
+        for name, archive in archives.items():
+            blobs = Blobs()
+            found = observe.app(served, blobs, label=name, archive=archive, commands=["m0-f0"], views=True)
+            walk = blobs.get_json(found["answer"])["walks"]["m0-f0"]
+            # Every screen of the form's entry the walk reads carries the context above it, the same on each.
+            tiles = [step["form"]["caseContext"] for step in walk["steps"] if "caseContext" in step.get("form", {})]
+            assert tiles, (name, walk["steps"])
+            for tile in tiles:
+                assert tile["values"] == values, (name, tile)
+                assert tile["expands"] is bool(expanded)
+                if expanded:
+                    assert expanded in tile["detail"] and "Monday" in tile["detail"], (name, tile)
+
+
+
+def _visible_query_buttons(view):
+    if view.get("visibility") in {"gone", "invisible"}:
+        return
+    if view["class"].endswith("Button"):
+        yield view
+    for child in view.get("children", ()):
+        yield from _visible_query_buttons(child)
+
+
+def test_search_on_clear_keeps_androids_search_button_without_adding_a_clear_action(android_documents, hq, evidence):
+    """Install each export. Search on the Android menu opens its query, with its sole visible Search button."""
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-search-workflow"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, views=True)
+            walked = blobs.get_json(result["answer"])["walks"]
+            # Recent patients enables search-on-clear. Nearby patients keeps it off.
+            for menu, prompt in (("m1", "area"), ("m2", "patient_name")):
+                assert walked[menu]["steps"][-1]["screen"] == LIST, (label, menu)
+                pressing_search = walked[f"{menu}/@action:0"]["steps"]
+                query = next(step["query"] for step in pressing_search if step["screen"] == "QueryRequestActivity")
+                assert query["opened"] and prompt in query["prompts"], (label, menu, query)
+                buttons = list(_visible_query_buttons(query["controls"]))
+                evidence(f"{label}-{menu}-query-buttons", buttons)
+                assert query["submitButton"]["text"].strip() and buttons == [query["submitButton"]], (label, menu, buttons)
+
+
+def _step_summary(step):
+    """One step of a walk, as a failure names it: its screen, the session's command and datum, and what it chose."""
+    session = step.get("session") or {}
+    listing = step.get("list") or {}
+    detail = listing.get("detail") if isinstance(listing, dict) else None
+    return (
+        step.get("screen"),
+        session.get("command"),
+        session.get("datum"),
+        step.get("chose") or (listing.get("chose") if isinstance(listing, dict) else None),
+        bool(detail),
+    )
+
+
+def _sent_summary(instance):
+    """A sent form, as a failure names it: its root and the case ids its blocks change."""
+    from lxml import etree
+
+    root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+    blocks = root.iter("{http://commcarehq.org/case/transaction/v2}case")
+    return (etree.QName(root).localname, root.get("name"), sorted(block.get("case_id") or "" for block in blocks))
+
+
+def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(android_documents, hq):
+    from lxml import etree
+
+    from proof.android import observe
+    from proof.android.navigation import nav
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    doc = android_documents["targeted-independent-form-choices"]
+    database = casedata.document_case_database(doc)
+    ordinary = [record for record in database.cases if record.case_type == "person"]
+    only = replace(ordinary[0], case_id="proof-standalone-list", name="Standalone list only")
+    # An owned claim restores its host onto the device even though another
+    # worker owns it. Both form choices apply their list's owner exclusion.
+    excluded = replace(ordinary[0], case_id="proof-excluded-person", name="Restored contact",
+                       owner_id="proof-excluded-person-owner")
+    claim = replace(ordinary[0], case_id="proof-contact-claim", name="Contact claim",
+                    case_type="commcare-case-claim", properties=(),
+                    indices=(("host", "person", excluded.case_id, "extension"),))
+    database = replace(database, cases=(*database.cases, only, excluded, claim))
+    own = ["m0", "m0-case-list"]
+    first = ["m0", "m0-f0"]
+    second = [*first, "@case:" + ordinary[0].case_id]
+    completed = [*second, "@case:" + ordinary[1].case_id]
+    with _archives(doc, database) as (served, archives):
+        for name, archive in archives.items():
+            blobs = Blobs()
+            sent = []
+            answer = nav(served, blobs, label="independent-choices-" + name, archive=archive,
+                         paths=[own, first, second, completed], sent=sent)
+            navs = blobs.get_json(answer["answer"])["navs"]
+
+            def last_list(path):
+                walk = navs["path:" + "/".join(path)]
+                assert "raised" not in walk, walk
+                last = walk["steps"][-1]
+                assert last["screen"] == LIST, (name, path, last)
+                return set(last["list"]["order"])
+
+            expected = {record.case_id for record in ordinary}
+            # The forms' choices read the list's filter, which leaves out a case of the list-only name (the
+            # document's own cases hold one); the standalone list item reads none.
+            chosen = {record.case_id for record in ordinary if record.name != only.name}
+            assert last_list(own) == expected | {only.case_id, excluded.case_id}, name
+            assert last_list(first) == chosen, name
+            assert last_list(second) == chosen, name
+            # Only the walk that completes the form sends it. A walk goes on past a form to where its
+            # after-submit leads (Screens.follow, up to MAX_FORMS forms), here back to the second list, which it
+            # answers with its own case, so it sends that one form each time it completes it.
+            summaries = [_sent_summary(one) for one in sent]
+            if not sent or any(one != summaries[0] for one in summaries):
+                print(json.dumps({
+                    "archive": name,
+                    "sent": summaries,
+                    "walks": {
+                        "/".join(path): [_step_summary(step) for step in navs["path:" + "/".join(path)]["steps"]]
+                        for path in (own, first, second, completed)
+                    },
+                }, indent=1))
+            assert sent and all(one == summaries[0] for one in summaries), (name, len(sent))
+            instance = sent[0]
+            submitted = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+            assert [submitted.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
+                "Before", ordinary[0].name, ordinary[1].name
+            ], name
+            blocks = [block for block in submitted.iter("{http://commcarehq.org/case/transaction/v2}case")]
+            assert {block.get("case_id") for block in blocks} >= {ordinary[0].case_id, ordinary[1].case_id}, name
+
+            resumed = []
+            again = observe.app(served, blobs, label="resume-independent-choices-" + name, archive=archive,
+                                commands=[], questions={"/data/note": ["After resuming"]},
+                                save_incomplete="m0-f0", reopen=True, sent=resumed)
+            reopened = blobs.get_json(again["answer"])["savedIncomplete"]["reopened"]
+            assert reopened["screen"] == "FormEntryActivity", reopened
+            assert reopened["form"]["saved"]["finishing"] is True, reopened
+            (instance,) = resumed
+            submission = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+            names = {case.case_id: case.name for case in ordinary}
+            chosen_ids = {block.get("case_id") for block in submission.iter("{http://commcarehq.org/case/transaction/v2}case")}
+            # The incomplete-form driver picks the first available record in each list.
+            (chosen,) = chosen_ids
+            assert [submission.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
+                "Before", names[chosen], names[chosen]
+            ], name
+
+
+def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_documents, hq):
+    from proof.android.navigation import nav
+    from proof.observe.casedata import document_case_database
+    from proof.observe.record import Blobs
+
+    doc = android_documents["targeted-shared-visit-entries"]
+    database = document_case_database(doc)
+    people = [row.case_id for row in database.cases if row.case_type == "person"]
+    assert len(people) >= 3, people
+    choices = [
+        ("m0-f0", [people[1], people[0]]),
+        ("m0-f1", [people[1], people[2], people[0]]),
+        ("m0-f2", [people[2]]),
+    ]
+    paths = [["m0", command, *["@case:" + person for person in picked]] for command, picked in choices]
+    with _archives(doc, database) as (served, archives):
+        for name, archive in archives.items():
+            blobs = Blobs()
+            result = nav(served, blobs, label="shared-visits-" + name, archive=archive, paths=paths)
+            navs = blobs.get_json(result["answer"])["navs"]
+            for (command, picked), path in zip(choices, paths, strict=True):
+                walk = navs["path:" + "/".join(path)]
+                assert "raised" not in walk, walk
+                steps = walk["steps"]
+                # The lists the walk chose at on its way to the form: a walk goes on past a form to where its
+                # after-submit leads (Screens.follow), which is that form's last list again.
+                entered = next(
+                    (index for index, step in enumerate(steps) if step["screen"] == "FormEntryActivity"), len(steps)
+                )
+                on_the_way = [step for step in steps[:entered] if step["screen"] == LIST]
+                if len(on_the_way) != len(picked):
+                    print(json.dumps({"archive": name, "path": path, "steps": [_step_summary(s) for s in steps]}, indent=1))
+                assert len(on_the_way) == len(picked), (path, len(steps))
+                opened = next(step for step in steps if step["screen"] == "FormEntryActivity")
+                assert opened["session"]["command"] == command, (path, opened)
+                form = opened["form"]
+                assert form["loaded"] is True and form["formTitle"] == "Visit", (path, form)
+                # A navigation path walks the loaded form through save, where the reader records any alert.
+                saved = form["saved"]
+                assert saved["finishing"] is True and saved["alert"] is None, (path, saved)
+
+
+def test_android_displays_the_web_apps_icon_as_a_path_without_submitting(android_documents, hq):
+    """Inspect the Android rendering of the HQ archive even though Nova offers this action only in Web Apps."""
+    from proof.android import observe
+    from proof.formplayer.hq import serve
+    from proof.rules.conftest import published
+
+    document = android_documents["targeted-case-list-icon-action"]
+    with published(document, None) as project:
+        with serve(project.unit, document, project.app_id, database=_restored(document)) as served:
+            path = served.doc["modules"][0]["case_details"]["short"]["columns"][1]["enum"][0]["value"]["en"]
+            assert path.startswith("jr://file/"), path
+            listed = _list(served, observe.release_archive(served), "web-list-icon-on-android", "m0-f0", [])
+            assert [_texts(row)[:2] for row in listed["rows"]] == [["First visit", path], ["Second visit", path]]
+            assert not served.hq.submissions
+def test_android_keeps_named_search_results_without_prompt_answers(android_documents, hq, android_walk_evidence):
+    """An HQ release exposes named results on Android, and Android leaves both prompt instances absent."""
+    from proof.android import observe
+    from proof.formplayer import hq as formplayer_hq
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+    from proof.rules.conftest import published
+
+    document = android_documents["search-named-parent"]
+    # The form reads Search answers and declares Web Apps. Nova's Android
+    # download correctly refuses it. HQ's release lets us witness the device
+    # limit directly with the same search frame and the same XForm.
+    assert document.local_ccz is None
+    database = casedata.document_case_database(document)
+    parent = next(record for record in database.cases if record.case_type == "parent_case")
+    child = next(record for record in database.cases if record.case_type == "patient")
+    parent = replace(parent, name="North")
+    child = replace(child, properties=(("first_name", "West"),),
+                    indices=(("parent", parent.case_type, parent.case_id, "child"),))
+    database = replace(database, cases=(parent, child))
+    family, member = "results:FamilyLookup", "results:MemberLookup"
+    prompts = {family: {"first_name": "North"}, member: {"first_name": "West"}}
+    with (
+        published(document, None) as app,
+        formplayer_hq.serve(app.unit, document, app.app_id, database=database) as served,
+    ):
+        blobs = Blobs()
+        result = observe.app(served, blobs, label="hq", archive=observe.release_archive(served),
+                             commands=["m0-f0"], search_answers=prompts)
+        answer = blobs.get_json(result["answer"])
+        assert answer["install"] == "Installed", answer
+        android_walk_evidence({"walk": answer["walks"]["m0-f0"], "queries": answer["completedSearches"]})
+        assert answer["completedSearches"] == [
+            {
+                "query": query,
+                "submitted": prompts[query],
+                "sources": {family: True, member: query == member, f"search-input:{family}": False,
+                            f"search-input:{member}": False},
+            }
+            for query in (family, member)
+        ], answer["walks"]
+
+
+def test_grouped_search_uses_plain_ordered_fields_on_android(android_documents, hq, android_walk_evidence):
+    from proof.android import observe
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    document = android_documents["search-remote-grouped-prompts"]
+    command = "search_command.m0"
+    observations = {}
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command], views=True)
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            query = next(step["query"] for step in answer["walks"][command]["steps"] if "query" in step)
+            assert query["opened"], (label, query)
+            observations[label] = {
+                "prompts": list(query["prompts"]),
+                "display": _texts(query["controls"]),
+            }
+
+    android_walk_evidence(observations)
+    for platform in observations.values():
+        assert set(platform["prompts"]) == {"first_name", "case_name"}
+        field_labels = [text for text in platform["display"] if text in {"Name", "Record name"}]
+        assert field_labels == ["Name", "Record name"]
+        assert "Personal details" not in platform["display"]
+        assert "Case details" not in platform["display"]
+
+
+def test_android_shows_a_linked_search_receiver_as_an_ordinary_field(android_documents, hq, android_walk_evidence):
+    from proof.android import observe
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    document = android_documents["search-remote-address-picker"]
+    command = "search_command.m0"
+    observations = {}
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command], views=True)
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            query = next(step["query"] for step in answer["walks"][command]["steps"] if "query" in step)
+            assert query["opened"], (label, query)
+            observations[label] = {"prompts": list(query["prompts"]), "display": _texts(query["controls"])}
+
+    android_walk_evidence(observations)
+    for observed in observations.values():
+        assert observed["prompts"] == ["first_name"]
+        assert "Name" in observed["display"] and "Find an address" not in observed["display"]

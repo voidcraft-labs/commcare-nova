@@ -104,6 +104,24 @@ def document_type_declaration(authoring, app_id):
 # Question ids and data nodes ----------------------------------------------------------------------------------------
 
 
+def submitted_case_answer(authoring, app_id):
+    _change(authoring, app_id, "submitted-case-answer",
+            ("<weight />", "<Case />", 1), ('"#form/weight"', '"#form/Case"', 2), ('"/data/weight"', '"/data/Case"', 2))
+
+
+def android_answer_name(authoring, app_id):
+    _change(authoring, app_id, "android-answer-name", ("<weight />", "<registration />", 1),
+            ('"#form/weight"', '"#form/registration"', 2), ('"/data/weight"', '"/data/registration"', 2))
+
+
+def ordinary_stock_answer(authoring, app_id):
+    _change(authoring, app_id, "ordinary-stock-answer", ("<double_age />", '<double_age xmlns="http://commcarehq.org/ledger/v1" />', 1))
+
+
+def empty_hidden_namespace(authoring, app_id):
+    _change(authoring, app_id, "empty-hidden-namespace", ("<double_age />", '<double_age xmlns="" />', 1))
+
+
 def question_id_script(authoring, app_id):
     """The question ``weight`` renamed ``script``, a name HQ's form builder only warns about, at its data node, its
     bind and its control."""
@@ -209,7 +227,7 @@ def hidden_calculate_and_default(authoring, app_id):
     """A default of ``1`` on the hidden value ``double_age``, which is calculated, as the form builder places a
     default: a setvalue at the question's place in data-tree order; and a default of ``details/nickname``, which
     the form builder runs after it and which reads ``double_age``, so the form opens with the default in the
-    nickname before the calculate replaces it. With no such later read the calculate alone is held."""
+    nickname before the calculate replaces it."""
     _change(
         authoring,
         app_id,
@@ -381,12 +399,31 @@ def no_add_remove_without_count(authoring, app_id):
     _change(authoring, app_id, "no-add-remove-without-count", (MEMBERS_COUNT + " ", "", 1))
 
 
+ROUNDS_ROW_BIND = '<bind vellum:nodeset="#form/rounds/item" nodeset="/data/rounds/item" />'
+
+
 def model_iteration_outside_rule(authoring, app_id):
-    """A display condition (``true()``) on the model-iteration repeat ``rounds``, a bind of its wrapper node."""
-    _model(
+    """A display condition (``true()``) on the model-iteration repeat ``rounds``, on its rows' bind, where the form
+    builder writes it."""
+    _change(
         authoring,
         app_id,
         "model-iteration-outside-rule",
+        (
+            ROUNDS_ROW_BIND,
+            '<bind vellum:nodeset="#form/rounds/item" nodeset="/data/rounds/item" relevant="true()" />',
+            1,
+        ),
+    )
+
+
+def model_iteration_container_condition(authoring, app_id):
+    """A display condition (``true()``) on the model-iteration repeat ``rounds``' container node, a bind the form
+    builder discards (its question is the rows): the repeat's condition, which the first publish writes on the rows."""
+    _model(
+        authoring,
+        app_id,
+        "model-iteration-container-condition",
         '<bind vellum:nodeset="#form/rounds" nodeset="/data/rounds" relevant="true()" />',
     )
 
@@ -407,8 +444,34 @@ def model_iteration_blank_answer(authoring, app_id):
 
 
 def model_iteration_late_relevance(authoring, app_id):
+    _iteration_under_condition(authoring, app_id, "model-iteration-late-relevance", True)
+
+
+def model_iteration_initially_relevant(authoring, app_id):
+    _iteration_under_condition(authoring, app_id, "model-iteration-initially-relevant", False)
+
+
+def model_iteration_blank_fallback(authoring, app_id):
+    """An unanswered name picks a fixed fallback roster."""
+    _change(
+        authoring, app_id, "model-iteration-blank-fallback",
+        ("""value="join(' ', instance('casedb')/casedb/case/@case_id)" """.strip(),
+         """value="join(' ', if(/data/full_name = '', 'east west', /data/full_name))" """.strip(), 1),
+    )
+
+
+def model_iteration_blank_insensitive(authoring, app_id):
+    """The filter admits every case whatever the worker enters."""
+    _change(
+        authoring, app_id, "model-iteration-blank-insensitive",
+        ("""value="join(' ', instance('casedb')/casedb/case/@case_id)" """.strip(),
+         """value="join(' ', instance('casedb')/casedb/case[@case_id = /data/full_name or @case_id != /data/full_name]/@case_id)" """.strip(), 1),
+    )
+
+
+def _iteration_under_condition(authoring, app_id, name, initialize_age):
     """The model-iteration repeat ``rounds`` moved into a new group ``section`` shown only where ``age`` is over 5,
-    an answer blank when the form loads."""
+    an earlier assignment sets it below the threshold before the repeat captures its count."""
 
     def moved(text):
         text = _replaced(
@@ -417,6 +480,7 @@ def model_iteration_late_relevance(authoring, app_id):
                 (
                     FIRST_SETVALUE,
                     '<bind vellum:nodeset="#form/section" nodeset="/data/section" relevant="/data/age &gt; 5" />\n'
+                    + ('<setvalue event="xforms-ready" ref="/data/age" value="0" />\n' if initialize_age else "")
                     + FIRST_SETVALUE,
                     1,
                 ),
@@ -430,7 +494,7 @@ def model_iteration_late_relevance(authoring, app_id):
         )
         return text
 
-    _edit(authoring, app_id, "model-iteration-late-relevance", moved)
+    _edit(authoring, app_id, name, moved)
 
 
 def model_iteration_nested(authoring, app_id):
@@ -481,6 +545,18 @@ def repeat_add_caption(authoring, app_id):
     )
 
 
+def long_form_on_repeat_action_caption(authoring, app_id):
+    """The add caption's own default text remains visible beside an unused long form."""
+    caption = '<text id="members-add"><value>Add a member</value><value form="long">Add another participant</value></text>'
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-repeat-action-caption",
+        (MEMBERS_LABEL_VALUE, caption + MEMBERS_LABEL_VALUE, 1),
+        (MEMBER_NAME_OPEN, "<jr:addCaption ref=\"jr:itext('members-add')\"/>" + MEMBER_NAME_OPEN, 1),
+    )
+
+
 def repeat_caption_itext(authoring, app_id):
     """A remove caption on the repeat ``members`` that names the itext ``members-label``."""
     _change(
@@ -513,6 +589,22 @@ def callout(authoring, app_id):
     """``tag_code`` made an Android app callout: bind type ``intent``, appearance ``intent:scanner``, and the head's
     ``odkx:intent`` ``scanner``."""
     _edit(authoring, app_id, "callout", _callout)
+
+
+def android_app_question(authoring, app_id):
+    """The action and its input have the same ID, as Vellum's AndroidIntent writes;
+    the device calls it with a unit and writes the quantity into an integer answer."""
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+    _edit(authoring, app_id, "android-app-question", lambda text: _callout(
+        text, inner='<extra key="unit" ref="&apos;litres&apos;" /><response key="measurement" ref="/data/household_size" />'
+    ).replace('id="scanner"', 'id="tag_code"').replace('appearance="intent:scanner"', 'appearance="intent:tag_code"'))
+
+
+def android_app_answer(authoring, app_id):
+    """A second ordinary input uses the same action, retaining its text datatype."""
+    android_app_question(authoring, app_id)
+    _change(authoring, app_id, "android-app-answer",
+            (FULL_NAME_INPUT, FULL_NAME_INPUT[:-1] + ' appearance="intent:tag_code">', 1))
 
 
 def callout_quick(authoring, app_id):
@@ -582,14 +674,42 @@ def _model(authoring, app_id, what, model):
 
 
 def data_parent_other_group(authoring, app_id):
-    """The text question ``full_name``'s control moved into the question list ``details``, its data node left at
-    the form's root."""
+    """The nickname question is shown just after full name and still submits its answer under details."""
     _edit(
         authoring,
         app_id,
         "data-parent-other-group",
+        lambda text: _moved(text, NICKNAME_OPEN, NICKNAME_CLOSE, FULL_NAME_CLOSE),
+    )
+
+
+def data_parent_at_form_root(authoring, app_id):
+    """The full-name question is shown inside details but still submits its answer at the form root."""
+    _edit(
+        authoring,
+        app_id,
+        "data-parent-at-form-root",
         lambda text: _moved(text, FULL_NAME_INPUT, FULL_NAME_CLOSE, NICKNAME_CLOSE),
     )
+
+
+def data_parent_of_a_group(authoring, app_id):
+    """The details group remains on the main screen and submits its group under a separate container."""
+    def relocate(text):
+        text = _replaced(text, [
+            ("<details>", "<archive><details>", 1),
+            ("</details>", "</details></archive>", 1),
+            (FULL_NAME_CLOSE, FULL_NAME_CLOSE + '\n<group ref="/data/archive"><label>Archive</label></group>', 1),
+        ])
+        # Keep both the raw references and Vellum's companion references pointing at the source data nodes.
+        return text.replace("/data/details", "/data/archive/details").replace("#form/details", "#form/archive/details")
+
+    _edit(authoring, app_id, "data-parent-of-a-group", relocate)
+
+
+def file_default(authoring, app_id):
+    """A stored photo question supplies a file name as its default, without supplying that file."""
+    _change(authoring, app_id, "photo-file-default", ("<photo />", "<photo>opening.jpg</photo>", 1))
 
 
 def data_parent_crossing_repeat(authoring, app_id):
@@ -628,6 +748,11 @@ def hidden_value_xmlns(authoring, app_id):
     )
 
 
+def unrecognized_question_lock(authoring, app_id):
+    _change(authoring, app_id, "unrecognized-question-lock",
+            ('<full_name />', '<full_name vellum:lock="partial" />', 1))
+
+
 def locked_question(authoring, app_id):
     """The text question ``full_name`` locked (``vellum:lock="all"``) on its data node and its bind."""
     _change(
@@ -664,6 +789,16 @@ def required_condition_differing(authoring, app_id):
     )
 
 
+def constraint_on_hidden_value(authoring, app_id):
+    """Vellum's Hidden Value has no Validation Condition property."""
+    _change(
+        authoring,
+        app_id,
+        "constraint-on-hidden-value",
+        (DOUBLE_AGE_BIND, 'nodeset="/data/double_age" constraint="true()" vellum:calculate', 1),
+    )
+
+
 def constraint_on_capture(authoring, app_id):
     """A validation condition on the image question ``photo``."""
     _change(
@@ -686,14 +821,23 @@ def message_without_condition(authoring, app_id):
 
 
 def message_on_capture(authoring, app_id):
-    """A validation message on the location question ``location``, with no validation condition."""
+    """A validation message on the location question without a validation condition."""
+    _location_message(authoring, app_id, "message-on-capture", "")
+
+
+def message_on_capture_with_condition(authoring, app_id):
+    """The location question carries both a validation condition and the message it displays."""
+    _location_message(authoring, app_id, "message-on-capture-with-condition", ' constraint="true()"')
+
+
+def _location_message(authoring, app_id, name, condition):
     _change(
         authoring,
         app_id,
-        "message-on-capture",
+        name,
         (
             'nodeset="/data/location" type="geopoint" />',
-            'nodeset="/data/location" type="geopoint" jr:constraintMsg="jr:itext(\'location-constraintMsg\')" />',
+            f'nodeset="/data/location" type="geopoint"{condition} jr:constraintMsg="jr:itext(\'location-constraintMsg\')" />',
             1,
         ),
         (
@@ -764,8 +908,15 @@ def bind_on_attribute(authoring, app_id):
 
 
 def default_on_capture(authoring, app_id):
-    """A default on the image question ``photo``."""
+    """A default naming a file, ``x``, on the image question ``photo``."""
     _model(authoring, app_id, "default-on-capture", '<setvalue event="xforms-ready" ref="/data/photo" value="\'x\'" />')
+
+
+def default_blank_on_capture(authoring, app_id):
+    """A blank default on the image question ``photo``."""
+    _model(
+        authoring, app_id, "default-blank-on-capture", '<setvalue event="xforms-ready" ref="/data/photo" value="\'\'" />'
+    )
 
 
 def second_default(authoring, app_id):
@@ -894,6 +1045,24 @@ def data_root_named_survey(authoring, app_id):
     )
 
 
+def data_root_reserved_by_designer(authoring, app_id):
+    _change(authoring, app_id, "data-root-reserved-by-designer",
+            ("<data xmlns:jrm=", "<instance xmlns:jrm=", 1),
+            ("</data>", "</instance>", 1), ("/data/", "/instance/", None))
+
+
+def data_root_unaddressable(authoring, app_id):
+    """The data root named ``患者``, at the element and in every path."""
+    _change(
+        authoring,
+        app_id,
+        "data-root-unaddressable",
+        ("<data xmlns:jrm=", "<患者 xmlns:jrm=", 1),
+        ("</data>", "</患者>", 1),
+        ("/data/", "/患者/", None),
+    )
+
+
 def data_root_attribute(authoring, app_id):
     """The data root given the attribute ``jr:modeltype``."""
     _change(
@@ -946,6 +1115,40 @@ def label_qrcode(authoring, app_id):
 def label_tts(authoring, app_id):
     """A ``tts`` form of ``full_name``'s label."""
     _label_form(authoring, app_id, "label-tts", '<value form="tts">Say the full name</value>')
+
+
+FULL_NAME_HELP_VALUE = "<value>The name the household is known by</value>"
+MEMBERS_LABEL_VALUE = '<text id="members-label">\n\t\t\t\t\t\t<value>Members</value>'
+
+
+def long_form_on_help(authoring, app_id):
+    """A ``long`` form of ``full_name``'s help text, which both runtimes show in place of the help text."""
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-help",
+        (FULL_NAME_HELP_VALUE, FULL_NAME_HELP_VALUE + '<value form="long">Ask who heads the household</value>', 1),
+    )
+
+
+def qrcode_on_help(authoring, app_id):
+    """A ``qrcode`` form of ``full_name``'s help text, which no runtime asks a help text for."""
+    _change(
+        authoring,
+        app_id,
+        "qrcode-on-help",
+        (FULL_NAME_HELP_VALUE, FULL_NAME_HELP_VALUE + '<value form="qrcode">household</value>', 1),
+    )
+
+
+def long_form_on_group_label(authoring, app_id):
+    """A ``long`` form of the ``members`` repeat's label, which both runtimes show as its header."""
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-group-label",
+        (MEMBERS_LABEL_VALUE, MEMBERS_LABEL_VALUE + '<value form="long">Every member of the household</value>', 1),
+    )
 
 
 def xhtml_inside_value(authoring, app_id):
@@ -1041,11 +1244,22 @@ def pragma_entry(authoring, app_id):
 
 
 def pragma_question_text(authoring, app_id):
-    """``weight``'s label text given the itext id ``Pragma-Submit-Automatically``."""
+    """``weight``'s label text given the itext id ``Pragma-Volatility-Key``."""
     _change(
         authoring,
         app_id,
         "pragma-question-text",
+        ('"weight-label"', '"Pragma-Volatility-Key"', 1),
+        ("jr:itext('weight-label')", "jr:itext('Pragma-Volatility-Key')", 1),
+    )
+
+
+def pragma_presence_text(authoring, app_id):
+    """``weight``'s label text given the itext id ``Pragma-Submit-Automatically``."""
+    _change(
+        authoring,
+        app_id,
+        "pragma-presence-text",
         ('"weight-label"', '"Pragma-Submit-Automatically"', 1),
         ("jr:itext('weight-label')", "jr:itext('Pragma-Submit-Automatically')", 1),
     )
@@ -1091,6 +1305,34 @@ def media_one_language(authoring, app_id):
         app_id,
         "media-one-language",
         (NOTE_FRA, NOTE_FRA + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+    )
+
+
+def label_text_one_language(authoring, app_id):
+    """A ``long`` form of ``note``'s label in French alone, a key the English default lacks."""
+    _change(
+        authoring,
+        app_id,
+        "label-text-one-language",
+        (NOTE_FRA, NOTE_FRA + '<value form="long">Remarque de la tournée, en détail</value>', 1),
+    )
+
+
+def media_empty_translation(authoring, app_id):
+    """Core keeps this blank value; Vellum fills it with the English image on save."""
+    _change(
+        authoring, app_id, "media-empty-translation",
+        (NOTE_EN, NOTE_EN + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+        (NOTE_FRA, NOTE_FRA + '<value form="image"/>', 1),
+    )
+
+
+def localized_label_images(authoring, app_id):
+    """The same question shows a different existing Project image in each language."""
+    _change(
+        authoring, app_id, "localized-label-images",
+        (NOTE_EN, NOTE_EN + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+        (NOTE_FRA, NOTE_FRA + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_login.png</value>', 1),
     )
 
 
@@ -1600,8 +1842,84 @@ def save_to_case_type_expression(authoring, app_id):
         app_id,
         "save-to-case-type-expression",
         (
+            'make_household vellum:role="SaveToCase" vellum:case_type="household"',
+            'make_household vellum:role="SaveToCase" vellum:case_type=""',
+            1,
+        ),
+        (
             STC_TYPE_BIND,
             f'<bind nodeset="{MAKE}/create/case_type" calculate="concat(&apos;house&apos;, &apos;hold&apos;)"/>',
+            1,
+        ),
+    )
+    _computed_type_references(authoring, app_id, guard_type="household")
+
+
+def _computed_type_references(authoring, app_id, *, guard_type):
+    # The source upload and the reference rows together reproduce a Vellum save.
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {
+        f"{OPS}/make_household": {
+            "doc_type": "CaseSaveReference",
+            "case_type": "",
+            "properties": ["head", "case_type", "case_name", "owner_id"],
+            "create": True,
+            "close": False,
+        },
+        f"{OPS}/nova_guard_make_household_text": {
+            "doc_type": "CaseSaveReference",
+            "case_type": guard_type,
+            "properties": ["case_type"],
+            "create": False,
+            "close": False,
+        },
+    })
+
+
+def save_to_case_declared_type_choice(authoring, app_id):
+    """Two declared case types, the same saved field and a guard reading the computed type."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    from proof.matrix.bases import _pages
+
+    def visit_form(name):
+        form = XFormBuilder(name)
+        form.new_question("note", "Note", "string")
+        return form.tostring().decode("utf-8")
+
+    _pages.new_survey_module(authoring, app_id, name="Visits")
+    ops.upload_form_source(authoring, app_id, 1, 0, visit_form, "visit-type-carrier")
+    ops.set_json(authoring, app_id, "/modules/0/case_type", "household")
+    ops.set_json(authoring, app_id, "/modules/1/case_type", "visit")
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-declared-type-choice",
+        ('vellum:role="SaveToCase" vellum:case_type="household"',
+         'vellum:role="SaveToCase" vellum:case_type=""', 2),
+        (STC_TYPE_BIND,
+         f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
+         1),
+        (f'<bind nodeset="{GUARD}/update/case_type" calculate="&apos;household&apos;"/>',
+         f'<bind nodeset="{GUARD}/update/case_type" calculate="current()/../../../../make_household/case/create/case_type"/>',
+         1),
+    )
+    _computed_type_references(authoring, app_id, guard_type="")
+
+
+def save_to_case_dynamic_type(authoring, app_id):
+    """Vellum clears the fixed-type metadata when the create's type uses an answer."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-dynamic-type",
+        (
+            'make_household vellum:role="SaveToCase" vellum:case_type="household"',
+            'make_household vellum:role="SaveToCase" vellum:case_type=""',
+            1,
+        ),
+        (
+            STC_TYPE_BIND,
+            f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
             1,
         ),
     )
@@ -1717,16 +2035,83 @@ def save_to_case_owner_condition(authoring, app_id):
         app_id,
         "save-to-case-owner-condition",
         (STC_OWNER_BIND, STC_OWNER_BIND[: -len("/>")] + ' relevant="/data/age &gt; 5"/>', 1),
+        (
+            f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+            f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
+            f"(not(/data/age &gt; 5) or string-length({GUARD_OWNER}) &gt; 0 and"
+            f" string-length({GUARD_OWNER}) &lt;= 255) and string-length({GUARD_NAME}) &gt; 0 and"
+            f" string-length({GUARD_NAME}) &lt;= 255",
+            1,
+        ),
+    )
+
+
+def save_to_case_conditional_owner_aliased_create(authoring, app_id):
+    """The case can already exist when its conditional owner leaf is absent."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-conditional-owner-aliased-create",
+        (STC_OWNER_BIND, STC_OWNER_BIND[: -len("/>")] + ' relevant="/data/age &gt; 5"/>', 1),
+        (STC_ID_SETVALUE, STC_ID_SETVALUE.replace('uuid()', "'household-01'"), 1),
+    )
+
+
+def save_to_case_update_owner_condition(authoring, app_id):
+    """The same conditional facet on a targeted update has its own standing."""
+    owner_path = GUARD_OWNER.replace("/create/", "/update/")
+    existing_household = (
+        "instance(&apos;casedb&apos;)/casedb/case"
+        "[@case_id = &apos;household-01&apos; and @case_type = &apos;household&apos;]/@case_id"
+    )
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-update-owner-condition",
+        (STC_CREATE + STC_UPDATE, '<update><owner_id/><head/></update>', 1),
+        (STC_TYPE_BIND, '', 1),
+        (STC_NAME_BIND, '', 1),
+        (
+            STC_OWNER_BIND,
+            STC_OWNER_BIND.replace('/create/owner_id', '/update/owner_id')[: -len("/>")] + ' relevant="/data/age &gt; 5"/>',
+            1,
+        ),
+        (STC_ID_SETVALUE, f'<bind nodeset="{MAKE}/@case_id" calculate="{existing_household}"/>', 1),
+        (
+            f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+            f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
+            f"not(/data/age &gt; 5) or string-length({owner_path}) &gt; 0 and"
+            f" string-length({owner_path}) &lt;= 255",
+            1,
+        ),
+    )
+
+
+def save_to_case_create_with_conditioned_owner_update(authoring, app_id):
+    """A create's later update of the owner is a separate effect from its create owner."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-create-with-conditioned-owner-update",
+        (STC_UPDATE, "<update><head/><owner_id/></update>", 1),
+        (
+            STC_HEAD_BIND,
+            STC_HEAD_BIND
+            + f'<bind nodeset="{MAKE}/update/owner_id" calculate="/data/full_name"'
+            ' relevant="/data/age &gt; 5"/>',
+            1,
+        ),
     )
 
 
 def save_to_case_create_and_close(authoring, app_id):
-    """The create's block also closing the case it creates."""
+    """A create that closes its new case only when the close condition holds."""
     _save_to_case(
         authoring,
         app_id,
         "save-to-case-create-and-close",
         (STC_UPDATE + "</case></make_household>", STC_UPDATE + "<close/></case></make_household>", 1),
+        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/close" relevant="/data/age &gt; 5"/>', 1),
     )
 
 
@@ -1735,9 +2120,34 @@ def save_to_case_link_long_name(authoring, app_id):
     _save_to_case_link(authoring, app_id, "save-to-case-link-long-name", "p" * 256)
 
 
+def save_to_case_hyphenated_link_name(authoring, app_id):
+    """The create keeps the exact spelling of its hyphenated connection."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-hyphenated-link-name", "par-ent")
+
+
 def save_to_case_link_name_outside_grammar(authoring, app_id):
-    """A link of the created case by the name ``par-ent``, outside Nova's link names."""
-    _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par-ent")
+    """The bind path contains a period that Vellum does not parse as an index bind."""
+    _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
+
+
+def save_to_case_unicode_link_name(authoring, app_id):
+    """A valid XML index name outside Vellum's ASCII bind matcher."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-unicode-link-name", "parént")
+
+
+def save_to_case_unicode_link_name_cjk(authoring, app_id):
+    """An XML index name for which Nova's XPath layer cannot own the bind."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-unicode-link-name-cjk", "亲属")
+
+
+def save_to_case_link_stops_form_designer(authoring, app_id):
+    """An ordinary case link whose element uses the reserved instance name."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "instance")
+
+
+def save_to_case_index_close_adds_action(authoring, app_id):
+    """This block creates a case without a close action, before Vellum saves it."""
+    _save_to_case_link(authoring, app_id, "save-to-case-index-close-adds-action", "close")
 
 
 def _save_to_case_link(authoring, app_id, what, name, value="'abc'"):
@@ -1788,13 +2198,28 @@ DISTRICT_LABEL = '<label ref="name" />\n\t\t\t\t<value ref="id" />'
 VILLAGE_FILTER = 'villages[district = /data/district]"'
 
 
+from proof.matrix.bases.lookups import changes_lookup_data, qualify_districts
+
+
+@changes_lookup_data
 def itemset_attribute_ref(authoring, app_id):
-    """The district select's choices valued by the attribute ``@id`` of each row."""
+    """The district select saves a row attribute and labels the filtered French occurrence."""
+    qualify_districts(authoring)
     _change(
         authoring,
         app_id,
         "itemset-attribute-ref",
-        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name" />\n<value ref="@id" />', 1),
+        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name[@lang=&quot;fr&quot;][1]" />\n<value ref="@row_code" />', 1),
+    )
+
+
+@changes_lookup_data
+def itemset_property_as_label(authoring, app_id):
+    """A field property's value as a question label, outside Vellum's fixture choices."""
+    qualify_districts(authoring)
+    _change(
+        authoring, app_id, "itemset-property-as-label",
+        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name[1]/@lang" />\n<value ref="id" />', 1),
     )
 
 
@@ -1832,24 +2257,73 @@ def itemset_copy(authoring, app_id):
     )
 
 
-def itemset_filter_outside_predicate(authoring, app_id):
-    """The village select's filter made ``position() &lt; 3``, which no typed filter of Nova's holds."""
+def itemset_filter_by_row_position(authoring, app_id):
+    """The village select reads the first two fixture rows in source order."""
     _change(
         authoring,
         app_id,
-        "itemset-filter-outside-predicate",
+        "itemset-filter-by-row-position",
         ('villages[district = #form/district]"', 'villages[position() &lt; 3]"', 1),
         (VILLAGE_FILTER, 'villages[position() &lt; 3]"', 1),
     )
 
 
-def itemset_over_cases(authoring, app_id):
-    """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
-    the model, in place of the table."""
+def itemset_filter_outside_predicate(authoring, app_id):
+    """A position of an explicitly supplied reference is not the choice candidate's position."""
     _change(
         authoring,
         app_id,
-        "itemset-over-cases",
+        "itemset-filter-outside-predicate",
+        ('villages[district = #form/district]"', 'villages[position(/data/district) &lt; 3]"', 1),
+        (VILLAGE_FILTER, 'villages[position(/data/district) &lt; 3]"', 1),
+    )
+
+
+def itemset_filter_position_of_scalar(authoring, app_id):
+    """The Core position function with an argument expects a nodeset."""
+    _change(
+        authoring,
+        app_id,
+        "itemset-filter-position-of-scalar",
+        ('villages[district = #form/district]"', 'villages[position(3) &lt; 3]"', 1),
+        (VILLAGE_FILTER, 'villages[position(3) &lt; 3]"', 1),
+    )
+
+
+def itemset_filter_numeric_row_index(authoring, app_id):
+    """A bare numeric predicate chooses a single one-based fixture row."""
+    def change(tree, form):
+        itemset, = tree.xpath(
+            "//*[local-name()='select1' and @ref='/data/village']/*[local-name()='itemset']"
+        )
+        for key, value in itemset.attrib.items():
+            if key == "nodeset" or key.endswith("}nodeset"):
+                source, _, _ = value.partition("[")
+                itemset.set(key, source + "[2]")
+    ops.set_form_source(authoring, app_id, 0, 0, change, what="itemset-filter-numeric-row-index")
+
+
+def itemset_over_cases(authoring, app_id):
+    """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
+    the model, in place of the table."""
+    _case_itemset(authoring, app_id, "itemset-over-cases", "")
+
+
+def itemset_over_open_cases(authoring, app_id):
+    """The district select filters the worker's cases across all case types."""
+    _case_itemset(authoring, app_id, "itemset-over-open-cases", "[@status = &apos;open&apos;]")
+
+
+def itemset_over_closed_cases(authoring, app_id):
+    """A closed-only all-type itemset lies outside the admitted open selector."""
+    _case_itemset(authoring, app_id, "itemset-over-closed-cases", "[@status = &apos;closed&apos;]")
+
+
+def _case_itemset(authoring, app_id, name, predicate):
+    _change(
+        authoring,
+        app_id,
+        name,
         (
             '<instance id="item-list:seasons"',
             '<instance src="jr://instance/casedb" id="casedb" />\n<instance id="item-list:seasons"',
@@ -1857,7 +2331,8 @@ def itemset_over_cases(authoring, app_id):
         ),
         (
             DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL,
-            '<itemset nodeset="instance(\'casedb\')/casedb/case">\n<label ref="case_name" />\n<value ref="@case_id" />',
+            f'<itemset nodeset="instance(\'casedb\')/casedb/case{predicate}">'
+            '\n<label ref="case_name" />\n<value ref="@case_id" />',
             1,
         ),
     )
@@ -1998,6 +2473,30 @@ def connect_long_id(authoring, app_id):
     _change(authoring, app_id, "connect-long-id", ("intro_module", "m" * 51, 5))
 
 
+def connect_receiver_id_changed(authoring, app_id):
+    """The module's submitted ID differs from the question ID that Vellum saves."""
+    _change(authoring, app_id, "connect-receiver-id-changed", ('id="intro_module"', 'id="prior_lesson"', 1))
+
+
+def connect_work_area_photo(authoring, app_id):
+    """Vellum's work-area shape including the photo leaf the HQ forwarder sends as a filename."""
+    leaves = ("work_area_id", "status", "reason", "additional_details", "photo_evidence")
+    data = "".join(f"<{leaf}/>" for leaf in leaves)
+    binds = "".join(f"""<bind nodeset="/data/area/work_area_update/{leaf}" calculate="'value'"/>""" for leaf in leaves)
+    _edit(
+        authoring, app_id, "connect-work-area-photo",
+        lambda text: _connect_block(text, f'<area vellum:role="ConnectWorkAreaUpdate"><work_area_update {LEARN_XMLNS} id="area">{data}</work_area_update></area>',
+                                    '<bind vellum:nodeset="#form/area" nodeset="/data/area" />' + binds),
+    )
+
+
+def constant_work_area_calculation(authoring, app_id):
+    """A stable source form puts the constant in a calculate bind."""
+    _change(authoring, app_id, "constant-work-area-calculation",
+            ('nodeset="/data/visit_unit/deliver/work_area_id"',
+             """nodeset="/data/visit_unit/deliver/work_area_id" calculate="'5b2f7d1e-8c3a-4e6b-9d0f-1a2b3c4d5e6f'" """.rstrip(), 1))
+
+
 def connect_work_area_update(authoring, app_id):
     """A work area update block (``vellum:role="ConnectWorkAreaUpdate"``) in the learn form."""
     _edit(
@@ -2012,8 +2511,95 @@ def connect_work_area_update(authoring, app_id):
     )
 
 
+def connect_assessment_without_score(authoring, app_id):
+    """The assessment's score left without its calculation, so the submission sends an empty score."""
+    _change(
+        authoring,
+        app_id,
+        "connect-assessment-without-score",
+        (
+            '<bind nodeset="/data/intro_check/assessment/user_score" vellum:calculate="#form/quiz_score"'
+            ' calculate="/data/quiz_score" />',
+            '<bind nodeset="/data/intro_check/assessment/user_score" />',
+            1,
+        ),
+    )
+
+
+def connect_estimate_outside_receiver_range(authoring, app_id):
+    """The learn module's time estimate made one past what Connect's signed 32-bit column holds."""
+    _change(
+        authoring,
+        app_id,
+        "connect-estimate-outside-receiver-range",
+        ("<time_estimate>5</time_estimate>", "<time_estimate>2147483648</time_estimate>", 1),
+    )
+
+
+def connect_repeated_module(authoring, app_id):
+    """A learn module ``row_module`` in each row of a worker-added repeat ``lessons``, so one submission can
+    complete the same module once per row."""
+    _edit(
+        authoring,
+        app_id,
+        "connect-repeated-module",
+        lambda text: _replaced(
+            text,
+            [
+                (
+                    LEARN_DATA_END,
+                    LEARN_DATA_END
+                    + f'\n<lessons jr:template=""><row_module vellum:role="ConnectLearnModule"><module {LEARN_XMLNS}'
+                    ' id="row_module"><name>Practice</name><description>Practice again</description>'
+                    "<time_estimate>1</time_estimate></module></row_module></lessons>",
+                    1,
+                ),
+                (
+                    LEARN_BIND_END,
+                    LEARN_BIND_END
+                    + '\n<bind vellum:nodeset="#form/lessons" nodeset="/data/lessons" />'
+                    '\n<bind vellum:nodeset="#form/lessons/row_module" nodeset="/data/lessons/row_module" />',
+                    1,
+                ),
+                (
+                    "</h:body>",
+                    "<group><label>Lessons</label>"
+                    '<repeat vellum:nodeset="#form/lessons" nodeset="/data/lessons" /></group>\n</h:body>',
+                    1,
+                ),
+            ],
+        ),
+    )
+
+
 # hq-connect-deliver's forms: the deliver unit ``visit_unit`` in the first, the task ``follow_up_task`` in the
 # second.
+
+
+def _grouped_delivery_source(text, group):
+    """Place the existing delivery under one data group without changing its recipient or activity ID."""
+    path = f"/data/{group}"
+    return _replaced(
+        text,
+        [
+            ("<visit_unit ", f"<{group}><visit_unit ", 1),
+            ("</visit_unit>", f"</visit_unit></{group}>", 1),
+            ("#form/visit_unit", f"#form/{group}/visit_unit", 1),
+            ("/data/visit_unit", f"{path}/visit_unit", 4),
+            ("<itext>", f'<bind vellum:nodeset="#form/{group}" nodeset="{path}" />\n<itext>', 1),
+            ("</h:body>", f'<group ref="{path}"><label>Visit details</label></group>\n</h:body>', 1),
+        ],
+    )
+
+
+def deliver_under_receiver_key(authoring, app_id):
+    """The delivery is under `task`, which HQ forwards and Connect mistakes for its own task block."""
+    _edit(authoring, app_id, "deliver-under-receiver-key", lambda text: _grouped_delivery_source(text, "task"))
+
+
+def deliver_under_capitalized_receiver_key(authoring, app_id):
+    """The same delivery under `Task`, beside Connect's exact case-sensitive receiver key."""
+    _edit(authoring, app_id, "deliver-under-capitalized-receiver-key", lambda text: _grouped_delivery_source(text, "Task"))
 
 
 def deliver_work_area_expression(authoring, app_id):
@@ -2159,7 +2745,7 @@ FOLLOWUP_DATA = "<default_label />"
 FOLLOWUP_BIND = '<bind vellum:nodeset="#form/default_label" nodeset="/data/default_label" />'
 
 
-def _followup(authoring, app_id, what, *blocks):
+def _followup(authoring, app_id, what, *blocks, instances=(SESSION_INSTANCE,)):
     """hq-new-app's follow-up form with ``blocks`` put in."""
     _edit(
         authoring,
@@ -2171,6 +2757,7 @@ def _followup(authoring, app_id, what, *blocks):
             data_before=FOLLOWUP_DATA,
             binds_before="<itext>",
             group_after="<h:body>",
+            instances=instances,
         ),
         form=1,
     )
@@ -2184,6 +2771,18 @@ def save_to_case_close_only_condition(authoring, app_id):
         app_id,
         "save-to-case-close-only-condition",
         _block("shut", "case", "<close/>", MENU_CASE, [("close", "relevant=\"today() &gt; date('2020-01-01')\"")]),
+    )
+
+
+def save_to_case_another_case_close_condition(authoring, app_id):
+    """A separate case whose block remains present when its close condition is false."""
+    case_id = "instance('casedb')/casedb/case[@case_id = 'another-case' and @case_type = 'case']/@case_id"
+    _followup(
+        authoring,
+        app_id,
+        "save-to-case-another-case-close-condition",
+        _block("shut", "case", "<close/>", case_id, [("close", "relevant=\"today() &gt; date('2020-01-01')\"")]),
+        instances=(SESSION_INSTANCE, '<instance src="jr://instance/casedb" id="casedb" />'),
     )
 
 
@@ -2385,14 +2984,47 @@ def save_to_case_retype_keyed(authoring, app_id):
     )
 
 
+def save_to_case_date_as_text(authoring, app_id):
+    """A patient date and a visit text write share one property across a literal retype."""
+    _edit(
+        authoring,
+        app_id,
+        "save-to-case-date-as-text",
+        lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, RETYPE_CONVERTS_MODEL, RETYPE_CONVERTS_BODY),
+    )
+
+
 def save_to_case_retype_converts(authoring, app_id):
-    """A ``patient`` created with ``kept`` the date ``visit_date``, then given the type ``visit`` with ``kept`` the
-    text ``full_name``."""
+    """Reverse the two question sources. The retained property would have to become a date."""
+    model = RETYPE_CONVERTS_MODEL.replace(
+        'mk/case/update/kept" calculate="/data/visit_date"',
+        'mk/case/update/kept" calculate="/data/full_name"',
+    ).replace(
+        'again/case/update/kept" calculate="/data/full_name"',
+        'again/case/update/kept" calculate="/data/visit_date"',
+    )
     _edit(
         authoring,
         app_id,
         "save-to-case-retype-converts",
-        lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, RETYPE_CONVERTS_MODEL, RETYPE_CONVERTS_BODY),
+        lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, model, RETYPE_CONVERTS_BODY),
+    )
+
+
+def save_to_case_keyed_from_outside_its_row(authoring, app_id):
+    """A create in members keys all its rows from the one root answer full_name."""
+    _edit(
+        authoring,
+        app_id,
+        "save-to-case-keyed-from-outside-its-row",
+        lambda text: _transplanted(
+            text,
+            KEYED_IN_REPEAT_DATA,
+            KEYED_IN_REPEAT_MODEL.replace("current()/../../../../member_name", "/data/full_name"),
+            KEYED_IN_REPEAT_BODY,
+            data_before="</members>",
+            body_after=MEMBER_NAME_CLOSE,
+        ),
     )
 
 
@@ -2474,6 +3106,21 @@ def save_to_case_own_case_beside(authoring, app_id):
         lambda text: _with_blocks(
             text, [block], data_before="<visited />", binds_before="<itext>", group_after="<h:body>"
         ),
+        form=2,
+    )
+
+
+def save_to_case_positioned_beside_own(authoring, app_id):
+    """In the same household visit, the update stands in the authored form itself beside the managed write."""
+    data, binds = _block(
+        "again", "household", "<update><note/></update>", MENU_CASE,
+        [("update/note", 'calculate="/data/new_member"')], group="/data",
+    )
+    _change(
+        authoring, app_id, "save-to-case-positioned-beside-own",
+        ("<visited />", data + "\n<visited />", 1),
+        ("<itext>", binds + "\n<itext>", 1),
+        ("</instance>\n", f"</instance>\n{SESSION_INSTANCE}\n", 1),
         form=2,
     )
 
@@ -3016,17 +3663,21 @@ def save_to_case_child_link(authoring, app_id):
     """The Save to Case create's ``household`` linked as a child (``index/parent``) to the ``household`` whose case
     id is the answer to ``full_name``, in the shape Nova writes a link: the index, its value, and the block that
     holds the linked case to its type."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-child-link", "parent")
+
+
+def _save_to_case_link_with_guard(authoring, app_id, what, name):
     _save_to_case(
         authoring,
         app_id,
-        "save-to-case-child-link",
+        what,
         (
             STC_UPDATE + "</case></make_household>",
-            STC_UPDATE + '<index><parent case_type="household" relationship="child"/></index></case></make_household>',
+            STC_UPDATE + f'<index><{name} case_type="household" relationship="child"/></index></case></make_household>',
             1,
         ),
         ("</make_household>", "</make_household>" + TYPE_GUARD_DATA, 1),
-        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/index/parent" calculate="{PARENT_HOUSEHOLD}"/>', 1),
+        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/index/{name}" calculate="{PARENT_HOUSEHOLD}"/>', 1),
         (
             f'<bind nodeset="{GUARD}/update/case_type"',
             TYPE_GUARD_BINDS + f'<bind nodeset="{GUARD}/update/case_type"',
@@ -3162,6 +3813,41 @@ def help_media(authoring, app_id):
     )
 
 
+def video_inline_on_help(authoring, app_id):
+    """A help text on ``animal_name`` with an inline video, at the path its label's video form names: a form no
+    runtime reads of a help text."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-inline-on-help",
+        "help",
+        '<value>Say what the animal is called</value><value form="video-inline">'
+        "jr://file/commcare/video/data/animal_name.mp4</value>",
+    )
+
+
+def video_inline_as_only_help(authoring, app_id):
+    """An otherwise empty help element using the existing question video file."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-inline-as-only-help",
+        "help",
+        '<value/><value form="video-inline">jr://file/commcare/video/data/animal_name.mp4</value>',
+    )
+
+
+def video_as_only_help(authoring, app_id):
+    """An ordinary help video keeps its file even when help has no text."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-as-only-help",
+        "help",
+        '<value/><value form="video">jr://file/commcare/video/data/animal_name.mp4</value>',
+    )
+
+
 def hint_media(authoring, app_id):
     """A hint on ``animal_name`` with an image, at the path its label's image names."""
     _animal_name_text(authoring, app_id, "hint-media", "hint", "<value>Its own name</value>" + ANIMAL_NAME_IMAGE)
@@ -3241,6 +3927,74 @@ def case_choices(authoring, app_id):
             '<select1 vellum:ref="#form/buddy" ref="/data/buddy">\n<label ref="jr:itext(\'buddy-label\')" />\n'
             + CHOICES_ITEMSET
             + "\n</select1>\n\t</h:body>",
+            1,
+        ),
+    )
+
+
+def display_remove_date_row(authoring, app_id):
+    """Removing a date's row width restores Android's Ethiopian calendar."""
+    _change(authoring, app_id, "remove-date-row",
+            ('ref="/data/follow_up" appearance="ethiopian 2-per-row"',
+             'ref="/data/follow_up" appearance="ethiopian"', 1))
+
+
+def display_restore_dropdown(authoring, app_id):
+    """The bare dropdown also selects Android's spinner."""
+    _change(authoring, app_id, "restore-dropdown",
+            ('ref="/data/place" appearance="minimal hint-as-placeholder"',
+             'ref="/data/place" appearance="minimal"', 1))
+
+
+def display_restore_signature(authoring, app_id):
+    """The sole signature appearance restores signing on Android and Vellum's signature mug."""
+    _change(authoring, app_id, "restore-signature",
+            ('ref="/data/web_agreement" appearance="signature 2-per-row"',
+             'ref="/data/web_agreement" appearance="signature"', 1))
+
+
+def display_fix_grid_columns(authoring, app_id):
+    """A final column count restores the fixed grid without changing quick selection."""
+    _change(authoring, app_id, "fix-grid-columns",
+            ('ref="/data/auto_weather" appearance="compact-2 quick"',
+             'ref="/data/auto_weather" appearance="quick compact-2"', 1))
+
+
+def display_search_android_only(authoring, app_id):
+    """Changing the word order changes the matching rule on Web Apps only."""
+    _change(authoring, app_id, "search-android-only",
+            ('ref="/data/ranked_route" appearance="combobox fuzzy"',
+             'ref="/data/ranked_route" appearance="fuzzy combobox"', 1))
+
+
+def deliver_shared_receiver_key(authoring, app_id):
+    """A deliver unit ``row_visit`` in each row of a worker-added repeat ``visits``, every row delivering to the
+    same fixed recipient, so one submission can file two visits under one unit and recipient."""
+    _change(
+        authoring,
+        app_id,
+        "deliver-shared-receiver-key",
+        (
+            "</visit_unit>",
+            '</visit_unit>\n<visits jr:template=""><row_visit vellum:role="ConnectDeliverUnit"><deliver'
+            f' {LEARN_XMLNS} id="row_visit"><name>Row visit</name><entity_id /><entity_name /><work_area_id />'
+            "</deliver></row_visit></visits>",
+            1,
+        ),
+        (
+            '<bind nodeset="/data/visit_unit/deliver/work_area_id" />',
+            '<bind nodeset="/data/visit_unit/deliver/work_area_id" />'
+            '\n<bind vellum:nodeset="#form/visits" nodeset="/data/visits" />'
+            '\n<bind vellum:nodeset="#form/visits/row_visit" nodeset="/data/visits/row_visit" />'
+            """\n<bind nodeset="/data/visits/row_visit/deliver/entity_id" calculate="'same'" />"""
+            """\n<bind nodeset="/data/visits/row_visit/deliver/entity_name" calculate="'Same'" />"""
+            '\n<bind nodeset="/data/visits/row_visit/deliver/work_area_id" />',
+            1,
+        ),
+        (
+            "</h:body>",
+            "<group><label>Visits</label>"
+            '<repeat vellum:nodeset="#form/visits" nodeset="/data/visits" /></group>\n</h:body>',
             1,
         ),
     )

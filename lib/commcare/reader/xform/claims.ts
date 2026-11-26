@@ -256,8 +256,18 @@ export const X = {
 			src: "xform:model/instance/*@src",
 		},
 	),
-	rootNotData: one(
+	designerRoot: one(
 		"refuse",
+		Q("answer-root-that-the-form-designer-reads-as-its-own-element"),
+		"xform:model/instance/*",
+	),
+	unaddressableRoot: one(
+		"refuse",
+		Q("data-root-name-that-workers-cannot-address"),
+		"xform:model/instance/*",
+	),
+	namedRoot: one(
+		"take",
 		Q("data-root-element-named-other-than-data"),
 		"xform:model/instance/*",
 	),
@@ -359,8 +369,23 @@ export const X = {
 		Q("question-id-failing-the-grammar-or-meta-in-any-case"),
 		"xform:model/instance//*",
 	),
-	questionIdReserved: one(
+	submittedCase: one(
 		"refuse",
+		Q("submitted-node-consumed-as-case"),
+		"xform:model/instance//*",
+	),
+	submittedStock: one(
+		"refuse",
+		Q("ordinary-answer-in-stock-namespace"),
+		"xform:model/instance//*",
+	),
+	androidAnswer: one(
+		"take",
+		Q("submitted-answer-name-only-android-stores"),
+		"xform:model/instance//*",
+	),
+	questionIdReserved: one(
+		"take",
 		Q("question-id-case-registration-script"),
 		"xform:model/instance//*",
 	),
@@ -375,13 +400,26 @@ export const X = {
 		Q("vellum-comment"),
 		"vellum-markup:model/instance//*@vellum:comment",
 	),
-	vellumLock: under("refuse", Q("vellum-lock-all-locked-question"), {
+	unrecognizedLock: under(
+		"refuse",
+		Q("question-lock-the-designer-cannot-represent"),
+		{
+			node: "vellum-markup:model/instance//*@vellum:lock",
+			bind: "vellum-markup:bind@vellum:lock",
+		},
+	),
+	vellumLock: under("take", Q("vellum-lock-all-locked-question"), {
 		node: "vellum-markup:model/instance//*@vellum:lock",
 		bind: "vellum-markup:bind@vellum:lock",
 	}),
+	hiddenNamespace: one(
+		"take",
+		Q("data-node-xmlns-on-a-hidden-value"),
+		"xform:model/instance//*@xmlns",
+	),
 	dataNodeXmlns: one(
 		"refuse",
-		Q("data-node-xmlns-on-a-hidden-value"),
+		Q("submitted-namespace-the-form-designer-cannot-keep"),
 		"xform:model/instance//*@xmlns",
 	),
 	defaultDataValue: one(
@@ -389,10 +427,20 @@ export const X = {
 		Q("default-data-value-datavalue-instance-text"),
 		"xform:model/instance//*",
 	),
+	captureDefaultDataValue: one(
+		"refuse",
+		Q("default-other-than-blank-on-a-capture-question"),
+		"xform:model/instance//*",
+	),
+	connectWorkAreaPhotoNotForwarded: one(
+		"refuse",
+		Q("connect-work-area-update-photo-not-forwarded"),
+		"vellum-markup:model/instance//*@vellum:role",
+	),
 	connectWorkAreaUpdate: one(
 		"refuse",
 		Q("connect-work-area-update"),
-		"mug:ConnectWorkAreaUpdate",
+		"vellum-markup:model/instance//*@vellum:role",
 	),
 	bindNoNode: one(
 		"drop",
@@ -483,7 +531,7 @@ export const X = {
 		"xform:model/instance//*",
 	),
 	dataParentOtherGroup: one(
-		"refuse",
+		"take",
 		Q("data-parent-data-node-under-another-group-than-its-control"),
 		"xform:input@ref",
 	),
@@ -492,9 +540,46 @@ export const X = {
 		Q("data-parent-crossing-a-repeat"),
 		"xform:group@ref",
 	),
+	dataParentAtFormRoot: one(
+		"refuse",
+		Q("data-parent-at-the-form-root-under-a-grouped-control"),
+		"xform:input@ref",
+	),
+	dataParentOfAGroup: one(
+		"refuse",
+		Q("data-parent-on-a-group-or-repeat"),
+		"xform:group@ref",
+	),
 
 	// ── Field kinds ────────────────────────────────────────────────
+	androidAppRefused: under(
+		"refuse",
+		Q("android-app-callout-that-cannot-be-recreated"),
+		{
+			head: "jr-extension:IntentExtensionParser",
+			appearance: "appearance:android/intent:",
+		},
+	),
+	androidAppHead: one(
+		"take",
+		Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+		"jr-extension:IntentExtensionParser",
+	),
+	androidAppAnswer: one(
+		"take",
+		Q("intent-id-on-any-input-other-than-an-intent-typed-one-where-id"),
+		"appearance:android/intent:",
+	),
 	kind: {
+		androidApp: kind(
+			"android-app-callout-input-appearance-intent-id-bind-type-intent",
+			{
+				node: "mug:AndroidIntent",
+				...INPUT,
+				appearance: "appearance:android/intent:",
+			},
+			["Text"],
+		),
 		text: kind("text-input-xsd-string", { node: "mug:Text", ...INPUT }),
 		phone: kind("phone-number-xsd-string-appearance-numeric", {
 			node: "mug:PhoneNumber",
@@ -552,6 +637,14 @@ export const X = {
 			control: "xform:select",
 			ref: "xform:select@ref",
 		}),
+		acknowledge: kind(
+			"acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
+			{
+				node: "mug:Trigger",
+				control: "xform:trigger",
+				ref: "xform:trigger@ref",
+			},
+		),
 		label: kind("label-trigger-whose-appearance-is-exactly-minimal", {
 			node: "mug:Trigger",
 			control: "xform:trigger",
@@ -567,6 +660,13 @@ export const X = {
 		/** HQ's question reader holds no Signature: an image upload is an Image whatever its
 		 *  appearance (`xform.py::VELLUM_TYPES`). */
 		signature: kind("signature-image-signature", {
+			node: "mug:Image",
+			control: "xform:upload",
+			ref: "xform:upload@ref",
+			mediatype: "xform:upload@mediatype",
+			appearance: "xform:upload@appearance",
+		}),
+		face: kind("face-capture-image-face", {
 			node: "mug:Image",
 			control: "xform:upload",
 			ref: "xform:upload@ref",
@@ -599,9 +699,12 @@ export const X = {
 			node: "mug:DataBindOnly",
 			type: "xform:model/bind@type",
 		}),
-		/** Both a calculate and a default outside every repeat: its node and its type are
-		 *  claimed once the bound document says whether a runtime reads the default
-		 *  (`afterBinding.ts::settleBothSources`), under this or `refusedKind.hiddenBoth`. */
+		// The two accepted classes distinguish a seed a later assignment or a
+		// repeat row may see. Both slots remain in the authored document.
+		hiddenBothObserved: kind(
+			"hidden-value-with-both-calculate-and-a-default-by-any-expression",
+			{ node: "mug:DataBindOnly", type: "xform:model/bind@type" },
+		),
 		hiddenBothUnread: kind(
 			"hidden-value-with-both-calculate-and-a-default-no-runtime-reads",
 			{ node: "mug:DataBindOnly", type: "xform:model/bind@type" },
@@ -615,6 +718,11 @@ export const X = {
 	binaryType: one(
 		"take",
 		Q("binary-bind-type-on-an-upload"),
+		"xform:model/bind@type",
+	),
+	hiddenTypedAnswer: one(
+		"take",
+		Q("hidden-value-bound-a-type-nova-would-not-write"),
 		"xform:model/bind@type",
 	),
 	hiddenDatetimeType: one(
@@ -642,7 +750,7 @@ export const X = {
 		long: one("refuse", Q("long-xsd-long"), "mug:Long"),
 		intent: one(
 			"refuse",
-			Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+			Q("android-app-callout-that-cannot-be-recreated"),
 			"mug:AndroidIntent",
 		),
 		/** A callout whose intent names the print action, which the form builder reads as its
@@ -683,30 +791,14 @@ export const X = {
 			Q("a-select-whose-bind-type-is-neither-a-choice-type-nor-a-string"),
 			"jr-type:int",
 		),
-		acknowledgeLabel: one(
-			"refuse",
-			Q("acknowledge-label-a-trigger-whose-appearance-is-neither-exactly"),
-			"mug:Trigger",
-		),
-		face: one("refuse", Q("face-capture-image-face"), "mug:FaceCapture"),
 		uploadOther: one(
 			"refuse",
 			Q("upload-with-any-other-mediatype-or-none"),
 			"jr-control:upload",
 		),
-		hiddenBoth: one(
-			"refuse",
-			Q("hidden-value-with-both-calculate-and-a-default-by-any-expression"),
-			"mug:DataBindOnly",
-		),
-		hiddenOtherType: one(
-			"refuse",
-			Q("hidden-value-bound-a-type-nova-would-not-write"),
-			"xform:model/bind@type",
-		),
 	},
 	imageMaxDimension: one(
-		"refuse",
+		"take",
 		Q("jr-imagedimensionscaledmax-250-500-1000px-or-another-positive"),
 		"jr-extension:UploadQuestionExtensionParser",
 	),
@@ -738,8 +830,9 @@ export const X = {
 		},
 	),
 	itemsetCopy: one("refuse", Q("itemset-copy"), "xform:select1/itemset/copy"),
+	/** The `<sort>` of an itemset and its `ref`, a table column or case property. */
 	itemsetSort: one(
-		"refuse",
+		"take",
 		Q("itemset-sort-ref"),
 		"vellum-feature:sorted_itemsets",
 	),
@@ -748,10 +841,10 @@ export const X = {
 		Q("choice-value-with-whitespace-empty-or-duplicated"),
 		"xform:select1/item/value",
 	),
-	choiceValueBothQuotes: one(
-		"refuse",
+	choiceValueBothQuotes: under(
+		"take",
 		Q("choice-value-holding-both-an-apostrophe-and-a-double-quote"),
-		"xform:select1/item/value",
+		{ select1: "xform:select1/item/value", select: "xform:select/item/value" },
 	),
 	choiceValueInstance: one(
 		"refuse",
@@ -782,9 +875,19 @@ export const X = {
 		selectValue: "xform:select/itemset/value",
 		selectValueRef: "xform:select/itemset/value@ref",
 	}),
+	richLookupRefs: under(
+		"take",
+		Q("itemset-refs-to-attr-or-property-qualified-fields"),
+		{
+			select1LabelRef: "xform:select1/itemset/label@ref",
+			select1ValueRef: "xform:select1/itemset/value@ref",
+			selectLabelRef: "xform:select/itemset/label@ref",
+			selectValueRef: "xform:select/itemset/value@ref",
+		},
+	),
 	itemsetRefShape: one(
 		"refuse",
-		Q("itemset-refs-to-attr-or-property-qualified-fields"),
+		Q("lookup-choice-reference-the-form-editor-cannot-keep"),
 		"xform:select1/itemset/value@ref",
 	),
 	/** A label or value ref naming a column the told table lacks: a read of what is not there,
@@ -793,6 +896,14 @@ export const X = {
 		"refuse",
 		"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 		null,
+	),
+	itemsetScalarPosition: under(
+		"refuse",
+		Q("itemset-position-called-on-a-number"),
+		{
+			select1: "xform:select1/itemset@nodeset",
+			select: "xform:select/itemset@nodeset",
+		},
 	),
 	itemsetItextLabel: one(
 		"refuse",
@@ -885,6 +996,8 @@ export const X = {
 	userRepeat: under("take", Q("repeat-group-user-controlled"), {
 		node: "mug:Repeat",
 		control: "xform:repeat",
+		container: "jr-control:group",
+		childNamespace: "xform:repeat/*@xmlns",
 		nodeset: "xform:repeat@nodeset",
 		template: "xform:model/instance//*@jr:template",
 		templateTop: "xform:model/instance/*/*@jr:template",
@@ -895,6 +1008,8 @@ export const X = {
 		{
 			node: "mug:Repeat",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
@@ -907,6 +1022,8 @@ export const X = {
 		{
 			node: "mug:Repeat",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
@@ -919,6 +1036,8 @@ export const X = {
 		{
 			node: "mug:Repeat",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
@@ -931,6 +1050,8 @@ export const X = {
 		{
 			node: "mug:Repeat",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			count: "xform:repeat@jr:count",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
@@ -946,6 +1067,8 @@ export const X = {
 			node: "mug:Repeat",
 			role: "vellum-markup:model/instance//*@vellum:role",
 			control: "xform:repeat",
+			container: "jr-control:group",
+			childNamespace: "xform:repeat/*@xmlns",
 			nodeset: "xform:repeat@nodeset",
 			count: "xform:repeat@jr:count",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
@@ -999,10 +1122,15 @@ export const X = {
 		Q("a-count-that-depends-on-the-rows-it-creates-through-calculations"),
 		"xform:repeat@jr:count",
 	),
-	addCaptions: one(
-		"refuse",
+	addCaptions: under(
+		"take",
 		Q("repeat-add-captions-jr-addcaption-jr-addemptycaption"),
-		"xform:repeat/jr:addCaption",
+		{
+			addCaption: "xform:repeat/jr:addCaption",
+			addCaptionRef: "xform:repeat/jr:addCaption@ref",
+			addEmptyCaption: "xform:repeat/jr:addEmptyCaption",
+			addEmptyCaptionRef: "xform:repeat/jr:addEmptyCaption@ref",
+		},
 	),
 	otherCaptions: one(
 		"drop",
@@ -1030,22 +1158,24 @@ export const X = {
 		"vellum-markup:model/instance//*@vellum:role",
 	),
 	modelIterationOutsideRule: one(
-		"refuse",
+		"take",
 		Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
 		"vellum-markup:model/instance//*@vellum:role",
 	),
+	/** A model iteration's condition on its container's bind, read as the
+	 *  repeat's and written on its rows (`afterBinding.ts::moveContainerConditions`). */
+	modelIterationContainerCondition: one(
+		"take",
+		Q("relevance-bound-on-a-model-iteration-repeat-s-container"),
+		"xform:model/bind@relevant",
+	),
 
 	// ── Logic slots and load-time values (11) ────────────────────────────
-	requiredOnLabel: one(
-		"refuse",
-		Q("bind-required-on-a-label"),
-		"xform:model/bind@required",
-	),
 	/** A constraint that is Nova's scalar check alone, held by the field's record of it. */
 	scalarCheck: one("take", Q("bind-constraint"), "xform:model/bind@constraint"),
-	constraintOnCapture: one(
+	unsupportedHiddenConstraint: one(
 		"refuse",
-		Q("bind-constraint-on-a-capture-question-or-a-label"),
+		Q("validation-on-a-hidden-value"),
 		"xform:model/bind@constraint",
 	),
 	calculateOnVisible: one(
@@ -1060,14 +1190,18 @@ export const X = {
 		"xform:model/bind@jr:constraintMsg",
 	),
 	messageOnCapture: one(
-		"refuse",
+		"take",
 		Q("validation-message-on-a-capture-question-or-a-label"),
 		"xform:model/bind@jr:constraintMsg",
 	),
-	defaultOnCapture: one(
-		"refuse",
+	defaultOnCapture: under(
+		"take",
 		Q("default-on-a-capture-question-or-a-label"),
-		"xform:setvalue",
+		{
+			setvalue: "xform:setvalue",
+			event: "xform:setvalue@event",
+			ref: "xform:setvalue@ref",
+		},
 	),
 	defaultOutside: under(
 		"take",
@@ -1207,12 +1341,17 @@ export const X = {
 		"xform:model/itext/translation/text@id",
 	),
 	pragmaFormDescriptor: one(
-		"refuse",
+		"take",
 		Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 		"xform:model/itext/translation/text@id",
 	),
-	pragmaKey: one(
-		"refuse",
+	pragmaPresence: one(
+		"take",
+		Q("a-question-text-whose-itext-id-is-a-web-apps-presence-pragma"),
+		"xform:model/itext/translation/text@id",
+	),
+	pragmaActivity: one(
+		"take",
 		Q("a-question-text-label-hint-help-validation-message-repeat-add"),
 		"xform:model/itext/translation/text@id",
 	),
@@ -1231,12 +1370,12 @@ export const X = {
 		elementKeys("label"),
 	),
 	hint: under("take", Q("hint-text"), slotKeys("hint")),
-	hintOnLabel: under("refuse", Q("hint-text-on-a-label"), elementKeys("hint")),
+	hintOnLabel: under("take", Q("hint-text-on-a-label"), slotKeys("hint")),
 	help: under("take", Q("help-text-markdown-form"), slotKeys("help")),
 	helpOnCapture: under(
-		"refuse",
+		"take",
 		Q("help-text-on-a-capture-question-or-a-label"),
-		elementKeys("help"),
+		slotKeys("help"),
 	),
 	alert: under(
 		"take",
@@ -1322,12 +1461,87 @@ export const X = {
 		Q("validation-message-markdown-form"),
 		"itext-form:core/markdown",
 	),
-	videoInline: one(
-		"refuse",
-		Q("label-video-inline"),
+	/** A question label's inline video (`label_media.videoInline`), held as the label's other
+	 *  media are: one file, files differing by language, and the two refusals a media form
+	 *  meets in a language (`lib/commcare/reader/xform/media.ts`). */
+	videoInline: {
+		held: one(
+			"take",
+			Q("label-video-inline"),
+			"itext-form:android/video-inline",
+		),
+		differing: one(
+			"take",
+			Q("label-or-option-media-differing-by-language"),
+			"itext-form:android/video-inline",
+		),
+		missingDefault: one(
+			"refuse",
+			Q("media-form-missing-in-default-language"),
+			"itext-form:android/video-inline",
+		),
+		blankBesideFile: one(
+			"refuse",
+			Q("empty-media-form-beside-a-translated-file"),
+			"itext-form:android/video-inline",
+		),
+	},
+	/** An inline video on a text other than a question's label, which no runtime shows. */
+	videoInlineElsewhere: one(
+		"account",
+		Q("video-inline-form-on-a-text-other-than-a-question-label"),
 		"itext-form:android/video-inline",
 	),
-	longForm: one("refuse", Q("long-form"), "itext-form:core/long"),
+	videoInlineOnlyHelp: one(
+		"refuse",
+		Q("video-inline-as-the-only-content-of-a-help-text"),
+		"itext-form:android/video-inline",
+	),
+	/** A question label's other texts (`lib/domain/labelForms.ts`), by the slot each is held in. */
+	labelText: {
+		extended_text: one("take", Q("long-form"), "itext-form:core/long"),
+		qr_code: one("take", Q("label-qrcode"), "itext-form:android/qrcode"),
+		spoken_text: one("take", Q("label-tts"), "itext-form:android/tts"),
+	},
+	/** One of them held outside the form's default language, which Core refuses as that language
+	 *  loads. */
+	labelTextMissingDefault: under(
+		"refuse",
+		Q("long-qrcode-or-tts-form-missing-in-default-language"),
+		{
+			extended_text: "itext-form:core/long",
+			qr_code: "itext-form:android/qrcode",
+			spoken_text: "itext-form:android/tts",
+		},
+	),
+	/** A QR code or spoken text on a text no runtime reads it of: a hint, a help text, a validation
+	 *  message, a choice, or a group's or repeat's label. */
+	labelTextElsewhere: under(
+		"drop",
+		Q("qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of"),
+		{
+			qr_code: "itext-form:android/qrcode",
+			spoken_text: "itext-form:android/tts",
+		},
+	),
+	/** A `long` form on a group's or repeat's label, which both runtimes show as its header. */
+	longFormOnContainer: one(
+		"take",
+		Q("long-form-on-a-group-or-repeat-label"),
+		"itext-form:core/long",
+	),
+	/** A `long` form on a hint, a help text, a validation message or a choice, which both runtimes
+	 *  show in place of the text. */
+	longFormOnOtherText: one(
+		"take",
+		Q("long-form-on-a-hint-help-text-validation-message-or-choice"),
+		"itext-form:core/long",
+	),
+	longFormOnRepeatAction: one(
+		"drop",
+		Q("long-form-on-a-repeat-action-caption"),
+		"itext-form:core/long",
+	),
 	shortForm: one("account", Q("short-form"), "itext-form:core/short"),
 	labelBigImage: one(
 		"refuse",
@@ -1339,8 +1553,6 @@ export const X = {
 		Q("choice-big-image"),
 		"itext-form:android/big-image",
 	),
-	qrcode: one("refuse", Q("label-qrcode"), "itext-form:android/qrcode"),
-	tts: one("refuse", Q("label-tts"), "itext-form:android/tts"),
 	customForm: one(
 		"account",
 		Q("custom-form-names"),
@@ -1406,12 +1618,20 @@ export const X = {
 		audio: "itext-form:core/audio",
 		video: "itext-form:core/video",
 	}),
-	mediaDiffering: mediaClaims(
+	mediaBlankBesideFile: mediaClaims(
 		"refuse",
+		Q("empty-media-form-beside-a-translated-file"),
+	),
+	mediaMissingDefault: mediaClaims(
+		"refuse",
+		Q("media-form-missing-in-default-language"),
+	),
+	mediaDiffering: mediaClaims(
+		"take",
 		Q("label-or-option-media-differing-by-language"),
 	),
 	helpMediaOnCapture: mediaClaims(
-		"refuse",
+		"take",
 		Q("help-media-on-a-capture-question-or-a-label"),
 	),
 	hintMedia: mediaClaims(
@@ -1429,7 +1649,7 @@ export const X = {
 
 	// ── Translations ──────────────────────────────────────────────
 	outputsDiffer: one(
-		"refuse",
+		"take",
 		Q("a-text-whose-languages-show-different-values"),
 		"xform:model/itext/translation/text/value/output",
 	),

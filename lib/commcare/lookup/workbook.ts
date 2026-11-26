@@ -36,15 +36,16 @@
 
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupFixtureRow } from "@/lib/lookup/types";
-import { lookupFixtureCellText } from "./cellText";
-import type { LookupTableWireNaming, LookupWireNaming } from "./naming";
+import type { LookupWireNaming } from "./naming";
 import { buildTextWorkbook } from "./textWorkbook";
-
-/**
- * `upload/const.py::DELETE_HEADER`. Carries parentheses and a slash, none
- * of which are grammar characters, so it reads as one flat key.
- */
-const DELETE_HEADER = "Delete(Y/N)";
+import {
+	type LookupWorkbookOwners,
+	lookupWorkbookDataHeader,
+	lookupWorkbookDataRow,
+	lookupWorkbookShape,
+	lookupWorkbookTypesRows,
+	observeLookupWorkbookRow,
+} from "./workbookRows";
 
 /** The types sheet's name is itself the contract. */
 /**
@@ -63,10 +64,8 @@ export const TYPES_SHEET = "types";
  * (`upload/const.py::MAX_FIXTURE_ROWS`), enforced across every sheet
  * together rather than per table
  * (`util/workbook_json/excel.py::WorkbookJSONReader.__init__` accumulates
- * `worksheet.max_row`). Nova's own 5,000-row cap per table means only an
- * app referencing about a hundred tables could approach it, but an app
- * that did would be refused by CommCare HQ with a message about a limit
- * nobody set, so Nova measures it first.
+ * `worksheet.max_row`). Nova's 5,000-row threshold is for inline input;
+ * a paged table can approach the workbook ceiling by itself.
  */
 export const MAX_HQ_FIXTURE_WORKBOOK_ROWS = 500_000;
 
@@ -92,59 +91,6 @@ export interface LookupWorkbook {
 	readonly totalWorkbookRows: number;
 }
 
-function typesSheetRows(tables: readonly LookupTableWireNaming[]): string[][] {
-	/* Every table's row must be as wide as the widest table's field list,
-	 * because a sheet has one header row. A narrower table pads with empty
-	 * cells, which `IteratorJSONReader` drops from the list rather than
-	 * reading as a field named "". */
-	const widest = tables.reduce(
-		(max, table) => Math.max(max, table.columns.length),
-		0,
-	);
-	const header = [
-		DELETE_HEADER,
-		"table_id",
-		"is_global?",
-		...Array.from({ length: widest }, (_, index) => `field ${index + 1}`),
-	];
-	const rows = tables.map((table) => [
-		"N",
-		table.tag,
-		/* Nova's tables are Project data every worker reads, never rows
-		 * owned by one user or location. CommCare HQ's alternative is a
-		 * per-owner table, which Nova has no vocabulary for. */
-		"yes",
-		...table.columns.map((column) => column.wireName),
-		...Array.from({ length: widest - table.columns.length }, () => ""),
-	]);
-	return [header, ...rows];
-}
-
-function dataSheetRows(
-	table: LookupTableWireNaming,
-	rows: readonly LookupFixtureRow[],
-): string[][] {
-	const header = [
-		/* Left empty on every row below: `UID` is what an incremental merge
-		 * keys on, and Nova pushes whole tables rather than merging, so
-		 * every row is presented as new. `run_upload.py::_run_upload` under
-		 * `replace` deletes whatever the sheet does not carry, which is the
-		 * behaviour Nova wants and the reason it never has to remember a
-		 * remote row id. */
-		"UID",
-		DELETE_HEADER,
-		...table.columns.map((column) => `field: ${column.wireName}`),
-	];
-	const body = rows.map((row) => [
-		"",
-		"N",
-		...table.columns.map((column) =>
-			lookupFixtureCellText(column.dataType, row.values[column.id]),
-		),
-	]);
-	return [header, ...body];
-}
-
 /**
  * Build one workbook carrying every table an app references.
  *
@@ -160,12 +106,16 @@ function dataSheetRows(
 export function buildLookupWorkbook(
 	naming: LookupWireNaming,
 	rowsByTable: ReadonlyMap<LookupTableId, readonly LookupFixtureRow[]>,
+	assignments?: ReadonlyMap<
+		LookupTableId,
+		ReadonlyMap<string, LookupWorkbookOwners>
+	>,
 ): LookupWorkbook {
 	const tables = [...naming.tables].sort((left, right) =>
 		left.tag < right.tag ? -1 : left.tag > right.tag ? 1 : 0,
 	);
 	const sheets: { name: string; rows: string[][] }[] = [];
-	const typesRows = typesSheetRows(tables);
+	const typesRows = lookupWorkbookTypesRows(tables);
 	sheets.push({ name: TYPES_SHEET, rows: typesRows });
 
 	let totalWorkbookRows = typesRows.length;
@@ -176,7 +126,20 @@ export function buildLookupWorkbook(
 				`buildLookupWorkbook: table '${table.tableId}' has no rows entry in the fixture snapshot. Definitions and rows must come from one snapshot read, this is a reader bug, not an authoring state.`,
 			);
 		}
-		const sheetRows = dataSheetRows(table, rows);
+		const owners = assignments?.get(table.tableId);
+		const shape = lookupWorkbookShape(table);
+		for (const row of rows)
+			observeLookupWorkbookRow(shape, table, row, owners?.get(row.id));
+		if (shape.issue)
+			throw new Error(
+				`“${table.tag}” cannot be sent in a workbook. ${shape.issue}`,
+			);
+		const sheetRows = [
+			lookupWorkbookDataHeader(table, shape),
+			...rows.map((row) =>
+				lookupWorkbookDataRow(table, shape, row, owners?.get(row.id)),
+			),
+		];
 		totalWorkbookRows += sheetRows.length;
 		/* The sheet name IS the tag: `_run_upload` looks each table's data
 		 * sheet up by it (`get_data_sheet(tabledef.table_id)`), read as a plain

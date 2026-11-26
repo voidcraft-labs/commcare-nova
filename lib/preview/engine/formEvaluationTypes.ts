@@ -7,6 +7,7 @@ import type { PreviewLookupData } from "./lookupEvaluation";
 import type { PreviewDevice } from "./previewDevice";
 import type {
 	CaseDatabaseSnapshot,
+	CompletedFormSearch,
 	SearchResultsSnapshot,
 } from "./xpathInstances";
 export interface FormEvaluationFault {
@@ -55,6 +56,9 @@ export interface FormEvaluationInput {
 	readonly answers: readonly { path: string; value: FormAnswerValue }[];
 	readonly repeats?: readonly { path: string; count: number }[];
 	readonly caseIds?: readonly string[];
+	/** For a form that keeps its own opening choices, the record each choice
+	 *  a worker makes from a list holds, by the choice's name. */
+	readonly openingRecords?: readonly { name: string; caseId: string }[];
 	readonly searchAnswers?: readonly { name: string; value: string }[];
 	readonly language?: LanguageTag;
 }
@@ -69,6 +73,9 @@ export interface FormEvaluationContext {
 	/** Internal app-test continuation. Ordinary form checks omit both. */
 	entry?: FormEvaluationEntry;
 	captureEntry?: boolean;
+	/** A worker pressed Submit in this retained entry. Looking at its form
+	 * keeps an untouched date widget separate from the stored answer. */
+	submitEntry?: boolean;
 	identity: ResolvedPreviewIdentity;
 	/** The device the check or journey session runs on: its platform's
 	 *  screens, recalculation, day numbers and session values. */
@@ -82,6 +89,9 @@ export interface FormEvaluationContext {
 	 * (`searchResultsSnapshot.ts`), read as `results:inline` by the form and
 	 * its after-submit links. Absent, the form has no search results. */
 	searchResults?: SearchResultsSnapshot;
+	/** The actual completed Search, or the separately opened manager's raw
+	 * starting answers. The form turns this held state into its instance once. */
+	readonly searches?: readonly CompletedFormSearch[];
 	/** The Search answers a form of a search-first module reads when the
 	 * input supplies none: each Search field's starting value. */
 	searchAnswers?: readonly { name: string; value: string }[];
@@ -91,6 +101,8 @@ export interface FormEvaluationContext {
 	 * records alone. */
 	session?: {
 		readonly appId: string;
+		readonly entryChoices?: readonly import("@/lib/session/types").PreviewEntryChoice[];
+		readonly heldEntryValues?: Readonly<Record<string, string>>;
 		readonly menuSelections: Readonly<
 			Record<string, import("@/lib/session/types").PreviewMenuCaseSelection>
 		>;

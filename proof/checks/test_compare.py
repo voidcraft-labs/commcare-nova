@@ -901,16 +901,15 @@ def test_a_suite_querys_xpath_query_data_are_a_multiset_and_every_other_data_sta
     first = [element for element in next(twice.iter("query")) if element.get("key") == "_xpath_query"][0]
     first.addnext(copy.deepcopy(first))
     assert _diff(QUERY_SUITE, _xml(twice)) == {(path, concrete.format("'match-all()'") + "#2", "added")}
-    # Every other key's data is compared where it stands among them: a sort moved ahead of the case type shows at
-    # both places, and the filters between them move nothing.
+    # A sort still has a place relative to the other ordered data. Moving it
+    # before a case type changes their order without changing either value.
     moved = parse_xml(QUERY_SUITE)
     held = next(moved.iter("query"))
     sort = [element for element in held if element.get("key") == "commcare_sort"][0]
     held.remove(sort)
     held.insert(0, sort)
     assert {(p, k) for p, _, k in _diff(QUERY_SUITE, _xml(moved))} == {
-        ("/suite/remote-request[*]/session[*]/query[*]/data[*]/@key", "changed"),
-        ("/suite/remote-request[*]/session[*]/query[*]/data[*]/@ref", "changed"),
+        ("/suite/remote-request[*]/session[*]/query[*]/order()", "changed"),
     }
 
 

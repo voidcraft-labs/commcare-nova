@@ -174,6 +174,37 @@ describe("importApp under HQ's rate limit", () => {
 		});
 	});
 
+	it("keeps a throttled update out of the view when its retry cannot read the working save", async () => {
+		await withHttpPeer(async (peer) => {
+			const version = () =>
+				peer.get(HOST).intercept({
+					path: "/a/clinic/apps/view/app/current_version/",
+					method: "GET",
+				});
+			version().reply(200, {
+				currentVersion: 1,
+				latestBuild: null,
+				latestReleasedBuild: null,
+			});
+			peer
+				.get(HOST)
+				.intercept({ path: IMPORT, method: "POST" })
+				.reply(429, "", { headers: { "retry-after": "0" } });
+			version().reply(403, "");
+			expect(
+				await importApp(CREDS, "clinic", "Clinic", {}, "app", 1),
+			).toMatchObject({
+				kind: "save-not-confirmed",
+				counter: { success: false, status: 403 },
+			});
+			expect(
+				peer
+					.getCallHistory()
+					?.calls()
+					.map((r) => r.method),
+			).toEqual(["GET", "POST", "GET"]);
+		});
+	});
 	it("refuses with HQ's 429 after a third, or on a wait it cannot take", async () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		await withHttpPeer(async (peer) => {

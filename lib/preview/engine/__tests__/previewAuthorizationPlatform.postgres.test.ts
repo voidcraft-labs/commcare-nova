@@ -21,6 +21,7 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 			name: "Amara",
 			email: "amara@dimagi.com",
 		},
+		session: { id: "platform-admission-session" },
 	}),
 }));
 const h = setupAppStateTestDb("preview_platform_admission_", {

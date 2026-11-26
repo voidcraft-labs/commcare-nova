@@ -1463,6 +1463,99 @@ class Predicates(unittest.TestCase):
         self.assertEqual(mixed, lower)
         self.assertIn("PROMPT_NEW_REPEAT", [screen["event"] for screen in other])
 
+    def test_a_form_reads_a_group_alike_with_and_without_a_repeat_row_count(self):
+        """The spelling rule ``repeat-row-count-without-a-repeat``. Contract: Android reads a group's whole appearance
+        for ``field-list`` (through Core's ``FormEntryController.isHostWithAppearance``) and ``compact``, and no word
+        of ``<n>-per-row-repeat``, so the survey's question inside a group of plain questions shows the worker the
+        same screens whether the group holds no appearance or ``2-per-row-repeat``. Failure it catches: Android
+        reading the repeat row count on a group that holds no repeat."""
+        form = "modules-0/forms-0.xml"
+
+        def screens(archive):
+            return self.walked(archive, commands=["m0-f0"])["walks"]["m0-f0"]["steps"][0]["form"]["screens"]
+
+        def grouped(name, attributes):
+            replacements = [
+                ('<h:body><input ref="/data/head">', f'<h:body><group{attributes}><input ref="/data/head">'),
+                ("</input></h:body>", "</input></group></h:body>"),
+            ]
+            return edited(SURVEY, self.work / f"{name}.ccz", form, replacements)
+
+        plain = screens(grouped("group-plain", ""))
+        counted = screens(grouped("group-repeat-row-count", ' appearance="2-per-row-repeat"'))
+        self.assertTrue(plain)
+        self.assertEqual(counted, plain)
+
+    def test_a_form_reads_each_respelled_question_alike(self):
+        """The spelling rule ``question-appearance-read-alike``. Contract: Android builds each question's widget from
+        its whole appearance (``WidgetFactory.buildSelectOne``, ``buildCompactSelectOne``, ``buildBasicWidget``,
+        ``TriggerWidget``), so the survey's grid, single string, keypad, hidden label, row and drop-down questions
+        written as CommCare HQ stored them (``compact-2 quick``, ``compact2``, ``Numbers``, ``floating-note``,
+        ``1x2-per-row``, ``minimal hint-as-placeholder foo``) show the worker the same widgets, column counts,
+        visibility and screens as Nova's spellings (``quick compact``, ``compact``, ``numbers``,
+        ``floating-hidden``, ``1-per-row``, ``minimal hint-as-placeholder``). And Nova's own grid with a count,
+        ``quick compact-2``, which puts the count after the value's first ``-``, is a grid of 2 columns that
+        advances, where ``compact-2 quick`` is an automatic grid: the control the rule must keep apart. Failure
+        it catches: a reading of a word's order, case or count the rule takes to be alike."""
+        form = "modules-0/forms-0.xml"
+        words = ("grid", "single", "keypad", "note", "row", "dropdown")
+
+        head_bind = '<bind nodeset="/data/head" type="xsd:string"/>'
+
+        def spelled(name, appearances):
+            nodes = "".join(f"<{word}/>" for word in words)
+            binds = "".join(
+                f'<bind nodeset="/data/{word}" type="xsd:string"/>' for word in words if word != "note"
+            )
+            items = (
+                "<item><label>North</label><value>north</value></item>"
+                "<item><label>South</label><value>south</value></item>"
+            )
+            tags = {"note": "trigger", "grid": "select1", "single": "select1", "dropdown": "select1"}
+            controls = "".join(
+                f'<{tags.get(word, "input")} ref="/data/{word}" appearance="{appearances[word]}">'
+                f"<label>{word}</label>{items if tags.get(word) == 'select1' else ''}</{tags.get(word, 'input')}>"
+                for word in words
+            )
+            replacements = [
+                ("<head/>", "<head/>" + nodes),
+                (head_bind, head_bind + binds),
+                ("</input></h:body>", "</input>" + controls + "</h:body>"),
+            ]
+            return edited(SURVEY, self.work / f"{name}.ccz", form, replacements)
+
+        def shown(archive):
+            walk = self.walked(archive, commands=["m0-f0"], controls=True)["walks"]["m0-f0"]
+            steps = [
+                step["form"] for step in walk["steps"] if step.get("screen") == "FormEntryActivity" and "form" in step
+            ]
+            self.assertEqual(len(steps), 1, walk)
+            return steps[0]["screens"]
+
+        def questions(screens):
+            return {question["reference"]: question for screen in screens for question in screen.get("questions", [])}
+
+        stored = {"grid": "compact-2 quick", "single": "compact2", "keypad": "Numbers", "note": "floating-note",
+                  "row": "1x2-per-row", "dropdown": "minimal hint-as-placeholder foo"}
+        nova = {"grid": "quick compact", "single": "compact", "keypad": "numbers", "note": "floating-hidden",
+                "row": "1-per-row", "dropdown": "minimal hint-as-placeholder"}
+        counted = {**nova, "grid": "quick compact-2"}
+        as_stored = shown(spelled("respelled-stored", stored))
+        as_nova = shown(spelled("respelled-nova", nova))
+        with_count = shown(spelled("respelled-counted", counted))
+        self.assertEqual(as_stored, as_nova)
+        read = questions(as_nova)
+        self.assertEqual(read["/data/grid[1]"]["widget"], "GridWidget", read)
+        self.assertEqual(read["/data/single[1]"]["widget"], "GridWidget", read)
+        self.assertEqual(read["/data/keypad[1]"]["widget"], "StringNumberWidget", read)
+        self.assertIs(read["/data/note[1]"]["control"]["visible"], False, read)
+        self.assertEqual(read["/data/row[1]"]["widget"], "StringWidget", read)
+        self.assertEqual(read["/data/dropdown[1]"]["widget"], "SelectOneWidget", read)
+        counted_grid = questions(with_count)["/data/grid[1]"]
+        self.assertEqual(counted_grid["widget"], "GridWidget", counted_grid)
+        self.assertEqual(counted_grid["control"]["columns"], 2, counted_grid)
+        self.assertNotEqual(read["/data/grid[1]"]["control"]["columns"], 2, read)
+
     def root_menu_except_image(self, archive, menu_id, expected_image):
         """Check the named root item's image, then return the entire menu with only that image omitted."""
         answer = self.reader.request("nav", archive=str(archive), paths=[[]])

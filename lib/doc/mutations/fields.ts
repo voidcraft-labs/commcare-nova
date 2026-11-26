@@ -13,6 +13,13 @@ import {
 	pickFieldKeysForKind,
 	reconcileFieldForKind,
 } from "@/lib/domain";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import {
+	editMediaInLanguage,
+	type Media,
+	replaceMediaLanguageEntry,
+} from "@/lib/domain/multimedia";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import {
 	cascadeDeleteField,
 	findContainingForm,
@@ -170,17 +177,59 @@ export function applyFieldMutation(
 				}
 			}
 			cascadeDeleteField(draft as unknown as BlueprintDoc, mut.uuid);
+			// An answer placed in a group that left the form returns to its own
+			// question's group.
+			for (const remaining of Object.values(draft.fields)) {
+				const parent = remaining.submissionPlacement?.parent;
+				if (parent !== undefined && draft.fields[parent] === undefined)
+					delete remaining.submissionPlacement;
+			}
 			return;
 		}
 		case "moveField": {
 			const field = draft.fields[mut.uuid];
-			if (!field) return;
-			if (mut.after === mut.uuid) return;
+			if (!field || mut.after === mut.uuid) return;
+			const doc = draft as unknown as BlueprintDoc;
+			const form = findContainingForm(doc, mut.uuid);
+			const layout =
+				form === undefined
+					? undefined
+					: submissionLayout(form, doc.fields, doc.fieldOrder);
+			// Where the answer is submitted before the move: its own group on
+			// screen, or the group it names.
+			const submitted = layout?.parents.get(mut.uuid);
+			// A placement names the group that holds the answer, and only a group
+			// other than the question's own on screen. The answer's place among
+			// that group's values is the one CommCare HQ's form designer writes
+			// (`submissionLayout`), so no move sets a position.
+			const placeAnswer = (parent: Uuid | undefined) => {
+				const screen = findFieldParent(doc, mut.uuid)?.parentUuid;
+				const target = draft.fields[mut.uuid];
+				if (target === undefined) return;
+				if (parent === undefined || parent === screen)
+					delete target.submissionPlacement;
+				else target.submissionPlacement = { parent };
+			};
+			if (mut.where === "submission") {
+				if (layout === undefined || !layout.children.has(mut.toParentUuid))
+					return;
+				placeAnswer(mut.toParentUuid);
+				return;
+			}
 			if (
 				mut.after != null &&
 				!(draft.fieldOrder[mut.toParentUuid] ?? []).includes(mut.after)
 			)
 				return;
+			// A screen move keeps the answer where it was submitted. An ordinary
+			// move carries an answer that stands under its question's group, and
+			// keeps one placed in a named group there.
+			const preserveSubmitted = () =>
+				placeAnswer(
+					mut.where === "screen"
+						? submitted
+						: field.submissionPlacement?.parent,
+				);
 			// A same-parent move is a pure reorder. A cross-parent move needs
 			// the complete destination, subtree, and same-form checks below.
 			const currentParent = findFieldParent(
@@ -193,6 +242,7 @@ export function applyFieldMutation(
 					mut.uuid,
 					mut.after,
 				);
+				preserveSubmitted();
 				return;
 			}
 			const destIsForm = draft.forms[mut.toParentUuid] !== undefined;
@@ -268,6 +318,7 @@ export function applyFieldMutation(
 				mut.uuid,
 				mut.after,
 			);
+			preserveSubmitted();
 			return;
 		}
 		case "convertField": {
@@ -375,12 +426,54 @@ export function applyFieldMutation(
 			// a record view: the two `<slot>_media` keys live on different
 			// arms of the discriminated `Field` union with no single common
 			// parent, so a structural write is the cleanest way to set one.
-			const record = field as Record<string, unknown>;
-			if (mut.media === null) {
-				delete record[mediaKey];
-			} else {
-				record[mediaKey] = mut.media;
+			let carrier: Record<string, unknown> = field as Record<string, unknown>;
+			let key: string = mediaKey;
+			if (mut.optionUuid !== undefined) {
+				if (
+					!("optionsSource" in field) ||
+					field.optionsSource.kind !== "inline"
+				)
+					return;
+				const choice = field.optionsSource.options.find(
+					(option) => option.uuid === mut.optionUuid,
+				);
+				if (!choice) return;
+				carrier = choice;
+				key = "media";
 			}
+			if (mut.sharedOnly) {
+				const translations = (carrier[key] as Media | undefined)
+					?.mediaByLanguage;
+				if (mut.media === null && !translations) delete carrier[key];
+				else
+					carrier[key] = {
+						...mut.media,
+						...(translations && { mediaByLanguage: translations }),
+					};
+				return;
+			}
+			if (mut.languageEntry !== undefined && mut.language) {
+				carrier[key] ??= {};
+				const bundle = carrier[key] as Media;
+				replaceMediaLanguageEntry(bundle, mut.language, mut.languageEntry);
+				if (!Object.keys(bundle).length) delete carrier[key];
+				return;
+			}
+			const { sourceLanguage, defaultLanguage } = effectiveAppLocalization(
+				draft.localization,
+			);
+			const next =
+				mut.language === undefined
+					? mut.media
+					: editMediaInLanguage(
+							carrier[key] as Media | undefined,
+							mut.media,
+							mut.language,
+							sourceLanguage,
+							defaultLanguage,
+						);
+			if (next == null) delete carrier[key];
+			else carrier[key] = next;
 			return;
 		}
 		case "addOption":

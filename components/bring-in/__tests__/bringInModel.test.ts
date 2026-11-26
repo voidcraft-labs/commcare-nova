@@ -418,6 +418,16 @@ describe("the reducer", () => {
 		expect(moved.signedOut).toBe(true);
 	});
 
+	it("offers sign-in when an installation grant expires while bringing in the app", () => {
+		const expired = run(creating(), {
+			type: "create-done",
+			answer: { kind: "refused", refusal: "session_ended" },
+			at: 0,
+		});
+		expect(screenOf(expired)).toEqual({ kind: "signed-out" });
+		expect(nextAct(expired)).toEqual(NO_ACT);
+	});
+
 	it("stage drops the count where the stage counts no files or is a new stage", () => {
 		const counting = run(
 			creating(),
@@ -905,6 +915,7 @@ describe("every answer of a create", () => {
 			runsOnlyOn: "android",
 			splitDatetime: false,
 			tableChoices: {},
+			ownerRuleChoices: {},
 		});
 		expect(model.pendingCreate).toBeNull();
 		expect(model.call).toBeNull();
@@ -978,6 +989,7 @@ describe("every answer of a create", () => {
 			runsOnlyOn: null,
 			splitDatetime: false,
 			tableChoices: { districts: "use-project" },
+			ownerRuleChoices: {},
 		});
 	});
 
@@ -1070,6 +1082,7 @@ describe("carryAnswers", () => {
 		runsOnlyOn: "android",
 		splitDatetime: true,
 		tableChoices: { districts: "use-project", crops: "use-commcare-hq" },
+		ownerRuleChoices: {},
 	};
 
 	it("keeps what is still offered and the name the person typed, under the new digest", () => {
@@ -1104,6 +1117,7 @@ describe("carryAnswers", () => {
 			runsOnlyOn: null,
 			splitDatetime: false,
 			tableChoices: { crops: "use-commcare-hq" },
+			ownerRuleChoices: {},
 		});
 	});
 

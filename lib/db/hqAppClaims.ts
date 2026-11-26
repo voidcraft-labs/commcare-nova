@@ -10,9 +10,9 @@
  *     A holder in recently deleted gives its HQ app up here, at the take,
  *     never when it is deleted.
  *   - `lockReleasedClaimsInTransaction` + `settleReleasedClaimsInTransaction`:
- *     a restore (and a publish that finds a released mapping) takes back each
- *     HQ app the app gave up, from a holder in recently deleted too, or ends
- *     the deployment where a live Nova app holds it.
+ *     a restore takes back each HQ app the app gave up. A publish settles
+ *     its selected project space. Each can reclaim a mapping from a deleted
+ *     holder or end the deployment where a live Nova app holds it.
  *   - `endDeploymentInTransaction`: the one transaction that ends a
  *     deployment, for a person who stops publishing and for a settle. It
  *     ends the mapping of the HQ app it names, or nothing.
@@ -64,10 +64,11 @@ export const HQ_APP_MAPPING_OWNERSHIPS = ["nova-created", "adopted"] as const;
 /** What a write Nova lets out to CommCare HQ is, by the resource it writes. */
 export const HQ_REMOTE_APP_WRITE_KINDS = ["create", "import", "media"] as const;
 export type HqRemoteAppWriteKind = (typeof HQ_REMOTE_APP_WRITE_KINDS)[number];
-/** Every kind of write the ledger holds: an app's, a lookup table workbook, a batch of places, a worker account. */
+/** Every kind of write the ledger holds: an app's, a lookup table workbook or one JSON request for a table, a batch of places, a worker account. */
 export type HqRemoteWriteKind =
 	| HqRemoteAppWriteKind
 	| "workbook"
+	| "lookup-json"
 	| "places"
 	| "worker";
 export const HQ_APP_END_REASONS = ["stopped", "claimed-elsewhere"] as const;
@@ -156,6 +157,7 @@ function isMappingOwnership(
 }
 
 interface LiveClaimRow {
+	readonly deployment_id: string;
 	readonly mapping_id: string;
 	readonly ownership: string;
 	readonly adopted_by: string | null;
@@ -195,7 +197,7 @@ async function readLiveClaim(
 	key: HqAppKey,
 ): Promise<LiveClaimRow | undefined> {
 	const { rows } = await sql<LiveClaimRow>`
-		SELECT mapping.id AS mapping_id, mapping.ownership, mapping.adopted_by,
+		SELECT mapping.id AS mapping_id, mapping.deployment_id, mapping.ownership, mapping.adopted_by,
 			mapping.adopted_at, mapping.created_at AS mapping_created_at,
 			deployment.app_id, deployment.project_id, deployment.created_by,
 			app.deleted_at
@@ -258,6 +260,7 @@ async function openWriteHeldUntil(
 export async function claimHqAppInTransaction(
 	tx: Transaction<AppDatabase>,
 	key: HqAppKey,
+	grant?: InstallationClaimGrant,
 ): Promise<void> {
 	await lockHqApp(tx, key);
 	const claim = await readLiveClaim(tx, key);
@@ -276,6 +279,7 @@ export async function claimHqAppInTransaction(
 	if (holderApp.deleted_at === null) {
 		throw new HqAppAlreadyClaimedError(key, holderOf(claim));
 	}
+	await guardInstallationClaim(tx, claim.deployment_id, grant);
 	await tx
 		.updateTable("app_deployment_resources")
 		.set({ released_at: sql<Date>`now()` })
@@ -297,6 +301,7 @@ export interface ReleasedClaimLocks {
 		readonly key: HqAppKey;
 		readonly holder: {
 			readonly mappingId: string;
+			readonly deploymentId: string;
 			readonly appId: string;
 			readonly appDeleted: boolean;
 		} | null;
@@ -309,6 +314,7 @@ interface ReleasedClaimRow {
 	readonly domain: string;
 	readonly remote_id: string;
 	readonly holder_mapping_id: string | null;
+	readonly holder_deployment_id: string | null;
 	readonly holder_app_id: string | null;
 	readonly holder_app_deleted: boolean | null;
 }
@@ -321,15 +327,16 @@ interface ReleasedClaimRow {
 async function readReleasedClaims(
 	tx: Transaction<AppDatabase>,
 	appId: string,
+	target?: Pick<HqAppKey, "server" | "domain">,
 ): Promise<ReleasedClaimLocks["released"]> {
 	const { rows } = await sql<ReleasedClaimRow>`
 		SELECT mine.deployment_id, mine.server, mine.domain, mine.remote_id,
-			holder.mapping_id AS holder_mapping_id, holder.app_id AS holder_app_id,
+			holder.mapping_id AS holder_mapping_id, holder.deployment_id AS holder_deployment_id, holder.app_id AS holder_app_id,
 			holder.app_deleted AS holder_app_deleted
 		FROM app_deployment_resources AS mine
 		JOIN app_deployments AS mine_deployment ON mine_deployment.id = mine.deployment_id
 		LEFT JOIN LATERAL (
-			SELECT other.id AS mapping_id, other_deployment.app_id,
+			SELECT other.id AS mapping_id, other.deployment_id, other_deployment.app_id,
 				other_app.deleted_at IS NOT NULL AS app_deleted
 			FROM app_deployment_resources AS other
 			JOIN app_deployments AS other_deployment
@@ -343,6 +350,7 @@ async function readReleasedClaims(
 		) AS holder ON true
 		WHERE mine_deployment.app_id = ${appId} AND mine.kind = 'app'
 			AND mine.superseded_at IS NULL AND mine.released_at IS NOT NULL
+			${target ? sql`AND mine.server = ${target.server} AND mine.domain = ${target.domain}` : sql``}
 		ORDER BY mine.server COLLATE "C", mine.domain COLLATE "C",
 			mine.remote_id COLLATE "C", mine.deployment_id
 	`.execute(tx);
@@ -350,10 +358,13 @@ async function readReleasedClaims(
 		deploymentId: row.deployment_id,
 		key: { server: row.server, domain: row.domain, remoteAppId: row.remote_id },
 		holder:
-			row.holder_mapping_id === null || row.holder_app_id === null
+			row.holder_mapping_id === null ||
+			row.holder_deployment_id === null ||
+			row.holder_app_id === null
 				? null
 				: {
 						mappingId: row.holder_mapping_id,
+						deploymentId: row.holder_deployment_id,
 						appId: row.holder_app_id,
 						appDeleted: row.holder_app_deleted === true,
 					},
@@ -410,17 +421,18 @@ function sameClaims(
 export async function lockReleasedClaimsInTransaction(
 	tx: Transaction<AppDatabase>,
 	appId: string,
+	target?: Pick<HqAppKey, "server" | "domain">,
 ): Promise<ReleasedClaimLocks | null> {
-	const unlocked = await readReleasedClaims(tx, appId);
+	const unlocked = await readReleasedClaims(tx, appId, target);
 	if (unlocked.length === 0) {
 		const app = await lockAppRow(tx, appId);
-		const locked = await readReleasedClaims(tx, appId);
+		const locked = await readReleasedClaims(tx, appId, target);
 		return locked.length === 0 ? { app, released: [] } : null;
 	}
 	for (const entry of unlocked) await lockHqApp(tx, entry.key);
 	/* Under the advisory locks no birth and no other settle changes who holds
 	 * these HQ apps; a restore, a deletion or an ending of a holder still can. */
-	const advised = await readReleasedClaims(tx, appId);
+	const advised = await readReleasedClaims(tx, appId, target);
 	if (!sameKeys(unlocked, advised)) return null;
 	const rowIds = [
 		...new Set([
@@ -441,9 +453,54 @@ export async function lockReleasedClaimsInTransaction(
 				.forUpdate()
 				.execute();
 	}
-	const settled = await readReleasedClaims(tx, appId);
+	const settled = await readReleasedClaims(tx, appId, target);
 	if (!sameClaims(advised, settled)) return null;
 	return { app, released: settled };
+}
+
+/** Classify an adoption's existing physical holder for a separate ready-file
+ * transaction. Acquire claim and app locks before the consuming Project role
+ * gate, as birth does. A source without profiles can still displace a retained
+ * profile or private review belonging to its recently deleted predecessor. */
+export async function lockDisplacedInstallationClaim(
+	tx: Transaction<AppDatabase>,
+	key: HqAppKey,
+): Promise<boolean> {
+	await lockHqApp(tx, key);
+	const holder = await readLiveClaim(tx, key);
+	if (!holder || holder.deleted_at === null) return false;
+	const app = await lockAppRow(tx, holder.app_id);
+	return (
+		!!app?.deleted_at &&
+		deploymentManagesInstallations(tx, holder.deployment_id)
+	);
+}
+
+export type InstallationClaimGrant = (
+	tx: Transaction<AppDatabase>,
+) => void | Promise<void>;
+
+/** The locked physical deployment owns both its bindings and any private reviews.
+ * The indexed existence tests keep the ordinary claim independent of other targets. */
+export async function deploymentManagesInstallations(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+): Promise<boolean> {
+	const answer = await sql<{ managed: boolean }>`SELECT EXISTS (
+   SELECT 1 FROM app_deployment_installation_profiles WHERE deployment_id = ${deploymentId}
+ ) OR EXISTS (
+   SELECT 1 FROM app_deployment_installation_reviews WHERE deployment_id = ${deploymentId}
+ ) AS managed`.execute(tx);
+	return answer.rows[0].managed;
+}
+
+async function guardInstallationClaim(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	grant?: InstallationClaimGrant,
+) {
+	if (grant && (await deploymentManagesInstallations(tx, deploymentId)))
+		await grant(tx);
 }
 
 /** What a settle of an app's released claims did. */
@@ -481,6 +538,7 @@ export async function settleReleasedClaimsInTransaction(
 		readonly actorUserId: string;
 		readonly at: Date;
 		readonly locks: ReleasedClaimLocks;
+		readonly grant?: InstallationClaimGrant;
 	},
 ): Promise<SettledClaims> {
 	const stopped: { readonly server: string; readonly domain: string }[] = [];
@@ -495,6 +553,7 @@ export async function settleReleasedClaimsInTransaction(
 				remoteAppId: entry.key.remoteAppId,
 				byUserId: input.actorUserId,
 				reason: "claimed-elsewhere",
+				grant: input.grant,
 				at: input.at,
 			});
 			if (!ended) {
@@ -509,7 +568,9 @@ export async function settleReleasedClaimsInTransaction(
 			waiting.push({ server: entry.key.server, domain: entry.key.domain });
 			continue;
 		}
+		await guardInstallationClaim(tx, entry.deploymentId, input.grant);
 		if (holder !== null) {
+			await guardInstallationClaim(tx, holder.deploymentId, input.grant);
 			await tx
 				.updateTable("app_deployment_resources")
 				.set({ released_at: input.at })
@@ -552,9 +613,24 @@ export async function endDeploymentInTransaction(
 		readonly remoteAppId: string;
 		readonly byUserId: string;
 		readonly reason: HqAppEndReason;
+		readonly grant?: InstallationClaimGrant;
 		readonly at: Date;
 	},
 ): Promise<{ readonly ended: boolean }> {
+	if (
+		input.grant &&
+		(await deploymentManagesInstallations(tx, input.deploymentId))
+	) {
+		const matching = await tx
+			.selectFrom("app_deployment_resources")
+			.select("id")
+			.where("deployment_id", "=", input.deploymentId)
+			.where("kind", "=", "app")
+			.where("remote_id", "=", input.remoteAppId)
+			.where("superseded_at", "is", null)
+			.executeTakeFirst();
+		if (matching) await input.grant(tx);
+	}
 	const superseded = await tx
 		.updateTable("app_deployment_resources")
 		.set({
@@ -571,11 +647,30 @@ export async function endDeploymentInTransaction(
 		.execute();
 	if (superseded.length === 0) return { ended: false };
 	await tx
+		.updateTable("app_deployment_baselines")
+		.set({ reference_fold_seq: null, reference_source_digest: null })
+		.where("deployment_id", "=", input.deploymentId)
+		.where("remote_app_id", "=", input.remoteAppId)
+		.where("reference_fold_seq", "is not", null)
+		.execute();
+	await tx
 		.deleteFrom("app_deployment_identities")
 		.where("deployment_id", "=", input.deploymentId)
 		.execute();
 	await tx
 		.deleteFrom("app_deployment_keyed_case_ids")
+		.where("deployment_id", "=", input.deploymentId)
+		.execute();
+	await tx
+		.deleteFrom("app_deployment_search_bindings")
+		.where("deployment_id", "=", input.deploymentId)
+		.execute();
+	await tx
+		.deleteFrom("app_deployment_installation_reviews")
+		.where("deployment_id", "=", input.deploymentId)
+		.execute();
+	await tx
+		.deleteFrom("app_deployment_installation_profiles")
 		.where("deployment_id", "=", input.deploymentId)
 		.execute();
 	await tx
@@ -609,6 +704,9 @@ export async function endDeploymentInTransaction(
 
 /** One write to record in `hq_remote_writes`, as its admission inserts it. */
 export interface RemoteWriteAdmission {
+	readonly claimGeneration?: string;
+	readonly reviewGeneration?: string | null;
+	readonly identityDigest?: string;
 	readonly deploymentId: string;
 	readonly server: string;
 	readonly domain: string;
@@ -634,27 +732,49 @@ export interface RemoteWriteAdmission {
 export async function admitRemoteWritesInTransaction(
 	tx: Transaction<AppDatabase>,
 	writes: readonly RemoteWriteAdmission[],
+	firstContentGeneration?: string,
 ): Promise<readonly string[]> {
-	if (writes.length === 0) return [];
-	const rows = await tx
-		.insertInto("hq_remote_writes")
-		.values(
-			writes.map((write) => ({
-				deployment_id: write.deploymentId,
-				server: write.server,
-				domain: write.domain,
-				app_id: write.appId,
-				project_id: write.projectId,
-				actor_user_id: write.actorUserId,
-				resource_kind: write.resourceKind,
-				resource_id: write.resourceId,
-				write_kind: write.writeKind,
-				held_until: sql<Date>`now() + make_interval(secs => ${write.holdSeconds})`,
-			})),
-		)
-		.returning("id")
-		.execute();
-	return rows.map((row) => row.id);
+	const first = writes[0];
+	if (!first) return [];
+	if (firstContentGeneration !== undefined) {
+		if (!writes.every((write) => write.deploymentId === first.deploymentId))
+			throw new Error("A publish admits content for one deployment.");
+		await tx
+			.updateTable("app_deployments")
+			.set({
+				content_generation: firstContentGeneration,
+				entry_point_manifest: null,
+			})
+			.where("id", "=", first.deploymentId)
+			.executeTakeFirstOrThrow();
+	}
+	// Thirteen bound values per row. Keep every batch inside the admission's transaction.
+	const ids: string[] = [];
+	for (let start = 0; start < writes.length; start += 4000) {
+		const rows = await tx
+			.insertInto("hq_remote_writes")
+			.values(
+				writes.slice(start, start + 4000).map((write) => ({
+					deployment_id: write.deploymentId,
+					claim_generation: write.claimGeneration ?? null,
+					identity_digest: write.identityDigest ?? null,
+					review_generation: write.reviewGeneration ?? null,
+					server: write.server,
+					domain: write.domain,
+					app_id: write.appId,
+					project_id: write.projectId,
+					actor_user_id: write.actorUserId,
+					resource_kind: write.resourceKind,
+					resource_id: write.resourceId,
+					write_kind: write.writeKind,
+					held_until: sql<Date>`now() + make_interval(secs => ${write.holdSeconds})`,
+				})),
+			)
+			.returning("id")
+			.execute();
+		for (const row of rows) ids.push(row.id);
+	}
+	return ids;
 }
 
 /** Whether a write `appId` let out to CommCare HQ is still open: a Project move waits for it. */

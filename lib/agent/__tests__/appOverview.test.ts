@@ -1,6 +1,13 @@
 import { expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
+	REGISTER,
+	ROUTE,
+	SOURCE,
+	twoMenus,
+	VISIT,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
+import {
 	PLATFORM_FEATURE_IDS,
 	PLATFORM_FEATURES,
 	PLATFORMS,
@@ -62,14 +69,48 @@ it("orients an edit without sending every question's content", () => {
 	);
 });
 
-it("holds the document's form-list settings", () => {
+it("holds the form lists and ordered Android apps a settings edit can replace", () => {
 	const doc = buildDoc({
-		appSettings: { showSavedForms: true, showIncompleteForms: false },
+		appSettings: {
+			showSavedForms: true,
+			showIncompleteForms: false,
+			requiredAndroidApps: ["simprints-id", "commcare-toolkit"],
+		},
 	});
 	expect(appOverview(doc).settings).toEqual({
+		firstMenuLayout: "list",
+		formMenuLayout: "list",
 		showSavedForms: true,
 		showIncompleteForms: false,
+		requiredAndroidApps: [
+			{ app: "simprints-id", name: "Simprints ID" },
+			{ app: "commcare-toolkit", name: "CommCare Toolkit" },
+		],
+		captureLocation: false,
+		caseSharing: false,
 	});
+});
+
+it("holds whether a new case goes to the worker's case-sharing group", () => {
+	const doc = buildDoc({
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			caseSharing: true,
+		},
+	});
+	expect(appOverview(doc).settings).toMatchObject({ caseSharing: true });
+});
+
+it("holds the app's own location request, which a form's read does not name", () => {
+	const doc = buildDoc({
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			captureLocation: true,
+		},
+	});
+	expect(appOverview(doc).settings).toMatchObject({ captureLocation: true });
 });
 
 it.each([
@@ -113,3 +154,25 @@ it.each([
 			);
 	},
 );
+
+it("names the menu that supplies a listing menu's forms, its case type and the forms it shows", () => {
+	const doc = twoMenus();
+	const clinic = appOverview(doc).modules.find(
+		(module) => module.uuid === ROUTE,
+	);
+	expect(clinic).toMatchObject({
+		name: "Clinic",
+		caseType: "patient",
+		formsFromMenu: {
+			menuUuid: SOURCE,
+			name: "Patients",
+			excludedFormUuids: [REGISTER],
+		},
+		forms: [{ uuid: VISIT, name: "Visit", type: "followup" }],
+	});
+	const patients = appOverview(doc).modules.find(
+		(module) => module.uuid === SOURCE,
+	);
+	expect(patients).not.toHaveProperty("formsFromMenu");
+	expect(patients?.forms.map((form) => form.uuid)).toEqual([REGISTER, VISIT]);
+});

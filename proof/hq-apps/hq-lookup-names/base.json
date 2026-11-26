@@ -1,0 +1,19 @@
+{
+	"id": "hq-lookup-names",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"LOOKUP_TABLES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"expressions-and-data/tag-or-field-name-holding-a-period",
+		"expressions-and-data/tag-or-field-name-with-non-ascii-letters"
+	]
+}

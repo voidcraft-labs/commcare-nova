@@ -15,7 +15,15 @@ import type {
 	LookupOptionsSource,
 	LookupTableId,
 } from "@/lib/domain";
-import { eq, formField, tableColumn, term } from "@/lib/domain/expression";
+import {
+	and,
+	eq,
+	formField,
+	literal,
+	lt,
+	tableColumn,
+	term,
+} from "@/lib/domain/expression";
 import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
@@ -135,6 +143,80 @@ describe("lookup-backed choices in the engine", () => {
 		]);
 	});
 
+	it("uses a referenced question's zero position for every choice candidate", () => {
+		const base = clinicSelect("single_select", false);
+		if (base.optionsSource === undefined)
+			throw new Error("Expected lookup choices.");
+		const engine = new FormEngine(
+			dTree([
+				{
+					id: "region",
+					uuid: REGION_FIELD_UUID,
+					kind: "text",
+					label: proseText("Region"),
+				},
+				{
+					...base,
+					optionsSource: {
+						...base.optionsSource,
+						filter: lt(
+							{
+								kind: "call",
+								fn: "position",
+								args: [term(formField(REGION_FIELD_UUID))],
+							},
+							literal(1),
+						),
+					},
+				},
+			]),
+			undefined,
+			undefined,
+			null,
+			lookupData(),
+		);
+		const choiceValues = () =>
+			engine.getState("/data/clinic").choices?.map((choice) => choice.value);
+		expect(choiceValues()).toEqual(["a1", "b2", "c3"]);
+		engine.setValue("/data/region", "south");
+		expect(choiceValues()).toEqual(["a1", "b2", "c3"]);
+	});
+
+	it("tests the source row position before sorting or gating by an earlier answer", () => {
+		const base = clinicSelect("single_select", true);
+		const source = base.optionsSource;
+		if (source?.filter === undefined)
+			throw new Error("Expected the region filter.");
+		const engine = new FormEngine(
+			dTree([
+				{ id: "region", kind: "text", label: proseText("Region") },
+				{
+					...base,
+					optionsSource: {
+						...source,
+						filter: and(
+							lt({ kind: "call", fn: "position", args: [] }, literal(3)),
+							source.filter,
+						),
+						sortColumnId: COL_NAME,
+					},
+				},
+			]),
+			undefined,
+			undefined,
+			null,
+			lookupData(),
+		);
+		engine.setValue("/data/region", "south");
+		expect(
+			engine.getState("/data/clinic").choices?.map((choice) => choice.value),
+		).toEqual(["b2"]);
+		engine.setValue("/data/region", "north");
+		expect(
+			engine.getState("/data/clinic").choices?.map((choice) => choice.value),
+		).toEqual(["a1"]);
+	});
+
 	it("recomputes filtered choices when the referenced answer changes", () => {
 		const engine = new FormEngine(
 			dTree([
@@ -237,6 +319,46 @@ describe("lookup-backed choices in the engine", () => {
 		engine.setValue("/data/clinic", "c3");
 		engine.setValue("/data/region", "south");
 		expect(engine.getState("/data/clinic").value).toBe("c3");
+	});
+
+	// Core sorts an itemset's choices by its `<sort ref>` text as Java strings, code unit by
+	// code unit, with a stable sort (`ItemsetBinding.sortChoices`), so ties keep row order.
+	it("orders the choices by the sort column's text, ties in row order", () => {
+		const rows = [
+			clinicRow("018f0000-0000-7000-8000-0000000000b1", "z", "Zeta", "b"),
+			clinicRow("018f0000-0000-7000-8000-0000000000b2", "a", "alpha", "a"),
+			clinicRow("018f0000-0000-7000-8000-0000000000b3", "B", "Beta", "b"),
+		];
+		const data = previewLookupData({
+			projectRevision: parseLookupRevision("7"),
+			definitions: [DEFINITION],
+			rowsByTable: new Map([[TABLE, rows]]),
+		});
+		const sortedBy = (sortColumnId: LookupColumnId) => {
+			const select = clinicSelect("single_select", false);
+			const source = select.optionsSource as LookupOptionsSource;
+			select.optionsSource = { ...source, sortColumnId };
+			const engine = new FormEngine(
+				dTree([select]),
+				undefined,
+				undefined,
+				null,
+				data,
+			);
+			return engine.getState("/data/clinic").choices?.map((c) => c.label);
+		};
+		expect(sortedBy(COL_NAME)).toEqual(["Beta", "Zeta", "alpha"]);
+		expect(sortedBy(COL_REGION)).toEqual(["alpha", "Zeta", "Beta"]);
+		const unsorted = new FormEngine(
+			dTree([clinicSelect("single_select", false)]),
+			undefined,
+			undefined,
+			null,
+			data,
+		);
+		expect(
+			unsorted.getState("/data/clinic").choices?.map((c) => c.label),
+		).toEqual(["Zeta", "alpha", "Beta"]);
 	});
 
 	it("leaves choices undefined (loading) without a snapshot, unselecting nothing", () => {

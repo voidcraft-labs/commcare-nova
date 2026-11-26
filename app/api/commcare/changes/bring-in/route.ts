@@ -29,6 +29,7 @@ export async function POST(req: Request): Promise<Response> {
 					readingId: body.readingId,
 					reviewDigest: body.reviewDigest,
 					tableChoices: body.tableChoices,
+					ownerRuleChoices: body.ownerRuleChoices,
 				},
 				{ onEvent },
 			),

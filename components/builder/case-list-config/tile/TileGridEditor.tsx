@@ -1,7 +1,9 @@
 // components/builder/case-list-config/tile/TileGridEditor.tsx
 //
 // The tile's arrangement, drawn where its effect is visible. Each field
-// is a rectangle on a 12 x 12 grid: drag it to move, drag its corner to
+// is a rectangle on a grid twelve columns wide with a row for each field
+// it shows, at least six (`resultsTileRows`, the rows CommCare HQ's Case
+// List page keeps): drag it to move, drag its corner to
 // resize, or use the arrow keys: Shift with an arrow moves the edge the
 // arrow points at.
 //
@@ -14,7 +16,7 @@
 //   - **The tile is not the canvas.** A worker's device sizes the tile
 //     from the squares the fields actually occupy and stretches that to
 //     the full width of the list, so the occupied region is drawn as the
-//     tile and the rest of the 12 x 12 canvas is drawn as room to grow.
+//     tile and the rest of the canvas is drawn as room to grow.
 //     Cell geometry comes from `lib/preview/caseTileLayout`, the one
 //     projection the running list reads, so the two can never disagree.
 
@@ -29,7 +31,6 @@ import { Button } from "@/components/shadcn/button";
 import {
 	type CaseListConfig,
 	TILE_GRID_COLUMNS,
-	TILE_GRID_ROWS,
 	type TileCell,
 	tileCellBottomEdge,
 	tileCellRightEdge,
@@ -44,6 +45,7 @@ import {
 	describeTilePlace,
 	planTileKeyboardGesture,
 	planTilePlacement,
+	resultsTileRows,
 	type TileGeometry,
 	type TilePlacement,
 	tileKeyboardGesture,
@@ -59,6 +61,10 @@ export interface TileGridEditorProps {
 	readonly onSelect: (uuid: Uuid) => void;
 	readonly onPlace: (uuid: Uuid, cell: TileCell) => void;
 	readonly onPlaceUnplaced: (uuid: Uuid) => void;
+	/** The tile's rows where `config` is a slice of a larger screen (a
+	 *  Details tab): the whole screen's, `detailsTileFieldCount`. A Results
+	 *  tile's are its own (`resultsTileRows`). */
+	readonly rows?: number;
 }
 
 interface DragState {
@@ -81,6 +87,7 @@ export function TileGridEditor({
 	onSelect,
 	onPlace,
 	onPlaceUnplaced,
+	rows: screenRows,
 }: TileGridEditorProps) {
 	const gridRef = useRef<HTMLFieldSetElement>(null);
 	const [drag, setDrag] = useState<DragState | null>(null);
@@ -99,14 +106,15 @@ export function TileGridEditor({
 	});
 
 	const { placed, unplaced } = tileMembership(config);
+	const rows = screenRows ?? resultsTileRows(config);
 	// A place outside the grid can't be drawn on it: CSS would grow
-	// implicit tracks and the canvas would stop being 12 x 12. Those
+	// implicit tracks and the canvas would stop being the tile's. Those
 	// fields move to the attention strip below, where their reason and
 	// their repair are both reachable.
 	const drawable = placed.filter(
 		(entry) =>
 			tileCellRightEdge(entry.cell) <= TILE_GRID_COLUMNS &&
-			tileCellBottomEdge(entry.cell) <= TILE_GRID_ROWS,
+			tileCellBottomEdge(entry.cell) <= rows,
 	);
 	const offGrid = placed.filter((entry) => !drawable.includes(entry));
 	const drawableUuids = new Set(drawable.map((entry) => entry.uuid));
@@ -132,7 +140,7 @@ export function TileGridEditor({
 			return null;
 		return {
 			columnStep: rect.width / TILE_GRID_COLUMNS,
-			rowStep: rect.height / TILE_GRID_ROWS,
+			rowStep: rect.height / rows,
 		};
 	};
 
@@ -180,7 +188,7 @@ export function TileGridEditor({
 						width: drag.origin.width + deltaColumns,
 						height: drag.origin.height + deltaRows,
 					};
-		const verdict = planTilePlacement(placed, drag.uuid, candidate);
+		const verdict = planTilePlacement(placed, drag.uuid, candidate, rows);
 		if (verdict.ok) {
 			if (sameGeometry(verdict.cell, drag.cell) && drag.refusal === null)
 				return;
@@ -224,7 +232,12 @@ export function TileGridEditor({
 		if (gesture === null) return;
 		event.preventDefault();
 		if (!canEdit) return;
-		const verdict = planTileKeyboardGesture(placed, placement.uuid, gesture);
+		const verdict = planTileKeyboardGesture(
+			placed,
+			placement.uuid,
+			gesture,
+			rows,
+		);
 		if (!verdict.ok) {
 			setRefusal(verdict.reason);
 			setAnnouncement(verdict.reason);
@@ -265,13 +278,13 @@ export function TileGridEditor({
 					className="relative m-0 grid min-w-[36rem] rounded-xl border border-white/[0.07] bg-nova-deep/40 p-0 [--tile-row-height:3rem] @[52rem]:[--tile-row-height:3.25rem]"
 					style={{
 						gridTemplateColumns: `repeat(${TILE_GRID_COLUMNS}, minmax(0, 1fr))`,
-						gridTemplateRows: `repeat(${TILE_GRID_ROWS}, var(--tile-row-height))`,
+						gridTemplateRows: `repeat(${rows}, var(--tile-row-height))`,
 						backgroundImage: `linear-gradient(to right, var(--nova-border) 1px, transparent 1px), linear-gradient(to bottom, var(--nova-border) 1px, transparent 1px)`,
-						backgroundSize: `calc(100% / ${TILE_GRID_COLUMNS}) calc(100% / ${TILE_GRID_ROWS})`,
+						backgroundSize: `calc(100% / ${TILE_GRID_COLUMNS}) calc(100% / ${rows})`,
 					}}
 				>
 					<legend className="sr-only">
-						{`Tile layout, ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows`}
+						{`Tile layout, ${TILE_GRID_COLUMNS} columns by ${rows} rows`}
 					</legend>
 					{extent.columns > 0 && extent.rows > 0 && (
 						<div
@@ -341,9 +354,7 @@ export function TileGridEditor({
 												? "translate-x-1/2"
 												: ""
 										} ${
-											tileCellBottomEdge(cell) < TILE_GRID_ROWS
-												? "translate-y-1/2"
-												: ""
+											tileCellBottomEdge(cell) < rows ? "translate-y-1/2" : ""
 										}`}
 										style={{ gridArea: tileCellGridArea(cell) }}
 									>

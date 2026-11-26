@@ -22,7 +22,7 @@ const PHOTO = testUuid("native-attachment-photo"),
 const doc = admittedControllerDoc({
 	appId: "native-attachments",
 	appName: "Attachment controls",
-	connectType: null,
+	connectRoles: [],
 	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: null,
 	modules: { [MODULE]: { uuid: MODULE, id: "capture", name: "Capture" } },

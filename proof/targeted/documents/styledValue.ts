@@ -23,7 +23,12 @@
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { NEW_APP_SETTINGS, type Uuid } from "@/lib/domain";
+import {
+	makeTranslationUnitId,
+	NEW_APP_SETTINGS,
+	translationUnitsById,
+	type Uuid,
+} from "@/lib/domain";
 import { targetedDocument, targetedUuid } from "../build";
 import type { Expectation } from "../expected";
 
@@ -40,12 +45,14 @@ function labelShown(
 	id: string,
 	form: Uuid,
 	exportName: Expectation["export"],
+	locale: "en" | "fr" = "en",
 ): Expectation {
 	return {
 		id,
 		export: exportName,
 		form,
 		request: {
+			locale,
 			answers: [{ path: "/data/seen", value: "yes" }],
 			expressions: ["/data/seen", "/data/styled"],
 		},
@@ -53,7 +60,10 @@ function labelShown(
 			{ pointer: "/answers/0/result", value: "ok" },
 			{
 				pointer: "/answers/0/label",
-				value: `${STYLED_LABEL_LEAD}${STYLED_VALUE}`,
+				value:
+					locale === "en"
+						? `${STYLED_LABEL_LEAD}${STYLED_VALUE}`
+						: "Zone nord, secteur nord",
 			},
 			{ pointer: "/values/0/value", value: "yes" },
 			{ pointer: "/values/1/value", value: STYLED_VALUE },
@@ -85,6 +95,12 @@ export function styledValue() {
 								calculate: `'${STYLED_VALUE}'`,
 							}),
 							f({
+								kind: "hidden",
+								uuid: uuid("area"),
+								id: "area",
+								calculate: "'nord'",
+							}),
+							f({
 								kind: "text",
 								uuid: uuid("seen"),
 								id: "seen",
@@ -101,6 +117,36 @@ export function styledValue() {
 			},
 		],
 	});
+	const labelId = makeTranslationUnitId("field", uuid("seen"), "label");
+	const source = translationUnitsById(doc).get(labelId);
+	if (source === undefined)
+		throw new Error("Styled label has no translation unit.");
+	const area = { kind: "field-ref" as const, uuid: uuid("area") };
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra"],
+		wireCodes: { eng: "en", fra: "fr" },
+		translations: {
+			fra: {
+				[labelId]: {
+					value: {
+						parts: [
+							{ kind: "text", text: "Zone " },
+							area,
+							{ kind: "text", text: ", secteur " },
+							area,
+						],
+					},
+					valueMode: "independent-values",
+					sourceFingerprint: source.sourceFingerprint,
+					translatedFrom: "eng",
+					origin: "human",
+					review: "reviewed",
+				},
+			},
+		},
+	};
 	return targetedDocument({
 		id: ID,
 		rows: [
@@ -111,6 +157,8 @@ export function styledValue() {
 			intent: [
 				labelShown("styled-label-local", form, "local"),
 				labelShown("styled-label-a", form, "A"),
+				labelShown("french-label-local", form, "local", "fr"),
+				labelShown("french-label-a", form, "A", "fr"),
 			],
 		},
 	});

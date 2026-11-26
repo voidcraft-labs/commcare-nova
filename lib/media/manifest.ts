@@ -34,6 +34,7 @@ import {
 	partitionAssetRefs,
 	resolveBuiltinManifestEntries,
 } from "./builtinIconAssets";
+import { projectMediaByteSource } from "./exportBytes";
 
 /**
  * Max GCS object downloads in flight at once when resolving a manifest's
@@ -51,6 +52,7 @@ export interface ResolveManifestOptions {
 	 * which needs only the wire paths the references resolve to.
 	 */
 	withBytes: boolean;
+	streamBytes?: boolean;
 	/**
 	 * The paths the export's target holds for its uploaded files, by asset:
 	 * a file that came in from CommCare HQ keeps the path HQ holds it under
@@ -154,6 +156,13 @@ export async function resolveMediaManifest(
 					contentHash: row.contentHash,
 					extension: row.extension,
 					...(bytes !== undefined && { bytes }),
+					...(options.streamBytes && {
+						byteSource: projectMediaByteSource(
+							row.gcsObjectKey,
+							row.sizeBytes,
+							row.contentHash,
+						),
+					}),
 				} satisfies ResolvedMediaAsset,
 			] as const;
 		},
@@ -164,7 +173,7 @@ export async function resolveMediaManifest(
 	// single wire entry via the shared content-hash wire path.
 	const builtinEntries = await resolveBuiltinManifestEntries(
 		builtinSlugs,
-		options.withBytes,
+		options.withBytes || options.streamBytes === true,
 	);
 	const manifest = new Map<IconRef, ResolvedMediaAsset>();
 	for (const [id, asset] of entries) manifest.set(id, asset);

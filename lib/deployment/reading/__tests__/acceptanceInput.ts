@@ -176,6 +176,9 @@ export function acceptanceInput(
 			...(reader.saveOnlyEditedApplied !== undefined && {
 				saveOnlyEditedApplied: reader.saveOnlyEditedApplied,
 			}),
+			...(reader.caseListActionsApplied !== undefined && {
+				caseListActionsApplied: reader.caseListActionsApplied,
+			}),
 		},
 		choices,
 		settlements: [],

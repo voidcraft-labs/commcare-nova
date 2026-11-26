@@ -144,6 +144,48 @@ describe("withRetainedHq", () => {
 		expect(connects).not.toHaveBeenCalled();
 	});
 
+	it("keeps the source project's flag answers distinct", async () => {
+		const base = "/api/user_domains/v1/?limit=100";
+		const locations = `${base}&feature_flag=hierarchical_location_fixture`;
+		const mobile = `${base}&feature_flag=mobile_ucr`;
+		const answers = {
+			...ANSWERS,
+			projectSpaces: {
+				all: { status: 200, body: "member" },
+				flagged: { status: 200, body: "save on edit" },
+			},
+			sourceFactoryReads: {
+				[locations]: { status: 200, body: "hierarchical" },
+				"membership:hierarchical_location_fixture": {
+					status: 200,
+					body: "reader",
+				},
+			},
+		};
+		const bodies = await withRetainedHq(answers, async () => {
+			const seen = [];
+			for (const path of [
+				base,
+				`${base}&feature_flag=save-only-edited-form-fields`,
+				base,
+				locations,
+			])
+				seen.push(await (await fetch(ORIGIN + path)).text());
+			return seen;
+		});
+		expect(bodies).toEqual([
+			"member",
+			"save on edit",
+			"reader",
+			"hierarchical",
+		]);
+		await expect(
+			withRetainedHq(answers, async () => {
+				await fetch(ORIGIN + mobile).catch(() => undefined);
+			}),
+		).rejects.toThrow(RetainedAnswerMissing);
+	});
+
 	it("refuses a second request of an answer it already gave", async () => {
 		const path = `/a/${LANE_TARGET.domain}/api/application/v1/${APP_ID}/`;
 		const run = withRetainedHq(ANSWERS, async () => {
@@ -152,6 +194,71 @@ describe("withRetainedHq", () => {
 			await fetch(`${ORIGIN}${path}`).catch(() => undefined);
 		});
 		await expect(run).rejects.toThrow(new RetainedAnswerMissing(path));
+	});
+
+	it("gives a table's rows again, as an unchanged HQ answers a rich table's second observation", async () => {
+		const plainId = (
+			retainedBodyJson(retainedGroupRead("lookups/lookup-tables")).objects as {
+				id: string;
+				tag: string;
+			}[]
+		).find((table) => table.tag === "plain")?.id;
+		const path = `/a/${LANE_TARGET.domain}/api/fixture/v1/?fixture_type_id=${plainId}`;
+		const { bodies, asked } = await withRetainedHq(ANSWERS, async (peer) => {
+			const seen = [];
+			for (let read = 0; read < 3; read++)
+				seen.push(await (await fetch(`${ORIGIN}${path}`)).text());
+			return { bodies: seen, asked: peer.asked() };
+		});
+		const body = ANSWERS.projectData.fixtureRows.plain.body;
+		expect(bodies).toEqual([body, body, body]);
+		expect(asked).toEqual(["fixtureRows:plain"]);
+	});
+
+	it("gives a file past its kind's upload cap twice, as a reading streams it after its read in memory, and a file within it once", async () => {
+		const large = Buffer.alloc(5 * 1024 * 1024 + 1, 1);
+		const answers = {
+			...ANSWERS,
+			projectData: {
+				...ANSWERS.projectData,
+				media: [
+					...ANSWERS.projectData.media,
+					{
+						path: "jr://file/commcare/image/large.png",
+						mediaType: "CommCareImage",
+						multimediaId: "large",
+						status: 200,
+						base64: large.toString("base64"),
+					},
+				],
+			},
+		};
+		const largePath = "/hq/multimedia/file/CommCareImage/large/";
+		const sizes = await withRetainedHq(answers, async () => {
+			const seen = [];
+			for (let read = 0; read < 2; read++)
+				seen.push(
+					(await (await fetch(`${ORIGIN}${largePath}`)).arrayBuffer())
+						.byteLength,
+				);
+			return seen;
+		});
+		expect(sizes).toEqual([large.byteLength, large.byteLength]);
+		await expect(
+			withRetainedHq(answers, async () => {
+				for (let read = 0; read < 3; read++)
+					await (await fetch(`${ORIGIN}${largePath}`))
+						.arrayBuffer()
+						.catch(() => undefined);
+			}),
+		).rejects.toThrow(new RetainedAnswerMissing(largePath));
+		const smallPath = "/hq/multimedia/file/CommCareImage/a1b2c3/";
+		await expect(
+			withRetainedHq(answers, async () => {
+				await (await fetch(`${ORIGIN}${smallPath}`)).arrayBuffer();
+				await fetch(`${ORIGIN}${smallPath}`).catch(() => undefined);
+			}),
+		).rejects.toThrow(new RetainedAnswerMissing(smallPath));
 	});
 
 	it("refuses a request to any other host", async () => {

@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 1}, \"objects\": [{\"fields\": {\"code\": \"one\"}, \"fixture_type\": \"registry\", \"id\": \"7cbf9f536e3f4c9c8fc40d51e0a5c687\", \"resource_uri\": \"\"}]}"
+}

@@ -1,0 +1,262 @@
+[
+	{
+		"tag": "case-search-fixture",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "commcaresession",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "groups",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "locations",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "registry",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "reports",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "results",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "search-input",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "selected_cases",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "zz_after",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "one",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	}
+]

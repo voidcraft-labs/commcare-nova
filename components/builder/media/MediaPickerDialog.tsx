@@ -129,10 +129,9 @@ interface MediaPickerDialogBaseProps {
 	appId?: string;
 	/**
 	 * Fires with the library's currently loaded assets whenever a page
-	 * lands. The builder slots feed these rows (which carry byte sizes)
-	 * into the session's asset registry so the attach budget check
-	 * resolves referenced ids against already-loaded data instead of
-	 * fetching. The chat file manager omits it.
+	 * lands. The builder slots feed these rows into the session's asset
+	 * registry so Preview's stand-in and the referenced-row reader resolve
+	 * ids against already-loaded data instead of fetching. The chat file manager omits it.
 	 */
 	onAssetsLoaded?: (assets: MediaAssetView[]) => void;
 	/**
@@ -409,7 +408,7 @@ function PickerBody({
 	} = useMediaLibrary(libraryKinds, appId, query);
 
 	// Surface each loaded page to the caller (the builder slots record the
-	// rows for the attach budget check). The consumer's merge is
+	// rows in the session's asset registry). The consumer's merge is
 	// idempotent, so re-reporting the whole current list per page is fine.
 	useEffect(() => {
 		if (assets.length > 0) onAssetsLoaded?.(assets);
@@ -446,8 +445,8 @@ function PickerBody({
 	};
 
 	// An Icon Library click: a picker ATTACHES the built-in (the synthetic view
-	// carries the reserved `nova-icon:<slug>` id; the attach-budget guard
-	// short-circuits it); the file manager (no carrier) PREVIEWS the bitmap.
+	// carries the reserved `nova-icon:<slug>` id; no stored row backs
+	// it); the file manager (no carrier) PREVIEWS the bitmap.
 	const pickIcon = (entry: IconCatalogEntry) => {
 		if (!ownsScope()) return;
 		const ref = builtinIconRef(entry.slug);

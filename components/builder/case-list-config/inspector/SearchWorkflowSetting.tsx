@@ -20,6 +20,7 @@ import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type OrdinaryCaseSearchConfig,
 	type SearchWorkflow,
+	searchOpensOnList,
 	searchWorkflow,
 	type Uuid,
 } from "@/lib/domain";
@@ -40,7 +41,18 @@ import {
 	searchWorkflowNoteFeature,
 } from "./searchWorkflowModel";
 
-type OfferKey = SearchWorkflow | "formsReadSearch";
+type OfferKey = SearchWorkflow | "formsReadSearch" | "searchOnClear";
+
+function searchOnClearMutations(moduleUuid: Uuid, on: boolean): Mutation[] {
+	return [
+		{
+			kind: "updateModule",
+			uuid: moduleUuid,
+			patch: {},
+			caseSearchConfigPatch: { searchOnClear: on ? true : null },
+		},
+	];
+}
 
 export function SearchWorkflowSetting({
 	moduleUuid,
@@ -58,7 +70,13 @@ export function SearchWorkflowSetting({
 	const groupName = useId();
 	const legendId = useId();
 	const current = searchWorkflow(value);
+	const landing = searchOpensOnList(current) ? "listFirst" : current;
+	const defaultResultsChoice =
+		current === "listFirstWithDefaultResults"
+			? "listFirst"
+			: "listFirstWithDefaultResults";
 	const formsOn = value.formsReadSearch === true;
+	const searchOnClear = value.searchOnClear === true;
 
 	/* Each choice the declaration offers, and the switch, asks the gate
 	 * about its exact batch; a choice a platform can't run already has its
@@ -67,7 +85,7 @@ export function SearchWorkflowSetting({
 		(doc: BlueprintDoc) => {
 			const batches: Partial<Record<OfferKey, readonly Mutation[]>> = {};
 			for (const choice of SEARCH_WORKFLOW_CHOICES) {
-				if (choice.workflow === current) continue;
+				if (choice.workflow === landing) continue;
 				if (platformRefusal(choice.feature, platforms) !== undefined) continue;
 				batches[choice.workflow] = searchWorkflowMutations(
 					moduleUuid,
@@ -84,9 +102,26 @@ export function SearchWorkflowSetting({
 					moduleUuid,
 					!formsOn,
 				);
+			if (searchOpensOnList(current))
+				batches[defaultResultsChoice] = searchWorkflowMutations(
+					moduleUuid,
+					defaultResultsChoice,
+				);
+			batches.searchOnClear = searchOnClearMutations(
+				moduleUuid,
+				!searchOnClear,
+			);
 			return batches;
 		},
-		[current, formsOn, moduleUuid, platforms],
+		[
+			current,
+			defaultResultsChoice,
+			formsOn,
+			landing,
+			moduleUuid,
+			platforms,
+			searchOnClear,
+		],
 	);
 	const gate = useOfferedBatchRefusals<OfferKey>(plan, canEdit);
 
@@ -121,10 +156,10 @@ export function SearchWorkflowSetting({
 				</legend>
 				<div className="grid gap-1 rounded-2xl bg-nova-deep/50 p-1">
 					{SEARCH_WORKFLOW_CHOICES.map((choice) => {
-						const selected = choice.workflow === current;
+						const selected = choice.workflow === landing;
 						const refusal = searchWorkflowChoiceRefusal(
 							choice,
-							current,
+							landing,
 							platforms,
 							gate[choice.workflow],
 						);
@@ -166,6 +201,32 @@ export function SearchWorkflowSetting({
 			{noteFeature !== undefined && (
 				<PlatformNoteRow features={[noteFeature]} className="px-1" />
 			)}
+
+			{searchOpensOnList(current) && (
+				<ToggleRow
+					label="Request default search results"
+					description="Keeps this preference when you publish. On Android, workers still enter their search and choose Search All Cases."
+					checked={current === "listFirstWithDefaultResults"}
+					onChange={() => choose(defaultResultsChoice)}
+					disabledReason={
+						canEdit
+							? gate[defaultResultsChoice]
+							: "Project editors can change this setting."
+					}
+				/>
+			)}
+
+			<ToggleRow
+				label="Search again after clearing"
+				description="On a desktop Web Apps screen, clearing the search fields also requests fresh results."
+				checked={searchOnClear}
+				onChange={(on) => commitMany(searchOnClearMutations(moduleUuid, on))}
+				disabledReason={
+					canEdit
+						? gate.searchOnClear
+						: "Project editors can change this setting."
+				}
+			/>
 
 			{formsReadSearchOffered(current) && (
 				<div data-forms-read-search={formsOn ? "true" : "false"}>

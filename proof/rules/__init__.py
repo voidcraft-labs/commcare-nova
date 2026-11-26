@@ -89,6 +89,7 @@ class SpellingRule:
 # modules are imported after it is defined.
 from proof.rules import (  # noqa: E402
     add_ons,
+    case_list_form_follow_up_return,
     case_list_form_unset,
     case_references_load,
     close_question_blank,
@@ -111,8 +112,11 @@ from proof.rules import (  # noqa: E402
     open_action_blanks,
     preload_condition,
     profile_custom_properties,
+    profile_features_dependencies_empty,
     profile_features_users,
     profile_unread_properties,
+    question_appearance_read_alike,
+    repeat_row_count_without_a_repeat,
     required_condition,
     runtime_url_app_id,
     select_string_type,
@@ -142,9 +146,11 @@ RULES: tuple[SpellingRule, ...] = (
     case_references_load.RULE,
     add_ons.RULE,
     profile_features_users.RULE,
+    profile_features_dependencies_empty.RULE,
     profile_custom_properties.RULE,
     empty_media_maps.RULE,
     case_list_form_unset.RULE,
+    case_list_form_follow_up_return.RULE,
     detail_null_booleans.RULE,
     column_tab_keys.RULE,
     tile_cell_fields.RULE,
@@ -168,6 +174,8 @@ RULES: tuple[SpellingRule, ...] = (
     menu_image_without_media.RULE,
     media_path_of_a_shared_file.RULE,
     field_list_appearance_case.RULE,
+    repeat_row_count_without_a_repeat.RULE,
+    question_appearance_read_alike.RULE,
     hidden_sort_header.RULE,
 )
 

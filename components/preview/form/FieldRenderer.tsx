@@ -1,8 +1,12 @@
 "use client";
 import { type Field, isCaptureField } from "@/lib/domain";
+import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { assertNever } from "@/lib/utils/assertNever";
+import { AddressEntryField } from "./fields/AddressEntryField";
+import { AndroidAppField } from "./fields/AndroidAppField";
 import { AttachmentField } from "./fields/attachment/AttachmentField";
 import { BarcodeField } from "./fields/BarcodeField";
 import { DateField } from "./fields/DateField";
@@ -41,11 +45,16 @@ interface FieldRendererProps {
 	questionLabelledBy?: string | undefined;
 	questionDescriptionIds?: string | undefined;
 	questionLabel?: string | undefined;
-	onChange: (value: string) => void;
+	onChange: (value: string) => Promise<boolean>;
 	onBlur: () => void;
 	onChangeAt?: ((path: string, value: string) => void) | undefined;
 	onBlurAt?: ((path: string) => void) | undefined;
 	onCommitCapture?: CaptureAnswerCommit;
+	/** Sends a Web Apps address choice, or its clearing, to the question's channels. */
+	onCommitAddress?: (
+		value: string,
+		message?: QuestionMessage,
+	) => Promise<boolean>;
 }
 
 /**
@@ -77,7 +86,25 @@ export function FieldRenderer({
 	onChangeAt,
 	onBlurAt,
 	onCommitCapture,
+	onCommitAddress,
 }: FieldRendererProps) {
+	const rules = usePreviewPlatformRules();
+	if (rules.androidAppAnswers && "androidApp" in field && field.androidApp) {
+		if (path && appId && entryKey)
+			return (
+				<AndroidAppField
+					path={path}
+					appId={appId}
+					entryKey={entryKey}
+					value={state.value}
+					label={questionLabel ?? field.id}
+				/>
+			);
+		return (
+			<span className="text-sm text-muted-foreground">Open Android app</span>
+		);
+	}
+
 	// Capture kinds route to the real attachment control. Narrowed through
 	// the domain predicate rather than a case list so the two cannot drift:
 	// a new capture kind is a capture here the moment it is one there.
@@ -97,6 +124,28 @@ export function FieldRenderer({
 				onChangeAt={onChangeAt}
 				onBlurAt={onBlurAt}
 				onCommitCapture={onCommitCapture}
+			/>
+		);
+	}
+	/* Web Apps builds its address search for a text, password or barcode
+	 * question whose appearance asks for it (`entries.js::getEntry`); Android
+	 * reads the question as ordinary text. */
+	if (
+		rules.addressQuestion === "search" &&
+		onCommitAddress !== undefined &&
+		(field.kind === "text" ||
+			field.kind === "secret" ||
+			field.kind === "barcode") &&
+		field.addressLookup === true
+	) {
+		return (
+			<AddressEntryField
+				key={`${entryKey ?? ""}:${path ?? ""}`}
+				field={field}
+				state={state}
+				labelledBy={labelledBy}
+				onCommit={onCommitAddress}
+				onBlur={onBlur}
 			/>
 		);
 	}
@@ -156,7 +205,14 @@ export function FieldRenderer({
 				/>
 			);
 		case "label":
-			return <LabelField field={field} state={state} />;
+			return (
+				<LabelField
+					field={field}
+					state={state}
+					onChange={onChange}
+					onBlur={onBlur}
+				/>
+			);
 		// Geopoint draws the location question of the platform Preview plays:
 		// Web Apps' map and address search, or Android's Record location.
 		case "geopoint":
@@ -193,6 +249,8 @@ export function FieldRenderer({
 		case "group":
 		case "repeat":
 		case "section":
+		case "case_change":
+		case "connect_activity":
 		case "hidden":
 			return null;
 		default:

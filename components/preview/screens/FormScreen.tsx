@@ -10,6 +10,7 @@ import {
 	type SyntheticEvent,
 	useCallback,
 	useEffect,
+	useEffectEvent,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -25,6 +26,7 @@ import {
 	useLocalizedField,
 	useLocalizedText,
 	useTranslationUnitEditor,
+	useWorkerWordingOverride,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ChoiceAnswerCheck } from "@/components/preview/shared/ChoiceAnswerCheck";
 import {
@@ -34,6 +36,7 @@ import {
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
@@ -43,6 +46,7 @@ import {
 } from "@/lib/doc/hooks/useEntity";
 import { useEffectivePostSubmit } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
+import { useFormSubmitWording } from "@/lib/doc/hooks/useLocalization";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
 import {
@@ -53,16 +57,23 @@ import {
 	effectivePostSubmit,
 	type FormLink,
 	type FormType,
+	formContentUuid,
 	makeTranslationUnitId,
 	materializableCaseTypes as materializableCaseTypesFromDoc,
-	menuFormUuidsOf,
 	moduleFormsReadSearch,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
 } from "@/lib/domain";
+import { formEntryRecord } from "@/lib/domain/advancedEntryDatums";
+import type { ActivityFact } from "@/lib/domain/connectSubmissionFacts";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import type { LanguageTag } from "@/lib/domain/localization";
+import {
+	capturesDeviceLocation,
+	type DeviceLocation,
+} from "@/lib/domain/locationCapture";
 import {
 	afterSubmitFrameLanding,
 	afterSubmitRoute,
@@ -70,6 +81,7 @@ import {
 	appHomeLanding,
 	automaticLinkedCaseCollection,
 	carriedCasesFromPatch,
+	carriedFormChoices,
 	type PreviewAfterSubmitFrame,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
@@ -83,12 +95,11 @@ import {
 	type PendingAfterSubmitFrame,
 } from "@/lib/preview/afterSubmitStack";
 import {
-	alwaysOfferedRegistrationReturn,
+	caseListActionCreatedDatum,
+	caseListActionReturn,
 	caseListRegistrationAdmission,
-	caseListRegistrationPostSubmit,
 	caseListRegistrationRefusalCopy,
 	formOpensSearchScreen,
-	isCaseListRegistrationForm,
 	readFormSearchAnswers,
 	registeredCaseOnDevice,
 	selectionsAfterRegistrationReturn,
@@ -125,6 +136,18 @@ import {
 	projectTargetCaseSelectionsAsync,
 	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
+import { authorizeSavedFormReceiptRun } from "@/lib/preview/engine/formOpeningAction";
+import {
+	type FormOpeningProjection,
+	type FormOpeningState,
+	restoreOpeningCases,
+	restoreOpeningLookup,
+} from "@/lib/preview/engine/formOpeningSnapshot";
+import {
+	firstMenuSelections,
+	linkedFirstMenuCases,
+	moduleFirstMenuCases,
+} from "@/lib/preview/engine/frameLanding";
 import {
 	previewSessionValues,
 	type ResolvedPreviewIdentity,
@@ -133,7 +156,9 @@ import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import {
 	resolvePreviousTask,
 	selectionsForModuleTask,
+	selectionsForStaticModuleTask,
 } from "@/lib/preview/engine/previousTask";
+import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import { moduleSearchReadsCaseDatabase } from "@/lib/preview/engine/searchCsqlRuntime";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import {
@@ -147,12 +172,14 @@ import {
 } from "@/lib/preview/engine/useNavigationDeviceCases";
 import {
 	type CaseDatabaseSnapshot,
-	formReadsSearchResults,
+	type CompletedFormSearch,
+	formSearchReads,
 } from "@/lib/preview/engine/xpathInstances";
 import {
 	invalidateCaseData,
 	useCaseDataReplacementRevision,
 } from "@/lib/preview/hooks/caseDataInvalidation";
+import { showFrameFirstMenu } from "@/lib/preview/hooks/showFrameFirstMenu";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
@@ -178,8 +205,10 @@ import {
 	previewMenuCaseContext,
 	previewSelectionsBefore,
 } from "@/lib/preview/menuProjection";
+import type { PreviewDraft } from "@/lib/preview/previewFormRecords";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
+	automaticSubmissionEntry,
 	type PreviewSubmitOffer,
 	type PreviewSubmitState,
 	previewSubmitAccess,
@@ -222,6 +251,7 @@ import {
 	FormLayoutProvider,
 } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
+import { AdvanceOnChoiceContext } from "../form/FormScreenScope";
 import { AttachmentInvariantRecoveryPanel } from "../form/fields/attachment/AttachmentInvariantRecoveryPanel";
 import {
 	AttachmentNotReadyError,
@@ -395,12 +425,22 @@ function describeSubmissionRejection(
 					? "case owner"
 					: rejection.facet === "rename"
 						? "new case name"
-						: "case name";
+						: rejection.facet === "external_id"
+							? "external ID"
+							: rejection.facet === "location_id"
+								? "location ID"
+								: rejection.facet === "hq_user_id"
+									? "worker ID, which CommCare also keeps as the external ID,"
+									: "case name";
 			return rejection.reason === "blank"
 				? `Nothing was saved: a case automation computed an empty ${facet}. Check the answers it builds that value from and submit again.`
 				: `Nothing was saved: a case automation computed a ${facet} that is too long. Shorten the answers it builds that value from and submit again.`;
 		}
 		case "target":
+			if (rejection.reason === "managed-worker-record")
+				return "This form reached a worker profile detail that the app keeps in sync. You can save your answer to a worker detail added in App setup.";
+			if (rejection.reason === "missing-connection")
+				return "This record was missing a connection when the form opened. You can reopen the form and choose a record with that connection.";
 			return rejection.reason === "not-found-or-out-of-scope"
 				? "Nothing was saved: a case automation points at a case that no longer exists or moved out of reach. Refresh and try again."
 				: "Nothing was saved: a case automation points at a case whose type no longer matches what the automation expects.";
@@ -409,7 +449,7 @@ function describeSubmissionRejection(
 				? "Nothing was saved: a case automation tried to connect a case to itself."
 				: "Nothing was saved: this form's case automations disagree about a case's type partway through the submission. Review the automations' order and types.";
 		case "new-case":
-			return "This form's new case is already saved. You can open it from the case list.";
+			return "A case already uses this ID. You can start another form or reopen the deep link with a different new case ID.";
 		case "retype-not-portable": {
 			const lines = rejection.failures.map((f) => {
 				const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
@@ -460,6 +500,8 @@ interface SubmissionContextSnapshot {
 }
 
 interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
+	readonly run: string;
+	readonly receiptRun: string;
 	/** One immutable authoring revision. Links, printing, datum projection, and
 	 * target routing must never mix it with a collaborator's later edit. */
 	readonly doc: BlueprintDoc;
@@ -477,6 +519,11 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 }
 
 interface FormScreenProps {
+	draft?: PreviewDraft;
+	opening?: FormOpeningState;
+	projection?: FormOpeningProjection;
+	onReopen?: () => void;
+	onSubmittedActivities?: (facts: readonly ActivityFact[]) => void;
 	/** Stable identity passed by PreviewShell so an Activity-retained form never
 	 * starts reading a newer route's module, form, or selected case. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
@@ -519,8 +566,182 @@ function stringArrayValuesEqual(
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
-export function FormScreen({ screen }: FormScreenProps) {
-	const explicitCases = screen.cases;
+const NO_SEARCH_FRAMES: readonly CompletedFormSearch[] = [];
+
+/** Each query in a physical entry completes before the next selection. A keyed boundary
+ * subscribes to that menu's exact history entry, so retry, Back and a new worker retire
+ * the corresponding form engine together with the query that supplied its values. */
+function SearchBeforeForm({
+	screen,
+	pending,
+	completed,
+	...props
+}: FormScreenProps & {
+	pending: readonly [Uuid, { readsResults: boolean }][];
+	completed: readonly CompletedFormSearch[];
+}) {
+	const [menu, read] = pending[0];
+	const standing = usePreviewStandingSearchState(menu);
+	const target = usePreviewCaseTarget();
+	const launch = usePreviewEntryPointLaunch();
+	// A link or entry point supplied the case directly. A search standing on the
+	// screen the worker just left does not supply answers for this fresh entry.
+	const direct =
+		(target?.formUuid === screen.formUuid && target.openedByLink) ||
+		launch?.formTarget?.formUuid === screen.formUuid;
+	const search = direct ? undefined : standing;
+	const source = usePreviewMenuSource();
+	const selections = usePreviewMenuCaseSelections();
+	const language = useBuilderLanguage().language;
+	const appId = useAppId();
+	const navigate = useNavigate();
+	const caseTypes = useMaterializableCaseTypes();
+	const parentCase = parentCaseConstraint(
+		source.doc,
+		menu,
+		previewMenuCaseContext(source, menu, selections).parentCase,
+	);
+	const result = useSearchResultsSnapshot({
+		enabled: read.readsResults,
+		appId,
+		doc: source.doc,
+		moduleUuid: menu,
+		searchState: search,
+		parentCase,
+		caseTypes,
+		language,
+	});
+	const rows = result.state.kind === "data" ? result.state.snapshot : undefined;
+	const frames = useMemo(
+		() =>
+			search?.kind !== "completed" || (read.readsResults && !rows)
+				? undefined
+				: [
+						...completed,
+						{
+							menu,
+							submission: search.submission,
+							answers: [
+								...searchInputInstanceValues(
+									source.doc.modules[menu]?.caseListConfig?.searchInputs ?? [],
+									new Map(Object.entries(search.answers)),
+								),
+							],
+							...(rows && { results: rows }),
+						},
+					],
+		[completed, menu, read.readsResults, rows, search, source.doc],
+	);
+	if (!frames) {
+		const waiting =
+			search?.kind === "running" ||
+			(search?.kind === "completed" &&
+				(result.state.kind === "loading" || result.state.kind === "idle"));
+		const error =
+			result.state.kind === "error" || result.state.kind === "invalid-search"
+				? result.state.message
+				: undefined;
+		return (
+			<section role="status" className="m-auto max-w-md space-y-3 p-6">
+				<p>
+					{waiting
+						? runtimeMessage(language, "searchResultsLoading")
+						: (error ?? runtimeMessage(language, "searchResultsRefusalBody"))}
+				</p>
+				{!waiting && (
+					<button
+						type="button"
+						className={FORM_PRIMARY_ACTION_CLS}
+						onClick={
+							result.state.kind === "error"
+								? result.retry
+								: () => navigate.openCaseList(menu)
+						}
+					>
+						{runtimeMessage(
+							language,
+							result.state.kind === "error" ? "tryAgain" : "goToSearch",
+						)}
+					</button>
+				)}
+			</section>
+		);
+	}
+	return pending.length === 1 ? (
+		<ReadyFormScreen
+			key={frames.at(-1)?.submission}
+			{...props}
+			screen={screen}
+			searches={frames}
+		/>
+	) : (
+		<SearchBeforeForm
+			key={frames.at(-1)?.submission}
+			{...props}
+			screen={screen}
+			pending={pending.slice(1)}
+			completed={frames}
+		/>
+	);
+}
+
+export function FormScreen(props: FormScreenProps) {
+	const { screen, draft } = props;
+	const source = usePreviewMenuSource();
+	const mode = useEditMode();
+	const needed = useMemo(
+		() =>
+			mode !== "preview" || draft
+				? []
+				: [
+						...formSearchReads(source.doc, screen.formUuid, screen.moduleUuid),
+					].filter(([menu]) => menu !== screen.moduleUuid),
+		[draft, mode, screen.formUuid, screen.moduleUuid, source.doc],
+	);
+	return needed.length ? (
+		<SearchBeforeForm
+			{...props}
+			pending={needed}
+			completed={NO_SEARCH_FRAMES}
+		/>
+	) : (
+		<ReadyFormScreen {...props} searches={NO_SEARCH_FRAMES} />
+	);
+}
+
+function ReadyFormScreen({
+	screen,
+	draft,
+	onSubmittedActivities,
+	opening,
+	projection,
+	onReopen,
+	searches,
+}: FormScreenProps & { searches: readonly CompletedFormSearch[] }) {
+	const { formUuid, moduleUuid } = screen;
+	const resumedOpening = draft?.opened;
+	const { showIncompleteForms, showSavedForms } = useAppSettings();
+	const heldEntryValues = projection?.resolvedEntries;
+	const openedCases = useMemo(
+		() =>
+			resumedOpening?.caseDatabase ??
+			(projection && restoreOpeningCases(projection.cases)),
+		[projection, resumedOpening],
+	);
+	const openedLookup = useMemo(
+		() => projection && restoreOpeningLookup(projection.lookup),
+		[projection],
+	);
+	const explicitCases = useMemo(() => {
+		if (!projection || !openedCases) return screen.cases;
+		const rows = new Map(
+			openedCases.rows.map((row) => [row.case_id, row.case_name]),
+		);
+		return projection.primaryCaseIds.map((caseId) => ({
+			caseId,
+			caseName: rows.get(caseId) ?? "",
+		}));
+	}, [projection, openedCases, screen.cases]);
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const { inline } = useBlueprintMutations();
@@ -534,7 +755,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const personaUuid = usePreviewPersonaUuid();
 	const previewCaseTarget = usePreviewCaseTarget();
 	const menuSource = usePreviewMenuSource();
-	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const registrationEntry = usePreviewCaseListRegistrationEntry();
+	const caseListRegistrationLaunch =
+		registrationEntry?.moduleUuid === moduleUuid &&
+		registrationEntry.formUuid === formUuid
+			? registrationEntry
+			: undefined;
+	const heldMenuCases = usePreviewMenuCaseSelections();
+	const menuCaseSelections =
+		caseListRegistrationLaunch?.selections ?? heldMenuCases;
 	// The worker's restore is derived from their assignment and the place tree,
 	// neither of which is an argument to these reads. See `useRestoreScopeKey`.
 	const restoreScopeKey = useRestoreScopeKey(personaUuid);
@@ -566,8 +795,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 		loc.kind === "form-condition" ||
 		loc.kind === "form-operations" ||
 		loc.kind === "form-links";
-	const formUuid = screen.formUuid;
-	const moduleUuid = screen.moduleUuid;
 	/* Every route from this form back to a case list goes to the list that
 	 * chose its case, leaving the target that list continues with
 	 * (`menuProjection.ts::previewCaseListReturn`), read when it runs. */
@@ -583,11 +810,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
+	const contentUuid = form?.shadowOf?.form ?? formUuid;
+	const entryRecord = formEntryRecord(menuSource.doc, formUuid);
+	const recordType = entryRecord.caseType;
 	const severalCaseForm =
 		form !== undefined &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
-		mod !== undefined &&
-		caseSelectionCardinality(mod) === "multiple";
+		entryRecord.menu !== undefined &&
+		caseSelectionCardinality(entryRecord.menu) === "multiple";
 	const menuCaseContext = useMemo(
 		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
 		[menuCaseSelections, menuSource, moduleUuid],
@@ -614,15 +844,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 			? previewCaseTarget.searchLaunch
 			: undefined;
 	/* The case list whose Register action opened this entry of this form,
-	 * which decides where it returns (`alwaysOfferedRegistrationReturn`). The
+	 * which decides where it returns (`caseListActionReturn`). The
 	 * launch names the form it opened and ends at any location off its path,
 	 * so this form reached any other way reads none. */
-	const registrationEntry = usePreviewCaseListRegistrationEntry();
-	const caseListRegistrationLaunch =
-		registrationEntry?.moduleUuid === moduleUuid &&
-		registrationEntry.formUuid === formUuid
-			? registrationEntry
-			: undefined;
 	const noMatchesAdmission = useMemo(
 		() =>
 			caseListRegistrationAdmission({
@@ -630,9 +854,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 				formUuid,
 				moduleUuid,
 				launch: searchLaunch,
+				actionHost: caseListRegistrationLaunch?.hostModuleUuid,
 				searchState,
 			}),
-		[menuSource.doc, formUuid, moduleUuid, searchLaunch, searchState],
+		[
+			menuSource.doc,
+			formUuid,
+			moduleUuid,
+			searchLaunch,
+			caseListRegistrationLaunch?.hostModuleUuid,
+			searchState,
+		],
 	);
 	/* The search context keeps the screen's answers (a date range as its
 	 * two bounds); the engine's search-input instance holds one field per
@@ -744,8 +976,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 			mod !== undefined &&
 			formUuid !== undefined &&
 			moduleFormsReadSearch(mod) &&
-			formReadsSearchResults(menuSource.doc, formUuid),
-		[mode, mod, formUuid, menuSource.doc],
+			formSearchReads(menuSource.doc, formUuid, moduleUuid).get(moduleUuid)
+				?.readsResults === true,
+		[mode, mod, formUuid, menuSource.doc, moduleUuid],
 	);
 	const searchResultsRefused =
 		readsSearchResults && searchState?.kind !== "completed";
@@ -760,6 +993,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 	);
 	const searchResults = useSearchResultsSnapshot({
 		enabled: readsSearchResults,
+		formUuid,
 		appId,
 		doc: menuSource.doc,
 		moduleUuid,
@@ -780,11 +1014,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 		"name",
 	);
 	const localizedFormName = useLocalizedText(formNameUnitId);
+	const submitLabel = useFormSubmitWording(formUuid, language.language);
+	const submitWording = useWorkerWordingOverride(
+		generatedWordingId(formUuid ?? "missing", "submitButton"),
+	);
 	const formNameEditor = useTranslationUnitEditor(formNameUnitId);
 
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
-	const hasFields = useHasFieldsInForm(formUuid);
-	const presentationHasFields = usePresentationHasFields(formUuid);
+	const hasFields = useHasFieldsInForm(contentUuid);
+	const presentationHasFields = usePresentationHasFields(contentUuid);
 
 	/* Direct preview of a case-loading form with no case in hand (jumped here
 	 * from the structure tree, not walked through the case list): auto-bind
@@ -800,6 +1038,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 		mode === "preview" &&
 		form !== undefined &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		form.caseSelections === undefined &&
+		!form.shadowOf &&
 		mod?.caseListConfig?.selection === undefined &&
 		explicitCases === undefined &&
 		menuCaseContext.selectedCase === undefined;
@@ -892,9 +1132,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const carriedCaseData = carriedTargetMatches
 		? previewCaseTarget?.caseData
 		: undefined;
-	const carriedCaseDatabase = carriedTargetMatches
-		? previewCaseTarget?.caseDatabase
-		: undefined;
+	const carriedCaseDatabase =
+		openedCases ??
+		(carriedTargetMatches ? previewCaseTarget?.caseDatabase : undefined);
 	const replacementRevision = useCaseDataReplacementRevision(
 		appId,
 		mod?.caseType,
@@ -933,12 +1173,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const reachableChainKey = useMemo(
 		() =>
 			JSON.stringify(
-				reachableCaseTypes(mod?.caseType, caseTypes).map((t) => [
+				reachableCaseTypes(entryRecord.contentCaseType, caseTypes).map((t) => [
 					t.name,
 					t.depth,
 				]),
 			),
-		[mod?.caseType, caseTypes],
+		[entryRecord.contentCaseType, caseTypes],
 	);
 	const reachableChain = useMemo(
 		() =>
@@ -954,8 +1194,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * the auto-select list query doesn't carry. */
 	const { state: caseDataState } = useCaseData({
 		appId,
-		caseType: mod?.caseType,
-		caseId: effectiveCaseId,
+		caseType: recordType,
+		caseId: openedCases ? undefined : effectiveCaseId,
 		ancestorDepth: Math.max(0, reachableChain.length - 1),
 		// A case-loading form runs on the worker's device, so it may only
 		// preload from a case that device holds.
@@ -980,6 +1220,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 		 * empty map value, does not ask useFormEngine to start a second rebuild
 		 * beside the controller's cardinality-change rebuild. */
 		if (severalCaseForm) return undefined;
+		if (openedCases)
+			return effectiveCaseId
+				? caseDatabaseToFormPreloads(
+						openedCases,
+						effectiveCaseId,
+						reachableChain,
+					)
+				: undefined;
 		if (carriedCaseData !== undefined) return carriedCaseData;
 		if (settledCase)
 			return caseRowsToFormPreloads(
@@ -989,16 +1237,24 @@ export function FormScreen({ screen }: FormScreenProps) {
 			);
 		if (autoRow) return caseRowsToFormPreloads(autoRow, [], reachableChain);
 		return undefined;
-	}, [severalCaseForm, carriedCaseData, settledCase, autoRow, reachableChain]);
+	}, [
+		severalCaseForm,
+		carriedCaseData,
+		settledCase,
+		autoRow,
+		reachableChain,
+		openedCases,
+		effectiveCaseId,
+	]);
 
-	const requiresCaseBinding =
-		form !== undefined && CASE_LOADING_FORM_TYPES.has(form.type);
+	const requiresCaseBinding = entryRecord.requiresCase;
 	const needsBoundCase = mode === "preview" && requiresCaseBinding;
 	// Edit uses this same engine. It must not capture one-time defaults or query
 	// membership before Preview selects a record; the canvas can render without
 	// an active entry. Returning to Edit retains an already initialized entry.
 	const caseBindingReady =
 		!requiresCaseBinding ||
+		(Boolean(openedCases) && caseData !== undefined) ||
 		(severalCaseForm &&
 			(effectiveCaseIds?.length ?? 0) > 0 &&
 			!caseBindingReplaced) ||
@@ -1008,7 +1264,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			caseDataState.kind === "row" &&
 			caseDataState.row.case_id === effectiveCaseId);
 
-	const editable = isReady;
+	const editable = isReady && mayWriteCaseData;
 
 	/* What the worker typed into the case list's filter before choosing the
 	 * case, which the entry's session holds as `stringquery`. */
@@ -1019,38 +1275,72 @@ export function FormScreen({ screen }: FormScreenProps) {
 	/* The running session the entry starts from: its bound cases and the
 	 * menu's choices. The controller builds the entry's session map, which
 	 * the form reads as `session/data` and its links read after submit. */
+	const entrySupplies =
+		previewCaseTarget?.formUuid === formUuid
+			? previewCaseTarget.entrySupplies
+			: undefined;
+	const entryChoices =
+		previewCaseTarget?.formUuid === formUuid
+			? previewCaseTarget.entryChoices
+			: undefined;
 	const entrySession = useMemo(
 		() =>
 			appId === undefined || mode !== "preview"
 				? undefined
-				: {
-						appId,
-						boundCases: effectiveCases ?? [],
-						menuSelections: menuCaseSelections,
-						...(searchResultsSnapshot === undefined
-							? {}
-							: { searchResults: searchResultsSnapshot }),
-						...(caseListSearchText === undefined ? {} : { caseListSearchText }),
-					},
+				: draft
+					? {
+							appId,
+							boundCases: effectiveCases ?? [],
+							menuSelections: menuCaseSelections,
+							...resumedOpening?.entrySession,
+							openedEntryKey: draft.entryKey,
+							resumedCheckpoint: resumedOpening?.checkpoint,
+						}
+					: {
+							appId,
+							boundCases: effectiveCases ?? [],
+							heldEntryValues,
+							openedEntryKey: opening?.entry,
+							openingLookup: openedLookup,
+							searches,
+							entryChoices,
+							menuSelections: menuCaseSelections,
+							...(entrySupplies && { entrySupplies }),
+							...(searchResultsSnapshot === undefined
+								? {}
+								: { searchResults: searchResultsSnapshot }),
+							...(caseListSearchText === undefined
+								? {}
+								: { caseListSearchText }),
+						},
 		[
 			appId,
 			mode,
 			effectiveCases,
+			heldEntryValues,
+			opening?.entry,
+			draft,
+			resumedOpening,
+			openedLookup,
+			entryChoices,
 			menuCaseSelections,
+			searches,
 			searchResultsSnapshot,
 			caseListSearchText,
+			entrySupplies,
 		],
 	);
 	const controller = useFormEngine(
 		formUuid,
-		caseData,
-		carriedCaseDatabase,
-		searchAnswers,
-		caseBindingReady &&
-			searchResultsReady &&
-			!searchResultsRefused &&
-			searchDefaultsReady &&
-			searchDefaultsRefusal === undefined,
+		resumedOpening?.caseData ?? caseData,
+		resumedOpening?.caseDatabase ?? carriedCaseDatabase,
+		resumedOpening?.searchAnswers ?? searchAnswers,
+		resumedOpening !== undefined ||
+			(caseBindingReady &&
+				searchResultsReady &&
+				!searchResultsRefused &&
+				searchDefaultsReady &&
+				searchDefaultsRefusal === undefined),
 		entrySession,
 	);
 	const engineEntry = useEngineEntry();
@@ -1074,6 +1364,20 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const reloadLookupData = usePreviewLookupReload();
 	const entryKey =
 		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
+	// Polling starts at form entry. Changing the simulated phone affects the next entry.
+	const [sensor, setSensor] = useState<{
+		entryKey?: string;
+		fix?: DeviceLocation;
+	}>({});
+	if (sensor.entryKey !== entryKey) {
+		setSensor({
+			entryKey,
+			fix:
+				entryKey === undefined
+					? undefined
+					: session.getState().previewLocationFix,
+		});
+	}
 	const engineReady =
 		engineEntry.formUuid === formUuid &&
 		engineEntry.ready &&
@@ -1162,7 +1466,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		cases: effectiveCases,
 		formType: form?.type,
 		destination: postSubmitDestination,
-		moduleCaseType: mod?.caseType,
+		moduleCaseType: recordType,
 		links: form?.formLinks,
 		caseListRegistrationLaunch,
 	});
@@ -1177,19 +1481,24 @@ export function FormScreen({ screen }: FormScreenProps) {
 		cases: effectiveCases,
 		formType: form?.type,
 		destination: postSubmitDestination,
-		moduleCaseType: mod?.caseType,
+		moduleCaseType: recordType,
 		links: form?.formLinks,
 		caseListRegistrationLaunch,
 	};
 	useEffect(() => {
 		if (appId === undefined || entryKey === undefined) return;
 		return () => {
-			retireAttachmentEntry({
-				appId,
-				entryKey,
-			});
+			if (
+				!session
+					.getState()
+					.previewFormRecords.some(
+						(record) =>
+							record.kind === "incomplete" && record.entryKey === entryKey,
+					)
+			)
+				retireAttachmentEntry({ appId, entryKey });
 		};
-	}, [appId, entryKey]);
+	}, [appId, entryKey, session]);
 
 	useEffect(
 		() =>
@@ -1329,6 +1638,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 		| { readonly kind: "awaiting-entry"; readonly entryKey: string }
 	>({ kind: "idle" });
 	const clearInFlightRef = useRef(false);
+	const saveDraftInFlight = useRef(false);
+	const [savingDraft, setSavingDraft] = useState(false);
 	const clearRunning = clearState.kind !== "idle";
 	const repeatTopologySettling =
 		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
@@ -1340,7 +1651,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			form.formLinks !== undefined ||
 			postSubmitDestination !== undefined,
 		submitting: submitStatus.kind === "running",
-		clearing: clearRunning,
+		clearing: clearRunning || savingDraft,
 		entry: engineInitializing
 			? "initializing"
 			: engineRebuilding
@@ -1396,6 +1707,84 @@ export function FormScreen({ screen }: FormScreenProps) {
 	/* Capture imperatively at the final write boundary. Post-write routing keeps
 	 * that revision even if a collaborator edits while the action is in flight. */
 	const docApi = useBlueprintDocApi();
+
+	const saveDraft = async () => {
+		const state = session.getState();
+		if (
+			!appId ||
+			!entryKey ||
+			!form ||
+			saveDraftInFlight.current ||
+			!routeMatchesScreen ||
+			submitOffer.kind !== "offered" ||
+			platformRules.appHome !== "device-home"
+		)
+			return;
+		saveDraftInFlight.current = true;
+		setSavingDraft(true);
+		const run = state.previewSessionId;
+		const isCurrent = () =>
+			mountedRef.current &&
+			controller.entryKey === entryKey &&
+			session.getState().scopeEpoch === state.scopeEpoch &&
+			session.getState().previewSessionId === run;
+		try {
+			const active = document.activeElement;
+			if (
+				active instanceof HTMLElement &&
+				formBodyElRef.current?.contains(active)
+			)
+				active.blur();
+			const opened = await runFormAttachmentBarrier(
+				entryKey,
+				() => controller.snapshotAndroidSave(entryKey, "incomplete"),
+				{
+					classifySlot: ({ instancePath }) =>
+						controller.attachmentPathDisposition(instancePath),
+				},
+			);
+			if (!opened || !isCurrent()) return;
+			const target =
+				state.previewCaseTarget?.formUuid === formUuid
+					? state.previewCaseTarget
+					: undefined;
+			const descriptor =
+				opened.descriptor || effectiveCases?.at(-1)?.caseName || undefined;
+			if (
+				session.getState().savePreviewFormRecord(
+					{
+						kind: "incomplete",
+						appId,
+						entryKey,
+						formUuid,
+						moduleUuid,
+						name: localizedFormName ?? form?.name ?? "",
+						descriptor,
+						savedAt: Date.now(),
+						opened,
+						device: previewDevice,
+						target: { ...target, formUuid, cases: effectiveCases, opening },
+						menuSelections: state.previewMenuCaseSelections,
+						searchStates: state.previewSearchStates,
+						registration: state.previewCaseListRegistrationEntry,
+					},
+					run,
+				)
+			) {
+				navigate.goHome();
+				setPreviewAtDeviceHome(true);
+			}
+		} catch {
+			if (isCurrent())
+				setSubmitStatus({
+					kind: "error",
+					message: runtimeMessage(language.language, "saveIncompleteFailed"),
+				});
+		} finally {
+			saveDraftInFlight.current = false;
+			if (mountedRef.current) setSavingDraft(false);
+		}
+	};
 	const submissionIdentityKey = JSON.stringify([
 		scopeEpoch,
 		appId,
@@ -1464,20 +1853,35 @@ export function FormScreen({ screen }: FormScreenProps) {
 		(
 			dest: PostSubmitDestination,
 			submittedModuleUuid: Uuid | undefined,
-			submittedDoc: BlueprintDoc,
+			submitted: SubmittedContextSnapshot,
+			deviceCases: CaseDatabaseSnapshot = submitted.caseDatabase,
 		): void => {
+			const submittedDoc = submitted.doc;
 			/* Open a module with the selections its frame keeps: its own for
 			 * `module`, the parent's for `parentMenu`. */
 			const openModuleTask = (targetModuleUuid: Uuid): void => {
-				const selections = selectionsForModuleTask(
+				const selections = selectionsForStaticModuleTask(
 					submittedDoc,
 					targetModuleUuid,
 					session.getState().previewMenuCaseSelections,
+					submitted.entrySession?.values,
+					deviceCases,
 				);
 				setPreviewMenuCaseSelection(
 					targetModuleUuid,
 					selections[targetModuleUuid],
 				);
+				const prefix = moduleFirstMenuCases(submittedDoc, targetModuleUuid);
+				for (const root of prefix) {
+					setPreviewMenuCaseSelection(
+						root.moduleUuid,
+						selections[root.moduleUuid],
+					);
+					for (const recipient of root.destinationConsumers)
+						setPreviewMenuCaseSelection(recipient, selections[recipient]);
+				}
+				const home = firstMenuSelections(prefix, selections, platformRules);
+				if (home) showFrameFirstMenu(navigate, session, home);
 				navigate.openModule(targetModuleUuid);
 			};
 			switch (dest) {
@@ -1576,6 +1980,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 		readonly announceWrite: () => void;
 	}): Promise<void> => {
 		const { submitted, result, isCurrent, settleAttempt } = args;
+		/* The device now holds what the entry wrote until it syncs, a case it
+		 * closed among it; each later signed opening of this run reads it
+		 * (`formOpeningAction.ts`). */
+		const post = session.getState();
+		const listReturn = post.previewEntryPointLaunch?.listIconReturn;
+		if (
+			submitted.entryKey !== undefined &&
+			!result.receiptOutsideRun &&
+			submitted.run === post.previewSessionId
+		)
+			post.notePreviewSubmission(submitted.receiptRun, submitted.entryKey);
 		/* The searches as the submission found them, which a landing that
 		 * keys a menu's search to the registered case carries on. */
 		const searchesAtSubmit = session.getState().previewSearchStates;
@@ -1612,120 +2027,59 @@ export function FormScreen({ screen }: FormScreenProps) {
 			setPreviewCaseTarget(undefined);
 			letSubmittedSearchesGo();
 		};
-		/* Unless it explicitly returns to First menu, a no-matches registration
-		 * form returns to its module as the wire's
-		 * return frame does; the gate keeps such a form free of links, so
-		 * this is decided first. A host with menu forms lands on Results
-		 * showing the case it registered (the frame re-keys the search to
-		 * that case); a host without any has no frame beyond its command
-		 * (`caseListFormReturnFrames`), so the search context retires and the
-		 * module opens the way it first did: on Search, or on an automatic
-		 * Results when there is nothing to answer. */
-		const landOnResultsWithRegisteredCase = (
-			moduleUuid: Uuid,
-			caseId: string,
-		): void => {
-			announceWrite();
-			setPreviewSearchState(
-				moduleUuid,
-				menuFormUuidsOf(submitted.doc, moduleUuid).length > 0
-					? recordRegisteredCase(searchesAtSubmit[moduleUuid], caseId)
-					: undefined,
-			);
-			setPreviewSelectedCase(undefined);
-			setPreviewCaseTarget(undefined);
-			settleAttempt({ kind: "idle" });
+		if (listReturn && isCurrent()) {
 			forgetCompletedPages();
-			navigate.openCaseList(moduleUuid);
-		};
-		const submittedForm =
-			submitted.formUuid === undefined
-				? undefined
-				: submitted.doc.forms[submitted.formUuid];
-		const noMatchesRegistration =
-			submittedForm !== undefined &&
-			isCaseListRegistrationForm(submitted.doc, submitted.formUuid) &&
-			result.kind === "registration" &&
-			submitted.moduleUuid !== undefined
-				? { moduleUuid: submitted.moduleUuid, caseId: result.caseId }
-				: undefined;
-		if (noMatchesRegistration !== undefined) {
-			retireCompletedTask();
-			/* The return frame is pushed and opens like any other frame, so
-			 * what was pending stays only while the worker is on its path. */
-			if (submitted.formUuid !== undefined)
-				session.getState().setPreviewAfterSubmitStack(
-					completeAfterSubmitWithOwnFrame(
-						session.getState().previewAfterSubmitStack,
-						submittedEntryPath({
-							doc: submitted.doc,
-							moduleUuid: noMatchesRegistration.moduleUuid,
-							formUuid: submitted.formUuid,
-							caseIdsOf: (moduleUuid) =>
-								menuCaseSelections[moduleUuid]?.cases.map(
-									(choice) => choice.caseId,
-								) ?? [],
-						}),
-						caseListRegistrationPostSubmit(
-							submitted.doc,
-							submitted.formUuid,
-						) === "firstMenu"
-							? []
-							: afterSubmitPath(
-									submitted.doc,
-									{ moduleUuid: noMatchesRegistration.moduleUuid },
-									[],
-								),
-						platformRules.afterSubmitFrames,
-					),
-				);
-			// An explicitly authored First menu destination is HQ's empty root
-			// frame. It discards the scalar registration return rather than feeding
-			// that scalar into a host that may require a multiple-case selection.
-			if (
-				submitted.formUuid !== undefined &&
-				caseListRegistrationPostSubmit(submitted.doc, submitted.formUuid) ===
-					"firstMenu"
-			) {
-				announceWrite();
-				setPreviewSearchState(noMatchesRegistration.moduleUuid, undefined);
-				setPreviewSelectedCase(undefined);
-				setPreviewCaseTarget(undefined);
-				session.getState().setPreviewParentCaseRequest(undefined);
-				settleAttempt({ kind: "idle" });
-				forgetCompletedPages();
-				dispatchPostSubmit(
-					"firstMenu",
-					noMatchesRegistration.moduleUuid,
-					submitted.doc,
-				);
-				return;
-			}
-			landOnResultsWithRegisteredCase(
-				noMatchesRegistration.moduleUuid,
-				noMatchesRegistration.caseId,
-			);
+			announceWrite();
+			settleAttempt({ kind: "idle" });
+			session.setState({
+				...listReturn.state,
+				previewEntryPointLaunch: undefined,
+			});
+			navigate.replace(listReturn.location);
 			return;
 		}
-		/* A form a case list always offers, opened from that list's Register
-		 * action, returns where the list's frame lands, as the wire's return
-		 * frames do; opened any other way, or with its own after-submit in
-		 * force, it routes as any form does. The host's selection is the
-		 * created case where the frame carries it. */
+		/* The first form of an Android visit a deep link opened ends the
+		 * visit: Android resets the session and returns to the app that
+		 * opened the link before any after-submit or form link runs
+		 * (`SessionLaunchDelegate.kt::handleFormEntryResult` →
+		 * `exitFromExternalLaunch`), so Preview shows the phone's home
+		 * screen on a new session. */
+		if (session.getState().previewEntryPointVisit) {
+			retireCompletedTask();
+			announceWrite();
+			settleAttempt({ kind: "idle" });
+			forgetCompletedPages();
+			navigate.goHome();
+			setPreviewAtDeviceHome(true);
+			return;
+		}
+		/* Both list actions return through the frames for the host that
+		 * opened this entry. The form's own navigation takes precedence. */
+		const hostUuid = submitted.caseListRegistrationLaunch?.hostModuleUuid;
+		const createdDatum =
+			hostUuid && submitted.formUuid
+				? caseListActionCreatedDatum(
+						submitted.doc,
+						hostUuid,
+						submitted.formUuid,
+					)
+				: undefined;
+		const registeredCaseId =
+			createdDatum === undefined
+				? undefined
+				: submitted.entrySession?.data[createdDatum];
 		const createdCase =
-			result.kind === "registration" && submitted.caseListRegistrationLaunch
+			registeredCaseId && hostUuid
 				? registeredCaseOnDevice(
 						result.caseDatabasePatch,
-						result.caseId,
-						submitted.doc.modules[
-							submitted.caseListRegistrationLaunch.hostModuleUuid
-						]?.caseType,
+						registeredCaseId,
+						submitted.doc.modules[hostUuid]?.caseType,
 					)
 				: undefined;
 		const registrationLanding =
 			submitted.formUuid === undefined
 				? undefined
-				: alwaysOfferedRegistrationReturn(
+				: caseListActionReturn(
 						submitted.doc,
 						submitted.formUuid,
 						submitted.caseListRegistrationLaunch,
@@ -1746,6 +2100,25 @@ export function FormScreen({ screen }: FormScreenProps) {
 				hostModuleUuid,
 				submitted.doc.modules[hostModuleUuid]?.caseType ?? "",
 				createdCase,
+				submitted.moduleCaseType && submitted.cases
+					? { caseType: submitted.moduleCaseType, cases: submitted.cases }
+					: undefined,
+				(operationUuid, caseType) => {
+					const datumId = registrationLanding.createdSelections?.find(
+						(row) => row.operationUuid === operationUuid,
+					)?.datumId;
+					const caseId =
+						datumId === undefined
+							? undefined
+							: submitted.entrySession?.data[datumId];
+					return caseId === undefined
+						? undefined
+						: registeredCaseOnDevice(
+								result.caseDatabasePatch,
+								caseId,
+								caseType,
+							);
+				},
 			);
 			for (const moduleUuid of Object.keys(current))
 				if (next[moduleUuid] === undefined)
@@ -1757,14 +2130,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 			 * search now holds that case alone: its Results list it, or
 			 * nothing where the form created no case, and its forms read it
 			 * as what the search found. */
-			if (result.kind === "registration")
+			if (registeredCaseId !== undefined)
 				for (const moduleUuid of registrationLanding.newCaseSearchModuleUuids)
 					setPreviewSearchState(
 						moduleUuid,
 						recordRegisteredCase(
 							searchesAtSubmit[moduleUuid],
-							result.caseId,
+							registeredCaseId,
 							createdCase !== undefined,
+							registrationLanding.endsOnSearchOf !== moduleUuid,
 						),
 					);
 			setPreviewSelectedCase(undefined);
@@ -1800,8 +2174,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 				);
 			settleAttempt({ kind: "idle" });
 			forgetCompletedPages();
-			if (landingScreen.kind === "first-menu") navigate.goHome();
-			else navigate.openModule(landingScreen.moduleUuid);
+			const home = firstMenuSelections(
+				registrationLanding.firstMenuCases,
+				next,
+				platformRules,
+			);
+			if (home) showFrameFirstMenu(navigate, session, home);
+			if (landingScreen.kind !== "first-menu")
+				navigate.openModule(landingScreen.moduleUuid);
+			else if (!home) navigate.goHome();
 			return;
 		}
 		/* A form without destinations, with nothing pending, goes straight to
@@ -1820,7 +2201,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 			dispatchPostSubmit(
 				submitted.destination,
 				submitted.moduleUuid,
-				submitted.doc,
+				submitted,
+				result.caseDatabasePatch
+					? overlayCaseDatabasePatch(
+							submitted.caseDatabase,
+							result.caseDatabasePatch,
+						)
+					: submitted.caseDatabase,
 			);
 			return;
 		}
@@ -1947,6 +2334,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
+				routeMenuUuid: sourceModuleUuid,
 				session: previewSessionValues(entryIdentity, previewDevice),
 				usercase: postSubmissionUsercase,
 				/* The entry's own session map: the device's session does not
@@ -1959,6 +2347,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				),
 				caseDatabase: refreshedCaseDatabase,
 				lookupData: controller.previewLookupDataSnapshot,
+				...(submitted.entrySession?.searches === undefined
+					? {}
+					: { searches: submitted.entrySession.searches }),
 				...(submitted.entrySession?.searchResults === undefined
 					? {}
 					: { searchResults: submitted.entrySession.searchResults }),
@@ -2035,12 +2426,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 				const collections = collection === undefined ? [] : [collection];
 				const routeOnce = () =>
 					afterSubmitRoute({
+						sourceModuleUuid,
 						previousTask: () =>
 							resolvePreviousTask({
+								platform: previewDevice.platform,
 								doc,
 								formUuid: sourceFormUuid,
 								submittedCaseIds: resultCaseIds,
 								selections: menuCaseSelections,
+								...(entryChoices !== undefined && { entryChoices }),
 								caseDatabase: refreshedCaseDatabase,
 							}),
 						choice,
@@ -2146,7 +2540,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				announceWrite();
 				settleAttempt({ kind: "idle" });
 				forgetCompletedPages();
-				dispatchPostSubmit("app_home", sourceModuleUuid, submitted.doc);
+				dispatchPostSubmit("app_home", sourceModuleUuid, submitted);
 				return;
 			}
 			const { route } = next;
@@ -2199,7 +2593,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 								refreshedCaseDatabase,
 								route.carried.caseId,
 								reachableCaseTypes(
-									doc.modules[route.moduleUuid]?.caseType,
+									formEntryRecord(doc, route.formUuid).contentCaseType,
 									submitted.caseTypes,
 								),
 							)
@@ -2239,6 +2633,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 								projectedSelections,
 							)
 						: projectedSelections;
+				const home = firstMenuSelections(
+					linkedFirstMenuCases(route.caseSelections),
+					projectedSelections,
+					platformRules,
+				);
+				if (home) showFrameFirstMenu(navigate, session, home);
 				for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];
 					const next = nextSelections[selectedModuleUuid];
@@ -2281,9 +2681,21 @@ export function FormScreen({ screen }: FormScreenProps) {
 					);
 					settleAttempt({ kind: "idle" });
 					forgetCompletedPages();
-					if (next.kind === "home") navigate.goHome();
-					else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
-					else {
+					if (next.kind === "home") {
+						showFrameFirstMenu(navigate, session, route.task.selections);
+					} else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
+					else if (route.task.entryChoices.length > 0) {
+						/* A form that walks its own choices reopens at its next
+						 * list with the choices its preceding frame keeps, as a
+						 * link carries them. */
+						setPreviewCaseTarget({
+							formUuid: next.formUuid,
+							caseDatabase: refreshedCaseDatabase,
+							entryChoices: route.task.entryChoices,
+							openedByLink: true,
+						});
+						navigate.openForm(next.moduleUuid, next.formUuid);
+					} else {
 						setPreviewCaseTarget({
 							formUuid: next.formUuid,
 							caseDatabase: refreshedCaseDatabase,
@@ -2316,7 +2728,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 					dispatchPostSubmit(
 						route.destination,
 						submitted.moduleUuid,
-						submitted.doc,
+						submitted,
+						refreshedCaseDatabase,
 					);
 					return;
 				case "module":
@@ -2334,6 +2747,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 					setPreviewSelectedCase(undefined);
 					setPreviewCaseTarget({
 						formUuid: route.formUuid,
+						...carriedFormChoices(route.caseSelections),
 						openedByLink: true,
 						...(linkedCaseCollection !== undefined
 							? { cases: linkedCaseCollection.cases }
@@ -2447,9 +2861,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * as titled groups; Android pages a sectioned form one section at a time
 	 * and any other form one field-list group or question at a time. The hook
 	 * is inert in edit mode, where the canvas shows every page at once. */
-	const formIsSectioned = usePresentationFormIsSectioned(formUuid);
+	const formIsSectioned = usePresentationFormIsSectioned(contentUuid);
 	const paging = useFormPaging({
-		formUuid,
+		formUuid: contentUuid,
 		mode:
 			mode !== "preview" || platformRules.formScreens === "one-screen"
 				? "none"
@@ -2462,7 +2876,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 	/* On one screen no pager writes the remembered page, so the section in
 	 * view does, and a flip to edit mode opens on it. */
 	useScrolledSection({
-		formUuid,
+		formUuid: contentUuid,
 		enabled:
 			mode === "preview" &&
 			platformRules.formScreens === "one-screen" &&
@@ -2535,8 +2949,26 @@ export function FormScreen({ screen }: FormScreenProps) {
 		 * barrier, until the attempt settles. */
 		const attempt = ++submissionAttemptRef.current;
 		const attemptIsCurrent = () => submissionAttemptRef.current === attempt;
+		const leaveListAction = (message: string): boolean => {
+			const active = session.getState().previewEntryPointLaunch;
+			if (
+				!attemptIsCurrent() ||
+				!active?.listIconReturn ||
+				active !== start.previewEntryPointLaunch
+			)
+				return false;
+			showToast("error", "The form could not submit from the list", message);
+			session.setState({
+				...active.listIconReturn.state,
+				previewEntryPointLaunch: undefined,
+			});
+			navigate.replace(active.listIconReturn.location);
+			return true;
+		};
 		const settleAttempt = (status: SubmitStatus): void => {
-			if (attemptIsCurrent()) setSubmitStatus(status);
+			if (!attemptIsCurrent()) return;
+			if (status.kind === "error" && leaveListAction(status.message)) return;
+			setSubmitStatus(status);
 		};
 		/* Clear any prior error state up-front. Two reasons:
 		 *
@@ -2598,6 +3030,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 			settleAttempt({ kind: "idle" });
 			return;
 		}
+		const submittedRun = start.previewSessionId;
+		const launchTransition =
+			start.previewEntryPointLaunch?.receiptRunTransition;
+		const receiptRun = launchTransition?.to ?? submittedRun;
 		const submittedSnapshot = (doc: BlueprintDoc): SubmittedContextSnapshot => {
 			const submittedForm =
 				submittedBase.formUuid === undefined
@@ -2605,6 +3041,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 					: doc.forms[submittedBase.formUuid];
 			return {
 				...submittedBase,
+				run: submittedRun,
+				receiptRun,
 				formType: submittedForm?.type,
 				destination:
 					submittedBase.formUuid === undefined
@@ -2641,12 +3079,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 			return;
 		}
 		const submittedEntryKey = submitted.entryKey;
+		let savedDescriptor: string | undefined;
 		const isCurrent = () => {
 			const current = session.getState();
 			const latest = submissionContextRef.current;
 			return (
 				attemptIsCurrent() &&
 				current.scopeEpoch === submitted.scopeEpoch &&
+				current.previewSessionId === submitted.run &&
 				current.accessPhase === "authorized" &&
 				current.canEdit &&
 				latest.scopeEpoch === submitted.scopeEpoch &&
@@ -2770,8 +3210,60 @@ export function FormScreen({ screen }: FormScreenProps) {
 				 * `owner_id` stamped on every case this submission creates, so
 				 * dropping it here would quietly give a persona's work to the
 				 * signed-in member while every read still looked persona-scoped. */
+				const recordFix =
+					platformRules.automaticLocation &&
+					sensor.entryKey === submittedEntryKey &&
+					sensor.fix !== undefined &&
+					capturesDeviceLocation(
+						finalDoc,
+						finalDoc.forms[
+							formContentUuid(finalDoc, mutation.formUuid as Uuid)
+						],
+					);
+				if (
+					platformRules.appHome === "device-home" &&
+					(showSavedForms || draft)
+				) {
+					const saved = await controller.snapshotAndroidSave(
+						submittedEntryKey,
+						"completed",
+					);
+					if (!saved || !isCurrent()) return "stale";
+					savedDescriptor = saved.descriptor;
+				}
+				let receiptTransition = launchTransition;
+				if (draft && opening && opening.binding.run !== submitted.run) {
+					const resumed = await authorizeSavedFormReceiptRun(
+						{
+							app: submittedAppId,
+							module: opening.binding.module,
+							form: mutation.formUuid as Uuid,
+							run: opening.binding.run,
+							entry: opening.entry,
+							blueprintDigest: finalBlueprintDigest,
+							persona: submitted.personaUuid as Uuid | undefined,
+							previous: opening.binding.evidence,
+							restore: true,
+							resumeInto: submitted.run,
+						},
+						previewDevice,
+					);
+					if (!isCurrent()) return "stale";
+					if (!resumed)
+						return {
+							kind: "error",
+							message:
+								"This saved form could not reconnect. Open it again to try submitting.",
+						} as const;
+					receiptTransition = resumed;
+				}
 				return await submitFormAction(
-					mutation,
+					{
+						...mutation,
+						...(entrySupplies && { entrySupplies }),
+						...(opening && { formOpening: opening.binding }),
+						...(recordFix && { locationFix: sensor.fix }),
+					},
 					submittedAppId,
 					finalBlueprintDigest,
 					viewerTimeZone(),
@@ -2780,6 +3272,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 					 * is resolved among the ones the form read. */
 					submitted.caseDatabase.locations?.map((place) => place.id),
 					previewDevice,
+					submitted.caseDatabase.workerGroups?.length === 1
+						? submitted.caseDatabase.workerGroups[0].id
+						: undefined,
+					submitted.run,
+					receiptTransition,
 				);
 			};
 			const result = await runFormAttachmentBarrier(
@@ -2847,11 +3344,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 							? "module"
 							: submitted.destination,
 					submitted.moduleUuid,
-					submitted.doc,
+					submitted,
 				);
 				return;
 			}
 			if (result === "invalid") {
+				if (
+					leaveListAction(
+						"This form needs a valid answer before it can submit automatically. You can check its required answers and starting values.",
+					)
+				)
+					return;
 				settleAttempt({ kind: "idle" });
 				if (
 					validation?.kind !== "invalid" ||
@@ -2871,6 +3374,32 @@ export function FormScreen({ screen }: FormScreenProps) {
 				result.kind === "close" ||
 				result.kind === "survey"
 			) {
+				session
+					.getState()
+					.setPreviewSubmissionLocation(result.submissionLocation);
+				if (result.activities?.length)
+					onSubmittedActivities?.(result.activities);
+				if (platformRules.appHome === "device-home" && showSavedForms) {
+					const current = session.getState();
+					current.savePreviewFormRecord(
+						{
+							kind: "submitted",
+							appId: submittedAppId,
+							entryKey: submittedEntryKey,
+							formUuid,
+							moduleUuid,
+							name: localizedFormName ?? form?.name ?? "",
+							descriptor:
+								savedDescriptor ||
+								submitted.cases?.at(-1)?.caseName ||
+								undefined,
+							savedAt: Date.now(),
+						},
+						submittedRun,
+					);
+				} else if (draft) {
+					session.getState().removePreviewFormRecord(submittedEntryKey);
+				}
 				await dispatchAfterSubmit({
 					submitted: {
 						...submitted,
@@ -2989,6 +3518,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 				if (appId !== undefined) {
 					retireAttachmentEntry({ appId, entryKey });
 				}
+				if (onReopen) {
+					controller.deactivate();
+					onReopen();
+					settleClear();
+					return;
+				}
 				const nextEntryKey = await controller.restartActiveEntryAsync();
 				if (nextEntryKey === undefined) {
 					settleClear();
@@ -3002,8 +3537,41 @@ export function FormScreen({ screen }: FormScreenProps) {
 				throw error;
 			}
 		},
-		[appId, controller, entryKey, session, showFirstPage, submitStatus.kind],
+		[
+			appId,
+			controller,
+			entryKey,
+			session,
+			showFirstPage,
+			submitStatus.kind,
+			onReopen,
+		],
 	);
+
+	// The same readiness, access and authoritative submission as the worker's Submit button.
+	const automaticEntry = useRef<string | undefined>(undefined);
+	const submitOnOpen = useEffectEvent(handleSubmit);
+	useEffect(() => {
+		const next = automaticSubmissionEntry({
+			active: mode === "preview" && routeMatchesScreen && loc.kind === "form",
+			enabled: Boolean(form?.automaticSubmissionText),
+			platformAllows: platformRules.webAppsFormPragmas,
+			offered: submitOffer.kind,
+			entry: entryKey,
+			attempted: automaticEntry.current,
+		});
+		if (!next) return;
+		automaticEntry.current = next;
+		void submitOnOpen();
+	}, [
+		entryKey,
+		form?.automaticSubmissionText,
+		loc.kind,
+		mode,
+		platformRules.webAppsFormPragmas,
+		routeMatchesScreen,
+		submitOffer.kind,
+	]);
 
 	// A fresh entry waits for its selected record and ancestor preloads before
 	// running one-time defaults and query snapshots. An existing entry can
@@ -3069,6 +3637,79 @@ export function FormScreen({ screen }: FormScreenProps) {
 	}, [cancelPendingFocus, focusRequest, formFrozen]);
 
 	if (!form || !formUuid || !moduleUuid) return null;
+	// Naming, translation and the entry’s menu and workflow settings apply to each entry.
+	const canEdit = mode === "edit" && editable;
+	const formHeader = (
+		<div
+			data-form-header
+			className="px-6 pt-5 pb-4 border-b border-pv-input-border"
+		>
+			<div className="flex items-center gap-2">
+				<FormTypeButton
+					moduleUuid={moduleUuid}
+					formUuid={formUuid}
+					editable={canEdit && !form.shadowOf}
+				/>
+				{canEdit ? (
+					<EditableTitle
+						value={localizedFormName ?? form.name}
+						ariaLabel="Form name"
+						/* Forward the gated dispatch's outcome: a refused rename
+						 * keeps the editor open with the draft and surfaces the
+						 * finding inline; the saved checkmark only fires on a
+						 * committed rename. */
+						onSave={(name) =>
+							formUuid
+								? language.isSource
+									? inline.updateForm(formUuid, { name })
+									: formNameEditor.saveTarget(name)
+								: undefined
+						}
+					/>
+				) : (
+					<EditableTitle
+						value={localizedFormName ?? form.name}
+						readOnly
+						ariaLabel="Form name"
+					/>
+				)}
+				{canEdit && (
+					<FormSettingsButton moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
+			</div>
+		</div>
+	);
+	if (mode === "edit" && form.shadowOf) {
+		const parentUuid = form.shadowOf.form;
+		const parent = menuSource.doc.forms[parentUuid];
+		const owner = menuSource.doc.moduleOrder.find((menu) =>
+			menuSource.doc.formOrder[menu]?.includes(parentUuid),
+		);
+		if (parent && owner)
+			return (
+				<section className="mx-auto max-w-lg space-y-4 p-6">
+					{formHeader}
+					<p className="text-sm text-nova-text-muted">
+						This entry opens the questions in “{parent.name}”. Changes to those
+						questions apply everywhere the form opens.
+					</p>
+					<button
+						type="button"
+						className={FORM_PRIMARY_ACTION_CLS}
+						onClick={() => navigate.openForm(owner, parent.uuid)}
+					>
+						Open shared questions
+					</button>
+					<button
+						type="button"
+						className={FORM_PRIMARY_ACTION_CLS}
+						onClick={() => navigate.openFormOperations(moduleUuid, formUuid)}
+					>
+						{canEdit ? "Edit opening choices" : "View opening choices"}
+					</button>
+				</section>
+			);
+	}
 
 	/* A fault here means Nova admitted a document its own runtime could not
 	 * execute. It is an internal invariant breach, never an editable invalid
@@ -3263,7 +3904,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 			lookupWait.status === "error"
 				? {
 						title: "Data tables couldn't load",
-						body: "This form reads a data table that didn't load. You can try again.",
+						body:
+							(lookupStatus.kind === "error"
+								? lookupStatus.message
+								: undefined) ??
+							"This form reads a data table that didn't load. You can try again.",
 					}
 				: lookupWait.status === "unavailable"
 					? {
@@ -3472,49 +4117,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 		);
 	}
 
-	const canEdit = mode === "edit" && editable;
-
 	const formBody = (
 		<>
 			{/* `data-form-header` is queried by `InlineTextEditor` as the clamp floor for the floating label toolbar, preserve the attribute if this block is refactored. */}
-			<div
-				data-form-header
-				className="px-6 pt-5 pb-4 border-b border-pv-input-border"
-			>
-				<div className="flex items-center gap-2">
-					<FormTypeButton
-						moduleUuid={moduleUuid}
-						formUuid={formUuid}
-						editable={canEdit}
-					/>
-					{canEdit ? (
-						<EditableTitle
-							value={localizedFormName ?? form.name}
-							ariaLabel="Form name"
-							/* Forward the gated dispatch's outcome: a refused rename
-							 * keeps the editor open with the draft and surfaces the
-							 * finding inline; the saved checkmark only fires on a
-							 * committed rename. */
-							onSave={(name) =>
-								formUuid
-									? language.isSource
-										? inline.updateForm(formUuid, { name })
-										: formNameEditor.saveTarget(name)
-									: undefined
-							}
-						/>
-					) : (
-						<EditableTitle
-							value={localizedFormName ?? form.name}
-							readOnly
-							ariaLabel="Form name"
-						/>
-					)}
-					{canEdit && (
-						<FormSettingsButton moduleUuid={moduleUuid} formUuid={formUuid} />
-					)}
-				</div>
-			</div>
+			{formHeader}
 			{runtimeFault !== undefined ? (
 				<div
 					role="alert"
@@ -3577,6 +4183,32 @@ export function FormScreen({ screen }: FormScreenProps) {
 				</div>
 			) : null}
 
+			{mode === "preview" && opening?.activityNotice ? (
+				<div
+					role="status"
+					data-form-activity-notice
+					className="mx-6 mt-4 space-y-1 rounded-lg border border-pv-input-border bg-pv-surface px-3 py-2 text-sm text-nova-text-secondary"
+				>
+					<p>
+						{runtimeMessage(
+							language.language,
+							opening.activityNotice.kind === "opened"
+								? "formActivityOpened"
+								: "formActivitySubmitted",
+							{
+								worker: opening.activityNotice.workerName,
+								record:
+									opening.activityNotice.title ??
+									runtimeMessage(language.language, "formActivitySameRecord"),
+							},
+						)}
+					</p>
+					{opening.activityNotice.dataMayHaveChanged ? (
+						<p>{runtimeMessage(language.language, "formActivityStale")}</p>
+					) : null}
+				</div>
+			) : null}
+
 			{/* Unified `pt-4` for flipbook parity: edit-mode `insertion(0)` row + live-mode `pt-6` both land the first field at Y = 40px so toggling modes never shifts reading position. Bottom symmetric via `insertion(N+1)` in edit / last field's `mb-6` in live. */}
 			<div
 				ref={formBodyRef}
@@ -3594,74 +4226,82 @@ export function FormScreen({ screen }: FormScreenProps) {
 				onKeyDownCapture={blockFrozenKey}
 				onPointerDownCapture={blockFrozenInteraction}
 			>
-				<fieldset
-					key={`${entryKey ?? "inactive"}:${clearRevision}`}
-					disabled={formFrozen}
-					className="contents"
+				<AdvanceOnChoiceContext.Provider
+					value={
+						paging.enabled && !paging.isLast && !formFrozen
+							? paging.goNext
+							: undefined
+					}
 				>
-					{(mode === "preview" ? presentationHasFields : hasFields) ? (
-						engineInitializing ? (
-							<div
-								role="status"
-								className="flex items-center justify-center gap-2 py-12 text-sm text-nova-text-muted"
-							>
-								<Icon
-									icon={tablerLoader2}
-									width="18"
-									className="animate-spin"
-								/>
-								{runtimeMessage(language.language, "formGettingReady")}
-							</div>
-						) : /* Clear form intentionally remounts uncontrolled browser controls.
-						 * A transient access refresh only suspends authority: keeping this
-						 * fieldset mounted preserves focus, File inputs, signature ink,
-						 * and other browser-owned drafts for the same app/form/worker. A
-						 * confirmed app/form/Project/worker boundary rotates the entry
-						 * key and retires browser-local continuations with it. */
-						paging.enabled ? (
-							paging.current !== undefined ? (
-								paging.mode === "sections" || formUuid === undefined ? (
-									<SectionPage
-										key={paging.current.uuid}
-										page={paging.current}
-										index={paging.index}
-										count={paging.count}
-										takeFocusOnMount={paging.takeFocusOnMount}
+					<fieldset
+						key={`${entryKey ?? "inactive"}:${clearRevision}`}
+						disabled={formFrozen}
+						className="contents"
+					>
+						{(mode === "preview" ? presentationHasFields : hasFields) ? (
+							engineInitializing ? (
+								<div
+									role="status"
+									className="flex items-center justify-center gap-2 py-12 text-sm text-nova-text-muted"
+								>
+									<Icon
+										icon={tablerLoader2}
+										width="18"
+										className="animate-spin"
 									/>
+									{runtimeMessage(language.language, "formGettingReady")}
+								</div>
+							) : /* Clear form intentionally remounts uncontrolled browser controls.
+							 * A transient access refresh only suspends authority: keeping this
+							 * fieldset mounted preserves focus, File inputs, signature ink,
+							 * and other browser-owned drafts for the same app/form/worker. A
+							 * confirmed app/form/Project/worker boundary rotates the entry
+							 * key and retires browser-local continuations with it. */
+							paging.enabled ? (
+								paging.current !== undefined ? (
+									paging.mode === "sections" || formUuid === undefined ? (
+										<SectionPage
+											key={paging.current.uuid}
+											page={paging.current}
+											index={paging.index}
+											count={paging.count}
+											takeFocusOnMount={paging.takeFocusOnMount}
+										/>
+									) : (
+										<ScreenPage
+											key={paging.current.path}
+											formUuid={contentUuid ?? formUuid}
+											page={paging.current}
+											index={paging.index}
+											takeFocusOnMount={paging.takeFocusOnMount}
+										/>
+									)
 								) : (
-									<ScreenPage
-										key={paging.current.path}
-										formUuid={formUuid}
-										page={paging.current}
-										index={paging.index}
-										takeFocusOnMount={paging.takeFocusOnMount}
-									/>
+									<div className="text-center text-nova-text-muted py-8">
+										{paging.mode === "sections"
+											? "Nothing to answer right now. Every section is empty or hidden by a display condition."
+											: "Nothing to answer right now. Every question is hidden by a display condition."}
+									</div>
 								)
 							) : (
-								<div className="text-center text-nova-text-muted py-8">
-									{paging.mode === "sections"
-										? "Nothing to answer right now. Every section is empty or hidden by a display condition."
-										: "Nothing to answer right now. Every question is hidden by a display condition."}
-								</div>
+								<FormRenderer parentEntityId={contentUuid ?? formUuid} />
 							)
 						) : (
-							<FormRenderer parentEntityId={formUuid} />
-						)
-					) : (
-						<div className="text-center text-nova-text-muted py-8">
-							This form has no fields.
-						</div>
-					)}
-					{mode === "preview" &&
-					appId !== undefined &&
-					engineReady &&
-					entryKey !== undefined ? (
-						<AttachmentInvariantRecoveryPanel
-							appId={appId}
-							entryKey={entryKey}
-						/>
-					) : null}
-				</fieldset>
+							<div className="text-center text-nova-text-muted py-8">
+								This form has no fields.
+							</div>
+						)}
+						{mode === "preview" &&
+						appId !== undefined &&
+						engineReady &&
+						entryKey !== undefined ? (
+							<AttachmentInvariantRecoveryPanel
+								appId={appId}
+								entryKey={entryKey}
+							/>
+						) : null}
+					</fieldset>
+				</AdvanceOnChoiceContext.Provider>
 			</div>
 
 			{/* Hidden in design mode where it's non-functional. The form above
@@ -3740,12 +4380,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 												aria-hidden="true"
 											/>
 										)}
-										{runtimeMessage(
-											language.language,
-											submitStatus.kind === "running"
-												? "submitting"
-												: platformRules.submitLabel,
-										)}
+										{submitStatus.kind === "running"
+											? runtimeMessage(language.language, "submitting")
+											: platformRules.submitLabel !== "submit"
+												? runtimeMessage(
+														language.language,
+														platformRules.submitLabel,
+													)
+												: (submitWording ??
+													(form.submitLabel !== undefined
+														? (submitLabel ?? "Submit")
+														: runtimeMessage(language.language, "submit")))}
 									</button>
 								) : (
 									<button
@@ -3764,12 +4409,27 @@ export function FormScreen({ screen }: FormScreenProps) {
 									</button>
 								)}
 							</div>
+							{platformRules.appHome === "device-home" &&
+								showIncompleteForms && (
+									<button
+										type="button"
+										onClick={() => void saveDraft()}
+										disabled={savingDraft || submitOffer.kind !== "offered"}
+										className={FORM_QUIET_ACTION_CLS}
+									>
+										{runtimeMessage(
+											language.language,
+											savingDraft ? "savingForm" : "saveForLater",
+										)}
+									</button>
+								)}
 							<button
 								type="button"
 								onClick={handleClear}
 								disabled={
 									submitStatus.kind === "running" ||
 									clearRunning ||
+									savingDraft ||
 									!mayWriteCaseData
 								}
 								className={FORM_QUIET_ACTION_CLS}

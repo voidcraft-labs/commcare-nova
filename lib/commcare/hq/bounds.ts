@@ -44,6 +44,9 @@ export const HQ_APP_LIST_MAX_BYTES = 4 * MiB;
 /** The lookup table list asked for one row, to learn API access. */
 export const HQ_API_ACCESS_PROBE_MAX_BYTES = 1 * MiB;
 
+/** A filtered empty device-log list confirming HQ data edit authority. */
+export const HQ_LOOKUP_EDIT_PROBE_MAX_BYTES = 4 * KiB;
+
 /**
  * The application resource and the app source for a status check or a
  * publish: the server's memory against a body of any length, not fitted to an
@@ -142,10 +145,18 @@ export const HQ_LOOKUP_TABLE_LIST_MAX_BYTES = 16 * MiB;
 export const HQ_LOOKUP_TABLE_LIST_MAX_ROWS = 20_000;
 
 /**
- * `FixtureResource` filtered to one table: its rows, each repeating its
- * fields' names. A table past it is a table past Nova's caps, whatever its
- * rows hold.
+ * `FixtureResource` filtered to one table: the rows one interactive read
+ * takes inline (a bring-in, a refresh from a table's page, a publish's
+ * re-read). A table whose first page names more is no larger than Nova
+ * holds: the read stops there, and a Project data refresh reads it in pages
+ * into a staged generation (`lib/deployment/managedInventory.ts`).
  */
+export const HQ_LOOKUP_INLINE_READ_MAX_ROWS = 5_000;
+/** The selected definition, an individual streamed page and one rich row detail.
+ * A job may read many pages. None can use more than its remaining job budget. */
+export const HQ_LOOKUP_DEFINITION_MAX_BYTES = 2 * MiB;
+export const HQ_LOOKUP_PAGE_MAX_BYTES = 64 * MiB;
+export const HQ_LOOKUP_DETAIL_MAX_BYTES = 64 * MiB;
 export const HQ_LOOKUP_TABLE_ROWS_MAX_BYTES = 64 * MiB;
 
 /**
@@ -204,3 +215,8 @@ export const HQ_WORKER_WRITE_ACK_MAX_BYTES = 1 * MiB;
  * kind's limit (`lib/domain/multimedia.ts`), which is each file's own bound.
  */
 export const HQ_MEDIA_IN_FLIGHT_MAX_BYTES = 64 * MiB;
+
+/** Lookup supplements retain only one table from a worker's restore, under an
+ * independent work bound for the entire streamed response. */
+export const HQ_LOOKUP_RESTORE_WORK_BYTES = 128 * MiB;
+export const HQ_LOOKUP_PROJECTION_BYTES = 16 * MiB;

@@ -1,0 +1,178 @@
+[
+	{
+		"tag": "meeting.1",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "site.id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "label.1",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"label.1": [
+						{
+							"value": "Garden",
+							"properties": {}
+						}
+					],
+					"site.id": [
+						{
+							"value": "garden",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"label.1": [
+						{
+							"value": "Library",
+							"properties": {}
+						}
+					],
+					"site.id": [
+						{
+							"value": "library",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "zones",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "clé",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "région",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "名前",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "code.1",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "zone.name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"clé": [
+						{
+							"value": "upland",
+							"properties": {}
+						}
+					],
+					"code": [
+						{
+							"value": "upland",
+							"properties": {}
+						}
+					],
+					"code.1": [
+						{
+							"value": "on",
+							"properties": {}
+						}
+					],
+					"名前": [
+						{
+							"value": "upper",
+							"properties": {}
+						}
+					],
+					"région": [
+						{
+							"value": "Upland",
+							"properties": {}
+						}
+					],
+					"zone.name": [
+						{
+							"value": "Upper zone",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"clé": [
+						{
+							"value": "lowland",
+							"properties": {}
+						}
+					],
+					"code": [
+						{
+							"value": "lowland",
+							"properties": {}
+						}
+					],
+					"code.1": [
+						{
+							"value": "off",
+							"properties": {}
+						}
+					],
+					"名前": [
+						{
+							"value": "lower",
+							"properties": {}
+						}
+					],
+					"région": [
+						{
+							"value": "Lowland",
+							"properties": {}
+						}
+					],
+					"zone.name": [
+						{
+							"value": "Lower zone",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	}
+]

@@ -30,7 +30,7 @@
  * read an untyped property as text; inference and writer agreement do not.
  * Data tables are no document fact, so inference reads none.
  *
- * **What Core holds.** A Hidden Value's bind is `xsd:dateTime` when its write
+ * **What Core holds.** A Hidden Value can declare its answer type. Its automatic bind is `xsd:dateTime` when its write
  * destination is a date and time (`fieldValueType`), else `xsd:string`. A
  * `calculate` is stored by `Recalculate.java::wrapData`: text stays
  * `StringData` under any bind, a number becomes `IntegerData`/`DecimalData`
@@ -45,6 +45,9 @@
  *
  * Memoised per document reference; never persisted.
  */
+
+import { entryOperationCaseType } from "../advancedEntryDatums";
+import { caseTypesWithRelations } from "../appCaseRelations";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -59,15 +62,19 @@ import {
 import { caseDataTypeForFieldKind } from "../caseTypes";
 import { formOfField } from "../fieldForm";
 import type { Field, HiddenField } from "../fields";
-import { fieldValueType } from "../fieldValueType";
-import { orderedCaseOperations } from "../forms";
+import { fieldValueType, keepsHiddenClock } from "../fieldValueType";
+import { openingAssignmentPropertyType } from "../formOpeningAssignments";
+import { orderedCaseOperations, RESERVED_CASE_OPERATION_TYPES } from "../forms";
 import { moduleUuidOfForm } from "../postSubmit";
 import { proseText } from "../prose";
 import {
+	CASE_LOCATION_PROPERTY,
 	isStandardCaseListProperty,
+	isWritableStandardCaseProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
 } from "../standardCaseProperties";
+import { USERCASE_CASE_TYPE, usercaseCaseType } from "../usercase";
 import type { Uuid } from "../uuid";
 import {
 	type ExpressionFacts,
@@ -78,7 +85,12 @@ import {
 } from "./context";
 import { isIsoDateText } from "./datePattern";
 import { resolveRelationDestination } from "./relationDestination";
-import { agreedStorageType, isWriteAssignable, joinsAsText } from "./ruleSets";
+import {
+	agreedStorageType,
+	isAnswerWriteAssignable,
+	isWriteAssignable,
+	joinsAsText,
+} from "./ruleSets";
 import {
 	ANY_TYPE,
 	type CheckPath,
@@ -93,7 +105,7 @@ import {
 import { type Expression, isExpression } from "./types";
 
 /** Which slot a Hidden Value's value comes from; it has at most one
- * (`HIDDEN_VALUE_BOTH_SOURCES` refuses both). */
+ * (the calculation supplies the eventual answer when both are present). */
 export type HiddenValueSource = "calculate" | "default_value";
 
 /** One value a Hidden Value can end with: a branch of `if`, `switch` or
@@ -381,6 +393,50 @@ export function inferenceFingerprint(doc: PersistableDoc): string {
 	return fingerprint;
 }
 
+/** HQ's untyped basic update leaf wraps the typed source's instant as a day. */
+function directHiddenDayWriter(
+	doc: PersistableDoc,
+	writer: HiddenOpinion,
+): boolean {
+	const field = doc.fields[writer.field];
+	if (
+		!keepsHiddenClock(field) ||
+		RESERVED_CASE_OPERATION_TYPES.has(writer.caseType) ||
+		isStandardCaseListProperty(writer.property) ||
+		isWritableStandardCaseProperty(writer.property) ||
+		["category", "hq_user_id", "state"].includes(writer.property) ||
+		!doc.caseTypes
+			?.find(({ name }) => name === writer.caseType)
+			?.properties.some(
+				({ name, data_type }) =>
+					name === writer.property && data_type === "date",
+			)
+	)
+		return false;
+	const form = writer.form === undefined ? undefined : doc.forms[writer.form];
+	if (
+		form?.type !== "followup" ||
+		form.openingAssignments?.some(({ field }) => field === writer.field)
+	)
+		return false;
+	const writes = (form.caseOperations ?? []).flatMap((operation) =>
+		(operation.writes ?? [])
+			.filter(({ value }) => writerOfValue(doc, value)?.uuid === writer.field)
+			.map((write) => ({ operation, write })),
+	);
+	if (writes.length !== 1) return false;
+	const [{ operation, write }] = writes;
+	return (
+		operation.action === "own" &&
+		(operation.placement === undefined ||
+			operation.placement.kind === "basic") &&
+		write.property === writer.property &&
+		write.via === undefined &&
+		write.condition === undefined &&
+		write.onlyIfChanged !== true
+	);
+}
+
 /**
  * Each Hidden Value writer that disagrees with the property it writes, with
  * the outputs that disagree. Where the property's type is one every result
@@ -403,6 +459,8 @@ export function hiddenWriterVerdicts(
 		const findings: HiddenWriterFinding[] = [];
 		if (property.type !== undefined) {
 			const fitted = FITTED_PROPERTY_TYPES.has(property.type);
+			const writesDay =
+				property.type === "date" && directHiddenDayWriter(doc, writer);
 			if (
 				!fitted &&
 				writer.wholeType !== undefined &&
@@ -413,6 +471,7 @@ export function hiddenWriterVerdicts(
 				if (
 					fitted &&
 					output.type !== undefined &&
+					!(writesDay && output.type === "datetime") &&
 					!isWriteAssignable(output.type, property.type, output.isoDateText)
 				)
 					findings.push({
@@ -513,6 +572,47 @@ function concreteType(
 		: data;
 }
 
+/** The value reaching a case writer after a hidden assignment. Starting
+ * answers cast into their declared type. Calculations keep the expression's
+ * own class, except for the numeric and boolean coercions in wrapData. */
+function hiddenAssignmentType(
+	site: HiddenWriterSite,
+	node: NodeType | undefined,
+	forStorage: boolean,
+): CasePropertyDataType | undefined {
+	const bind = site.field.answerType;
+	const value = concreteType(node);
+	if (bind === undefined) return value;
+	if (bind === "boolean") return undefined;
+	if (site.source === "default_value") {
+		// An untyped starting answer is cast to nothing: Core holds it as
+		// UncastData (`AnswerDataFactory.templateByDataType`, DATATYPE_NULL),
+		// the same text the automatic `xsd:string` holds as StringData, so
+		// it keeps the value's own type as the automatic one does.
+		if (bind === "untyped") return value;
+		if (bind === "long") return forStorage ? "text" : "decimal";
+		if (bind === "file" || bind === "barcode") return "text";
+		return bind;
+	}
+	const held = scalarHeldOf(node);
+	if (held === "number" && bind === "int") return "int";
+	// A property’s whole number fits int4. A 64-bit answer is a number
+	// in expressions, and its submitted digits fit a text property.
+	if (held === "number" && bind === "long")
+		return forStorage ? "text" : "decimal";
+	if (held === "date") {
+		if (bind === "time" || bind === "datetime") return bind;
+		if (bind === "single_select" || bind === "multi_select") return bind;
+		return "date";
+	}
+	if (
+		held === "string" &&
+		(bind === "single_select" || bind === "multi_select")
+	)
+		return bind;
+	return value;
+}
+
 /** A Hidden Value writer's types for its property: its agreed type, or each
  * type its results name where they agree on none. */
 function hiddenWriterTypes(
@@ -539,7 +639,9 @@ function writesIsoDateText(expression: Expression): boolean {
 	return every;
 }
 
-function isBlankLiteral(expression: Expression): boolean {
+/** Whether an expression is the blank text literal `''`, with no declared
+ * type: the one starting value an attachment question keeps. */
+export function isBlankLiteral(expression: Expression): boolean {
 	return (
 		expression.kind === "term" &&
 		expression.term.kind === "literal" &&
@@ -599,6 +701,8 @@ const propertyKey = (caseType: string, property: string): string =>
 	`${caseType}\u0000${property}`;
 
 class Inference {
+	private readonly relationTypes: readonly CaseType[];
+	private readonly declaredTypes: readonly CaseType[];
 	private readonly untyped: ReturnType<typeof untypedExpressionFacts>;
 	private readonly fieldWriters: readonly FieldWriter[];
 	private readonly hiddenSites: readonly HiddenWriterSite[];
@@ -644,14 +748,33 @@ class Inference {
 	>();
 
 	constructor(private readonly doc: BlueprintDoc) {
+		this.relationTypes = caseTypesWithRelations(doc);
 		this.untyped = untypedExpressionFacts(doc);
+		const declared = this.relationTypes;
+		this.declaredTypes = Object.values(doc.modules).some(
+			(menu) => menu.caseType === USERCASE_CASE_TYPE,
+		)
+			? [
+					...declared.filter((type) => type.name !== USERCASE_CASE_TYPE),
+					usercaseCaseType(doc),
+				]
+			: declared;
 		const fieldWriters: FieldWriter[] = [];
 		const hiddenWrites = new Map<
 			Uuid,
 			{ readonly caseType: string; readonly property: string }
 		>();
 		const operationWrites: OperationWrite[] = [];
-		for (const [formUuid, form] of Object.entries(doc.forms)) {
+		// Process ordinary content first so a replacement writer cannot change the
+		// question's bind on the one XForm all of its entries share.
+		const forms = Object.values(doc.forms);
+		for (const entry of [
+			...forms.filter((form) => !form.shadowOf),
+			...forms.filter((form) => form.shadowOf),
+		]) {
+			const form = entry.shadowOf ? doc.forms[entry.shadowOf.form] : entry;
+			if (!form || form.shadowOf) continue;
+			const formUuid = form.uuid;
 			const moduleUuid = moduleUuidOfForm(doc, formUuid as Uuid);
 			const currentCaseType =
 				moduleUuid === undefined
@@ -661,8 +784,16 @@ class Inference {
 			for (const operation of orderedCaseOperations(form)) {
 				// The form's own change has no stored case type: it changes the
 				// case of the form's module.
-				const operationType =
+				const originalType =
 					operation.retype ?? operation.caseType ?? currentCaseType;
+				const operationType = entry.shadowOf
+					? (operation.retype ??
+						entryOperationCaseType(doc, entry.uuid, operation))
+					: originalType;
+				if (entry.shadowOf && operationType === originalType) {
+					if (operation.action === "create") operationIds.add(operation.uuid);
+					continue;
+				}
 				if (operationType === undefined) continue;
 				const writes: {
 					readonly property: string;
@@ -688,15 +819,27 @@ class Inference {
 							: resolveRelationDestination(
 									{ kind: "ancestor", via: write.via },
 									operationType,
-									doc.caseTypes ?? [],
+									this.relationTypes,
 								);
 					if (!destination.ok) continue;
-					writes.push({
-						property: write.property,
-						value: write.value,
-						caseType: destination.caseType,
-						name: false,
-					});
+					// The owner of a case above is its owner, as the operation's
+					// own owner facet is, never a property of its type; its name
+					// is the name the case's type holds as text.
+					if (write.via !== undefined && write.property === "owner_id")
+						continue;
+					const types =
+						operation.action === "create" &&
+						operation.typeChoice !== undefined &&
+						write.via === undefined
+							? [destination.caseType, operation.typeChoice.otherwise]
+							: [destination.caseType];
+					for (const caseType of types)
+						writes.push({
+							property: write.property,
+							value: write.value,
+							caseType,
+							name: write.via !== undefined && write.property === "case_name",
+						});
 				}
 				for (const write of writes) {
 					const key = propertyKey(write.caseType, write.property);
@@ -741,6 +884,24 @@ class Inference {
 			const readers = this.preloadReaders.get(key) ?? [];
 			readers.push(field);
 			this.preloadReaders.set(key, readers);
+		}
+		// A form's opening assignment fills its field from a case's property as
+		// a preload does (`casePreload.ts::fieldPreload`), through the same
+		// answer class, so its field reads that property too.
+		for (const form of Object.values(doc.forms)) {
+			for (const assignment of form.openingAssignments ?? []) {
+				const field = doc.fields[assignment.field];
+				const caseType = openingAssignmentPropertyType(
+					doc,
+					form.uuid as Uuid,
+					assignment,
+				);
+				if (field === undefined || caseType === undefined) continue;
+				const key = propertyKey(caseType, assignment.property);
+				const readers = this.preloadReaders.get(key) ?? [];
+				if (!readers.includes(field)) readers.push(field);
+				this.preloadReaders.set(key, readers);
+			}
 		}
 		this.hiddenWrites = hiddenWrites;
 		this.fieldWriters = fieldWriters;
@@ -1087,7 +1248,7 @@ class Inference {
 				node,
 				blank,
 				isoDateText: isIsoDateText(output),
-				type: blank ? undefined : concreteType(node),
+				type: blank ? undefined : hiddenAssignmentType(site, node, true),
 				clockLost: node?.clockLost === true,
 			});
 		});
@@ -1098,7 +1259,7 @@ class Inference {
 		);
 		const opinion = agreedStorageType(typed);
 		return {
-			expressionType: concreteType(whole),
+			expressionType: hiddenAssignmentType(site, whole, false),
 			whole,
 			outputs,
 			opinion,
@@ -1134,6 +1295,8 @@ class Inference {
 				? destination
 				: undefined;
 		const expressionType = analysis?.expressionType;
+		if (site.field.answerType === "long" && expressionType === "decimal")
+			return expressionType;
 		if (destination === undefined) return expressionType;
 		return expressionType === undefined ||
 			isValueStorageAssignable(expressionType, destination)
@@ -1304,6 +1467,12 @@ class Inference {
 		const resolve = (caseType: string, property: string): void => {
 			const key = propertyKey(caseType, property);
 			if (result.has(key)) return;
+			// The case's own location is a text column whatever writes it
+			// (`standardCaseProperties.ts::WRITABLE_STANDARD_CASE_PROPERTIES`).
+			if (property === CASE_LOCATION_PROPERTY) {
+				result.set(key, { type: "text", origin: { kind: "standard" } });
+				return;
+			}
 			const declared = this.declared(caseType, property);
 			if (declared?.data_type !== undefined) {
 				result.set(key, {
@@ -1401,7 +1570,7 @@ class Inference {
 		};
 		for (const { caseType, property } of this.written.values())
 			resolve(caseType, property);
-		for (const caseType of this.doc.caseTypes ?? [])
+		for (const caseType of this.declaredTypes)
 			for (const property of caseType.properties)
 				resolve(caseType.name, property.name);
 		return result;
@@ -1442,7 +1611,7 @@ class Inference {
 		caseType: string,
 		property: string,
 	): CaseProperty | undefined {
-		return (this.doc.caseTypes ?? [])
+		return this.declaredTypes
 			.find((type) => type.name === caseType)
 			?.properties.find((candidate) => candidate.name === property);
 	}
@@ -1470,11 +1639,13 @@ class Inference {
 		properties: ReadonlyMap<string, PropertyAgreement>,
 	): readonly CaseType[] {
 		const result: CaseType[] = [];
-		for (const caseType of this.doc.caseTypes ?? []) {
+		for (const caseType of this.declaredTypes) {
 			const declaredNames = new Set(
 				caseType.properties.map((property) => property.name),
 			);
 			const entries: CaseProperty[] = caseType.properties.map((property) => {
+				if (property.name === CASE_LOCATION_PROPERTY)
+					return { ...property, data_type: "text" };
 				if (property.data_type !== undefined) return property;
 				const derived = properties.get(
 					propertyKey(caseType.name, property.name),
@@ -1555,7 +1726,7 @@ class Inference {
 					writer.property,
 					kindType !== undefined &&
 						destination !== undefined &&
-						isWriteAssignable(kindType, destination, false)
+						isAnswerWriteAssignable(kindType, destination)
 						? destination
 						: kindType,
 				);
@@ -1580,7 +1751,11 @@ class Inference {
 				else add(writer.caseType, writer.property, opinion);
 			} else if (
 				opinion !== undefined &&
-				isWriteAssignable(opinion, destination, false)
+				(isWriteAssignable(opinion, destination, false) ||
+					(opinion === "datetime" &&
+						destination === "date" &&
+						hiddenWriter !== undefined &&
+						directHiddenDayWriter(this.doc, hiddenWriter)))
 			)
 				add(writer.caseType, writer.property, destination);
 			else if (
@@ -1607,7 +1782,7 @@ class Inference {
 		const named = new Map<string, { caseType: string; property: string }>(
 			this.written,
 		);
-		for (const caseType of this.doc.caseTypes ?? [])
+		for (const caseType of this.declaredTypes)
 			for (const property of caseType.properties)
 				named.set(propertyKey(caseType.name, property.name), {
 					caseType: caseType.name,
@@ -1646,7 +1821,27 @@ function heldOf(
 	// A field with no value stays blank.
 	if (site.source === undefined) return "string";
 	// SetValueAction casts through the bind's answer class.
-	if (site.source === "default_value") return dateTimeBind ? "date" : "string";
+	if (site.field.answerType === "boolean") return "boolean";
+	if (site.source === "default_value") {
+		switch (site.field.answerType) {
+			case "int":
+			case "long":
+			case "decimal":
+				return "number";
+			case "date":
+			case "datetime":
+				return "date";
+			default:
+				return dateTimeBind ? "date" : "string";
+		}
+	}
+	if (
+		scalarHeldOf(analysis?.whole) === "date" &&
+		(site.field.answerType === "time" ||
+			site.field.answerType === "single_select" ||
+			site.field.answerType === "multi_select")
+	)
+		return "string";
 	// Recalculate.wrapData: the result's own class decides, the bind only
 	// whether a Date keeps its clock.
 	return scalarHeldOf(analysis?.whole) ?? "string";
@@ -1735,7 +1930,7 @@ function mayReadCatalog(expression: Expression | undefined): boolean {
  * question with no filter and no role, in any spelling, or the
  * `capture-link` of a capture. */
 function writerOfValue(
-	doc: BlueprintDoc,
+	doc: Pick<PersistableDoc, "fields">,
 	value: Expression,
 ): Field | undefined {
 	if (value.kind !== "term") return undefined;

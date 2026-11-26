@@ -1,0 +1,217 @@
+[
+	{
+		"id": "worker-places-and-groups-read-undeclared",
+		"entry": "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/office_note",
+					"value": "Checked in"
+				}
+			],
+			"expressions": ["/data/my_places", "/data/my_groups"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "6"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "each-table-read-under-its-bare-tag",
+		"entry": "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/table_note",
+					"value": "All of them"
+				}
+			],
+			"expressions": [
+				"/data/rows_registry",
+				"/data/rows_groups",
+				"/data/rows_reports",
+				"/data/rows_locations",
+				"/data/rows_results",
+				"/data/rows_search_input",
+				"/data/rows_selected_cases",
+				"/data/rows_case_search_fixture"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/4/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/5/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/6/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/7/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "household-name-and-size",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "Hill household"
+				},
+				{
+					"path": "/data/members",
+					"value": "6"
+				}
+			],
+			"expressions": ["/data/head_name", "/data/members"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Hill household"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "6"
+			}
+		]
+	},
+	{
+		"id": "household-size-from-the-open-record",
+		"entry": "questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"form": {
+			"menu": 1,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "hill-household"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/members",
+					"value": "5"
+				}
+			],
+			"expressions": ["/data/members"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "5"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	}
+]

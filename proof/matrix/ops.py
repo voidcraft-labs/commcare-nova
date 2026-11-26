@@ -237,6 +237,17 @@ def set_at(document, pointer: str, value):
 MENU_REFERENCE = "$menu"
 FORM_REFERENCE = "$form"
 XMLNS_REFERENCE = "$xmlns"
+# A held value naming a file of the base's Project by its path (``{"$projectFile": "jr://file/..."}``), which a
+# reading keys by the media id HQ minted for it when the base was authored (``retain.py::hold_value``). It is no
+# menu or form reference, and only a holds value may be one (``registry.py::_check_references``).
+PROJECT_FILE = "$projectFile"
+
+
+def project_file_of(value):
+    """The path a held value names as a Project file (``{"$projectFile": path}``), or None where it names none."""
+    if isinstance(value, dict) and set(value) == {PROJECT_FILE} and isinstance(value[PROJECT_FILE], str):
+        return value[PROJECT_FILE]
+    return None
 
 
 def _position(value):
@@ -249,6 +260,8 @@ def reference_of(value):
     is not exactly one well-formed reference is refused (``ValueNotSet``): a misspelled reference would otherwise be
     stored as data."""
     if not isinstance(value, dict) or not any(isinstance(key, str) and key.startswith("$") for key in value):
+        return None
+    if project_file_of(value) is not None:
         return None
     if set(value) == {MENU_REFERENCE} and _position(value[MENU_REFERENCE]):
         return "menu", (value[MENU_REFERENCE],)

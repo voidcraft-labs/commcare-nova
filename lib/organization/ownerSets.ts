@@ -11,12 +11,14 @@ import {
 } from "./ownerTargetVerdicts";
 
 /**
- * The owner ids a persona's device would hold.
+ * The worker and place owner ids a persona's device would hold.
  *
- * This is `CouchUser.get_owner_ids`: the worker's own id, plus one id per
- * case-sharing group. Nova has no classic groups, so every other member is a
- * place — HQ turns each case-owning location a user reaches into a group whose
- * `_id` IS the `location_id`
+ * This is the place part of `CouchUser.get_owner_ids`: the worker's own id,
+ * plus one id per case-owning place. Preview's device owner set adds the
+ * worker's classic case-sharing groups too
+ * (`lib/preview/engine/restoreScope.ts::workerRestoreScope`); App Tests use
+ * this place-only set. HQ turns each case-owning location a user reaches into
+ * a group whose `_id` IS the `location_id`
  * (`corehq/apps/locations/models.py::SQLLocation.case_sharing_group_object`),
  * which is why place ids drop straight into this list rather than being mapped
  * through anything.

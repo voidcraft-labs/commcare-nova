@@ -40,10 +40,7 @@ import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
 import { placementsToHold } from "@/lib/commcare/placementHolds";
-import {
-	type ValidationError,
-	validationError,
-} from "@/lib/commcare/validator/errors";
+import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
@@ -80,7 +77,6 @@ import {
 import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaFormatKey } from "@/lib/domain/multimedia";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
-import { exportBudgetExcess } from "@/lib/media/exportBudget";
 import { lookupContextOf, storedDocument } from "./documents";
 import {
 	Minter,
@@ -248,22 +244,6 @@ function mediaRowsFor(doc: BlueprintDoc): Map<string, MediaAssetRecord> {
 	return rows;
 }
 
-/** The media export budget (`lib/media/exportBudget.ts::exportBudgetExcess`). */
-function mediaBudgetFindings(
-	rows: ReadonlyMap<string, MediaAssetRecord>,
-): ValidationError[] {
-	const excess = exportBudgetExcess([...rows.values()]);
-	if (excess === null) return [];
-	return [
-		validationError(
-			"MEDIA_EXPORT_TOO_LARGE",
-			"app",
-			`Nova's publish would not send this app's media: ${excess.reasons.join(" and ")}.`,
-			{},
-		),
-	];
-}
-
 /**
  * What publish reads from the Project's lookup data: only the tables the
  * document references (`lib/lookup/service.ts::getLookupFixtureData` is
@@ -312,7 +292,6 @@ export function publishFindings(
 	const media = mediaRowsFor(doc);
 	const findings = [
 		...evaluateBoundary(doc, media, lookupContextOf(referenced)),
-		...mediaBudgetFindings(media),
 		...(referenced === undefined
 			? []
 			: [

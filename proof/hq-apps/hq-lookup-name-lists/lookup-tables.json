@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 100, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 1}, \"objects\": [{\"fields\": [{\"field_name\": \"code\", \"properties\": []}, {\"field_name\": \"clé\", \"properties\": []}, {\"field_name\": \"région\", \"properties\": []}, {\"field_name\": \"名前\", \"properties\": []}, {\"field_name\": \"code.1\", \"properties\": []}, {\"field_name\": \"zone.name\", \"properties\": []}], \"id\": \"a3ff2dbc7e9c4bb9851462c04b199fed\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"zones\"}]}"
+}

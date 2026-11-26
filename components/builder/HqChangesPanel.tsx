@@ -31,6 +31,7 @@ import {
 } from "react";
 import { AccountFindings } from "@/components/bring-in/BringInAccount";
 import { BringInStopBlock } from "@/components/bring-in/BringInStop";
+import { ReviewOwnerRuleChoice } from "@/components/bring-in/ReviewOwnerRuleChoice";
 import { ReviewTableChoice } from "@/components/bring-in/ReviewTableChoice";
 import {
 	postHqChangesBringIn,
@@ -69,6 +70,7 @@ import type { StoppedPublishingView } from "@/lib/deployment/actions";
 import { hqChangesBatchId } from "@/lib/deployment/hqChanges/batchId";
 import type { HqChangesOutcome } from "@/lib/deployment/hqChanges/types";
 import type { RemoteChangeDiscard } from "@/lib/deployment/types";
+import { languageTag } from "@/lib/domain/localization";
 import { DRIFT_STOP_EDITOR_LINE } from "@/lib/publish/bringInCopy";
 import { madeByLine } from "@/lib/publish/documentChangeCopy";
 import {
@@ -87,6 +89,7 @@ import {
 	showAllAction,
 } from "@/lib/publish/hqChangesCopy";
 import type { CircumstanceContext } from "@/lib/publish/hqFindingCopy";
+import { OWNER_RULE_OTHERWISE } from "@/lib/publish/ownerRuleCopy";
 import {
 	STOP_PUBLISHING_ACTION,
 	STOP_PUBLISHING_HELPER,
@@ -613,6 +616,16 @@ function PanelBody(props: BodyProps): ReactNode {
 					>
 						{body.line}
 					</p>
+					{body.translation && (
+						<a
+							href={`/build/${encodeURIComponent(props.target.appId)}/setup/languages?lang=${encodeURIComponent(languageTag(body.translation.language))}#${encodeURIComponent(body.translation.unitId)}`}
+							className="nova-focusable inline-flex min-h-11 w-fit items-center rounded-lg text-sm font-medium text-nova-text underline underline-offset-4"
+							target="_blank"
+							rel="noreferrer"
+						>
+							Review translation
+						</a>
+					)}
 					{body.checkAgain ? <CheckAgain onPress={onCheckAgain} /> : null}
 				</div>
 			);
@@ -756,6 +769,27 @@ function ListsBody({
 					}
 				/>
 			))}
+			{lists.ownerRules.map((rule) => (
+				<ReviewOwnerRuleChoice
+					key={rule.level}
+					rule={rule}
+					domain={target.domain}
+					value={state.ownerRuleChoices[rule.level] ?? null}
+					onValueChange={(choice) =>
+						dispatch({ type: "owner-rule-chosen", level: rule.level, choice })
+					}
+					needsChoice={
+						state.ownerRuleChoices[rule.level] === undefined
+							? state.needsChoice
+							: null
+					}
+				/>
+			))}
+			{lists.ownerRules.length > 0 ? (
+				<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+					{OWNER_RULE_OTHERWISE}
+				</p>
+			) : null}
 			{lists.notice !== null ? (
 				<div
 					role={lists.notice.role}

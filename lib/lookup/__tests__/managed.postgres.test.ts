@@ -44,6 +44,7 @@ import {
 	getLookupFixtureData,
 	getLookupManifest,
 	getLookupTable,
+	getLookupTableWindow,
 	moveLookupColumn,
 	moveLookupRow,
 	replaceLookupRows,
@@ -610,12 +611,14 @@ describe("the create arm", () => {
 				wireName: "name",
 				label: "name",
 				dataType: "text",
+				index: "unobserved",
 			},
 			{
 				id: binding.columns[longField],
 				wireName: longField,
 				label: "f".repeat(120),
 				dataType: "text",
+				index: "unobserved",
 			},
 		]);
 		expect(table.rows.map((row) => row.values)).toEqual([
@@ -661,7 +664,49 @@ describe("the create arm", () => {
 		});
 	});
 
-	it("refuses a cell over the cap with the cap's phrase, its size above the cap's", async () => {
+	it("binds a wide reference without representing its unreadable inventory as zero rows", async () => {
+		const fields = Array.from({ length: 251 }, (_, i) => `column_${i}`);
+		const content = { fields, rows: [] };
+		const origin = originFor(content);
+		const binding = bindingFor("wide_roster", fields);
+		const canonical = {
+			...origin.canonical,
+			rowCount: null,
+			source: {
+				inventory: "unavailable",
+				distribution: "assigned",
+				indexEvidence: "unobserved",
+			},
+		};
+		await h
+			.db()
+			.transaction()
+			.execute(async (tx) =>
+				createManagedLookupTablesInTransaction(
+					tx,
+					await authorized(tx),
+					[
+						{
+							binding,
+							name: "Roster",
+							origin: { ...origin, canonical },
+							content,
+						},
+					],
+					AT,
+				),
+			);
+		const snapshot = await getLookupTableWindow(SCOPE, binding.tableId);
+		expect(snapshot.rowsUnavailable).toBe(true);
+		expect(snapshot.columns.map((col) => col.id)).toEqual(
+			fields.map((name) => binding.columns[name]),
+		);
+		await expect(getLookupTable(SCOPE, binding.tableId)).rejects.toMatchObject({
+			code: "managed_in_hq",
+		});
+	});
+
+	it("refuses a cell past one inline copy with its phrase, its size above the bound, and offers the paged refresh", async () => {
 		const content: ManagedLookupContent = {
 			fields: ["name"],
 			rows: [{ name: "x".repeat(64 * 1024 + 1) }],
@@ -691,7 +736,7 @@ describe("the create arm", () => {
 		expect(error).toMatchObject({
 			code: "storage_limit",
 			message:
-				"The lookup table wide_cells has a value of 64.1 KB (Nova takes 64 KB in one cell) in CommCare HQ, so Nova can't hold a copy of it.",
+				"The lookup table wide_cells has a value of 64.1 KB in CommCare HQ, more than Nova copies in one read, so nothing was written. Nova reads a table this size in pages when you refresh it from Project data.",
 		});
 		expect(await getLookupManifest(SCOPE)).toEqual(before);
 	});
@@ -840,6 +885,68 @@ async function refresh(
 }
 
 describe("the refresh arm", () => {
+	it("binds row attributes and repeated properties by owner and refreshes rows by source identity", async () => {
+		const content = {
+			fields: ["label"],
+			attributes: ["lang"],
+			fieldDetails: {
+				label: { repeated: true, index: "unobserved", properties: ["lang"] },
+			},
+			rows: [{}, {}],
+			rowDetails: [
+				{
+					remoteId: "one",
+					sortKey: 0,
+					attributes: { lang: "x" },
+					occurrences: { label: [{ text: " 007", properties: { lang: "y" } }] },
+				},
+				{
+					remoteId: "two",
+					sortKey: 7,
+					attributes: { lang: "z" },
+					occurrences: { label: [] },
+				},
+			],
+		} satisfies ManagedLookupContent;
+		const table = await createManaged("catalog", content);
+		const col = table.columns[0];
+		const prop = col.properties?.[0]?.id;
+		const attr = table.attributes?.[0]?.id;
+		if (!prop || !attr) throw new Error("The source details were not stored.");
+		expect(prop).not.toBe(attr);
+		expect(table.rows[0].attributes).toEqual({ [attr]: "x" });
+		expect(table.rows[0].occurrences).toEqual({
+			[col.id]: [{ text: " 007", properties: { [prop]: "y" } }],
+		});
+		const change = await refresh(table.id, {
+			...content,
+			rowDetails: [
+				{ ...content.rowDetails[1], sortKey: 0 },
+				{ ...content.rowDetails[0], remoteId: "replacement", sortKey: 7 },
+			],
+		});
+		expect(change.changed).toBe("rows");
+		expect(change.definitionRevision).toBe(table.definitionRevision);
+		const after = await getLookupTable(SCOPE, table.id);
+		expect(after.rows[0].id).toBe(table.rows[1].id);
+		expect(after.rows[1].id).not.toBe(table.rows[0].id);
+		expect(after.attributes).toEqual(table.attributes);
+		expect(after.columns).toEqual(table.columns);
+		await expect(
+			refresh(table.id, {
+				...content,
+				fields: [],
+				fieldDetails: {},
+				rowDetails: [
+					{ remoteId: "one", attributes: {} },
+					{ remoteId: "two", attributes: { lang: "" } },
+				],
+			}),
+		).rejects.toMatchObject({ code: "invalid_input" });
+		expect((await getLookupTable(SCOPE, table.id)).rowsRevision).toBe(
+			after.rowsRevision,
+		);
+	});
 	it("stamps the refresh and advances nothing when CommCare HQ's table is as it was, leaving every byte of the manifest", async () => {
 		const table = await createManaged();
 		const manifest = JSON.stringify(await getLookupManifest(SCOPE));
@@ -998,7 +1105,7 @@ describe("the refresh arm", () => {
 		]);
 	});
 
-	it("refuses a cell over the cap with the cap's phrase before any column is written", async () => {
+	it("refuses a cell past one inline copy with its phrase before any column is written", async () => {
 		const table = await createManaged();
 		const content: ManagedLookupContent = {
 			fields: [...CONTENT.fields, "notes"],
@@ -1009,7 +1116,7 @@ describe("the refresh arm", () => {
 		expect(error).toMatchObject({
 			code: "storage_limit",
 			message:
-				"The lookup table districts has a value of 64.1 KB (Nova takes 64 KB in one cell) in CommCare HQ, so Nova can't hold a copy of it.",
+				"The lookup table districts has a value of 64.1 KB in CommCare HQ, more than Nova copies in one read, so nothing was written. Nova reads a table this size in pages when you refresh it from Project data.",
 		});
 		expect(await getLookupTable(SCOPE, table.id)).toEqual(table);
 	});
@@ -1123,8 +1230,8 @@ describe("the refresh arm", () => {
 			})
 			.execute();
 		const content: ManagedLookupContent = {
-			fields: ["count", "name"],
-			rows: [{ name: "Alpha", count: "3" }],
+			fields: ["count", "name", "district·code"],
+			rows: [{ name: "Alpha", count: "3", district·code: "new" }],
 		};
 		const receipt = await refresh(table.id, content);
 		expect(receipt.keptGoneColumns).toEqual([
@@ -1138,14 +1245,17 @@ describe("the refresh arm", () => {
 		expect(after.columns.map((column) => column.wireName)).toEqual([
 			"count",
 			"name",
+			"district·code",
 			"code",
 		]);
 		expect(after.rows.map((row) => row.values)).toEqual([
 			values([
 				[columnId(table, "count"), "3"],
 				[columnId(table, "name"), "Alpha"],
+				[columnId(after, "district·code"), "new"],
 			]),
 		]);
+		expect(columnId(after, "code")).toEqual(columnId(table, "code"));
 		expect(after.hq?.goneColumnIds).toEqual([columnId(table, "code")]);
 	});
 

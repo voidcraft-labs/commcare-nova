@@ -19,6 +19,7 @@ scripts
 !scripts/
 scripts/*
 !scripts/harden-agent-react-devtools.mjs
+!scripts/fix-yazl-descriptors.mjs
 !scripts/build-xpath-worker.mjs
 !scripts/build-office-parser.mjs
 !scripts/build-app.mjs
@@ -27,6 +28,7 @@ scripts/*
 !scripts/migrate-case-expression-indexes.ts
 !scripts/scan-thread-storage.ts
 !scripts/migrate-thread-storage.ts
+!scripts/job-hq-round-trip-completion.ts
 !scripts/scan-conversation-sources.ts
 !scripts/migrate-conversation-sources.ts
 !scripts/scan-select-starting-values.ts
@@ -60,6 +62,23 @@ scripts/lib/*
 !scripts/lib/main.ts
 !scripts/lib/schemaDrift.ts
 !scripts/lib/schemaDriftMigration.ts
+!scripts/lib/completionWorkspaces.ts
+!scripts/lib/cutoverRuntime.ts
+!scripts/lib/deploymentFold.ts
+!scripts/lib/deploymentFoldArtifacts.ts
+!scripts/lib/deploymentFoldReader.ts
+!scripts/lib/deploymentFoldSchema.ts
+!scripts/lib/hqRoundTripCompletion.ts
+!scripts/lib/locationCaptureAdoption.ts
+!scripts/lib/menuLayoutAdoption.ts
+!scripts/lib/menuLayoutAdoptionScan.ts
+!scripts/lib/step7CompletionJob.ts
+!scripts/lib/step7CompletionStorage.ts
+!scripts/migrations/
+scripts/migrations/*
+!scripts/migrations/step7-completion.ts
+!scripts/migrations/step7-location-capture.mjs
+!scripts/migrations/step7-menu-layouts.ts
 
 # BuildKit's named cache context is supplied separately from the source tree.
 .nova-build-cache

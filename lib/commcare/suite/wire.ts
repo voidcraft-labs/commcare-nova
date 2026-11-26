@@ -1,8 +1,13 @@
-import type { ColumnVia } from "@/lib/domain/modules";
+import type { ColumnRecordSource, ColumnVia } from "@/lib/domain/modules";
 import { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
 import { type SourceTable, tableOf } from "../sourceKeys";
+import { USERCASE_CASE_SELECTOR } from "../usercaseWire";
 import { w } from "../xpath/wire/builders";
-import { buildAncestorJoinNodeset } from "../xpath/wire/rowScope";
+import { groupsInstance, sessionInstance } from "../xpath/wire/instances";
+import {
+	buildAncestorJoinNodeset,
+	type InstanceRoot,
+} from "../xpath/wire/rowScope";
 import type { WireExpr, WirePath } from "../xpath/wire/tree";
 
 /** A case-row property, with standard metadata kept on its attribute axis. */
@@ -105,21 +110,49 @@ export function isHqDetailField(field: string): boolean {
  * property of the case the column's walk reaches, read as CommCare HQ's build
  * reads a `field` of indices and a property
  * (`detail_screen.py::PropertyXpathGenerator.xpath`): each index joined by
- * case id over `casedb` from `current()`, with no case-type test, since HQ's
+ * case id over the detail's worker roster from `current()`, with no case-type test, since HQ's
  * field carries no type, then the property.
  */
-export function columnPropertyPath(column: {
-	readonly field: string;
-	readonly via?: ColumnVia;
-}): WirePath {
-	if (column.via === undefined) return casePropertyPath(column.field);
-	return w.append(
-		buildAncestorJoinNodeset(
-			column.via.map((step) => ({ identifier: step.identifier })),
-			"casedb",
-		),
-		casePropertyPath(column.field).steps,
-	);
+export function columnPropertyPath(
+	column: ColumnRecordSource & {
+		readonly field: string;
+		readonly via?: ColumnVia;
+	},
+	root: InstanceRoot = "casedb",
+): WireExpr {
+	const base =
+		column.readFrom === "worker-record"
+			? USERCASE_CASE_SELECTOR
+			: column.via
+				? buildAncestorJoinNodeset(
+						column.via.map(({ identifier }) => ({ identifier })),
+						root,
+					)
+				: column.showOwner === "name"
+					? w.current()
+					: w.context();
+	const value = w.append(base, casePropertyPath(column.field).steps);
+	if (column.showOwner !== "name") return value;
+	// HQ gives a matching group's name precedence even when it is blank.
+	const group = w.instance(groupsInstance(), [
+		w.step("groups"),
+		w.step("group", [w.eq(w.context([w.attr("id")]), value)]),
+	]);
+	const worker = (key: string) =>
+		w.instance(sessionInstance(), [
+			w.step("session"),
+			w.step("context"),
+			w.step(key),
+		]);
+	return w.call("if", [
+		w.ne(w.call("count", [group]), w.num(0)),
+		w.append(group, [w.step("name")]),
+		w.call("if", [
+			w.eq(worker("userid"), value),
+			worker("username"),
+			w.str(""),
+		]),
+	]);
 }
 
 /** The existing JavaRosa lowering of XPath's four-character whitespace set. */

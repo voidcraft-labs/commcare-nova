@@ -1,0 +1,12 @@
+{
+	"capabilities": [],
+	"advisories": [],
+	"minimumConfiguration": {
+		"flags": [],
+		"caseSearchEnabled": false
+	},
+	"planPrivileges": [
+		"CLOUDCARE",
+		"LOOKUP_TABLES"
+	]
+}

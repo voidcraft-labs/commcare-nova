@@ -284,6 +284,26 @@ def test_an_oversize_png_is_one_pixel_of_its_paths_colour_at_the_size_asked():
     assert chunks[:2] == _png_chunks(media.png_of(path))[:2]
 
 
+def test_an_oversize_mp3_is_the_paths_mp3_grown_by_silent_frames_to_the_size_asked():
+    path = "jr://file/commcare/audio/data/large.mp3"
+    small = media.mp3_of(path)
+    for size in (len(small), 10 * 1024 * 1024 + 1):
+        data = media.oversize_mp3_of(path, size)
+        assert len(data) == size
+        frames = (size - len(small)) // media.MPEG_FRAME_LENGTH + 1
+        frame = small[: media.MPEG_FRAME_LENGTH]
+        assert data[: frames * media.MPEG_FRAME_LENGTH] == frame * frames
+        tag = data[frames * media.MPEG_FRAME_LENGTH :]
+        assert tag[:3] == b"ID3" and tag[-10:-7] == b"3DI"
+        assert path.encode() in tag
+    try:
+        media.oversize_mp3_of(path, len(small) - 1)
+    except ValueError as refusal:
+        assert path in str(refusal)
+    else:
+        raise AssertionError("oversize_mp3_of made a file smaller than one MP3 of its path")
+
+
 def test_hq_stores_each_held_stand_in_under_its_class(hq):
     """Contract: HQ's own classification (``CommCareMultimedia.get_class_by_data``, libmagic's MIME type) files each
     held-format stand-in under its kind's class, so the variant that attaches one is stored as HQ stores such a file.

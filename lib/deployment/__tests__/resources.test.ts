@@ -329,6 +329,7 @@ describe("a released mapping", () => {
 const storedList = {
 	remoteAppId: "hq-app",
 	stored: {
+		reviewed: 1,
 		ids: ["forms-and-settings-rewritten", "unused-media-entries-removed"],
 		webAppsOnInHq: true,
 		of: "first-publish",
@@ -343,7 +344,7 @@ describe("the stored first-publish list", () => {
 	it("is shown while the live mapping names the app it was stored for", () => {
 		expect(
 			firstPublishOf(record([appMapping({})]), storedList, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,
@@ -359,7 +360,7 @@ describe("the stored first-publish list", () => {
 	it("is not shown for another HQ app, an ended deployment, or an app CommCare HQ reported gone", () => {
 		expect(
 			firstPublishOf(record([appMapping({ remoteId: "other" })]), storedList, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,
@@ -368,7 +369,7 @@ describe("the stored first-publish list", () => {
 		).toBeNull();
 		expect(
 			firstPublishOf(record([]), storedList, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,
@@ -380,7 +381,7 @@ describe("the stored first-publish list", () => {
 				record([appMapping({ remoteMissingAt: AT })]),
 				storedList,
 				{
-					connectType: null,
+					connectRoles: [],
 					appSettings: { runsOnlyOn: undefined, showIncompleteForms: false },
 				},
 			),
@@ -390,7 +391,7 @@ describe("the stored first-publish list", () => {
 	it("is shown for a released mapping, which the publish takes back and updates in place", () => {
 		expect(
 			firstPublishOf(record([appMapping({ releasedAt: AT })]), storedList, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,

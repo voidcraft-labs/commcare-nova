@@ -78,10 +78,12 @@ import {
 import type { PlacementHold } from "@/lib/doc/placementHolds";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
-import { uuidSchema } from "@/lib/domain";
+import { type Uuid, uuidSchema } from "@/lib/domain";
 import { getLookupManifestAction } from "@/lib/lookup/actions";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
+import type { PreviewSearchCatalog } from "@/lib/preview/searchSettings";
+import { createPreviewSearchFrameReader } from "@/lib/preview/searchSettingsFrames";
 import { guardBuilderDeparture } from "@/lib/routing/departureGuard";
 import { buildUrl } from "@/lib/routing/location";
 import {
@@ -175,6 +177,9 @@ export interface ReconcilerRuntime {
 	) => () => void;
 	/** Subscribe to server-resolved preview-target-facts announcements, with
 	 *  the same replay of the retained latest value. */
+	readonly subscribePreviewSearchSettings: (
+		cb: (catalog: PreviewSearchCatalog | null) => void,
+	) => () => void;
 	readonly subscribePreviewTargetFacts: (
 		cb: (facts: PreviewTargetFacts | null) => void,
 	) => () => void;
@@ -194,6 +199,10 @@ export interface ReconcilerRuntime {
 	readonly registerOwnHqChangesBatch: (batchId: string) => void;
 }
 
+const publishedQuestionsFrame = z.strictObject({
+	questions: z.array(uuidSchema),
+});
+
 export interface ReconcilerProviderProps {
 	/** The app id, or `undefined` for a brand-new build (dormant reconciler). */
 	appId?: string;
@@ -202,6 +211,7 @@ export interface ReconcilerProviderProps {
 	/** The hold each target's latest recording wrote, read with the first
 	 *  document (`AppReadSnapshot.recordedHolds`); absent for a fresh app. */
 	recordedHolds?: readonly PlacementHold[];
+	publishedQuestions?: readonly Uuid[];
 	/** The session user id — echo classification keys on it. */
 	userId: string;
 	children: ReactNode;
@@ -238,6 +248,7 @@ export function createReconcilerRuntime(
 		appId?: string;
 		baseSeq: number;
 		recordedHolds?: readonly PlacementHold[];
+		publishedQuestions?: readonly Uuid[];
 		userId: string;
 	},
 	/** Leaves preview mode — the conversion toast's "Review data" action
@@ -279,6 +290,23 @@ export function createReconcilerRuntime(
 	function publishPreviewTargetFacts(facts: PreviewTargetFacts | null): void {
 		previewTargetFactsLatest = facts;
 		for (const cb of [...previewTargetFactsSubs]) cb(facts);
+	}
+	const searchSettingsSubscribers = new Set<
+		(catalog: PreviewSearchCatalog | null) => void
+	>();
+	let searchSettings: PreviewSearchCatalog | null = null;
+	function publishPreviewSearchSettings(catalog: PreviewSearchCatalog | null) {
+		searchSettings = catalog;
+		for (const callback of searchSettingsSubscribers) callback(catalog);
+	}
+	function subscribePreviewSearchSettings(
+		callback: (catalog: PreviewSearchCatalog | null) => void,
+	) {
+		searchSettingsSubscribers.add(callback);
+		callback(searchSettings);
+		return () => {
+			searchSettingsSubscribers.delete(callback);
+		};
 	}
 	const lookupManifestBroker = createLookupManifestBroker();
 	const projectScopeResetRegistry = createProjectScopeResetRegistry();
@@ -377,6 +405,7 @@ export function createReconcilerRuntime(
 		closeOwnedStream();
 		const scopeEpoch = sessionStore.getState().beginAccessRefresh();
 		try {
+			publishPreviewSearchSettings(null);
 			projectScopeResetRegistry.reset(scopeEpoch);
 			return true;
 		} catch (error) {
@@ -784,6 +813,15 @@ export function createReconcilerRuntime(
 				sessionStore.getState().markBuildUnfinished();
 			}
 		});
+		const readSearchFrame = createPreviewSearchFrameReader();
+		es.addEventListener("preview-search-settings", (ev) => {
+			if (es !== eventSource) return;
+			const catalog = readSearchFrame(
+				(ev as MessageEvent).data,
+				sessionStore.getState().projectId ?? null,
+			);
+			if (catalog !== undefined) publishPreviewSearchSettings(catalog);
+		});
 		es.addEventListener("preview-project-space", (ev) => {
 			if (es !== eventSource) return;
 			const frame = parsePreviewProjectSpaceFrame((ev as MessageEvent).data);
@@ -792,12 +830,26 @@ export function createReconcilerRuntime(
 			 * simply wins; there is no cursor and no ordering to reconcile. */
 			publishPreviewProjectSpace(frame.projectSpace);
 		});
-		es.addEventListener("preview-target-facts", (ev) => {
+		es.addEventListener("published-questions", (ev) => {
+			if (es !== eventSource) return;
+			try {
+				const result = publishedQuestionsFrame.safeParse(
+					JSON.parse((ev as MessageEvent).data),
+				);
+				if (result.success)
+					reconciler.setPublishedQuestions(result.data.questions);
+			} catch {
+				// Malformed frames cannot replace the authorized snapshot.
+			}
+		});
+		const receiveTargetFacts = (ev: Event) => {
 			if (es !== eventSource) return;
 			const frame = parsePreviewTargetFactsFrame((ev as MessageEvent).data);
 			if (frame === null) return; // malformed: leave the retained value alone
 			publishPreviewTargetFacts(frame.facts);
-		});
+		};
+		es.addEventListener("preview-target-facts", receiveTargetFacts);
+		es.addEventListener("preview-target-wording", receiveTargetFacts);
 		es.addEventListener("lookup-revision", (ev) => {
 			if (es !== eventSource) return;
 			if (!lookupManifestBroker.dispatch((ev as MessageEvent).data)) {
@@ -1145,6 +1197,7 @@ export function createReconcilerRuntime(
 			blueprint: data.blueprint,
 			seq: data.baseSeq,
 			recordedHolds: recordedPlacementHoldsOf(data.recordedHolds),
+			publishedQuestions: data.publishedQuestions,
 		};
 	};
 
@@ -1247,6 +1300,7 @@ export function createReconcilerRuntime(
 			baseSeq: init.baseSeq,
 			baseDoc: docStore.getState(),
 			recordedHolds: recordedPlacementHoldsOf(init.recordedHolds ?? []),
+			publishedQuestions: init.publishedQuestions,
 			userId: init.userId,
 		},
 		deps,
@@ -1322,6 +1376,7 @@ export function createReconcilerRuntime(
 		presenceSubs,
 		organizationSubs,
 		subscribePreviewProjectSpace,
+		subscribePreviewSearchSettings,
 		subscribePreviewTargetFacts,
 		lookupManifestBroker,
 		projectScopeResetRegistry,
@@ -1334,6 +1389,7 @@ export function ReconcilerProvider({
 	appId,
 	baseSeq,
 	recordedHolds,
+	publishedQuestions,
 	userId,
 	children,
 }: ReconcilerProviderProps) {
@@ -1350,6 +1406,7 @@ export function ReconcilerProvider({
 				appId,
 				baseSeq,
 				recordedHolds,
+				publishedQuestions,
 				userId,
 			},
 			() => sessionStore.getState().setPreviewing(false),
@@ -1417,6 +1474,8 @@ export function ReconcilerProvider({
 						subscribePreviewProjectSpace: (
 							cb: (projectSpace: string | null) => void,
 						) => runtime.subscribePreviewProjectSpace(cb),
+						subscribePreviewSearchSettings:
+							runtime.subscribePreviewSearchSettings,
 						subscribePreviewTargetFacts: (
 							cb: (facts: PreviewTargetFacts | null) => void,
 						) => runtime.subscribePreviewTargetFacts(cb),
