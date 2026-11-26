@@ -64,6 +64,7 @@ DOCUMENTS = (
     "location-direct",
     "case-capture-followup",
     "media-only",
+    "targeted-search-workflow",
     "targeted-migration-search-workflow",
     "targeted-migration-case-writes",
     "targeted-migration-attachment",
