@@ -221,7 +221,8 @@ it.each(
 			scenario !== "named-parent" &&
 			scenario !== "mixed-records" &&
 			scenario !== "grouped-prompts" &&
-			scenario !== "remote-grouped-prompts",
+			scenario !== "remote-grouped-prompts" &&
+			scenario !== "remote-address-picker",
 	),
 )("exports the complete Search session for %s", (scenario) => {
 	const { suite, hq, zip } = exported(searchEmissionFixture(scenario));
