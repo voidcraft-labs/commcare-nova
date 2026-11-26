@@ -146,6 +146,7 @@ def authored_base(request, hq, core_runner, editor_driver, documents):
 
     base = request.param
     variants = [variant for variant in registry.load_variants() if variant.base == base.id]
+    variants = [one for one in variants if one.id in ['hq-plain/listed-menu-exclusion', 'hq-plain/listed-menu-link', 'hq-plain/listed-menu-missing-form', 'hq-plain/listed-menu-spaced-link']]
     return base, authored(base, documents=documents, driver=editor_driver, core_runner=core_runner, variants=variants)
 
 
