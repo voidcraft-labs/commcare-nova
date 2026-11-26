@@ -611,7 +611,6 @@
 		"hq-search/field-matching-the-owner",
 		"hq-search/field-named-by-a-parent-path",
 		"hq-search/field-named-include-closed",
-		"hq-search/field-outside-the-groups",
 		"hq-search/field-validation",
 		"hq-search/grouped-fields",
 		"hq-search/hidden-choice-field",
