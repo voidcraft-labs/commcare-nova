@@ -71,7 +71,10 @@ function moduleRows(
 	] as unknown as readonly LookupTableDefinition[]);
 	const contexts = moduleExpressionContexts(doc, moduleUuid, naming);
 	const search = effectiveCaseSearchConfig(mod);
-	const wire = search === undefined ? undefined : searchWireShape(search);
+	const wire =
+		search === undefined
+			? undefined
+			: searchWireShape(search, mod.searchResultsName);
 	const clauses =
 		composeXPathQueryClauses(config, mod.caseType, contexts) ?? [];
 	const emission = composeXPathQueryEmission(

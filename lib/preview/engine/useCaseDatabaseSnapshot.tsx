@@ -6,6 +6,7 @@ import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type BlueprintDoc,
 	effectivePostSubmit,
+	isDeviceCaseOptionsSource,
 	materializableCaseTypes,
 	moduleUuidOfForm,
 	proseSurfaceReads,
@@ -166,7 +167,7 @@ export function caseDatabaseRequirements(
 	const caseChoices = Object.values(doc.fields).some(
 		(field) =>
 			(field.kind === "single_select" || field.kind === "multi_select") &&
-			field.optionsSource.kind === "cases",
+			isDeviceCaseOptionsSource(field.optionsSource),
 	);
 	const entryRecords = Object.values(doc.forms).some(
 		(form) => entrySelectionSettings(form)?.length,

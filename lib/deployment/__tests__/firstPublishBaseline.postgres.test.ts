@@ -164,6 +164,7 @@ describe("the stored first-publish list", () => {
 
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: STRANGER },
+			session: { id: "read-session" },
 		} as never);
 		const refused = await readDeploymentsAction(APP);
 		expect(refused).toMatchObject({ success: false, code: "not_found" });
@@ -218,6 +219,7 @@ describe("the stored first-publish list", () => {
 		const refreshed = await recordRefreshedAppBaseline(birth.scope, TARGET, {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
+
 			comparedDigest: stored.sourceDigest,
 			comparedPushToken: appMappingToken(birth.deployment),
 			read: {
@@ -371,7 +373,10 @@ describe("the stored first-publish list", () => {
 
 	it("is shown on the Publishing card while the deployment stands, and not once it is ended", async () => {
 		const birth = await born();
-		vi.mocked(getSession).mockResolvedValue({ user: { id: VIEWER } } as never);
+		vi.mocked(getSession).mockResolvedValue({
+			user: { id: VIEWER },
+			session: { id: "read-session" },
+		} as never);
 		const before = await readDeploymentsAction(APP);
 		if (!before.success) throw new Error(before.message);
 		expect(before.data.map((view) => view.firstPublish)).toEqual([

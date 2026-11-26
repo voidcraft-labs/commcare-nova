@@ -5,14 +5,19 @@ import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import {
 	applicationAnswer,
+	ordinaryInstallationBuild,
 	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { serveWorkingInstallationInventory } from "@/__tests__/helpers/workingInstallationInventory";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { writeHqRoundTripHorizon } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
 import { decrypt } from "@/lib/commcare/encryption";
+import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
 	BIRTH_AT,
@@ -91,19 +96,22 @@ const SCOPE = {
 const HOST = "https://india.commcarehq.org";
 const VERSION_PATH = "/a/clinic/apps/view/working-app/current_version/";
 const BUILD_PATH = "/a/clinic/api/application/v1/working-app/";
+const DETAIL_PATH = "/a/clinic/api/application/v1/released-build/?extras=true";
 const PROFILE_PATH = "/a/clinic/apps/download/released-build/profile.ccpr";
 const PROFILE = `<profile><suite><resource id="suite"><location authority="remote">${HOST}/a/clinic/apps/download/released-build/suite.xml</location></resource></suite></profile>`;
 const GET = "get_deployment",
 	REFRESH = "refresh_deployment",
 	WITHDRAW = "withdraw_deployment_confirmation",
 	STOP = "stop_publishing";
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.hq.read", "nova.hq.write", "nova.hq.import"],
 ) {
+	const ctx = await installationCredential(h.db(), userId, [
+		...new Set([...scopes, "nova.read", "nova.write"]),
+	]);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes, authKind: "oauth" as const };
 		registerGetDeployment(server, ctx);
 		registerRefreshDeployment(server, ctx);
 		registerWithdrawDeploymentConfirmation(server, ctx);
@@ -139,7 +147,12 @@ function reply(peer: MockAgent, path: string, data: unknown, status = 200) {
 		})
 		.reply(status, typeof data === "string" ? data : JSON.stringify(data));
 }
-function ready(peer: MockAgent, profile = PROFILE, profileStatus = 200) {
+function ready(
+	peer: MockAgent,
+	profile = PROFILE,
+	profileStatus = 200,
+	android = true,
+) {
 	reply(peer, VERSION_PATH, {
 		currentVersion: 3,
 		latestBuild: 3,
@@ -153,6 +166,14 @@ function ready(peer: MockAgent, profile = PROFILE, profileStatus = 200) {
 			{ id: "released-build", version: 3, is_released: true },
 		]).body,
 	);
+	if (android) {
+		reply(
+			peer,
+			DETAIL_PATH,
+			ordinaryInstallationBuild("working-app", "released-build", "clinic", 3),
+		);
+		serveWorkingInstallationInventory(peer, HOST, "working-app", 3);
+	}
 	reply(peer, PROFILE_PATH, profile, profileStatus);
 }
 function urls(peer: MockAgent) {
@@ -179,7 +200,11 @@ async function snapshot() {
 			.execute(),
 	};
 }
-async function record(remoteId = "working-app", target = TARGET) {
+async function record(
+	remoteId = "working-app",
+	target = TARGET,
+	pushedRevision = 0,
+) {
 	await foldDeploymentAttempt(
 		SCOPE,
 		target,
@@ -193,7 +218,7 @@ async function record(remoteId = "working-app", target = TARGET) {
 		novaResourceId: APP,
 		remoteId,
 		ownership: "nova-created",
-		pushedRevision: 0,
+		pushedRevision,
 		remoteRevision: 1,
 		uploadedAt: "2026-09-01T00:00:00.000Z",
 		baseline: {
@@ -213,7 +238,7 @@ async function record(remoteId = "working-app", target = TARGET) {
 }
 async function seed(
 	published = true,
-	runsOnlyOn?: "android",
+	runsOnlyOn?: "android" | "web-apps",
 	levels: readonly OrganizationLevel[] = [],
 ) {
 	const doc = buildDoc({
@@ -411,6 +436,9 @@ it("records readiness from the exact released profile, survives an unavailable c
 			[
 				VERSION_PATH,
 				BUILD_PATH,
+				DETAIL_PATH,
+				"/a/clinic/apps/download/working-app/suite.xml",
+				VERSION_PATH,
 				PROFILE_PATH,
 				VERSION_PATH,
 				VERSION_PATH,
@@ -1440,6 +1468,43 @@ it("answers a check and a kept refresh whose write landed as landed when the rev
 	);
 });
 
+it("requires both HQ grants to stop a managed physical mapping and accepts its unchanged ending receipt", async () => {
+	const owner = "stop-owner";
+	const appId = testUuid("stop-profile");
+	await h.seedProjectMember(owner, PROJECT, "owner");
+	const remote = "7".repeat(32);
+	const birth = await birthAdoptedApp(h, {
+		appId,
+		projectId: PROJECT,
+		actorUserId: owner,
+		target: TARGET,
+		remoteAppId: remote,
+	});
+	await sql`INSERT INTO app_deployment_installation_profiles(deployment_id,nova_profile_uuid,profile_key) VALUES (${birth.deployment.deployment.id},${testUuid("profile-for-stop")},'training')`.execute(
+		h.db(),
+	);
+	const args = { app_id: appId, ...TARGET, hq_app_id: remote };
+	const stop = async (scopes: string[]) => {
+		const ctx = await installationCredential(h.db(), owner, scopes);
+		return withMcpClient(
+			(server) => registerStopPublishing(server, ctx),
+			(client) => call(client, STOP, args),
+		);
+	};
+	const write = ["nova.read", "nova.write", "nova.hq.write"];
+	expect(errorBody(await stop(write))).toMatchObject({
+		error_type: "scope_missing",
+		required_scope: "nova.hq.import",
+	});
+	expect((await readDeployment(birth.scope, TARGET))?.deployment.endings).toBe(
+		0,
+	);
+	expect(
+		JSON.parse(resultText(await stop([...write, "nova.hq.import"]))).state,
+	).toBe("ended");
+	expect(JSON.parse(resultText(await stop(write))).state).toBe("ended");
+});
+
 it("says where an app came from and where Nova stopped publishing, and lets only an admin or owner stop", async () => {
 	const BROUGHT_IN_APP = testUuid("brought-in-app");
 	const HQ_APP = "c".repeat(32);
@@ -1636,3 +1701,51 @@ it("answers a stop whose reads after the ending fault as stopped, with a null se
 		});
 	}, "owner-person");
 });
+
+it.each([
+	["android", "web-apps"],
+	["web-apps", "android"],
+] as const)(
+	"keeps Check status and the read-only setup guide on the published %s app after the draft changes to %s",
+	async (published, draft) => {
+		await seed(false, published);
+		const horizon = await writeHqRoundTripHorizon(h.db(), APP, "Visits");
+		await record("working-app", TARGET, horizon);
+		await commitGuardedBatchProposal({
+			appId: APP,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			kind: "autosave",
+			actorUserId: ACTOR,
+			mutations: [{ kind: "setAppSettings", settings: { runsOnlyOn: draft } }],
+		});
+		await withHttpPeer(async (peer) => {
+			ready(peer, PROFILE, 200, published === "android");
+			await asUser(async (client) => {
+				const deployments = JSON.parse(
+					resultText(await call(client, GET, { app_id: APP })),
+				).deployments;
+				const checked = await refresh(client);
+				expect(checked.state).toBe("runnable");
+				for (const result of [deployments[0], checked]) {
+					const sections = result.setup_artifact.sections as {
+						id: string;
+						caveats: string[];
+					}[];
+					expect(sections.some((s) => s.id === "web-apps")).toBe(
+						published === "web-apps",
+					);
+					const release = sections.find((s) => s.id === "build-and-release");
+					expect(release?.caveats.join(" ")).toContain(
+						published === "android"
+							? "offline Android installation"
+							: "This app runs in Web Apps only",
+					);
+				}
+			});
+			expect(
+				urls(peer).some((request) => request.fullUrl.endsWith(DETAIL_PATH)),
+			).toBe(published === "android");
+		});
+	},
+);

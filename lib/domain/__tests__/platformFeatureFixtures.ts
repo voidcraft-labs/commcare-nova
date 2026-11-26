@@ -451,6 +451,53 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"automaticSubmissionText",
 		),
 	},
+	"case-list-android-lookup": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.deviceLookup = {
+						action: "org.nova.proof.CASE_LOOKUP",
+						label: "Find a visit",
+						extras: [{ name: "mode", value: "lookup" }],
+						responses: ["visit"],
+					};
+				},
+			}),
+		without: () => caseApp(),
+		use: slotUse(
+			"case-list-android-lookup",
+			MODULE_OWNER,
+			"caseListConfig.deviceLookup",
+		),
+	},
+	"case-list-icon-actions": {
+		with: () =>
+			caseApp({
+				columns: [
+					imageMapColumn(FIXTURE_COLUMN, "case_name", "Action", [], {
+						entryPointUuid: testUuid("platform-list-action-endpoint"),
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [imageMapColumn(FIXTURE_COLUMN, "case_name", "Image", [])],
+			}),
+		use: slotUse(
+			"case-list-icon-actions",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].entryPointUuid",
+		),
+	},
+	"saved-form-descriptor": {
+		with: () => formBehaviorFixture("savedFormDescriptorText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse(
+			"saved-form-descriptor",
+			FORM_OWNER,
+			"savedFormDescriptorText",
+		),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"worker-distance": {
 		with: () =>
@@ -883,6 +930,12 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		"captureSource",
 		"camera",
 	),
+	"face-camera": questionSettingPair(
+		"face-camera",
+		"image",
+		"captureSource",
+		"face-camera",
+	),
 	"photo-overlay": questionSettingPair(
 		"photo-overlay",
 		"image",
@@ -976,6 +1029,53 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				label: proseText("Registration reference"),
 			}),
 		use: slotUse("answer-name-requires-android", FIELD_OWNER, "id"),
+	},
+	"android-app-question": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+				androidApp: {
+					kind: "open-app",
+					action: "org.example.READING",
+					send: [],
+					receive: [],
+				},
+			}),
+		without: () =>
+			oneField({ kind: "text", id: "answer", label: proseText("Answer") }),
+		use: slotUse("android-app-question", FIELD_OWNER, "androidApp"),
+	},
+	"android-app-answer": {
+		with: () =>
+			survey([
+				f({
+					uuid: testUuid("read-meter-app"),
+					kind: "text",
+					id: "reading",
+					label: proseText("Read meter"),
+					androidApp: {
+						kind: "open-app",
+						action: "org.example.READING",
+						send: [],
+						receive: [],
+					},
+				}),
+				f({
+					uuid: FIXTURE_FIELD,
+					kind: "int",
+					id: "answer",
+					label: proseText("Answer"),
+					androidApp: {
+						kind: "use-question",
+						question: testUuid("read-meter-app"),
+					},
+				}),
+			]),
+		without: () =>
+			oneField({ kind: "int", id: "answer", label: proseText("Answer") }),
+		use: slotUse("android-app-answer", FIELD_OWNER, "androidApp"),
 	},
 	"number-keypad": {
 		with: () =>
@@ -1691,6 +1791,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"barcode-search-field",
 			INPUT_OWNER,
 			"caseListConfig.searchInputs[0].type",
+		),
+	},
+	"search-field-groups": {
+		with: () => {
+			const group = testUuid("platform-fixture-search-group");
+			return caseApp({
+				searchInputs: [{ ...input("text"), group }],
+				list: (config) => {
+					config.searchInputGroups = [
+						{ uuid: group, label: "Personal details" },
+					];
+				},
+			});
+		},
+		without: () => caseApp({ searchInputs: [input("text")] }),
+		use: slotUse(
+			"search-field-groups",
+			MODULE_OWNER,
+			"caseListConfig.searchInputGroups",
 		),
 	},
 	"search-for-blank": {

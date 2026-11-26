@@ -10,6 +10,7 @@ import {
 import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
 import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { workerChoiceProse } from "@/lib/preview/workerProse";
 import {
 	useEditMode,
 	usePreviewPlatform,
@@ -52,6 +53,8 @@ export function SelectMultiField({
 	const dynamicChoices = field.optionsSource.kind !== "inline";
 	// Document-aware option-label projection: see the single-select twin.
 	const projectProse = useProseProjection();
+	const platform = usePreviewPlatform();
+	const textForm = useFieldTextForm(field.uuid);
 	// `key` is display identity: see the single-select twin.
 	const options: ReadonlyArray<{
 		key: string;
@@ -66,17 +69,19 @@ export function SelectMultiField({
 					...opt,
 					key: opt.value,
 					label:
-						state.resolvedOptionLabels?.[opt.uuid] ?? projectProse(opt.label),
+						state.resolvedOptionLabels?.[opt.uuid] ??
+						projectProse(
+							workerChoiceProse(field, opt, textForm, platform).template,
+						),
 				}))
 			: [];
 	const selected = new Set(state.value ? state.value.split(" ") : []);
+	const hint = field.extended_hint ?? field.hint;
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
 	/* Choice media draws on Android and in edit mode; Web Apps draws none
 	 * (manifest `questions/choice-image`, `choice-audio-video`). */
 	const rules = usePreviewPlatformRules();
-	const platform = usePreviewPlatform();
-	const textForm = useFieldTextForm(field.uuid);
 	const drawChoiceMedia = isEditMode || rules.choiceMedia;
 	const labelRendering = isEditMode
 		? PREVIEW_LABEL_RENDERING
@@ -131,8 +136,8 @@ export function SelectMultiField({
 					placeholder={
 						rules.hintPlacement === "as-authored" &&
 						field.hintPlacement === "placeholder" &&
-						field.hint
-							? (state.resolvedHint ?? projectProse(field.hint))
+						hint
+							? (state.resolvedHint ?? projectProse(hint))
 							: undefined
 					}
 					value={state.value}

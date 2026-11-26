@@ -45,7 +45,7 @@ import {
 	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
-import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import { moduleFormsReadSearch, projectSearchOf } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { canonicalProseAtom } from "@/lib/domain/proseExpression";
@@ -334,6 +334,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"sortUuid",
 		"rowUuid",
 		"tabUuid",
+		"parameterUuid",
 		"searchInputUuid",
 		"filterUuid",
 		"optionUuid",
@@ -377,9 +378,12 @@ function slotHolder(
 			if (typeof holder !== "object" || holder === null) break;
 			if (segment.endsWith("[]")) {
 				const list = (holder as Holder)[segment.slice(0, -2)];
-				holder = Array.isArray(list)
-					? list.find((element) => namedElement(element, ref))
-					: undefined;
+				if (!Array.isArray(list)) holder = undefined;
+				else if (ref.slot === "android_app_input")
+					holder = list.filter((element) => element?.name === ref.member.name)[
+						ref.member.occurrence
+					];
+				else holder = list.find((element) => namedElement(element, ref));
 			} else holder = (holder as Holder)[segment];
 		}
 		if (typeof holder !== "object" || holder === null) continue;
@@ -405,14 +409,20 @@ function proseTemplate(
 	if (!isProseSlotRef(ref)) return undefined;
 	const field = doc.fields[ref.uuid] as Holder | undefined;
 	if (field === undefined) return undefined;
-	if (ref.slot !== "option_label")
-		return field[ref.slot] as ProseTemplate | undefined;
+	if (!("member" in ref)) return field[ref.slot] as ProseTemplate | undefined;
 	const source = field.optionsSource as
-		| { options?: { uuid: Uuid; label: ProseTemplate }[] }
+		| {
+				options?: {
+					uuid: Uuid;
+					label: ProseTemplate;
+					extended_text?: ProseTemplate;
+				}[];
+		  }
 		| undefined;
-	return source?.options?.find(
-		(option) => option.uuid === ref.member.optionUuid,
-	)?.label;
+	const option = source?.options?.find(
+		(entry) => entry.uuid === ref.member.optionUuid,
+	);
+	return ref.slot === "option_label" ? option?.label : option?.extended_text;
 }
 
 /** Where each registration's tree is written: a slot, or the part of a
@@ -507,6 +517,12 @@ function registrationName(
 				(candidate) => candidate.uuid === ref.member.columnUuid,
 			);
 			if (column !== undefined) return column.header;
+		} else if ("member" in ref && "parameterUuid" in ref.member) {
+			const parameterUuid = ref.member.parameterUuid;
+			const parameter = projectSearchOf(doc.modules[ref.uuid])?.defaults.find(
+				(item) => item.uuid === parameterUuid,
+			);
+			if (parameter) return parameter.name;
 		} else if ("member" in ref && "searchInputUuid" in ref.member) {
 			const uuid = ref.member.searchInputUuid;
 			const input = config?.searchInputs.find(

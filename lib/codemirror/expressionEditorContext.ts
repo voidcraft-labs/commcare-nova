@@ -1,3 +1,4 @@
+import { inlineSearchInstance } from "@/lib/commcare/suite/case-search/types";
 /**
  * One expression slot's editor context: the parse scope its text binds
  * against, the per-form reference projection its `#form/` and `#<type>/`
@@ -115,9 +116,12 @@ export interface ExpressionReads {
 	readonly selectedCases?: string;
 	/** What the search that opened this form found: the searched case type's
 	 *  properties, standard ones included. */
-	readonly searchResults?: { readonly properties: readonly NamedRead[] };
-	/** A no-matches form's search fields, by name. */
-	readonly searchInputs?: readonly string[];
+	readonly searches?: readonly {
+		resultsId: string;
+		menu: string;
+		properties?: readonly NamedRead[];
+		inputs?: readonly string[];
+	}[];
 	/** The session values the form's entry supplies, each labelled by what
 	 *  it holds. */
 	readonly openingSupplies?: ReadonlyArray<{
@@ -409,14 +413,34 @@ function slotReads(
 						),
 				)
 			: undefined;
-	const searched = context.supplies.searchResults;
-	const searchedType =
-		searched === undefined
-			? undefined
-			: context.facts.caseTypes.find(
-					(type) =>
-						type.name === context.facts.moduleCaseTypes.get(searched.module),
-				);
+	const sourceUuids = [
+		...new Set([
+			...(form?.searchSuppliers ?? []).map((search) => search.module),
+			...(form?.caseListRegistrationForm ? [form.moduleUuid] : []),
+		]),
+	];
+	const searches = sourceUuids.map((uuid) => {
+		const menu = doc.modules[uuid];
+		const type = context.facts.caseTypes.find(
+			(type) => type.name === menu.caseType,
+		);
+		return {
+			resultsId: inlineSearchInstance(menu.searchResultsName),
+			menu: menu.name,
+			...(!form?.caseListRegistrationForm &&
+				type && {
+					properties: type.properties.map((property) => ({
+						name: property.name,
+						label: projectProseTemplate(property.label, doc).text,
+					})),
+				}),
+			...(context.profile.scope === "form" && {
+				inputs: (menu.caseListConfig?.searchInputs ?? []).map(
+					(input) => input.name,
+				),
+			}),
+		};
+	});
 	const relations = caseRelations(doc);
 	const custom = Object.values(userPropertiesOf(doc));
 	const customSlugs = new Set(custom.map((property) => property.slug));
@@ -478,20 +502,7 @@ function slotReads(
 					},
 				}),
 		...(chosen === undefined ? {} : { selectedCases: chosen.id }),
-		...(searchedType === undefined || form?.caseListRegistrationForm
-			? {}
-			: {
-					searchResults: {
-						properties: searchedType.properties.map((property) => ({
-							name: property.name,
-							label: projectProseTemplate(property.label, doc).text,
-						})),
-					},
-				}),
-		...(form?.caseListRegistrationForm ||
-		(form?.formsReadSearchModule === true && context.profile.scope === "form")
-			? { searchInputs: form.searchInputs.map((input) => input.name) }
-			: {}),
+		...(searches.length > 0 && { searches }),
 		...(openingSupplies.length > 0 && { openingSupplies }),
 		sessionData: [
 			...rows.flatMap((row) => {

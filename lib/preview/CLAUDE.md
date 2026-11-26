@@ -2193,7 +2193,7 @@ and a form opened from that menu reads those results. Preview plays it with
 the search held completed there (`previewSearchState.ts::searchRunPastItsList`):
 it takes the latest answers and drops the device values worked out for the
 old ones, which the session works out again (`searchesAwaitingDeviceValues`),
-so the form reads the new run's `results:inline`; it is marked
+so the form reads the new run's named results (`results:inline` by default); it is marked
 `rerunPastList`, since no list counted what these answers find, so it offers
 no registration (`noMatchesActionAvailable`, and a Register launch from the
 earlier empty result is stale), and its list runs it again as it comes on
@@ -2754,3 +2754,31 @@ The same authorized Project/destination catalog carries `caseListMap`, the team�
 A form's completed search holds its answers and Results together. A separately opened form reads the original answers from its own query manager. Both pass raw answer keys to a single search-instance projection at form entry. A signed range opening belongs to the admitted worker, app language and resolved time zone. A resize keeps the opening and its already evaluated dates.
 
 A completed search's server order (`completedSearchRequest.ts`: the filters' orders, then `requestOrder`) reaches the store as HQ's index keys, and `case-store/postgres/searchPopulation.ts` compares each as HQ's index does before the cap: exact text by binary keyword order, numbers as doubles, dates by the index's date reading, missing values first ascending and last descending. A value whose reading is uncertain stops the search only where it could change which records arrive or an order the app observes. A list's own sort reorders only what arrived. A search's own owner exclusion is evaluated with the Search answers and leaves those owners out of the server population before the cap; it replaces the shared assigned-case rule for the search only (`caseDataBinding.ts`, `serverSearchRead.ts`), and a browse keeps the worker's restore and the shared rule.
+
+
+### Recent Web Apps form activity
+
+A complete signed Web Apps opening evaluates the activity key, title and
+window through the same engine that initializes the worker’s form. The server
+evaluates before any answer or validation. The signed projection holds the
+worker’s entry and a keyed digest of the app, ordinary form and evaluated key,
+so a shadow shares the original form’s activity. The Preview notice uses the
+prior worker’s event only when the opening’s restore includes its selected
+records. The worker’s first successful restore establishes the comparison
+time, measured at the start of the read. A submission writes its event inside
+the transaction that completes its receipt. Replays return the receipt
+without writing a fresh event. Android ignores these settings.
+
+### Android incomplete and saved forms
+
+An incomplete save keeps the engine checkpoint, entry key, signed opening and authorized case/session inputs in the current Builder tab. Android home resets navigation while retaining its records. Reopening requires the same saved blueprint and effective worker. The restored engine reuses its answers and repeat identities, while submit still checks current Project access and the signed opening. Drafts keep their attachment entry key and drop its local capture queues on discard, successful submission or scope loss. A successful submission replaces the incomplete record with its completed metadata when the saved list is on.
+
+`FormEngine.savedFormDescriptor` evaluates the carrier in the current language at the form root, as Android's `SaveToDiskTask` calls Core's `FormMetaIndicatorUtil`. The displayed label is saved with the record. An empty label uses the entry's selected case title where available.
+
+### Android app answers
+
+The form engine computes the request in the concrete invoking row. The
+Preview dialog offers local result entry. `androidAppWrites` implements the
+ordered native protocols and tracks the native return flag separately from
+the writes. The controller checks entry and row identity when a return
+arrives. Chosen files use the normal staged capture owner and cleanup.

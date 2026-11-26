@@ -232,16 +232,20 @@ export function ExpressionPicker(props: ExpressionPickerProps) {
 	if (!isCardValue(props.value)) {
 		// Held reads (casedb, table rows, places) that came with an imported
 		// app: kept and emitted as they are, authored by no menu.
-		return (
-			<div role="status" className="text-[13px] text-nova-text-muted">
-				This value came with the app and is kept as it is.
-			</div>
-		);
+		return <PreservedExpression />;
 	}
 	return (
 		<WithExpressionContext path={props.path}>
 			<ExpressionPickerBody {...props} value={props.value} />
 		</WithExpressionContext>
+	);
+}
+
+function PreservedExpression() {
+	return (
+		<div role="status" className="text-[13px] text-nova-text-muted">
+			This value came with the app and is kept as it is.
+		</div>
 	);
 }
 
@@ -276,6 +280,9 @@ function ExpressionPickerBody({
 		readonly source: ExpressionOfKind<"term">;
 		readonly target: ExpressionCardSchema<CardValueKind>;
 	} | null>(null);
+	if (value.kind === "call" && !isAuthorableExpressionKind("call", ctx))
+		return <PreservedExpression />;
+
 	const schema = expressionCardSchemas[value.kind];
 	const Component = schema.component as React.ComponentType<{
 		value: Expression;

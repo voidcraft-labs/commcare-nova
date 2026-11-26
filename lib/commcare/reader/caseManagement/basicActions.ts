@@ -21,6 +21,7 @@ import {
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
 	ownCaseOperationId,
+	RESERVED_CASE_OPERATION_TYPES,
 	type RelationStep,
 	type Uuid,
 } from "@/lib/domain";
@@ -234,6 +235,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	),
 	viaUser: refuse(
 		`${F}/update-key-whose-index-segments-include-user-each-parent-host-or`,
+		"schema:UpdateCaseAction.update",
+	),
+	viaUserHeld: take(
+		`${F}/update-key-through-a-typed-user-index`,
 		"schema:UpdateCaseAction.update",
 	),
 	viaOther: refuse(
@@ -1516,11 +1521,12 @@ function readUpdateMap(
 		const segments = key.split("/");
 		const property = segments[segments.length - 1] as string;
 		const indices = segments.slice(0, -1);
+		const directUserIndex = indices.length === 1 && indices[0] === "user";
 		let via: CaseWriteVia | undefined;
 		if (slot === "own" && indices.length > 0) {
-			const known = indices.every(
-				(segment) => segment === "parent" || segment === "host",
-			);
+			const known =
+				directUserIndex ||
+				indices.every((segment) => segment === "parent" || segment === "host");
 			if (!known) {
 				const users = indices.every(
 					(segment) =>
@@ -1538,8 +1544,16 @@ function readUpdateMap(
 				continue;
 			}
 			const steps = ancestorSteps(r.ctx, r.caseType, indices);
-			if (steps === undefined) {
-				refuseEntry(cursor, BASIC_CLAIMS.ancestorUnknown, key);
+			if (
+				steps === undefined ||
+				(directUserIndex &&
+					steps.types.some((type) => RESERVED_CASE_OPERATION_TYPES.has(type)))
+			) {
+				refuseEntry(
+					cursor,
+					directUserIndex ? BASIC_CLAIMS.viaUser : BASIC_CLAIMS.ancestorUnknown,
+					key,
+				);
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
@@ -1595,23 +1609,26 @@ function readUpdateMap(
 				: BASIC_CLAIMS.editElsewhere;
 		// The rows the own case's `update` names by its key: a key through the
 		// cases above the loaded one is its own row's.
-		const keyClaim = viaFacet
-			? BASIC_CLAIMS.viaFacet
-			: via !== undefined
-				? BASIC_CLAIMS.viaOnLoad
-				: slot !== "own" || indices.length > 0
-					? undefined
-					: property === "name" && r.type !== "registration"
-						? BASIC_CLAIMS.nameKey
-						: property === "owner_id"
-							? BASIC_CLAIMS.ownerKey
-							: categoryOrState
-								? BASIC_CLAIMS.categoryStateKey
-								: facet
-									? undefined
-									: property === "location_id" || property === "hq_user_id"
-										? BASIC_CLAIMS.locationOrWorkerKey
-										: BASIC_CLAIMS.asciiKey;
+		const keyClaim =
+			directUserIndex && via !== undefined
+				? BASIC_CLAIMS.viaUserHeld
+				: viaFacet
+					? BASIC_CLAIMS.viaFacet
+					: via !== undefined
+						? BASIC_CLAIMS.viaOnLoad
+						: slot !== "own" || indices.length > 0
+							? undefined
+							: property === "name" && r.type !== "registration"
+								? BASIC_CLAIMS.nameKey
+								: property === "owner_id"
+									? BASIC_CLAIMS.ownerKey
+									: categoryOrState
+										? BASIC_CLAIMS.categoryStateKey
+										: facet
+											? undefined
+											: property === "location_id" || property === "hq_user_id"
+												? BASIC_CLAIMS.locationOrWorkerKey
+												: BASIC_CLAIMS.asciiKey;
 		const read = readUpdate(r, cursor, property, edit, pathClaim, keyClaim);
 		if (!read.ok || read.value === undefined) continue;
 		// A date-and-time question's day is saved straight only to a `date`

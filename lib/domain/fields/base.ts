@@ -142,6 +142,7 @@ export const fieldBaseSchema = structuralFieldBase.extend({
  */
 export const containerFieldBase = structuralFieldBase.extend({
 	label: proseTemplateSchema.optional(),
+	extended_text: proseTemplateSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel: z.literal(true).optional(),
 });
@@ -165,7 +166,9 @@ export const containerFieldBase = structuralFieldBase.extend({
  */
 export type InputFieldBase = FieldBase & {
 	hint?: ProseTemplate;
+	extended_hint?: ProseTemplate;
 	help?: ProseTemplate;
+	extended_help?: ProseTemplate;
 	help_media?: Media;
 	plainHelp?: true;
 	required?: Expression; // an expression, or the "true()" sentinel
@@ -174,7 +177,9 @@ export type InputFieldBase = FieldBase & {
 
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
+	extended_hint: proseTemplateSchema.optional(),
 	help: proseTemplateSchema.optional(),
+	extended_help: proseTemplateSchema.optional(),
 	/** No inline video: only a question's label plays one. */
 	help_media: helpOrChoiceMediaSchema.optional(),
 	/** The help text shows exactly as written on Android, with no markdown form on the wire.
@@ -189,6 +194,7 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 export const checkedInputFieldBaseSchema = inputFieldBaseSchema.extend({
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
+	extended_validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),
 });
 
@@ -205,6 +211,7 @@ export const checkedInputFieldBaseSchema = inputFieldBaseSchema.extend({
 export type SelectOption = {
 	value: string;
 	label: ProseTemplate;
+	extended_text?: ProseTemplate;
 	media?: Media;
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel?: true;
@@ -214,6 +221,7 @@ export type SelectOption = {
 export const selectOptionSchema = z.strictObject({
 	value: z.string(),
 	label: proseTemplateSchema,
+	extended_text: proseTemplateSchema.optional(),
 	/** No inline video: only a question's label plays one. */
 	media: helpOrChoiceMediaSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */

@@ -779,12 +779,19 @@ class Inference {
 					// is the name the case's type holds as text.
 					if (write.via !== undefined && write.property === "owner_id")
 						continue;
-					writes.push({
-						property: write.property,
-						value: write.value,
-						caseType: destination.caseType,
-						name: write.via !== undefined && write.property === "case_name",
-					});
+					const types =
+						operation.action === "create" &&
+						operation.typeChoice !== undefined &&
+						write.via === undefined
+							? [destination.caseType, operation.typeChoice.otherwise]
+							: [destination.caseType];
+					for (const caseType of types)
+						writes.push({
+							property: write.property,
+							value: write.value,
+							caseType,
+							name: write.via !== undefined && write.property === "case_name",
+						});
 				}
 				for (const write of writes) {
 					const key = propertyKey(write.caseType, write.property);

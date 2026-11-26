@@ -110,6 +110,8 @@ const STATIC_URL = "/static/";
 const PAGE_ENTRIES = [
 	// app_manager/app_view_settings.html: app settings, add-ons, UI translations
 	"app_manager/js/app_view",
+	// app_manager/app_view_release_manager.html: Application Profiles
+	"app_manager/js/releases/bootstrap5/app_view_release_manager",
 	// app_manager/bootstrap3/module_view.html: module settings, case list, case search
 	"app_manager/js/modules/bootstrap3/module_view",
 	// app_manager/form_view.html: form settings, case management

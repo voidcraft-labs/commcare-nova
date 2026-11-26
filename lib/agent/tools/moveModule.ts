@@ -26,6 +26,7 @@
  */
 
 import type { z } from "zod";
+import { offerSearchNameMutations } from "@/lib/doc/searchResultsNaming";
 import { withListedMenuHierarchy } from "@/lib/doc/sharedMenuHierarchy";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -155,6 +156,9 @@ export const moveModuleTool = {
 			}
 
 			const mutations: Mutation[] = [
+				...offerSearchNameMutations(doc, target.moduleUuid, {
+					parentModuleUuid: input.parentModuleUuid,
+				}),
 				{
 					kind: "moveModule",
 					uuid: target.moduleUuid,

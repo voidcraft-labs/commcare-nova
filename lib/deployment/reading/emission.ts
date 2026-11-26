@@ -23,6 +23,7 @@ import type {
 	HqAppSource,
 	HqAppSourceModule,
 } from "@/lib/commcare/hq/appSource";
+import { readBuildProfiles } from "@/lib/commcare/hq/appSource";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
 import { expectedXmlnsOf } from "@/lib/commcare/hq/sharedFormSource";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -163,7 +164,12 @@ export function readingEmissionOptions(
 		});
 	}
 	return {
-		identity: targetWireIdentity(overrides, identities.columnFieldWords),
+		identity: targetWireIdentity(
+			overrides,
+			identities.columnFieldWords,
+			identities.projectSearches,
+			identities.installationProfiles,
+		),
 		attachmentTarget: {
 			origin: input.reader.target.origin,
 			domain: input.reader.target.domain,
@@ -305,7 +311,12 @@ function sourceFromServed(
 		name: text(body.name),
 		lastModified: null,
 		multimediaMap: source.multimediaMap,
-		buildProfiles: [],
+		buildProfiles:
+			readBuildProfiles(
+				raw.build_profiles ?? NO_ENTRIES,
+				new Set(Array.isArray(body.langs) ? body.langs : []),
+				servedModules(body).length,
+			) ?? [],
 	};
 }
 

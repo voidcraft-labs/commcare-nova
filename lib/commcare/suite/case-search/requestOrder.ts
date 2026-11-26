@@ -12,7 +12,10 @@
 
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import type { SearchRequestOrder } from "@/lib/domain/modules";
-import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import {
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 
 type Term = SearchRequestOrder[number];
 
@@ -55,31 +58,40 @@ export function serverOrderKeyNovaReserves(key: string): boolean {
 	);
 }
 
-/** Whether a literal `commcare_sort` text names a key Nova reserves. */
-export function requestOrderTextNamesReserved(text: string): boolean {
-	return text
-		.split(",")
-		.some((part) =>
-			serverOrderKeyNovaReserves(
-				part.replace(/^[-+]+/, "").split(":")[0] ?? "",
-			),
-		);
+/** The reason a key cannot order the results of a server search. */
+function orderKeyRefusal(key: string): "reserved" | "device-only" | undefined {
+	if (serverOrderKeyNovaReserves(key)) return "reserved";
+	if (isDeviceOnlyCaseProperty(key)) return "device-only";
 }
 
-/** Whether dedicated sort rows name a key Nova reserves. */
-export function dedicatedOrderNamesReserved(value: unknown): boolean {
-	return (
-		Array.isArray(value) &&
-		value.some(
-			(row) =>
-				row !== null &&
-				typeof row === "object" &&
-				typeof (row as Record<string, unknown>).property_name === "string" &&
-				serverOrderKeyNovaReserves(
-					(row as Record<string, unknown>).property_name as string,
-				),
-		)
+function orderRefusal(keys: readonly string[]) {
+	const reasons = keys.map(orderKeyRefusal);
+	if (reasons.includes("reserved")) return "reserved";
+	if (reasons.includes("device-only")) return "device-only";
+}
+
+/** A refusal for an order in a literal Search filter. */
+export function requestOrderTextRefusal(text: string) {
+	return orderRefusal(
+		text
+			.split(",")
+			.map((part) => part.replace(/^[-+]+/, "").split(":")[0] ?? ""),
 	);
+}
+
+/** A refusal for the dedicated sort rows saved in Search settings. */
+export function dedicatedOrderRefusal(value: unknown) {
+	return !Array.isArray(value)
+		? undefined
+		: orderRefusal(
+				value.flatMap((row) =>
+					row !== null &&
+					typeof row === "object" &&
+					typeof row.property_name === "string"
+						? [row.property_name]
+						: [],
+				),
+			);
 }
 
 /** The key HQ's index holds a term's value under. */
@@ -98,7 +110,7 @@ function readTerm(
 	const attribute = Object.entries(ATTRIBUTE_KEYS).find(
 		([wire]) => wire === key,
 	)?.[1];
-	if (serverOrderKeyNovaReserves(key)) return;
+	if (orderKeyRefusal(key) !== undefined) return;
 	const property = attribute ?? (key === "name" ? "case_name" : key);
 	if (!authoredCasePropertyNameSchema.safeParse(property).success) return;
 	if (

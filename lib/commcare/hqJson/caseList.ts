@@ -3,6 +3,10 @@ import {
 	caseTextWireKey,
 } from "../suite/case-list/calculationText";
 import { detailBindings } from "../suite/case-list/detailBindings";
+import {
+	deviceLookupExtraWire,
+	lookupCaseKeyWire,
+} from "../suite/case-list/deviceLookup";
 
 // lib/commcare/hqJson/caseList.ts
 //
@@ -155,8 +159,13 @@ import {
 	emitSearchRequestValue,
 	searchRequestKey,
 } from "../suite/case-search/nativeFilters";
-import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
+import {
+	projectSearchValues,
+	requiredProjectSearchId,
+} from "../suite/case-search/projectSearch";
+import { includeSearchHierarchy } from "../suite/case-search/relatedCaseProjection";
 import { projectRequestOrder } from "../suite/case-search/requestOrder";
+import { groupedSearchWire } from "../suite/case-search/searchGroups";
 import {
 	type RuntimeCsqlPromptValidation,
 	type SearchPromptAssertion,
@@ -930,6 +939,10 @@ export type SearchConfigRewrites = (
 		| {
 				readonly slot: "search_button_display_condition" | "excluded_owner_ids";
 		  }
+		| {
+				readonly slot: "project_search_parameter";
+				readonly parameterUuid: Uuid;
+		  }
 		| { readonly slot: SearchPromptSlot; readonly searchInputUuid: string },
 ) => RewriteControl | undefined;
 
@@ -1030,7 +1043,7 @@ function projectSearchInput(
  * implicit case-property match.
  */
 function projectSearchProperties(
-	searchInputs: ReadonlyArray<SearchInputDef>,
+	config: CaseListConfig | undefined,
 	runtimeValidations: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
 	localization: CommCareLocalization,
 	expressions: ModuleExpressionContexts,
@@ -1038,21 +1051,29 @@ function projectSearchProperties(
 	inputInstanceId?: `search-input:${string}`,
 	rewrites?: SearchConfigRewrites,
 ): CaseSearchProperty<HqXPath>[] {
-	const out: CaseSearchProperty<HqXPath>[] = [];
-
-	// Search prompts render in searchInputs array order.
-	for (const input of searchInputs) {
-		out.push(
-			projectSearchInput(
-				input,
-				runtimeValidations.get(input.name),
-				localization,
-				expressions,
-				lookupNaming,
-				inputInstanceId,
-				rewrites,
-			),
+	const inputs = config?.searchInputs ?? [];
+	const project = (input: SearchInputDef) =>
+		projectSearchInput(
+			input,
+			runtimeValidations.get(input.name),
+			localization,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			rewrites,
 		);
+	if (!config?.searchInputGroups) return inputs.map(project);
+
+	const out: CaseSearchProperty<HqXPath>[] = [];
+	for (const group of groupedSearchWire(inputs, config.searchInputGroups)) {
+		out.push({
+			name: group.key,
+			is_group: true,
+			group_key: group.key,
+			label: localization.textMapFor(group.labelUnit),
+		});
+		for (const input of group.inputs)
+			out.push({ ...project(input), group_key: group.key });
 	}
 	return out;
 }
@@ -1138,13 +1159,15 @@ function projectDefaultProperties(
 function buildSearchConfigDocument(
 	caseSearchConfig: OrdinaryCaseSearchConfig | undefined,
 	caseListConfig: CaseListConfig | undefined,
-	_caseType: string | undefined,
+	caseType: string | undefined,
+	searchResultsName: string | undefined,
 	moduleUuid: string,
 	localization: CommCareLocalization,
 	expressions: ModuleExpressionContexts,
 	lookupNaming: LookupWireNaming | undefined,
 	datumId: (ref: DatumRef) => string | undefined,
 	runsInWebApps: boolean,
+	projectSearchId: number | undefined,
 	rewrites?: SearchConfigRewrites,
 ): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
@@ -1152,10 +1175,15 @@ function buildSearchConfigDocument(
 	// CCHQ-default baseline lives in one file (any future CCHQ
 	// upstream default change is a one-edit fix).
 	const config = caseSearchConfigShell(localization.languages, runsInWebApps);
+	if (searchResultsName !== undefined) config.instance_name = searchResultsName;
+	if (caseListConfig?.additionalCaseTypes?.length)
+		config.additional_case_types = [
+			...caseListConfig.additionalCaseTypes,
+		].sort();
 	const wire =
 		caseSearchConfig === undefined
 			? undefined
-			: searchWireShape(caseSearchConfig);
+			: searchWireShape(caseSearchConfig, searchResultsName);
 	// Core's answer instance is named after the query's storage instance.
 	// Keep the HQ prompt rules, query operands and owner exclusion on the
 	// same instance that the local suite's Search session supplies.
@@ -1240,17 +1268,41 @@ function buildSearchConfigDocument(
 	// `{}`; when it is still undefined this is an ordinary on-device list and
 	// must not acquire a dormant `_xpath_query` merely because the list has a
 	// filter.
-	if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
+	if (caseSearchConfig?.projectSearch) {
+		if (projectSearchId !== undefined)
+			config.case_search_endpoint_id = requiredProjectSearchId(projectSearchId);
+		config.properties = projectSearchProperties(
+			caseListConfig,
+			new Map(),
+			localization,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			rewrites,
+		);
+		config.default_properties = projectSearchValues(
+			caseSearchConfig.projectSearch,
+			expressions,
+			lookupNaming,
+			inputInstanceId,
+			datumId,
+			(uuid) =>
+				rewrites?.({ slot: "project_search_parameter", parameterUuid: uuid }),
+		).map(({ name, value }) => ({
+			property: name,
+			defaultValue: hqXPath(value),
+		}));
+	} else if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
 		const xpathQueryEmission = composeXPathQueryEmission(
 			caseListConfig,
-			_caseType,
+			caseType,
 			expressions,
 			lookupNaming,
 			inputInstanceId,
 			datumId,
 		);
 		config.properties = projectSearchProperties(
-			caseListConfig.searchInputs,
+			caseListConfig,
 			buildRuntimeCsqlPromptValidations(xpathQueryEmission),
 			localization,
 			expressions,
@@ -1260,6 +1312,10 @@ function buildSearchConfigDocument(
 		);
 		// A search with no input and no clause carries the zero-input
 		// sentinel, as the local suite's query does.
+		if (caseSearchConfig?.relatedRecordIdProperty) {
+			config.custom_related_case_property =
+				caseSearchConfig.relatedRecordIdProperty;
+		}
 		config.default_properties = [
 			...(caseListConfig.searchFilters ?? [])
 				.filter((row) => !isDedicatedOwnerFilter(row))
@@ -1294,10 +1350,15 @@ function buildSearchConfigDocument(
 		config.default_search = wire.defaultSearch;
 		config.inline_search = wire.inlineSearch;
 	}
-	if (wire !== undefined && caseListConfig !== undefined) {
-		config.include_all_related_cases = searchNeedsSupportingCases(
+	if (
+		wire !== undefined &&
+		caseListConfig !== undefined &&
+		!caseSearchConfig?.projectSearch
+	) {
+		config.include_all_related_cases = includeSearchHierarchy(
 			caseListConfig,
 			expressions,
+			caseSearchConfig?.relatedRecords,
 		);
 	}
 
@@ -1396,6 +1457,7 @@ export function projectCaseListForHq(
 	listRewrites?: CaseListRewrites,
 	columnFieldWord?: ColumnFieldWordOf,
 	moduleUniqueId: (uuid: Uuid) => string = DERIVED_WIRE_IDENTITY.moduleUniqueId,
+	projectSearchId?: number,
 ): CaseListHqProjection {
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
@@ -1628,7 +1690,35 @@ export function projectCaseListForHq(
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {
 		pair.short.multi_select = true;
+		if (caseListConfig.selection.autoSelect) pair.short.auto_select = true;
 		pair.short.max_select_value = caseListConfig.selection.maximum;
+	}
+	const deviceLookup = caseListConfig?.deviceLookup;
+	if (deviceLookup !== undefined) {
+		pair.short.lookup_enabled = true;
+		pair.short.lookup_action = deviceLookup.action;
+		pair.short.lookup_name = deviceLookup.label;
+		if (deviceLookup.icon !== undefined && assets !== undefined)
+			pair.short.lookup_image = requireAssetRef(
+				deviceLookup.icon,
+				assets,
+				"case-list lookup icon",
+			);
+		if (deviceLookup.resultHeading !== undefined) {
+			pair.short.lookup_display_results = true;
+			pair.short.lookup_field_header = localization.textMap(
+				caseListWordingUnitId(mod.uuid, "lookup"),
+			);
+			pair.short.lookup_field_template = hqXPath(lookupCaseKeyWire());
+		}
+		pair.short.lookup_autolaunch = deviceLookup.automatic === true;
+		pair.short.lookup_extras = deviceLookup.extras.map((extra) => ({
+			key: extra.name,
+			value: hqXPath(deviceLookupExtraWire(extra)),
+		}));
+		pair.short.lookup_responses = deviceLookup.responses.map((key) => ({
+			key,
+		}));
 	}
 	// The list's own texts, which HQ's build writes as `m<N>_no_items_text`
 	// (under `USH_EMPTY_CASE_LIST_TEXT`) and `m<N>_select_text` in every
@@ -1654,12 +1744,14 @@ export function projectCaseListForHq(
 		caseSearchConfig,
 		caseListConfig,
 		mod.caseType,
+		mod.searchResultsName,
 		mod.uuid,
 		localization,
 		expressions,
 		lookupNaming,
 		caseListStepDatumId(doc, mod.uuid, "id"),
 		declaresWebApps(doc),
+		projectSearchId,
 		searchRewrites,
 	);
 

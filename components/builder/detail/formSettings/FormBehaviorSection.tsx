@@ -30,6 +30,16 @@ const descriptions: Record<FormBehaviorRole, string> = {
 		"Web Apps would skip a sync after this form is sent. Nova apps don't sync after each form, so workers see no change.",
 	validateChangedAnswersText:
 		"Web Apps checks new answers and blanks. A previously accepted answer can stay accepted after another answer changes.",
+	activityKeyText:
+		"Workers see a notice when another worker recently opened or submitted this form with the same key. Use a question text that evaluates to a stable record value.",
+
+	activityTitleText:
+		"This text names the record in the notice. If you leave it out, the notice says “the same record”.",
+
+	activityWindowText:
+		"This text supplies the number of seconds a notice lasts. Web Apps uses five minutes if the value is missing or cannot be read as an integer.",
+	savedFormDescriptorText:
+		"Android shows this text in its saved and incomplete forms lists. The text can include answers from the form.",
 };
 
 /** The form's behaviors, each held by one of its own question or choice
@@ -41,9 +51,23 @@ export function FormBehaviorSection({ formUuid }: FormSettingsSectionProps) {
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [adding, setAdding] = useState<FormBehaviorRole | null>(null);
 	if (!form) return null;
-	const available = formBehaviorRoles.filter((role) => !form[role]);
+	const available = formBehaviorRoles.filter(
+		(role) =>
+			!form[role] &&
+			((role !== "activityTitleText" && role !== "activityWindowText") ||
+				form.activityKeyText !== undefined),
+	);
 	const change = (role: FormBehaviorRole, next: BehaviorText | null) => {
-		const outcome = inline.updateForm(formUuid, { [role]: next });
+		const outcome = inline.updateForm(
+			formUuid,
+			role === "activityKeyText" && next === null
+				? {
+						activityKeyText: null,
+						activityTitleText: null,
+						activityWindowText: null,
+					}
+				: { [role]: next },
+		);
 		setRefusal(outcome.ok ? null : outcome.messages.join(" "));
 		if (outcome.ok) setAdding(null);
 	};
