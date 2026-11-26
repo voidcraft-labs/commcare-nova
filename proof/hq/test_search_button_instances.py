@@ -135,6 +135,9 @@ def test_the_hq_search_button_counts_restored_cases_without_loading_new_instance
     def archive(domain, name, condition, unexpected_session):
         app = _search_app(domain, condition=condition)
         app._id = f"search-count-{name}"
+        # HQ assigns an integer version when it saves an application. This
+        # in-memory app is otherwise still unversioned when HQ builds it.
+        app.version = 1
         with patch_get_xform_resource_overrides():
             suite = etree.fromstring(app.create_suite())
             files = app.create_all_files()
@@ -151,7 +154,9 @@ def test_the_hq_search_button_counts_restored_cases_without_loading_new_instance
 
     def walk(path, ids):
         report = core_runner.admit(path)
-        assert report["admitted"], report["problems"]
+        assert report["admitted"], {
+            key: report.get(key) for key in ("problems", "profile", "versionCheck")
+        }
         try:
             return core_runner.session(report["app"], restore=restore(ids))
         finally:
@@ -172,4 +177,10 @@ def test_the_hq_search_button_counts_restored_cases_without_loading_new_instance
     assert all(not step.get("actions") for step in one), one
     assert any(step.get("actions") for step in two), two
     blocked = walk(undeclared, ["one", "two"])
-    assert "XPathMissingInstanceException" in str(blocked), blocked
+    refused = [
+        step["error"] for run in blocked["runs"] for step in run["trace"] if "error" in step
+    ]
+    assert any(
+        error["class"].endswith(".XPathMissingInstanceException") and "commcaresession" in error["message"]
+        for error in refused
+    ), blocked
