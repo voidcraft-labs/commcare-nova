@@ -41,6 +41,7 @@
 	},
 	{
 		"id": "note-recorded-from-the-site-list",
+		"entry": "questions/text-input-xsd-string",
 		"form": {
 			"menu": 0,
 			"form": 1
@@ -71,6 +72,7 @@
 	},
 	{
 		"id": "note-recorded-from-the-site-search",
+		"entry": "questions/text-input-xsd-string",
 		"form": {
 			"menu": 1,
 			"form": 0
