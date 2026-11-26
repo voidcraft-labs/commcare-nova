@@ -114,7 +114,7 @@ it("actual OAuth registration records allowed capabilities without granting user
 		"offline_access",
 		"openid",
 		"profile",
-	];
+	].sort();
 	expect(baseline.scope?.split(" ").sort()).toEqual(capabilities);
 	const delegated = await auth.api.registerOAuthClient({
 		body: {
