@@ -5,7 +5,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
 	makeCanonicalGenesisDoc,
@@ -22,6 +22,7 @@ import {
 	collectLocalizedTranslationUnits,
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	makeTranslationUnitId,
 	proseText,
 } from "@/lib/domain";
 import {
@@ -184,6 +185,48 @@ describe("shared localization tools", () => {
 			automaticTranslation: { status: "available" },
 		});
 		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
+	});
+
+	// A search with no title holds its title unit with a blank source, which can't
+	// be a translation (the title's role needs text): the copy leaves it out, and
+	// the new language shows no title, as the copied one does.
+	it("adds a language by copy beside a search with no title", async () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					caseSearchConfig: { searchScreenTitle: { kind: "none" } },
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+					],
+				},
+			],
+		});
+		const harness = makeToolWorkspaceHarness(doc);
+		const outcome = mutateResult(
+			await harness.runTool(addLanguageTool, {
+				language: { language: "spa" },
+			}),
+		);
+		expect(outcome.result).not.toHaveProperty("error");
+		const moduleUuid = harness.currentDoc().moduleOrder[0];
+		const title = collectLocalizedTranslationUnits(
+			harness.currentDoc(),
+			"spa",
+		).find(
+			(unit) =>
+				unit.id === makeTranslationUnitId("module", moduleUuid, "search-title"),
+		);
+		expect(title).toMatchObject({ effective: "", status: "ready" });
 	});
 
 	it("pages a filtered inventory and rejects a cursor after relevant state changes", async () => {

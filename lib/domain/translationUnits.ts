@@ -1222,6 +1222,23 @@ export function collectLocalizedTranslationUnits(
 	);
 }
 
+/**
+ * The units a language added by copying another takes a translation of: each
+ * whose text, as the copied language shows it, can be a translation. A unit
+ * whose shown text can't (a Search title the app shows none of, blank where
+ * its role needs text) gets none, and the new language shows what the unit
+ * holds, as the copied language does. Shared by every editor that adds a
+ * language, so none copies what the gate refuses.
+ */
+export function unitsCopiedToANewLanguage<T extends LocalizedTranslationUnit>(
+	units: readonly T[],
+): readonly T[] {
+	return units.filter(
+		(unit) =>
+			translationValueIntegrityIssue(unit, unit.effective) === undefined,
+	);
+}
+
 export function resolveTranslationUnitValue(
 	doc: BlueprintDoc,
 	language: LanguageTag,

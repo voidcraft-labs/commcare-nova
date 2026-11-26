@@ -62,6 +62,7 @@ import {
 	type TranslationCoverageDiagnosticCode,
 	type TranslationStatus,
 	type TranslationUnitRole,
+	unitsCopiedToANewLanguage,
 } from "@/lib/domain";
 import {
 	languageDirection,
@@ -667,7 +668,9 @@ function AddLanguageDialog({
 				selection.identity,
 			),
 		];
-		for (const unit of unitsForLanguage(copySource.tag)) {
+		for (const unit of unitsCopiedToANewLanguage(
+			unitsForLanguage(copySource.tag),
+		)) {
 			mutations.push({
 				kind: "setTranslation",
 				language: selection.tag,
