@@ -19,6 +19,7 @@ import {
 	SAVE_OWNER_ONLY_IF_ANSWERED_LINE,
 } from "@/components/builder/editor/fields/caseWriteRowModel";
 import type { CaseOperation, Form } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 import type { OwnWriteVerdict } from "./ownWriteMenuModel";
 
 /** The switch's line under a new name: it is compared with the case's name. */
@@ -110,4 +111,22 @@ export function facetOnlyIfChangedSwitch(
 		return { ...base, disabledReason: KEPT_IN_SAVE_TO_CASE_REASON };
 	const answer = verdict(base.next);
 	return answer.ok ? base : { ...base, disabledReason: answer.reason };
+}
+
+/**
+ * `operation` with `owner` as its owner. An owner that offers no switch (the
+ * worker or no one, which is never blank, or none) takes the operation's
+ * Save only if changed with it, so choosing it commits an operation the
+ * gate holds instead of one it refuses for a switch the canvas no longer
+ * shows.
+ */
+export function withOwner(
+	operation: CaseOperation,
+	owner: Expression | undefined,
+	formType: Form["type"],
+): CaseOperation {
+	const next = { ...operation, owner } as Record<string, unknown>;
+	if (flagOf("owner", next as unknown as CaseOperation, formType) === undefined)
+		delete next.ownerOnlyIfChanged;
+	return next as unknown as CaseOperation;
 }

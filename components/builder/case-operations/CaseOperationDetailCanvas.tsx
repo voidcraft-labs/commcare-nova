@@ -141,6 +141,7 @@ import {
 import {
 	type FacetOnlyIfChangedSwitch,
 	facetOnlyIfChangedSwitch,
+	withOwner,
 } from "./facetOnlyIfChangedModel";
 import { operationFormFieldDecls } from "./formFieldScope";
 import {
@@ -657,7 +658,7 @@ export function CaseOperationDetailCanvas({
 						}
 						value={operation.owner}
 						canEdit={operationCanEdit}
-						onChange={(owner) => commit({ ...operation, owner })}
+						onChange={(owner) => commit(withOwner(operation, owner, formType))}
 						editorScope={editorScope}
 						footer={
 							ownerSwitch !== undefined && (
