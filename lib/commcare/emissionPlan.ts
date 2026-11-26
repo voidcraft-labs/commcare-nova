@@ -31,8 +31,15 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	entryDatumSupplies,
+	loadedSearchModules,
+} from "@/lib/domain/entryDatumSupplies";
 import { isDeeplySettled, isSettled } from "@/lib/domain/settled";
-import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "./suite/case-search/noMatches";
+import {
+	type InlineSearchInstance,
+	inlineSearchInstance,
+} from "./suite/case-search/types";
 import { chargeWork, metering } from "./workMeter";
 
 /** Namespace for synthetic module uuids; changing it re-ids every export. */
@@ -232,16 +239,39 @@ export function caseListMenuItemLabelUnit(
 export function searchAnswersOf(
 	doc: BlueprintDoc,
 	hostModuleUuid: Uuid,
-): {
-	readonly instanceId: typeof INLINE_SEARCH_INPUT_INSTANCE_ID;
-	readonly names: ReadonlyMap<Uuid, string>;
-} {
+	formUuid?: Uuid,
+) {
+	const suppliers =
+		formUuid === undefined
+			? [hostModuleUuid]
+			: loadedSearchModules(
+					entryDatumSupplies(doc, {
+						kind: "form",
+						module: hostModuleUuid,
+						form: formUuid,
+					}),
+				);
+	const instances = new Map<Uuid, InlineSearchInstance>();
+	const names = new Map<Uuid, string>();
+	const answers = new Map<Uuid, `search-input:${string}`>();
+	for (const uuid of suppliers) {
+		const mod = doc.modules[uuid];
+		const instance = inlineSearchInstance(mod.searchResultsName);
+		instances.set(uuid, instance);
+		for (const input of mod.caseListConfig?.searchInputs ?? []) {
+			names.set(input.uuid, input.name);
+			answers.set(input.uuid, `search-input:${instance}`);
+		}
+	}
+	const last = suppliers.at(-1);
+	const resultsInstanceId = inlineSearchInstance(
+		last === undefined ? undefined : doc.modules[last].searchResultsName,
+	);
 	return {
-		instanceId: INLINE_SEARCH_INPUT_INSTANCE_ID,
-		names: new Map(
-			(doc.modules[hostModuleUuid]?.caseListConfig?.searchInputs ?? []).map(
-				(input) => [input.uuid, input.name],
-			),
-		),
+		instanceId: `search-input:${resultsInstanceId}` as const,
+		names,
+		answers,
+		instances,
+		resultsInstanceId,
 	};
 }

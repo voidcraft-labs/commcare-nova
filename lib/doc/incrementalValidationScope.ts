@@ -423,6 +423,7 @@ function mutationFootprint(
 				if (
 					Object.hasOwn(mutation.patch, "caseType") ||
 					Object.hasOwn(mutation.patch, "parentCaseModuleUuid") ||
+					Object.hasOwn(mutation.patch, "searchResultsName") ||
 					Object.hasOwn(mutation.patch, "caseListRegistrationForm") ||
 					(mutation.caseSearchConfigPatch !== undefined &&
 						Object.hasOwn(mutation.caseSearchConfigPatch, "formsReadSearch"))

@@ -172,6 +172,7 @@ export type GetModuleResult =
 	| { error: string }
 	| {
 			uuid: Uuid;
+			id: string;
 			name: string;
 			opening: ReturnType<typeof moduleDestination>;
 			parent_module_uuid: Uuid | null;
@@ -181,6 +182,7 @@ export type GetModuleResult =
 				excludedFormUuids: readonly Uuid[];
 			} | null;
 			parentCaseModuleUuid: Uuid | null;
+			searchResultsName: string | null;
 			child_module_uuids: Uuid[];
 			case_type: string | null;
 			icon: ModuleIconRef | null;
@@ -342,6 +344,7 @@ export const getModuleTool = {
 			kind: "read",
 			data: {
 				uuid: moduleUuid,
+				id: mod.id,
 				name: mod.name,
 				forms_from_menu: mod.formsFromMenu
 					? {
@@ -353,6 +356,7 @@ export const getModuleTool = {
 				opening: moduleDestination(doc, moduleUuid),
 				parent_module_uuid: mod.parentModuleUuid ?? null,
 				parentCaseModuleUuid: mod.parentCaseModuleUuid ?? null,
+				searchResultsName: mod.searchResultsName ?? null,
 				child_module_uuids: childModuleUuids(doc, moduleUuid),
 				case_type: mod.caseType ?? null,
 				...languageFiles(doc, mod),

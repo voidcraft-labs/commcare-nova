@@ -101,7 +101,7 @@ export function buildRemoteRequest(args: {
 	const caseListConfig: CaseListConfig =
 		mod.caseListConfig ?? emptyCaseListConfig();
 
-	const wire = searchWireShape(caseSearchConfig);
+	const wire = searchWireShape(caseSearchConfig, mod.searchResultsName);
 	const multiple = caseListConfig.selection?.kind === "multiple";
 
 	const moduleId = `m${moduleIndex}`;

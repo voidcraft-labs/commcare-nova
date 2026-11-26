@@ -1182,6 +1182,8 @@ function termEdges(
 			return;
 		case "input":
 			sink.edge(entityTargetKey(term.searchInputUuid), slot);
+			if (term.supplier !== undefined)
+				sink.edge(entityTargetKey(term.supplier), slot);
 			return;
 		case "session-user-property":
 			sink.edge(userPropertyTargetKey(term.userPropertyUuid), slot);
@@ -1339,7 +1341,7 @@ function expressionEdges(
 							ctx.moduleUuid !== undefined
 						) {
 							sink.markCtx();
-							sink.edge(entityTargetKey(ctx.moduleUuid), slot);
+							sink.edge(entityTargetKey(node.supplier ?? ctx.moduleUuid), slot);
 						}
 						break;
 				}

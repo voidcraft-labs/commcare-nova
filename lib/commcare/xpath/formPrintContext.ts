@@ -18,6 +18,7 @@ import {
 } from "../formLinkProjection";
 import { lookupInstanceIdForScope } from "../lookup/naming";
 import { lookupReadSteps } from "../lookup/read";
+import { inlineSearchInstance } from "../suite/case-search/types";
 import { itextIdFor } from "../xform/itextIds";
 import { formNodeProjection } from "./formNodeProjection";
 import type { FormParseScope } from "./formParseScope";
@@ -88,6 +89,13 @@ export function formPrintContext(
 					namedEntrySupplyRead(scope.doc, form.formUuid, ref),
 			}),
 		datumId,
+		searchResultsId: (supplier) => {
+			const source =
+				supplier ?? context.supplies.searchResults?.module ?? form?.moduleUuid;
+			if (source === undefined) return undefined;
+			const menu = scope.doc.modules[source];
+			return menu && inlineSearchInstance(menu.searchResultsName);
+		},
 		selectedCasesId: (module) =>
 			datums.find(
 				(row) =>

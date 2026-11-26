@@ -214,7 +214,7 @@ export interface SessionDatum {
  * `EntriesHelper.add_remote_query_datums`).
  */
 export interface SessionQueryMetadata {
-	readonly storageInstance: "results:inline";
+	readonly storageInstance: `results:${string}`;
 	/** The module's case type, the query's first `<data key="case_type">`. */
 	readonly caseType: string;
 	/** Whether the worker answers anything. With no visible prompt the
@@ -417,6 +417,7 @@ export function inlineSearchNodeset(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	datumId?: (ref: DatumRef) => string | undefined,
+	instance: `results:${string}` = "results:inline",
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
@@ -424,7 +425,7 @@ export function inlineSearchNodeset(
 		lookupNaming,
 		datumId,
 	);
-	return w.instance(resultsInstance("results:inline"), [
+	return w.instance(resultsInstance(instance), [
 		w.step("results"),
 		w.step("case", [
 			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(caseType))),
@@ -549,7 +550,7 @@ export function deriveCaseSelectionDatum(args: {
 	readonly maxSelectValue?: number;
 	/** Where the selectable cases come from: the device's casedb, or the
 	 *  results of the own search of a menu whose forms read the search. */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: "casedb" | `results:${string}`;
 	/** The owner frame algorithm needs identity and presence, not XPath. */
 	readonly entryMetadataOnly?: boolean;
 	/**
@@ -579,10 +580,13 @@ export function deriveCaseSelectionDatum(args: {
 				}),
 			projectionOnlySelection: true,
 		};
-	const inline = args.caseSource === "results:inline";
+	const inline =
+		args.caseSource !== undefined && args.caseSource !== "casedb"
+			? args.caseSource
+			: undefined;
 	const build = (datumId: typeof args.datumId): WireExpr =>
 		inline && args.projectSearchResults
-			? projectSearchResults("results:inline")
+			? projectSearchResults(inline)
 			: inline
 				? inlineSearchNodeset(
 						args.caseType,
@@ -590,6 +594,7 @@ export function deriveCaseSelectionDatum(args: {
 						args.expressions,
 						args.lookupNaming,
 						datumId,
+						inline,
 					)
 				: caseLoadingNodeset(
 						args.caseType,

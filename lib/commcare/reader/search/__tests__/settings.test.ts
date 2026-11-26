@@ -514,27 +514,35 @@ describe("a search's settings", () => {
 		);
 	});
 
-	const instances: [string, string][] = [
-		[
-			"patients",
-			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-		],
+	it.each(["patients", "Client_Étage2"])(
+		"keeps the editor-safe search name %s",
+		async (name) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					app.modules[0].search_config.instance_name = name;
+				},
+			});
+			expect(codes(reading)).toEqual([]);
+			expect(reading.ctx.draft.modules[0]?.module.searchResultsName).toBe(name);
+		},
+	);
+
+	it.each([
 		[
 			"my_casedb",
 			"case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
 		],
-	];
-	for (const [name, entry] of instances)
-		it(`raises the results instance \`${name}\` by its row`, async () => {
-			const reading = await readLists(doc(), {
-				edit: (app) => {
-					const config = app.modules[0]?.search_config;
-					if (config !== undefined) config.instance_name = name;
-				},
-				firstPassOnly: true,
-			});
-			expect(codes(reading)).toContain(entry);
+		["3patients", "case-search/results-name-outside-the-search-editor"],
+		["bad-name", "case-search/results-name-outside-the-search-editor"],
+	])("identifies why the name %s cannot be brought in", async (name, entry) => {
+		const reading = await readLists(doc(), {
+			edit: (app) => {
+				app.modules[0].search_config.instance_name = name;
+			},
+			firstPassOnly: true,
 		});
+		expect(codes(reading)).toContain(entry);
+	});
 
 	/** Two searching menus of patients, the second under the first, each with its own field. */
 	function twoMenus() {
@@ -709,7 +717,7 @@ describe("a search's settings", () => {
 			expect(second).not.toContain(
 				"unrecognized:schema:CaseSearch.instance_name",
 			);
-			expect(codes(reading)).toContain(
+			expect(codes(reading)).not.toContain(
 				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
 			);
 		});
@@ -750,7 +758,7 @@ describe("a search's settings", () => {
 						? `unrecognized:${(one.detail as { name?: string }).name ?? ""}`
 						: one.code,
 				);
-			expect(all).toContain(
+			expect(all).not.toContain(
 				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
 			);
 			expect(all).not.toContain(

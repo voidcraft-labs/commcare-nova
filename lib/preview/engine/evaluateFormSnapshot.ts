@@ -60,7 +60,7 @@ import { previewLookupData } from "./lookupEvaluation";
 import { openingCaseAssignments } from "./openingCaseAssignments";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
-import { formReadsSearchResults } from "./xpathInstances";
+import { formSearchReads } from "./xpathInstances";
 
 /** Let FormEngine apply its narrowly scoped wording policy before an uncaught
  * XPath failure becomes the public authoring-input fault. */
@@ -232,10 +232,21 @@ async function runFormSnapshot(
 	}
 	/* A device reaches a form that reads what its search found only through
 	 * that search, so without the search's snapshot the form cannot open. */
+	const needed = formSearchReads(doc, input.formUuid, module.uuid);
+	for (const [supplier, reads] of needed) {
+		if (supplier === module.uuid) continue;
+		const supplied = context.searches?.find(
+			(search) => search.menu === supplier,
+		);
+		if (!supplied || (reads.readsResults && !supplied.results))
+			throw new FormEvaluationInputError(
+				`This form reads the search in "${doc.modules[supplier].name}". Start an app test and choose a record through that search first.`,
+			);
+	}
 	if (
 		context.searchResults === undefined &&
 		moduleFormsReadSearch(module) &&
-		formReadsSearchResults(doc, input.formUuid)
+		needed.get(module.uuid)?.readsResults === true
 	)
 		throw new FormEvaluationInputError(
 			`${runtimeMessage(language, "searchResultsRefusalTitle")}. ${runtimeMessage(language, "searchResultsRefusalBody")}`,
@@ -267,6 +278,7 @@ async function runFormSnapshot(
 				return caseName === undefined ? { caseId } : { caseId, caseName };
 			}),
 			menuSelections: context.session?.menuSelections ?? {},
+			searches: context.searches,
 			...(context.searchResults === undefined
 				? {}
 				: { searchResults: context.searchResults }),
@@ -312,6 +324,9 @@ async function runFormSnapshot(
 				device: context.device,
 				sessionData: session.data,
 				selectedCases: session.selectedCases,
+				...(session.searches === undefined
+					? {}
+					: { searches: session.searches }),
 				...(session.searchResults === undefined
 					? {}
 					: { searchResults: session.searchResults }),

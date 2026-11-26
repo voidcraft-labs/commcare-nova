@@ -412,8 +412,8 @@ def child_menu_reads_the_search(authoring, app_id):
     child menu, choosing its own case from its own list; and Active clients' Followup Form showing ``check_note``
     where Visits' village answer is ``north``. HQ's build keeps the child's own selection where it matches the root
     menu's (``entries.py::EntriesHelper.add_parent_datums``), so the child's entry carries no query of Visits' and
-    the form reads an instance no step loads. The results instance of its own HQ's build needs of the child is the
-    row's second change."""
+    the form reads an instance no step loads. The child's results instance is
+    distinct from its parent's."""
     with authoring.step("variant:child-menu-reads-the-search:visits-second"):
         body, content_type = ops.form_body([("from", "2"), ("to", "1"), ("ajax", "false")])
         ops.post(authoring, "rearrange", [app_id, "modules"], body, content_type, "Visits moved second", redirects=True)
@@ -421,6 +421,7 @@ def child_menu_reads_the_search(authoring, app_id):
         authoring,
         app_id,
         ("/modules/1/search_config/properties", [_field("village", "Village")]),
+        ("/modules/2/search_config/instance_name", "active"),
         # Visits, second once moved.
         ("/modules/2/root_module_id", {"$menu": 1}),
         ("/modules/2/search_config/default_properties", []),
@@ -455,11 +456,11 @@ def child_menu_selecting_from_the_search_reads_it(authoring, app_id):
     its child menu, choosing a household from Households' list before its own member; and Members' Followup Form
     showing ``status_note`` where Households' village answer is ``north``. HQ's build writes Households' query into
     the entry ahead of that choice (``entries.py::EntriesHelper.add_remote_query_datums``), so the form reads the
-    answers its own entry loaded. The results instance of its own HQ's build needs of Members is the row's second
-    change."""
+    answers its own entry loaded. The results instance of its own HQ's build needs of Members is distinct from Households'."""
     _set_each(
         authoring,
         app_id,
+        ("/modules/1/search_config/instance_name", "members"),
         ("/modules/0/search_config/properties", [_field("village", "Village")]),
         ("/modules/0/search_config/inline_search", True),
         ("/modules/0/search_config/auto_launch", True),

@@ -15,6 +15,7 @@ import {
 	type EntryDatumSupplies,
 	entryDatumSupplies,
 	formLinkTargetSupplies,
+	loadedSearchModules,
 	sharedFormDatumSupplies,
 } from "../entryDatumSupplies";
 import { formOfField } from "../fieldForm";
@@ -53,6 +54,7 @@ import {
 } from "../organization";
 import { declaredPlatforms, type Platform } from "../platforms";
 import { proseText } from "../prose";
+import { searchSupplierAddresses } from "../referenceNames";
 import {
 	expressionSlotValues,
 	FIELD_REFERENCE_SLOTS,
@@ -112,6 +114,8 @@ export type LookupDefinitionIndex = ReadonlyMap<
 	}
 >;
 export interface SearchInputDecl {
+	readonly supplier?: Uuid;
+	readonly supplierId?: string;
 	readonly uuid: Uuid;
 	readonly name: string;
 	readonly data_type?: CasePropertyDataType;
@@ -188,6 +192,9 @@ export interface FormExpressionFacts extends FormStructure {
 	 * open after the inline query that keeps the Search answers
 	 * (`search-input:results:inline`). */
 	readonly formsReadSearchModule: boolean;
+	readonly searchResultsName?: string;
+	/** The menus whose query steps are in this form's entry, by their current authored names. */
+	readonly searchSuppliers?: readonly { module: Uuid; resultsName?: string }[];
 	/** Whether a translation unit this form's questions or choices own shows
 	 * an answer in some language (`translationUnits.ts::formTranslationUnits`).
 	 * Asked only by a `jr:itext` or `jr:choice-name` read, so a form with none
@@ -418,9 +425,14 @@ export function untypedExpressionFacts(
 
 /** A project service returns its own rows. Ordinary search guarantees one
  * record type and can add related cases beside the actual matches. */
-export function readsProjectSearchResults(ctx: ExpressionContext): boolean {
-	const source = ctx.supplies.searchResults;
-	return !!source && ctx.facts.projectSearchMenus?.has(source.module) === true;
+export function readsProjectSearchResults(
+	ctx: ExpressionContext,
+	supplier?: Uuid,
+): boolean {
+	const source = supplier ?? ctx.supplies.searchResults?.module;
+	return (
+		source !== undefined && ctx.facts.projectSearchMenus?.has(source) === true
+	);
 }
 
 export function expressionFacts(doc: BlueprintDoc): ExpressionFacts {
@@ -601,16 +613,38 @@ function buildFormFacts(
 			repeats: repeatsByField.get(uuid) ?? [],
 		});
 	}
-	const searchInputs = (module?.caseListConfig?.searchInputs ?? []).map(
-		(input) => ({
+	const supplied = loadedSearchModules(
+		entryDatumSupplies(
+			doc,
+			{ kind: "form", module: structure.moduleUuid, form: structure.formUuid },
+			structure,
+		),
+	);
+	const menuNames = supplied.some((uuid) => uuid !== structure.moduleUuid)
+		? searchSupplierAddresses(doc.modules)
+		: undefined;
+	const searchInputs = [
+		...new Set([structure.moduleUuid, ...supplied]),
+	].flatMap((uuid) => {
+		const owner = doc.modules[uuid];
+		return (owner?.caseListConfig?.searchInputs ?? []).map((input) => ({
 			uuid: input.uuid,
 			name: input.name,
 			data_type: searchInputRuntimeValueType(input),
-		}),
-	);
+			...(uuid !== structure.moduleUuid && {
+				supplier: uuid,
+				supplierId: menuNames?.get(uuid),
+			}),
+		}));
+	});
 	return {
 		...structure,
 		fields,
+		searchResultsName: module?.searchResultsName,
+		searchSuppliers: supplied.map((uuid) => ({
+			module: uuid,
+			resultsName: doc.modules[uuid].searchResultsName,
+		})),
 		searchInputs,
 		caseListRegistrationForm:
 			afterEmptySearchRegistrationFormOf(doc, structure.moduleUuid) ===

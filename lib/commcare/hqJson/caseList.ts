@@ -1146,7 +1146,8 @@ function projectDefaultProperties(
 function buildSearchConfigDocument(
 	caseSearchConfig: OrdinaryCaseSearchConfig | undefined,
 	caseListConfig: CaseListConfig | undefined,
-	_caseType: string | undefined,
+	caseType: string | undefined,
+	searchResultsName: string | undefined,
 	moduleUuid: string,
 	localization: CommCareLocalization,
 	expressions: ModuleExpressionContexts,
@@ -1161,10 +1162,11 @@ function buildSearchConfigDocument(
 	// CCHQ-default baseline lives in one file (any future CCHQ
 	// upstream default change is a one-edit fix).
 	const config = caseSearchConfigShell(localization.languages, runsInWebApps);
+	if (searchResultsName !== undefined) config.instance_name = searchResultsName;
 	const wire =
 		caseSearchConfig === undefined
 			? undefined
-			: searchWireShape(caseSearchConfig);
+			: searchWireShape(caseSearchConfig, searchResultsName);
 	// Core's answer instance is named after the query's storage instance.
 	// Keep the HQ prompt rules, query operands and owner exclusion on the
 	// same instance that the local suite's Search session supplies.
@@ -1276,7 +1278,7 @@ function buildSearchConfigDocument(
 	} else if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
 		const xpathQueryEmission = composeXPathQueryEmission(
 			caseListConfig,
-			_caseType,
+			caseType,
 			expressions,
 			lookupNaming,
 			inputInstanceId,
@@ -1692,6 +1694,7 @@ export function projectCaseListForHq(
 		caseSearchConfig,
 		caseListConfig,
 		mod.caseType,
+		mod.searchResultsName,
 		mod.uuid,
 		localization,
 		expressions,

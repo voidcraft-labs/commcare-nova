@@ -549,6 +549,7 @@ export interface DefaultCaseSearchProperty<XPath = string> {
  * It is never an author-facing option.
  */
 export interface CaseSearchConfig<XPath = string> {
+	instance_name?: string;
 	doc_type: "CaseSearch";
 	case_search_endpoint_id?: number;
 	search_button_label: LocalizedString | Record<string, never>;

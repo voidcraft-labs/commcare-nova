@@ -7,9 +7,11 @@ import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/li
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { projectSearchOf } from "@/lib/domain/modules";
 import { automaticCase, entryValueWire } from "./advancedEntryValues";
+import { searchAnswersOf } from "./emissionPlan";
 import type { RewriteControl } from "./emissionRewrites";
 import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
 import { caseContextDetailIds } from "./suite/case-list/formContext";
+import { inlineSearchInstance } from "./suite/case-search/types";
 import type { WireIdentity } from "./wireIdentity";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
@@ -697,7 +699,7 @@ function selectableDatums(
 				maxSelectValue: multiple.maximum,
 			}),
 			...(moduleUsesInlineSearch(detail) && {
-				caseSource: "results:inline" as const,
+				caseSource: inlineSearchInstance(detail.searchResultsName),
 				projectSearchResults: projectSearchOf(selectedModule) !== undefined,
 			}),
 		});
@@ -1403,8 +1405,7 @@ export function entryDatumIds(
 			// inline query's step holds the search's instances, not a value
 			// `session/data/<id>` reads (`CommCareSession.java::setQueryDatum`).
 			scalar: datum.maxSelectValue === undefined && datum.query === undefined,
-			...(datum.query?.storageInstance === "results:inline" &&
-			queryModule !== undefined
+			...(datum.query !== undefined && queryModule !== undefined
 				? { searchResults: { module: queryModule } }
 				: {}),
 		};
@@ -2992,6 +2993,7 @@ export function projectFormLinkSessionExpression(
 	}
 	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
 	const ownCaseId = ownCaseSessionRef(doc, moduleUuid, form.type, sourceDatums);
+	const search = searchAnswersOf(expressionDoc, structure.moduleUuid, formUuid);
 	const hops = caseTypeHopMap(
 		expressionDoc,
 		expressionDoc.modules[structure.moduleUuid]?.caseType,
@@ -3004,6 +3006,8 @@ export function projectFormLinkSessionExpression(
 		...(rewrites === undefined ? {} : { rewrites }),
 		bindings: {
 			workerProperty: ctx.workerProperty,
+			searchResultInstance: search.resultsInstanceId,
+			searchResultInstances: search.instances,
 			datumId: entryDatumIdResolver(
 				entryDatumIds(doc, ctx, moduleUuid, formUuid),
 			),

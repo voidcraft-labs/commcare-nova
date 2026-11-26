@@ -30,6 +30,12 @@ for (const scenario of searchEmissionScenarios) {
 	} as const;
 	const hq = expandDoc(doc, { runtimeTarget });
 	const zip = new AdmZip(compileCcz(hq, doc.appName, doc, { runtimeTarget }));
+	if (scenario === "named-parent") {
+		writeFileSync(
+			resolve(output, "named-parent.form.xml"),
+			zip.readAsText("modules-0/forms-0.xml"),
+		);
+	}
 	writeFileSync(resolve(output, `${scenario}.json`), JSON.stringify(hq));
 	writeFileSync(
 		resolve(output, `${scenario}.suite.xml`),

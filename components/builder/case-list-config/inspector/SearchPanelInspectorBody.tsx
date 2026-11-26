@@ -36,6 +36,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { type ReactNode, useEffect, useId, useState } from "react";
+import { SearchResultsNameSection } from "@/components/builder/detail/moduleSettings/SearchResultsNameSection";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
@@ -255,6 +256,9 @@ export function SearchPanelInspectorBody({
 					label="More settings"
 					defaultOpen={false}
 				>
+					{moduleUuid !== undefined && (
+						<SearchResultsNameSection moduleUuid={moduleUuid} />
+					)}
 					{formsReadSearch &&
 					value?.searchButtonDisplayCondition === undefined ? (
 						<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">

@@ -441,6 +441,9 @@ export interface BuildXFormOptions {
 	 */
 	searchAnswers?: {
 		readonly instanceId: `search-input:${string}`;
+		readonly answers?: ReadonlyMap<Uuid, `search-input:${string}`>;
+		readonly instances?: ReadonlyMap<Uuid, `results:${string}`>;
+		readonly resultsInstanceId?: `results:${string}`;
 		readonly names: ReadonlyMap<Uuid, string>;
 	};
 	/** Canonical authored ownership before a wire-only menu placement. */
@@ -750,6 +753,9 @@ export function buildXFormSource(
 				? {}
 				: {
 						searchInputInstanceId: opts.searchAnswers.instanceId,
+						searchAnswerInstances: opts.searchAnswers.answers,
+						searchResultInstances: opts.searchAnswers.instances,
+						searchResultInstance: opts.searchAnswers.resultsInstanceId,
 						searchInputNames: opts.searchAnswers.names,
 					}),
 			datumId: (ref) => {

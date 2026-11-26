@@ -26,6 +26,7 @@ CORPORA = {
         "browse",
         "multiple",
         "parent",
+        "named-parent",
         "registration-link",
         "hidden-link",
         "automatic",

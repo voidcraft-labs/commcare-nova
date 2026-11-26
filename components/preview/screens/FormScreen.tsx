@@ -157,6 +157,7 @@ import {
 	selectionsForModuleTask,
 	selectionsForStaticModuleTask,
 } from "@/lib/preview/engine/previousTask";
+import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import { moduleSearchReadsCaseDatabase } from "@/lib/preview/engine/searchCsqlRuntime";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import {
@@ -170,7 +171,8 @@ import {
 } from "@/lib/preview/engine/useNavigationDeviceCases";
 import {
 	type CaseDatabaseSnapshot,
-	formReadsSearchResults,
+	type CompletedFormSearch,
+	formSearchReads,
 } from "@/lib/preview/engine/xpathInstances";
 import {
 	invalidateCaseData,
@@ -561,14 +563,158 @@ function stringArrayValuesEqual(
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
-export function FormScreen({
+const NO_SEARCH_FRAMES: readonly CompletedFormSearch[] = [];
+
+/** Each query in a physical entry completes before the next selection. A keyed boundary
+ * subscribes to that menu's exact history entry, so retry, Back and a new worker retire
+ * the corresponding form engine together with the query that supplied its values. */
+function SearchBeforeForm({
+	screen,
+	pending,
+	completed,
+	...props
+}: FormScreenProps & {
+	pending: readonly [Uuid, { readsResults: boolean }][];
+	completed: readonly CompletedFormSearch[];
+}) {
+	const [menu, read] = pending[0];
+	const standing = usePreviewStandingSearchState(menu);
+	const target = usePreviewCaseTarget();
+	const launch = usePreviewEntryPointLaunch();
+	// A link or entry point supplied the case directly. A search standing on the
+	// screen the worker just left does not supply answers for this fresh entry.
+	const direct =
+		(target?.formUuid === screen.formUuid && target.openedByLink) ||
+		launch?.formTarget?.formUuid === screen.formUuid;
+	const search = direct ? undefined : standing;
+	const source = usePreviewMenuSource();
+	const selections = usePreviewMenuCaseSelections();
+	const language = useBuilderLanguage().language;
+	const appId = useAppId();
+	const navigate = useNavigate();
+	const caseTypes = useMaterializableCaseTypes();
+	const parentCase = parentCaseConstraint(
+		source.doc,
+		menu,
+		previewMenuCaseContext(source, menu, selections).parentCase,
+	);
+	const result = useSearchResultsSnapshot({
+		enabled: read.readsResults,
+		appId,
+		doc: source.doc,
+		moduleUuid: menu,
+		searchState: search,
+		parentCase,
+		caseTypes,
+		language,
+	});
+	const rows = result.state.kind === "data" ? result.state.snapshot : undefined;
+	const frames = useMemo(
+		() =>
+			search?.kind !== "completed" || (read.readsResults && !rows)
+				? undefined
+				: [
+						...completed,
+						{
+							menu,
+							submission: search.submission,
+							answers: [
+								...searchInputInstanceValues(
+									source.doc.modules[menu]?.caseListConfig?.searchInputs ?? [],
+									new Map(Object.entries(search.answers)),
+								),
+							],
+							...(rows && { results: rows }),
+						},
+					],
+		[completed, menu, read.readsResults, rows, search, source.doc],
+	);
+	if (!frames) {
+		const waiting =
+			search?.kind === "running" ||
+			(search?.kind === "completed" &&
+				(result.state.kind === "loading" || result.state.kind === "idle"));
+		const error =
+			result.state.kind === "error" || result.state.kind === "invalid-search"
+				? result.state.message
+				: undefined;
+		return (
+			<section role="status" className="m-auto max-w-md space-y-3 p-6">
+				<p>
+					{waiting
+						? runtimeMessage(language, "searchResultsLoading")
+						: (error ?? runtimeMessage(language, "searchResultsRefusalBody"))}
+				</p>
+				{!waiting && (
+					<button
+						type="button"
+						className={FORM_PRIMARY_ACTION_CLS}
+						onClick={
+							result.state.kind === "error"
+								? result.retry
+								: () => navigate.openCaseList(menu)
+						}
+					>
+						{runtimeMessage(
+							language,
+							result.state.kind === "error" ? "tryAgain" : "goToSearch",
+						)}
+					</button>
+				)}
+			</section>
+		);
+	}
+	return pending.length === 1 ? (
+		<ReadyFormScreen
+			key={frames.at(-1)?.submission}
+			{...props}
+			screen={screen}
+			searches={frames}
+		/>
+	) : (
+		<SearchBeforeForm
+			key={frames.at(-1)?.submission}
+			{...props}
+			screen={screen}
+			pending={pending.slice(1)}
+			completed={frames}
+		/>
+	);
+}
+
+export function FormScreen(props: FormScreenProps) {
+	const { screen, draft } = props;
+	const source = usePreviewMenuSource();
+	const mode = useEditMode();
+	const needed = useMemo(
+		() =>
+			mode !== "preview" || draft
+				? []
+				: [
+						...formSearchReads(source.doc, screen.formUuid, screen.moduleUuid),
+					].filter(([menu]) => menu !== screen.moduleUuid),
+		[draft, mode, screen.formUuid, screen.moduleUuid, source.doc],
+	);
+	return needed.length ? (
+		<SearchBeforeForm
+			{...props}
+			pending={needed}
+			completed={NO_SEARCH_FRAMES}
+		/>
+	) : (
+		<ReadyFormScreen {...props} searches={NO_SEARCH_FRAMES} />
+	);
+}
+
+function ReadyFormScreen({
 	screen,
 	draft,
 	onSubmittedActivities,
 	opening,
 	projection,
 	onReopen,
-}: FormScreenProps) {
+	searches,
+}: FormScreenProps & { searches: readonly CompletedFormSearch[] }) {
 	const { formUuid, moduleUuid } = screen;
 	const resumedOpening = draft?.opened;
 	const { showIncompleteForms, showSavedForms } = useAppSettings();
@@ -827,8 +973,9 @@ export function FormScreen({
 			mod !== undefined &&
 			formUuid !== undefined &&
 			moduleFormsReadSearch(mod) &&
-			formReadsSearchResults(menuSource.doc, formUuid),
-		[mode, mod, formUuid, menuSource.doc],
+			formSearchReads(menuSource.doc, formUuid, moduleUuid).get(moduleUuid)
+				?.readsResults === true,
+		[mode, mod, formUuid, menuSource.doc, moduleUuid],
 	);
 	const searchResultsRefused =
 		readsSearchResults && searchState?.kind !== "completed";
@@ -1152,6 +1299,7 @@ export function FormScreen({
 							heldEntryValues,
 							openedEntryKey: opening?.entry,
 							openingLookup: openedLookup,
+							searches,
 							entryChoices,
 							menuSelections: menuCaseSelections,
 							...(entrySupplies && { entrySupplies }),
@@ -1173,6 +1321,7 @@ export function FormScreen({
 			openedLookup,
 			entryChoices,
 			menuCaseSelections,
+			searches,
 			searchResultsSnapshot,
 			caseListSearchText,
 			entrySupplies,
@@ -2194,6 +2343,9 @@ export function FormScreen({
 				),
 				caseDatabase: refreshedCaseDatabase,
 				lookupData: controller.previewLookupDataSnapshot,
+				...(submitted.entrySession?.searches === undefined
+					? {}
+					: { searches: submitted.entrySession.searches }),
 				...(submitted.entrySession?.searchResults === undefined
 					? {}
 					: { searchResults: submitted.entrySession.searchResults }),

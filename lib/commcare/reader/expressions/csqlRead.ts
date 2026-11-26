@@ -1914,7 +1914,10 @@ function emissionContext(
 	const moduleUuid = context.slot.uuid as Uuid;
 	const mod = env.doc.modules[moduleUuid];
 	const config = mod === undefined ? undefined : effectiveCaseSearchConfig(mod);
-	const wire = config === undefined ? undefined : searchWireShape(config);
+	const wire =
+		config === undefined
+			? undefined
+			: searchWireShape(config, mod?.searchResultsName);
 	return {
 		types: context,
 		bindings: {

@@ -1,3 +1,4 @@
+import { loadedSearchModules } from "../entryDatumSupplies";
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
 
@@ -1295,7 +1296,10 @@ function admission(
 	if (
 		expression.kind === "cases" &&
 		expression.source === "search-results" &&
-		ctx.supplies.searchResults === undefined
+		(ctx.supplies.searchResults === undefined ||
+			!loadedSearchModules(ctx.supplies).includes(
+				expression.supplier ?? ctx.supplies.searchResults.module,
+			))
 	)
 		return searchResultsNotSupplied(ctx);
 	if (
@@ -1460,6 +1464,17 @@ function termAdmission(
 			"unknown-form-field",
 			"This choice no longer belongs to a question in this form.",
 		);
+	if (term.kind === "input") {
+		const input = profile.searchInputs.find(
+			(field) => field.uuid === term.searchInputUuid,
+		);
+		if (input?.supplier !== term.supplier)
+			return refusal(
+				"search-answer-unavailable",
+				"This form's entry does not run the search that supplies this answer.",
+				"supplier",
+			);
+	}
 	if (
 		term.kind === "input" &&
 		!profile.searchInputs.some((input) => input.uuid === term.searchInputUuid)
@@ -1603,9 +1618,16 @@ function termAdmission(
 		term.kind === "input" &&
 		ctx.ruleSet === "form" &&
 		!ctx.form?.caseListRegistrationForm &&
-		!(ctx.form?.formsReadSearchModule === true && profile.scope === "form")
+		!(
+			profile.scope === "form" &&
+			(ctx.form?.searchSuppliers?.some(
+				(search) => search.module === (term.supplier ?? ctx.form?.moduleUuid),
+			) ??
+				(term.supplier === undefined &&
+					ctx.form?.formsReadSearchModule === true))
+		)
 	)
-		return ctx.form?.formsReadSearchModule === true
+		return profile.scope !== "form" && ctx.form?.formsReadSearchModule === true
 			? refusal(
 					"search-answer-unavailable",
 					"A form link runs after the form closes, where its menu's Search answers are no longer available.",
@@ -1956,7 +1978,9 @@ function searchResultsRowFindings(
 	const searched =
 		ctx.supplies.searchResults === undefined || readsProjectSearchResults(ctx)
 			? undefined
-			: ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module);
+			: ctx.facts.moduleCaseTypes.get(
+					expression.supplier ?? ctx.supplies.searchResults.module,
+				);
 	for (const [index, where] of expression.where.entries()) {
 		const path: CheckPath = ["cases", "where", index];
 		const data = scalarDataType(whereTypes[index]?.data);
@@ -2104,7 +2128,9 @@ export function expressionRowScope(
 		"supplies" in ctx &&
 		!readsProjectSearchResults(ctx) &&
 		ctx.supplies.searchResults !== undefined
-			? ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module)
+			? ctx.facts.moduleCaseTypes.get(
+					expression.supplier ?? ctx.supplies.searchResults.module,
+				)
 			: undefined;
 	let caseType: string | undefined = searched;
 	if (caseType === undefined)

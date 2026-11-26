@@ -97,6 +97,7 @@ import {
 	holdsText,
 	hqAutoSelects,
 	ownersWithoutClauseRegistration,
+	readSearchResultsName,
 	readSearchSettings,
 	registerListOwner,
 	runtimeGuardEndings,
@@ -749,7 +750,17 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		// claimed as inactive, and one it offers is left unclaimed, which the accounting names.
 		if (module.module.caseType === undefined) {
 			if (!offers) {
-				deriveInactiveSearch(module, cursor, new Set());
+				const name = readSearchResultsName(
+					ctx,
+					module,
+					cursor,
+					searchPlace(module),
+				);
+				deriveInactiveSearch(
+					module,
+					cursor,
+					name.claimed ? new Set(["instance_name"]) : new Set(),
+				);
 				recordInactiveSearchRespellings(ctx, cursor);
 			}
 			continue;

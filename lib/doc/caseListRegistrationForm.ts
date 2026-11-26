@@ -47,6 +47,7 @@ import {
 	type SearchAnswerFieldDependent,
 	searchAnswerFieldDependents,
 } from "./searchReadDependents";
+import { offerSearchNameMutations } from "./searchResultsNaming";
 
 /**
  * Turn Forms read the search on for the module, or nothing when its forms
@@ -68,6 +69,7 @@ export function formsReadSearchOnMutations(
 		"workflow" in mod.caseSearchConfig &&
 		searchOpensOnList(mod.caseSearchConfig.workflow);
 	return [
+		...offerSearchNameMutations(doc, moduleUuid, { turnsInline: true }),
 		{
 			kind: "updateModule",
 			uuid: moduleUuid,

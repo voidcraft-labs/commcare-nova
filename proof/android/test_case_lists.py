@@ -613,3 +613,34 @@ def test_android_displays_the_web_apps_icon_as_a_path_without_submitting(android
             listed = _list(served, observe.release_archive(served), "web-list-icon-on-android", "m0-f0", [])
             assert [_texts(row)[:2] for row in listed["rows"]] == [["First visit", path], ["Second visit", path]]
             assert not served.hq.submissions
+def test_android_keeps_named_search_results_without_prompt_answers(android_documents, hq):
+    """The actual search activities install both rows on the form's path. Neither installs its prompt answers."""
+    from proof.android import observe
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    document = android_documents["search-named-parent"]
+    database = casedata.document_case_database(document)
+    parent = next(record for record in database.cases if record.case_type == "parent_case")
+    child = next(record for record in database.cases if record.case_type == "patient")
+    parent = replace(parent, name="North")
+    child = replace(child, properties=(("first_name", "West"),),
+                    indices=(("parent", parent.case_type, parent.case_id, "child"),))
+    database = replace(database, cases=(parent, child))
+    family, member = "results:FamilyLookup", "results:MemberLookup"
+    prompts = {family: {"first_name": "North"}, member: {"first_name": "West"}}
+    with _archives(document, database) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=["m0-f0"], search_answers=prompts)
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", answer
+            assert answer["completedSearches"] == [
+                {
+                    "query": query,
+                    "submitted": prompts[query],
+                    "sources": {family: True, member: query == member, f"search-input:{family}": False,
+                                f"search-input:{member}": False},
+                }
+                for query in (family, member)
+            ], (label, answer["walks"])

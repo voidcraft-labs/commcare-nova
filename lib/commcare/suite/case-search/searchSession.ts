@@ -568,7 +568,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
  * once at render time so the wire reads `instance(&apos;…&apos;)`.
  */
 function composeDatumNodeset(
-	storageInstance: "results" | "results:inline",
+	storageInstance: "results" | `results:${string}`,
 	caseType: string,
 ): WireExpr {
 	// CCHQ pins the path segment to `/results/case` regardless of

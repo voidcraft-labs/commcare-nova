@@ -16798,33 +16798,33 @@
 		"id": "hq-case-management/child-menu-selecting-from-the-search-reads-it",
 		"base": "hq-case-management",
 		"entry": "expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"formName": "Followup Form",
-			"path": "status_note"
-		},
 		"change": {
 			"op": "named",
 			"name": "child_menu_selecting_from_the_search_reads_it"
 		},
-		"second": {
-			"entry": "case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 1,
-				"name": "Members"
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [1, 0]
+					},
+					["status_note"]
+				],
+				"pointer": "/relevant/left/term/kind",
+				"value": "input"
 			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/1/search_config/instance_name",
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/searchResultsName",
 				"value": "members"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-case-management/close-on-a-text-answer",
@@ -37042,20 +37042,6 @@
 		"change": {
 			"op": "named",
 			"name": "child_menu_reads_the_search"
-		},
-		"second": {
-			"entry": "case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 2,
-				"name": "Active clients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/2/search_config/instance_name",
-				"value": "active"
-			}
 		}
 	},
 	{
@@ -40385,17 +40371,23 @@
 		"id": "hq-search/results-instance-named",
 		"base": "hq-search",
 		"entry": "case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/instance_name",
 			"value": "visits"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/searchResultsName",
+				"value": "visits"
+			}
+		]
 	},
 	{
 		"id": "hq-search/results-instance-named-as-the-root-menu-s",
@@ -40405,7 +40397,18 @@
 			"op": "named",
 			"name": "results_instance_named_as_the_root_menu_s"
 		},
-		"holds": []
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/searchResultsName",
+				"value": "inline"
+			}
+		]
 	},
 	{
 		"id": "hq-search/results-instance-named-for-the-case-database",
@@ -40421,6 +40424,22 @@
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/instance_name",
 			"value": "visitscasedb"
+		}
+	},
+	{
+		"id": "hq-search/results-name-outside-the-search-editor",
+		"base": "hq-search",
+		"entry": "case-search/results-name-outside-the-search-editor",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 2,
+			"name": "Visits"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/search_config/instance_name",
+			"value": "two names"
 		}
 	},
 	{

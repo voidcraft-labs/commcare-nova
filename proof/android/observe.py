@@ -211,6 +211,7 @@ def app(
     save_language: str | None = None,
     reopen: bool = False,
     searches=None,
+    search_answers=None,
 ) -> dict:
     """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's requests made as
     the worker HQ made and its restore and forms delivered to HQ's own addresses for the worker and the app
@@ -233,7 +234,9 @@ def app(
     ``save_incomplete``, a form whose first screen is answered and saved
     incomplete; ``reopen``, that record reopened from home's incomplete forms and completed; and ``searches``,
     terms each list the walk opens is searched for beside the words its rows show (``Lists.java::searched``),
-    what each finds held under the list's ``searches`` with fuzzy search as installed, on and off."""
+    what each finds held under the list's ``searches`` with fuzzy search as installed, on and off.
+    ``search_answers`` supplies text by query datum and prompt name. The device records the result and answer
+    instances its session actually holds after each of those successful searches."""
     from proof.observe import walks
 
     answers = _answers()
@@ -271,6 +274,8 @@ def app(
         options["saveLanguage"] = save_language
     if reopen:
         options["reopen"] = True
+    if search_answers is not None:
+        options["searchAnswers"] = search_answers
     if searches is not None:
         options["searches"] = list(searches)
     return _read(

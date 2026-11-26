@@ -13,6 +13,7 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { namedParentSearchDoc } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import { formExpressionEmission } from "@/lib/commcare/xform/formExpressions";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
@@ -663,6 +664,39 @@ describe("FormEngine", () => {
 				{ searchAnswers: new Map([["patient_name", "Zzz"]]) },
 			);
 			expect(engine.getState("/data/name").value).toBe("Zzz");
+		});
+
+		it("a worker's child form reads each menu's answer to the same named prompt", () => {
+			const doc = namedParentSearchDoc();
+			const [child, parent] = doc.moduleOrder;
+			const form = buildEngineInput(doc, doc.formOrder[child][0], null);
+			if (form === undefined) throw new Error("Expected the child form");
+			for (const [family, member] of [
+				["North", "West"],
+				["South", "East"],
+			]) {
+				const engine = new FormEngine(
+					form,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{
+						searchAnswers: new Map([["first_name", member]]),
+						searches: [
+							{
+								menu: parent,
+								submission: family,
+								answers: [["first_name", family]],
+							},
+						],
+					},
+				);
+				expect(engine.getState("/data/question1").value).toBe(
+					`${family}/${member}`,
+				);
+			}
 		});
 
 		it("reads blank when the form opened with no search context", () => {

@@ -44,6 +44,7 @@ DOCUMENTS = (
     "targeted-repeat-invitations",
     "targeted-capture-widgets",
     "targeted-face-photo",
+    "search-named-parent",
     "targeted-form-link-hidden-target",
     "targeted-forms-in-menu-above-one-case",
     "targeted-case-choice-values",

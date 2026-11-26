@@ -35,6 +35,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/inline-search-in-a-parent-select-module-hq-adds-xpath-query",
 		"menus-and-case-lists/case-list-form-on-a-search-first-host-pointing-at-a-registration",
 		"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
+		"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
 		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 	],
 	"search-on-clear": ["case-search/search-on-clear"],

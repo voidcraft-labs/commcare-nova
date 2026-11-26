@@ -471,6 +471,7 @@ export function projectSpaceCompatibilityProbePlan(
 ): HqProjectSpaceCompatibilityProbePlan {
 	const reasonsByCapability = new Map<string, Set<string>>();
 	let advancedSearchRequired = false;
+	let hasSearchAction = false;
 	const addReason = (id: string, reason: string): void => {
 		const reasons = reasonsByCapability.get(id) ?? new Set<string>();
 		reasons.add(reason);
@@ -497,7 +498,15 @@ export function projectSpaceCompatibilityProbePlan(
 	}
 
 	for (const module of Object.values(doc.modules)) {
+		if (module.searchResultsName !== undefined) {
+			advancedSearchRequired = true;
+			addReason(
+				"case-search",
+				`“${module.name}” names its search results so forms can distinguish them from other searches.`,
+			);
+		}
 		if (effectiveCaseSearchConfig(module) === undefined) continue;
+		hasSearchAction = true;
 		addReason(
 			"case-search",
 			"The app searches for cases that may not already be available.",
@@ -659,13 +668,15 @@ export function projectSpaceCompatibilityProbePlan(
 		capabilities.push({
 			capability: projectSpaceCapabilityUse("case-search", [...searchReasons]),
 			featureFlags: [
-				HQ_PRIVATE_FEATURE_FLAGS["case-search-base"],
+				...(hasSearchAction
+					? [HQ_PRIVATE_FEATURE_FLAGS["case-search-base"]]
+					: []),
 				...(advancedSearchRequired
 					? [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]]
 					: []),
 			],
 			featureFlagsOff: [],
-			runtimeProbes: ["case-search"],
+			runtimeProbes: hasSearchAction ? ["case-search"] : [],
 		});
 	}
 

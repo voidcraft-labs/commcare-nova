@@ -1656,6 +1656,18 @@ capped at HQ's 500.
 #### Starting dates on a Search field
 
 A fixed range has two inclusive calendar dates. The editors share one expression slot for its starting value. Fixed dates compile to a single encoded answer that survives the worker’s time zone. Imported calculations can produce a human-readable pair. At the pinned Core revision, `RemoteQuerySessionManager.initUserAnswers` reads it through `DateRangeUtils.formatDateRangeAnswer`. A successful parse uses lenient Java calendar fields and formats the converted midnight in the JVM zone. On parse failure Core retains the evaluated text. Android shows that value and submits it through its query manager. The Web Apps query view decodes the text for its calendars and encodes the visible inputs again on explicit Search. A malformed value can prevent that view from opening. Preview keeps the original answer for an automatic query and identifies the field if Web Apps cannot display it. Its explicit Search encodes every readable piece, including a single date or three dates. Such a value remains visible and replaceable. A simple property criterion refuses an invalid encoded interval. An automatic Search can send an unwrapped value as ordinary property text. Only the saved field’s evaluated answer and its platform’s visible projection may supply a starting answer outside the paired picker.
+#### Searches that supply a form
+
+A menu may name its search results independently of whether it offers Search.
+The name persists in a menu brought in from HQ, including one whose search is
+inactive. Parent selectors and navigation parents that run an inline search
+need distinct effective names from the child. A child has a parent's results
+and search answers only when its physical entry acquired that parent's query.
+A structural menu alias contributes no query of its own. A field reference
+stores its prompt UUID and, for a parent, its supplier menu UUID. Preview
+binds the completed query for the current worker and history entry. A search
+answer that is unavailable on Android remains subject to the platforms the app
+declares.
 
 #### A search with no title
 

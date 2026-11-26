@@ -92,6 +92,8 @@ export type FormCasePropertyRef = z.infer<typeof formCasePropertyRefSchema>;
 export const searchInputRefSchema = z.strictObject({
 	kind: z.literal("input"),
 	searchInputUuid: uuidSchema,
+	/** Present when the answer belongs to another menu whose search ran for this form. */
+	supplier: uuidSchema.optional(),
 });
 export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
 export const SESSION_CONTEXT_FIELDS = [
@@ -713,7 +715,12 @@ export type ValueArm =
 	| { kind: "case-list-search-text" }
 	| { kind: "value-list"; items: [Expression, ...Expression[]] };
 export type InstanceArm =
-	| { kind: "cases"; source: "casedb" | "search-results"; where: Expression[] }
+	| {
+			kind: "cases";
+			source: "casedb" | "search-results";
+			supplier?: Uuid;
+			where: Expression[];
+	  }
 	| { kind: "table-rows"; tableId: LookupTableId; where: Expression[] }
 	| { kind: "locations"; where: Expression[] }
 	| { kind: "worker-groups"; where: Expression[] }
@@ -1074,11 +1081,20 @@ const valueSchemas = [
 	z.strictObject({ kind: z.literal("value-list"), items: manyE }),
 ] as const;
 const instanceSchemas = [
-	z.strictObject({
-		kind: z.literal("cases"),
-		source: z.enum(["casedb", "search-results"]),
-		where: z.array(E),
-	}),
+	z
+		.strictObject({
+			kind: z.literal("cases"),
+			source: z.enum(["casedb", "search-results"]),
+			supplier: uuidSchema.optional(),
+			where: z.array(E),
+		})
+		.refine(
+			(rows) => rows.supplier === undefined || rows.source === "search-results",
+			{
+				path: ["supplier"],
+				message: "Choose a search when reading its results.",
+			},
+		),
 	z.strictObject({
 		kind: z.literal("table-rows"),
 		tableId: lookupTableIdSchema,
