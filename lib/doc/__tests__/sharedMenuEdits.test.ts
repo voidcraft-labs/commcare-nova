@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import {
 	REGISTER,
 	ROUTE,
@@ -18,6 +18,8 @@ import {
 } from "@/lib/doc/sharedMenuHierarchy";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { literal, term } from "@/lib/domain/expression";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
 
 function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 	const verdict = mutationCommitVerdict(
@@ -179,6 +181,54 @@ it.each([
 		scaffold.moduleUuid,
 	);
 	expect(after.modules[child]?.badge).toEqual(badge);
+});
+
+it("starts a listed child with its source child's localized navigation files", () => {
+	const before = twoMenus();
+	before.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra"],
+		wireCodes: { eng: "en", fra: "fr" },
+		translations: { fra: {} },
+	};
+	const scaffold = caseListModuleMutations(before, {
+		caseType: "patient",
+		name: "Neighborhood",
+		parentModuleUuid: SOURCE,
+	});
+	const icon = testMediaAssetId("neighborhood-icon");
+	const audioLabel = testMediaAssetId("neighborhood-audio");
+	const formerlyUsed = testMediaAssetId("neighborhood-former-icon");
+	const born = scaffold.mutations.map((mutation) =>
+		mutation.kind === "addModule" &&
+		mutation.module.uuid === scaffold.moduleUuid
+			? {
+					...mutation,
+					module: {
+						...mutation.module,
+						icon: testMediaAssetId("neighborhood-shared-icon"),
+						audioLabel: testMediaAssetId("neighborhood-shared-audio"),
+						mediaByLanguage: {
+							fra: { icon, audioLabel },
+							eng: { icon: "blank" as const },
+						},
+						mediaByFormerCode: { fre: { icon: formerlyUsed } },
+					},
+				}
+			: mutation,
+	);
+	const after = apply(before, withListedMenuHierarchy(before, born));
+	const child = after.modules[sharedChildUuid(ROUTE, scaffold.moduleUuid)];
+	expect(child.mediaByLanguage?.eng?.icon).toBe("blank");
+	expect(child.mediaByFormerCode?.fre?.icon).toBe(formerlyUsed);
+	expect(
+		navigationFilesInLanguage(
+			child,
+			"fra",
+			effectiveAppLocalization(after.localization),
+		),
+	).toEqual({ icon, audioLabel });
 });
 
 it("requires an explicit decision about active and paused form links before changing the menu that supplies forms", () => {

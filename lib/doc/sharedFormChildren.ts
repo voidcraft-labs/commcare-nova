@@ -65,6 +65,10 @@ export function initialSharedChild(
 	if (source.formsInMenuAbove) route.formsInMenuAbove = true;
 	if (source.icon) route.icon = source.icon;
 	if (source.audioLabel) route.audioLabel = source.audioLabel;
+	if (source.mediaByLanguage)
+		route.mediaByLanguage = structuredClone(source.mediaByLanguage);
+	if (source.mediaByFormerCode)
+		route.mediaByFormerCode = structuredClone(source.mediaByFormerCode);
 	if (source.badge) route.badge = structuredClone(source.badge);
 	if (source.caseListRegistrationForm?.kind === "always")
 		route.caseListRegistrationForm = structuredClone(
