@@ -132,7 +132,7 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
         restore.append(transaction)
         found = core_runner.evaluate(
             formBase64=base64.b64encode(LOOKUP_FORM).decode(),
-            restoreBase64=base64.b64encode(etree.tostring(restore)).decode(),
+            restoreBase64=base64.b64encode(etree.tostring(restore, encoding="utf-8")).decode(),
             expressions=[f"instance('casedb')/casedb/case[@case_id = '{case_id}']/index/{reference}"],
             instances=["casedb"],
         )
