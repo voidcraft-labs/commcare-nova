@@ -56,6 +56,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
+		"menus-and-case-lists/detail-auto-select-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
 		"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr",
 	],
