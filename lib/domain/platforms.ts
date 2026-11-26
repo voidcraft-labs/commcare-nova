@@ -220,6 +220,9 @@ export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
 	"web-apps-form-behavior",
+	"case-list-android-lookup",
+	"case-list-icon-actions",
+	"saved-form-descriptor",
 	"case-list-here",
 	"worker-distance",
 	"sort-by-distance",
@@ -233,6 +236,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"search-field-multiple-choice",
 	"connect-app",
 	"case-list-search-text",
+	"case-list-lookup-count",
 	"window-width",
 	"location-question",
 	"barcode-question",
@@ -243,6 +247,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"question-pages",
 	"number-keypad",
 	...questionDisplayPlatformIds,
+	"android-app-question",
+	"android-app-answer",
 	"plain-text",
 	"choice-media",
 	"help-media",
@@ -285,10 +291,12 @@ export const PLATFORM_FEATURE_IDS = [
 	"case-map-fallback-locations",
 	"case-map-layers",
 	"search-screen-text",
+	"search-address-picker",
 	"search-field-checks",
 	"search-starting-dates",
 	"barcode-search-field",
 	"search-for-blank",
+	"search-field-groups",
 	"hidden-search-field",
 	"search-first",
 	"search",
@@ -309,6 +317,7 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
+	"case-list-icon-actions",
 	"case-list-here",
 	"worker-distance",
 	"sort-by-distance",
@@ -320,7 +329,9 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"search-field-multiple-choice",
 	"connect-app",
 	"case-list-search-text",
+	"case-list-lookup-count",
 	"window-width",
+	"android-app-question",
 ] as const satisfies readonly PlatformFeatureId[];
 export type RefusablePlatformFeatureId =
 	(typeof REFUSABLE_PLATFORM_FEATURE_IDS)[number];
@@ -370,6 +381,37 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "ignored",
 			note: "the form opens and submits as any other form",
 		},
+	},
+	"case-list-android-lookup": {
+		label: "Case lookup with an Android app",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the case list opens without the lookup action",
+		},
+		android: { reading: "runs" },
+	},
+	"case-list-icon-actions": {
+		label: "Submit from a case list icon",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "unavailable", note: "raw `jr://` path as text" },
+		refusal: {
+			what: "has an icon that submits a form",
+			why: "Android shows the image path as text and cannot run the action.",
+			alternative: "remove the action from the icon",
+			pickerLine:
+				"Available only in Web Apps. You can change where this app runs in App settings.",
+		},
+	},
+	"saved-form-descriptor": {
+		label: "Saved form label",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the form saves as usual without using the label",
+		},
+		android: { reading: "runs" },
 	},
 	"case-list-here": {
 		label: "here() in a case list",
@@ -558,6 +600,23 @@ export const PLATFORM_FEATURES: Readonly<
 				"Not available for a Connect app. You can turn off Connect, then choose this.",
 		},
 	},
+	"case-list-lookup-count": {
+		label: "Companion lookup count",
+		channel: "expression",
+		webApps: {
+			reading: "unavailable",
+			note: "the Android companion app cannot return a result in Web Apps",
+		},
+		android: {
+			reading: "runs",
+			note: "the number of distinct result keys from the companion app, blank when it supplies no result",
+		},
+		refusal: {
+			what: "reads the companion lookup count",
+			why: "Only Android can receive the companion app’s result.",
+			alternative: "take the read out",
+		},
+	},
 	"case-list-search-text": {
 		label: "Case list search text",
 		channel: "expression",
@@ -667,6 +726,37 @@ export const PLATFORM_FEATURES: Readonly<
 		android: { reading: "runs", note: "each page shows on its own screen" },
 	},
 	...questionDisplayPlatforms,
+	"android-app-question": {
+		label: "Question answered by an Android app",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "shows a placeholder and cannot open the Android app",
+		},
+		android: {
+			reading: "runs",
+			note: "the worker opens an installed app and returns its answer to the form",
+		},
+		refusal: {
+			what: "opens another app on Android",
+			why: "Web Apps cannot open the app a worker needs to answer this question.",
+			alternative: "let the worker enter the answer directly",
+			pickerLine:
+				"This question needs Android. You can change where the app runs in App settings.",
+		},
+	},
+	"android-app-answer": {
+		label: "Answer from another question’s Android app",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the worker answers the ordinary question",
+		},
+		android: {
+			reading: "runs",
+			note: "the worker opens the other question’s app to answer this question",
+		},
+	},
 	"number-keypad": {
 		label: "Number keypad",
 		channel: "structure",
@@ -1084,6 +1174,29 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "the case list shows the address as plain text rather than a link, and only the case's details show it as a link",
 		},
 	},
+	"search-address-picker": {
+		label: "Address search field",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "chooses an address and fills linked Search fields",
+		},
+		android: {
+			reading: "ignored",
+			note: "the address field is absent and linked fields keep their ordinary inputs",
+		},
+		targetCondition: {
+			platform: "web-apps",
+			reason:
+				"Web Apps searches for addresses only where the project space has advanced case search and the Geocoder plan feature.",
+			capability: "address-search",
+			planFeature: "geocoder",
+			unavailable: {
+				reading: "unavailable",
+				note: "the address field is unavailable",
+			},
+		},
+	},
 	"search-screen-text": {
 		label: "Search screen title, subtitle and hints",
 		channel: "structure",
@@ -1133,6 +1246,15 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "ignored",
 			note: "the Search screen shows the field alone",
+		},
+	},
+	"search-field-groups": {
+		label: "Search headings",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "the Search screen shows the fields in order",
 		},
 	},
 	"hidden-search-field": {
@@ -1318,6 +1440,8 @@ export function expressionLeafFeature(
 	expression: Expression,
 ): PlatformFeatureId | undefined {
 	if (expression.kind === "here") return "case-list-here";
+	if (expression.kind === "case-list-lookup-count")
+		return "case-list-lookup-count";
 	if (expression.kind === "case-list-search-text")
 		return "case-list-search-text";
 	if (

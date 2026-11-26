@@ -248,10 +248,15 @@ final class Device {
         restoreReference = reference;
         org.commcare.network.CommcareRequestEndpointsMock.setCaseFetchResponseCodes(new Integer[]{200});
         LocalReferencePullResponseFactory.setRequestPayloads(new String[]{reference});
-        CommCareApplication.instance().getCurrentApp().getAppPreferences().edit()
-                .putString("key_server", null).commit();
+        User current = served() ? CommCareApplication.instance().getSession().getLoggedInUser() : null;
+        if (current == null) {
+            CommCareApplication.instance().getCurrentApp().getAppPreferences().edit()
+                    .putString("key_server", null).commit();
+        }
+        String pullUsername = current == null ? USERNAME : current.getUsername();
+        String pullPassword = current == null ? PASSWORD : password;
         final Object[] outcome = new Object[2];
-        DataPullTask<Object> task = new DataPullTask<Object>(USERNAME, PASSWORD, null, "fake.server.com",
+        DataPullTask<Object> task = new DataPullTask<Object>(pullUsername, pullPassword, null, "fake.server.com",
                 ApplicationProvider.getApplicationContext(), LocalReferencePullResponseFactory.INSTANCE,
                 false, false, false) {
             @Override
@@ -279,7 +284,9 @@ final class Device {
         if (outcome[0] instanceof Exception) {
             throw new IllegalStateException("Android's data pull raised for " + path, (Exception)outcome[0]);
         }
-        become();
+        if (current == null) {
+            become();
+        }
         Cases.restored();
         return String.valueOf(outcome[0]) + (outcome[1] == null || "".equals(outcome[1]) ? "" : ": " + outcome[1]);
     }

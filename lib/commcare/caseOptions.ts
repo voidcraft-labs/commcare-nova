@@ -1,8 +1,11 @@
-import type {
-	CaseOptionsSource,
-	Field,
-	MultiSelectField,
-	SingleSelectField,
+import {
+	type AvailableCasesOptionsSource,
+	type CaseOptionsSource,
+	type DeviceCaseOptionsSource,
+	type Field,
+	isDeviceCaseOptionsSource,
+	type MultiSelectField,
+	type SingleSelectField,
 } from "@/lib/domain";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { RewriteControl } from "./emissionRewrites";
@@ -11,6 +14,25 @@ import { w } from "./xpath/wire/builders";
 import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
 import { caseDbInstance } from "./xpath/wire/instances";
 import type { WireExpr } from "./xpath/wire/tree";
+
+/** The local device case path, with the predicates of the chosen source. */
+function deviceCasesNodeset(predicates: readonly WireExpr[] = []): WireExpr {
+	return w.instance(caseDbInstance(), [
+		w.step("casedb"),
+		w.step("case", predicates),
+	]);
+}
+
+/** Every restored case, or open cases across all restored types. */
+export function availableCasesNodeset(
+	status?: AvailableCasesOptionsSource["status"],
+): WireExpr {
+	return deviceCasesNodeset(
+		status === undefined
+			? []
+			: [w.eq(w.context([w.attr("status")]), w.str(status))],
+	);
+}
 
 /** Standard device itemsets, evaluated against the worker's local case database.
  * current() is the question, so candidate relations use immediate-scope joins.
@@ -37,10 +59,7 @@ export function caseOptionsNodeset(
 				...(rewrites === undefined ? {} : { rewrites }),
 			}),
 		);
-	return w.instance(caseDbInstance(), [
-		w.step("casedb"),
-		w.step("case", predicates),
-	]);
+	return deviceCasesNodeset(predicates);
 }
 
 /**
@@ -57,10 +76,10 @@ export function fieldTakesCaseChoices(field: Field): field is (
 	| SingleSelectField
 	| MultiSelectField
 ) & {
-	optionsSource: CaseOptionsSource;
+	optionsSource: DeviceCaseOptionsSource;
 } {
 	return (
 		(field.kind === "single_select" || field.kind === "multi_select") &&
-		field.optionsSource.kind === "cases"
+		isDeviceCaseOptionsSource(field.optionsSource)
 	);
 }

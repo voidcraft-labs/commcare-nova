@@ -1,4 +1,5 @@
 import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
+import { moduleCaseProperties } from "./moduleCaseProperties";
 /**
  * Reference-index construction, per-mutation maintenance, and queries —
  * the machinery behind `BlueprintDoc.refIndex`
@@ -815,12 +816,23 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 						),
 						slot.slot,
 					);
+					if (field.optionsSource.sortProperty !== undefined)
+						sink.edge(
+							casePropertyTargetKey(
+								field.optionsSource.caseType,
+								field.optionsSource.sortProperty,
+							),
+							slot.slot,
+						);
 				}
 				break;
 			// No field slot names a case property: what a field saves to is
 			// its form's case operations, indexed on the form.
-			case "case-property-ref":
 			case "entity-uuid":
+				for (const value of readSlotStrings(field, slot.path))
+					sink.edge(entityTargetKey(value.text), slot.slot);
+				break;
+			case "case-property-ref":
 			case "relation-path":
 			case "datum-ref":
 			case "worker-property-ref":
@@ -1047,18 +1059,7 @@ function extractModuleEdges(
 								sink.edge(caseTypeTargetKey(caseType), slot.slot);
 						}
 					}
-				} else if (
-					slot.slot === "search_order_property" ||
-					slot.slot === "search_filter_order_property"
-				) {
-					// An order names a property of the menu's own record type.
-					if (mod.caseType !== undefined)
-						for (const entry of readSlotStrings(mod, slot.path))
-							sink.edge(
-								casePropertyTargetKey(mod.caseType, entry.text),
-								slot.slot,
-							);
-				} else {
+				} else if (slot.slot === "search_input_property") {
 					for (const input of mod.caseListConfig?.searchInputs ?? []) {
 						if (input.kind !== "simple") continue;
 						const destination = resolveRelationDestination(
@@ -1095,6 +1096,13 @@ function extractModuleEdges(
 				const _exhaustive: never = slot;
 				break;
 			}
+		}
+	}
+	for (const property of moduleCaseProperties(doc, mod, relationTypes)) {
+		for (const type of property.types) {
+			sink.edge(casePropertyTargetKey(type, property.name), property.slot);
+			if (property.throughRelation)
+				sink.edge(caseTypeTargetKey(type), property.slot);
 		}
 	}
 }
@@ -1182,6 +1190,8 @@ function termEdges(
 			return;
 		case "input":
 			sink.edge(entityTargetKey(term.searchInputUuid), slot);
+			if (term.supplier !== undefined)
+				sink.edge(entityTargetKey(term.supplier), slot);
 			return;
 		case "session-user-property":
 			sink.edge(userPropertyTargetKey(term.userPropertyUuid), slot);
@@ -1268,6 +1278,7 @@ function termEdges(
 		case "session-context":
 		case "table-column":
 		case "literal":
+		case "search-result-field":
 		case "case-row-type":
 			return;
 		default: {
@@ -1329,6 +1340,7 @@ function expressionEdges(
 						if (node.unit.role === "select-option-label")
 							sink.edge(entityTargetKey(node.unit.option), slot);
 						break;
+					case "case-list-lookup-count":
 					case "selected-cases":
 						sink.edge(entityTargetKey(node.module), slot);
 						break;
@@ -1338,7 +1350,7 @@ function expressionEdges(
 							ctx.moduleUuid !== undefined
 						) {
 							sink.markCtx();
-							sink.edge(entityTargetKey(ctx.moduleUuid), slot);
+							sink.edge(entityTargetKey(node.supplier ?? ctx.moduleUuid), slot);
 						}
 						break;
 				}

@@ -392,26 +392,36 @@ describe("circumstanceBlock", () => {
 // ---------------------------------------------------------------------------
 
 describe("findingLine", () => {
-	const manifestFinding: ManifestFinding = {
-		code: "questions/an-appearance",
-		standing: "not-yet",
-		place: questionPlace,
-		subject: "question-appearance",
-		detail: { name: "quick" },
-	};
+	it.each([
+		"case-search/search-group-layout-unreadable",
+		"case-search/search-group-heading-unreadable",
+	])(
+		"reads the current Search group finding’s guidance and name (%s)",
+		(code) => {
+			const manifestFinding: ManifestFinding = {
+				code,
+				standing: "never",
+				place: { kind: "search", menu: 0, name: "Households" },
+				subject: "search-fields",
+				detail: { name: "follow_up" },
+			};
+			expect(findingLine(manifestFinding)).toEqual({
+				sentence: FINDING_COPY["search-fields"].never,
+				named: "follow_up",
+			});
+			expect(findingLine({ ...manifestFinding, detail: {} }).named).toBeNull();
+		},
+	);
 
-	it("reads a manifest finding's sentence and names it", () => {
-		expect(findingLine(manifestFinding)).toEqual({
-			sentence: FINDING_COPY["question-appearance"]["not-yet"],
-			named: "quick",
-		});
-		expect(findingLine({ ...manifestFinding, detail: {} }).named).toBeNull();
+	it("uses the manifest finding’s repair cause", () => {
 		expect(
 			findingLine({
-				...manifestFinding,
+				code: "questions/jr-count-naming-a-decimal-question",
 				standing: "fix-in-hq",
 				cause: "breaks-when-run",
 				subject: "repeats",
+				place: questionPlace,
+				detail: {},
 			}).sentence,
 		).toBe(fixInHqSentence("repeats", "breaks-when-run"));
 	});

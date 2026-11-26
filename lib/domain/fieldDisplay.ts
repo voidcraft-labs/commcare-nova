@@ -195,6 +195,7 @@ export const FIELD_DISPLAY_SETTINGS = [
 		kinds: ["image", "video", "audio"],
 		values: {
 			camera: { label: "Camera only", feature: "camera-only" },
+			"face-camera": { label: "Face camera", feature: "face-camera" },
 			"record-or-choose": {
 				label: "Record or choose a file",
 				feature: "record-or-choose",
@@ -331,7 +332,7 @@ export function fieldDisplayOptionsFor(
 		if (setting.key === "captureSource")
 			return kind === "audio"
 				? value === "record-or-choose"
-				: value === "camera";
+				: value === "camera" || (kind === "image" && value === "face-camera");
 		return true;
 	};
 	return Object.fromEntries(

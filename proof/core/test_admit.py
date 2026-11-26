@@ -271,3 +271,22 @@ def test_a_malformed_platform_version_is_refused_and_leaves_nothing_open(core_ru
     assert len(set(temporary.glob("proof-core-*.ccz")) - before) == 1
     core_runner.release(report["app"])
     assert set(temporary.glob("proof-core-*.ccz")) == before
+
+
+@pytest.mark.parametrize("maximum, admitted", [(2_147_483_647, True), (2_147_483_648, False)])
+def test_multi_selection_maximum_uses_the_native_signed_integer_boundary(core_runner, tmp_path, maximum, admitted):
+    """Change one instance datum's maximum by one across Core's suite parser boundary."""
+    suite = etree.fromstring(read_archive_entry(BASIC_APP, "suite.xml"))
+    datum = next(node for node in suite.iter("datum") if node.get("nodeset") and node.get("detail-select"))
+    datum.tag = "instance-datum"
+    datum.set("max-select-value", str(maximum))
+    edited = archive_variant(BASIC_APP, tmp_path / f"maximum-{maximum}.ccz", {"suite.xml": etree.tostring(suite)})
+    report = core_runner.admit(edited)
+    try:
+        assert report["admitted"] is admitted, report
+        if not admitted:
+            problems = json.dumps(report["problems"])
+            assert f"Invalid value {maximum}for max-select-value. Must be an Integer" in problems, report["problems"]
+    finally:
+        if report.get("app"):
+            core_runner.release(report["app"])

@@ -225,7 +225,9 @@ must already carry data under those keys for the expressions to see it.
 Questions that save to the worker's own record travel as a real CommCare case
 update against that worker's user case, so the value lands on the device and
 syncs like any other case change. Renaming a piece of worker information moves
-the destination with it; nothing in the form needs editing.
+the destination with it; nothing in the form needs editing. You can add a
+condition under **When this runs** on the form's worker record change. The
+worker's record is updated only when the submitted answers meet that condition.
 
 Once the app is published to a project space, Nova can make a CommCare mobile
 worker for each persona. Open **Publish**, find that project space, and use the

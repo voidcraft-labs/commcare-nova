@@ -197,7 +197,7 @@
 		],
 		"valueClass": "request-config-key-literal-value-alone",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW** where its value is a literal or a typed value: the typed search control the key sets (the related-case property, related-case inclusion), kept in the default-filter spelling it arrived in, because that spelling's editor gate differs from the dedicated one's (the related-cases key includes related cases for any non-empty value, `case_search/utils.py::get_related_cases_result`), which is where HQ's editor shows it (`details/case_claim.js::defaultPropertyModel` accepts any name). A literal `commcare_sort` Nova reads is `default-filter-orders-the-records-the-search-sends`; one whose text Nova does not read (a comparison other than `exact`, `numeric` or `date`, two signs, more than one `:`) stays here",
+		"dispositionCell": "**HELD-NEW**: A request-order value outside the supported property, direction and comparison spellings, or another native request setting without a represented behavior. Related record IDs and inclusion use their own held rows.",
 		"subject": "search-default-filters",
 		"owner": "case-search",
 		"platforms": {
@@ -228,7 +228,7 @@
 		],
 		"valueClass": "literal-server-sort",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: an order among the search filters (`caseListConfig.searchFilters[]` of kind `order`), sent in the filters' order and before the dedicated order (`suite_xml/post_process/remote_requests.py::_remote_request_query_datums`; `case_search/models.py::_parse_commcare_sort_properties` reads every `commcare_sort` value in turn), with a comparison or direction the text leaves to HQ's defaults kept implicit; it needs no CASE_SEARCH_ADVANCED, unlike `custom_sort_properties`",
+		"dispositionCell": "**HELD**: an order among the search filters (`caseListConfig.searchFilters[]` of kind `order`), sent in the filters' order and before the dedicated order (`suite_xml/post_process/remote_requests.py::_remote_request_query_datums`; `case_search/models.py::_parse_commcare_sort_properties` reads every `commcare_sort` value in turn), with a comparison or direction the text leaves to HQ's defaults kept implicit. When the text starts an order term with multiple direction signs, HQ uses the first sign and Nova publishes that sign alone. It needs no CASE_SEARCH_ADVANCED, unlike `custom_sort_properties`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -267,6 +267,39 @@
 			{
 				"kind": "unrepresentable-identity",
 				"named": "HQ's search sorts by the property a form saved under that name (`es/case_search.py::sort_by_case_property` filters the case's properties by the key; the record's own facts are the `@` keys of `case_search/const.py::INDEXED_METADATA_BY_KEY`), and Nova reserves the name for a case's own facts or as one of CommCare HQ's reserved words (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`), so no property of Nova's catalog is it"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-server-order-naming-a-property-only-devices-hold",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "a `commcare_sort` default filter or a `custom_sort_properties` row naming `location_id`",
+		"surfaceKeys": [
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"schema:CaseSearch.custom_sort_properties",
+			"schema:CaseSearchCustomSortProperty",
+			"schema:CaseSearchCustomSortProperty.property_name"
+		],
+		"valueClass": "server-order-device-only-property",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ's Search index uses case_json and its indexed metadata, which both omit the case's location column. An order by location sees a missing value in every result.",
+		"subject": "search-default-filters",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's Search index uses case_json and its indexed metadata, which both omit the case's location column. An order by location sees a missing value in every result."
 			}
 		],
 		"platforms": {
@@ -358,10 +391,8 @@
 			"csql-key:case_type"
 		],
 		"valueClass": "case-type-key-literal-value",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW** where its value is a literal or a typed value: `caseSearchConfig.requestCaseTypes`, the case types the search request asks HQ for, kept in its default-filter spelling: HQ searches the module's own types plus those, while the device list still shows only the module's type unless additional case types are set",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Each ordered request row sends its chosen record type. Its hits consume the result limit and remain available to forms.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -376,7 +407,8 @@
 			"cell": "the same default-filter entry",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "case-search/default-properties-entry-keyed-x-commcare-endpoint-id",
@@ -1031,7 +1063,7 @@
 		],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`",
+		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`, including typed counts of cases on the device",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1401,10 +1433,8 @@
 		"item": "`instance_name` without `casedb`, `ledgerdb`, `fixture` or `session` in it",
 		"surfaceKeys": ["schema:CaseSearch.instance_name"],
 		"valueClass": "unreserved-name-not-clashing-with-an-inline-search-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.resultsInstanceName`: the inline search's results instance (`results:<name>`, `CaseSearch.get_instance_name`), read by the module's result list and by form XPath, which also names the search inputs `search-input:results:<name>`",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The menu keeps its results name even when it has no Search action. Each query in a worker's entry keeps its own answers.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS for results (UNAVAILABLE for results not on the device, and for search-input reads, which throw)",
@@ -1420,7 +1450,35 @@
 			"cell": "`instance_name` `^[a-zA-Z]\\w*$`; CASE_SEARCH_ADVANCED",
 			"markers": []
 		},
-		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"],
+		"slotChanges": []
+	},
+	{
+		"id": "case-search/results-name-outside-the-search-editor",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "Results name the Case List editor cannot save",
+		"surfaceKeys": ["schema:CaseSearch.instance_name"],
+		"valueClass": "results-name-outside-the-search-editor",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The Case List editor requires an ASCII letter followed by letters, numbers or underscores.",
+		"subject": "search-setup",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The Case List editor rejects the results name."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
@@ -1490,8 +1548,9 @@
 		"item": "an effective results instance equal to a module's that does not use inline search",
 		"surfaceKeys": ["schema:CaseSearch.instance_name"],
 		"valueClass": "clashes-without-inline-search",
-		"disposition": "INERT",
-		"dispositionCell": "**INERT**: HQ checks the clash only against inline search, and no runtime reads the name there",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The menu keeps its chosen search results name. Sharing the name with a menu that does not search inline is safe.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -1500,7 +1559,7 @@
 			"cell": "the name, which Nova holds for its inline search",
 			"markers": []
 		},
-		"gates": []
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
 		"id": "case-search/additional-case-types",
@@ -1510,10 +1569,8 @@
 		"item": "`additional_case_types[]` naming a type other than the menu's own",
 		"surfaceKeys": ["schema:CaseSearch.additional_case_types"],
 		"valueClass": "another-type",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.additionalCaseTypes`",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Workers may choose records of the other types whose menus this app holds.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1528,7 +1585,8 @@
 			"cell": "list; CASE_SEARCH_ADVANCED (results nodeset build-gated on it)",
 			"markers": []
 		},
-		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"],
+		"slotChanges": []
 	},
 	{
 		"id": "case-search/additional-case-types-naming-only-the-menu-s-own-type",
@@ -1644,10 +1702,8 @@
 		"item": "`custom_related_case_property`",
 		"surfaceKeys": ["schema:CaseSearch.custom_related_case_property"],
 		"valueClass": "dedicated-field-alone",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.relatedCaseProperty`",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Each primary match can name another record by a dynamic property containing its ID.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -1663,7 +1719,8 @@
 			"cell": "key; CASE_SEARCH_ADVANCED",
 			"markers": []
 		},
-		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"],
+		"slotChanges": []
 	},
 	{
 		"id": "case-search/include-all-related-cases-implied-by-nova-relation-reads",
@@ -1703,10 +1760,8 @@
 		"item": "`include_all_related_cases: false` where Nova's relation reads would derive `true`",
 		"surfaceKeys": ["schema:CaseSearch.include_all_related_cases"],
 		"valueClass": "false-despite-relation-reads",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.includeRelatedCases: false`, which leaves calculated-expression relation reads blank for search results, while HQ still fetches the related cases named by native field paths and child tabs (`case_search/utils.py::get_related_cases_result`); Nova emits calculated relation reads and derives `true` today",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The search returns records needed by the search details across the requested record types.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1721,7 +1776,8 @@
 			"cell": "`false`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "case-search/include-all-related-cases-authored-without-relation-reads",
@@ -1731,10 +1787,8 @@
 		"item": "`include_all_related_cases` authored without relation reads",
 		"surfaceKeys": ["schema:CaseSearch.include_all_related_cases"],
 		"valueClass": "authored-without-relation-reads",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.includeRelatedCases`",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The search includes the related hierarchy and direct children of all primary and referenced records.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1749,7 +1803,8 @@
 			"cell": "`true`; CASE_SEARCH_RELATED_LOOKUPS",
 			"markers": []
 		},
-		"gates": ["toggle/CASE_SEARCH_RELATED_LOOKUPS"]
+		"gates": ["toggle/CASE_SEARCH_RELATED_LOOKUPS"],
+		"slotChanges": []
 	},
 	{
 		"id": "case-search/search-on-clear",
@@ -1826,10 +1881,9 @@
 			"schema:DefaultCaseSearchProperty.defaultValue"
 		],
 		"valueClass": "endpoint-parameter",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.searchEndpoint`: a typed reference to a target-owned endpoint of either kind, held under a name with its declared parameters and result fields (each default filter on such a menu, whatever its key, `_xpath_query` included, is held as an entry of that key, emitted as HQ stores it, and read as a parameter of that name, not as a CSQL filter or as the key's meaning in the rows above, since HQ sends it to the endpoint removing only configuration and metrics-tag keys, `case_search/models.py::extract_search_request_config`, `utils.py::get_project_db_fixture`); its id per project space is target-owned, in the deployment ledger (an id names a different endpoint, or none, elsewhere; Nova never reads or edits the endpoint)",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the menu uses a named project search. Its ordered parameter values are device expressions, including a value sent under `_xpath_query`. The destination supplies the service id.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (online only) / RUNS (online only)",
@@ -2097,11 +2151,57 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/prompt-key-matching-a-direct-parent-property",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a labeled ordinary text prompt matched by its own direct parent property key",
+		"surfaceKeys": ["schema:CaseSearchProperty.name"],
+		"valueClass": "direct-parent-text-prompt-key",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: text matched by the project space on a property of the direct parent",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`name` derived from the parent's property",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_RELATED_LOOKUPS"]
+	},
+	{
+		"id": "case-search/prompt-key-matching-two-parent-links",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a labeled ordinary text prompt matched by a grandparent property key",
+		"surfaceKeys": ["schema:CaseSearchProperty.name"],
+		"valueClass": "two-parent-links-text-prompt-key",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: text matched by the project space on a property reached through two parent links",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`name` derived from the two links and the property",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_RELATED_LOOKUPS"]
+	},
+	{
 		"id": "case-search/prompt-key-outside-nova-s-name-grammar",
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`name` (prompt key) holding `/` (an ancestor path) or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`, or, on a prompt without `exclude`, a case property Nova cannot name (`_x`, `date-opened`, `external-id`)",
+		"item": "`name` (prompt key) holding an unsupported ancestor path or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`, or, on a prompt without `exclude`, a case property Nova cannot name (`_x`, `date-opened`, `external-id`)",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.name",
 			"parser:QueryPromptParser/prompt@key",
@@ -2298,6 +2398,37 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/address-picker-on-a-search-screen",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`appearance: address` (Geocoder Broadcast, emitted `input=\"address\"`)",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.appearance",
+			"parser:QueryPromptParser/prompt@input"
+		],
+		"valueClass": "ordinary-address-search-picker",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Address Search field on an ordinary case Search screen",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED (prompt absent)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored",
+				"note": "prompt absent"
+			}
+		},
+		"emission": {
+			"cell": "`appearance: address`; privilege `geocoder` + CASE_SEARCH_ADVANCED",
+			"markers": []
+		},
+		"gates": ["privilege/geocoder", "toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
 		"id": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
 		"area": "case-search",
 		"section": "Case search",
@@ -2307,9 +2438,9 @@
 			"schema:CaseSearchProperty.appearance",
 			"parser:QueryPromptParser/prompt@input"
 		],
-		"valueClass": "address-without-required-or-validations",
+		"valueClass": "other-address-prompt-shape",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `geocoder` search input",
+		"dispositionCell": "**HELD-NEW**: additional stored settings on an address field",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {
@@ -3469,6 +3600,90 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/address-picker-receiver-on-a-search-screen",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`receiver_expression`",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.receiver_expression",
+			"parser:QueryPromptParser/prompt@receive"
+		],
+		"valueClass": "address-topic-and-ordered-parts",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Text or multiple-choice Search field with an address subscription",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "`receiver_expression`; privilege `geocoder` + CASE_SEARCH_ADVANCED",
+			"markers": []
+		},
+		"gates": ["privilege/geocoder", "toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
+		"id": "case-search/address-receiver-single-choice-lookup-position",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A single-choice Search field that receives from an address picker",
+		"surfaceKeys": ["schema:CaseSearchProperty.receiver_expression"],
+		"valueClass": "address-single-choice-selection-by-position",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps selects by position even when the lookup uses different values.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps can clear the choice or fill a different lookup value by assigning an option's position instead of its key."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/address-receiver-shared-with-a-choice-field",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "Identical address subscriptions shared by Search fields including a lookup choice",
+		"surfaceKeys": ["schema:CaseSearchProperty.receiver_expression"],
+		"valueClass": "address-receiver-shared-with-a-choice-field",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps sets every field sharing the subscription as one control, which can lose the selected choice.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps updates all fields with the same receive selector together, so a lookup choice can be cleared instead of filled."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/receiver-expression",
 		"area": "case-search",
 		"section": "Case search",
@@ -3478,9 +3693,9 @@
 			"schema:CaseSearchProperty.receiver_expression",
 			"parser:QueryPromptParser/prompt@receive"
 		],
-		"valueClass": "text-or-lookup-prompt",
+		"valueClass": "receiver-with-a-topic-or-part-nova-cannot-hold",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `searchInputs[].receiveFrom` (geocoder field)",
+		"dispositionCell": "**HELD-NEW**: receiver outside the address topic and component grammar",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {
@@ -3534,6 +3749,8 @@
 		"item": "`is_group` + `group_key`",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.is_group",
+			"schema:CaseSearchProperty.name",
+			"schema:CaseSearchProperty.label",
 			"schema:CaseSearchProperty.group_key",
 			"parser:SessionDatumParser/group",
 			"parser:QueryGroupParser/group",
@@ -3543,10 +3760,9 @@
 			"parser:QueryPromptParser/prompt@group_key"
 		],
 		"valueClass": "grouped",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `searchInputGroups[]` with each input's group",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized Search headings and ordered groups. Android shows the fields in the same order.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -3559,6 +3775,60 @@
 		},
 		"emission": {
 			"cell": "group rows",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/search-group-layout-unreadable",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A Search group key that cannot identify the heading for its fields",
+		"surfaceKeys": ["schema:CaseSearchProperty.group_key"],
+		"valueClass": "search-group-layout-unreadable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the group or its members cannot be recovered as one ordered section.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "the group or its members cannot be recovered as one ordered section"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/search-group-heading-unreadable",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A Search heading with no localized label Nova can save",
+		"surfaceKeys": ["schema:CaseSearchProperty.label"],
+		"valueClass": "search-group-heading-unreadable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the heading has no representable localizable label.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "the heading has no representable localizable label"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -4857,5 +5127,129 @@
 			"markers": []
 		},
 		"gates": []
+	},
+	{
+		"id": "case-search/default-related-record-inclusion",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "A default search row supplying whether to include the entire related hierarchy",
+		"surfaceKeys": [
+			"schema:CaseSearch.default_properties",
+			"schema:DefaultCaseSearchProperty",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue"
+		],
+		"valueClass": "default-related-record-inclusion",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A device expression supplies the request value. Any nonempty string includes the related hierarchy.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (server)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "server"
+			}
+		},
+		"emission": {
+			"cell": "`{property: p, defaultValue}`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-related-record-property-only-devices-hold",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`custom_related_case_property` or its default-filter equivalent naming `location_id`",
+		"surfaceKeys": [
+			"schema:CaseSearch.custom_related_case_property",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue"
+		],
+		"valueClass": "related-record-device-only-property",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ follows an ID from the matched record’s dynamic properties. The case’s location is stored in a separate column and yields no additional record.",
+		"subject": "search-default-filters",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ follows an ID from the matched record’s dynamic properties. The case’s location is stored in a separate column and yields no additional record."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/default-related-record-id-property",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "A default search row naming a dynamic property that holds another record ID",
+		"surfaceKeys": [
+			"schema:CaseSearch.default_properties",
+			"schema:DefaultCaseSearchProperty",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue"
+		],
+		"valueClass": "default-related-record-id",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: An ordered setting sends the property name in its original request position.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (server)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "server"
+			}
+		},
+		"emission": {
+			"cell": "`{property: p, defaultValue}`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/additional-record-type-without-menu",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "An additional result type that has no menu in this app",
+		"surfaceKeys": ["schema:CaseSearch.additional_case_types"],
+		"valueClass": "another-type-without-menu",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The menu editor can save only record types used by menus in this app.",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "list; CASE_SEARCH_ADVANCED (results nodeset build-gated on it)",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"],
+		"subject": "search-setup",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The menu settings page offers additional record types only from the app’s menus. Add a menu for the record type or remove the additional type in CommCare HQ."
+			}
+		]
 	}
 ]

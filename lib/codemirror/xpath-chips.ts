@@ -193,7 +193,7 @@ export function expressionChips(
 			case "input":
 				add(
 					span,
-					searchInputLabel(doc, term.searchInputUuid),
+					searchInputLabel(doc, term.searchInputUuid, term.supplier),
 					"form",
 					tablerSearch,
 				);
@@ -287,12 +287,16 @@ export function expressionChips(
 function searchInputLabel(
 	doc: ExpressionEditorContext["scope"]["doc"],
 	uuid: Uuid,
+	supplier?: Uuid,
 ): string | undefined {
 	for (const module of Object.values(doc.modules)) {
 		const input = module.caseListConfig?.searchInputs.find(
 			(each) => each.uuid === uuid,
 		);
-		if (input !== undefined) return input.label || input.name;
+		if (input !== undefined)
+			return supplier === undefined
+				? input.label || input.name
+				: `${module.name}: ${input.label || input.name}`;
 	}
 	return undefined;
 }

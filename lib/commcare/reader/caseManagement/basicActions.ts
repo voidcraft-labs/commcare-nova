@@ -21,12 +21,14 @@ import {
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
 	ownCaseOperationId,
+	RESERVED_CASE_OPERATION_TYPES,
 	type RelationStep,
 	type Uuid,
 } from "@/lib/domain";
 import { formField, matchAll, term } from "@/lib/domain/expression/builders";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { isPortableNameContinuation } from "@/lib/domain/portableName";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	circumstanceFinding,
@@ -66,6 +68,7 @@ import {
 	sameJson,
 } from "../jsonCursor";
 import { whereText } from "../place";
+import { sharedFormSyntax } from "../syntaxRead";
 import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
 import type { DataNode } from "../xform/model";
@@ -236,6 +239,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-key-whose-index-segments-include-user-each-parent-host-or`,
 		"schema:UpdateCaseAction.update",
 	),
+	viaUserHeld: take(
+		`${F}/update-key-through-a-typed-user-index`,
+		"schema:UpdateCaseAction.update",
+	),
 	viaOther: refuse(
 		`${F}/update-key-with-any-other-index-segment-or-user-where-the`,
 		"schema:UpdateCaseAction.update",
@@ -268,6 +275,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
 		"schema:OpenSubCaseAction.case_properties",
 	),
+	uncasedUpdateKey: refuse(
+		`${F}/basic-update-key-with-an-unaddressable-uncased-letter`,
+		"schema:UpdateCaseAction.update",
+	),
 	nonAsciiKey: refuse(
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		"schema:UpdateCaseAction.update",
@@ -283,6 +294,11 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	notOffered: refuse(
 		`${F}/a-case-write-name-or-preload-on-a-question-the-picker-does-not`,
 		"schema:ConditionalCaseUpdate.question_path",
+	),
+	hiddenDay: take(`${F}/a-datetime-question-saved-straight-to-a-case`, null),
+	linkedDay: take(
+		`${F}/a-datetime-question-saved-straight-through-a-parent-index`,
+		null,
 	),
 	datetimeStraight: refuse(
 		`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`,
@@ -902,6 +918,7 @@ export function questionValue(
 	form: DraftForm,
 	path: string,
 	property: string,
+	allowHiddenDay = false,
 ): QuestionValue {
 	const xform = form.xform;
 	const relative = conditionQuestionPath(form, path);
@@ -949,11 +966,28 @@ export function questionValue(
 	// that copies it with no type, so Core keeps the day alone there
 	// (`Recalculate.wrapData` wraps a date of any other type as a date). A
 	// question's is a write of its day to a `date` property, which Nova saves
-	// straight too (`ruleSets.ts::isAnswerWriteAssignable`); a Hidden Value's
-	// bind follows the property it writes (`fieldValueType.ts`), so Nova keeps
-	// it in no shape, nor a day as a case's name, owner or other standard key.
-	if (boundDateTime(form, field))
-		return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+	// straight too (`ruleSets.ts::isAnswerWriteAssignable`). An explicit
+	// hidden clock on a basic follow-up has its own typed source node and
+	// writes the day on an ordinary date property.
+	if (boundDateTime(form, field)) {
+		if (
+			!allowHiddenDay ||
+			!DAY_PROPERTY_CLASS.test(property) ||
+			STANDARD_KEYS.has(property) ||
+			!hiddenClockCalculation(form, field)
+		)
+			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
+		// The source bind holds the instant, though the untyped case leaf
+		// saves its day. Keep the explicit field type beside the date catalog.
+		ctx.writeDraft(() => {
+			field.field.answerType = "datetime";
+		});
+		return {
+			kind: "value",
+			value: { field, link: false, day: true },
+			datetimeSibling: false,
+		};
+	}
 	if (field.kind === "datetime") {
 		if (!DAY_PROPERTY_CLASS.test(property) || STANDARD_KEYS.has(property))
 			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
@@ -968,6 +1002,20 @@ export function questionValue(
 		value: { field, link: false },
 		datetimeSibling: false,
 	};
+}
+
+/** A clock reading with no starting value or relevance. */
+function hiddenClockCalculation(form: DraftForm, field: DraftField): boolean {
+	const bind = form.xform?.binds.get(field.node);
+	if (
+		bind?.logic.calculate === undefined ||
+		bind.logic.relevant !== undefined ||
+		field.expressions.some((slot) => slot.slot === "default_value")
+	)
+		return false;
+	const parsed = sharedFormSyntax(bind.logic.calculate);
+	const call = parsed.ok ? parsed.node : undefined;
+	return call?.kind === "call" && call.name === "now" && call.args.length === 0;
 }
 
 /** The keys a day saved straight never names: the case's name and owner,
@@ -1011,7 +1059,7 @@ export const HQ_PROPERTY = /^[a-zA-Z][\p{L}\p{N}_-]*\n?$/u;
  *  very end. */
 export const HQ_PROPERTY_PATH =
 	/^[a-zA-Z][\p{L}\p{N}_-]*(?:\/[a-zA-Z][\p{L}\p{N}_-]*)*\n?$/u;
-/** The code point ranges of a name character of CommCare Core's XPath grammar (`localName`). */
+/** The inventory's XML name range, used for the broad legacy classification. */
 const CORE_NAME_RANGES: readonly (readonly [number, number])[] = [
 	[0x2d, 0x2e],
 	[0x30, 0x39],
@@ -1044,12 +1092,11 @@ function isCoreNameCharacter(character: string): boolean {
  * - `illegal`: outside HQ's grammar, or one of HQ's own reserved words (its
  *   hyphenated `date-opened` and `external-id` among them), or `owner_id`,
  *   which Nova reads as the owner and never as a property;
- * - `non-core`: a character HQ's grammar takes that is none of Core's name
- *   characters. A name HQ's grammar passes for its one trailing newline is
- *   one: HQ's build writes the key as the update's element
- *   (`xform.py::make_case_elem`), which lxml refuses as no tag name
- *   (`ValueError`), so no build holds it;
- * - `non-ascii`: Core's name characters, one of them past ASCII;
+ * - `non-core`: outside the legacy XML name range. HQ's validator accepts
+ *   one trailing newline, but lxml rejects that tag during XML emission
+ *   (`xform.py::make_case_elem`);
+ * - `non-ascii`: in that XML name range with a character past ASCII. The
+ *   direct basic update reader checks its witnessed runtime refusal separately;
  * - `too-long`: Nova's grammar past its length, which no row of HQ's names.
  *
  * A key of every surface that writes a property takes the same class: a basic
@@ -1124,6 +1171,19 @@ export function namesAttachment(
 		typeof questionPath === "string" &&
 		uploadRefs(parsed).has(questionPath)
 	);
+}
+
+/** The generated bind fails on a name unit neither pinned worker reads.
+ * Only ordinary direct writes of the form's own case exercise this claim. */
+function basicUpdateHasUnaddressableLetter(name: string): boolean {
+	return [...name].some((character) => {
+		const unit = character.charCodeAt(0);
+		return (
+			/\p{Lo}/u.test(character) &&
+			!isPortableNameContinuation(unit, ["web-apps"]) &&
+			!isPortableNameContinuation(unit, ["android"])
+		);
+	});
 }
 
 /** The claim of a basic update's (`child` false) or child's property key
@@ -1381,6 +1441,8 @@ function pathClaimOf(
 	keyClaim: Claim<"take"> | undefined,
 ): Claim<"take"> | "join" {
 	if (read.value.link) return BASIC_CLAIMS.captureLink;
+	if (read.value.day === true && read.value.field.kind === "hidden")
+		return BASIC_CLAIMS.hiddenDay;
 	if (read.datetimeSibling)
 		return read.value.field.kind === "hidden"
 			? "join"
@@ -1399,6 +1461,7 @@ function readUpdate(
 	edit: Claim<"take">,
 	pathClaim: Claim<"take">,
 	keyClaim?: Claim<"take">,
+	dayWrites?: { readonly hiddenClock: boolean; readonly parent: boolean },
 ): {
 	readonly value?: ProposedValue;
 	readonly onlyIfChanged?: true;
@@ -1418,7 +1481,13 @@ function readUpdate(
 	}
 	const read =
 		typeof path === "string" && path !== ""
-			? questionValue(r.ctx, r.form, path, property)
+			? questionValue(
+					r.ctx,
+					r.form,
+					path,
+					property,
+					dayWrites?.hiddenClock === true && onlyIfChanged === undefined,
+				)
 			: undefined;
 	if (read === undefined || read.kind === "finding") {
 		consume(cursor.take("question_path", pathClaim, (value) => value));
@@ -1440,7 +1509,10 @@ function readUpdate(
 			: undefined;
 	const pathRow = mapRow === undefined ? keyClaim : undefined;
 	if (mapRow !== undefined) cursor.holdMapEntry(mapRow);
-	const claim = pathClaimOf(read, pathClaim, pathRow);
+	const claim =
+		dayWrites?.parent === true && read.value.day === true
+			? BASIC_CLAIMS.linkedDay
+			: pathClaimOf(read, pathClaim, pathRow);
 	if (claim === "join")
 		deferJoinClaim(r.form, cursor, read.value.field, pathRow ?? pathClaim);
 	else consume(cursor.take("question_path", claim, (value) => value));
@@ -1516,11 +1588,12 @@ function readUpdateMap(
 		const segments = key.split("/");
 		const property = segments[segments.length - 1] as string;
 		const indices = segments.slice(0, -1);
+		const directUserIndex = indices.length === 1 && indices[0] === "user";
 		let via: CaseWriteVia | undefined;
 		if (slot === "own" && indices.length > 0) {
-			const known = indices.every(
-				(segment) => segment === "parent" || segment === "host",
-			);
+			const known =
+				directUserIndex ||
+				indices.every((segment) => segment === "parent" || segment === "host");
 			if (!known) {
 				const users = indices.every(
 					(segment) =>
@@ -1538,8 +1611,16 @@ function readUpdateMap(
 				continue;
 			}
 			const steps = ancestorSteps(r.ctx, r.caseType, indices);
-			if (steps === undefined) {
-				refuseEntry(cursor, BASIC_CLAIMS.ancestorUnknown, key);
+			if (
+				steps === undefined ||
+				(directUserIndex &&
+					steps.types.some((type) => RESERVED_CASE_OPERATION_TYPES.has(type)))
+			) {
+				refuseEntry(
+					cursor,
+					directUserIndex ? BASIC_CLAIMS.viaUser : BASIC_CLAIMS.ancestorUnknown,
+					key,
+				);
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
@@ -1566,7 +1647,14 @@ function readUpdateMap(
 				continue;
 			}
 			if (named !== undefined) {
-				refuseEntry(cursor, named, key);
+				const claim =
+					named === BASIC_CLAIMS.nonAsciiKey &&
+					slot === "own" &&
+					indices.length === 0 &&
+					basicUpdateHasUnaddressableLetter(property)
+						? BASIC_CLAIMS.uncasedUpdateKey
+						: named;
+				refuseEntry(cursor, claim, key);
 				continue;
 			}
 		}
@@ -1595,30 +1683,54 @@ function readUpdateMap(
 				: BASIC_CLAIMS.editElsewhere;
 		// The rows the own case's `update` names by its key: a key through the
 		// cases above the loaded one is its own row's.
-		const keyClaim = viaFacet
-			? BASIC_CLAIMS.viaFacet
-			: via !== undefined
-				? BASIC_CLAIMS.viaOnLoad
-				: slot !== "own" || indices.length > 0
-					? undefined
-					: property === "name" && r.type !== "registration"
-						? BASIC_CLAIMS.nameKey
-						: property === "owner_id"
-							? BASIC_CLAIMS.ownerKey
-							: categoryOrState
-								? BASIC_CLAIMS.categoryStateKey
-								: facet
-									? undefined
-									: property === "location_id" || property === "hq_user_id"
-										? BASIC_CLAIMS.locationOrWorkerKey
-										: BASIC_CLAIMS.asciiKey;
-		const read = readUpdate(r, cursor, property, edit, pathClaim, keyClaim);
+		const keyClaim =
+			directUserIndex && via !== undefined
+				? BASIC_CLAIMS.viaUserHeld
+				: viaFacet
+					? BASIC_CLAIMS.viaFacet
+					: via !== undefined
+						? BASIC_CLAIMS.viaOnLoad
+						: slot !== "own" || indices.length > 0
+							? undefined
+							: property === "name" && r.type !== "registration"
+								? BASIC_CLAIMS.nameKey
+								: property === "owner_id"
+									? BASIC_CLAIMS.ownerKey
+									: categoryOrState
+										? BASIC_CLAIMS.categoryStateKey
+										: facet
+											? undefined
+											: property === "location_id" || property === "hq_user_id"
+												? BASIC_CLAIMS.locationOrWorkerKey
+												: BASIC_CLAIMS.asciiKey;
+		const reachedType = via?.[0]?.throughCaseType;
+		const linkedDay =
+			via?.length === 1 &&
+			via[0].identifier === "parent" &&
+			r.type === "followup" &&
+			cursor.peek("update_mode") === "always" &&
+			!RESERVED_CASE_OPERATION_TYPES.has(r.caseType) &&
+			reachedType !== undefined &&
+			!RESERVED_CASE_OPERATION_TYPES.has(reachedType) &&
+			!isMultiSelectMenu({
+				case_details: r.module.json.peek("case_details"),
+				search_config: r.module.json.peek("search_config"),
+			});
+		const read = readUpdate(r, cursor, property, edit, pathClaim, keyClaim, {
+			hiddenClock:
+				slot === "own" &&
+				r.type === "followup" &&
+				via === undefined &&
+				!RESERVED_CASE_OPERATION_TYPES.has(r.caseType),
+			parent: linkedDay,
+		});
 		if (!read.ok || read.value === undefined) continue;
-		// A date-and-time question's day is saved straight only to a `date`
-		// property of the action's own case, which the catalog types: the
-		// worker's record is no catalogued type, and Nova saves a date and time
-		// there as its moment.
-		if ((via !== undefined || slot === "usercase") && read.value.day === true) {
+		// The catalog types a supported parent write at its reached case.
+		// A worker record saves datetime answers as text with their clock.
+		if (
+			read.value.day === true &&
+			(slot === "usercase" || (via !== undefined && !linkedDay))
+		) {
 			finding(
 				r.ctx,
 				BASIC_CLAIMS.datetimeStraight,

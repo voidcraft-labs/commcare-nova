@@ -105,7 +105,9 @@ function writeReadTexts(
 			const read =
 				(current.generated && own.has(language)) ||
 				current.role === "form-submit-label"
-					? ownWordingEntryFor(current.valueKind, fallback, value, source)
+					? ownWordingEntryFor(current.valueKind, fallback, value, source, {
+							keepBlank: current.role === "form-submit-label",
+						})
 					: translationEntryFor(current.valueKind, fallback, value, source);
 			const entry = read && {
 				...read,

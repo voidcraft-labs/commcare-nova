@@ -41,12 +41,15 @@ async function lockActiveUser(
 	return user.rows.length === 1;
 }
 
-export async function lockProjectDataGrant(
+/** Immediate writes hold the verified credential but do not retain a grant
+ * epoch. Both the session and its current acting account must survive the
+ * consuming write. */
+export async function lockCurrentProjectGrant(
 	tx: Transaction<AppDatabase>,
 	userId: string,
 	grant: ProjectDataGrant,
 	requiredScopes: readonly string[],
-): Promise<readonly string[]> {
+): Promise<readonly string[] | null> {
 	if (grant.kind === "session") {
 		/* The acting user is locked before the session, in the order a ban
 		 * takes them, and the session row is then rechecked for that same
@@ -55,17 +58,17 @@ export async function lockProjectDataGrant(
 			"impersonatedBy" AS actor FROM auth_session WHERE id=${grant.sessionId}
 			AND "userId"=${userId}`.execute(tx);
 		const peeked = read.rows[0];
-		if (peeked === undefined) return dataAccessLost();
+		if (peeked === undefined) return null;
 		const actor = peeked.actor ?? userId;
-		if (!(await lockActiveUser(tx, actor))) return dataAccessLost();
+		if (!(await lockActiveUser(tx, actor))) return null;
 		const session =
 			await sql`SELECT 1 FROM auth_session WHERE id=${grant.sessionId}
 			AND "userId"=${userId} AND "impersonatedBy" IS NOT DISTINCT FROM ${peeked.actor}
 			AND "expiresAt" > clock_timestamp() FOR SHARE`.execute(tx);
-		if (session.rows.length !== 1) return dataAccessLost();
+		if (session.rows.length !== 1) return null;
 		return ["session", grant.sessionId];
 	}
-	if (!(await lockActiveUser(tx, userId))) return dataAccessLost();
+	if (!(await lockActiveUser(tx, userId))) return null;
 	const scopes = JSON.stringify(requiredScopes);
 	if (grant.kind === "api-key") {
 		const key =
@@ -74,23 +77,18 @@ export async function lockProjectDataGrant(
 			AND CASE WHEN permissions IS JSON OBJECT THEN (permissions::jsonb->'scope') @> ${scopes}::jsonb ELSE false END FOR SHARE`.execute(
 				tx,
 			);
-		if (!key.rows.length) return dataAccessLost();
-		const epoch = await sql<{
-			epoch: string;
-		}>`SELECT epoch::text AS epoch FROM auth_apikey_grant_epoch WHERE key_id=${grant.keyId}`.execute(
-			tx,
-		);
-		return ["api-key", grant.keyId, epoch.rows[0]?.epoch ?? ""];
+		if (!key.rows.length) return null;
+		return ["api-key", grant.keyId];
 	}
 	if (requiredScopes.some((scope) => !grant.scopes.includes(scope)))
-		return dataAccessLost();
+		return null;
 	await lockOAuthGrantGate(tx, userId, grant.clientId, "read");
 	const consent = await sql<{ id: string }>`SELECT id FROM auth_oauth_consent
 		WHERE "clientId"=${grant.clientId} AND "userId"=${userId} AND scopes @> ${scopes}::jsonb
 		AND to_timestamp(${grant.expiresAt}) > clock_timestamp() ORDER BY id LIMIT 1 FOR SHARE`.execute(
 		tx,
 	);
-	if (consent.rows.length !== 1) return dataAccessLost();
+	if (consent.rows.length !== 1) return null;
 	const watermark = await sql<{
 		revoked: Date;
 		active: boolean;
@@ -99,11 +97,31 @@ export async function lockProjectDataGrant(
 		WHERE "userId"=${userId} AND "clientId"=${grant.clientId} FOR SHARE`.execute(
 		tx,
 	);
-	if (watermark.rows[0] && !watermark.rows[0].active) return dataAccessLost();
+	if (watermark.rows[0] && !watermark.rows[0].active) return null;
 	return [
 		"oauth",
 		grant.clientId,
 		consent.rows[0].id,
 		watermark.rows[0]?.revoked.toISOString() ?? "",
 	];
+}
+
+/** Resumable reads also bind the API-key grant epoch. */
+export async function lockProjectDataGrant(
+	tx: Transaction<AppDatabase>,
+	userId: string,
+	grant: ProjectDataGrant,
+	requiredScopes: readonly string[],
+): Promise<readonly string[]> {
+	const identity = await lockCurrentProjectGrant(
+		tx,
+		userId,
+		grant,
+		requiredScopes,
+	);
+	if (identity === null) return dataAccessLost();
+	if (grant.kind !== "api-key") return identity;
+	const epoch = await sql<{ epoch: string }>`SELECT epoch::text AS epoch
+		FROM auth_apikey_grant_epoch WHERE key_id=${grant.keyId}`.execute(tx);
+	return [...identity, epoch.rows[0]?.epoch ?? ""];
 }

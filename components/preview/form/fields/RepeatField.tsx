@@ -56,6 +56,7 @@ import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { presentedLabelText } from "@/lib/preview/labelPresentation";
 import { questionColumnWidth } from "@/lib/preview/questionRows";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -183,6 +184,11 @@ export function RepeatField({
 	const entryKey = controller.entryKey;
 	const projectProse = useProseProjection();
 	const textForm = useFieldTextForm(field.uuid);
+	const title = presentedLabelText(
+		field,
+		labelShowsAsTyped(textForm, field),
+		state,
+	);
 	const writeAuthority = useAttachmentEntryWriteAuthority(entryKey);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
@@ -209,11 +215,10 @@ export function RepeatField({
 		toggleCollapse(field.uuid);
 	}, [toggleCollapse, field.uuid]);
 
-	const addLabel =
-		state.resolvedLabel ??
-		(field.label
-			? projectProse(field.label)
-			: runtimeMessage(language, "entry"));
+	const addTitle = presentedLabelText(field, true, state);
+	const addLabel = addTitle
+		? (addTitle.resolved ?? projectProse(addTitle.template))
+		: runtimeMessage(language, "entry");
 
 	const buttonText =
 		repeatAddCaption(field, state, count, projectProse) ??
@@ -325,14 +330,14 @@ export function RepeatField({
 							 *  authors can give it a title; preview mode (this
 							 *  component) reflects what the end user sees and
 							 *  shows no placeholder. */}
-							{field.label && (
+							{title && (
 								/* Matches TextEditable's idle wrapper padding in
 								 *  edit mode for flipbook parity; see the note
 								 *  in `GroupField`. */
 								<div className="px-[5px] py-[5px]">
 									<LabelContent
-										label={field.label}
-										resolvedLabel={state.resolvedLabel}
+										label={title.template}
+										resolvedLabel={title.resolved}
 										isEditMode={false}
 										rendering={labelRendering}
 										plainLabel={labelShowsAsTyped(textForm, field)}

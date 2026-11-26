@@ -8,6 +8,7 @@ import {
 	selfPath,
 	subcasePath,
 } from "@/lib/domain/expression";
+import { slotContext } from "@/lib/domain/expression/context";
 import {
 	countDefault,
 	hasCountableRelation,
@@ -77,5 +78,30 @@ describe("Count related cases — viable defaults", () => {
 				}).context,
 			),
 		).toBe(true);
+	});
+});
+
+it("offers device cases to a Search button without any record being selected", () => {
+	const fixture = expressionEditorFixture("global-condition", {
+		caseTypes: [ORPHAN],
+		currentCaseType: "",
+		knownInputs: [],
+	});
+	const expressionContext = slotContext(
+		fixture.doc,
+		{
+			entity: "module",
+			uuid: fixture.doc.moduleOrder[0],
+			slot: "search_button_display_condition",
+		},
+		new Map(),
+	);
+	if (expressionContext === undefined)
+		throw new Error("The Search button has no slot.");
+	const context = { ...fixture.context, expressionContext };
+	expect(hasCountableRelation(context)).toBe(true);
+	expect(countDefault(context)).toEqual({
+		kind: "count",
+		via: { kind: "cases", source: "casedb", where: [] },
 	});
 });

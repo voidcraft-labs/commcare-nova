@@ -87,7 +87,7 @@ describe("a refused column", () => {
 				endpoint_action_id: "open_visit",
 			},
 			"short",
-			`${M}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+			`${M}clickable-icon-with-an-unusable-form-endpoint`,
 		],
 		[
 			"a clickable icon on the list with no entry point, with its mapping",
@@ -278,15 +278,51 @@ describe("a callout on the case list", () => {
 		lookup_field_template: "@case_id",
 	};
 
-	it("is one finding, every key of it claimed under the callout's own entry", async () => {
+	it("refuses a relative lookup extra before the case list opens", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, callout, {
 				lookup_extras: [{ key: "mode", value: "scan" }],
 				lookup_responses: [{ key: "result" }],
 			});
 		});
-		expect(closedCodes(reading)).toEqual([`${M}lookup-enabled-lookup-action`]);
+		expect(closedCodes(reading)).toEqual([
+			`${M}lookup-extra-relative-without-case-context`,
+		]);
 	});
+
+	it.each([
+		[
+			"empty heading map",
+			{},
+			"@case_id",
+			"lookup-case-id-result-without-a-header-map",
+		],
+		[
+			"stored blank heading",
+			{ en: "" },
+			"@case_id",
+			"lookup-enabled-lookup-action",
+		],
+		[
+			"alternate result key",
+			{ en: "Scanned" },
+			"scan_id",
+			"lookup-enabled-lookup-action",
+		],
+	])(
+		"keeps a distinct finding for %s",
+		async (_label, header, template, entry) => {
+			const reading = await readDetails((short) => {
+				Object.assign(short, callout, {
+					lookup_extras: [{ key: "mode", value: "'scan'" }],
+					lookup_responses: [{ key: "result" }],
+					lookup_field_header: header,
+					lookup_field_template: template,
+				});
+			});
+			expect(closedCodes(reading)).toEqual([`${M}${entry}`]);
+		},
+	);
 
 	it("with no extras is one finding, HQ's own refusal", async () => {
 		const reading = await readDetails((short) => {

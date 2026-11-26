@@ -3,6 +3,7 @@ package nova.proof.android;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.widget.RadioButton;
 
 import org.commcare.CommCareApplication;
 import org.commcare.activities.FormEntryActivity;
@@ -18,6 +19,7 @@ import org.commcare.update.UpdateTask;
 import org.commcare.utils.RobolectricUtil;
 import org.commcare.views.QuestionsView;
 import org.commcare.views.widgets.QuestionWidget;
+import org.commcare.views.widgets.SelectOneWidget;
 import org.commcare.views.widgets.StringWidget;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -92,7 +94,7 @@ final class Updates {
             incomplete.put(command, saved);
             Integer record;
             try {
-                record = saveIncomplete(command, saved);
+                record = saveIncomplete(command, saved, "", null);
             } catch (Throwable raised) {
                 saved.put("raised", Reader.raised(raised));
                 record = null;
@@ -154,8 +156,9 @@ final class Updates {
         return found;
     }
 
-    static Integer saveIncomplete(String command, JSONObject saved) throws Exception {
-        return save(command, saved, false);
+    static Integer saveIncomplete(String command, JSONObject saved, String language,
+                                  String firstScreenChoice) throws Exception {
+        return save(command, saved, false, language, firstScreenChoice);
     }
 
     /**
@@ -164,19 +167,31 @@ final class Updates {
      * The incomplete record's id, where the save leaves one.
      */
     static Integer save(String command, JSONObject saved, boolean complete) throws Exception {
+        return save(command, saved, complete, "", null);
+    }
+
+    private static Integer save(String command, JSONObject saved, boolean complete, String language,
+                                String firstScreenChoice) throws Exception {
         final Integer[] record = new Integer[1];
         java.util.Set<Integer> before = new java.util.HashSet<>();
         for (FormRecord held : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
             before.add(held.getID());
         }
-        JSONObject walk = Screens.walk(command, (started, step, shadow) -> {
+        java.util.List<String> choices = language.isEmpty() ? java.util.List.of() : java.util.List.of(Screens.LANGUAGE + language);
+        JSONObject walk = Screens.walk(command, choices, null, (started, step, shadow) -> {
             FormEntryActivity activity = Forms.open(started);
             step.put("loaded", FormEntryActivity.mFormController != null);
             QuestionsView view = activity.getODKView();
             if (view != null) {
                 for (QuestionWidget widget : view.getWidgets()) {
-                    if (widget instanceof StringWidget) {
+                    if (AndroidAppAnswers.has(widget)) {
+                        JSONObject entry = new JSONObject();
+                        AndroidAppAnswers.give(activity, widget, entry);
+                        step.put("answeredApp", entry);
+                    } else if (widget instanceof StringWidget) {
                         ((StringWidget)widget).setAnswer("1");
+                    } else if (firstScreenChoice != null && widget instanceof SelectOneWidget) {
+                        pickChoice(widget, firstScreenChoice);
                     }
                 }
             }
@@ -202,9 +217,29 @@ final class Updates {
         for (FormRecord candidate : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
             if (FormRecord.STATUS_INCOMPLETE.equals(candidate.getStatus()) && !before.contains(candidate.getID())) {
                 record[0] = candidate.getID();
+                if (firstScreenChoice != null) {
+                    try (java.io.InputStream input = org.commcare.models.encryption.EncryptionIO.getFileInputStream(
+                            candidate.getFilePath(), new javax.crypto.spec.SecretKeySpec(candidate.getAesKey(), "AES"))) {
+                        saved.put("instance", new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                }
             }
         }
         return record[0];
+    }
+
+    private static void pickChoice(QuestionWidget widget, String value) throws Exception {
+        int buttonIdBase = (Integer)Screens.field(widget, "buttonIdBase");
+        var choices = widget.getPrompt().getOldSelectChoices();
+        for (int i = 0; i < choices.size(); i++) {
+            if (value.equals(choices.get(i).getValue())) {
+                RadioButton button = widget.findViewById(buttonIdBase + i);
+                button.performClick();
+                ShadowLooper.idleMainLooper();
+                return;
+            }
+        }
+        throw new AssertionError("The first screen did not offer the requested choice: " + value);
     }
 
     /**

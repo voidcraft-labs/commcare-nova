@@ -1076,7 +1076,8 @@ function installFields(
 		} else if (
 			kind !== "hidden" &&
 			kind !== "section" &&
-			kind !== "connect_activity"
+			kind !== "connect_activity" &&
+			kind !== "case_change"
 		) {
 			base.label = proseText(id);
 		}
