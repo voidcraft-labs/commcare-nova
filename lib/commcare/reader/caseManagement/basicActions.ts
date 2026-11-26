@@ -1088,12 +1088,11 @@ function isCoreNameCharacter(character: string): boolean {
  * - `illegal`: outside HQ's grammar, or one of HQ's own reserved words (its
  *   hyphenated `date-opened` and `external-id` among them), or `owner_id`,
  *   which Nova reads as the owner and never as a property;
- * - `non-core`: a character HQ's grammar takes that is none of Core's name
- *   characters. A name HQ's grammar passes for its one trailing newline is
- *   one: HQ's build writes the key as the update's element
- *   (`xform.py::make_case_elem`), which lxml refuses as no tag name
- *   (`ValueError`), so no build holds it;
- * - `non-ascii`: Core's name characters, one of them past ASCII;
+ * - `non-core`: outside the legacy XML name range. HQ's validator accepts
+ *   one trailing newline, but lxml rejects that tag during XML emission
+ *   (`xform.py::make_case_elem`);
+ * - `non-ascii`: in that XML name range with a character past ASCII. The
+ *   direct basic update reader checks its witnessed runtime refusal separately;
  * - `too-long`: Nova's grammar past its length, which no row of HQ's names.
  *
  * A key of every surface that writes a property takes the same class: a basic

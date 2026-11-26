@@ -3609,16 +3609,12 @@
 		],
 		"valueClass": "non-core-name-key",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: A key such as `note½` or a key ending in a newline cannot become an XML update element, so HQ's XML emission fails. Other keys outside the name grammar can reach the generated XPath bind, which the worker must still be able to parse.",
+		"dispositionCell": "**REFUSED**: not HQ-buildable. HQ's XML builder refuses keys that cannot become an element, such as `note½` and keys ending in a newline.",
 		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
 				"named": "HQ's XML builder refuses keys that cannot become an element, such as `note½` and keys ending in a newline."
-			},
-			{
-				"kind": "broken-at-runtime",
-				"named": "Other generated keys require an addressable XPath name in the consuming worker."
 			}
 		],
 		"platforms": {
