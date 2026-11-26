@@ -8,6 +8,7 @@
  * (`details/bootstrap5/column.js::serialize`) beside the one change that makes the class.
  */
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { plainColumn } from "@/lib/domain/modules";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { patients, uuid } from "./fixtures";
@@ -87,7 +88,7 @@ describe("a refused column", () => {
 				endpoint_action_id: "open_visit",
 			},
 			"short",
-			`${M}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+			`${M}clickable-icon-with-an-unusable-form-endpoint`,
 		],
 		[
 			"a clickable icon on the list with no entry point, with its mapping",
@@ -140,6 +141,60 @@ describe("a refused column", () => {
 		it(`raises ${name} as one finding`, async () => {
 			expect(closedCodes(await readColumn(change, screen))).toEqual([entry]);
 		});
+
+	it("records the entire icon action when its deep link opens a registration form", async () => {
+		const entry = `${M}clickable-icon-with-an-unusable-form-endpoint`;
+		const image = "jr://file/commcare/image/register_household.png";
+		const reading = await readLists(
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				plainColumn(uuid(2), "notes", "Notes"),
+			]),
+			{
+				edit(app) {
+					app.cloudcare_enabled = true;
+					const module = app.modules[0];
+					const [registration] = module.forms as Array<Record<string, unknown>>;
+					registration.session_endpoint_id = "register_household";
+					Object.assign(module.case_details.short.columns[1], {
+						format: "clickable-icon",
+						endpoint_action_id: "register_household",
+						enum: [
+							{ doc_type: "MappingItem", key: "true()", value: { en: image } },
+						],
+					});
+				},
+				input: (input) => ({
+					...input,
+					media: {
+						...input.media,
+						resolve: (path) =>
+							path === image
+								? {
+										kind: "asset",
+										assetId: testMediaAssetId("registration icon"),
+										mediaKind: "image",
+									}
+								: input.media.resolve(path),
+					},
+				}),
+			},
+		);
+		expect(closedCodes(reading)).toEqual([entry]);
+		const records = [...reading.ctx.close().claims.records()].filter(
+			(record) => record.entry === entry && record.standing === "fix-in-hq",
+		);
+		const column = "/modules/0/case_details/short/columns/1";
+		expect(new Set(records.map(({ where, key }) => `${where} ${key}`))).toEqual(
+			new Set([
+				`${column}/format schema:DetailColumn.format`,
+				`${column}/endpoint_action_id schema:DetailColumn.endpoint_action_id`,
+				`${column}/enum schema:DetailColumn.enum`,
+				`${column}/enum/0/key schema:MappingItem.key`,
+				`${column}/enum/0/value schema:MappingItem.value`,
+			]),
+		);
+	});
 
 	it("keeps an explicit blank image rule and its place among the matches", async () => {
 		const reading = await readColumn({
@@ -278,15 +333,51 @@ describe("a callout on the case list", () => {
 		lookup_field_template: "@case_id",
 	};
 
-	it("is one finding, every key of it claimed under the callout's own entry", async () => {
+	it("refuses a relative lookup extra before the case list opens", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, callout, {
 				lookup_extras: [{ key: "mode", value: "scan" }],
 				lookup_responses: [{ key: "result" }],
 			});
 		});
-		expect(closedCodes(reading)).toEqual([`${M}lookup-enabled-lookup-action`]);
+		expect(closedCodes(reading)).toEqual([
+			`${M}lookup-extra-relative-without-case-context`,
+		]);
 	});
+
+	it.each([
+		[
+			"empty heading map",
+			{},
+			"@case_id",
+			"lookup-case-id-result-without-a-header-map",
+		],
+		[
+			"stored blank heading",
+			{ en: "" },
+			"@case_id",
+			"lookup-enabled-lookup-action",
+		],
+		[
+			"result formula",
+			{ en: "Scanned" },
+			"concat(scan_id, 'x')",
+			"lookup-enabled-lookup-action",
+		],
+	])(
+		"keeps a distinct finding for %s",
+		async (_label, header, template, entry) => {
+			const reading = await readDetails((short) => {
+				Object.assign(short, callout, {
+					lookup_extras: [{ key: "mode", value: "'scan'" }],
+					lookup_responses: [{ key: "result" }],
+					lookup_field_header: header,
+					lookup_field_template: template,
+				});
+			});
+			expect(closedCodes(reading)).toEqual([`${M}${entry}`]);
+		},
+	);
 
 	it("with no extras is one finding, HQ's own refusal", async () => {
 		const reading = await readDetails((short) => {

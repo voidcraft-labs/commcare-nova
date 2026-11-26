@@ -1,3 +1,4 @@
+import { lineParts as boundedJsonTextParts } from "@/lib/utils/jsonTextParts";
 /**
  * The one pager and the one serialiser of the tools that answer a reading of
  * an app in CommCare HQ: `read_hq_app`, `bring_in_hq_app`, `read_hq_changes`
@@ -22,7 +23,6 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
  * cut at.
  */
 export const PAGE_LIMIT_CHARS = 80_000;
-
 /** The most characters of JSON one piece of a page takes, its comma included. */
 export const PIECE_MAX_CHARS = 30_000;
 
@@ -196,7 +196,7 @@ export function toolText(body: unknown): string {
 }
 
 export function reviewedPageDigest(
-	operation: "birth" | "changes",
+	operation: "birth" | "changes" | "search-connections",
 	reviewDigest: string,
 	from: number,
 ): string {
@@ -204,46 +204,9 @@ export function reviewedPageDigest(
 }
 
 export const LINE_PART_MAX_CHARS = PIECE_MAX_CHARS - 1;
-function jsonCharsOf(codePoint: number): number {
-	if (codePoint === 0x22 || codePoint === 0x5c) return 4;
-	if (codePoint < 0x20)
-		return codePoint === 0x08 ||
-			codePoint === 0x09 ||
-			codePoint === 0x0a ||
-			codePoint === 0x0c ||
-			codePoint === 0x0d
-			? 3
-			: 7;
-	/* A lone surrogate is written as an escape. */
-	if (codePoint >= 0xd800 && codePoint <= 0xdfff) return 7;
-	return codePoint > 0xffff ? 2 : 1;
-}
-
-/**
- * `line` cut into parts of at most `limit` characters of JSON
- * each, never inside a code point; the line itself where it fits.
- */
 export function lineParts(
 	line: string,
 	limit = LINE_PART_MAX_CHARS,
 ): readonly string[] {
-	const delimiters = 4;
-	if (line.length * 7 + delimiters <= limit) return [line];
-	const budget = limit - delimiters;
-	const parts: string[] = [];
-	let start = 0;
-	let size = 0;
-	let at = 0;
-	for (const char of line) {
-		const cost = jsonCharsOf(char.codePointAt(0) ?? 0);
-		if (size + cost > budget) {
-			parts.push(line.slice(start, at));
-			start = at;
-			size = 0;
-		}
-		size += cost;
-		at += char.length;
-	}
-	parts.push(line.slice(start));
-	return parts;
+	return boundedJsonTextParts(line, limit, true);
 }

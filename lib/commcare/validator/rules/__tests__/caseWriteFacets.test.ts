@@ -400,7 +400,7 @@ describe("the worker's record as a target", () => {
 		);
 	});
 
-	it("refuses every facet but its saves", () => {
+	it("refuses changing the worker owner while allowing a root condition", () => {
 		const { doc } = fixture("followup", {
 			operations: () => [
 				own(),
@@ -416,13 +416,11 @@ describe("the worker's record as a target", () => {
 			),
 		).toEqual([
 			"The worker's record can only be updated, so “me” can't change its owner.",
-			"The worker's record can only be updated, so “me” can't run on a condition.",
 		]);
 		expect(
 			findings(doc, "CASE_OPERATION_TARGET_INVALID").map(userFacingError),
 		).toEqual([
 			"The worker's record can only be updated, so \"me\" can't change its owner.",
-			"The worker's record can only be updated, so \"me\" can't run on a condition.",
 		]);
 	});
 

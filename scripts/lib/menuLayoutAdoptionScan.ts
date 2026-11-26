@@ -1,21 +1,38 @@
 import type { Transaction } from "kysely";
 import { isCommCareServer } from "@/lib/commcare/servers";
+import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { loadSchemaAdmittedAppForInspection } from "@/lib/db/apps";
 import type { AppDatabase } from "@/lib/db/pg";
 import { sourceFromBaseline } from "@/lib/deployment/hqChanges/baselineSource";
 import {
+	readCutoverTargetIdentityRows,
 	readFoldOperatorBaseline,
-	readTargetIdentityRows,
 } from "@/lib/deployment/store";
-import { exportIdentityOf } from "@/lib/deployment/targetIdentity";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { MenuLayoutDecision } from "../migrations/step7-menu-layouts";
-import { planMenuLayoutAdoption } from "./menuLayoutAdoption";
+import {
+	type MenuLayoutSourceDoc,
+	planMenuLayoutAdoption,
+} from "./menuLayoutAdoption";
+
+type LayoutHeadReader = (appId: string) => Promise<{
+	doc: MenuLayoutSourceDoc;
+	mutationSeq: number;
+} | null>;
+
+const readCurrentLayoutHead =
+	(tx: Transaction<AppDatabase>): LayoutHeadReader =>
+	async (appId) => {
+		const stored = await loadSchemaAdmittedAppForInspection(appId, tx);
+		return (
+			stored && { doc: stored.blueprint, mutationSeq: stored.mutation_seq }
+		);
+	};
 
 export async function scanMenuLayoutAdoptions(
 	tx: Transaction<AppDatabase>,
 	appId?: string,
+	readHead = readCurrentLayoutHead(tx),
 ) {
 	let query = tx
 		.selectFrom("app_deployments as d")
@@ -93,19 +110,18 @@ export async function scanMenuLayoutAdoptions(
 			outcomes.push({ ...identity, standing: "owned" });
 			continue;
 		}
-		const stored = await loadSchemaAdmittedAppForInspection(appId, tx);
+		const stored = await readHead(appId);
 		if (stored === null) {
 			outcomes.push({ ...identity, standing: "unreadable-document" });
 			continue;
 		}
-		const doc = hydratePersistedBlueprint(stored.blueprint);
-		const record = await readTargetIdentityRows(tx, deploymentId, {
+		const record = await readCutoverTargetIdentityRows(tx, deploymentId, {
 			appId,
 			server,
 		});
-		const wire = exportIdentityOf(doc, record).identity;
+		const wire = targetWireIdentity(record.entities, record.columnWords);
 		const plan = planMenuLayoutAdoption(
-			doc,
+			stored.doc,
 			wire,
 			sourceFromBaseline(baseline.source),
 		);
@@ -125,7 +141,7 @@ export async function scanMenuLayoutAdoptions(
 				remoteId,
 				mappingToken,
 				sourceDigest: baseline.sourceDigest,
-				headSeq: stored.mutation_seq,
+				headSeq: stored.mutationSeq,
 				settings: plan.settings,
 				gridMenus: plan.gridMenus,
 			});
@@ -151,8 +167,9 @@ export async function checkMenuLayoutSourceFacts(
 		Awaited<ReturnType<typeof scanMenuLayoutAdoptions>>,
 		"decisions" | "digest"
 	>,
+	readHead?: LayoutHeadReader,
 ): Promise<void> {
-	const current = await scanMenuLayoutAdoptions(tx);
+	const current = await scanMenuLayoutAdoptions(tx, undefined, readHead);
 	if (
 		current.digest !== reviewed.digest ||
 		canonicalJsonDigest(reviewed.decisions) !== reviewed.digest

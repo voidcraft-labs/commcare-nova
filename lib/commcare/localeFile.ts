@@ -71,7 +71,9 @@ const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"case-list-interval-text",
 		"case-list-empty-text",
 		"case-list-select-text",
+		"case-list-lookup-result-heading",
 		"search-input-label",
+		"search-input-group-label",
 		"search-input-hint",
 		"search-input-required-message",
 		"search-input-validation-message",
@@ -110,6 +112,9 @@ export function outputLocaleRole(unit: TranslationUnit): TranslationUnitRole {
 	switch (unit.generated?.role) {
 		case "menuTitle":
 			return "module-name";
+		case "menuBadgeText":
+		case "formBadgeText":
+			return "menu-badge";
 		case "formTitle":
 		case "registrationMenuTitle":
 			return "form-name";
@@ -117,8 +122,15 @@ export function outputLocaleRole(unit: TranslationUnit): TranslationUnitRole {
 			return "case-list-menu-item-label";
 		case "registerButton":
 			return "case-list-registration-label";
+		case "searchGroupHeading":
+			return "search-input-group-label";
 		case "promptLabel":
 			return "search-input-label";
+		case "lookupResultHeading":
+			return "case-list-lookup-result-heading";
+		case "caseDetailTabTitle":
+		case "searchDetailTabTitle":
+			return "case-detail-tab-title";
 		case "appDisplayName":
 		case "homescreenTitle":
 			return "app-name";

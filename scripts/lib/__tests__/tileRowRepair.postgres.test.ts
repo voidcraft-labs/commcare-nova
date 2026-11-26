@@ -3,7 +3,12 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { loadApp } from "@/lib/db/apps";
-import { type Column, plainColumn, tileCell } from "@/lib/domain";
+import {
+	type Column,
+	plainColumn,
+	type TileCell,
+	tileCell,
+} from "@/lib/domain";
 import { loadPersistedBlueprintSnapshot } from "../loadPersistedBlueprint";
 import { repairAuthoringBaseline } from "../repairAuthoringBaselines";
 import { inspectTileRows, migrateTileRows } from "../tileRowRepair";
@@ -18,11 +23,11 @@ const col = (id: string, cell?: ReturnType<typeof tileCell>) =>
 /** A saved app from before the row rule: a tile of three fields, one ending on
  *  the eighth row past an empty band, and a Details tile of three with no
  *  empty row whose last field runs from the fifth row to the eighth. */
-async function legacy() {
+async function legacy(grouped?: { headerRows: number; body: TileCell }) {
 	const columns: Column[] = [
 		col("name", tileCell(0, 0, 12, 1)),
 		col("village", tileCell(0, 1, 12, 1)),
-		col("phone", tileCell(0, 7, 12, 1)),
+		col("phone", grouped?.body ?? tileCell(0, 7, 12, 1)),
 	];
 	const order = columns.map((column) => column.uuid);
 	// Historical data intentionally predates the strengthened admission rule.
@@ -48,7 +53,14 @@ async function legacy() {
 						listColumnOrder: order,
 						detailColumnOrder: [...order],
 						searchInputs: [],
-						tile: {},
+						tile: grouped
+							? {
+									grouping: {
+										identifier: "parent",
+										headerRows: grouped.headerRows,
+									},
+								}
+							: {},
 						detailTile: {
 							cells: {
 								[columns[0].uuid]: tileCell(0, 0, 6, 4),
@@ -157,4 +169,45 @@ it("leaves a tile that fits untouched", async () => {
 	await migrateTileRows(plan);
 	const again = await inspectTileRows(appId);
 	expect(again).toMatchObject({ plan: null, findings: [] });
+});
+
+it("keeps the header and per-case cells in their original bands", async () => {
+	const appId = await legacy({ headerRows: 3, body: tileCell(0, 3, 12, 5) });
+	const inspected = await inspectTileRows(appId);
+	expect(inspected.left).toEqual([]);
+	if (inspected.plan === null) throw new Error("The app needs a repair.");
+	expect(
+		inspected.plan.moves.find((move) => move.screen === "results"),
+	).toEqual({
+		moduleUuid: MENU,
+		screen: "results",
+		columnUuid: testUuid("phone"),
+		before: tileCell(0, 3, 12, 5),
+		after: tileCell(0, 3, 12, 3),
+		how: "fitted",
+	});
+	await migrateTileRows(inspected.plan);
+
+	const stored = (await loadApp(appId))?.blueprint.modules[MENU]
+		?.caseListConfig;
+	expect(stored?.tile?.grouping?.headerRows).toBe(3);
+	expect(
+		stored?.columns.find((column) => column.uuid === testUuid("phone"))?.tile,
+	).toEqual(tileCell(0, 3, 12, 3));
+});
+
+it("withholds the plan when retaining the header depth leaves no rows for cases", async () => {
+	const appId = await legacy({ headerRows: 6, body: tileCell(0, 6, 12, 1) });
+	const inspected = await inspectTileRows(appId);
+	expect(inspected.plan).toBeNull();
+	expect(inspected.left.map((finding) => finding.code)).toEqual([
+		"CASE_LIST_TILE_CELL_OUT_OF_GRID",
+	]);
+	expect(
+		(await loadPersistedBlueprintSnapshot(appId))?.blueprint.modules[
+			MENU
+		]?.caseListConfig?.columns.find(
+			(column) => column.uuid === testUuid("phone"),
+		)?.tile,
+	).toEqual(tileCell(0, 6, 12, 1));
 });

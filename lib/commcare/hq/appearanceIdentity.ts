@@ -52,6 +52,14 @@ function displayKind(control: Control): FieldKind | undefined {
 
 function presentationOf(control: Control): string | undefined {
 	if (!control.appearance) return undefined;
+	// Android's WidgetFactory dispatches an input with this prefix before
+	// reading its bind type. The suffix selects the exact declaration.
+	if (
+		!("kind" in control) &&
+		control.control === "input" &&
+		control.appearance.startsWith("intent:")
+	)
+		return control.appearance;
 	const kind = displayKind(control);
 	if (!kind) return undefined;
 	const settings = readFieldAppearance(

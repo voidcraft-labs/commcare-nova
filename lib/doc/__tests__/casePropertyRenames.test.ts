@@ -205,6 +205,34 @@ function expectRoundTrip(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 }
 
 describe("explicit app-wide case-property rename", () => {
+	it("renames the typed property that matches an Android companion's case-list results", () => {
+		const start = fixture();
+		const config = start.modules[MODULE]?.caseListConfig;
+		if (!config) throw new Error("expected case-list settings");
+		config.deviceLookup = {
+			action: "org.example.LOOKUP",
+			label: "Find a case",
+			resultHeading: "Confidence",
+			resultProperty: "a",
+			extras: [{ name: "mode", value: "scan" }],
+			responses: ["key"],
+		};
+		const renamed = apply(
+			start,
+			admittedRename({ caseType: "patient", from: "a", to: "fresh" }),
+		);
+		expect(
+			renamed.modules[MODULE]?.caseListConfig?.deviceLookup?.resultProperty,
+		).toBe("fresh");
+		expect(
+			referencingSlotsOf(
+				renamed,
+				casePropertyTargetKey("patient", "fresh"),
+			).get(MODULE),
+		).toContain("case_list_lookup_result_property");
+		expect(renamed.refIndex).toEqual(buildReferenceIndex(renamed));
+	});
+
 	it("rewrites target prose tokens and keeps a current translation current", () => {
 		const start = fixture();
 		const field = start.fields[FIELD_A];

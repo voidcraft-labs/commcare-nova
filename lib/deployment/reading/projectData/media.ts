@@ -66,6 +66,8 @@ export const HQ_MEDIA_SLOTS = [
 	"tile",
 	/** The Register action's icon or audio label. */
 	"register-action",
+	/** The Android case-list lookup's toolbar icon. */
+	"lookup-action",
 	/** The Web Apps logo. */
 	"logo",
 	/** An itext media form on a slot Nova holds no media for: a hint, a validation message, a
@@ -98,6 +100,7 @@ const SLOT_OF_READER_SLOT: SourceTable<HqMediaSlot> = tableOf({
 	form_audio_label: "tile",
 	case_list_icon: "tile",
 	case_list_audio_label: "tile",
+	case_list_lookup_icon: "lookup-action",
 	case_list_registration_icon: "register-action",
 	case_list_registration_audio_label: "register-action",
 	app_logo: "logo",
@@ -423,7 +426,7 @@ type MissingFile = "no-entry" | "no-file";
 /**
  * Whether an already running app draws something for a missing file of this kind in
  * this slot. Downloading a release's required resources precedes these screens. Android draws the missing-file prompt, an audio button or the archive
- * icon for a question's or a choice's media and a list's image, and nothing
+ * icon for a question's or a choice's media, a list's image, and the lookup action, and nothing
  * for a menu's, a form's, a case list menu item's or the Register action's
  * icon or audio, the logo or an itext form no slot holds. Web Apps never
  * receives a choice's media; it builds an address from any entry, so a
@@ -440,6 +443,7 @@ export function mediaSlotDrawnOn(
 	platform: Platform,
 	missing: MissingFile,
 ): boolean {
+	if (slot === "lookup-action") return platform === "android";
 	if (platform === "android")
 		return slot === "form" || slot === "choice" || slot === "list-image";
 	if (slot === "choice" || slot === "unheld-itext") return false;

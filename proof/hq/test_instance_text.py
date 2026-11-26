@@ -39,6 +39,7 @@ Nova writes it, still read as an instance.
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -666,3 +667,52 @@ def test_working_suite_lookup_instances_follow_their_physical_navigation_scope(
     assert prompt_default == grouped
     parsed = core_runner.request("xpathParse", deadline=30, expressions=[prompt_default])["results"]
     assert [path["instance"] for path in parsed[0]["instancePaths"]] == [lookup_id]
+
+
+def test_working_suite_condition_cannot_compare_several_lookup_values(hq, core_runner):
+    """HQ preserves the filter, but a second matching row makes Core's equality throw."""
+    from proof.editors.compare import case_restore, restore_user_id
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits, resource_overrides
+    from proof.matrix.registry import HQ_APPS
+    from proof.observe.casedata import served_fixtures
+
+    configuration = Configuration(domain="nova-navigation-values", privileges={"API_ACCESS", "CLOUDCARE"})
+    lookup = "instance('item-list:zones')/zones_list/zones[code = 'upland']"
+    several = f"{lookup}/code.1 = 'on'"
+    one = f"{lookup}[1]/code.1 = 'on'"
+    tables = json.loads((HQ_APPS / "hq-lookup-names" / "tables.json").read_text(encoding="utf-8"))
+    zones = next(table for table in tables if table["tag"] == "zones")
+    upland = next(row for row in zones["rows"] if row["fields"]["code"][0]["value"] == "upland")
+    zones["rows"].append(upland)
+
+    with hq_check(configuration) as (state, _), hq_redis.shared(None):
+        operations.save_authored_tables(state, [zones])
+        app = hq_test_app()
+        app["modules"][0]["forms"][0]["form_filter"] = several
+        app_id, _ = operations.publish(state, [nova_shaped_upload(app, "Visits")])
+        with state.committing():
+            credential = operations.seed_api_user(state, "navigation-values-reader@example.com")
+        with api_rate_limits(state), resource_overrides():
+            source = operations.source_read(state, app_id, credential)
+            recorded = dict(operations.source_factory_answers(state, app_id, credential, source))
+        suite = recorded[f"/a/{state.domain}/apps/download/{app_id}/suite.xml"]
+        assert suite.status == 200
+        root = etree.fromstring(suite.body.encode())
+        assert root.xpath("./menu[@id='m0']/command[@id='m0-f0']/@relevant") == [several]
+        restore = case_restore((), served_fixtures(state, restore_user_id()))
+
+    form = b"""<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">
+      <h:head><h:title>Zones</h:title><model>
+        <instance><data xmlns="http://example.org/zones"><answer/></data></instance>
+        <instance id="item-list:zones" src="jr://fixture/item-list:zones"/>
+      </model></h:head><h:body><input ref="/data/answer"><label>Answer</label></input></h:body>
+    </h:html>"""
+    refused, single = core_runner.evaluate(
+        formBase64=base64.b64encode(form).decode("ascii"),
+        restoreBase64=base64.b64encode(restore).decode("ascii"),
+        expressions=[several, one],
+    )["values"]
+    assert refused["error"]["class"] == "org.javarosa.xpath.XPathTypeMismatchException"
+    assert "XPath nodeset has more than one node" in refused["error"]["message"]
+    assert (single["type"], single["value"]) == ("boolean", "true")

@@ -11,10 +11,18 @@ import type {
 /** Platform copy is separate from an app's authored translations. Keep this
  * small catalog client/worker safe; unsupported languages fall back honestly. */
 const english = {
+	androidAppRegistrationSaved: "All data stored successfully",
+	androidAppRegistrationFailed: "No data was stored",
+	androidAppRegistrationPartial: "Failed to store some data",
+	androidAppFingersScanned: "Fingerprints scanned: {count}",
 	home: "Home",
 	breadcrumbPath: "Show breadcrumb path",
 	pageNavigation: "Page navigation",
 	formGettingReady: "This form is getting ready.",
+	formActivityOpened: "{worker} recently opened this form for {record}.",
+	formActivitySubmitted: "{worker} recently submitted this form for {record}.",
+	formActivitySameRecord: "the same record",
+	formActivityStale: "Your data may have changed since your last sync.",
 	searchGettingReady: "This search is getting ready.",
 	retrySearchStartingDates: "Try loading starting dates again",
 	answersLocked: "Answers are locked while this submission finishes.",
@@ -66,6 +74,11 @@ const english = {
 	chooseCaseTask: "Choose what to do with this case",
 	chooseCasesForm: "Choose the form to run for these cases",
 	chooseCases: "Choose the cases this form should work with",
+	automaticSelectionTooMany:
+		"{count} cases match. This list can continue with up to {maximum}.",
+	automaticSelectionFailed: "These cases could not continue automatically.",
+	automaticSelectionUnavailable:
+		"Go back, or narrow your search and try again.",
 	chooseAllShown: "Choose all cases shown",
 	reviewSelectedCases: "Review selected cases",
 	selectedCases: "Selected cases",
@@ -277,6 +290,9 @@ const english = {
 	dataRefusalSubjectMenu: "This menu reads",
 	dataRefusalSubjectSearch: "This search reads",
 	dataRefusalSubjectList: "This case list reads",
+	projectSearchTitle: "This search runs in CommCare HQ",
+	projectSearchBody:
+		"Open the published app in its connected project space to see the results.",
 	dataRefusalPlacesPersona:
 		"{subject} a place, and {worker} is assigned nowhere, so a phone stops here. You can give {worker} a place under Users and personas in App setup.",
 	dataRefusalPlacesMe:
@@ -317,6 +333,15 @@ const english = {
 	deviceHomeStart: "Start",
 	deviceHomeSaved: "Saved",
 	deviceHomeIncomplete: "Incomplete",
+	deviceHomeNoSaved: "No saved forms",
+	deviceHomeNoIncomplete: "No incomplete forms",
+	deviceHomeArchiveAccess: "Checking app access",
+	deviceHomeRemoveDraft: "Remove",
+	deviceHomeRemoveNamedDraft: "Remove {name}",
+	deviceHomeDraftChanged:
+		"This app changed since the form was saved. You can start another form from the app's home screen.",
+	deviceHomeDraftLanguage:
+		"This form was opened in another language. You can switch back to that language or start another form.",
 	deviceHomeSync: "Sync with server",
 	deviceHomeLastSync: "You last synced with the server: {time}",
 	deviceHomeLogOut: "Log out of CommCare",
@@ -325,6 +350,10 @@ const english = {
 	detailDone: "Done",
 	// Android's form screens (`form.entry.finish.button`, `repeat.dialog.*`).
 	finish: "Finish",
+	saveForLater: "Save for later",
+	savingForm: "Saving form",
+	saveIncompleteFailed:
+		"Couldn't save this form. You can check the answers and try again.",
 	repeatGoBack: "Go back",
 	repeatAddNew: "Add a new {label}?",
 	repeatAddAnother: "Add another {label}?",
@@ -348,6 +377,9 @@ const english = {
 	// Android's barcode question.
 	scanBarcode: "Scan",
 	// Android's capture widgets (`R.string.capture_image` and its siblings).
+	switchCamera: "Switch camera",
+	facePhotoGuide:
+		"Center the face in the guide and keep still, or take the picture when you are ready.",
 	photoFrameGuide:
 		"Line up the subject inside the rectangle. The photo includes the whole frame.",
 	cameraUnavailable:
@@ -374,10 +406,22 @@ const english = {
 
 export type RuntimeMessage = keyof typeof english;
 const spanish: Record<RuntimeMessage, string> = {
+	// These strings become submitted answers. HQ's pinned translation catalog has
+	// no Spanish overrides for the Android device's four built-in messages.
+	androidAppRegistrationSaved: english.androidAppRegistrationSaved,
+	androidAppRegistrationFailed: english.androidAppRegistrationFailed,
+	androidAppRegistrationPartial: english.androidAppRegistrationPartial,
+	androidAppFingersScanned: english.androidAppFingersScanned,
 	home: "Inicio",
 	breadcrumbPath: "Mostrar la ruta de navegación",
 	pageNavigation: "Navegación de páginas",
 	formGettingReady: "El formulario se está preparando.",
+	formActivityOpened: "{worker} abrió hace poco este formulario para {record}.",
+	formActivitySubmitted:
+		"{worker} envió hace poco este formulario para {record}.",
+	formActivitySameRecord: "el mismo registro",
+	formActivityStale:
+		"Es posible que tus datos hayan cambiado desde la última sincronización.",
 	searchGettingReady: "La búsqueda se está preparando.",
 	retrySearchStartingDates: "Volver a cargar las fechas iniciales",
 	answersLocked: "Las respuestas están bloqueadas mientras termina el envío.",
@@ -432,6 +476,12 @@ const spanish: Record<RuntimeMessage, string> = {
 	chooseCaseTask: "¿Qué desea hacer con este registro?",
 	chooseCasesForm: "Puede elegir el formulario para estos registros",
 	chooseCases: "Puede elegir los registros para este formulario",
+	automaticSelectionTooMany:
+		"Coinciden {count} registros. La lista admite hasta {maximum}.",
+	automaticSelectionFailed:
+		"No se pudo continuar automáticamente con estos registros.",
+	automaticSelectionUnavailable:
+		"Puede volver o limitar la búsqueda e intentarlo de nuevo.",
 	chooseAllShown: "Seleccionar todos los registros mostrados",
 	reviewSelectedCases: "Revisar los registros seleccionados",
 	selectedCases: "Registros seleccionados",
@@ -653,6 +703,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	dataRefusalSubjectMenu: "Este menú lee",
 	dataRefusalSubjectSearch: "Esta búsqueda lee",
 	dataRefusalSubjectList: "Esta lista de casos lee",
+	projectSearchTitle: "Esta búsqueda se realiza en CommCare HQ",
+	projectSearchBody:
+		"Abra la aplicación publicada en el espacio de proyecto conectado para ver los resultados.",
 	dataRefusalPlacesPersona:
 		"{subject} un lugar, y {worker} no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalPlacesMe:
@@ -691,11 +744,24 @@ const spanish: Record<RuntimeMessage, string> = {
 	deviceHomeStart: "Iniciar",
 	deviceHomeSaved: "Guardados",
 	deviceHomeIncomplete: "Incompletos",
+	deviceHomeNoSaved: "No hay formularios guardados",
+	deviceHomeNoIncomplete: "No hay formularios incompletos",
+	deviceHomeArchiveAccess: "Comprobando el acceso a la aplicación",
+	deviceHomeRemoveDraft: "Quitar",
+	deviceHomeRemoveNamedDraft: "Quitar {name}",
+	deviceHomeDraftChanged:
+		"La aplicación cambió desde que se guardó el formulario. Puede iniciar otro desde la pantalla de inicio de la aplicación.",
+	deviceHomeDraftLanguage:
+		"Este formulario se abrió en otro idioma. Puede volver a ese idioma o iniciar otro formulario.",
 	deviceHomeSync: "Sincronizar con el servidor",
 	deviceHomeLastSync: "Última sincronización con el servidor: {time}",
 	deviceHomeLogOut: "Cerrar sesión en CommCare",
 	detailDone: "Listo",
 	finish: "Terminar",
+	saveForLater: "Guardar para más tarde",
+	savingForm: "Guardando formulario",
+	saveIncompleteFailed:
+		"No se pudo guardar el formulario. Puede revisar las respuestas y volver a intentarlo.",
 	repeatGoBack: "Volver",
 	repeatAddNew: "¿Agregar un nuevo {label}?",
 	repeatAddAnother: "¿Agregar otro {label}?",
@@ -715,6 +781,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	altitudeLine: "Altitud: {m}m",
 	accuracyLine: "Precisión: {m}m",
 	scanBarcode: "Escanear",
+	switchCamera: "Cambiar de cámara",
+	facePhotoGuide:
+		"Centra el rostro en la guía y quédate quieto, o toma la foto cuando estés listo.",
 	photoFrameGuide:
 		"Coloque el motivo dentro del rectángulo. La foto incluye todo el encuadre.",
 	cameraUnavailable:
@@ -906,6 +975,11 @@ export function dataRefusalCopy(
 						: "refusalEmptyCalculatedChoice",
 					{ question: subject.question },
 				),
+			};
+		case "project-search":
+			return {
+				title: body("projectSearchTitle"),
+				body: body("projectSearchBody"),
 			};
 		case "places":
 			return {

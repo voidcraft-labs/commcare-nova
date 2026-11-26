@@ -253,6 +253,26 @@ def test_whitespace_between_elements_and_attribute_order_are_no_difference_and_a
     assert _parts(bare, worded) == [("changed", "/data/*/:itext/label/*/default", "/data/q/:itext/label/en/default")]
 
 
+def test_only_the_exact_singleton_session_count_guard_is_respelled_on_first_publish():
+    path = "instance('commcaresession')/session/data/fingerprintquery"
+
+    def form(condition, read, src="jr://instance/session"):
+        return _form(model=(
+            f'<instance id="commcaresession" src="{src}"/>'
+            f'<bind nodeset="/data/q" calculate="if(count({path}) {condition}, number({read}), &apos;&apos;)"/>'
+        ))
+
+    before = form("= 1", path)
+    after = form("= 1", f"{path}[1]")
+    bind = "/data/*/:bind/@calculate"
+    at = "/data/q/:bind/@calculate"
+    assert _parts(before, after) == [("changed", bind + "/:respelled", at + "/:respelled")]
+    assert _parts(form("= 2", path), form("= 2", f"{path}[1]")) == [("changed", bind, at)]
+    assert _parts(before, form("= 1", f"{path}[2]")) == [("changed", bind, at)]
+    other = "jr://fixture/item-list:counts"
+    assert _parts(form("= 1", path, other), form("= 1", f"{path}[1]", other)) == [("changed", bind, at)]
+
+
 def test_an_output_s_form_builder_copy_is_a_part_of_its_own_beside_the_text():
     body = '<input ref="/data/q"><label ref="jr:itext(\'q-label\')"/></input>'
     shadowed = _form(

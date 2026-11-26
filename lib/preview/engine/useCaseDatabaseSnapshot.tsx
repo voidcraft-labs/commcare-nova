@@ -6,6 +6,8 @@ import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type BlueprintDoc,
 	effectivePostSubmit,
+	isDeviceCaseOptionsSource,
+	isOrdinaryCaseSearchConfig,
 	materializableCaseTypes,
 	moduleUuidOfForm,
 	proseSurfaceReads,
@@ -129,9 +131,16 @@ export function caseDatabaseRequirements(
 	/* A search's runtime pieces are worked out on the device before it sends
 	 * them (`searchCsqlRuntime.ts::evaluateSearchCsqlRuntime`); one that reads
 	 * the device's cases waits on the same snapshot. */
-	const searchReference = Object.values(doc.modules).some(
-		moduleSearchReadsCaseDatabase,
-	);
+	const searchReference = Object.values(doc.modules).some((module) => {
+		const condition = isOrdinaryCaseSearchConfig(module.caseSearchConfig)
+			? module.caseSearchConfig.searchButtonDisplayCondition
+			: undefined;
+		return (
+			(condition !== undefined &&
+				expressionReadsCaseDatabase(condition, doc)) ||
+			moduleSearchReadsCaseDatabase(module)
+		);
+	});
 	const listActionReference = Object.values(doc.modules).some((module) => {
 		const action = module.caseListRegistrationForm;
 		return (
@@ -166,7 +175,7 @@ export function caseDatabaseRequirements(
 	const caseChoices = Object.values(doc.fields).some(
 		(field) =>
 			(field.kind === "single_select" || field.kind === "multi_select") &&
-			field.optionsSource.kind === "cases",
+			isDeviceCaseOptionsSource(field.optionsSource),
 	);
 	const entryRecords = Object.values(doc.forms).some(
 		(form) => entrySelectionSettings(form)?.length,

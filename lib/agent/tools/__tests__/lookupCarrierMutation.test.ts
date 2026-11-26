@@ -179,6 +179,25 @@ describe("mutating a document that carries a lookup source", () => {
 	});
 });
 
+it("saves closed-only case choices through the shared options tool", async () => {
+	const { h, lookupDefinitions } = makeHarness(docWithInlineSelect(), {
+		answering: true,
+	});
+	const closedCases = { kind: "available-cases", status: "closed" } as const;
+	const out = await h.runTool(setFieldOptionsSourceTool, {
+		moduleUuid: MODULE,
+		formUuid: FORM,
+		fieldUuid: SELECT,
+		source: closedCases,
+	});
+	expect(out.result).not.toHaveProperty("error");
+	expect(h.currentDoc().fields[SELECT]).toMatchObject({
+		optionsSource: closedCases,
+	});
+	expect(h.recordMutations).toHaveBeenCalledTimes(1);
+	expect(lookupDefinitions).not.toHaveBeenCalled();
+});
+
 describe("introducing a lookup reference", () => {
 	it("binds a select's first table through set_field_options_source", async () => {
 		const { h, lookupDefinitions } = makeHarness(docWithInlineSelect(), {

@@ -2,10 +2,10 @@
  * How a property read's relationship reads in the author's vocabulary: the
  * case it reaches and, where a saved connection cannot be followed, the line
  * that names it for repair. A connection name is valid by the same grammar
- * the stored document admits (`CASE_INDEX_NAME_PATTERN`).
+ * the stored document admits (`isAdvancedCaseIndexIdentifier`).
  */
 import type { CaseType } from "@/lib/domain";
-import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
+import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
 import type { PropertyRef } from "@/lib/domain/expression";
 import { humanizeId } from "@/lib/domain/idSlug";
 import { resolveRelationDestination } from "./relationDestination";
@@ -54,7 +54,7 @@ export function relationSummary(
 			return { label: "This case" };
 		case "ancestor": {
 			const invalidStep = value.via.find(
-				(step) => !CASE_INDEX_NAME_PATTERN.test(step.identifier),
+				(step) => !isAdvancedCaseIndexIdentifier(step.identifier),
 			);
 			if (invalidStep !== undefined) {
 				return {
@@ -81,7 +81,9 @@ export function relationSummary(
 		case "any-relation": {
 			const selectedCaseType = destination;
 			const prefix = value.kind === "subcase" ? "Child case" : "Related case";
-			const invalidIdentifier = !CASE_INDEX_NAME_PATTERN.test(value.identifier);
+			const invalidIdentifier = !isAdvancedCaseIndexIdentifier(
+				value.identifier,
+			);
 			if (invalidIdentifier) {
 				return {
 					label: destinationLabel(prefix, selectedCaseType),

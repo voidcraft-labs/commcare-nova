@@ -25,6 +25,7 @@ import { probeHqProjectSpaceCompatibility } from "../client";
 import { expandDoc } from "../expander";
 import {
 	type HqProjectSpaceCompatibilityProbePlan,
+	hqPrivateFeatureFlag,
 	projectSpaceCompatibilityProbePlan,
 } from "../projectSpaceCompatibility";
 import { parser } from "../xpath/parser";
@@ -393,6 +394,47 @@ it.each([
 		);
 	});
 });
+
+it.each([
+	[visible, empty, "available"],
+	[empty, visible, "available"],
+	[empty, empty, "missing"],
+	[empty, null, "unverified"],
+] as const)(
+	"supports the Android case lookup when either editor flag is on",
+	async (lookup, biometric, expected) => {
+		await withHttpPeer(async (peer) => {
+			request(peer, DOMAINS).reply(200, visible);
+			request(peer, `${DOMAINS}&feature_flag=case_list_lookup`).reply(
+				200,
+				lookup,
+			);
+			request(peer, `${DOMAINS}&feature_flag=biometric_integration`).reply(
+				biometric === null ? 503 : 200,
+				biometric ?? "Unavailable",
+			);
+			const capability = projectSpaceCapabilityUse("case-list-android-lookup", [
+				"The case list opens a companion Android app.",
+			]);
+			const result = await probeHqProjectSpaceCompatibility(CREDS, "clinic", {
+				capabilities: [
+					{
+						capability,
+						featureFlags: [],
+						featureFlagsOff: [],
+						featureFlagsAny: [
+							hqPrivateFeatureFlag("case-list-lookup"),
+							hqPrivateFeatureFlag("case-list-biometric-lookup"),
+						],
+						runtimeProbes: [],
+					},
+				],
+				advisories: [],
+			});
+			expect(result.capabilities).toEqual([{ capability, state: expected }]);
+		});
+	},
+);
 
 it("no requirements and an invalid target issue no HTTP requests", async () => {
 	await withHttpPeer(async (peer) => {

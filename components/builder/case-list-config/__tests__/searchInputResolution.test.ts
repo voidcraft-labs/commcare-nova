@@ -187,6 +187,36 @@ describe("Search custom-condition conversion", () => {
 			expect(canSeedCustomConditionFaithfully(row)).toBe(false);
 		},
 	);
+	it("offers only referable answers when Search also matches a parent field", () => {
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		const key = ancestorPath(relationStep("parent"));
+		const local = simpleSearchInputDef(
+			testUuid("local-parent-region"),
+			"local_region",
+			"Local region",
+			"text",
+			"region",
+			{ via: key },
+		);
+		const native = simpleSearchInputDef(
+			testUuid("native-parent-region"),
+			"remote_region",
+			"Remote region",
+			"text",
+			"region",
+			{ via: key, matching: "project-space" },
+		);
+		config.searchInputs = [native, local];
+		admittedWorkspace(caseTypes, config, "patient");
+		expect(searchInputDecls(config.searchInputs)).toEqual([
+			{
+				uuid: local.uuid,
+				name: local.name,
+				label: local.label,
+				data_type: "text",
+			},
+		]);
+	});
 	it("derives date and date-range runtime declarations from admitted widgets", () => {
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		const date = simpleSearchInputDef(

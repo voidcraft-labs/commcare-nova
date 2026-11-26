@@ -24,6 +24,7 @@ import { filledProse, translationFillSource } from "./translationFill";
 import {
 	caseListWordingUnitId,
 	localizeTranslationUnit,
+	searchInputGroupLabelUnitId,
 	snapshotTranslationUnits,
 	type TranslationUnit,
 } from "./translationUnits";
@@ -146,6 +147,11 @@ export function projectLocalizedModule(
 				caseListWordingUnitId(module.uuid, "select"),
 				list.selectButtonText,
 			);
+		if (list.deviceLookup?.resultHeading !== undefined)
+			list.deviceLookup.resultHeading = text(
+				caseListWordingUnitId(module.uuid, "lookup"),
+				list.deviceLookup.resultHeading,
+			);
 		for (const tab of localized.caseListConfig.detailTabs ?? [])
 			tab.title = text(
 				makeTranslationUnitId("detail-tab", tab.uuid, "title"),
@@ -200,6 +206,8 @@ export function projectLocalizedModule(
 				return next;
 			},
 		);
+		for (const group of list.searchInputGroups ?? [])
+			group.label = text(searchInputGroupLabelUnitId(group.uuid), group.label);
 		localized.caseListConfig.searchInputs =
 			localized.caseListConfig.searchInputs.map((input) => {
 				const next = {
@@ -339,6 +347,12 @@ function fieldItextUnits(
 		for (const option of field.optionsSource.options) {
 			ids.push(
 				makeTranslationUnitId("field", field.uuid, "option", option.uuid),
+				makeTranslationUnitId(
+					"field",
+					field.uuid,
+					"option_extended_text",
+					option.uuid,
+				),
 			);
 		}
 	}
@@ -413,10 +427,20 @@ function projectFieldWithUnits(
 				const unit = units.get(
 					makeTranslationUnitId("field", field.uuid, "option", option.uuid),
 				);
-				if (unit === undefined) return option;
+				const extended = units.get(
+					makeTranslationUnitId(
+						"field",
+						field.uuid,
+						"option_extended_text",
+						option.uuid,
+					),
+				);
 				return {
 					...option,
-					label: read(unit) as typeof option.label,
+					...(unit && { label: read(unit) as typeof option.label }),
+					...(extended && {
+						extended_text: read(extended) as typeof option.label,
+					}),
 				};
 			},
 		);

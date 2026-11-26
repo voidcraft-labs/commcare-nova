@@ -249,7 +249,8 @@ def apply_upload(state, upload: Upload) -> Published:
     from corehq.apps.app_manager.views.app_import_api import _handle_import_app
 
     request = hq_requests.raw_post(state, f"/a/{state.domain}/apps/api/import_app/", upload.body, upload.content_type)
-    response = _handle_import_app(request, state.domain)
+    with state.app_save():
+        response = _handle_import_app(request, state.domain)
     return Published(response.status_code, json.loads(response.content), hq_requests.messages(request))
 
 
@@ -1544,7 +1545,8 @@ def save_authored_app(state, document: dict, media) -> str:
     source = json.loads(json.dumps(document))
     attachments = source.pop("_attachments", None) or {}
     app = get_correct_app_class(source).from_source(source, state.domain)
-    app.save_attachments(dict(sorted(attachments.items())))
+    with state.app_save():
+        app.save_attachments(dict(sorted(attachments.items())))
     for item in media:
         held = app.multimedia_map.get(item.path)
         if held is None:

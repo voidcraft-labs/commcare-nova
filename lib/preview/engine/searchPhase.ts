@@ -26,9 +26,18 @@ export function searchOutcomeFromLoad(
 			return {
 				kind: "completed",
 				matchCount: state.totalCount ?? state.rows.length,
+				...(state.resultReceipt !== undefined && {
+					resultReceipt: state.resultReceipt,
+				}),
 			};
 		case "empty":
-			return { kind: "completed", matchCount: 0 };
+			return {
+				kind: "completed",
+				matchCount: 0,
+				...(state.resultReceipt !== undefined && {
+					resultReceipt: state.resultReceipt,
+				}),
+			};
 		case "invalid-search":
 		case "error":
 		case "unauthenticated":

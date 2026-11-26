@@ -51,10 +51,14 @@ const OPERATION_PATCH_KEYS = [
 	"caseType",
 	"target",
 	"condition",
+	"closeCondition",
+	"closeAfter",
 	"forEach",
 	"name",
 	"nameOnlyIfChanged",
 	"owner",
+	"ownerCondition",
+	"ownerAfterCreate",
 	"ownerOnlyIfChanged",
 	"rename",
 	"renameOnlyIfChanged",
@@ -130,11 +134,26 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.caseType, after.caseType)
 					? { caseType: after.caseType }
 					: {}),
+				...(!deepEqual(
+					before.action === "create" ? before.typeCalculation : undefined,
+					after.typeCalculation,
+				)
+					? { typeCalculation: clearable(after.typeCalculation) }
+					: {}),
+				...(!deepEqual(
+					before.action === "create" ? before.typeChoice : undefined,
+					after.typeChoice,
+				)
+					? { typeChoice: clearable(after.typeChoice) }
+					: {}),
 				...(!deepEqual(before.target, after.target)
 					? { target: structuredClone(after.target) }
 					: {}),
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
 					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }
@@ -148,7 +167,16 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
 					: {}),
+				...(!deepEqual(before.ownerCondition, after.ownerCondition)
+					? { ownerCondition: clearable(after.ownerCondition) }
+					: {}),
+				...(!deepEqual(before.ownerAfterCreate, after.ownerAfterCreate)
+					? { ownerAfterCreate: clearable(after.ownerAfterCreate) }
+					: {}),
 				...flagPatch("ownerOnlyIfChanged", before, after),
+				...(!deepEqual(before.closeAfter, after.closeAfter)
+					? { closeAfter: after.closeAfter ?? null }
+					: {}),
 				...(before.rename !== undefined ? { rename: null } : {}),
 				...(before.renameOnlyIfChanged !== undefined
 					? { renameOnlyIfChanged: null }
@@ -174,6 +202,9 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
 					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
+					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }
 					: {}),
@@ -184,7 +215,13 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
 					: {}),
+				...(!deepEqual(before.ownerCondition, after.ownerCondition)
+					? { ownerCondition: clearable(after.ownerCondition) }
+					: {}),
 				...flagPatch("ownerOnlyIfChanged", before, after),
+				...(!deepEqual(before.closeAfter, after.closeAfter)
+					? { closeAfter: after.closeAfter ?? null }
+					: {}),
 				...(!deepEqual(before.rename, after.rename)
 					? { rename: clearable(after.rename) }
 					: {}),
@@ -212,6 +249,9 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
 					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
+					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }
 					: {}),
@@ -220,6 +260,9 @@ function scalarOperationUpdate(
 					? { nameOnlyIfChanged: null }
 					: {}),
 				...(before.owner !== undefined ? { owner: null } : {}),
+				...(before.ownerCondition !== undefined
+					? { ownerCondition: null }
+					: {}),
 				...(before.ownerOnlyIfChanged !== undefined
 					? { ownerOnlyIfChanged: null }
 					: {}),
@@ -975,6 +1018,26 @@ export function updateCaseOperationMutations(
 	);
 	if (existing === undefined) return [];
 	const value = { ...operation };
+	if (
+		value.action === "create" &&
+		existing.action === "create" &&
+		existing.typeChoice !== undefined
+	) {
+		if (value.caseType === existing.caseType)
+			value.typeChoice ??= existing.typeChoice;
+		else if (deepEqual(value.typeChoice, existing.typeChoice))
+			delete value.typeChoice;
+	}
+	if (
+		value.action === "create" &&
+		existing.action === "create" &&
+		existing.typeCalculation !== undefined
+	) {
+		if (value.caseType === existing.caseType)
+			value.typeCalculation ??= existing.typeCalculation;
+		else if (deepEqual(value.typeCalculation, existing.typeCalculation))
+			delete value.typeCalculation;
+	}
 	return [
 		...caseOperationCatalogMutations(
 			doc,
