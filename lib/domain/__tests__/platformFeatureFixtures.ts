@@ -451,6 +451,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"automaticSubmissionText",
 		),
 	},
+	"case-list-icon-actions": {
+		with: () =>
+			caseApp({
+				columns: [
+					imageMapColumn(FIXTURE_COLUMN, "case_name", "Action", [], {
+						entryPointUuid: testUuid("platform-list-action-endpoint"),
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [imageMapColumn(FIXTURE_COLUMN, "case_name", "Image", [])],
+			}),
+		use: slotUse(
+			"case-list-icon-actions",
+			COLUMN_OWNER,
+			"caseListConfig.columns[0].entryPointUuid",
+		),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"worker-distance": {
 		with: () =>

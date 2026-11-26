@@ -755,6 +755,14 @@ function moduleUses(
 		if (column.sort?.comparator === "distance" && wanted("sort-by-distance")) {
 			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
 		}
+		if (
+			column.kind === "image-map" &&
+			column.entryPointUuid &&
+			wanted("case-list-icon-actions")
+		)
+			uses.push(
+				slotUse("case-list-icon-actions", target, slot("entryPointUuid")),
+			);
 		const cell = tileCellFor(column, list?.tile);
 		if (tileCellOnlyOnAndroid(column, cell) && wanted("raw-custom-tile-field"))
 			uses.push(

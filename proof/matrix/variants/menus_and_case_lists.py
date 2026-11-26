@@ -43,6 +43,31 @@ def auto_select_on_a_multi_select_list(authoring, app_id):
     )
 
 
+def clickable_icon_for_a_visit(authoring, app_id):
+    """A list icon opens its ordinary follow-up with the exact automatic-submission label."""
+    def mark_label(root, _form):
+        text, = root.xpath("//*[local-name()='itext']/*[local-name()='translation']/*[@id='visit_note-label']")
+        label, = root.xpath("//*[local-name()='label'][@ref=$ref]", ref="jr:itext('visit_note-label')")
+        text.set("id", "Pragma-Submit-Automatically")
+        label.set("ref", "jr:itext('Pragma-Submit-Automatically')")
+
+    ops.set_form_source(authoring, app_id, 1, 0, mark_label, what="automatic follow-up label")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/session_endpoint_id", "record-visit")
+    ops.set_json(authoring, app_id, "/modules/1/case_details/short/columns/1", {
+        "doc_type": "DetailColumn",
+        "model": "case",
+        "field": "name",
+        "format": "clickable-icon",
+        "header": {"en": "Record visit"},
+        "endpoint_action_id": "record-visit",
+        "enum": [{
+            "doc_type": "MappingItem",
+            "key": "true()",
+            "value": {"en": "jr://file/commcare/image/register_household.png"},
+        }],
+    })
+
+
 def case_list_deep_link_on_display_only_menu(authoring, app_id):
     """Follow-ups given a case list deep link and its form shown in the menu above."""
     _set_each(

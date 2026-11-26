@@ -1724,13 +1724,13 @@ export function FormScreen({
 		/* The device now holds what the entry wrote until it syncs, a case it
 		 * closed among it; each later signed opening of this run reads it
 		 * (`formOpeningAction.ts`). */
+		const post = session.getState();
+		const listReturn = post.previewEntryPointLaunch?.listIconReturn;
 		if (submitted.entryKey !== undefined)
-			session
-				.getState()
-				.notePreviewSubmission(
-					session.getState().previewSessionId,
-					submitted.entryKey,
-				);
+			post.notePreviewSubmission(
+				listReturn?.state.previewSessionId ?? post.previewSessionId,
+				submitted.entryKey,
+			);
 		/* The searches as the submission found them, which a landing that
 		 * keys a menu's search to the registered case carries on. */
 		const searchesAtSubmit = session.getState().previewSearchStates;
@@ -1767,6 +1767,17 @@ export function FormScreen({
 			setPreviewCaseTarget(undefined);
 			letSubmittedSearchesGo();
 		};
+		if (listReturn && isCurrent()) {
+			forgetCompletedPages();
+			announceWrite();
+			settleAttempt({ kind: "idle" });
+			session.setState({
+				...listReturn.state,
+				previewEntryPointLaunch: undefined,
+			});
+			navigate.replace(listReturn.location);
+			return;
+		}
 		/* The first form of an Android visit a deep link opened ends the
 		 * visit: Android resets the session and returns to the app that
 		 * opened the link before any after-submit or form link runs
@@ -2675,8 +2686,26 @@ export function FormScreen({
 		 * barrier, until the attempt settles. */
 		const attempt = ++submissionAttemptRef.current;
 		const attemptIsCurrent = () => submissionAttemptRef.current === attempt;
+		const leaveListAction = (message: string): boolean => {
+			const active = session.getState().previewEntryPointLaunch;
+			if (
+				!attemptIsCurrent() ||
+				!active?.listIconReturn ||
+				active !== start.previewEntryPointLaunch
+			)
+				return false;
+			showToast("error", "The form could not submit from the list", message);
+			session.setState({
+				...active.listIconReturn.state,
+				previewEntryPointLaunch: undefined,
+			});
+			navigate.replace(active.listIconReturn.location);
+			return true;
+		};
 		const settleAttempt = (status: SubmitStatus): void => {
-			if (attemptIsCurrent()) setSubmitStatus(status);
+			if (!attemptIsCurrent()) return;
+			if (status.kind === "error" && leaveListAction(status.message)) return;
+			setSubmitStatus(status);
 		};
 		/* Clear any prior error state up-front. Two reasons:
 		 *
@@ -3010,6 +3039,12 @@ export function FormScreen({
 				return;
 			}
 			if (result === "invalid") {
+				if (
+					leaveListAction(
+						"This form needs a valid answer before it can submit automatically. You can check its required answers and starting values.",
+					)
+				)
+					return;
 				settleAttempt({ kind: "idle" });
 				if (
 					validation?.kind !== "invalid" ||
