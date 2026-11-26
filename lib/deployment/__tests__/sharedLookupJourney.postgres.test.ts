@@ -54,15 +54,9 @@ function body(answer: RetainedHqAnswer): Record<string, unknown> {
 	return JSON.parse(answer.body ?? "") as Record<string, unknown>;
 }
 
-function serveReading(
-	peer: MockAgent,
-	key: ReadingKey,
-	first: ReturnType<typeof loadRetainedHqApp>,
-	changed: boolean,
-) {
-	const root = `/a/${key.domain}`;
-	const host = peer.get(COMMCARE_SERVERS[key.server].baseUrl);
-	const serve = (
+function answersFrom(peer: MockAgent, target: typeof origin) {
+	const host = peer.get(COMMCARE_SERVERS[target.server].baseUrl);
+	return (
 		path: string,
 		answer: RetainedHqAnswer,
 		edited?: Record<string, unknown>,
@@ -76,6 +70,16 @@ function serveReading(
 			)
 			.persist();
 	};
+}
+
+function serveReading(
+	peer: MockAgent,
+	key: ReadingKey,
+	first: ReturnType<typeof loadRetainedHqApp>,
+	changed: boolean,
+) {
+	const root = `/a/${key.domain}`;
+	const serve = answersFrom(peer, key);
 	const source = body(first.source);
 	const application = body(first.application);
 	const counter = body(first.currentVersion);
@@ -95,6 +99,15 @@ function serveReading(
 		first.currentVersion,
 		counter,
 	);
+	serveLookup(first, root, serve);
+	return source;
+}
+
+function serveLookup(
+	first: ReturnType<typeof loadRetainedHqApp>,
+	root: string,
+	serve: ReturnType<typeof answersFrom>,
+) {
 	serve(`${root}/api/lookup_table/v1/?limit=1000`, first.lookupTables);
 	const [table] = body(first.lookupTables).objects as {
 		id: string;
@@ -103,7 +116,6 @@ function serveReading(
 	const rows = first.fixtureRows?.[table.tag];
 	if (!rows) throw new Error("The retained HQ table has no rows response.");
 	serve(`${root}/api/fixture/v1/?fixture_type_id=${table.id}`, rows);
-	return source;
 }
 
 function appScope(appId: string) {
@@ -398,41 +410,9 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 	).toBe(false);
 
 	await withHttpPeer(async (peer) => {
-		// Both spaces are readable. Only the second space lacks the
-		// destination table binding, so a broken origin read can't pass this check.
-		serveReading(peer, key, retained, true);
-		peer
-			.get(COMMCARE_SERVERS[origin.server].baseUrl)
-			.intercept({
-				method: "GET",
-				path: (path) => path.startsWith("/api/user_domains/v1/"),
-			})
-			.reply((request) => {
-				const scopes = new URL(
-					request.path,
-					COMMCARE_SERVERS[origin.server].baseUrl,
-				).searchParams.has("feature_flag")
-					? []
-					: [origin, overseas];
-				return {
-					statusCode: 200,
-					data: JSON.stringify({
-						meta: { next: null, total_count: scopes.length },
-						objects: scopes.map(({ domain }) => ({
-							domain_name: domain,
-							project_name: domain,
-						})),
-					}),
-					responseOptions: { headers: { "Content-Type": "application/json" } },
-				};
-			})
-			.persist();
-		const destinationTables = `/a/${overseas.domain}/api/lookup_table/v1/?limit=1000`;
-		peer
-			.get(COMMCARE_SERVERS[origin.server].baseUrl)
-			.intercept({ method: "GET", path: destinationTables })
-			.reply(200, { meta: { next: null, total_count: 0 }, objects: [] })
-			.persist();
+		// Confirm the origin has readable rows before checking that the
+		// second project space still needs its own destination binding.
+		serveLookup(retained, `/a/${key.domain}`, answersFrom(peer, key));
 		const upload = vi.fn();
 		const refused = await publish(appId, overseas, upload);
 		if (refused.landed)
