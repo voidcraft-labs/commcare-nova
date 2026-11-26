@@ -23227,6 +23227,24 @@
 		]
 	},
 	{
+		"id": "hq-lookups/itemset-over-open-cases",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Farm survey",
+			"formName": "Survey",
+			"path": "district"
+		},
+		"change": {
+			"op": "named",
+			"name": "itemset_over_open_cases"
+		}
+	},
+	{
 		"id": "hq-lookups/itemset-sort",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-sort-ref",
@@ -23510,6 +23528,24 @@
 				"value": "Say what the animal is called"
 			}
 		]
+	},
+	{
+		"id": "hq-media/video-inline-as-only-help",
+		"base": "hq-media",
+		"entry": "questions/video-inline-as-the-only-content-of-a-help-text",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Animals",
+			"formName": "Survey",
+			"path": "animal_name"
+		},
+		"change": {
+			"op": "named",
+			"name": "video_inline_as_only_help"
+		}
 	},
 	{
 		"id": "hq-media/media-key-outside-jr-file",
@@ -35079,6 +35115,22 @@
 					},
 					["members"]
 				],
+				"pointer": "/addLabel/parts/0/text",
+				"value": "Add a member"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/long-form-on-repeat-action-caption",
+		"base": "hq-questions",
+		"entry": "questions/long-form-on-a-repeat-action-caption",
+		"change": {
+			"op": "named",
+			"name": "long_form_on_repeat_action_caption"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["members"]],
 				"pointer": "/addLabel/parts/0/text",
 				"value": "Add a member"
 			}

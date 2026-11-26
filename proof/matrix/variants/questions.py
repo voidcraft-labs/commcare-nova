@@ -545,6 +545,18 @@ def repeat_add_caption(authoring, app_id):
     )
 
 
+def long_form_on_repeat_action_caption(authoring, app_id):
+    """The add caption's own default text remains visible beside an unused long form."""
+    caption = '<text id="members-add"><value>Add a member</value><value form="long">Add another participant</value></text>'
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-repeat-action-caption",
+        (MEMBERS_LABEL_VALUE, caption + MEMBERS_LABEL_VALUE, 1),
+        (MEMBER_NAME_OPEN, "<jr:addCaption ref=\"jr:itext('members-add')\"/>" + MEMBER_NAME_OPEN, 1),
+    )
+
+
 def repeat_caption_itext(authoring, app_id):
     """A remove caption on the repeat ``members`` that names the itext ``members-label``."""
     _change(
@@ -2090,8 +2102,8 @@ def save_to_case_link_name_outside_grammar(authoring, app_id):
 
 
 def save_to_case_link_stops_form_designer(authoring, app_id):
-    """An ordinary case link whose element uses the reserved script name."""
-    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "script")
+    """An ordinary case link whose element uses the reserved instance name."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "instance")
 
 
 def save_to_case_index_close_adds_action(authoring, app_id):
@@ -2242,10 +2254,19 @@ def itemset_filter_position_of_scalar(authoring, app_id):
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
     the model, in place of the table."""
+    _case_itemset(authoring, app_id, "itemset-over-cases", "")
+
+
+def itemset_over_open_cases(authoring, app_id):
+    """The district select filters the worker's cases across all case types."""
+    _case_itemset(authoring, app_id, "itemset-over-open-cases", "[@status = &apos;open&apos;]")
+
+
+def _case_itemset(authoring, app_id, name, predicate):
     _change(
         authoring,
         app_id,
-        "itemset-over-cases",
+        name,
         (
             '<instance id="item-list:seasons"',
             '<instance src="jr://instance/casedb" id="casedb" />\n<instance id="item-list:seasons"',
@@ -2253,7 +2274,8 @@ def itemset_over_cases(authoring, app_id):
         ),
         (
             DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL,
-            '<itemset nodeset="instance(\'casedb\')/casedb/case">\n<label ref="case_name" />\n<value ref="@case_id" />',
+            f'<itemset nodeset="instance(\'casedb\')/casedb/case{predicate}">'
+            '\n<label ref="case_name" />\n<value ref="@case_id" />',
             1,
         ),
     )
@@ -3702,6 +3724,17 @@ def video_inline_on_help(authoring, app_id):
         "help",
         '<value>Say what the animal is called</value><value form="video-inline">'
         "jr://file/commcare/video/data/animal_name.mp4</value>",
+    )
+
+
+def video_inline_as_only_help(authoring, app_id):
+    """An otherwise empty help element using the existing question video file."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-inline-as-only-help",
+        "help",
+        '<value/><value form="video-inline">jr://file/commcare/video/data/animal_name.mp4</value>',
     )
 
 

@@ -294,7 +294,10 @@
 		"hq-lookups/itemset-copy",
 		"hq-lookups/itemset-property-as-label"
 	],
-	"hq-media": ["hq-media/form-media-for-every-language"],
+	"hq-media": [
+		"hq-media/form-media-for-every-language",
+		"hq-media/video-inline-as-only-help"
+	],
 	"hq-menus": [
 		"hq-menus/after-submit-to-the-parent-menu",
 		"hq-menus/badge",
@@ -505,6 +508,7 @@
 		"hq-questions/long-form",
 		"hq-questions/long-form-on-group-label",
 		"hq-questions/long-form-on-help",
+		"hq-questions/long-form-on-repeat-action-caption",
 		"hq-questions/model-iteration-container-condition",
 		"hq-questions/model-iteration-nested",
 		"hq-questions/no-add-remove-without-count",
