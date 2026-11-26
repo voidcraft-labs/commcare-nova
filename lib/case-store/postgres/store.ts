@@ -5401,6 +5401,7 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 		for (const link of entry.operation.links ?? []) {
 			types.add(link.targetType);
 		}
+		for (const caseType of entry.parentUserCaseTypes ?? []) types.add(caseType);
 		for (const caseType of entry.viaCaseTypes?.values() ?? []) {
 			types.add(caseType);
 		}

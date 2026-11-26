@@ -128,12 +128,14 @@ import {
 	type Form,
 	type FormType,
 	isCaptureFieldKind,
+	isParentUserWritePath,
 	isSearchAnswerInput,
 	type Module,
 	orderedCaseOperations,
 	organizationLevelsOf,
 	ownCaseOperationHasEffects,
 	type PersistableDoc,
+	parentUserWriteCaseTypes,
 	searchInputRuntimeValueType,
 	suppliedCreationIssue,
 	TIME_SINCE_UNIT_DAYS,
@@ -2812,6 +2814,19 @@ export function buildCaseOperationProgramFromDoc(args: {
 						committedOperation.caseType !== actualType
 					? { ...committedOperation, caseType: actualType }
 					: committedOperation;
+		const route = boundOperation.writes?.find((write) =>
+			isParentUserWritePath(write.via),
+		);
+		const parentUserCaseTypes =
+			route &&
+			actualType &&
+			parentUserWriteCaseTypes(route.via, actualType, [
+				...caseTypeSchemas.values(),
+			]);
+		if (route && !parentUserCaseTypes)
+			throw new CaptureSubmissionRejectedError(
+				"The linked cases no longer match this form. Reopen it to load the current case types.",
+			);
 		const operation = withoutAbsentAnswerWrites(boundOperation);
 		const guardConditions = [...(guards.get(operation.uuid) ?? [])]
 			.map((uuid) => operationsByUuid.get(uuid)?.condition)
@@ -2838,6 +2853,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 				links: snapshot?.links ?? new Map<number, string>(),
 			},
 			...(viaCaseTypes.size > 0 && { viaCaseTypes }),
+			...(parentUserCaseTypes && { parentUserCaseTypes }),
 		};
 	});
 

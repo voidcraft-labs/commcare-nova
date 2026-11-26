@@ -13,6 +13,7 @@ import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { parentUserWriteFixture } from "@/lib/__tests__/parentUserWriteFixture";
 import { sharedWorkerRepeat } from "@/lib/__tests__/sharedWorkerRepeat";
 import type { CaseStore, LookupTableSchemas } from "@/lib/case-store";
 import { buildCaseTypeMap } from "@/lib/case-store";
@@ -208,6 +209,229 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it("keeps the signed parent user block with omitted and present blank answers", async () => {
+		const { doc, form } = parentUserWriteFixture(APP_ID);
+		const middle = testUuid("parent-user-first-target");
+		const terminal = testUuid("parent-user-terminal");
+		const unrelated = testUuid("parent-user-unrelated-household");
+		const store = makeStore(true);
+		const catalog = buildCaseTypeMap(doc);
+		for (const caseType of ["person", "family", "household"]) {
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType,
+				caseTypeSchemas: catalog,
+			});
+		}
+		for (const [id, type, properties] of [
+			[middle, "family", {}],
+			[terminal, "household", { linked_note: "before" }],
+			[unrelated, "household", { linked_note: "unrelated" }],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: id,
+					case_type: type,
+					case_name: type,
+					status: "open",
+					properties,
+				},
+			});
+		}
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: SESSION_CASE,
+				case_type: "person",
+				case_name: "Person",
+				status: "open",
+				parent_case_id: middle,
+				properties: { local_note: "before" },
+			},
+		});
+		const db = dbHandle.db as unknown as Kysely<Database>;
+		await db
+			.insertInto("case_indices")
+			.values({
+				case_id: middle,
+				ancestor_id: terminal,
+				target_case_type: "household",
+				identifier: "user",
+				relationship: "child",
+				depth: 1,
+			})
+			.execute();
+		await sql`UPDATE cases SET modified_on = '2024-01-01T00:00:00Z' WHERE app_id = ${APP_ID}`.execute(
+			db,
+		);
+		const snapshot = await store.readDeviceCaseDatabase({
+			appId: APP_ID,
+			restoreScope: { ownerIds: [ACTOR] },
+		});
+		const read = async (type: string, id: string) =>
+			(
+				await store.query({
+					appId: APP_ID,
+					caseType: type,
+					reading: SEARCH_READING,
+				})
+			).find((row) => row.case_id === id);
+		const apply = async (
+			entryKey: string,
+			mode: string,
+			answer: string,
+			cases: typeof snapshot,
+		) => {
+			const audience = {
+				app: APP_ID,
+				project: PROJECT,
+				actor: ACTOR,
+				worker: ACTOR,
+				session: "session",
+				persona: null,
+				device: webAppsDevice(),
+				module: doc.moduleOrder[0],
+				form,
+				entry: entryKey,
+				run: ENTRY_KEY,
+				revision: 0,
+				blueprintDigest: "0".repeat(64),
+			};
+			const secret = "synthetic parent user opening key";
+			const signed = await signFormOpening(secret, audience, {
+				cases: openingCaseData(cases),
+				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+				choices: [],
+				primaryCaseIds: [SESSION_CASE],
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+			});
+			const input = buildEngineInput(doc, form, null);
+			if (!input) throw new Error("Expected the parent user form");
+			const engine = new FormEngine(input);
+			engine.setValue("/data/mode", mode);
+			if (mode === "show") engine.setValue("/data/note", answer);
+			const mutation = engine.computeSubmissionMutation({
+				caseIds: [SESSION_CASE],
+				entryKey,
+			});
+			const projection = validateCaptureSubmissionProjection(mutation);
+			const built = buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation,
+				projection,
+				identity: IDENTITY,
+				opening: await verifyFormOpening(secret, audience, signed),
+			});
+			return store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, {
+					...built,
+					submissionReceipt: {
+						...buildSubmissionReceiptIdentity({
+							appId: APP_ID,
+							identity: IDENTITY,
+							mutation,
+							projection,
+						}),
+						expectedAppMutationSeq: 0,
+						blueprintDigest: audience.blueprintDigest,
+					},
+				}),
+			);
+		};
+		const id = (name: string) => testUuid(`parent-user-submission-${name}`);
+		for (const [label, broken] of [
+			[
+				"missing-first",
+				{
+					...snapshot,
+					indices: snapshot.indices.filter(
+						(edge) => edge.case_id !== SESSION_CASE,
+					),
+				},
+			],
+			[
+				"missing-intermediate",
+				{
+					...snapshot,
+					rows: snapshot.rows.filter((row) => row.case_id !== middle),
+				},
+			],
+			[
+				"missing-second",
+				{
+					...snapshot,
+					indices: snapshot.indices.filter((edge) => edge.case_id !== middle),
+				},
+			],
+			[
+				"missing-terminal",
+				{
+					...snapshot,
+					rows: snapshot.rows.filter((row) => row.case_id !== terminal),
+				},
+			],
+		] as const) {
+			await expect(apply(id(label), "omit", "", broken)).rejects.toBeInstanceOf(
+				SubmissionRejectedError,
+			);
+			expect((await read("person", SESSION_CASE))?.properties.local_note).toBe(
+				"before",
+			);
+			expect((await read("household", terminal))?.properties.linked_note).toBe(
+				"before",
+			);
+		}
+		const before = await read("household", terminal);
+		const omitted = await apply(id("omitted"), "omit", "", snapshot);
+		expect(omitted.caseDatabasePatch?.rows.map((row) => row.case_id)).toContain(
+			terminal,
+		);
+		expect((await read("household", terminal))?.properties.linked_note).toBe(
+			"before",
+		);
+		expect((await read("household", terminal))?.modified_on).not.toEqual(
+			before?.modified_on,
+		);
+
+		await db
+			.updateTable("case_indices")
+			.set({ ancestor_id: unrelated })
+			.where("case_id", "=", middle)
+			.where("identifier", "=", "user")
+			.execute();
+		await apply(id("held id"), "show", "from form", snapshot);
+		expect((await read("household", terminal))?.properties.linked_note).toBe(
+			"from form",
+		);
+		expect((await read("household", unrelated))?.properties.linked_note).toBe(
+			"unrelated",
+		);
+		expect((await read("family", middle))?.properties).toEqual({});
+		await apply(id("blank"), "show", "", snapshot);
+		expect((await read("household", terminal))?.properties).not.toHaveProperty(
+			"linked_note",
+		);
+
+		await db
+			.updateTable("cases")
+			.set({ case_type: "household" })
+			.where("case_id", "=", middle)
+			.execute();
+		await expect(
+			apply(id("current type changed"), "omit", "", snapshot),
+		).rejects.toMatchObject({
+			rejection: { reason: "case-type-mismatch" },
+		});
+		expect((await read("person", SESSION_CASE))?.properties.local_note).toBe(
+			"show",
+		);
+	});
+
 	it("applies live repeat rows in order to the worker case retained at opening", async () => {
 		const form = testUuid("repeated-worker-form");
 		const repeat = testUuid("repeated-worker-members");
