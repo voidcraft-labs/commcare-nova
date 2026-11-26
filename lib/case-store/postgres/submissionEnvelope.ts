@@ -862,8 +862,9 @@ export function storageValueFromEvaluation(
 		case "text":
 		case "single_select":
 		case "geopoint": {
-			// A number or a date saved to text is the text a device submits for
-			// it (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`): a number read
+			// A number, a date or a location saved to text is the text a device
+			// submits for it (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`; a
+			// location is already its four numbers' text): a number read
 			// back as a double (`compileSubmittedTextValue`) as
 			// `Recalculate.wrapData` holds it, and a date, which a `date`
 			// column gives in the process's local time, as its day. A date and

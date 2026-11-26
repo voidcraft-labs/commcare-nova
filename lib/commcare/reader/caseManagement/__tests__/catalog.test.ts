@@ -448,6 +448,7 @@ describe("the writers of one property", () => {
 				| "text"
 				| "date"
 				| "datetime"
+				| "geopoint"
 				| "single_select"
 				| "multi_select";
 			property: string;
@@ -568,12 +569,14 @@ describe("the writers of one property", () => {
 		]);
 	});
 
-	it("holds writers that agree on no one type as text where text holds each, a whole number with text and a number with a date, with no finding", async () => {
+	it("holds writers that agree on no one type as text where text holds each, a whole number with text, a number with a date and a location with text, with no finding", async () => {
 		const doc = writers([
 			{ kind: "int", property: "weight" },
 			{ kind: "text", property: "weight" },
 			{ kind: "decimal", property: "harvest" },
 			{ kind: "date", property: "harvest" },
+			{ kind: "geopoint", property: "spot" },
+			{ kind: "text", property: "spot" },
 		]);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const reading = await readMenusOf(doc);
@@ -587,6 +590,7 @@ describe("the writers of one property", () => {
 			patient?.properties.find((one) => one.name === name)?.data_type;
 		expect(typeOf("weight")).toBe("text");
 		expect(typeOf("harvest")).toBe("text");
+		expect(typeOf("spot")).toBe("text");
 	});
 
 	it("raises the row for a pair no one stored type joins and text does not hold: a number with a date and time", async () => {

@@ -394,12 +394,12 @@ saved and the response says what to adjust.
 An operation can save a text value into a single-choice property, or an integer
 into a decimal property, without adding a helper question. Choice labels and
 options belong to the question; saved values can also come from an operation.
-A number or a date saved into a text property is kept as the text a phone saves
-for it: a whole number as its digits, a decimal number as Java writes it, a date
-as `2024-05-01`. Writers of one property that agree on no one kind of value are
-kept as text the same way, unless one of them is a date and time, a time or a
-location, or a question opens showing the property as a number, a date, a time
-or a location. Nova still checks every possible result of an expression against
+A number, a date or a location saved into a text property is kept as the text a
+phone saves for it: a whole number as its digits, a decimal number as Java
+writes it, a date as `2024-05-01`, a location as its four numbers. Writers of
+one property that agree on no one kind of value are kept as text the same way,
+unless one of them is a date and time or a time, or a question opens showing
+the property as a number, a date, a time or a location. Nova still checks every possible result of an expression against
 the destination type, so a fractional value cannot be assigned to an integer
 property.
 

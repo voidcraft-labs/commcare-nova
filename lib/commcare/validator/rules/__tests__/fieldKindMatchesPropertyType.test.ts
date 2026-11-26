@@ -191,15 +191,17 @@ describe("case writer type admission", () => {
 	// Writers agree on the one of their types that holds every other: an
 	// integer and a decimal on decimal, a choice and text on text, one choice
 	// and several on several. Where none
-	// does, text holds a number, a date, a choice and text as the text a
-	// device submits, so those are saved as text; any other pair is a finding
-	// for each writer.
+	// does, text holds a number, a date, a location, a choice and text as the
+	// text a device submits, so those are saved as text; any other pair, a
+	// moment or a time among them, is a finding for each writer.
 	it.each([
 		{ first: "int", second: "decimal", agreed: "decimal" },
 		{ first: "single_select", second: "text", agreed: "text" },
 		{ first: "int", second: "text", agreed: "text" },
 		{ first: "date", second: "text", agreed: "text" },
+		{ first: "geopoint", second: "text", agreed: "text" },
 		{ first: "int", second: "time", agreed: undefined },
+		{ first: "datetime", second: "text", agreed: undefined },
 		{ first: "single_select", second: "multi_select", agreed: "multi_select" },
 	] satisfies {
 		first: FieldSpec["kind"];

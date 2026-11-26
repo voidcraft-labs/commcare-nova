@@ -120,8 +120,8 @@ export function joinsAsText(types: Iterable<CasePropertyDataType>): boolean {
  *   type stays `text`, so a comparison or ordering never treats it as a
  *   date. A `datetime` property stays strict, since a day text there saves
  *   midnight, as a `date` value would.
- * - A whole number, a decimal number or a date into a `text` property, which
- *   holds the text a device submits for it
+ * - A whole number, a decimal number, a date or a location into a `text`
+ *   property, which holds the text a device submits for it
  *   (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`). The value's type stays
  *   its own, and a single choice property stays strict, since a number is no
  *   choice of it.

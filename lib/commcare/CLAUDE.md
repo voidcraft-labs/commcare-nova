@@ -895,7 +895,7 @@ may be gone cannot write a date-and-time property, and Hidden Values that alone
 type a property must agree (`int` with `decimal` on `decimal`, `text` with
 `single_select` on `text`) where one of them names a type a question casts.
 Writers that agree on no one type, one Hidden Value's results among them, are
-saved as text where each is text, a choice, a number or a date and no question
+saved as text where each is text, a choice, a number, a date or a location and no question
 opens on the property's value through an answer class that casts it
 (`ruleSets.ts::joinsAsText`); where one does, the finding names it
 (`details.castBy`), as `FIELD_KIND_WRITERS_DISAGREE` does for visible
