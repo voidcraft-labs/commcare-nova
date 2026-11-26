@@ -7,9 +7,13 @@
  * claims and the same-state rows.
  */
 import type { BlueprintDoc, Expression, Module, Uuid } from "@/lib/domain";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import { caseTypeNameSchema } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
+	type CaseListConfig,
 	DEFAULT_CASE_SEARCH_TITLE,
+	emptyCaseListConfig,
 	NO_SEARCH_SCREEN_TITLE,
 	type OrdinaryCaseSearchConfig,
 	searchResultsNameSchema,
@@ -30,6 +34,7 @@ import {
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { emitExcludedOwnerFilterExpression } from "../../suite/case-list/nodesetFilter";
 import { searchGuardedFieldNames } from "../../suite/case-search/moduleXPathQuery";
+import { includeSearchHierarchy } from "../../suite/case-search/relatedCaseProjection";
 import {
 	dedicatedOrderNamesReserved,
 	readDedicatedOrder,
@@ -148,11 +153,11 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}include-all-related-cases-implied-by-nova-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	includeFalse: refuse(
+	includeFalse: take(
 		`${S}include-all-related-cases-false-where-nova-s-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
-	includeAuthored: refuse(
+	includeAuthored: take(
 		`${S}include-all-related-cases-authored-without-relation-reads`,
 		"schema:CaseSearch.include_all_related_cases",
 	),
@@ -176,7 +181,11 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}an-effective-results-instance-equal-to-a-module-s-that-does-not`,
 		"schema:CaseSearch.instance_name",
 	),
-	additionalTypes: refuse(
+	additionalTypeWithoutMenu: refuse(
+		`${S}additional-record-type-without-menu`,
+		"schema:CaseSearch.additional_case_types",
+	),
+	additionalTypes: take(
 		`${S}additional-case-types`,
 		"schema:CaseSearch.additional_case_types",
 	),
@@ -184,7 +193,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}additional-case-types-naming-only-the-menu-s-own-type`,
 		"schema:CaseSearch.additional_case_types",
 	),
-	relatedProperty: refuse(
+	relatedProperty: take(
 		`${S}custom-related-case-property`,
 		"schema:CaseSearch.custom_related_case_property",
 	),
@@ -836,8 +845,41 @@ export function readSearchSettings(
 	if (cursor.used("additional_case_types")) {
 		claimed.add("additional_case_types");
 		if (widensTheList(cursor.peek("additional_case_types"), module)) {
-			cursor.refuse("additional_case_types", T.additionalTypes);
-			ok = false;
+			const values = cursor.peek("additional_case_types");
+			if (
+				Array.isArray(values) &&
+				values.every((value) => caseTypeNameSchema.safeParse(value).success)
+			) {
+				const additional = [...new Set(values as string[])]
+					.filter((type) => type !== module.module.caseType)
+					.sort();
+				const choices = new Set(
+					ctx.draft.modules.map((menu) => menu.module.caseType),
+				);
+				const missing = additional.find((type) => !choices.has(type));
+				if (missing !== undefined) {
+					cursor.refuse("additional_case_types", T.additionalTypeWithoutMenu, {
+						name: missing,
+					});
+					ok = false;
+				} else {
+					cursor.take(
+						"additional_case_types",
+						T.additionalTypes,
+						() => additional,
+					).value;
+					ctx.writeDraft(() => {
+						const target = module.module as { caseListConfig?: CaseListConfig };
+						target.caseListConfig ??= emptyCaseListConfig();
+						target.caseListConfig.additionalCaseTypes = additional;
+					});
+				}
+			} else {
+				ctx.accounting.circumstance("unrecognized", place, {
+					name: "schema:CaseSearch.additional_case_types",
+				});
+				ok = false;
+			}
 		} else {
 			cursor.drop("additional_case_types", T.additionalOwnType);
 			if (offers)
@@ -1153,14 +1195,27 @@ export function readSearchSettings(
 		}
 		claimed.add("custom_sort_properties");
 	}
-	const findings: [string, typeof T.additionalTypes][] = [
-		["custom_related_case_property", T.relatedProperty],
-	];
-	for (const [key, claim] of findings)
-		if (!claimed.has(key) && cursor.used(key)) {
-			cursor.refuse(key, claim);
+	if (
+		!claimed.has("custom_related_case_property") &&
+		cursor.used("custom_related_case_property")
+	) {
+		const property = authoredCasePropertyNameSchema.safeParse(
+			cursor.peek("custom_related_case_property"),
+		);
+		if (!property.success) {
+			ctx.accounting.circumstance("unrecognized", place, {
+				name: "schema:CaseSearch.custom_related_case_property",
+			});
 			ok = false;
+		} else {
+			cursor.take(
+				"custom_related_case_property",
+				T.relatedProperty,
+				() => property.data,
+			).value;
+			config.relatedRecordIdProperty = property.data;
 		}
+	}
 	if (!readRegistry(ctx, cursor, claimed)) ok = false;
 	if (cursor.used("search_on_clear")) {
 		if (hqAutoSelects(module)) {
@@ -1170,7 +1225,7 @@ export function readSearchSettings(
 			config.searchOnClear = true;
 		}
 	}
-	cursor.derived("include_all_related_cases", T.includeDerived);
+
 	claimUndeclaredSearchKeys(cursor);
 	return {
 		ok,
@@ -1902,8 +1957,31 @@ export function settleSearchSettings(
 	prompts: readonly PromptReading[],
 ): void {
 	const place = searchPlace(module);
-	const start = ctx.doc;
-	if (start === undefined || start.modules[module.uuid] === undefined) return;
+	const original = ctx.doc;
+	if (original === undefined || original.modules[module.uuid] === undefined)
+		return;
+	const list = original.modules[module.uuid]?.caseListConfig;
+	const storedIncludes = cursor.peek("include_all_related_cases") === true;
+	const derivedIncludes =
+		list !== undefined &&
+		includeSearchHierarchy(
+			list,
+			moduleExpressionContexts(original, module.uuid),
+		);
+	let start = original;
+	if (storedIncludes === derivedIncludes) {
+		cursor.derived("include_all_related_cases", T.includeDerived);
+	} else {
+		const claim = storedIncludes ? T.includeAuthored : T.includeFalse;
+		cursor.take("include_all_related_cases", claim, Boolean).value;
+		start = withCandidate(original, (draft) => {
+			const menu = draft.modules[module.uuid];
+			menu.caseSearchConfig ??= {};
+			const settings = menu.caseSearchConfig;
+			if ("searchActionEnabled" in settings) return;
+			settings.relatedRecords = storedIncludes ? "hierarchy" : "details";
+		});
+	}
 	const ruled = prompts.flatMap((prompt) => {
 		const entry = start.modules[module.uuid]?.caseListConfig?.searchInputs.find(
 			(one) => one.uuid === prompt.uuid,
@@ -2019,15 +2097,6 @@ export function settleSearchSettings(
 		return;
 	}
 	const first = asRead;
-	if (first === "schema:CaseSearch.include_all_related_cases") {
-		ctx.accounting.finding(
-			cursor.peek("include_all_related_cases") === true
-				? T.includeAuthored
-				: T.includeFalse,
-			place,
-		);
-		return;
-	}
 	if (first === EMITTER_THREW)
 		ctx.accounting.defect(
 			place,

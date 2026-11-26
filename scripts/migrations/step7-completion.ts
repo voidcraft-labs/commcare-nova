@@ -89,5 +89,9 @@ export function convert(
 		settings.menuLayouts.decisions,
 		coordinate,
 	);
-	return convertSearchResults(layouts, settings, coordinate);
+	return convertSearchResults(layouts, settings, {
+		appId: coordinate.appId,
+		projectId: coordinate.projectId,
+		purpose: coordinate.purpose,
+	});
 }

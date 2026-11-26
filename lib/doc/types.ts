@@ -65,6 +65,7 @@ import {
 	moduleSchema,
 	ordinaryCaseSearchConfigSchema,
 	organizationLevelSchema,
+	otherRecordTypesSchema,
 	ownerOnlyCaseSearchConfigSchema,
 	personaSchema,
 	readCasePropertyNameSchema,
@@ -372,6 +373,9 @@ function caseSearchConfigPatchSchemaFor(
 				before: configSchema.shape.projectSearch.unwrap().nullable(),
 				after: configSchema.shape.projectSearch.unwrap().nullable(),
 			}),
+			relatedRecords: configSchema.shape.relatedRecords.nullable(),
+			relatedRecordIdProperty:
+				configSchema.shape.relatedRecordIdProperty.nullable(),
 			excludedOwnerIds: configSchema.shape.excludedOwnerIds.nullable(),
 			searchScreenTitle: configSchema.shape.searchScreenTitle.nullable(),
 			searchScreenSubtitle: configSchema.shape.searchScreenSubtitle.nullable(),
@@ -1854,6 +1858,7 @@ function createMutationSchema({
 				filter: mutationConditionSchema.nullable().optional(),
 				listCondition: mutationConditionSchema.nullable().optional(),
 				searchCondition: mutationConditionSchema.nullable().optional(),
+				additionalCaseTypes: otherRecordTypesSchema.nullable().optional(),
 				searchFilterEdit: z
 					.discriminatedUnion("operation", [
 						z.strictObject({
@@ -1869,6 +1874,15 @@ function createMutationSchema({
 								searchOrderFilterSchema.pick({ order: true }),
 							]),
 						}),
+						z
+							.strictObject({
+								operation: z.literal("replace"),
+								uuid: uuidSchema,
+								filter: searchFilterSchema,
+							})
+							.refine((edit) => edit.uuid === edit.filter.uuid, {
+								error: "Keep the identity of the search setting being changed.",
+							}),
 						z.strictObject({
 							operation: z.literal("move"),
 							uuid: uuidSchema,

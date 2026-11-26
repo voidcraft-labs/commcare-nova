@@ -756,6 +756,13 @@ export function selectAppTestRecords(
 		caseType: mod.caseType,
 		cases: rows.map((row) => ({
 			...previewCaseChoiceOf(row),
+			...(screen.searchAnswers !== undefined &&
+				row.heldOnDevice !== undefined && {
+					searchSource: {
+						moduleUuid: screen.moduleUuid,
+						answers: screen.searchAnswers,
+					},
+				}),
 			caseName: row.case_name || "Case",
 			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 		})),

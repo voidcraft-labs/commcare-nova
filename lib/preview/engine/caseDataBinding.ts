@@ -52,6 +52,10 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import {
+	extractLookupReferenceOccurrences,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+} from "@/lib/doc/lookupReferences";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -78,6 +82,7 @@ import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { projectSearchOf, searchOwnerOverride } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
+import { getLookupFixtureData } from "@/lib/lookup/service";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	type CaseListSortChoice,
@@ -158,6 +163,14 @@ import {
 } from "./runtimeBindings";
 import { matchesSavedSearchRanges } from "./savedSearchRanges";
 import {
+	type ClaimPriorSelection,
+	claimPriorSelectionsSchema,
+	SearchChoiceUnavailable,
+	type SearchClaimSource,
+	searchClaimMemberships,
+	searchClaimSourceSchema,
+} from "./searchClaimSelection";
+import {
 	parseChosenCaseIds,
 	parseSearchCsqlRuntimeWire,
 	SEARCH_CSQL_UNEVALUATED_MESSAGE,
@@ -177,6 +190,7 @@ import {
 } from "./searchInputValidation";
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
 import { serverPreviewDataRefusalOf } from "./serverDataRefusal";
+import type { ServerSearchWorld } from "./serverSearchRead";
 import { verifyFormOpening } from "./signedFormOpening";
 import type { ViewerLocation } from "./viewerLocation";
 import { workerLocationFixture } from "./workerLocationFixture";
@@ -777,7 +791,11 @@ async function prepareRunningCaseRead(
 							inputValues,
 							csqlRuntime?.filterValues,
 							device.searchConfiguration,
-							{ doc: environment.doc, caseType: args.caseType },
+							{
+								doc: environment.doc,
+								caseType: args.caseType,
+								moduleUuid: environment.moduleUuid,
+							},
 							args.defaultSearch === true,
 						)
 					: undefined,
@@ -1058,7 +1076,7 @@ export async function countCasesOwnedByAction(args: {
 }
 
 const CLAIM_CASE_GONE_MESSAGE =
-	"This case was removed from the app's case data, so it can't be opened. You can search again to see what's there now.";
+	"This case is no longer available from this search. Search again to see the records you can open.";
 const CLAIM_REFUSED_MESSAGE = "Couldn't open this case. Try again in a moment.";
 const CLAIM_RELEASE_REFUSED_MESSAGE =
 	"Couldn't release the claimed cases. Try again in a moment.";
@@ -1085,9 +1103,11 @@ function claimAccessRefusal(
 /* The claim actions' plain JSON arguments (a Map, Set or File would make
  * React encode multipart). The store checks the ids' bounds
  * (`ClaimCasesInputError`) and the device its shape (`previewDeviceInput`). */
-const claimSearchedCasesArgs = z.object({
+const claimSearchedCasesArgs = z.strictObject({
 	appId: z.string().min(1),
-	caseIds: z.array(z.string()),
+	caseIds: z.array(z.string().min(1).max(255)).min(1).max(1000),
+	sources: z.array(searchClaimSourceSchema).min(1).max(100),
+	prior: claimPriorSelectionsSchema.max(100),
 	personaUuid: z.string().optional(),
 	device: z.unknown().optional(),
 });
@@ -1108,24 +1128,93 @@ const workerClaimsArgs = z.object({
 export async function claimSearchedCasesAction(args: {
 	appId: string;
 	caseIds: readonly string[];
+	sources?: readonly SearchClaimSource[];
+	prior?: readonly ClaimPriorSelection[];
 	personaUuid?: string;
 	device?: PreviewDevice;
 }): Promise<ClaimSearchedCasesResult> {
 	try {
-		const parsed = claimSearchedCasesArgs.parse(args);
+		const input = claimSearchedCasesArgs.safeParse(args);
+		if (!input.success) throw new SearchChoiceUnavailable();
+		const parsed = input.data;
 		const context = await resolveAuthorizedPreviewContext({
 			appId: parsed.appId,
 			personaUuid: parsed.personaUuid,
 			required: "view",
 			device: parsed.device,
+			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
+		if (!context.blueprint || context.baseSeq === undefined)
+			throw new SearchChoiceUnavailable();
+		const doc = hydratePersistedBlueprint(context.blueprint);
+		const localization = effectiveAppLocalization(doc.localization);
+		const language = localization.languageOrder.find(
+			(tag) => localization.wireCodes[tag] === context.device.appLanguage,
+		);
+		if (!language) throw new SearchChoiceUnavailable();
+		const menus = new Set(
+			[...parsed.sources, ...parsed.prior].map((source) => source.moduleUuid),
+		);
+		const tableIds = new Set(
+			extractLookupReferenceOccurrences(
+				doc,
+				PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+			)
+				.filter(
+					(occurrence) =>
+						occurrence.location.scope === "module" &&
+						menus.has(occurrence.carrierUuid),
+				)
+				.map((occurrence) => occurrence.tableId),
+		);
+		const snapshot = await context.store.readDeviceCaseDatabase({
+			appId: parsed.appId,
+			restoreScope: context.restoreScope,
+		});
+		const world: ServerSearchWorld = {
+			doc: { ...doc, caseTypes: doc.caseTypes ?? [] },
+			language,
+			appId: parsed.appId,
+			projectId: context.scope.projectId,
+			identity: context.identity,
+			device: context.device,
+			deviceCases: {
+				...snapshot,
+				locations: await workerLocationFixture(
+					parsed.appId,
+					doc,
+					context.identity.personaUuid,
+				),
+			},
+			lookup: tableIds.size
+				? await getLookupFixtureData(context.scope, [...tableIds])
+				: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+			caseTypeSchemas: buildCaseTypeMap(doc),
+			timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+			restoreScope: context.restoreScope,
+			selections: {},
+		};
+		const fromSearches = await searchClaimMemberships(
+			world,
+			parsed.sources,
+			parsed.prior,
+		);
 		const { created, alreadyClaimed } = await context.store.claimCases({
 			appId: parsed.appId,
 			caseIds: parsed.caseIds,
+			fromSearches,
+			expectedAppMutationSeq: context.baseSeq,
 		});
 		return { kind: "claimed", created, alreadyClaimed };
 	} catch (err) {
+		const refusal = serverPreviewDataRefusalOf(err);
+		if (refusal) return { kind: "refused", message: refusal.message };
+		if (
+			err instanceof SearchChoiceUnavailable ||
+			err instanceof CaseSearchUnavailableError
+		)
+			return { kind: "refused", message: err.message };
 		if (err instanceof CaseNotFoundError)
 			return { kind: "case-gone", message: CLAIM_CASE_GONE_MESSAGE };
 		if (err instanceof AppAccessError)

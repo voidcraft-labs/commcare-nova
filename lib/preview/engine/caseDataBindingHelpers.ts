@@ -393,6 +393,7 @@ function caseReadCore(
 	return {
 		appId: args.appId,
 		caseType: args.caseType,
+		additionalCaseTypes: args.caseListConfig?.additionalCaseTypes,
 		reading: args.reading,
 		caseIds: args.caseIds,
 		parentCases: args.parentCase,
@@ -2776,6 +2777,7 @@ function committedSelection(
 		kind: form.type,
 		caseIds: mutation.caseIds,
 		caseType,
+		additionalCaseTypes: menu?.caseListConfig?.additionalCaseTypes,
 		selection:
 			caseSelectionCardinality(menu ?? {}) === "multiple"
 				? {

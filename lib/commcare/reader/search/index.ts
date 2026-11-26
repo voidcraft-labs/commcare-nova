@@ -13,6 +13,7 @@ import {
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
@@ -188,7 +189,23 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}an-x-commcare-custom-related-case-property-entry-together-with`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
-	caseTypeKey: refuse(
+	requestRelatedProperty: take(
+		`${S}default-related-record-id-property`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	requestRelatedPropertyValue: take(
+		`${S}default-related-record-id-property`,
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	requestRelatedRecords: take(
+		`${S}default-related-record-inclusion`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	requestTypeValue: take(
+		`${S}default-properties-entry-keyed-case-type`,
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	caseTypeKey: take(
 		`${S}default-properties-entry-keyed-case-type`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
@@ -313,7 +330,12 @@ function keyFinding(
 		return C.relatedTwice;
 	if (key === "commcare_blacklisted_owner_ids")
 		return ownersExpression ? C.ownersTwice : undefined;
-	if (key === "case_type") return C.caseTypeKey;
+	if (
+		key === "case_type" ||
+		key === "x_commcare_include_all_related_cases" ||
+		key === "x_commcare_custom_related_case_property"
+	)
+		return undefined;
 	if (key === "x_commcare_endpoint_id") return C.endpointKey;
 	if (key === "x_commcare_data_registry") return C.registryKey;
 	if (key === "commcare_sort" || key.startsWith("x_commcare_"))
@@ -331,6 +353,8 @@ function readDefaultFilters(
 	ok: boolean;
 	rows: SearchRow[];
 	filters: SearchFilter[];
+	requestTypes: string[];
+	relatedIdProperty?: string;
 	/** Each key a default filter other than a row names, with the pointer of each such filter's
 	 *  `property`. */
 	names: Map<string, string[]>;
@@ -365,6 +389,8 @@ function readDefaultFilters(
 	);
 	const relatedPropertySet = holdsText(cursor, "custom_related_case_property");
 	const rows: SearchRow[] = [];
+	const requestTypes: string[] = [];
+	let relatedIdProperty: string | undefined;
 	const names = new Map<string, string[]>();
 	const addName = (property: string, row: JsonCursor) =>
 		names.set(property, [
@@ -448,6 +474,61 @@ function readDefaultFilters(
 				? C.sortReserved
 				: keyFinding(property, value, ownersExpression, relatedPropertySet);
 			if (claim === undefined) {
+				if (
+					property === "case_type" ||
+					property === "x_commcare_custom_related_case_property"
+				) {
+					const parsed = readFormSyntax(value);
+					const name =
+						parsed.ok && parsed.node?.kind === "string"
+							? parsed.node.value
+							: undefined;
+					const match =
+						property === "case_type" ? C.caseTypeKey : C.requestRelatedProperty;
+					const valid =
+						name !== undefined &&
+						(property === "case_type"
+							? CASE_TYPE_PATTERN.test(name)
+							: authoredCasePropertyNameSchema.safeParse(name).success &&
+								relatedIdProperty === undefined);
+					if (!valid || name === undefined) {
+						accounting.circumstance("unrecognized", row.place, {
+							name: "schema:DefaultCaseSearchProperty.defaultValue",
+						});
+						ok = false;
+						return;
+					}
+					row.take("property", match, String).value;
+					row.take(
+						"defaultValue",
+						property === "case_type"
+							? C.requestTypeValue
+							: C.requestRelatedPropertyValue,
+						String,
+					).value;
+					const occurrence = names.get(property)?.length ?? 0;
+					addName(property, row);
+					const uuid = accounting.identity(
+						ctx.identities.claim(
+							externalKey.searchFilter(module.uniqueId, property, occurrence),
+							`${module.uniqueId}/search/filter/${index}`,
+						),
+						row.place,
+						"schema:DefaultCaseSearchProperty.property",
+					);
+					if (uuid === undefined) {
+						ok = false;
+						return;
+					}
+					if (property === "case_type") {
+						requestTypes.push(name);
+						filters.push({ uuid, kind: "request-record-type", caseType: name });
+					} else {
+						relatedIdProperty = name;
+						filters.push({ uuid, kind: "related-record-id", property: name });
+					}
+					return;
+				}
 				const target = readSearchFilterTarget(property);
 				const occurrence = names.get(property)?.length ?? 0;
 				addName(property, row);
@@ -467,13 +548,15 @@ function readDefaultFilters(
 				const claim =
 					target.kind === "excluded-owners"
 						? C.ownersKey
-						: "ancestors" in target && target.ancestors
-							? C.ancestorKey
-							: target.kind === "record-name" ||
-									target.kind === "attribute" ||
-									target.kind === "property"
-								? C.plainKey
-								: C.projectKey;
+						: target.kind === "include-related-records"
+							? C.requestRelatedRecords
+							: "ancestors" in target && target.ancestors
+								? C.ancestorKey
+								: target.kind === "record-name" ||
+										target.kind === "attribute" ||
+										target.kind === "property"
+									? C.plainKey
+									: C.projectKey;
 				row.take("property", claim, String).value;
 				if (property === "owner_id")
 					accounting.claimEntry(
@@ -556,7 +639,16 @@ function readDefaultFilters(
 			);
 		rows.push({ index, text: value, cursor: row });
 	});
-	return { ok, rows, filters, names, zeroInput, markersOnly };
+	return {
+		ok,
+		rows,
+		filters,
+		requestTypes,
+		relatedIdProperty,
+		names,
+		zeroInput,
+		markersOnly,
+	};
 }
 
 /** A row's `parent` link in the catalog, where the child has no parent there: both types named,
@@ -724,6 +816,7 @@ function readProjectSearch(
 		rows: [],
 		names,
 		filters: [],
+		requestTypes: [],
 		zeroInput: false,
 		markersOnly: false,
 	};
@@ -805,11 +898,15 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		// A property the search's rows read, and a simple Search field's, is a property of the
 		// catalog, as every expression's is. A record attribute an order names (`@case_type`,
 		// `@status`) is the record's own, never a property (`requestOrder.ts::ATTRIBUTE_KEYS`).
+		const propertySource =
+			filters.relatedIdProperty ?? cursor.peek("custom_related_case_property");
 		const properties = [
 			...filters.filters.flatMap((row) =>
 				"order" in row
 					? row.order.map((term) => term.property)
-					: row.target.kind === "property" && !row.target.ancestors
+					: "target" in row &&
+							row.target.kind === "property" &&
+							!row.target.ancestors
 						? [row.target.property]
 						: [],
 			),
@@ -848,11 +945,42 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				(one) => one.links.length > 0 || one.properties.length > 0,
 			) ||
 			properties.length > 0 ||
-			holeReads.length > 0;
+			(typeof propertySource === "string" && propertySource !== "") ||
+			holeReads.length > 0 ||
+			filters.requestTypes.length > 0;
 		if (related && app.caseTypes != null)
 			ctx.writeDraft(() => {
 				app.caseTypes = produce(app.caseTypes ?? [], (draft) => {
 					const told = ctx.input.knownCaseTypes;
+					for (const name of filters.requestTypes) {
+						if (
+							!draft.some((type) => type.name === name) &&
+							name !== USERCASE_CASE_TYPE
+						)
+							draft.push({ name, properties: [] });
+					}
+					if (
+						typeof propertySource === "string" &&
+						authoredCasePropertyNameSchema.safeParse(propertySource).success
+					) {
+						const extras = cursor.peek("additional_case_types");
+						const requested = new Set([
+							caseType,
+							...filters.requestTypes,
+							...(Array.isArray(extras) ? extras : []),
+						]);
+						if (
+							!draft.some(
+								(type) =>
+									requested.has(type.name) &&
+									type.properties.some(
+										(property) => property.name === propertySource,
+									),
+							)
+						) {
+							noteProperty(draft, caseType, propertySource, told);
+						}
+					}
 					for (const property of properties)
 						noteProperty(draft, caseType, property, told);
 					for (const { links, properties: reads } of relations) {

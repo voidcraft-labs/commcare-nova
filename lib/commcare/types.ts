@@ -559,6 +559,8 @@ export interface CaseSearchConfig<XPath = string> {
 	search_on_clear?: true;
 	inline_search: boolean;
 	include_all_related_cases: boolean;
+	additional_case_types?: string[];
+	custom_related_case_property?: string;
 	search_button_display_condition?: XPath;
 	default_properties: DefaultCaseSearchProperty<XPath>[];
 	blacklisted_owner_ids_expression?: XPath;

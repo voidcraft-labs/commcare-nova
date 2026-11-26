@@ -1,4 +1,5 @@
 import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
+import { moduleCaseProperties } from "./moduleCaseProperties";
 /**
  * Reference-index construction, per-mutation maintenance, and queries —
  * the machinery behind `BlueprintDoc.refIndex`
@@ -1095,6 +1096,13 @@ function extractModuleEdges(
 				const _exhaustive: never = slot;
 				break;
 			}
+		}
+	}
+	for (const property of moduleCaseProperties(doc, mod)) {
+		for (const type of property.types) {
+			sink.edge(casePropertyTargetKey(type, property.name), property.slot);
+			if (property.throughRelation)
+				sink.edge(caseTypeTargetKey(type), property.slot);
 		}
 	}
 }

@@ -684,6 +684,7 @@ function selectableDatums(
 			caseType: selectedModule.caseType,
 			moduleIndex,
 			caseListFilter: detail.caseListConfig?.filter,
+			additionalCaseTypes: detail.caseListConfig?.additionalCaseTypes,
 			excludedOwnerIds: detail.caseSearchConfig?.excludedOwnerIds,
 			expressions: moduleExpressionContexts(doc, detail.uuid, ctx.lookupNaming),
 			lookupNaming: ctx.lookupNaming,

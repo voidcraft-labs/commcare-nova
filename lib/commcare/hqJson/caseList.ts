@@ -159,7 +159,7 @@ import {
 	projectSearchValues,
 	requiredProjectSearchId,
 } from "../suite/case-search/projectSearch";
-import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
+import { includeSearchHierarchy } from "../suite/case-search/relatedCaseProjection";
 import { projectRequestOrder } from "../suite/case-search/requestOrder";
 import {
 	type RuntimeCsqlPromptValidation,
@@ -1163,6 +1163,10 @@ function buildSearchConfigDocument(
 	// upstream default change is a one-edit fix).
 	const config = caseSearchConfigShell(localization.languages, runsInWebApps);
 	if (searchResultsName !== undefined) config.instance_name = searchResultsName;
+	if (caseListConfig?.additionalCaseTypes?.length)
+		config.additional_case_types = [
+			...caseListConfig.additionalCaseTypes,
+		].sort();
 	const wire =
 		caseSearchConfig === undefined
 			? undefined
@@ -1295,6 +1299,10 @@ function buildSearchConfigDocument(
 		);
 		// A search with no input and no clause carries the zero-input
 		// sentinel, as the local suite's query does.
+		if (caseSearchConfig?.relatedRecordIdProperty) {
+			config.custom_related_case_property =
+				caseSearchConfig.relatedRecordIdProperty;
+		}
 		config.default_properties = [
 			...(caseListConfig.searchFilters ?? [])
 				.filter((row) => !isDedicatedOwnerFilter(row))
@@ -1334,9 +1342,10 @@ function buildSearchConfigDocument(
 		caseListConfig !== undefined &&
 		!caseSearchConfig?.projectSearch
 	) {
-		config.include_all_related_cases = searchNeedsSupportingCases(
+		config.include_all_related_cases = includeSearchHierarchy(
 			caseListConfig,
 			expressions,
+			caseSearchConfig?.relatedRecords,
 		);
 	}
 

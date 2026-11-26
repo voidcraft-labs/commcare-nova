@@ -59,6 +59,7 @@ import {
 	AddInformationControl,
 	DisplayFieldComposer,
 } from "./DisplayFieldComposer";
+import { MenuRecordTypes } from "./MenuRecordTypes";
 import { ParentCaseSelectionSetting } from "./ParentCaseSelectionSetting";
 import { RegisterFromListSetting } from "./RegisterFromListSetting";
 
@@ -198,6 +199,7 @@ export function CaseListCanvas({
 				</header>
 
 				<div className="space-y-10">
+					<MenuRecordTypes moduleUuid={moduleUuid} />
 					<ParentCaseSelectionSetting moduleUuid={moduleUuid} />
 					<CaseSelectionSetting
 						value={config.selection}

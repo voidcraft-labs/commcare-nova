@@ -409,7 +409,11 @@ function summarizeCaseList(mod: Module): string | undefined {
 				`        - ${filter.uuid}: ${
 					"target" in filter
 						? searchFilterTargetText(filter.target)
-						: `order ${filter.order.map(orderTermText).join(", then ")}`
+						: filter.kind === "order"
+							? `order ${filter.order.map(orderTermText).join(", then ")}`
+							: filter.kind === "request-record-type"
+								? `request records of type ${filter.caseType}`
+								: `follow the record ID in ${filter.property}`
 				}`,
 			);
 	}
@@ -444,6 +448,8 @@ function searchFilterTargetText(target: SearchFilterTarget): string {
 				: "owners left out of the online matches (default filter)";
 		case "project-space":
 			return "the project space";
+		case "include-related-records":
+			return "include related records when the result is nonempty";
 		case "link":
 			return `the record linked as ${target.identifier}`;
 	}

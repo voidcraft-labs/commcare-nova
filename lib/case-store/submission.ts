@@ -66,8 +66,10 @@ export type OrdinarySubmissionAction =
 			readonly selection:
 				| { readonly kind: "single"; readonly maximum: 1 }
 				| { readonly kind: "multiple"; readonly maximum: number };
-			/** The module case type every selected case must hold. */
+			/** The primary type of the selecting menu. */
 			readonly caseType: string;
+			/** Other types selectable under the committed menu contract. */
+			readonly additionalCaseTypes?: readonly string[];
 	  }
 	| { readonly kind: "none" };
 

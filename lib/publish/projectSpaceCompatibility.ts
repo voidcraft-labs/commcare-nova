@@ -19,6 +19,7 @@ export type ProjectSpaceCapabilityId =
 	| "attachment-links"
 	| "registration-after-empty-search"
 	| "project-search"
+	| "mixed-record-case-lists"
 	| "multi-select-case-lists"
 	| "related-case-search"
 	| "case-tiles"
@@ -84,6 +85,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Search supplied by the project space",
 		description:
 			"Lets workers search using a service managed by this project space.",
+	},
+	"mixed-record-case-lists": {
+		id: "mixed-record-case-lists",
+		label: "Several record types in one list",
+		description:
+			"Lets workers choose from more than one kind of record in the same list.",
 	},
 	"multi-select-case-lists": {
 		id: "multi-select-case-lists",
@@ -473,6 +480,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"attachment-links",
 	"registration-after-empty-search",
 	"project-search",
+	"mixed-record-case-lists",
 	"multi-select-case-lists",
 	"related-case-search",
 	"case-tiles",

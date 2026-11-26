@@ -12,6 +12,7 @@
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
 import {
@@ -24,6 +25,7 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import { SEARCH_RESULTS_CAP } from "@/lib/commcare/session";
 import type { CaseType } from "@/lib/domain";
+import { caseClaimCaseType } from "@/lib/domain/caseClaim";
 import {
 	eq,
 	gt,
@@ -37,6 +39,7 @@ import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { readCases } from "../caseDataBindingHelpers";
+import { completedSearchRequest } from "../completedSearchRequest";
 import { readSearchResultsSnapshot } from "../searchResultsSnapshot";
 
 const APP_ID = "app-search-results";
@@ -668,5 +671,256 @@ describe("a completed search's snapshot", () => {
 	it("is empty for a search that finds nothing", async () => {
 		const snapshot = await readSearchResultsSnapshot(storeAs(WORKER), SEARCH);
 		expect(snapshot).toEqual({ rows: [], totalMatches: 0 });
+	});
+	it("keeps request-only primary records, dynamically related records and the terminal of a closed path distinct", async () => {
+		const store = storeAs(WORKER);
+		const rows = [
+			["patient-a", "patient", "open", "care-a"],
+			["house-a", "household", "open", null],
+			["file-a", "document", "open", null],
+			["care-a", "episode", "closed", null],
+			["middle", "group", "closed", null],
+			["last", "region", "closed", null],
+			["child", "visit", "closed", null],
+			["non-parent", "visit", "open", null],
+			["second-child", "task", "closed", null],
+			["ignored-child", "note", "closed", null],
+		] as const;
+		for (const [id, type, status, source] of rows) {
+			await sql`insert into cases(app_id, project_id, case_id, case_type, status, properties)
+				values (${APP_ID},${PROJECT},${id},${type},${status},${JSON.stringify(source ? { care_record: source } : {})}::jsonb)`.execute(
+				dbHandle.db,
+			);
+		}
+		// A malformed imported edge can point to a different Project; membership
+		// and each target hop use the authorized app and Project.
+		await sql`insert into cases(app_id,project_id,case_id,case_type,status)
+			values (${APP_ID},'elsewhere','private','visit','open')`.execute(
+			dbHandle.db,
+		);
+		for (const [child, ancestor, name, type] of [
+			["care-a", "middle", "parent", "group"],
+			["middle", "last", "parent", "region"],
+			["child", "care-a", "parent", "episode"],
+			["second-child", "patient-a", "parent", "patient"],
+			["ignored-child", "patient-a", "parent", "patient"],
+			["non-parent", "care-a", "mentor", "episode"],
+			["private", "patient-a", "parent", "patient"],
+		]) {
+			await sql`insert into case_indices(case_id,ancestor_id,identifier,depth,relationship,target_case_type)
+				values (${child},${ancestor},${name},1,'child',${type})`.execute(
+				dbHandle.db,
+			);
+		}
+		const parentColumn = caseListConfig([
+			{ field: "case_name", header: "Region" },
+		]);
+		parentColumn.columns[0] = {
+			...parentColumn.columns[0],
+			kind: "plain",
+			field: "case_name",
+			via: [{ identifier: "parent" }, { identifier: "parent" }],
+		};
+		const explicit = caseListConfig([
+			{ field: "case_name", header: "Details" },
+		]);
+		explicit.detailTabs = [
+			{
+				uuid: testUuid("closed-detail"),
+				title: "Nearby records",
+				startColumnUuid: explicit.detailColumnOrder[0],
+				displayCondition: eq(literal(1), literal(2)),
+				rowSource: {
+					kind: "records",
+					rows: {
+						kind: "cases",
+						source: "casedb",
+						where: [
+							eq(
+								{ kind: "case-row-type" },
+								{ kind: "case-type", caseType: "patient" },
+							),
+						],
+					},
+					includeChildrenOfType: "visit",
+				},
+			},
+		];
+		const second = caseListConfig([{ field: "case_name", header: "Tasks" }]);
+		second.detailTabs = [
+			{
+				uuid: testUuid("tasks"),
+				title: "Tasks",
+				startColumnUuid: second.detailColumnOrder[0],
+				rowSource: { kind: "children", caseType: "task" },
+			},
+		];
+		const disabled = caseListConfig([{ field: "case_name", header: "Notes" }]);
+		disabled.detailTabs = [
+			{
+				uuid: testUuid("notes"),
+				title: "Notes",
+				startColumnUuid: disabled.detailColumnOrder[0],
+				rowSource: { kind: "children", caseType: "note" },
+			},
+		];
+		const primary = caseListConfig([{ field: "case_name", header: "Name" }]);
+		primary.additionalCaseTypes = ["household"];
+		primary.searchFilters = [
+			{
+				uuid: testUuid("requested"),
+				kind: "request-record-type",
+				caseType: "document",
+			},
+		];
+		const doc = buildDoc({
+			caseTypes: [
+				PATIENT,
+				HOUSEHOLD,
+				...[
+					"document",
+					"episode",
+					"group",
+					"region",
+					"visit",
+					"task",
+					"note",
+				].map((name) => ({ name, properties: [] })),
+			],
+			modules: [
+				{
+					name: "Find records",
+					caseType: "patient",
+					caseListConfig: primary,
+					caseSearchConfig: {
+						relatedRecordIdProperty: "care_record",
+						relatedRecords: "details",
+					},
+					forms: [],
+				},
+				{
+					name: "Related information",
+					caseType: "patient",
+					caseListConfig: parentColumn,
+					caseSearchConfig: {},
+					forms: [],
+				},
+				{
+					name: "Nearby",
+					caseType: "household",
+					caseListConfig: explicit,
+					caseSearchConfig: {},
+					forms: [],
+				},
+				{
+					name: "Other tasks",
+					caseType: "document",
+					caseListConfig: second,
+					caseSearchConfig: {},
+					forms: [],
+				},
+				{
+					name: "Notes on device",
+					caseType: "patient",
+					caseListConfig: disabled,
+					forms: [],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const projected = completedSearchRequest(
+			doc.modules[moduleUuid],
+			undefined,
+			undefined,
+			{},
+			{ doc, moduleUuid, caseType: "patient" },
+		);
+		const request = { ...projected, configuration: undefined };
+		const args = {
+			...SEARCH,
+			caseListConfig: primary,
+			additionalCaseTypes: primary.additionalCaseTypes,
+			searchPopulation: { ...SEARCH.searchPopulation, request },
+		};
+		const fixture = await readSearchResultsSnapshot(store, args);
+		expect(fixture.totalMatches).toBe(3);
+		expect(
+			fixture.rows
+				.filter((row) => row.properties.commcare_is_related_case !== "true")
+				.map((row) => [row.case_id, row.case_type]),
+		).toEqual([
+			["file-a", "document"],
+			["house-a", "household"],
+			["patient-a", "patient"],
+		]);
+		expect(
+			fixture.rows
+				.filter((row) => row.properties.commcare_is_related_case === "true")
+				.map((row) => [row.case_id, row.status])
+				.sort(),
+		).toEqual([
+			["care-a", "closed"],
+			["child", "closed"],
+			["last", "closed"],
+			["second-child", "closed"],
+		]);
+		const page = await store.querySearchResults(args);
+		expect(page.primaryCount).toBe(3);
+		expect(page.totalRows).toBe(2);
+		expect(page.rows.map((row) => row.case_id).sort()).toEqual([
+			"house-a",
+			"patient-a",
+		]);
+		const claimType = caseClaimCaseType();
+		const schemas = buildCaseTypeMap(doc);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: claimType.name,
+			caseTypeSchemas: new Map([...schemas, [claimType.name, claimType]]),
+		});
+		for (const unavailable of [
+			"file-a",
+			"care-a",
+			"child",
+			"middle",
+			"private",
+		]) {
+			const ids = ["house-a", unavailable];
+			await expect(
+				store.claimCases({
+					appId: APP_ID,
+					caseIds: ids,
+					fromSearches: [{ caseIds: ids, query: args }],
+				}),
+			).rejects.toMatchObject({ name: "CaseNotFoundError" });
+			expect(await store.countClaims({ appId: APP_ID })).toBe(0);
+		}
+		await expect(
+			store.claimCases({
+				appId: APP_ID,
+				caseIds: ["house-a"],
+				fromSearches: [{ caseIds: ["house-a"], query: args }],
+			}),
+		).resolves.toMatchObject({ created: ["house-a"] });
+		const prefix = await store.readSearchResultInstance({
+			...args,
+			searchPopulation: {
+				...args.searchPopulation,
+				request: {
+					...request,
+					relatedPaths: [["parent", "parent"], ["parent"]],
+				},
+			},
+		});
+		expect(prefix.rows.map((row) => row.case_id).sort()).toEqual([
+			"care-a",
+			"child",
+			"file-a",
+			"house-a",
+			"last",
+			"middle",
+			"patient-a",
+			"second-child",
+		]);
 	});
 });
