@@ -412,7 +412,7 @@ export interface HqFormPlace {
  * - `moduleLayout`: a menu's own display style (`display_style`, the menu
  *   settings page's Menu Display, shown where the app's form menus are set
  *   per menu), posted to `views/modules.py::edit_module_attr`;
- * - `moduleDetail`: a column added at the end of a menu's case list, posted
+ * - `moduleDetail`: columns added at the end of a menu's case list, posted
  *   as the Case List page posts its columns
  *   (`views/modules.py::edit_module_detail_screens`, `type` `case`, every
  *   column and the list's own settings as HQ holds them, then `column`);
@@ -456,8 +456,8 @@ export interface HqSideContentSaves {
 	};
 	readonly moduleDetail?: {
 		readonly module: number;
-		/** The column as the Case List page posts it, every key HQ stores of it. */
-		readonly column: Readonly<Record<string, unknown>>;
+		/** The added columns as the Case List page posts them, with every key HQ stores. */
+		readonly columns: readonly Readonly<Record<string, unknown>>[];
 	};
 	readonly formsAddedAndRemoved?: {
 		readonly module: number;

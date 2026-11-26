@@ -870,7 +870,7 @@ function moved<T>(items: readonly T[], from: number, to: number): T[] {
  *   (`edit_module_attr`, `name`, under the `lang` cookie HQ's pages set);
  * - `moduleLayout`: the menu's `display_style` as posted
  *   (`edit_module_attr`, `display_style`);
- * - `moduleDetail`: the column appended to the menu's short details
+ * - `moduleDetail`: the columns appended to the menu's short details
  *   (`_update_short_details`, `DetailColumn.from_json` of a column that
  *   names every key HQ stores of one);
  * - `formsAddedAndRemoved`: the form removed from its menu, its source kept
@@ -966,7 +966,7 @@ export function sourceAfterContentSaves(
 			...details,
 			short: {
 				...short,
-				columns: [...columns, structuredClone(saves.moduleDetail.column)],
+				columns: [...columns, ...structuredClone(saves.moduleDetail.columns)],
 			},
 		};
 	}

@@ -36,6 +36,7 @@ DOCUMENTS = (
     "targeted-forms-in-menu-above-one-case",
     "targeted-case-choice-values",
     "targeted-case-map",
+    "targeted-reached-choice-columns",
     "targeted-relative-case-dates",
     "targeted-hidden-column",
     "targeted-independent-case-order",

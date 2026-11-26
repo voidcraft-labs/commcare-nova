@@ -60,7 +60,7 @@ or form named by its place in the app HQ holds:
   as the ``case_mapping_diff``);
 - ``moduleAttribute``: the menu's name posted to ``views/modules.py::edit_module_attr``;
 - ``moduleLayout``: the menu's own Menu Display (``display_style``) posted to the same view;
-- ``moduleDetail``: the Case List page's save of its columns with one added at the end
+- ``moduleDetail``: the Case List page's save of its columns with new columns added at the end
   (``views/modules.py::edit_module_detail_screens``), the list's own settings posted as HQ holds them;
 - ``formsAddedAndRemoved``: a form deleted (``views/forms.py::delete_form``), a survey added
   (``views/forms.py::new_form``) and its questions saved through ``patch_xform``;
@@ -574,14 +574,14 @@ def module_layout(unit, app_id, value):
 
 
 def module_detail(unit, app_id, value):
-    """A column added at the end of a menu's case list, posted as the Case List page posts its columns
+    """Columns added at the end of a menu's case list, posted as the Case List page posts its columns
     (``views/modules.py::edit_module_detail_screens``): ``type`` ``case``, every column HQ holds then the new one,
     and the list's own settings as HQ holds them, which ``_update_short_details`` sets from every post that names
     columns."""
     app = _operations().held_app(unit, app_id)
     module = app.get_module(value["module"])
     short = module.case_details.short
-    columns = [column.to_json() for column in short.columns] + [value["column"]]
+    columns = [column.to_json() for column in short.columns] + value["columns"]
     body, content_type = _form_body(
         [
             ("type", json.dumps("case")),
