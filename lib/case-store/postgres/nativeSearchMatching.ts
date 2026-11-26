@@ -9,6 +9,7 @@ import {
 	type FuzzyScope,
 } from "../sql/certifiedFuzzyMatch";
 import {
+	caseHasNoUndismissedParkedValues,
 	compileRelationPath,
 	relationPathContextFrom,
 } from "../sql/compileRelationPath";
@@ -118,6 +119,7 @@ function missingParent(
 				select 1 from cases as parent
 				where parent.case_id = edge.ancestor_id
 					and parent.app_id = ${ctx.appId} and parent.project_id = ${ctx.projectId}
+					and ${caseHasNoUndismissedParkedValues(sql.ref("parent.case_id"))}
 			)
 	)`;
 }
@@ -130,6 +132,7 @@ function unresolvedParentPath(ctx: PredicateCompileContext, hops: number) {
 		select 1 from case_indices as first
 		join cases as middle on middle.case_id = first.ancestor_id
 			and middle.app_id = ${ctx.appId} and middle.project_id = ${ctx.projectId}
+			and ${caseHasNoUndismissedParkedValues(sql.ref("middle.case_id"))}
 		where first.case_id = ${candidateId} and first.depth = 1 and first.identifier = 'parent'
 			and ${missingParent(ctx, sql.ref("middle.case_id"))}
 	))`;

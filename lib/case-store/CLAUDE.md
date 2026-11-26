@@ -777,9 +777,9 @@ converges concurrent edits via the same monotone gate.
 Preview uses the exact parent-property request key to choose the destination's
 confirmed ignore-text rule, before matching parent values in the authorized
 app and Project. A candidate without the required parent edges is a known miss.
-An edge at either hop to a record absent from the app cannot certify a miss, so the same transaction that
-selects the matches reports it as unavailable if the other filters still allow
-that candidate. HQ caps terminal matches at 500,000 and uses a 1,000,000-result
+An edge at either hop to a missing record or one with undismissed parked
+values leaves the match uncertain. The search transaction reports it as
+unavailable if the other filters still allow that candidate. HQ caps terminal matches at 500,000 and uses a 1,000,000-result
 window for an intermediate reverse lookup. Preview checks both boundaries
 before selecting primary hits and refuses to certify a truncated intermediate
 set. Preview cannot certify the parent vocabulary for fuzzy

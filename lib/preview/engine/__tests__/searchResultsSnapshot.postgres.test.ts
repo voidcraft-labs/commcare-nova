@@ -98,6 +98,19 @@ function patient(caseId: string, status = "open", parent?: string) {
 	};
 }
 
+async function parkHouseholdVillage(caseId: string) {
+	await sql`insert into parked_case_values
+		(app_id, case_id, case_type, property, original_value, reason, from_type, to_type)
+		values (${APP_ID}, ${caseId}, 'household', 'village', '"Old value"'::jsonb, 'schema change', 'text', 'select-one')`.execute(
+		dbHandle.db,
+	);
+}
+
+async function dismissHouseholdPark(caseId: string) {
+	await sql`update parked_case_values set dismissed_at = now()
+		where app_id = ${APP_ID} and case_id = ${caseId}`.execute(dbHandle.db);
+}
+
 beforeEach(async () => {
 	await sql`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
@@ -586,6 +599,14 @@ describe("a completed search's snapshot", () => {
 			reason: { kind: "parent-fuzzy-unavailable", field: "Parent village" },
 		});
 		fuzzy = false;
+		await parkHouseholdVillage("target-house");
+		await expect(read("Dyer's crossing")).rejects.toMatchObject({
+			reason: { kind: "parent-value-unavailable", field: "Parent village" },
+		});
+		await dismissHouseholdPark("target-house");
+		expect(
+			(await read("Dyer's crossing")).rows.map((row) => row.case_id),
+		).toEqual(["linked"]);
 		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
 			values ('unlinked', 'unresolved-house', 'parent', 1, 'child', 'household')`.execute(
 			dbHandle.db,
@@ -674,6 +695,20 @@ describe("a completed search's snapshot", () => {
 				field: "Grandparent village",
 			},
 		};
+		await parkHouseholdVillage("matching-middle");
+		await expect(read("North")).rejects.toMatchObject(unavailable);
+		await dismissHouseholdPark("matching-middle");
+		expect((await read("North")).rows.map((row) => row.case_id)).toEqual([
+			"nested",
+		]);
+
+		await parkHouseholdVillage("target-house");
+		await expect(read("North")).rejects.toMatchObject(unavailable);
+		await dismissHouseholdPark("target-house");
+		expect((await read("North")).rows.map((row) => row.case_id)).toEqual([
+			"nested",
+		]);
+
 		await edge("unlinked", "unknown-first");
 		await expect(read("North")).rejects.toMatchObject(unavailable);
 		await sql`delete from case_indices where case_id = 'unlinked' and ancestor_id = 'unknown-first'`.execute(
