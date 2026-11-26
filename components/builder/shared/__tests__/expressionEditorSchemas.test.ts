@@ -24,19 +24,24 @@ import { defaultExpressionForSlot } from "../primitives/ExpressionPicker";
 
 describe("expression contextual authorability", () => {
 	it("offers the source row position only where a form choice filter reads its candidate", () => {
-		const source = slotContext(caseChoiceDoc(), {
-			entity: "field",
-			uuid: choiceUuid("members"),
-			slot: "lookup_options_source",
-		});
+		const source = slotContext(
+			caseChoiceDoc(),
+			{
+				entity: "field",
+				uuid: choiceUuid("members"),
+				slot: "lookup_options_source",
+			},
+			new Map(),
+		);
 		if (source === undefined || source.rows[0] === undefined)
 			throw new Error("Expected the member choice filter.");
 		const nested = pushRowScope(source, source.rows[0]);
 		const position = expressionCardSchemas.call.defaultValue({
+			...context,
 			expressionContext: source,
 		});
 		expect(isCardValue(position)).toBe(true);
-		expect(isCardValue({ kind: "call", fn: "last", args: [] })).toBe(false);
+		expect(isCardValue({ kind: "call", fn: "pi", args: [] })).toBe(false);
 		expect(isAuthorableExpressionKind("call")).toBe(false);
 		expect(
 			isAuthorableExpressionKind("call", { expressionContext: source }),
