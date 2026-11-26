@@ -138,6 +138,13 @@ def test_formplayer_search_default_reads_only_its_request(hq, formplayer_runner,
         assert row["id"] == "lookup-zone-case" and MATCH in row["data"], results
 
 
+def _view_text(node):
+    if node.get("text"):
+        yield node["text"]
+    for child in node.get("children", []):
+        yield from _view_text(child)
+
+
 @pytest.mark.reader("android")
 @pytest.mark.parametrize("has_sibling", [True, False], ids=["bound", "absent"])
 def test_android_search_default_reads_only_its_request(hq, request, has_sibling):
@@ -153,7 +160,8 @@ def test_android_search_default_reads_only_its_request(hq, request, has_sibling)
         assert answer["install"] == "Installed", answer
         assert answer["signIn"].startswith("Success("), answer
         # Android opens the worker's list before the worker presses its Search action.
-        walk = answer["walks"]["m0/@action:0"]
+        route = "m0/@action:0"
+        walk = answer["walks"][route]
         requests = [exchange for exchange in exchanges if exchange["url_name"] == "app_aware_remote_search"]
         if not has_sibling:
             # QueryRequestActivity catches the missing-instance XPath exception during initialization.
@@ -171,6 +179,9 @@ def test_android_search_default_reads_only_its_request(hq, request, has_sibling)
         assert query["RemoteQuerySessionManager.getRawQueryParams"]["zone"] == [MATCH], query
         (received,) = [
             exchange for exchange in requests
-            if parse_qs(urlsplit(exchange["url"]).query).get("zone") == [MATCH]
+            if exchange["walk"] == route and parse_qs(urlsplit(exchange["url"]).query).get("zone") == [MATCH]
         ]
         assert received["status"] == 200, received
+        (listing,) = [step["list"] for step in walk["steps"] if "order" in (step.get("list") or {})]
+        assert listing["order"] == ["lookup-zone-case"], listing
+        assert [list(_view_text(row)) for row in listing["rows"]] == [["Aster household", MATCH]], listing
