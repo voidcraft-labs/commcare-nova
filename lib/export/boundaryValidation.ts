@@ -453,34 +453,32 @@ async function prepareWithRegistry(
 	/* The mode's carrier and its row and mode verdicts, over this one
 	 * snapshot. The selection findings are read only once the document's own
 	 * verdict has passed. */
-	const carrier = exportCarrierFindings({
-		doc: input.doc,
-		mode: input.mode,
-		fixtureData,
-		assignments: assignment?.owners,
-		restoreTableIds: new Set(restoreIds),
-		...(input.lookupTarget !== undefined && {
-			lookupTarget: input.lookupTarget,
-		}),
-		...(input.jsonDestinationTableIds !== undefined && {
-			jsonDestinationTableIds: input.jsonDestinationTableIds,
-		}),
-		...(input.workbookLookupTags !== undefined && {
-			workbookLookupTags: input.workbookLookupTags,
-		}),
-	});
-	const {
-		naming,
-		lookupWire,
-		lookupWorkbook,
-		managedLookupTables,
-		managedLookupWorkbooks,
-	} = carrier;
-
+	const buildCarrier = () =>
+		exportCarrierFindings({
+			doc: input.doc,
+			mode: input.mode,
+			fixtureData,
+			assignments: assignment?.owners,
+			restoreTableIds: new Set(restoreIds),
+			...(input.lookupTarget !== undefined && {
+				lookupTarget: input.lookupTarget,
+			}),
+			...(input.jsonDestinationTableIds !== undefined && {
+				jsonDestinationTableIds: input.jsonDestinationTableIds,
+			}),
+			...(input.workbookLookupTags !== undefined && {
+				workbookLookupTags: input.workbookLookupTags,
+			}),
+		});
+	const ccZCarrier =
+		input.mode === "ccz" && lookupSnapshot.streamedTables?.size
+			? buildCarrier()
+			: undefined;
+	const compiledFixtures = ccZCarrier?.lookupWire?.fixtures;
 	const ccZBudget =
-		lookupWire && lookupSnapshot.streamedTables?.size
+		compiledFixtures && lookupSnapshot.streamedTables
 			? plannedLookupFixtureBudget(
-					lookupWire.fixtures,
+					compiledFixtures,
 					lookupSnapshot.streamedTables,
 				)
 			: undefined;
@@ -531,6 +529,15 @@ async function prepareWithRegistry(
 				),
 			),
 		};
+
+	const carrier = ccZCarrier ?? buildCarrier();
+	const {
+		naming,
+		lookupWire,
+		lookupWorkbook,
+		managedLookupTables,
+		managedLookupWorkbooks,
+	} = carrier;
 
 	/* This subordinate loader evaluates the complete document gate with both
 	 * the exact lookup context and the Project-filtered media rows. It returns
