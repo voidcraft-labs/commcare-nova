@@ -1643,7 +1643,6 @@ function readPrompt(
 			name,
 			label: common.label,
 			...(group !== undefined && { group }),
-			...(group !== undefined && { group }),
 			kind: "hidden",
 			...(projectService && !exclude && { sendAnswer: true as const }),
 			...(defaultIndex !== undefined && {
@@ -1657,6 +1656,7 @@ function readPrompt(
 			uuid,
 			name,
 			label: common.label,
+			...(group !== undefined && { group }),
 			...(hint !== "" && { hint }),
 			...(allowBlank && { allowBlank: true }),
 			...(exclude && { excludeFromRequest: true }),

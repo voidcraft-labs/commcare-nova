@@ -160,21 +160,6 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "an address field",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.appearance = "address";
-		},
-		findings: [
-			[
-				`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
 		title: "a hidden field that is required",
 		edit: (body) => {
 			first(body).hidden = true;
@@ -675,6 +660,39 @@ describe("a Search field Nova cannot hold", () => {
 				"case_name",
 			],
 		]);
+	});
+
+	it("keeps a grouped address picker linked to its receiving field", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompts = promptsOf(body);
+			for (const prompt of prompts) prompt.group_key = "g";
+			first(body).receiver_expression = "home-city";
+			prompts.unshift(
+				{ name: "g", label: { en: "Where" }, is_group: true, group_key: "g" },
+				{
+					name: "home",
+					doc_type: "CaseSearchProperty",
+					label: { en: "Find an address" },
+					appearance: "address",
+					exclude: true,
+					group_key: "g",
+				},
+			);
+		});
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		const [address, receiver] = config?.searchInputs ?? [];
+		expect(address).toMatchObject({
+			kind: "address",
+			group: config?.searchInputGroups?.[0].uuid,
+		});
+		expect(receiver).toMatchObject({
+			group: address?.group,
+			addressReceiver: {
+				kind: "address",
+				source: address?.uuid,
+				parts: ["city"],
+			},
+		});
 	});
 
 	// The filter keyed by a plain property is a finding of its own, and its value stands under it.
