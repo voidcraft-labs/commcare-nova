@@ -9,7 +9,12 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	addFixtureField,
+	buildDoc,
+	caseListConfig,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import { parentUserWriteFixture } from "@/lib/__tests__/parentUserWriteFixture";
 import { formCasePlacementView } from "@/lib/doc/casePlacements";
 import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
@@ -550,7 +555,10 @@ function committed(doc: BlueprintDoc, mutations: readonly unknown[]) {
 
 describe("the cases above it", () => {
 	it("offers the declared parent then user route through the Builder gate", () => {
-		const { doc, form, note, via } = parentUserWriteFixture(undefined, false);
+		const { doc, form, mode, note, via } = parentUserWriteFixture(
+			undefined,
+			false,
+		);
 		const placement = formCasePlacementView(doc, form).own?.placement.kind;
 		expect(placement).toBe("basic");
 		const choices = ancestorCaseWriteChoices(
@@ -577,6 +585,23 @@ describe("the cases above it", () => {
 		expect(rowWith(saved, note).destination).toBe(
 			"Household linked through parent, then user · Linked note",
 		);
+		const unqualified = via.map(({ identifier }) => ({
+			identifier,
+		})) as typeof via;
+		expect(
+			caseWriteChoiceVerdict(
+				saved,
+				mode,
+				{
+					destination: {
+						caseType: "household",
+						property: "linked_note",
+						via: unqualified,
+					},
+				},
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
 
 		const ambiguous = produce(doc, (draft) => {
 			draft.caseTypes
@@ -605,6 +630,58 @@ describe("the cases above it", () => {
 				LOOKUP_CONTEXT_UNAVAILABLE,
 			).ok,
 		).toBe(false);
+	});
+
+	it("keeps attachments outside the typed parent then user write", () => {
+		const { doc, form, via } = parentUserWriteFixture(undefined, false);
+		const photo = testUuid("two-hop-user-attachment");
+		const source = buildDoc({
+			modules: [
+				{
+					name: "Capture",
+					forms: [
+						{
+							name: "Photograph",
+							type: "survey",
+							fields: [f({ kind: "image", uuid: photo, id: "photograph" })],
+						},
+					],
+				},
+			],
+		});
+		const withPhoto = produce(doc, (draft) =>
+			addFixtureField(draft, form, source.fields[photo]),
+		);
+		const verdict = caseWriteChoiceVerdict(
+			withPhoto,
+			photo,
+			{
+				destination: { caseType: "household", property: "linked_note", via },
+			},
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		const attempted = produce(withPhoto, (draft) => {
+			draft.forms[form].caseOperations?.[0].writes?.push({
+				property: "linked_note",
+				value: { kind: "term", term: { kind: "capture-link", field: photo } },
+				via,
+			});
+		});
+		const blocked = mutationCommitVerdict(
+			attempted,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(blocked.ok ? [] : blocked.findings).toContainEqual(
+			expect.objectContaining({
+				code: "CASE_WRITE_VIA_INVALID",
+				message: expect.stringContaining(
+					"A separate case change can save attachments",
+				),
+				details: expect.objectContaining({ property: "linked_note" }),
+			}),
+		);
 	});
 
 	it("lists one choice per chain of links, walking an extension as parent and as host", () => {

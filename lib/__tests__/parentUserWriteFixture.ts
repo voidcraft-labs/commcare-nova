@@ -80,5 +80,5 @@ export function parentUserWriteFixture(appId?: string, withLinkedWrite = true) {
 			];
 		},
 	);
-	return { doc, form, note, own, via, linkedWrite, localWrite };
+	return { doc, form, mode, note, own, via, linkedWrite, localWrite };
 }

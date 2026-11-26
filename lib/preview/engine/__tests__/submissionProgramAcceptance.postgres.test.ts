@@ -282,6 +282,7 @@ describe("engine → builder → executor acceptance", () => {
 			mode: string,
 			answer: string,
 			cases: typeof snapshot,
+			without?: "opening" | "route-types",
 		) => {
 			const audience = {
 				app: APP_ID,
@@ -325,11 +326,28 @@ describe("engine → builder → executor acceptance", () => {
 				mutation,
 				projection,
 				identity: IDENTITY,
-				opening: await verifyFormOpening(secret, audience, signed),
+				opening:
+					without === "opening"
+						? undefined
+						: await verifyFormOpening(secret, audience, signed),
 			});
+			const program = built.program;
+			const supplied =
+				without === "route-types" && program
+					? {
+							...built,
+							program: {
+								...program,
+								operations: program.operations.map((step) => ({
+									...step,
+									parentUserCaseTypes: undefined,
+								})),
+							},
+						}
+					: built;
 			return store.applySubmission(
 				submissionEnvelopeArgs(mutation, APP_ID, {
-					...built,
+					...supplied,
 					submissionReceipt: {
 						...buildSubmissionReceiptIdentity({
 							appId: APP_ID,
@@ -386,6 +404,19 @@ describe("engine → builder → executor acceptance", () => {
 				"before",
 			);
 		}
+		for (const missing of ["opening", "route-types"] as const) {
+			await expect(
+				apply(id(missing), "show", "must not write", snapshot, missing),
+			).rejects.toThrow(
+				"Reopen the form to load the records this case change follows",
+			);
+			expect((await read("person", SESSION_CASE))?.properties.local_note).toBe(
+				"before",
+			);
+			expect((await read("household", terminal))?.properties.linked_note).toBe(
+				"before",
+			);
+		}
 		const before = await read("household", terminal);
 		const omitted = await apply(id("omitted"), "omit", "", snapshot);
 		expect(omitted.caseDatabasePatch?.rows.map((row) => row.case_id)).toContain(
@@ -424,6 +455,16 @@ describe("engine → builder → executor acceptance", () => {
 			.execute();
 		await expect(
 			apply(id("current type changed"), "omit", "", snapshot),
+		).rejects.toMatchObject({
+			rejection: { reason: "case-type-mismatch" },
+		});
+		await db
+			.updateTable("cases")
+			.set({ case_type: "family" })
+			.where("case_id", "in", [middle, terminal])
+			.execute();
+		await expect(
+			apply(id("terminal type changed"), "omit", "", snapshot),
 		).rejects.toMatchObject({
 			rejection: { reason: "case-type-mismatch" },
 		});

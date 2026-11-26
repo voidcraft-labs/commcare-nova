@@ -1172,8 +1172,12 @@ function validateWrites(
 				: validateVia(ctx, operation, write, write.via, destination, errors);
 		validateOnlyIfChanged(ctx, operation, write, errors);
 		if (
-			seenWrites.some((seen) =>
-				sameCaseWriteKey(caseWriteKeyOf(seen), caseWriteKeyOf(write)),
+			seenWrites.some(
+				(seen) =>
+					sameCaseWriteKey(caseWriteKeyOf(seen), caseWriteKeyOf(write)) ||
+					(seen.property === write.property &&
+						isParentUserWritePath(seen.via) &&
+						isParentUserWritePath(write.via)),
 			)
 		) {
 			errors.push(
@@ -1470,6 +1474,11 @@ function validateVia(
 		);
 	const directUserIndex = via.length === 1 && via[0].identifier === "user";
 	if (isParentUserWritePath(via)) {
+		if (caseWriteValueField(write.value)?.link === true)
+			return refuse(
+				"placement",
+				"This linked change saves answers. A separate case change can save attachments.",
+			);
 		const types = parentUserWriteCaseTypes(via, origin, ctx.caseTypes);
 		if (!types)
 			return refuse(
@@ -1496,7 +1505,7 @@ function validateVia(
 		)
 			return refuse(
 				"placement",
-				"Save through this path on a basic follow-up that opens one case and uses a single linked update path.",
+				"This path needs a basic follow-up that opens one case and uses a single linked update path.",
 			);
 		return types[1];
 	}

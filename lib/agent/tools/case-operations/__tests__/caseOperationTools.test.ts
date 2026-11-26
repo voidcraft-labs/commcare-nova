@@ -1344,6 +1344,26 @@ describe("saves to a case above, changed answers and the worker's record", () =>
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		expect(ownWritesOf(h.currentDoc(), form)).toContainEqual(linkedWrite);
 		expectAdmittedDoc(h.currentDoc());
+
+		const colliding = await h.runTool(updateCaseOperationTool, {
+			moduleUuid: doc.moduleOrder[0],
+			formUuid: form,
+			operationUuid: own,
+			operation: {
+				action: "own",
+				writes: [
+					localWrite,
+					linkedWrite,
+					{
+						...linkedWrite,
+						value: localWrite.value,
+						via: linkedWrite.via.map(({ identifier }) => ({ identifier })),
+					},
+				],
+			},
+		});
+		expect(colliding.result).toHaveProperty("error");
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 	});
 
 	it("leaves a registration's save to the case above to the gate, which refuses it", async () => {

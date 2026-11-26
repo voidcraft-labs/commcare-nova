@@ -1656,6 +1656,7 @@ function readUpdateMap(
 					)) ||
 				(parentUserIndex &&
 					(!supportsParentUserRoute ||
+						namesAttachment(r.form, cursor.peek("question_path")) ||
 						new Set(steps.types).size !== steps.types.length))
 			) {
 				refuseEntry(

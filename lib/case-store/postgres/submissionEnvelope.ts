@@ -2485,6 +2485,13 @@ async function resolveOperationProgram(
 			value: JsonValue | undefined;
 		}> = [];
 		const requiredTypes = instance.envelope.parentUserCaseTypes;
+		if (
+			!requiredTypes &&
+			operation.writes?.some((write) => isParentUserWritePath(write.via))
+		)
+			throw new CaptureSubmissionRejectedError(
+				"Reopen the form to load the records this case change follows.",
+			);
 		const parentUserCaseId =
 			requiredTypes &&
 			(await lockParentUserWrite(
