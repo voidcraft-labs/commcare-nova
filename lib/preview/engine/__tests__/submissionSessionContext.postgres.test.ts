@@ -213,7 +213,7 @@ it("refuses stale destination effects while allowing an exact receipt replay", a
 	const staleSettings = await openRegistration(appId, originalDevice);
 	expect(saved.projectSpace).toBe(target.domain);
 	const receipt = await saved.submit();
-	expect(receipt.kind).toBe("registration");
+	if (receipt.kind !== "registration") throw new Error(JSON.stringify(receipt));
 	expect(
 		await setPreviewSearchSettings(scope, ACTOR, target, "0", {
 			timeZone: "UTC",
@@ -233,9 +233,16 @@ it("refuses stale destination effects while allowing an exact receipt replay", a
 	expect(await saved.submit()).toEqual(receipt);
 	const undeployed = await openRegistration(appId, webAppsDevice());
 	expect(undeployed.projectSpace).toBeUndefined();
-	expect((await undeployed.submit()).kind).toBe("registration");
+	const localReceipt = await undeployed.submit();
+	if (localReceipt.kind !== "registration")
+		throw new Error(JSON.stringify(localReceipt));
 	const rows = await h
 		.pool()
-		.query("SELECT case_id FROM cases WHERE app_id = $1", [appId]);
-	expect(rows.rowCount).toBe(2);
+		.query<{ case_id: string }>(
+			"SELECT case_id FROM cases WHERE app_id = $1 AND case_name = 'Device record'",
+			[appId],
+		);
+	expect(rows.rows.map((row) => row.case_id).sort()).toEqual(
+		[receipt.caseId, localReceipt.caseId].sort(),
+	);
 });
