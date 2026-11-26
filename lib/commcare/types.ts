@@ -339,7 +339,7 @@ export interface DetailBase<XPath = string> {
 	lookup_autolaunch: boolean;
 	lookup_display_results: boolean;
 	lookup_name: string | null;
-	lookup_image: null;
+	lookup_image: string | null;
 	lookup_action: string | null;
 	lookup_field_template: null;
 	lookup_field_header: Record<string, never>;
