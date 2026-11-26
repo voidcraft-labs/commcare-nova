@@ -2171,7 +2171,7 @@
 			"cell": "`name` derived from the parent's property",
 			"markers": []
 		},
-		"gates": []
+		"gates": ["toggle/CASE_SEARCH_RELATED_LOOKUPS"]
 	},
 	{
 		"id": "case-search/prompt-key-outside-nova-s-name-grammar",

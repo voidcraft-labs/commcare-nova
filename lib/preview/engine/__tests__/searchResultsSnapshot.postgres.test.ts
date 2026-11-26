@@ -55,7 +55,10 @@ const HOUSEHOLD: CaseType = {
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
-	properties: [{ name: "district", label: proseText("District") }],
+	properties: [
+		{ name: "district", label: proseText("District") },
+		{ name: "village", label: proseText("Village") },
+	],
 };
 
 const dbHandle = setupPerTestDatabase({
@@ -510,15 +513,14 @@ describe("a completed search's snapshot", () => {
 	});
 
 	it("matches a typed parent Search prompt using the destination rule for its exact request key", async () => {
+		let fuzzy = false;
 		const store = storeAs(WORKER, async () => ({
 			revision: "settings",
 			maximum: 500,
 			timeZone: "UTC",
 			projectSpace: "clinic",
 			matcherFor: (key) =>
-				key === "parent/village"
-					? { fuzzy: false, ignoreLiterals: ["!"] }
-					: null,
+				key === "parent/village" ? { fuzzy, ignoreLiterals: ["!"] } : null,
 		}));
 		const parent: SearchInputDef = {
 			uuid: testUuid("parent-village"),
@@ -534,7 +536,7 @@ describe("a completed search's snapshot", () => {
 			["target-house", "Dyer's crossing"],
 			["other-house", "North"],
 		] as const) {
-			await store.insert({
+			await storeAs(OTHER_WORKER).insert({
 				appId: APP_ID,
 				row: {
 					case_id: caseId,
@@ -550,14 +552,11 @@ describe("a completed search's snapshot", () => {
 			["own-value", "other-house", "Dyer's crossing"],
 			["unlinked", undefined, "Dyer's crossing"],
 		] as const) {
-			const row = patient(caseId, "open", relationship);
-			await store.insert({
-				...row,
-				row: {
-					...row.row,
-					properties: { district: "north", village: ownValue },
-				},
-			});
+			await store.insert(patient(caseId, "open", relationship));
+			await sql`update cases set properties = properties || jsonb_build_object('village', ${ownValue}::text)
+				where case_id = ${caseId} and app_id = ${APP_ID} and project_id = ${PROJECT}`.execute(
+				dbHandle.db,
+			);
 		}
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [parent];
@@ -577,6 +576,18 @@ describe("a completed search's snapshot", () => {
 		expect(found.rows.map((row) => row.case_id)).toEqual(["linked"]);
 		await expect(read('Dyer"s crossing')).rejects.toMatchObject({
 			reason: { kind: "query-value-invalid", field: "Parent village" },
+		});
+		fuzzy = true;
+		await expect(read("Dyer's crossing")).rejects.toMatchObject({
+			reason: { kind: "parent-fuzzy-unavailable", field: "Parent village" },
+		});
+		fuzzy = false;
+		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('unlinked', 'unresolved-house', 'parent', 1, 'child', 'household')`.execute(
+			dbHandle.db,
+		);
+		await expect(read("Dyer's crossing")).rejects.toMatchObject({
+			reason: { kind: "parent-value-unavailable", field: "Parent village" },
 		});
 	});
 

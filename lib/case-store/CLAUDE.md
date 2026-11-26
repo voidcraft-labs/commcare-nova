@@ -766,6 +766,18 @@ the guarded Blueprint transaction; ordinary additive changes ride a post-commit 
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.
 
+### Direct parent Search prompts
+
+Preview uses the exact parent-property request key to choose the destination's
+confirmed ignore-text rule, before matching parent values in the authorized
+app and Project. A candidate without a parent edge is a known miss. An edge to
+a parent absent from the app cannot certify a miss, so the same transaction that
+selects the matches reports it as unavailable if the other filters still allow
+that candidate. HQ's 500,000-candidate cap applies before reverse links select
+the primary hits. Preview cannot certify the parent vocabulary for fuzzy
+matching, so it keeps the app's published rules and reports that search as
+unavailable in Preview.
+
 ### Earlier record links in Search
 
 A stored case has one creation-history flag and its set of observed cleared index identifiers. A live direct edge supplies its current target. Removing an observed direct edge remembers that identifier on the source case, including a surviving case detached during a sample reset. Assigning a new target removes the clear. Clearing an absent edge preserves the previous observation. The case row carries these facts across a Project move and drops them when the case is deleted. They are internal to the case store and excluded from the worker restore, case pages and submission snapshots.

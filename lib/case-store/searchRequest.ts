@@ -60,6 +60,7 @@ export interface CaseSearchParameter {
 	>;
 	readonly key: string;
 	readonly readsAnswers?: boolean;
+	readonly directParentPrompt?: true;
 	readonly values: readonly string[];
 }
 
@@ -70,7 +71,10 @@ export type NativeSearchUnavailableReason =
 				| "project-space-unavailable"
 				| "indexed-value-unavailable"
 				| "search-range-unavailable"
-				| "query-value-invalid";
+				| "query-value-invalid"
+				| "parent-value-unavailable"
+				| "parent-fuzzy-unavailable"
+				| "parent-lookup-limit";
 			readonly field: string;
 	  }
 	| {
@@ -163,6 +167,12 @@ export function searchUnavailableMessage(
 			return `This search needs the indexed value of “${reason.field}” from the project space.`;
 		case "search-range-unavailable":
 			return `This search needs the indexed date range for “${reason.field}”.`;
+		case "parent-value-unavailable":
+			return `Preview needs the linked parent record to match “${reason.field}”.`;
+		case "parent-fuzzy-unavailable":
+			return `Only CommCare HQ can match similar words for the parent property “${reason.field}” in this search.`;
+		case "parent-lookup-limit":
+			return `“${reason.field}” matches too many related records. Try a more specific search.`;
 		case "query-value-invalid":
 			return `The project space cannot search with this combination of values for “${reason.field}”.`;
 		case "project-zone-unavailable":

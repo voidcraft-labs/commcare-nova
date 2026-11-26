@@ -495,8 +495,10 @@ as a date in that range, and Preview does the same.
 
 A text field can use project space matching for information on the direct
 parent case. Give the field a label and choose the parent information to match.
-Preview uses the matching settings you confirm for the project space. The
-field's name in Nova does not change the parent information it searches.
+Preview uses the matching settings you confirm for the project space. If the
+parent record is absent from the app’s data, or the project space is set to match
+similar words for this field, Preview shows why it cannot confirm the results.
+Changing the field's name in Nova keeps the parent information it searches.
 
 Turn on **Also find blank** to let workers include cases where the field's
 information is blank. In Web Apps a box appears under the field, and workers can

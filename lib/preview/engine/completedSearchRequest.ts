@@ -163,6 +163,7 @@ export function completedSearchRequest(
 			field: input.label || input.name,
 			target,
 			readsAnswers: true,
+			...(parentKey === undefined ? {} : { directParentPrompt: true as const }),
 			values,
 		});
 	}
