@@ -488,6 +488,31 @@ public class CaseOperationRuntimeTest {
             assertEquals("2026-04-17", record.getPropertyString("seen_on"));
         }
     }
+    @Test public void sameCaseUpdatesFollowSubmittedBlockOrder() throws Exception {
+        for (String[] writes : new String[][]{
+                {"From the authored block", "From Case Management"},
+                {"From the authored block"},
+                {"From the authored block", ""},
+                {"From Case Management", "From the authored block"}}) {
+            MockUserDataSandbox sandbox = MockDataUtils.getStaticStorage();
+            Case household = new Case("Original household", "household");
+            household.setCaseId("household-order");
+            household.setProperty("note", "Original");
+            sandbox.getCaseStorage().write(household);
+            StringBuilder submission = new StringBuilder("<data>");
+            for (String value : writes) {
+                submission.append("<case xmlns=\"http://commcarehq.org/case/transaction/v2\"")
+                        .append(" case_id=\"household-order\" date_modified=\"2026-04-17T00:00:00.000Z\"")
+                        .append(" user_id=\"worker\"><update><note>")
+                        .append(value).append("</note></update></case>");
+            }
+            submission.append("</data>");
+            XmlFormRecordProcessor.process(sandbox, new ByteArrayInputStream(
+                    submission.toString().getBytes(StandardCharsets.UTF_8)));
+            Case saved = sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, "household-order");
+            assertEquals(writes[writes.length - 1], saved.getPropertyString("note"));
+        }
+    }
     @Test public void sessionRetype() throws Exception { retype("retype"); }
     /** A guard is an update-only block after its operation's; where its test fails its case id is blank, and Core
      * refuses the whole submission (CaseXmlParserUtil.validateMandatoryProperty). One guard of each kind. */

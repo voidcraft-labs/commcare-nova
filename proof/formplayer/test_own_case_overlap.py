@@ -46,7 +46,7 @@ def _worker(unit, app_id, document, runner, stage, cases):
 
     observations = {}
     with formplayer.serve(unit, document, app_id, runner=runner, database=_database(document), label=stage) as served:
-        for visited, notes, final in cases:
+        for visited, notes, final, blocks in cases:
             with served.run(f"{stage}-{visited}"):
                 web = apps.web(runner, served)
                 form = _open_followup(web)
@@ -72,6 +72,7 @@ def _worker(unit, app_id, document, runner, stage, cases):
                     value.text for block in selected_blocks for value in block.findall(f"{CASE_NS}update/{CASE_NS}note")
                 ]
                 assert writes == notes, etree.tostring(root)
+                assert len(selected_blocks) == blocks, etree.tostring(root)
                 observed = CommCareCase.objects.get_case(CASE_ID, served.domain)
                 assert observed.get_case_property("note") == final
                 observations[visited] = {
@@ -84,6 +85,7 @@ def _worker(unit, app_id, document, runner, stage, cases):
 def test_an_authored_update_precedes_case_management_for_the_same_case(
     hq, core_runner, formplayer_runner, formplayer_documents, evidence,
 ):
+    from proof.matrix.ops import set_json
     from proof.matrix.registry import named_change
 
     document = formplayer_documents[BASE]
@@ -93,13 +95,20 @@ def test_an_authored_update_precedes_case_management_for_the_same_case(
             app_id, refusal, _ = publish.create_authored(unit, document)
             assert refusal is None
         ordinary = _worker(unit, app_id, document, formplayer_runner, "ordinary", [
-            ("yes", [MANAGED], MANAGED),
-            ("no", [], "Original"),
+            ("yes", [MANAGED], MANAGED, 1),
+            ("no", [None], "", 1),
         ])
         authoring = Authoring(unit, {}, base=BASE, operation=unit.operation)
         named_change("save_to_case_own_case_beside")(authoring, app_id)
         paired = _worker(unit, app_id, document, formplayer_runner, "paired", [
-            ("yes", [AUTHORED, MANAGED], MANAGED),
-            ("no", [AUTHORED], AUTHORED),
+            ("yes", [AUTHORED, MANAGED], MANAGED, 2),
+            ("no", [AUTHORED, None], "", 2),
         ])
-    evidence("own-case-overlap", {"ordinary": ordinary, "paired": paired})
+        # Remove the actual managed update and the unrelated basic subcase.
+        # A blank managed row above is a different submission from no block.
+        set_json(authoring, app_id, "/modules/0/forms/2/actions/update_case/condition/type", "never")
+        set_json(authoring, app_id, "/modules/0/forms/2/actions/subcases", [])
+        authored_only = _worker(unit, app_id, document, formplayer_runner, "authored-only", [
+            ("no", [AUTHORED], AUTHORED, 1),
+        ])
+    evidence("own-case-overlap", {"ordinary": ordinary, "paired": paired, "authoredOnly": authored_only})
