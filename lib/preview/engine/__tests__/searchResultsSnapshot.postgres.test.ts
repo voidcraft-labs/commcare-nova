@@ -333,18 +333,26 @@ describe("a completed search's snapshot", () => {
 			["excluded-a", "red", "1", "2024-01-01"],
 			["excluded-b", "gold", "3", "2024-01-02"],
 		] as const;
-		for (const [id, owner, priority, visit] of cases)
-			await store.insert({
-				appId: APP_ID,
-				row: {
+		// Straight to the table: the rows' owners differ, and the store writes
+		// its own worker as owner.
+		const opened = new Date("2024-01-01T00:00:00Z");
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.insertInto("cases")
+			.values(
+				cases.map(([id, owner, priority, visit]) => ({
 					case_id: id,
-					case_type: "patient",
 					case_name: id,
-					status: "open",
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: PROJECT,
 					owner_id: owner,
-					properties: { district: "north", priority, visit },
-				},
-			});
+					status: "open",
+					opened_on: opened,
+					modified_on: opened,
+					properties: JSON.stringify({ district: "north", priority, visit }),
+				})),
+			)
+			.execute();
 		const exclude = {
 			field: "Owners to leave out",
 			key: "commcare_blacklisted_owner_ids",

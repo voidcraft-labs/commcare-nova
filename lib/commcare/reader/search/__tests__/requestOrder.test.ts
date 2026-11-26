@@ -126,10 +126,12 @@ it("keeps the assigned owner rule when a menu has a dormant online exclusion", a
 it("refuses an order naming a property Nova reserves, and reads the record's own state by its @ key", async () => {
 	const saved = await readLists(patients([], { search: {} }), {
 		edit: (app) => {
-			app.modules[0].search_config.default_properties.push({
-				property: "commcare_sort",
-				defaultValue: "'-status:exact'",
-			});
+			(
+				app.modules[0].search_config.default_properties as {
+					property: string;
+					defaultValue: string;
+				}[]
+			).push({ property: "commcare_sort", defaultValue: "'-status:exact'" });
 		},
 	});
 	expect(closedCodes(saved)).toEqual([
@@ -172,7 +174,10 @@ it("refuses an order naming a property Nova reserves, and reads the record's own
 			}[]
 		).map((row) => row.property_name),
 	).toEqual(["@status", "date_opened"]);
-	expect(searchOf(state)?.requestOrder).toEqual([
+	const search = searchOf(state);
+	expect(
+		search !== undefined && "requestOrder" in search && search.requestOrder,
+	).toEqual([
 		{ property: "status", comparison: "text", direction: "descending" },
 		{ property: "date_opened", comparison: "date", direction: "ascending" },
 	]);
