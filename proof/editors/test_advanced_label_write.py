@@ -145,3 +145,34 @@ def test_android_confirms_a_passive_label_before_the_advanced_member_update(hq, 
             (kept,) = stored
             assert "raised" not in kept, kept
             assert MEMBER in kept["cases"] and OTHER not in kept["cases"], kept
+
+
+@pytest.mark.reader("webapps")
+def test_web_apps_confirms_a_passive_label_before_the_advanced_member_update(
+    hq, formplayer_runner, editor_driver,
+):
+    from dataclasses import replace
+
+    from proof.formplayer import hq as forms_hq
+    from proof.observe import casedata
+    from proof.webapps import steps
+    from proof.webapps.hq import WEB_APPS_PRIVILEGE
+    from proof.webapps.session import Session
+    from proof.matrix.bases import _pages
+
+    configuration = replace(BASE.configuration, privileges=BASE.configuration.privileges | {WEB_APPS_PRIVILEGE})
+    with hq_check(configuration) as (unit, _):
+        authoring, app_id, _ = _authored_label(unit, editor_driver)
+        _pages.turn_web_apps_on(authoring, app_id)
+        database = casedata.database_of_restore(_restore())
+        with forms_hq.serve(unit, None, app_id, runner=formplayer_runner, database=database) as release:
+            session = Session(release, editor_driver)
+            run = session.run([
+                *steps.open_app("Member visits"), *steps.choose("Member visits"),
+                *steps.click(steps.MENU_ROW, "Untitled Form", within=steps.WITHIN_MS),
+                *steps.select_case(HOUSEHOLD), *steps.select_case(MEMBER),
+                steps.SCREEN, *steps.answer("2", TEXT), *steps.submit_and_land(),
+            ])
+            assert not run.page_errors, run.page_errors
+            submission, = session.hq.submissions
+            _received(unit, submission.instance)
