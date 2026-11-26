@@ -98,14 +98,18 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Case list callout, as an alternative to CASE_LIST_LOOKUP; Android app callouts need only their privileges)",
+		"content": "Android case-list lookup (an alternative to CASE_LIST_LOOKUP)",
 		"contentEntries": [
+			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
 			"menus-and-case-lists/lookup-autolaunch",
+			"menus-and-case-lists/lookup-extras-fixed-text",
+			"menus-and-case-lists/lookup-extras-worker-context",
 			"menus-and-case-lists/lookup-extras-key-value",
 			"menus-and-case-lists/lookup-responses-key",
+			"menus-and-case-lists/lookup-case-id-confidence",
 			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
 		],
 		"platforms": "n/a",
@@ -219,14 +223,18 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Case list callout)",
+		"content": "Android case-list lookup",
 		"contentEntries": [
+			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
 			"menus-and-case-lists/lookup-autolaunch",
+			"menus-and-case-lists/lookup-extras-fixed-text",
+			"menus-and-case-lists/lookup-extras-worker-context",
 			"menus-and-case-lists/lookup-extras-key-value",
 			"menus-and-case-lists/lookup-responses-key",
+			"menus-and-case-lists/lookup-case-id-confidence",
 			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
 		],
 		"platforms": "n/a",
