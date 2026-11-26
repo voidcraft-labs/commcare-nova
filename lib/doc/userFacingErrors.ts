@@ -275,6 +275,7 @@ const formTypeWords = (e: ValidationError): string => {
 const WORKER_RECORD_FACET_WORDS: Readonly<Record<string, string>> = {
 	rename: "rename it",
 	owner: "change its owner",
+	closeAfter: "close it",
 	retype: "change its type",
 	links: "link it to another case",
 	condition: "run on a condition",
@@ -2070,10 +2071,32 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A case operation refers to a case that isn't created yet. Move the create operation before this one.",
 	CASE_OPERATION_EXECUTION_ORDER: () =>
 		"These case operations use an order the running form can't preserve. Put authored-ID creates before updates and closes, and keep each repeating section's operations together in form order.",
-	CASE_OPERATION_OWNER_CONDITION_INVALID: (e) => e.message,
-	CASE_OPERATION_CLOSE_ACTION_REQUIRED: (e) => e.message,
-	CASE_OPERATION_CLOSE_CONDITION_INVALID: (e) => e.message,
-	CASE_CHANGE_POSITION_INVALID: (e) => e.message,
+	CASE_OPERATION_OWNER_CONDITION_INVALID: () =>
+		"A case with a conditional owner needs a new ID on each submission.",
+	CASE_OPERATION_CLOSE_ACTION_REQUIRED: () =>
+		"A close change can save these properties and close the case.",
+	CASE_OPERATION_CLOSE_CONDITION_INVALID: () =>
+		"This change needs to close the case before you can set a close condition.",
+	CASE_CHANGE_POSITION_INVALID: (e) => {
+		switch (det(e, "reason", "")) {
+			case "missing-operation":
+				return "You can choose a case change from this form.";
+			case "duplicate-position":
+				return "This case change can appear in one position.";
+			case "repeat-scope":
+				return "You can place this case change in the section it repeats over.";
+			case "direct-change":
+				return "This position can hold a direct update or close.";
+			case "selected-cases":
+				return "You can set the change that runs for each selected case in the form's case settings.";
+			case "conditional-type-change":
+				return "You can place a change of case type outside sections that can be skipped.";
+			case "managed-order":
+				return "You can keep these case changes together in the form's case settings so they run in order.";
+			default:
+				return "Review where this case change appears in the form.";
+		}
+	},
 	CASE_OPERATION_REPEAT_INVALID: () =>
 		"A case operation points to a repeating section that isn't available. Choose a repeat in this form.",
 	CASE_OPERATION_REPEAT_CORRELATION: () =>
