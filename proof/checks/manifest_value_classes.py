@@ -10850,11 +10850,24 @@ def model_iteration_hides_earlier_row(use, manifest):
             if comparison[0] != "str" or re.fullmatch(r"[A-Za-z0-9]+", comparison[1]) is None:
                 continue
             match operand:
-                case (
-                    "path", "SLASH", None,
-                    (("step", "child", root_name, ()), ("step", "child", field_name, ())),
-                ) if root_name == _local(form.data_root):
-                    field_path = f"/{root_name}/{field_name}"
+                case ("path", "SLASH", None, steps) if len(steps) >= 2 and all(
+                    step[:2] == ("step", "child") and not step[3] for step in steps
+                ):
+                    names = [step[2] for step in steps]
+                    if names[0] != _local(form.data_root):
+                        continue
+                    field_path = "/" + "/".join(names)
+                    if form.node(field_path) is None or _insertion_scope(form, field_path) is not None:
+                        continue
+                    # The control may be at the root while its submitted node
+                    # inherits relevance from a group it is stored in.
+                    parents = ("/" + "/".join(names[:depth]) for depth in range(2, len(names)))
+                    if any(
+                        _relevance(form, form.node(parent))
+                        or not any(_local(outer) == "group" for outer in form.controls.get(parent, ()))
+                        for parent in parents
+                    ):
+                        continue
                     field_bind = form.bind(field_path)
                     controls = form.controls.get(field_path, ())
                     if len(controls) != 1:

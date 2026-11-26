@@ -126,6 +126,55 @@ describe("QUERY_REPEAT_MODEL_ITERATION_SHAPE", () => {
 			expect(finding(doc)?.details).toMatchObject({ reason: "row-condition" });
 		});
 
+		const relocated = (
+			sameAnswer: boolean,
+			earlier = true,
+			groupRelevant?: string,
+		) => {
+			const group = testUuid("query-answer-storage-group");
+			const first = testUuid("placed-first-answer");
+			const later = testUuid("placed-later-answer");
+			const repeat = queryRepeat({
+				data_source: { ids_query: "'a b c'" },
+				relevant: `if(position() = 0, #form/first = 'yes', ${sameAnswer ? "#form/first = 'no'" : laterRead})`,
+			});
+			const controls: FieldSpec[] = [
+				{ kind: "text", id: "first", uuid: first, default_value: "'yes'" },
+				...(sameAnswer
+					? []
+					: [{ kind: "text" as const, id: "later", uuid: later }]),
+			];
+			const doc = docWith([
+				...(earlier ? [...controls, repeat] : [repeat, ...controls]),
+				{
+					kind: "group",
+					id: "receiving",
+					uuid: group,
+					label: "Receiving",
+					relevant: groupRelevant,
+					children: [{ kind: "text", id: "place" }],
+				},
+			]);
+			doc.fields[first].submissionPlacement = { parent: group };
+			if (!sameAnswer)
+				doc.fields[later].submissionPlacement = { parent: group };
+			return doc;
+		};
+
+		it.each([false, true])(
+			"refuses earlier editable controls whose answers save under a group (same answer %s)",
+			(sameAnswer) => {
+				const found = finding(relocated(sameAnswer));
+				expect(found?.location.fieldUuid).toBe(REPEAT);
+				expect(found?.details).toMatchObject({ reason: "row-condition" });
+			},
+		);
+
+		it("keeps later controls and a hidden data parent outside the refusal", () => {
+			expect(finding(relocated(true, false))).toBeUndefined();
+			expect(finding(relocated(true, true, "false()"))).toBeUndefined();
+		});
+
 		it("admits when the later answer cannot enter the text that would show its rows", () => {
 			expect(
 				finding(

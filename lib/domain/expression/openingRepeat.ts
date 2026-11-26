@@ -20,22 +20,30 @@ const openingPositions = new WeakMap<
 	FormStructure,
 	ReadonlyMap<Uuid, OpeningPosition>
 >();
+const controlPositions = new WeakMap<
+	FormStructure,
+	ReadonlyMap<Uuid, OpeningPosition>
+>();
 
 /** Roots run at form ready. Children of a repeat run at that row's own
  * insertion. A worker can have answered another page by then. */
-function positions(form: FormStructure): ReadonlyMap<Uuid, OpeningPosition> {
-	const cached = openingPositions.get(form);
+function positions(
+	form: FormStructure,
+	order = form.fieldOrder,
+): ReadonlyMap<Uuid, OpeningPosition> {
+	const cache = order === form.fieldOrder ? openingPositions : controlPositions;
+	const cached = cache.get(form);
 	if (cached !== undefined) return cached;
 	const result = new Map<Uuid, OpeningPosition>();
 	const add = (parent: Uuid, scope: Uuid): void => {
-		for (const uuid of form.fieldOrder.get(parent) ?? []) {
+		for (const uuid of order.get(parent) ?? []) {
 			if (result.has(uuid)) continue;
 			result.set(uuid, { scope, position: result.size });
 			add(uuid, form.fields.get(uuid)?.kind === "repeat" ? uuid : scope);
 		}
 	};
 	add(form.formUuid, form.formUuid);
-	openingPositions.set(form, result);
+	cache.set(form, result);
 	return result;
 }
 
@@ -171,6 +179,25 @@ function isFirstRow(condition: Expression): boolean {
 	);
 }
 
+/** A relocated answer inherits relevance from the groups holding its data. */
+function staysRelevantInData(form: FormStructure, parent: Uuid): boolean {
+	const seen = new Set<Uuid>();
+	while (parent !== form.formUuid) {
+		const group = form.fields.get(parent);
+		if (
+			group === undefined ||
+			(group.kind !== "group" && group.kind !== "section") ||
+			seen.has(parent) ||
+			form.expressionAt({ entity: "field", uuid: parent, slot: "relevant" }) !==
+				undefined
+		)
+			return false;
+		seen.add(parent);
+		parent = group.parent;
+	}
+	return true;
+}
+
 /** The directly editable text answer whose equality can show this branch.
  * Keep the proof to ordinary controls the worker can reach
  * before the query repeat. */
@@ -190,7 +217,7 @@ function earlierTextAnswer(
 		return undefined;
 	const field = form.fields.get(uuid);
 	return field?.kind === "text" &&
-		field.parent === form.formUuid &&
+		staysRelevantInData(form, field.parent) &&
 		field.textInput?.keypad === undefined &&
 		field.textInput?.addressLookup === undefined &&
 		form.expressionAt({ entity: "field", uuid, slot: "relevant" }) ===
@@ -335,10 +362,17 @@ export function openingRepeatLimitation(
 			suppressedAtCapture(form, need.groupUuid, earlier),
 	);
 	if (hiddenAtCapture !== undefined) return hiddenAtCapture;
-	// This is screen order, not the order of the form's opening assignments.
+	// The worker reaches controls in screen order. A relocated answer still
+	// has to belong to the same physical insertion event as this repeat.
+	const controls = form.controlOrder ?? form.fieldOrder;
+	const screen = positions(form, controls);
+	const repeatPosition = screen.get(uuid)?.position;
+	if (repeatPosition === undefined) return undefined;
+	const rootControls = controls.get(form.formUuid) ?? [];
 	const earlierQuestion = (field: Uuid) =>
+		rootControls.includes(field) &&
 		sameEvent(field) &&
-		(order.get(field)?.position ?? Infinity) < capture.position;
+		(screen.get(field)?.position ?? Infinity) < repeatPosition;
 	return hidesAnEarlierRow(form, uuid, ids, earlierQuestion)
 		? { kind: "row-condition" }
 		: undefined;
