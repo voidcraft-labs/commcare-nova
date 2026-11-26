@@ -127,7 +127,7 @@ def _asset_bytes(unit, app_id, paths):
         assert sha256(answer.data).hexdigest() == path.rsplit("/", 1)[-1].removesuffix(".png")
 
 
-def _read_from_hq(unit, app_id, credential, label, english, french):
+def _read_from_hq(unit, app_id, credential, label, english, french, previous=None):
     authoring = SimpleNamespace(
         state=unit,
         step=lambda name, seed: unit.operation(f"worker-journey:{label}:{name}", seed),
@@ -145,20 +145,24 @@ def _read_from_hq(unit, app_id, credential, label, english, french):
         english_slot: retain.hold_value({"$projectFile": english}, base.id, media),
         french_slot: retain.hold_value({"$projectFile": french}, base.id, media),
     }
-    (answer,) = retain.run_bundle([{
+    request = {
         "id": label,
         "mode": "first-read",
         "input": retain.reading_input(answers, project, media, base, claims="counts"),
         "holds": [
-            {"key": key, "pointer": path, "value": expected.get(path)}
-            for path in (english_slot, french_slot, options_slot)
+            *({"key": key, "pointer": path, "value": expected.get(path)}
+              for path in (english_slot, french_slot, options_slot)),
+            {"key": "app", "pointer": "", "value": None},
         ],
-    }])
+    }
+    if previous is not None:
+        request.update(expected=previous, reviewChanges=True)
+    (answer,) = retain.run_bundle([request])
     assert answer["kind"] == "read", answer
     assert all(item["named"] for item in answer["held"]), answer
     held = {item["pointer"]: item["found"] for item in answer["held"]}
     assert {path: held[path] for path in expected} == expected, answer
-    return held[options_slot]
+    return held[""], held[options_slot], answer.get("review")
 
 
 def _edit_and_read_form_translation(unit, app_id, paths, evidence):
@@ -166,15 +170,17 @@ def _edit_and_read_form_translation(unit, app_id, paths, evidence):
     english = f"jr://file/{paths['formEnglish']}"
     old = f"jr://file/{paths['formFrench']}"
     new = f"jr://file/{paths['menuFrench']}"
-    before = _read_from_hq(unit, app_id, credential, "before", english, old)
-    assert before["kind"] == "lookup"
+    original, original_options, _ = _read_from_hq(unit, app_id, credential, "before", english, old)
+    assert original_options["kind"] == "lookup"
 
     source = operations.held_app(unit, app_id).get_module(0).get_form(1).source
     assert source.count(old) == 1
     with unit.operation("worker-journey:edit-french", new.encode()):
         hqside.questions(unit, app_id, {"module": 0, "form": 1, "xform": source.replace(old, new)})
-    after = _read_from_hq(unit, app_id, credential, "after", english, new)
-    assert before == after
+    edited, edited_options, review = _read_from_hq(unit, app_id, credential, "after", english, new, original)
+    assert original_options == edited_options
+    assert review["kind"] == "changes", review
+    assert review["target"]["fields"] == edited["fields"]
     evidence("brought-in-label-paths", {"english": english, "frenchBefore": old, "frenchAfter": new})
 
 
