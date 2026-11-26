@@ -2,7 +2,6 @@
 
 from copy import deepcopy
 
-from proof.hq.seams import build_seams
 from proof.matrix.registry import load_variants
 from proof.rules.conftest import edited, published
 
@@ -25,10 +24,14 @@ def test_native_case_list_validation_refuses_the_exact_retained_column_variants(
                     repair(menu, columns)
                 menu["case_details"]["short"]["columns"] = columns
 
-            with app.unit.fork(), build_seams():
+            with app.unit.fork():
                 app._write(edited(configure))
-                errors = [str(error.get("reason", "")) for error in app._app().validate_app()
-                          if error["type"] == error_type]
+                menu = app._app().get_module(0)
+                errors = [
+                    str(error.get("reason", ""))
+                    for error in menu.validate_for_build()
+                    if error["type"] == error_type
+                ]
                 if repaired:
                     assert errors == []
                 else:
