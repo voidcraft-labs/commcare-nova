@@ -168,6 +168,7 @@ import {
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
+import { searchedSharedVisit } from "./documents/searchedSharedVisit";
 import { searchFieldNames } from "./documents/searchFieldNames";
 import { searchNoTitle } from "./documents/searchNoTitle";
 import {
@@ -179,6 +180,7 @@ import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
 import { sharedVisitEntries } from "./documents/sharedVisitEntries";
+
 import { sortBlanks } from "./documents/sortBlanks";
 import { independentCaseOrder, sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
@@ -325,6 +327,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formLinkCarriedCase,
 	independentFormChoices,
 	sharedVisitEntries,
+	searchedSharedVisit,
 	formLinkOtherwise,
 	hyphenatedQuestionIds,
 	caseTypeNames,

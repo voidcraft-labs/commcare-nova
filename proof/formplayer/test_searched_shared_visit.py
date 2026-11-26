@@ -1,0 +1,191 @@
+"""Two child routes choose different people after a parent's genuine HQ Search."""
+
+from __future__ import annotations
+
+import copy
+import json
+from dataclasses import replace
+
+from lxml import etree
+
+from proof.checks import proof6, readerbundle
+from proof.formplayer import apps
+from proof.formplayer.walk import screen_kind
+from proof.hq import operations
+from proof.matrix.authoring import Authoring
+from proof.matrix import ops
+from proof.observe import publish
+from proof.observe.casedata import document_case_database
+
+DOCUMENT = "targeted-searched-shared-visit"
+SEARCH_INPUT = "cohort"
+NEW_LABEL = "Household cohort"
+CASE_NS = "{http://commcarehq.org/case/transaction/v2}"
+
+
+def _database(document):
+    base = document_case_database(document)
+    by_id = {case.case_id: case for case in base.cases}
+    return replace(base, cases=(
+        replace(by_id["district-1"], properties=(("region", "North"),)),
+        replace(by_id["district-2"], properties=(("region", "West"),)),
+        replace(by_id["household-1"], name="Pilot Zinnia", properties=(("cohort", "Pilot"),)),
+        replace(by_id["household-2"], name="Pilot Aster", properties=(("cohort", "Pilot"),)),
+        replace(
+            by_id["household-3"], name="Outside Willow", properties=(("cohort", "Outside"),),
+            indices=by_id["household-1"].indices,
+        ),
+        replace(by_id["person-1"], name="Zinnia resident", properties=(("visit_note", "Original Zinnia"),)),
+        replace(by_id["person-2"], name="Aster resident", properties=(("visit_note", "Original Aster"),)),
+        replace(by_id["person-3"], name="Outside resident", properties=(("visit_note", "Original Outside"),)),
+    ))
+
+
+def _choose(screen, label):
+    assert screen_kind(screen) == "commands", screen
+    labels = [item["displayText"] for item in screen["commands"]]
+    assert label in labels, (label, labels)
+    return [*map(str, screen["selections"]), str(labels.index(label))]
+
+
+def _worker_visits(published, runner, label, child_order, search_label):
+    from corehq.form_processor.models import CommCareCase
+
+    records = {}
+    routes = (("Visits", "household-1", "person-1"), ("Clinic", "household-2", "person-2"))
+    people = [person for _, _, person in routes] + ["person-3"]
+
+    def notes(served):
+        return {
+            person: CommCareCase.objects.get_case(person, served.domain).get_case_property("visit_note")
+            for person in people
+        }
+
+    with apps.served(published, runner, label=label, database=_database(published.document)) as served:
+        for menu, household, person in routes:
+            with served.run(f"{label}-{menu}"):
+                web = apps.web(runner, served)
+                path = ["0"]  # The app has a single root menu, Households.
+                query = web.navigate(path)
+                assert screen_kind(query) == "query", query
+                (prompt,) = query["displays"]
+                assert prompt["id"] == SEARCH_INPUT and prompt["text"] == search_label, prompt
+                query_data = {query["queryKey"]: {"inputs": {SEARCH_INPUT: "Pilot"}, "execute": True}}
+                results = web.navigate(path, query_data=query_data)
+                assert screen_kind(results) == "entities", results
+                requests = [
+                    request.params for request in served.hq.searches
+                    if request.values(SEARCH_INPUT) == ("Pilot",)
+                ]
+                assert requests, served.hq.searches
+                rows = [(row["id"], row["data"]) for row in results["entities"]]
+                assert rows == [
+                    ("household-2", ["Pilot Aster", "West"]),
+                    ("household-1", ["Pilot Zinnia", "North"]),
+                ], results
+
+                selected = web.navigate([*map(str, results["selections"]), household], query_data=query_data)
+                assert [command["displayText"] for command in selected["commands"] if
+                        command["displayText"] in child_order] == child_order, selected
+                members = web.navigate(_choose(selected, menu), query_data=query_data)
+                assert screen_kind(members) == "entities", members
+                assert [row["id"] for row in members["entities"]] == [person], members
+                form_or_menu = web.navigate([*map(str, members["selections"]), person], query_data=query_data)
+                form = (
+                    web.navigate(_choose(form_or_menu, "Record visit"), query_data=query_data)
+                    if screen_kind(form_or_menu) == "commands" else form_or_menu
+                )
+                assert screen_kind(form) == "form" and form["title"] == "Record visit", form
+                assert household in form["selections"] and person in form["selections"], form
+
+                (question,) = [node for node in form["tree"] if node["type"] == "question"]
+                answer = f"Recorded in {menu} during {label}"
+                before = notes(served)
+                received = len(served.hq.submissions)
+                response = web.submit(form["session_id"], {question["ix"]: answer})
+                assert response["status"] == "success", response
+                (receipt,) = served.hq.submissions[received:]
+                assert notes(served) == {**before, person: answer}
+                root = etree.fromstring(receipt.instance)
+                (case,) = [block for block in root.iter(f"{CASE_NS}case")]
+                assert case.get("case_id") == person and root.findtext("{*}note") == answer
+                records[menu] = {
+                    "search": {"requests": requests, "rows": rows},
+                    "datums": form["selections"],
+                    "case": case.get("case_id"),
+                    "namespace": etree.QName(root).namespace,
+                }
+    return records
+
+
+def _save_search_in_hq(published):
+    authoring = Authoring(published.unit, {}, base=DOCUMENT, operation=published.unit.operation)
+    config = operations.held_app(published.unit, published.app_id).get_module(0).search_config
+    settings = config.to_json()
+    (field,) = settings["properties"]
+    assert field["name"] == SEARCH_INPUT, settings
+    field.update(label=NEW_LABEL, hint=field.get("hint", {}).get("en", ""), appearance=field.get("appearance", ""))
+    # The page displays scalar wording from the active language.
+    for key in ("title_label", "description"):
+        settings[key] = settings.get(key, {}).get("en", "")
+    body, content_type = ops.form_body([
+        ("type", json.dumps("case")), ("search_properties", json.dumps(settings)),
+    ])
+    with authoring.step("edit-parent-search", body):
+        ops.post(
+            authoring, "edit_module_detail_screens", [published.app_id, published.module_id(0)],
+            body, content_type, "the parent menu's Search",
+        )
+
+
+def _read_back(published, evidence):
+    from corehq import privileges
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import also_granted, api_rate_limits
+
+    unit, app_id = published.unit, published.app_id
+    with hq_redis.shared(None), unit.fork(), unit.committing(), also_granted(privileges.API_ACCESS), api_rate_limits(unit):
+        credential = operations.seed_api_user(unit, "combined-journey-reader@example.com")
+        reads = {
+            key: read(unit, app_id, credential).retained()
+            for key, read in (
+                ("application", operations.application_read),
+                ("source", operations.source_read),
+                ("currentVersion", operations.current_version_read),
+            )
+        }
+    stored = published.document.edit_document
+    expected = copy.deepcopy(stored["doc"])
+    household, *_ = expected["moduleOrder"]
+    expected["modules"][household]["caseListConfig"]["searchInputs"][0]["label"] = NEW_LABEL
+    (answer,) = readerbundle.run_reader([{
+        "id": DOCUMENT,
+        "mode": "read-back",
+        "input": proof6.read_back_input(published.document, reads, stored),
+        "expected": expected,
+        "canon": True,
+    }])
+    evidence("search-read-back", answer)
+    assert answer["kind"] == "read" and answer["differences"] == [], json.dumps(
+        answer.get("findings", answer.get("differences", answer)), indent=2
+    )
+    return answer
+
+
+def test_a_visit_after_a_parent_search_keeps_both_listed_visit_routes(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    document = formplayer_documents[DOCUMENT]
+    with apps.published(document, core_runner) as published:
+        before = _worker_visits(published, formplayer_runner, "original", ["Visits", "Clinic"], "Cohort")
+        with published.unit.operation("reorder-child-menus", DOCUMENT.encode()):
+            refusal, lookups = publish.update(
+                published.unit, published.app_id, document.edit.exports["minimum"].update, "B-edit"
+            )
+            assert refusal is None and (lookups is None or lookups["errors"] == []), (refusal, lookups)
+        _save_search_in_hq(published)
+        after = _worker_visits(published, formplayer_runner, "edited", ["Clinic", "Visits"], NEW_LABEL)
+        evidence("searched-shared-visit", {"before": before, "after": after})
+        _read_back(published, evidence)
+    namespaces = {route["namespace"] for stage in (before, after) for route in stage.values()}
+    assert len(namespaces) == 1 and all(namespaces), (before, after)
