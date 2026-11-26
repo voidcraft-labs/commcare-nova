@@ -135,7 +135,7 @@ export function proseReadSlotRef(
 	field: Field,
 	read: Pick<ProseRead, "slot" | "indices">,
 ): ProseSlotRef | undefined {
-	if (read.slot !== "option_label")
+	if (read.slot !== "option_label" && read.slot !== "option_extended_text")
 		return { entity: "field", uuid: field.uuid, slot: read.slot };
 	const option =
 		"optionsSource" in field && field.optionsSource.kind === "inline"
@@ -146,7 +146,7 @@ export function proseReadSlotRef(
 		: {
 				entity: "field",
 				uuid: field.uuid,
-				slot: "option_label",
+				slot: read.slot,
 				member: { optionUuid: option.uuid },
 			};
 }

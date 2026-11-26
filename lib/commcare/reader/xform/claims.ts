@@ -1520,8 +1520,13 @@ export const X = {
 	/** A `long` form on a hint, a help text, a validation message or a choice, which both runtimes
 	 *  show in place of the text. */
 	longFormOnOtherText: one(
-		"refuse",
+		"take",
 		Q("long-form-on-a-hint-help-text-validation-message-or-choice"),
+		"itext-form:core/long",
+	),
+	longFormOnRepeatAction: one(
+		"refuse",
+		Q("long-form-on-a-repeat-action-caption"),
 		"itext-form:core/long",
 	),
 	shortForm: one("account", Q("short-form"), "itext-form:core/short"),

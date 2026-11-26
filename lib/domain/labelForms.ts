@@ -84,6 +84,18 @@ export function labelTextOf(
 		: undefined;
 }
 
+/** Extended prose carried on the same itext entry as its ordinary wording. */
+export const FIELD_EXTENDED_TEXT_SLOTS = {
+	hint: "extended_hint",
+	help: "extended_help",
+	validate_msg: "extended_validate_msg",
+} as const;
+export type FieldExtendedTextSlot =
+	(typeof FIELD_EXTENDED_TEXT_SLOTS)[keyof typeof FIELD_EXTENDED_TEXT_SLOTS];
+
+/** The option's extended text is identified independently of the option's label. */
+export type ExtendedProseSlot = FieldExtendedTextSlot | "option_extended_text";
+
 /** Every field prose slot but a choice's label, each its own translation
  *  unit keyed by the slot's name: the label, hint, help text and validation
  *  message, then the label's other texts. */
@@ -95,6 +107,7 @@ export const FIELD_PROSE_SLOTS = [
 	"addFirstLabel",
 	"addLabel",
 	...LABEL_TEXT_SLOTS,
+	...Object.values(FIELD_EXTENDED_TEXT_SLOTS),
 ] as const;
 export type FieldProseSlot = (typeof FIELD_PROSE_SLOTS)[number];
 

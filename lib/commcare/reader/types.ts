@@ -20,7 +20,7 @@ import type {
 } from "@/lib/domain";
 import type { CaseRelation } from "@/lib/domain/caseRelations";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
-import type { LabelTextSlot } from "@/lib/domain/labelForms";
+import type { ExtendedProseSlot, LabelTextSlot } from "@/lib/domain/labelForms";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
@@ -500,7 +500,7 @@ export interface ReadFormFacts {
 /** One blank non-default value filled at publication: a text slot's, or one of a question
  *  label's other texts (`lib/domain/labelForms.ts`). */
 export type BlankTranslationSlot = Omit<ItextRecipient, "slot"> & {
-	readonly slot: ItextRecipient["slot"] | LabelTextSlot;
+	readonly slot: ItextRecipient["slot"] | LabelTextSlot | ExtendedProseSlot;
 };
 
 export interface ReadGeneratedNode {

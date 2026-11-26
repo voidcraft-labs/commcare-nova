@@ -125,6 +125,11 @@ const FIELD_DOCS = {
 	label: "Visible wording. Empty labels hide group chrome or repeat titles.",
 	hint: "Short guidance below the question.",
 	help: "Longer guidance opened on demand.",
+	extended_hint: "Alternate hint shown in place of the ordinary hint.",
+	extended_help:
+		"Alternate help shown in Web Apps. Android uses it when Format text is off for the help.",
+	extended_validate_msg:
+		"Alternate message shown when this question's validation fails.",
 	extended_text:
 		"Text shown in place of the label where the label shows exactly as typed (plain_label, or a form with plain_text). Android also reads it aloud where the worker turned text to speech on and the question has no spoken_text. A formatted label shows itself instead. null removes it.",
 	qr_code:
@@ -303,6 +308,11 @@ export const projectedSelectOptionSchema = z.strictObject({
 	label: proseTemplateSchema.describe(
 		"What people read for this choice. Put the wording here, never in `value`.",
 	),
+	extended_text: proseTemplateSchema
+		.optional()
+		.describe(
+			"Alternate wording for this choice on workers that read its extended text.",
+		),
 	plain_label: z
 		.boolean()
 		.optional()
@@ -513,6 +523,9 @@ const ADD_GATED_KEYS = [
 	"choiceLayout",
 	"label",
 	"extended_text",
+	"extended_hint",
+	"extended_help",
+	"extended_validate_msg",
 	"qr_code",
 	"spoken_text",
 	"hint",
@@ -756,6 +769,18 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			androidApp: androidAppField(),
 			hint: hintField(),
 			help: helpField(),
+			extended_hint: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_hint),
+			extended_help: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_help),
+			extended_validate_msg: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_validate_msg),
 			addFirstLabel: proseTemplateSchema
 				.nullable()
 				.optional()
@@ -899,6 +924,18 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			androidApp: androidAppField(),
 			hint: hintField(),
 			help: helpField(),
+			extended_hint: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_hint),
+			extended_help: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_help),
+			extended_validate_msg: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.extended_validate_msg),
 			addFirstLabel: proseTemplateSchema
 				.nullable()
 				.optional()

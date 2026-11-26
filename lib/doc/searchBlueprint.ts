@@ -270,7 +270,11 @@ function searchFields(
 		if (opts.length > 0) {
 			const labelByOption = new Map<number, string>();
 			for (const entry of proseSurfaceReads(field, doc)) {
-				if (entry.slot !== "option_label") continue;
+				if (
+					entry.slot !== "option_label" &&
+					entry.slot !== "option_extended_text"
+				)
+					continue;
 				const index = entry.indices[0];
 				if (index !== undefined) labelByOption.set(index, entry.text);
 			}

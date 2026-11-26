@@ -12393,6 +12393,7 @@ VALUE_CLASSES = {
     "questions/long-form-on-a-hint-help-text-validation-message-or-choice": _long_form_on(
         {"hint", "help", "alert", "message", "choice"}
     ),
+    "questions/long-form-on-a-repeat-action-caption": _long_form_on({"caption"}),
     "questions/long-form-on-a-group-or-repeat-label": _long_form_on({"container-label"}),
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes": orphan_android_action,

@@ -363,6 +363,11 @@ export function flatFieldToField(
 		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
 		...(q.help !== undefined && q.help !== null && { help: q.help }),
 		...(q.extended_text != null && { extended_text: q.extended_text }),
+		...(q.extended_hint != null && { extended_hint: q.extended_hint }),
+		...(q.extended_help != null && { extended_help: q.extended_help }),
+		...(q.extended_validate_msg != null && {
+			extended_validate_msg: q.extended_validate_msg,
+		}),
 		...(q.qr_code != null && { qr_code: q.qr_code }),
 		...(q.spoken_text != null && { spoken_text: q.spoken_text }),
 		...(q.plain_help === true && { plainHelp: true }),
