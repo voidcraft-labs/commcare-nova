@@ -1,5 +1,6 @@
 """A root user case update is saved by Vellum and submitted only on its condition."""
 
+import pytest
 from lxml import etree
 
 from proof.core.artifacts import TEMPLATE_RESTORE, XFORMS
@@ -114,13 +115,17 @@ REPEATED_WORKER_PATH = "/data/members/nova_operations/worker/case"
 MEMBER_NAME = "current()/../../../../../member_name"
 
 
-def _repeated_worker_form_source(xmlns):
+def _repeated_worker_form_source(xmlns, counted):
+    count_node = "<count/>" if counted else ""
+    count_bind = '<bind nodeset="/data/count" type="xsd:int"/>' if counted else ""
+    count_input = '<input ref="/data/count"><label ref="jr:itext('count-label')"/></input>' if counted else ""
+    count_attributes = ' jr:count="/data/count" jr:noAddRemove="true()"' if counted else ""
     return f'''<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="{XFORMS}"
       xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum"
       xmlns:xsd="http://www.w3.org/2001/XMLSchema">
       <h:head><h:title>Members</h:title><model>
         <instance><data xmlns="{xmlns}" name="Members" version="1" uiVersion="1">
-          <members jr:template=""><note/><member_name/>
+          {count_node}<members jr:template=""><note/><member_name/>
             <nova_operations><worker vellum:role="SaveToCase" vellum:case_type="commcare-user">
               <case xmlns="{CASE}" case_id="" date_modified="" user_id=""><update><visits/></update></case>
             </worker></nova_operations>
@@ -128,30 +133,34 @@ def _repeated_worker_form_source(xmlns):
         </data></instance>
         <instance src="jr://instance/casedb" id="casedb"/>
         <instance src="jr://instance/session" id="commcaresession"/>
-        <bind nodeset="/data/members/note" type="xsd:string"/>
+        {count_bind}<bind nodeset="/data/members/note" type="xsd:string"/>
         <bind nodeset="/data/members/member_name" calculate="concat('member-', position(..))"/>
         <bind nodeset="{REPEATED_WORKER_PATH}/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
         <bind nodeset="{REPEATED_WORKER_PATH}/@user_id" calculate="/data/meta/userID"/>
         <bind nodeset="{REPEATED_WORKER_PATH}/@case_id" calculate="{TARGET}"/>
         <bind nodeset="{REPEATED_WORKER_PATH}/update/visits" calculate="{MEMBER_NAME}" relevant="count({MEMBER_NAME}) &gt; 0"/>
         <itext><translation lang="en" default="">
+          <text id="count-label"><value>Number of members</value></text>
           <text id="members-label"><value>Members</value></text>
           <text id="note-label"><value>Note</value></text>
         </translation></itext>
       </model></h:head>
-      <h:body><group ref="/data/members"><label ref="jr:itext('members-label')"/>
-        <repeat nodeset="/data/members">
+      <h:body>{count_input}<group ref="/data/members"><label ref="jr:itext('members-label')"/>
+        <repeat nodeset="/data/members"{count_attributes}>
           <input ref="/data/members/note"><label ref="jr:itext('note-label')"/></input>
           <group ref="/data/members/nova_operations"/>
         </repeat></group></h:body>
     </h:html>'''
 
 
-def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(hq, core_runner, editor_driver, tmp_path):
+@pytest.mark.parametrize("counted", [False, True], ids=["user-controlled", "count-bound"])
+def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
+    hq, core_runner, editor_driver, tmp_path, counted
+):
     with hq_check(Configuration(privileges={"VELLUM_SAVE_TO_CASE", "USERCASE"})) as (state, record):
         app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
         form = operations.held_app(state, app_id).modules[0].forms[0]
-        _patched(state, app_id, form.unique_id, _repeated_worker_form_source(form.xmlns), "repeated worker save")
+        _patched(state, app_id, form.unique_id, _repeated_worker_form_source(form.xmlns, counted), "repeated worker save")
         saved = vellum.fresh_open_and_save(editor_driver, state, app_id, form.unique_id)
         assert saved.loaded and saved.saved, (saved.load_error, saved.save_refusal, saved.form_errors)
         root = etree.fromstring(saved.stored_source.encode())
@@ -173,8 +182,17 @@ def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(hq, co
                     assert initial.refusal is None
                     known = [initial.touched[WORKER_CASE].case]
                 table = load_answer_table()
-                table["repeats"]["add"] = number
-                trace = core_runner.session(admission["app"], restore=etree.tostring(restore), answer_table=table)
+                table["repeats"]["add"] = 0 if counted else number
+                kinds = None
+                if counted:
+                    table["novaKinds"]["worker-repeat-count"] = [str(number)]
+                    kinds = {"/data/count": "worker-repeat-count"}
+                trace = core_runner.session(
+                    admission["app"],
+                    restore=etree.tostring(restore),
+                    answer_table=table,
+                    question_kinds=kinds,
+                )
                 run, = (run for run in trace["runs"]
                         if (step := form_step(run)) and step.get("xmlns") == form.xmlns and run["end"] == "submitted")
                 step = form_step(run)
