@@ -61,7 +61,7 @@ const stagedConflict = () =>
 export async function beginInventory(
 	access: InventoryAccess,
 	source: {
-		keyDigest: string;
+		connectionEpoch: string;
 		definitionDigest: string;
 		canonicalDefinition: string;
 		reconcileDefinition?: true;
@@ -75,7 +75,7 @@ export async function beginInventory(
 	return withAppTx(async (tx) => {
 		const locked = await lockInventoryScope(tx, access);
 		if (
-			locked.keyDigest !== source.keyDigest ||
+			locked.connectionEpoch !== source.connectionEpoch ||
 			locked.table.hq_server !== source.server ||
 			locked.table.hq_domain !== source.domain ||
 			locked.table.hq_remote_id !== source.remoteId ||

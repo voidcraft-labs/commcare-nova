@@ -64,20 +64,22 @@ export async function lockInventoryScope(
 		.selectFrom("user_settings")
 		.select([
 			"commcare_username",
-			"commcare_api_key",
+			"connection_epoch",
 			"commcare_server",
 			"approved_domains",
+			sql<boolean>`commcare_api_key <> ''`.as("configured"),
 		])
 		.where("user_id", "=", scope.actorId)
 		.forShare()
 		.executeTakeFirst();
 	if (
-		!settings ||
+		!settings?.configured ||
 		settings.commcare_server !== table.hq_server ||
 		!settings.approved_domains.some((x) => x.name === table.hq_domain)
 	)
 		return dataAccessLost();
-	const keyDigest = canonicalJsonDigest(settings.commcare_api_key);
+	// The connection's version, which a save of the key renews, never the key.
+	const connectionEpoch = settings.connection_epoch;
 	const scopeDigest = canonicalJsonDigest([
 		scope.projectId,
 		scope.actorId,
@@ -89,7 +91,7 @@ export async function lockInventoryScope(
 		table.hq_domain,
 		table.hq_remote_id,
 		settings.commcare_username,
-		keyDigest,
+		connectionEpoch,
 	]);
 	return {
 		authority,
@@ -100,7 +102,7 @@ export async function lockInventoryScope(
 		},
 		table,
 		scopeDigest,
-		keyDigest,
+		connectionEpoch,
 		username: settings.commcare_username,
 		revision: lookupTableRevisions(table).tableRevision,
 	};

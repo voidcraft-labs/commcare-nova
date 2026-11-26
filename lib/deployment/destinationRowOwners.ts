@@ -14,7 +14,7 @@ import type {
 import { readTargetWorkerGroup } from "@/lib/commcare/hq/workerGroups";
 import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
-import { getHqCredentials } from "@/lib/db/settings";
+import { getHqCredentials, lockedConnection } from "@/lib/db/settings";
 import type { LookupRowId, LookupTableId } from "@/lib/domain/lookupIds";
 import { LookupError } from "@/lib/lookup/errors";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -61,19 +61,9 @@ async function readOwnerState(
 			? "nova.hq.write"
 			: "nova.projects.data.export",
 	]);
-	const key = await tx
-		.selectFrom("user_settings")
-		.select([
-			"commcare_server",
-			"commcare_username",
-			"commcare_api_key",
-			"approved_domains",
-		])
-		.where("user_id", "=", scope.actorUserId)
-		.forShare()
-		.executeTakeFirst();
+	const key = await lockedConnection(tx, scope.actorUserId);
 	if (
-		!key?.commcare_api_key ||
+		!key ||
 		key.commcare_server !== target.server ||
 		!key.approved_domains.some((d) => d.name === target.domain)
 	)
@@ -134,7 +124,7 @@ async function readOwnerState(
 		grantKey,
 		app.role,
 		app.baseSeq,
-		key.commcare_api_key,
+		key.connection_epoch,
 		key.commcare_username,
 		tableId,
 		table,

@@ -27,7 +27,6 @@ import {
 	stageInventoryPage,
 } from "@/lib/lookup/generations/store";
 import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
-import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	canonicalLookupObservation,
 	lookupDefinitionDigest,
@@ -95,7 +94,7 @@ export async function refreshSourceInventory(
 			};
 		const { run, checkpoint } = await beginInventory(access, {
 			...source,
-			keyDigest: canonicalJsonDigest(target.encryptedApiKey),
+			connectionEpoch: target.connectionEpoch,
 			canonicalDefinition: lookupDefinitionDigest(table),
 			reconcileDefinition: true,
 			definitionDigest: lookupSourceDefinitionDigest(
@@ -188,14 +187,14 @@ export async function inspectSourceInventory<T>(
 	access: InventoryAccess,
 	read: (verifiedScope: string) => Promise<T>,
 ) {
-	const { table, origin, keyDigest, scopeDigest } = await withAppTx((tx) =>
-		lockInventoryScope(tx, access),
+	const { table, origin, connectionEpoch, scopeDigest } = await withAppTx(
+		(tx) => lockInventoryScope(tx, access),
 	);
 	const target = await resolveHqTarget(access.scope.actorId, origin.domain);
 	if (
 		!target.ok ||
 		target.server !== table.hq_server ||
-		canonicalJsonDigest(target.encryptedApiKey) !== keyDigest
+		target.connectionEpoch !== connectionEpoch
 	)
 		throw new LookupError(
 			"not_found",

@@ -48,6 +48,7 @@ import * as lookupCellValues from "./20261206010000_lookup_cell_values";
 import * as workerAssignments from "./20261207000000_worker_assignments";
 import * as exportArtifacts from "./20261207040000_export_artifacts";
 import * as organizationPlacePages from "./20261207050000_organization_place_pages";
+import * as userSettingsConnectionEpoch from "./20261207060000_user_settings_connection_epoch";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -267,6 +268,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261207000000_worker_assignments": workerAssignments,
 	"20261207040000_export_artifacts": exportArtifacts,
 	"20261207050000_organization_place_pages": organizationPlacePages,
+	"20261207060000_user_settings_connection_epoch": userSettingsConnectionEpoch,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

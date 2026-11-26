@@ -12,7 +12,7 @@ import {
 	type TargetWorkerGroup,
 } from "@/lib/commcare/hq/workerGroups";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
-import { getHqCredentials } from "@/lib/db/settings";
+import { getHqCredentials, lockedConnection } from "@/lib/db/settings";
 import type { Uuid } from "@/lib/domain/uuid";
 import { authorizeAgentScopeInTransaction } from "@/lib/lookup/agentService";
 import { LookupError } from "@/lib/lookup/errors";
@@ -60,26 +60,14 @@ async function authority(tx: Tx, { scope, grant }: GroupBindingAccess) {
 	return writer;
 }
 
-async function settingsFor(tx: Tx, userId: string) {
-	return tx
-		.selectFrom("user_settings")
-		.select([
-			"commcare_server",
-			"commcare_username",
-			"commcare_api_key",
-			"approved_domains",
-		])
-		.where("user_id", "=", userId)
-		.forShare()
-		.executeTakeFirst();
+function settingsFor(tx: Tx, userId: string) {
+	return lockedConnection(tx, userId);
 }
 export async function approvedGroupSpaces(access: GroupBindingAccess) {
 	return withAppTx(async (tx) => {
 		await authority(tx, access);
 		const key = await settingsFor(tx, access.scope.actorId);
-		return key?.commcare_api_key
-			? key.approved_domains.map((domain) => domain.name)
-			: [];
+		return key ? key.approved_domains.map((domain) => domain.name) : [];
 	});
 }
 
@@ -141,7 +129,6 @@ async function checkedState(
 	const key = await settingsFor(tx, access.scope.actorId);
 	if (
 		!key?.commcare_server ||
-		!key.commcare_api_key ||
 		!key.approved_domains.some((d) => d.name === selected.domain)
 	)
 		return dataAccessLost();
@@ -160,7 +147,7 @@ async function checkedState(
 		selected.domain,
 		server,
 		key.commcare_username,
-		key.commcare_api_key,
+		key.connection_epoch,
 		local,
 	]);
 	return { writer, server, local, digest };
@@ -279,11 +266,16 @@ export async function readGroupTarget(
 			kind: "spaces" as const,
 			domains: await approvedGroupSpaces(access),
 		};
-	return reviewWorkerGroupTarget(
+	const review = await reviewWorkerGroupTarget(
 		access,
 		request,
 		request.kind === "find"
 			? { name: request.name }
 			: { remoteId: request.remoteId },
 	);
+	// The state a binding is checked against stays on the server: no reader
+	// of a review uses it.
+	if (review.kind !== "review") return review;
+	const { state: _state, ...shown } = review;
+	return shown;
 }

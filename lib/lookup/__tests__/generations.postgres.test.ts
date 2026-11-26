@@ -17,7 +17,6 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { readInventoryPiece, readInventoryStatus } from "../generations/read";
 import { reclaimLookupStorageBatch } from "../generations/recovery";
 import type { InventoryAccess } from "../generations/scope";
@@ -65,12 +64,16 @@ const candidate = {
 	remoteId,
 	canonicalDefinition: lookupDefinitionDigest(table),
 	definitionDigest: "b".repeat(64),
-	keyDigest: canonicalJsonDigest("ciphertext"),
+	connectionEpoch: "11111111-1111-4111-8111-111111111111",
 };
 
 beforeEach(async () => {
 	await h.seedProjectMember(scope.actorId, scope.projectId, "editor");
 	await connect(h, scope.actorId, "india", [domain]);
+	// The connection version the candidate was read under.
+	await sql`UPDATE user_settings SET connection_epoch=${candidate.connectionEpoch} WHERE user_id=${scope.actorId}`.execute(
+		h.db(),
+	);
 	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt") VALUES
 		(${grant.sessionId},'synthetic-session',${scope.actorId},now()+interval '1 hour',now(),now())`.execute(
 		h.db(),

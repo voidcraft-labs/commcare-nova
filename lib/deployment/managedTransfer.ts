@@ -33,7 +33,7 @@ export async function transferManagedGeneration(
 				!target.ok ||
 				target.server !== origin.server ||
 				target.username !== initial.username ||
-				canonicalJsonDigest(target.encryptedApiKey) !== initial.keyDigest
+				target.connectionEpoch !== initial.connectionEpoch
 			)
 				return sourceChanged();
 			const creds = {

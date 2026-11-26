@@ -20,7 +20,7 @@ export async function transferGeneration(
 		scopeDigest,
 		revision,
 		origin,
-		keyDigest,
+		connectionEpoch,
 		username,
 		authority,
 	} = await lockInventoryScope(tx, access, "transfer");
@@ -48,7 +48,7 @@ export async function transferGeneration(
 		authority,
 		tag: table.tag,
 		origin,
-		keyDigest,
+		connectionEpoch,
 		username,
 		evidence: {
 			generationId: table.active_generation_id,

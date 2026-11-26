@@ -24,6 +24,7 @@ import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
 
 import {
 	type ColumnType,
+	type Generated,
 	type IsolationLevel,
 	type JSONColumnType,
 	Kysely,
@@ -354,6 +355,9 @@ export interface UserSettingsTable {
 	commcare_api_key: string;
 	commcare_server: string | null;
 	approved_domains: JSONColumnType<{ name: string; displayName: string }[]>;
+	/** A fresh uuid each time the key, user name or server is saved: the
+	 * connection's version, which bindings name in place of the key. */
+	connection_epoch: Generated<string>;
 	updated_at: Timestamp;
 }
 

@@ -16,7 +16,7 @@ import { findHqMobileWorkers } from "@/lib/commcare/hq/workers";
 import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
 import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
-import { getHqCredentials } from "@/lib/db/settings";
+import { getHqCredentials, lockedConnection } from "@/lib/db/settings";
 import { personaSchema, uuidSchema } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { authorizeAgentScopeInTransaction } from "@/lib/lookup/agentService";
@@ -166,20 +166,9 @@ export async function assertWorkerTargetBinding(
 	const locked = await lockWorkerAccess(tx, access);
 	const { scope, target, personaUuid } = access;
 	if (!target) return dataAccessLost();
-	const settings = await tx
-		.selectFrom("user_settings")
-		.select([
-			"commcare_username",
-			"commcare_api_key",
-			"commcare_server",
-			"approved_domains",
-		])
-		.where("user_id", "=", scope.actorUserId)
-		.forShare()
-		.executeTakeFirst();
+	const settings = await lockedConnection(tx, scope.actorUserId);
 	if (
 		!settings?.commcare_username ||
-		!settings.commcare_api_key ||
 		settings.commcare_server !== target.server ||
 		!settings.approved_domains.some((d) => d.name === target.domain)
 	)
@@ -219,7 +208,7 @@ export async function assertWorkerTargetBinding(
 			target.domain,
 			row,
 			settings.commcare_username,
-			settings.commcare_api_key,
+			settings.connection_epoch,
 		]),
 		digest: canonicalJsonDigest([
 			locked.digest,
@@ -227,7 +216,7 @@ export async function assertWorkerTargetBinding(
 			target.domain,
 			row,
 			settings.commcare_username,
-			settings.commcare_api_key,
+			settings.connection_epoch,
 		]),
 	};
 }

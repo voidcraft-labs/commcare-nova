@@ -8,7 +8,7 @@ import {
 import { NOVA_MCP_FLOOR_SCOPES } from "@/lib/auth-public";
 import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
-import { hqConnectionDigest } from "@/lib/db/settings";
+import { hqConnectionDigest, lockedConnection } from "@/lib/db/settings";
 import {
 	type DestinationOwnerAccess,
 	readDestinationRowOwners,
@@ -50,24 +50,13 @@ export async function authorizeAssignmentExport(
 		...NOVA_MCP_FLOOR_SCOPES,
 		purpose === "publish" ? "nova.hq.write" : "nova.projects.data.export",
 	]);
-	const settings = await tx
-		.selectFrom("user_settings")
-		.select([
-			"commcare_username",
-			"commcare_api_key",
-			"commcare_server",
-			"approved_domains",
-		])
-		.where("user_id", "=", scope.actorUserId)
-		.forShare()
-		.executeTakeFirst();
+	const settings = await lockedConnection(tx, scope.actorUserId);
 	if (
-		!settings?.commcare_api_key ||
-		!settings.commcare_username ||
+		!settings?.commcare_username ||
 		(connectionDigest !== undefined &&
 			hqConnectionDigest(
 				settings.commcare_username,
-				settings.commcare_api_key,
+				settings.connection_epoch,
 				target.server,
 				target.domain,
 			) !== connectionDigest) ||
@@ -93,7 +82,7 @@ export async function authorizeAssignmentExport(
 		...(member ? [member] : []),
 		key,
 		settings.commcare_username,
-		settings.commcare_api_key,
+		settings.connection_epoch,
 		target,
 	]);
 }
