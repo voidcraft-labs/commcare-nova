@@ -1050,6 +1050,39 @@ it("round trips a create that chooses one of two declared case types from an ans
 				?.find((type) => type.name === name)
 				?.properties.map((property) => property.name),
 		).toContain("saved_note");
+
+	const incompatible = produce(result, (draft) => {
+		const alternate = draft.caseTypes?.find((type) => type.name === "patient");
+		const notes = alternate?.properties.find(
+			(property) => property.name === "saved_note",
+		);
+		if (notes === undefined)
+			throw new Error("Expected the alternate type to hold the write.");
+		notes.data_type = "date";
+	});
+	expect(gateCodes(incompatible)).toContain(
+		"CASE_OPERATION_TYPE_CHOICE_INVALID",
+	);
+
+	const operation = result.forms[FORM].caseOperations?.[0];
+	if (operation?.action !== "create") throw new Error("Expected the create.");
+	const changed = produce(result, (draft) => {
+		applyMutations(
+			draft,
+			updateCaseOperationMutations(result, FORM, {
+				...operation,
+				caseType: "patient",
+			}),
+		);
+	});
+	expect(changed.forms[FORM].caseOperations?.[0]).toMatchObject({
+		caseType: "patient",
+	});
+	expect(changed.forms[FORM].caseOperations?.[0]).not.toHaveProperty(
+		"typeChoice",
+	);
+	expect(gateCodes(changed)).toEqual([]);
+
 	const once = exportedBody(result);
 	const twice = await readBack(result);
 	expect(twice.kind).toBe("read");
