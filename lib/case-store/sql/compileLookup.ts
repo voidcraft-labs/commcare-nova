@@ -20,7 +20,7 @@
 // (the wire's captured case anchor), while same-table column terms
 // read the fixture row.
 
-import type { AliasableExpression, Expression } from "kysely";
+import type { AliasableExpression, Expression, RawBuilder } from "kysely";
 import { expressionBuilder, sql } from "kysely";
 import type { StoredLookupColumnDataType } from "@/lib/db/pg";
 import {
@@ -213,6 +213,19 @@ export function compileLookupColumnTerm(
 	return lookupCellRead(scope.rowAlias, term.columnId, dataType);
 }
 
+/** Every code unit Java's `String.trim` strips from either end: U+0001
+ * through U+0020 (Postgres text holds no U+0000). */
+const JAVA_TRIM_CHARACTERS = Array.from({ length: 0x20 }, (_, index) =>
+	String.fromCharCode(index + 1),
+).join("");
+
+/** `text` with Java's `String.trim` applied; `btrim` strips any of the given
+ * characters from both ends, as `trim` strips every code unit at or below
+ * U+0020. */
+function javaTrim(text: RawBuilder<unknown>): RawBuilder<unknown> {
+	return sql`btrim(${text}, ${JAVA_TRIM_CHARACTERS}::text)`;
+}
+
 /**
  * Typed cell read: `<rowAlias>.values ->> '<columnId>'` cast per the
  * column's declared type — the same cast table property reads use, so
@@ -240,13 +253,17 @@ function lookupCellRead(
 		ORDER BY ord ${position === undefined || before ? sql`` : sql`OFFSET ${position - 1} LIMIT 1`}`;
 	// A Core scalar conversion rejects a nodeset with more than one node. A
 	// scalar subquery has that same property, including after a detail filter.
+	// A device reads an element's text trimmed and its attributes as written
+	// (commcare-core `TreeElementParser.parse`: `parser.getText().trim()`):
+	// a cell's or an occurrence's text is trimmed as Java's `String.trim`
+	// trims it, and a row attribute or an occurrence's property is not.
 	const field = property
 		? sql`(SELECT item->'properties'->>${property}::text FROM (${selected}) AS matched WHERE (item->'properties') ? ${property}::text)`
-		: sql`(SELECT item->>'text' FROM (${selected}) AS matched)`;
+		: javaTrim(sql`(SELECT item->>'text' FROM (${selected}) AS matched)`);
 	const sparse =
 		property || filter || (position ?? 1) !== 1
 			? sql`null`
-			: sql`${values}->>${column}::text`;
+			: javaTrim(sql`${values}->>${column}::text`);
 	return eb.cast(
 		sql`CASE WHEN ${items} IS NULL THEN ${sparse} ELSE ${field} END`,
 		POSTGRES_CAST_FOR_DATA_TYPE[dataType],

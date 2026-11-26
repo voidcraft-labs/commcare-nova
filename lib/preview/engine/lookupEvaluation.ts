@@ -43,6 +43,7 @@ import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
+import { javaTrim } from "../xpath/javaString";
 import { isXPathNodeSet, type XPathRuntimeValue } from "../xpath/runtimeValues";
 import { PreviewDataRefusal } from "./dataRefusal";
 import type { LookupChoice } from "./types";
@@ -234,6 +235,22 @@ export function lookupOptionsSourceCovered(
 	return collector.covered;
 }
 
+/** A choice's text as a device reads it. Core builds an itemset's choices
+ * from the restored fixture, whose element text `TreeElementParser.parse`
+ * trims and whose attributes it keeps as written: a cell or a repeated value
+ * reads trimmed, a row detail or a value detail as stored. */
+function deviceChoiceText(
+	row: Parameters<typeof lookupReadText>[0],
+	read: LookupRead,
+	column: Parameters<typeof lookupReadText>[2],
+): string {
+	const text = lookupReadText(row, read, column);
+	return typeof read !== "string" &&
+		("attributeId" in read || read.propertyId !== undefined)
+		? text
+		: javaTrim(text);
+}
+
 /**
  * A lookup-backed select's live choices from its evaluated itemset nodeset:
  * each selected row, projected to its value/label column cell text. Rows
@@ -331,13 +348,13 @@ export function lookupChoicesFromNodeset(
 		choices.push({
 			choice: {
 				key: row.id as string,
-				value: lookupReadText(row, source.valueColumnId, valueColumn),
-				label: lookupReadText(row, source.labelColumnId, labelColumn),
+				value: deviceChoiceText(row, source.valueColumnId, valueColumn),
+				label: deviceChoiceText(row, source.labelColumnId, labelColumn),
 			},
 			sortText:
 				sortColumn === undefined
 					? ""
-					: lookupReadText(
+					: deviceChoiceText(
 							row,
 							sortColumnId ?? source.labelColumnId,
 							sortColumn,

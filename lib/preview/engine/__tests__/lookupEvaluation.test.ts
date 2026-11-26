@@ -288,6 +288,35 @@ describe("evaluateLookupChoices", () => {
 		).toThrow(/1 row\(s\) leave that column blank \(row 4 first\)/);
 	});
 
+	it("labels and sorts choices by their text trimmed, as Core builds them from the restored fixture", () => {
+		// commcare-core TreeElementParser.parse trims every element's text, and
+		// ItemSetUtils.buildSelectChoice reads the label off that tree.
+		const padded = [
+			row("018f0000-0000-7000-8000-0000000000b1", {
+				code: "z9",
+				clinic_name: " Zeta Clinic\t",
+			}),
+			row("018f0000-0000-7000-8000-0000000000b2", {
+				code: "a1",
+				clinic_name: "Alpha Clinic",
+			}),
+		];
+		const choices = evaluateLookupChoices(
+			source(),
+			previewLookupData({
+				projectRevision: parseLookupRevision("7"),
+				definitions: [DEFINITION],
+				rowsByTable: new Map([[TABLE, padded]]),
+			}),
+			COL_NAME,
+		);
+		// Untrimmed, " Zeta Clinic" would sort before "Alpha Clinic".
+		expect(choices.map(({ label }) => label)).toEqual([
+			"Alpha Clinic",
+			"Zeta Clinic",
+		]);
+	});
+
 	describe("with a sort column", () => {
 		// Labels whose code unit order differs from a locale's, with ties.
 		const labels = ["b", "B", "a", "é", "Z", "a", "10", "9", "a"];
