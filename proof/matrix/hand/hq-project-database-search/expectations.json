@@ -1,0 +1,47 @@
+[
+	{
+		"id": "record-the-next-area-and-priority",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "visit-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/area",
+					"value": "south"
+				},
+				{
+					"path": "/data/note",
+					"value": "Visit complete"
+				},
+				{
+					"path": "/data/priority",
+					"value": "1"
+				}
+			],
+			"expressions": ["/data/area", "/data/note", "/data/priority"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "south"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Visit complete"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "1"
+			}
+		]
+	}
+]

@@ -70,7 +70,10 @@ import { parseHqJsonText } from "../../hq/jsonText";
 import { lookupWireNaming } from "../../lookup/naming";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
-import { searchInputInstanceId } from "../../suite/case-search/types";
+import {
+	inlineSearchInstance,
+	searchInputInstanceId,
+} from "../../suite/case-search/types";
 import { rethrowWorkStop } from "../../workMeter";
 import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import {
@@ -746,6 +749,16 @@ function deviceEnv(env: SearchRowEnv): ExpressionReadEnv {
 			sourceNames: new Map(),
 			itextUnits: new Map(),
 			instanceSources: new Map(),
+			factories: {
+				namedResults: new Set(
+					Object.values(env.doc.modules).flatMap((menu) =>
+						menu.searchResultsName === undefined
+							? []
+							: [inlineSearchInstance(menu.searchResultsName)],
+					),
+				),
+				scrubbedReportSlugs: new Set(),
+			},
 			generatedValues: new Map(),
 			operationIdPaths: new Map(),
 			recordDialect: () => undefined,
@@ -1914,7 +1927,10 @@ function emissionContext(
 	const moduleUuid = context.slot.uuid as Uuid;
 	const mod = env.doc.modules[moduleUuid];
 	const config = mod === undefined ? undefined : effectiveCaseSearchConfig(mod);
-	const wire = config === undefined ? undefined : searchWireShape(config);
+	const wire =
+		config === undefined
+			? undefined
+			: searchWireShape(config, mod?.searchResultsName);
 	return {
 		types: context,
 		bindings: {

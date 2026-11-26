@@ -835,62 +835,82 @@ export function runAttachmentTask<T>(args: {
 	target?: AttachmentTaskTarget;
 	task: (context: AttachmentTaskContext) => Promise<T>;
 }): Promise<T> {
-	const authorityToken = attachmentEntryAuthorityToken(args.entryKey);
-	if (authorityToken === undefined) {
-		return Promise.reject(authorityAbort());
-	}
-	const queue = queueFor(args.entryKey);
-	const key = args.slotKey;
-	const previous = queue.paths.get(key);
-	previous?.controller.abort();
-	// A worker's new slot intent also supersedes queued/running path
-	// maintenance. Otherwise an offline repeat-retarget PATCH could hold a
-	// confirmed replacement or new signature behind it indefinitely.
-	for (const controller of queue.maintenance.get(key) ?? []) controller.abort();
-	queue.maintenance.delete(key);
-	const generation = nextAttachmentSlotGeneration(args.entryKey, key);
-	const registeredSlot = attachmentSlots
-		.get(args.entryKey)
-		?.get(args.target?.slotKey ?? key);
-	const current: PathTask = {
-		controller: new AbortController(),
-		generation,
-		target: {
-			slotKey: args.target?.slotKey ?? key,
-			instancePath:
-				args.target?.instancePath ?? registeredSlot?.desiredInstancePath ?? key,
-			...((args.target?.fieldUuid ?? registeredSlot?.fieldUuid)
-				? {
-						fieldUuid: args.target?.fieldUuid ?? registeredSlot?.fieldUuid,
-					}
-				: {}),
+	return runAttachmentTargets(
+		args.entryKey,
+		new Map([[args.slotKey, args.target]]),
+		(context) =>
+			args.task({
+				...context,
+				generation: context.generationFor(args.slotKey),
+			}),
+	);
+}
+
+/** A single returned result may fill several captures. Register every real
+ * slot before enqueueing so that replacing or retiring any one of them
+ * invalidates the whole result, including its scalar answers. Each slot keeps
+ * its own generation for draft replacement and submission reconciliation. */
+export function runAttachmentTargets<T>(
+	entryKey: string,
+	targets: ReadonlyMap<string, AttachmentTaskTarget | undefined>,
+	task: (
+		context: Omit<AttachmentTaskContext, "generation"> & {
+			generationFor: (key: string) => number;
 		},
+	) => Promise<T>,
+): Promise<T> {
+	const authorityToken = attachmentEntryAuthorityToken(entryKey);
+	if (authorityToken === undefined) return Promise.reject(authorityAbort());
+	const queue = queueFor(entryKey);
+	const controller = new AbortController();
+	const registered = new Map<string, PathTask>();
+	for (const [key, target] of targets) {
+		queue.paths.get(key)?.controller.abort();
+		for (const maintenance of queue.maintenance.get(key) ?? [])
+			maintenance.abort();
+		queue.maintenance.delete(key);
+		const slotKey = target?.slotKey ?? key;
+		const slot = attachmentSlots.get(entryKey)?.get(slotKey);
+		const fieldUuid = target?.fieldUuid ?? slot?.fieldUuid;
+		const current: PathTask = {
+			controller,
+			generation: nextAttachmentSlotGeneration(entryKey, key),
+			target: {
+				slotKey,
+				instancePath: target?.instancePath ?? slot?.desiredInstancePath ?? key,
+				...(fieldUuid && { fieldUuid }),
+			},
+		};
+		registered.set(key, current);
+		queue.paths.set(key, current);
+	}
+	const generationFor = (key: string) => {
+		const record = registered.get(key);
+		if (!record) throw new Error("The capture is outside this operation.");
+		return record.generation;
 	};
-	queue.paths.set(key, current);
 	const isCurrent = () =>
-		entryQueues.get(args.entryKey) === queue &&
-		queue.paths.get(key) === current &&
-		!current.controller.signal.aborted &&
-		attachmentEntryAuthorityIsCurrent(args.entryKey, authorityToken);
-	return enqueue(args.entryKey, async () => {
-		current.controller.signal.throwIfAborted();
-		if (!attachmentEntryAuthorityIsCurrent(args.entryKey, authorityToken)) {
+		entryQueues.get(entryKey) === queue &&
+		!controller.signal.aborted &&
+		attachmentEntryAuthorityIsCurrent(entryKey, authorityToken) &&
+		[...registered].every(([key, current]) => queue.paths.get(key) === current);
+	return enqueue(entryKey, async () => {
+		controller.signal.throwIfAborted();
+		if (!attachmentEntryAuthorityIsCurrent(entryKey, authorityToken))
 			throw authorityAbort();
-		}
-		const result = await args.task({
-			signal: current.controller.signal,
+		const result = await task({
+			signal: controller.signal,
 			isCurrent,
-			generation,
+			generationFor,
 		});
-		if (!attachmentEntryAuthorityIsCurrent(args.entryKey, authorityToken)) {
+		if (!attachmentEntryAuthorityIsCurrent(entryKey, authorityToken))
 			throw authorityAbort();
-		}
 		return result;
 	}).finally(() => {
-		if (queue.paths.get(key) === current) {
-			queue.paths.delete(key);
+		for (const [key, current] of registered) {
+			if (queue.paths.get(key) === current) queue.paths.delete(key);
 		}
-		releaseQueueIfIdle(args.entryKey, queue);
+		releaseQueueIfIdle(entryKey, queue);
 	});
 }
 

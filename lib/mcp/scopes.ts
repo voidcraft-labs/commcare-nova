@@ -111,6 +111,8 @@ export const TOOL_SCOPES = {
 	check_project_space_compatibility: [SCOPES.hqRead],
 	get_deployment: [SCOPES.hqRead],
 	prepare_place_id_workbook: [SCOPES.projectDataExport],
+	get_project_search_destination: [SCOPES.hqRead],
+	connect_project_searches: [SCOPES.hqWrite],
 	upload_app_to_hq: [SCOPES.hqWrite],
 	refresh_deployment: [SCOPES.hqWrite],
 	withdraw_deployment_confirmation: [SCOPES.hqWrite],
@@ -212,6 +214,16 @@ export function parseScopes(scope: string | undefined): string[] {
  * `registerScopedTool` throws nothing: it hands this error to the shared
  * serializer and answers its envelope before the handler runs.
  */
+export class McpCredentialInactiveError extends Error {
+	constructor(kind: AuthKind) {
+		super(
+			kind === "api-key"
+				? "This API key no longer authorizes this change. Check the key and its scopes in Settings, then review the change again."
+				: "This client no longer has permission for this change. Reauthorize it with the required scopes, then review the change again.",
+		);
+		this.name = "McpCredentialInactiveError";
+	}
+}
 export class McpScopeError extends Error {
 	constructor(
 		public readonly requiredScope: Scope,

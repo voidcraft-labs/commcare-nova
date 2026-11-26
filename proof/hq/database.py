@@ -43,6 +43,7 @@ template and clones. Other workers' databases are never touched.
 the template if this process restored it.
 """
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -383,6 +384,29 @@ def fresh_database():
             _FRESH.remove(name)
             _point_default_at(before)
             _drop(maintenance, name)
+    finally:
+        maintenance.close()
+
+
+@contextmanager
+def auxiliary_database(purpose: str, scope: str):
+    """Own a disposable external database without changing Django's active database.
+    PostgreSQL roles are cluster-wide. Serialize units of the same purpose and
+    scope on the maintenance database, including recovery of an interrupted one.
+    """
+    key = hashlib.sha256(f"{purpose}:{scope}".encode()).digest()
+    name = "proof_aux_" + key.hex()[:24]
+    maintenance = _maintenance_connection(_settings())
+    try:
+        with maintenance.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(%s)", [int.from_bytes(key[:8], "big", signed=True)])
+            cursor.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+            cursor.execute(f'CREATE DATABASE "{name}" TEMPLATE template0')
+        try:
+            yield name
+        finally:
+            with maintenance.cursor() as cursor:
+                cursor.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
     finally:
         maintenance.close()
 

@@ -31,6 +31,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { Uuid } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain";
 import { claimSearchedCasesAction } from "@/lib/preview/engine/caseDataBinding";
 import type { ClaimSearchedCasesResult } from "@/lib/preview/engine/caseDataBindingTypes";
@@ -43,6 +44,7 @@ import {
 	usePreviewDevice,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import type { PreviewCaseChoice } from "@/lib/session/types";
 import { invalidateCaseData } from "./caseDataInvalidation";
 
 /** What a claim answered. `superseded`: the app, its Project scope or the
@@ -70,7 +72,10 @@ interface ClaimInFlight {
 const serverSnapshot = () => null;
 
 export function useClaimSearchedCases(): {
-	claim(caseIds: readonly string[]): Promise<ClaimOutcome>;
+	claim(
+		caseIds: readonly string[],
+		choices: readonly PreviewCaseChoice[],
+	): Promise<ClaimOutcome>;
 	inFlightCaseIds: readonly string[];
 } {
 	const session = useBuilderSessionApi();
@@ -87,7 +92,10 @@ export function useClaimSearchedCases(): {
 	const nextToken = useRef(0);
 
 	const claim = useCallback(
-		async (caseIds: readonly string[]): Promise<ClaimOutcome> => {
+		async (
+			caseIds: readonly string[],
+			choices: readonly PreviewCaseChoice[],
+		): Promise<ClaimOutcome> => {
 			if (caseIds.length === 0)
 				return { kind: "claimed", created: [], alreadyClaimed: [] };
 			const before = session.getState();
@@ -109,9 +117,51 @@ export function useClaimSearchedCases(): {
 			]);
 			let result: ClaimOutcome;
 			try {
+				const bySource = new Map<
+					Uuid,
+					{
+						moduleUuid: Uuid;
+						defaultSearch?: true;
+						answers: { name: string; value: string }[];
+						caseIds: string[];
+					}
+				>();
+				for (const choice of choices) {
+					const source = choice.searchSource;
+					if (!source || !ids.includes(choice.caseId)) continue;
+					const group = bySource.get(source.moduleUuid) ?? {
+						moduleUuid: source.moduleUuid,
+						...(source.defaultSearch && { defaultSearch: true as const }),
+						answers: [...source.answers],
+						caseIds: [],
+					};
+					if (!group.caseIds.includes(choice.caseId))
+						group.caseIds.push(choice.caseId);
+					bySource.set(source.moduleUuid, group);
+				}
+				const sources = [...bySource.values()];
+				const prior = Object.entries(before.previewMenuCaseSelections).flatMap(
+					([id, selection]) => {
+						const module = doc.getState().modules[id];
+						if (!module || !selection.cases.length) return [];
+						const source = selection.cases[0].searchSource;
+						return [
+							{
+								moduleUuid: module.uuid,
+								caseIds: selection.cases.map((row) => row.caseId),
+								...(source && {
+									answers: [...source.answers],
+									...(source.defaultSearch && { defaultSearch: true as const }),
+								}),
+							},
+						];
+					},
+				);
 				result = await claimSearchedCasesAction({
 					appId,
 					caseIds: ids,
+					sources,
+					prior,
 					...(before.previewPersonaUuid === undefined
 						? {}
 						: { personaUuid: before.previewPersonaUuid }),

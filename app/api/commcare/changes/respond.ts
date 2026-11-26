@@ -38,6 +38,10 @@ import {
 	ownerRuleChoicesSchema,
 } from "@/lib/deployment/reading/projectData/reviewTypes";
 import { READING_ID_PATTERN } from "@/lib/deployment/reading/types";
+import {
+	DeploymentSessionEndedError,
+	sessionManagementGrant,
+} from "@/lib/deployment/sessionManagementGrant";
 import type {
 	DeploymentScope,
 	DeploymentTargetKey,
@@ -140,6 +144,11 @@ export async function answerHqChanges<Body extends KeyedBody>(
 			projectId: access.projectId,
 			role: access.role,
 			actorUserId: userId,
+			requireOperation: sessionManagementGrant(userId, session.session.id),
+			requireInstallationManagement: sessionManagementGrant(
+				session.user.id,
+				session.session.id,
+			),
 		};
 	} catch (err) {
 		const response = handleApiError(
@@ -171,6 +180,13 @@ export async function answerHqChanges<Body extends KeyedBody>(
 				});
 				write({ type: "done", answer });
 			} catch (error) {
+				if (error instanceof DeploymentSessionEndedError) {
+					write({
+						type: "done",
+						answer: { kind: "refused", message: error.message },
+					});
+					return;
+				}
 				log.error("[hq-changes] failed", error, {
 					appId: scope.appId,
 					projectId: scope.projectId,

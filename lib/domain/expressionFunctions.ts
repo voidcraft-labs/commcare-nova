@@ -376,6 +376,7 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 	}),
 	...Object.entries({
 		"project-today": [0, 0],
+		position: [0, 1],
 		null: [0, 0],
 		here: [0, 0],
 		self: [0, 0],
@@ -431,6 +432,7 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		// The record's own case type, and the case chosen in an earlier menu
 		// with one of its properties.
 		"record-type": [0, 0],
+		"result-field": [1, 1],
 		"chosen-case": [1, 1],
 		"chosen-case-property": [2, 2],
 		// A record or value the form opens with, by the name the form gives it.

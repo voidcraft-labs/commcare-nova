@@ -124,6 +124,7 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/time-12-hour@android": stated("twelve-hour-clock"),
 	"questions/geopoint-maps@web-apps": stated("android-map"),
 	"questions/barcode-editable@web-apps": stated("edit-scan"),
+	"questions/face-capture-image-face@web-apps": browser("face-photo-web-apps"),
 	"questions/image-acquire@web-apps": browser("visit-display-web-apps"),
 	"questions/image-overlay-small@web-apps": stated("photo-overlay"),
 	"questions/audio-legacy@web-apps": stated("classic-recorder"),
@@ -163,6 +164,10 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of@web-apps":
 		statedInDocs,
 
+	"questions/android-app-callout-input-appearance-intent-id-bind-type-intent@web-apps":
+		structural("android-app-question"),
+	"questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id@web-apps":
+		stated("android-app-answer"),
 	// ── Refused, structural ────────────────────────────────────────────
 	"questions/date-and-time-xsd-datetime@web-apps":
 		structural("datetime-question"),
@@ -180,6 +185,8 @@ export const PLATFORM_CELLS: Readonly<
 	 * Android refuses. */
 	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module@android":
 		structural("forms-read-search"),
+	"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu@android":
+		structural("forms-read-search"),
 	"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search@android":
 		structural("forms-read-search"),
 	"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible@android":
@@ -196,6 +203,9 @@ export const PLATFORM_CELLS: Readonly<
 		structural("several-cases"),
 	"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr@android":
 		structural("several-cases"),
+	"menus-and-case-lists/detail-auto-select-multi-select@android":
+		structural("several-cases"),
+	"case-search/is-group-group-key@android": model("search-headings-android"),
 	"case-search/input-date@android": structural("search-field-single-date"),
 	/* Web Apps can't go on from a list that chose its one record before a
 	 * confirmation screen, so the gate keeps that list off Web Apps. */
@@ -212,10 +222,39 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/submitted-answer-name-only-android-stores@web-apps": structural(
 		"answer-name-requires-android",
 	),
+	"menus-and-case-lists/lookup-with-text-extras@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-responses-key@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-extras-fixed-text@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-autolaunch@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-image-jr@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-extras-worker-context@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-case-id-confidence@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/lookup-name@web-apps": stated(
+		"case-list-android-lookup",
+	),
+	"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list@android":
+		structural("case-list-icon-actions"),
 
 	// ── Refused, expression ────────────────────────────────────────────
 	"expressions-and-data/here-in-a-case-list-calculated-column-or-sort@web-apps":
 		expression("case-list-here"),
+	"expressions-and-data/companion-lookup-count@web-apps": expression(
+		"case-list-lookup-count",
+	),
 	"expressions-and-data/session-data-stringquery@web-apps": expression(
 		"case-list-search-text",
 	),
@@ -234,8 +273,13 @@ export const PLATFORM_CELLS: Readonly<
 	"expressions-and-data/now@web-apps": model("recalculation-every-request"),
 	// Android reads none of the presence pragmas: a form neither submits on
 	// open nor rechecks only changed answers there.
+	// The real Postgres opening test checks the same key and title on both devices.
+	"questions/a-question-text-label-hint-help-validation-message-repeat-add@android":
+		statedInDocs,
 	"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma@android":
 		model("presence-pragmas-on-web-apps-only"),
+	"questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where@web-apps":
+		stated("saved-form-descriptor"),
 	"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression@web-apps":
 		model("row-starting-value"),
 	"expressions-and-data/random@web-apps": model("recalculation-every-request"),
@@ -314,6 +358,12 @@ export const PLATFORM_CELLS: Readonly<
 		model("sort-label-web-apps"),
 	"menus-and-case-lists/10-markdown-any-property-or-expression@android": model(
 		"link-column-raw-android",
+	),
+	"case-search/address-picker-on-a-search-screen@android": model(
+		"search-address-picker-android",
+	),
+	"case-search/address-picker-receiver-on-a-search-screen@android": model(
+		"search-address-picker-android",
 	),
 	"case-search/search-on-clear@android": model("desktop-search-on-clear"),
 	"case-search/default-value-on-a-date-range-input@android": model(

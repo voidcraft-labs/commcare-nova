@@ -9,7 +9,10 @@ import { questionReceiverProperty } from "@/lib/domain/questionDisplay";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 import type { DisplaySettings } from "./appearance";
-import { writeFieldAppearance } from "./appearance";
+import {
+	FIELD_DISPLAY_SETTING_TOKENS,
+	writeFieldAppearance,
+} from "./appearance";
 import { readChoiceLayout } from "./choiceAppearance";
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -194,6 +197,9 @@ function wholeValueEffects(kind: FieldKind, value: string) {
 			(lower === "numeric" || lower === "numbers"),
 		shortAction:
 			["text", "secret", "int", "decimal"].includes(kind) && lower === "short",
+		faceCamera:
+			kind === "image" &&
+			value === FIELD_DISPLAY_SETTING_TOKENS.captureSource["face-camera"],
 		signature:
 			kind === "signature" || kind === "image"
 				? value === "signature"
@@ -283,7 +289,9 @@ function settingsReadAt(kind: FieldKind, value: string): DisplaySettings {
 	if (kind === "image") {
 		if (value !== "signature" && has("signature")) settings.webSignature = true;
 		if (value.includes("overlay-small")) settings.overlaySize = "small";
-		if (value.includes("acquire")) settings.captureSource = "camera";
+		if (value === FIELD_DISPLAY_SETTING_TOKENS.captureSource["face-camera"])
+			settings.captureSource = "face-camera";
+		else if (value.includes("acquire")) settings.captureSource = "camera";
 	}
 	if (kind === "video" && lower === "acquire")
 		settings.captureSource = "camera";

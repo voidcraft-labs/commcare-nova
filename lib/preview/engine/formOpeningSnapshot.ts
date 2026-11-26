@@ -9,6 +9,10 @@ import {
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import type {
+	WebFormActivityEntry,
+	WebFormActivityNotice,
+} from "@/lib/domain/webFormActivity";
 import type { EntrySessionData } from "./entrySessionData";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { LookupFixtureDataWire } from "./lookupDataBinding";
@@ -83,7 +87,19 @@ export interface FormOpeningAudience {
 	readonly blueprintDigest: string;
 }
 
+/** An authorized move between two client-owned runs within one device scope. */
+export interface ReceiptRunTransition {
+	readonly from: string;
+	readonly to: string;
+	readonly entry?: string;
+	readonly signature: string;
+}
+
 export interface FormOpeningProjection {
+	readonly webActivity?: WebFormActivityEntry;
+	/** A bound restore's start is the conservative proof of when the
+	 * worker could first see the rows. Held through the choice walk. */
+	readonly webActivityRestoreStartedAt?: number;
 	readonly cases: FormOpeningCaseData;
 	readonly lookup: LookupFixtureDataWire;
 	/** Stable supplying identities in the order the physical route reached them. */
@@ -108,6 +124,8 @@ export interface FormOpeningProjection {
 	readonly datums: Readonly<Record<string, string>>;
 	readonly resolvedEntries: Readonly<Record<string, string>>;
 	readonly sessionData: Readonly<Record<string, string>>;
+	/** Case IDs set by the form's root ready actions at its first opening. */
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
 	readonly complete: boolean;
 }
 
@@ -125,6 +143,7 @@ export const formOpeningBindingSchema = z.strictObject({
 export type FormOpeningBinding = z.infer<typeof formOpeningBindingSchema>;
 
 export interface FormOpeningState {
+	readonly activityNotice?: WebFormActivityNotice;
 	readonly binding: FormOpeningBinding;
 	readonly projection: FormOpeningProjection;
 	readonly blueprintDigest: string;
@@ -142,6 +161,7 @@ export function formNeedsOpeningEvidence(
 	if (!form) return false;
 	if (
 		form.shadowOf !== undefined ||
+		form.activityKeyText !== undefined ||
 		form.caseSelections !== undefined ||
 		form.computedDatums?.length ||
 		form.openingAssignments?.length
@@ -155,7 +175,9 @@ export function formNeedsOpeningEvidence(
 				operationSavesOnlyChanged(operation) ||
 				(operation.action !== "own" &&
 					(operation.target.kind === "expression" ||
-						operation.target.kind === "worker-record")),
+						operation.target.kind === "worker-record" ||
+						(operation.target.kind === "new" &&
+							operation.target.expr !== undefined))),
 		)
 	)
 		return true;

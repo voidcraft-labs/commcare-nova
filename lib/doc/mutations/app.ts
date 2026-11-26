@@ -84,7 +84,24 @@ export function applyAppMutation(
 			if (mut.logo === null) delete draft.logo;
 			else draft.logo = mut.logo;
 			return;
-		case "setAppSettings":
+		case "setAppSettings": {
+			const change = mut.settings.installationProfile;
+			if (change?.operation === "remove") {
+				const profiles = draft.appSettings.installationProfiles;
+				if (profiles) {
+					delete profiles[change.uuid];
+					if (Object.keys(profiles).length === 0)
+						delete draft.appSettings.installationProfiles;
+				}
+			} else if (change?.operation === "add") {
+				draft.appSettings.installationProfiles ??= {};
+				const profiles = draft.appSettings.installationProfiles;
+				if (!Object.hasOwn(profiles, change.profile.uuid))
+					profiles[change.profile.uuid] = structuredClone(change.profile);
+			} else if (change) {
+				const profile = draft.appSettings.installationProfiles?.[change.uuid];
+				if (profile) Object.assign(profile, structuredClone(change.patch));
+			}
 			// Each named key replaces its value; a key the patch leaves out
 			// keeps the document's.
 			if (mut.settings.captureLocation === true)
@@ -95,6 +112,21 @@ export function applyAppMutation(
 				delete draft.appSettings.caseSharing;
 			else if (mut.settings.caseSharing !== undefined)
 				draft.appSettings.caseSharing = mut.settings.caseSharing;
+			const search = mut.settings.projectSearch;
+			if (search) {
+				const entries = draft.appSettings.projectSearches ?? {};
+				if (search.operation === "remove") {
+					delete entries[search.uuid];
+					if (!Object.keys(entries).length)
+						delete draft.appSettings.projectSearches;
+				} else if (
+					(search.operation === "rename") ===
+					Object.hasOwn(entries, search.uuid)
+				) {
+					entries[search.uuid] = { name: search.name };
+					draft.appSettings.projectSearches = entries;
+				}
+			}
 			if (mut.settings.showSavedForms !== undefined) {
 				draft.appSettings.showSavedForms = mut.settings.showSavedForms;
 			}
@@ -124,6 +156,7 @@ export function applyAppMutation(
 			else if (mut.settings.runsOnlyOn !== undefined)
 				draft.appSettings.runsOnlyOn = mut.settings.runsOnlyOn;
 			return;
+		}
 		case "relabelSourceLanguage": {
 			const current = effectiveAppLocalization(draft.localization);
 			if (current.languageOrder.length !== 1) return;
@@ -136,6 +169,13 @@ export function applyAppMutation(
 				current.defaultLanguage,
 				current.defaultLanguage,
 			);
+			for (const profile of Object.values(
+				draft.appSettings.installationProfiles ?? {},
+			)) {
+				profile.languages = profile.languages.map((language) =>
+					language === current.sourceLanguage ? tag : language,
+				);
+			}
 			draft.localization = {
 				sourceLanguage: tag,
 				defaultLanguage: tag,

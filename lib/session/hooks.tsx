@@ -120,6 +120,14 @@ export function usePreviewPlatformRules(): PreviewPlatformRules {
 }
 
 /** Preview on Android is showing the device's home screen. */
+export function usePreviewFormRecords() {
+	return useBuilderSession((state) => state.previewFormRecords);
+}
+
+export function usePreviewResumedDraft() {
+	return useBuilderSession((state) => state.previewResumedDraft);
+}
+
 export function usePreviewAtDeviceHome(): boolean {
 	return useBuilderSession((s) => s.previewAtDeviceHome);
 }

@@ -915,6 +915,41 @@
 		]
 	},
 	{
+		"change": "search-order-direction-signs-respelled",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/default_properties/*/defaultValue"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/commcare_sort/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/commcare_sort/*",
+				"kind": "changed"
+			}
+		]
+	},
+	{
 		"change": "sort-rule-kept-as-hidden-column",
 		"placeKinds": ["menu"],
 		"rows": [
@@ -949,6 +984,96 @@
 				"check": "proof2",
 				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "legacy-related-case-text-rekeyed",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/field"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/enum/*/key"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/useXpathExpression"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/field"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/enum/*/key"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/useXpathExpression"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.enum.*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.enum.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/@name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/sort[*]/text[*]/xpath[*]/variable[*]/@name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/sort[*]/text[*]/xpath[*]/variable[*]/locale[*]/@id",
 				"kind": "changed"
 			}
 		]
@@ -1026,6 +1151,16 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/additional_case_types"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/group_key"
 			},
 			{
 				"check": "source",

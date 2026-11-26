@@ -24,6 +24,8 @@ export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 			return "repeat count";
 		case "ids_query":
 			return "case query";
+		case "android_app_input":
+			return "value sent to the Android app";
 		case "lookup_options_source":
 			return "choice filter";
 		case "form_selection_source":
@@ -61,6 +63,10 @@ const PROSE_SLOT_LABELS: Readonly<Record<ProseSlotRef["slot"], string>> = {
 	addFirstLabel: "first entry button",
 	addLabel: "add entry button",
 	extended_text: "extended text",
+	extended_hint: "extended hint",
+	extended_help: "extended help",
+	extended_validate_msg: "extended validation message",
+	option_extended_text: "extended choice text",
 	qr_code: "QR code",
 	spoken_text: "spoken text",
 	option_label: "choice label",

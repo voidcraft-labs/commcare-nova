@@ -38,6 +38,7 @@ import { getCaseOperationsTool } from "@/lib/agent/tools/case-operations/getCase
 import { moveCaseOperationTool } from "@/lib/agent/tools/case-operations/moveCaseOperation";
 import { removeCaseOperationTool } from "@/lib/agent/tools/case-operations/removeCaseOperation";
 import { updateCaseOperationTool } from "@/lib/agent/tools/case-operations/updateCaseOperation";
+import { configureProjectSearchTool } from "@/lib/agent/tools/case-search-config/configureProjectSearch";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import {
@@ -841,6 +842,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "updateSearchInput",
 		mcpName: "update_search_input",
 		tool: updateSearchInputTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "configureProjectSearch",
+		mcpName: "configure_project_search",
+		tool: configureProjectSearchTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

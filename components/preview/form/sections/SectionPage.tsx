@@ -23,6 +23,7 @@ import { proseTemplateIsEmpty } from "@/lib/domain/prose";
 import type { FormScreenPage as SectionPageModel } from "@/lib/preview/engine/formEngine";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { presentedLabelText } from "@/lib/preview/labelPresentation";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -65,8 +66,12 @@ export function SectionPage({
 	}, [takeFocusOnMount]);
 
 	if (field?.kind !== "section") return null;
-	const hasTitle =
-		field.label !== undefined && !proseTemplateIsEmpty(field.label);
+	const title = presentedLabelText(
+		field,
+		labelShowsAsTyped(textForm, field),
+		state,
+	);
+	const hasTitle = title && !proseTemplateIsEmpty(title.template);
 
 	return (
 		<motion.section
@@ -95,10 +100,10 @@ export function SectionPage({
 						index={index}
 						count={count}
 						title={
-							hasTitle && field.label ? (
+							hasTitle ? (
 								<LabelContent
-									label={field.label}
-									resolvedLabel={state.resolvedLabel}
+									label={title.template}
+									resolvedLabel={title.resolved}
 									isEditMode={false}
 									rendering={labelRendering}
 									plainLabel={labelShowsAsTyped(textForm, field)}

@@ -99,6 +99,15 @@ export type SidebarState = { open: boolean; stashed: boolean | undefined };
  */
 export interface PreviewCaseChoice {
 	readonly caseId: string;
+	/** The type of the selected row in a menu that offers more than one kind of record. */
+	readonly caseType?: string;
+	/** The completed search that supplied this choice, held through a form
+	 * menu or a parent selection. The server reconstructs and verifies it. */
+	readonly searchSource?: {
+		readonly moduleUuid: Uuid;
+		readonly defaultSearch?: true;
+		readonly answers: readonly { name: string; value: string }[];
+	};
 	readonly caseName?: string;
 	/** Chosen from a search's Results while the worker's device does not hold
 	 *  it: the claim CommCare posts for this choice writes a claim row
@@ -280,6 +289,7 @@ export type PreviewSearchState =
 			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly matchCount: number;
+			readonly resultReceipt?: string;
 			readonly deviceValues?: PreviewSearchDeviceValues;
 			/** Set once the no-matches form registers a case: Results then
 			 * shows that one case, as the wire's return frame does. */

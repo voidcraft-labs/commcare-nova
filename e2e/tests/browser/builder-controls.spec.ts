@@ -3001,6 +3001,56 @@ test("native access status distinguishes viewer capability and retained changes"
 	).toBeVisible();
 });
 
+test("an author can open an Android app, collect its result and share it with another question", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=android-app-authoring`);
+	const saved = page.getByLabel("Saved field");
+	const choose = async (label: string, value: string) => {
+		await page.getByRole("combobox", { name: label, exact: true }).click();
+		await page.getByRole("option", { name: value, exact: true }).click();
+	};
+	await page
+		.getByRole("button", { name: "Answer from an Android app" })
+		.click();
+	await choose("Android app", "Breath Counter");
+	await expect(saved).toContainText("org.commcare.respiratory.BREATHCOUNT");
+	await page.getByRole("textbox", { name: "Value name" }).fill("unit");
+	const value = page.getByRole("group", { name: "Value to send" });
+	await value.getByRole("button").click();
+	const formula = value.locator('.cm-content[contenteditable="true"]');
+	await expect(formula).toBeFocused();
+	await page.keyboard.insertText("'litres'");
+	await expect(formula).toHaveText("'litres'");
+	await page.getByRole("button", { name: "Add value" }).click();
+	await expect(saved).toContainText("litres");
+	await page.getByRole("textbox", { name: "Result name" }).fill("rate");
+	await choose("Question to fill", "Count");
+	await page.getByRole("button", { name: "Add result" }).click();
+	await expect(saved).toContainText('"name":"rate"');
+	await page.getByRole("button", { name: "Select count" }).click();
+	await page
+		.getByRole("button", { name: "Answer from an Android app" })
+		.click();
+	await choose("Use another question’s Android app", "Meter");
+	await expect(saved).toContainText('"kind":"use-question"');
+	await page.getByRole("button", { name: "Select meter" }).click();
+	await page
+		.getByRole("button", { name: "Stop using the Android app" })
+		.click();
+	await expect(saved).toContainText("org.commcare.respiratory.BREATHCOUNT");
+	await page.getByRole("button", { name: "Select count" }).click();
+	await page
+		.getByRole("button", { name: "Stop using the Android app" })
+		.click();
+	await expect(saved).not.toContainText('"androidApp"');
+	await page.getByRole("button", { name: "Select meter" }).click();
+	await page
+		.getByRole("button", { name: "Stop using the Android app" })
+		.click();
+	await expect(saved).not.toContainText('"androidApp"');
+});
+
 test("a group holding a repeat workers grow can't show on one screen, and another group can", async ({
 	page,
 }) => {

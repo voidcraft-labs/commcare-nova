@@ -1,3 +1,5 @@
+import { languageEnglishName } from "@/lib/domain/languageRegistry";
+import { resolvedLanguageEnglishName } from "@/lib/domain/languageRegistry/names";
 /**
  * The target-identity record: where CommCare HQ keeps the things of one
  * deployment that the document does not hold. The id of every menu and form
@@ -22,6 +24,7 @@
  */
 
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
+import { projectSearchRequestParameters } from "@/lib/commcare/hq/projectSearch";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import type { ReadMenuAndFormIdentities } from "@/lib/commcare/reader";
 import {
@@ -33,15 +36,19 @@ import {
 	type ColumnScreen,
 	derivedFormXmlns,
 	derivedUniqueId,
+	type InstallationProfileBinding,
+	type ProjectSearchBinding,
 	targetWireIdentity,
 	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import type { BlueprintDoc } from "@/lib/domain";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
-import { columnFieldText } from "@/lib/domain/modules";
+import { columnFieldText, projectSearchOf } from "@/lib/domain/modules";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { projectSearchUses } from "@/lib/domain/projectSearches";
 import { asUuid, type Uuid } from "@/lib/domain/uuid";
 import {
 	type AdoptedKeyedCaseId,
@@ -71,11 +78,13 @@ export interface HeldMediaPath {
  * column then screen).
  */
 export interface TargetIdentity {
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	readonly entities: readonly DeploymentIdentityOverride[];
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly mediaPaths: readonly HeldMediaPath[];
 	/** Each column's word on a screen where it is not the word Nova writes (`suite/wire.ts::hqColumnFieldText`). */
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
 }
 
 /** A deployment that holds nothing that is not the derivation. */
@@ -94,6 +103,7 @@ export const EMPTY_TARGET_IDENTITY: TargetIdentity = {
  * derivation is known.
  */
 export interface ObservedTargetIdentity {
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	readonly entities: readonly DeploymentIdentityOverride[];
 	readonly keyedCreates: ReadMenuAndFormIdentities["keyedCreates"];
 	readonly mediaPaths: readonly (HeldMediaPath & {
@@ -117,6 +127,7 @@ export interface ObservedTargetIdentity {
 	 * word Nova writes included (`ReadMenuAndFormIdentities.columnFieldWords`).
 	 */
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
 }
 
 /**
@@ -128,6 +139,18 @@ export function canonicalTargetIdentity(
 	record: TargetIdentity,
 ): TargetIdentity {
 	return {
+		...(record.projectSearches?.length
+			? {
+					projectSearches: [...record.projectSearches].sort((a, b) =>
+						codeUnitOrder(a.searchUuid, b.searchUuid),
+					),
+				}
+			: {}),
+		...(record.installationProfiles?.length && {
+			installationProfiles: [...record.installationProfiles].sort((a, b) =>
+				codeUnitOrder(a.uuid, b.uuid),
+			),
+		}),
 		entities: [...record.entities].sort(
 			(a, b) =>
 				codeUnitOrder(a.entityKind, b.entityKind) ||
@@ -214,6 +237,8 @@ export function observedTargetIdentity(input: {
 			hqPaths: input.mediaMap.flatMap((item) =>
 				item.path.startsWith(JR_FILE) ? [item.path.slice(JR_FILE.length)] : [],
 			),
+			projectSearches: input.read.projectSearches ?? [],
+			installationProfiles: input.read.installationProfiles,
 			columnWords: input.read.columnFieldWords.filter((row) =>
 				columns.has(row.columnUuid),
 			),
@@ -280,6 +305,7 @@ export function resolveTargetIdentity(
 	stored: TargetIdentity,
 	observed: ObservedTargetIdentity,
 	doc: Pick<BlueprintDoc, "appId">,
+	publishedSearches: readonly ProjectSearchBinding[] = [],
 ): TargetIdentity {
 	// Menus and forms.
 	const keyOf = (kind: string, value: string) => `${kind}\u0000${value}`;
@@ -376,11 +402,43 @@ export function resolveTargetIdentity(
 	for (const row of stored.columnWords)
 		if (!observedWords.has(wordKey(row))) columnWords.push(row);
 
+	// Taking an unrelated edit from HQ must preserve a contributor's binding
+	// for the next publish, including an intentional disconnection.
+	const published = new Map(
+		publishedSearches.map((row) => [row.searchUuid, row.endpointId]),
+	);
+	const searches = (observed.projectSearches ?? []).filter(
+		(row) => published.get(row.searchUuid) !== row.endpointId,
+	);
+	const observedIds = new Set(searches.map((row) => row.endpointId));
+	const observedUuids = new Set(searches.map((row) => row.searchUuid));
+	const projectSearches = [
+		...searches,
+		...(stored.projectSearches ?? []).filter(
+			(row) =>
+				!observedIds.has(row.endpointId) && !observedUuids.has(row.searchUuid),
+		),
+	];
+	const priorProfiles = new Map(
+		stored.installationProfiles?.map((binding) => [binding.uuid, binding]),
+	);
 	return canonicalTargetIdentity({
 		entities,
 		keyedCaseIds,
 		mediaPaths,
+		installationProfiles: observed.installationProfiles?.map((binding) => {
+			const held = priorProfiles.get(binding.uuid);
+			const prior =
+				held?.key === binding.key &&
+				held.practiceWorkerId === binding.practiceWorkerId
+					? held
+					: undefined;
+			return prior?.practiceWitness
+				? { ...binding, practiceWitness: prior.practiceWitness }
+				: binding;
+		}),
 		columnWords,
+		projectSearches,
 	});
 }
 
@@ -397,6 +455,28 @@ export interface ExportIdentity {
 	readonly heldMediaPaths: ReadonlyMap<MediaAssetId, string>;
 }
 
+/** A baseline written before Nova modeled profiles can hold a key the ledger never adopted. */
+export function unboundInstallationKeys(
+	profiles: readonly { readonly id: string }[],
+	record: TargetIdentity,
+): string[] {
+	const held = new Set(
+		(record.installationProfiles ?? []).map((profile) => profile.key),
+	);
+	return profiles
+		.filter((profile) => !held.has(profile.id))
+		.map((profile) => profile.id);
+}
+
+export function deploymentWireIdentity(record: TargetIdentity): WireIdentity {
+	return targetWireIdentity(
+		record.entities,
+		record.columnWords,
+		record.projectSearches,
+		record.installationProfiles,
+	);
+}
+
 /**
  * THE ONE PROJECTION: what a publish, a `.ccz`, the HQ import file, preflight's
  * export boundary and a take's ownership print `doc` under for a deployment
@@ -408,7 +488,7 @@ export function exportIdentityOf(
 	record: TargetIdentity,
 ): ExportIdentity {
 	return {
-		identity: targetWireIdentity(record.entities, record.columnWords),
+		identity: deploymentWireIdentity(record),
 		keyedCaseIdPrefixes: keyedCaseIdPrefixesFor(doc, record.keyedCaseIds),
 		heldMediaPaths: new Map(
 			record.mediaPaths.map((row) => [row.assetId, row.wirePath]),
@@ -416,8 +496,164 @@ export function exportIdentityOf(
 	};
 }
 
+/** Each logical search and its contract on this one project space. */
+export function projectSearchDestinationRows(
+	doc: BlueprintDoc,
+	bindings: readonly ProjectSearchBinding[] = [],
+) {
+	const uses = projectSearchUses(doc);
+	const ids = new Map(bindings.map((row) => [row.searchUuid, row.endpointId]));
+	const menusBySearch = Map.groupBy(uses, (use) => use.searchUuid);
+	// A saved connection can outlive its last menu or the search itself.
+	// Include it in this target's review so an editor can free that ID.
+	for (const uuid of ids.keys()) {
+		if (!menusBySearch.has(uuid)) menusBySearch.set(uuid, []);
+	}
+	return Array.from(menusBySearch, ([searchUuid, menus]) => ({
+		searchUuid,
+		name:
+			menus[0]?.name ??
+			doc.appSettings.projectSearches?.[searchUuid]?.name ??
+			"Removed search",
+		endpointId: ids.get(searchUuid) ?? null,
+		menus: menus.map((use) => ({
+			menuUuid: use.menuUuid,
+			name: use.menu,
+			parameters: projectSearchRequestParameters(use),
+			results: use.results,
+		})),
+	}));
+}
+
+export interface SearchDestinationChange {
+	readonly menu: string;
+	readonly before: {
+		searchUuid: Uuid;
+		name: string;
+		id: number | null;
+		parameters: readonly string[];
+		results: readonly import("@/lib/domain/projectSearches").ProjectSearchResultField[];
+	} | null;
+	readonly after: {
+		searchUuid: Uuid;
+		name: string;
+		id: number | null;
+		parameters: readonly string[];
+		results: readonly import("@/lib/domain/projectSearches").ProjectSearchResultField[];
+	} | null;
+}
+export function observedSearchChanges(
+	held: BlueprintDoc,
+	oldBindings: readonly ProjectSearchBinding[],
+	doc: BlueprintDoc,
+	newBindings: readonly ProjectSearchBinding[],
+): SearchDestinationChange[] {
+	const searchFacts = (
+		blueprint: BlueprintDoc,
+		bindings: readonly ProjectSearchBinding[],
+	) => {
+		const ids = new Map(
+			bindings.map((row) => [row.searchUuid, row.endpointId]),
+		);
+		return new Map(
+			projectSearchUses(blueprint).map((use) => {
+				const module = blueprint.modules[use.menuUuid];
+				const view = {
+					searchUuid: use.searchUuid,
+					name: use.name,
+					id: ids.get(use.searchUuid) ?? null,
+					parameters: projectSearchRequestParameters(use),
+					results: use.results,
+				};
+				return [
+					use.menuUuid,
+					{
+						menu: use.menu,
+						view,
+						contract: {
+							search: projectSearchOf(module),
+							inputs: module.caseListConfig?.searchInputs,
+							excludedOwners: module.caseSearchConfig?.excludedOwnerIds,
+						},
+					},
+				] as const;
+			}),
+		);
+	};
+	const oldSearches = searchFacts(held, oldBindings);
+	const newSearches = searchFacts(doc, newBindings);
+	const projectSearches: SearchDestinationChange[] = [];
+	for (const uuid of new Set([...oldSearches.keys(), ...newSearches.keys()])) {
+		const prior = oldSearches.get(uuid);
+		const now = newSearches.get(uuid);
+		if (
+			deepEqual(prior?.view, now?.view) &&
+			deepEqual(prior?.contract, now?.contract)
+		)
+			continue;
+		if (!now && !prior) continue;
+		projectSearches.push({
+			menu: now?.menu ?? prior?.menu ?? "",
+			before: prior?.view ?? null,
+			after: now?.view ?? null,
+		});
+	}
+	return projectSearches;
+}
+export interface SearchConnectionChange {
+	readonly searchUuid: Uuid;
+	readonly name: string;
+	readonly before: number | null;
+	readonly after: number | null;
+}
+
 /** What changed between two records, as a review names it to a person. */
+export interface InstallationReviewState {
+	readonly languageNames?: readonly string[];
+	readonly name: string;
+	readonly languages: readonly string[];
+	readonly requiresPracticeWorker: boolean;
+	readonly key?: string;
+	readonly worker?: string;
+}
+export interface InstallationReviewChange {
+	readonly uuid: string;
+	readonly before: InstallationReviewState | null;
+	readonly after: InstallationReviewState | null;
+	/** A separate local edit, when it differs from HQ’s previous definition. */
+	readonly localBefore?: InstallationReviewState | null;
+	readonly remainsRemoved?: boolean;
+}
+
+export function installationReviewNames(languages: readonly string[]) {
+	return languages.some((tag) => !languageEnglishName(tag))
+		? {
+				languageNames: languages.map(
+					(tag) =>
+						resolvedLanguageEnglishName(tag) ?? "Language name unavailable",
+				),
+			}
+		: {};
+}
+function installationReviewState(
+	doc: BlueprintDoc,
+	bindings: Map<string, InstallationProfileBinding>,
+	uuid: string,
+): InstallationReviewState | null {
+	const profile = doc.appSettings.installationProfiles?.[uuid];
+	if (!profile) return null;
+	const binding = bindings.get(uuid);
+	return {
+		name: profile.name,
+		languages: profile.languages,
+		...installationReviewNames(profile.languages),
+		requiresPracticeWorker: profile.requiresPracticeWorker,
+		...(binding && { key: binding.key }),
+		...(binding?.practiceWorkerId && { worker: binding.practiceWorkerId }),
+	};
+}
 export interface TargetIdentityChanges {
+	readonly installationProfiles?: readonly InstallationReviewChange[];
 	/** The forms `doc` holds whose id in CommCare HQ moved, by name. */
 	readonly formIds: readonly string[];
 	/** The forms whose keyed creates moved to another case id prefix, by name. */
@@ -426,6 +662,7 @@ export interface TargetIdentityChanges {
 	readonly mediaPaths: number;
 	/** The menus whose case list keeps a column's property under another word, by name. */
 	readonly columnFields: readonly string[];
+	readonly searchConnections?: readonly SearchConnectionChange[];
 }
 
 /**
@@ -442,6 +679,20 @@ export function targetIdentityChanges(
 	doc: BlueprintDoc,
 	held: BlueprintDoc,
 	assetNames?: ReadonlyMap<MediaAssetId, MediaAssetId>,
+	sourceReadings?: {
+		readonly base: {
+			readonly doc: BlueprintDoc;
+			readonly identities: {
+				readonly installationProfiles?: readonly InstallationProfileBinding[];
+			};
+		};
+		readonly now: {
+			readonly doc: BlueprintDoc;
+			readonly identities: {
+				readonly installationProfiles?: readonly InstallationProfileBinding[];
+			};
+		};
+	},
 ): TargetIdentityChanges {
 	const before = exportIdentityOf(doc, stored);
 	const after = exportIdentityOf(doc, next);
@@ -506,8 +757,109 @@ export function targetIdentityChanges(
 					columnFields.add(module.name);
 		}
 	}
+	const oldConnections = new Map(
+		stored.projectSearches?.map((row) => [row.searchUuid, row.endpointId]),
+	);
+	const newConnections = new Map(
+		next.projectSearches?.map((row) => [row.searchUuid, row.endpointId]),
+	);
+	const searchConnections: SearchConnectionChange[] = [];
+	for (const searchUuid of new Set([
+		...oldConnections.keys(),
+		...newConnections.keys(),
+	])) {
+		const before = oldConnections.get(searchUuid) ?? null;
+		const after = newConnections.get(searchUuid) ?? null;
+		if (before === after) continue;
+		const name =
+			doc.appSettings.projectSearches?.[searchUuid]?.name ??
+			held.appSettings.projectSearches?.[searchUuid]?.name ??
+			"Previously connected search";
+		searchConnections.push({ searchUuid, name, before, after });
+	}
+
+	const bindings = (items: readonly InstallationProfileBinding[] | undefined) =>
+		new Map<string, InstallationProfileBinding>(
+			(items ?? []).map((binding) => [binding.uuid, binding]),
+		);
+	const previous = bindings(stored.installationProfiles);
+	const following = bindings(next.installationProfiles);
+	const hqBefore = bindings(
+		sourceReadings?.base.identities.installationProfiles,
+	);
+	const hqAfter = bindings(sourceReadings?.now.identities.installationProfiles);
+	const ids = new Set([
+		...previous.keys(),
+		...following.keys(),
+		...hqBefore.keys(),
+		...hqAfter.keys(),
+		...Object.keys(held.appSettings.installationProfiles ?? {}),
+		...Object.keys(doc.appSettings.installationProfiles ?? {}),
+	]);
+	const changedProfiles: InstallationReviewChange[] = [];
+	for (const uuid of [...ids].sort(codeUnitOrder)) {
+		const localBefore = installationReviewState(held, previous, uuid);
+		const localAfter = installationReviewState(doc, following, uuid);
+		const sourceBefore = sourceReadings
+			? installationReviewState(sourceReadings.base.doc, hqBefore, uuid)
+			: null;
+		const sourceAfter = sourceReadings
+			? installationReviewState(sourceReadings.now.doc, hqAfter, uuid)
+			: null;
+		// Compare the two actual HQ reads even when a local edit independently
+		// converged, diverged, or removed the document occurrence entirely.
+		if (JSON.stringify(sourceBefore) !== JSON.stringify(sourceAfter)) {
+			changedProfiles.push({
+				uuid,
+				before: sourceBefore,
+				after: sourceAfter,
+				...(JSON.stringify(localBefore) !== JSON.stringify(sourceBefore) && {
+					localBefore,
+				}),
+				...(sourceAfter && !localAfter && { remainsRemoved: true }),
+			});
+		} else if (JSON.stringify(localBefore) !== JSON.stringify(localAfter)) {
+			// A historical baseline may predate installation support in Nova.
+			changedProfiles.push({ uuid, before: localBefore, after: localAfter });
+		} else {
+			const old = previous.get(uuid),
+				current = following.get(uuid);
+			if (
+				(old?.key !== current?.key ||
+					old?.practiceWorkerId !== current?.practiceWorkerId) &&
+				(sourceAfter || sourceBefore)
+			) {
+				const definition = sourceAfter ?? sourceBefore;
+				if (!definition) continue;
+				const state = (
+					binding: InstallationProfileBinding | undefined,
+				): InstallationReviewState | null =>
+					binding
+						? {
+								name: definition.name,
+								languages: definition.languages,
+								...installationReviewNames(definition.languages),
+								requiresPracticeWorker: !!binding.practiceWorkerId,
+								key: binding.key,
+								...(binding.practiceWorkerId && {
+									worker: binding.practiceWorkerId,
+								}),
+							}
+						: null;
+				changedProfiles.push({
+					uuid,
+					before: state(old),
+					after: state(current),
+					...(!localAfter && { remainsRemoved: true }),
+				});
+			}
+		}
+	}
+
 	return {
+		...(searchConnections.length && { searchConnections }),
 		formIds: [...formIds].sort(codeUnitOrder),
+		...(changedProfiles.length && { installationProfiles: changedProfiles }),
 		keyedPrefixes: [...keyedPrefixes].sort(codeUnitOrder),
 		mediaPaths,
 		columnFields: [...columnFields].sort(codeUnitOrder),

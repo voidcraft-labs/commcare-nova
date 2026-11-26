@@ -48,6 +48,8 @@ export interface CommCareApiError {
 	 * slug.
 	 */
 	edgeRefusal?: boolean;
+	/** The app has a named installation with no addressable HQ key. */
+	installationProfileKeyUnusable?: boolean;
 	/**
 	 * Why a read synthesized its status: no answer reached Nova (`network`,
 	 * 503), the deadline ran out (`timeout`, 503), the body was longer than
