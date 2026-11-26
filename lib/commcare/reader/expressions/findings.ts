@@ -552,6 +552,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/session-data-stringquery",
 		"session-path:session/data/stringquery",
 	),
+	"companion-lookup-count": take(
+		"expressions-and-data/companion-lookup-count",
+		"session-path:session/data/fingerprintquery",
+	),
 	"session-data-fingerprintquery": refuse(
 		"expressions-and-data/session-data-fingerprintquery",
 		"session-path:session/data/fingerprintquery",
@@ -679,7 +683,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"instance-scheme:search-input",
 	),
 	"search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu":
-		refuse(
+		take(
 			"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
 			"instance-scheme:search-input",
 		),
@@ -1458,6 +1462,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"mug:SaveToCase",
 	),
+	"savetocase-case-id-expression-on-a-create": take(
+		"questions/savetocase-case-id-expression-on-a-create",
+		"xform:setvalue@value",
+	),
 	"savetocase-update-case-id-xpath": take(
 		"questions/savetocase-update-case-id-xpath",
 		"mug:SaveToCase",
@@ -1469,6 +1477,22 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"savetocase-expressions-outside-nova-s-typed-vocabularies-case-id": refuse(
 		"questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id",
 		"mug:SaveToCase",
+	),
+	"a-close-only-savetocase-block-with-a-close-condition": take(
+		"questions/a-close-only-savetocase-block-with-a-close-condition",
+		"xform:model/bind@relevant",
+	),
+	"a-savetocase-block-that-creates-or-updates-and-also-closes-under": take(
+		"questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under",
+		"xform:model/bind@relevant",
+	),
+	"savetocase-owner-id-condition": take(
+		"questions/savetocase-owner-id-condition",
+		"xform:model/bind@relevant",
+	),
+	"savetocase-targeted-update-owner-condition": take(
+		"questions/savetocase-targeted-update-owner-condition",
+		"xform:model/bind@relevant",
 	),
 	"savetocase-open-case-condition": take(
 		"questions/savetocase-open-case-condition",
@@ -1564,10 +1588,6 @@ const M6 = C["required-or-validation-test-outside-what-nova-types"].entry;
 /** M7: a search filter Nova's checker refuses for a reason no other row names. A comparison HQ's
  *  search converts is held (`csqlRead.ts::holdsHqConvertedComparison`). */
 const M7 = C["xpath-query-condition-nova-s-checker-refuses"].entry;
-/** M8: a child menu's form reading its inline-search parent's Search fields. */
-const M8 =
-	C["search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu"]
-		.entry;
 
 // ── By slot ──────────────────────────────────────────────────────────
 
@@ -1759,6 +1779,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 					: C["bind-required-expr"].entry,
 		refused: () => "form-default",
 	},
+	android_app_input: formSlot(undefined),
 	calculate: formSlot(C["bind-calculate-on-a-hidden-value"].entry),
 	default_value: {
 		held(doc, ref, bound) {
@@ -1785,6 +1806,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	help: PROSE,
 	validate_msg: PROSE,
 	extended_text: PROSE,
+	extended_hint: PROSE,
+	extended_help: PROSE,
+	extended_validate_msg: PROSE,
+	option_extended_text: PROSE,
 	qr_code: PROSE,
 	spoken_text: PROSE,
 	addFirstLabel: PROSE,
@@ -1840,6 +1865,24 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["savetocase-owner"].entry,
 		SAVE_TO_CASE_REFUSED,
 	),
+	case_operation_type_condition: fixed(
+		C["savetocase-create-case-type-literal-case-name-owner-id-uuid-case"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
+	case_operation_owner_condition: {
+		held(doc, ref) {
+			const operation =
+				ref.entity === "form" && ref.slot === "case_operation_owner_condition"
+					? doc.forms[ref.uuid]?.caseOperations?.find(
+							({ uuid }) => uuid === ref.member.operationUuid,
+						)
+					: undefined;
+			return operation?.action === "update"
+				? C["savetocase-targeted-update-owner-condition"].entry
+				: C["savetocase-owner-id-condition"].entry;
+		},
+		refused: () => SAVE_TO_CASE_REFUSED,
+	},
 	case_operation_rename: fixed(SAVE_TO_CASE_ROWS, SAVE_TO_CASE_REFUSED),
 	case_operation_write_value: fixed(SAVE_TO_CASE_ROWS, SAVE_TO_CASE_REFUSED),
 	case_operation_write_condition: fixed(
@@ -1860,10 +1903,35 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		},
 		refused: () => SAVE_TO_CASE_REFUSED,
 	},
-	case_operation_target_expression: fixed(
-		C["savetocase-update-case-id-xpath"].entry,
-		SAVE_TO_CASE_REFUSED,
-	),
+	case_operation_close_condition: {
+		held(doc, ref) {
+			const operation =
+				ref.entity === "form" && ref.slot === "case_operation_close_condition"
+					? doc.forms[ref.uuid]?.caseOperations?.find(
+							({ uuid }) => uuid === ref.member.operationUuid,
+						)
+					: undefined;
+			return operation?.action === "close"
+				? C["a-close-only-savetocase-block-with-a-close-condition"].entry
+				: C["a-savetocase-block-that-creates-or-updates-and-also-closes-under"]
+						.entry;
+		},
+		refused: () => SAVE_TO_CASE_REFUSED,
+	},
+	case_operation_target_expression: {
+		held(doc, ref) {
+			const operation =
+				ref.entity === "form" && ref.slot === "case_operation_target_expression"
+					? doc.forms[ref.uuid]?.caseOperations?.find(
+							({ uuid }) => uuid === ref.member.operationUuid,
+						)
+					: undefined;
+			return operation?.action === "create"
+				? C["savetocase-case-id-expression-on-a-create"].entry
+				: C["savetocase-update-case-id-xpath"].entry;
+		},
+		refused: () => SAVE_TO_CASE_REFUSED,
+	},
 	case_operation_link_target_expression: fixed(
 		C["savetocase-link-index-name-child-extension-and-unlink-empty"].entry,
 		SAVE_TO_CASE_REFUSED,
@@ -1922,6 +1990,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["search-button-display-condition-lifting-into-predicate"].entry,
 		C["search-button-display-condition-outside-predicate"].entry,
 	),
+	project_search_parameter: formSlot("case-search/case-search-endpoint-id"),
 	excluded_owner_ids: fixed(
 		C["blacklisted-owner-ids-expression-lifting-into-valueexpression"].entry,
 		C["blacklisted-owner-ids-expression-outside-valueexpression"].entry,
@@ -2543,6 +2612,13 @@ export function parseIssueEntry(
 							.entry,
 					)
 				: answer("slot-default");
+		case "search-answer-unloaded":
+			return ref.entity === "form" || ref.entity === "field"
+				? answer(
+						C["search-input-read-in-form-expressions-reached-through-a-search"]
+							.entry,
+					)
+				: answer("slot-default");
 		case "search-results-remote":
 			// A form opened after a search that is not inline finds no results;
 			// any other slot that reads them is a setting Nova's record rule
@@ -2592,7 +2668,8 @@ export function parseIssueEntry(
 			const queryBuild =
 				ref.entity === "module" &&
 				(ref.slot.startsWith("search_input_") ||
-					ref.slot === "excluded_owner_ids");
+					ref.slot === "excluded_owner_ids" ||
+					ref.slot === "project_search_parameter");
 			return entry === LEGACY_SEARCH_INPUT && queryBuild
 				? answer("slot-default")
 				: answer(entry);
@@ -2637,20 +2714,8 @@ export function parseIssueEntry(
 		case "relative-no-context":
 		case "instance-argument":
 		case "search-results-unexcluded":
+		case "unknown-search-input":
 			return answer("slot-default");
-		case "unknown-search-input": {
-			// A child menu's form reads no Search field of its own menu; where
-			// its parent's forms read the search, the read is its parent's.
-			const owner =
-				ref.entity === "form"
-					? ref.uuid
-					: ref.entity === "field"
-						? formOfField(doc, ref.uuid)
-						: undefined;
-			return owner !== undefined && childOfInlineSearchMenu(doc, owner)
-				? answer(M8)
-				: answer("slot-default");
-		}
 		default: {
 			const exhaustive: never = issue;
 			throw new Error(
@@ -2873,18 +2938,6 @@ export function checkErrorEntry(
 			return answer(C["jr-choice-name-on-a-lookup-itemset-select"].entry);
 	}
 	if (error.code === "search-answer-unavailable") {
-		const form =
-			ref.entity === "form"
-				? ref.uuid
-				: ref.entity === "field"
-					? formOfField(doc, ref.uuid)
-					: undefined;
-		if (
-			error.reason === "not-forms-read-search" &&
-			form !== undefined &&
-			childOfInlineSearchMenu(doc, form)
-		)
-			return answer(M8);
 		return answer(
 			C["search-input-read-in-form-expressions-reached-through-a-search"].entry,
 		);

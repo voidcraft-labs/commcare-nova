@@ -44,6 +44,9 @@ export const HQ_APP_LIST_MAX_BYTES = 4 * MiB;
 /** The lookup table list asked for one row, to learn API access. */
 export const HQ_API_ACCESS_PROBE_MAX_BYTES = 1 * MiB;
 
+/** A filtered empty device-log list confirming HQ data edit authority. */
+export const HQ_LOOKUP_EDIT_PROBE_MAX_BYTES = 4 * KiB;
+
 /**
  * The application resource and the app source for a status check or a
  * publish: the server's memory against a body of any length, not fitted to an

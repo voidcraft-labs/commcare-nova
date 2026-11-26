@@ -67,13 +67,18 @@ def test_android_sends_only_the_file_attached_at_a_capture_question(android_docu
     assert actual == (root.findtext("{*}replacement"), (CAPTURES_DIR / filename).read_bytes()), actual[0]
 
 
-def test_android_cannot_open_a_form_whose_attachment_starts_with_a_file(android_documents, hq, core_runner):
+@pytest.mark.parametrize("starting_file", [
+    pytest.param(apps.with_a_starting_value("/data/report", "'carry-forward.pdf'"), id="ready-action"),
+    pytest.param(apps.with_initial_instance_text("/data/report", "carry-forward.pdf"), id="instance-text"),
+])
+def test_android_cannot_open_a_form_whose_attachment_starts_with_a_file(
+    android_documents, hq, core_runner, starting_file
+):
     """The refusal's Android half: a starting file name written past Nova's gate
     (``questions/default-other-than-blank-on-a-capture-question``) makes the file widget look for that file in the
     form's own folder, and the form does not open (``MediaWidget.decryptMedia`` raises)."""
     doc = android_documents["targeted-worker-messages"]
     with apps.published(doc, core_runner) as published:
-        starting_file = apps.with_a_starting_value("/data/report", "'carry-forward.pdf'")
         change = apps.form_written(published, {"0.1": starting_file})
         with hq_forms.serve(published.unit, doc, published.app_id, change=change) as served:
             blobs = Blobs()

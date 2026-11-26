@@ -15,7 +15,15 @@ import type {
 	LookupOptionsSource,
 	LookupTableId,
 } from "@/lib/domain";
-import { eq, formField, tableColumn, term } from "@/lib/domain/expression";
+import {
+	and,
+	eq,
+	formField,
+	literal,
+	lt,
+	tableColumn,
+	term,
+} from "@/lib/domain/expression";
 import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
@@ -133,6 +141,80 @@ describe("lookup-backed choices in the engine", () => {
 				label: "Cadu",
 			},
 		]);
+	});
+
+	it("uses a referenced question's zero position for every choice candidate", () => {
+		const base = clinicSelect("single_select", false);
+		if (base.optionsSource === undefined)
+			throw new Error("Expected lookup choices.");
+		const engine = new FormEngine(
+			dTree([
+				{
+					id: "region",
+					uuid: REGION_FIELD_UUID,
+					kind: "text",
+					label: proseText("Region"),
+				},
+				{
+					...base,
+					optionsSource: {
+						...base.optionsSource,
+						filter: lt(
+							{
+								kind: "call",
+								fn: "position",
+								args: [term(formField(REGION_FIELD_UUID))],
+							},
+							literal(1),
+						),
+					},
+				},
+			]),
+			undefined,
+			undefined,
+			null,
+			lookupData(),
+		);
+		const choiceValues = () =>
+			engine.getState("/data/clinic").choices?.map((choice) => choice.value);
+		expect(choiceValues()).toEqual(["a1", "b2", "c3"]);
+		engine.setValue("/data/region", "south");
+		expect(choiceValues()).toEqual(["a1", "b2", "c3"]);
+	});
+
+	it("tests the source row position before sorting or gating by an earlier answer", () => {
+		const base = clinicSelect("single_select", true);
+		const source = base.optionsSource;
+		if (source?.filter === undefined)
+			throw new Error("Expected the region filter.");
+		const engine = new FormEngine(
+			dTree([
+				{ id: "region", kind: "text", label: proseText("Region") },
+				{
+					...base,
+					optionsSource: {
+						...source,
+						filter: and(
+							lt({ kind: "call", fn: "position", args: [] }, literal(3)),
+							source.filter,
+						),
+						sortColumnId: COL_NAME,
+					},
+				},
+			]),
+			undefined,
+			undefined,
+			null,
+			lookupData(),
+		);
+		engine.setValue("/data/region", "south");
+		expect(
+			engine.getState("/data/clinic").choices?.map((choice) => choice.value),
+		).toEqual(["b2"]);
+		engine.setValue("/data/region", "north");
+		expect(
+			engine.getState("/data/clinic").choices?.map((choice) => choice.value),
+		).toEqual(["a1"]);
 	});
 
 	it("recomputes filtered choices when the referenced answer changes", () => {

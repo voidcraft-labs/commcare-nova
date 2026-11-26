@@ -7,15 +7,25 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import { useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import {
 	ANY_CONSTRAINT,
 	type Expression,
 	type ExpressionOfKind,
+	formField,
 	literal,
 	numericConstraint,
 	type SlotConstraint,
 	term,
 	valueList,
 } from "@/lib/domain/expression";
+import { choiceQuestionPositionAvailable } from "@/lib/domain/expression/typeChecker";
+import { usePredicateEditContext } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendKindSlot, appendSlotIndex, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
@@ -29,7 +39,13 @@ import { useStableListIdentity } from "../../useStableListIdentity";
 import { reseedValueForConstraint } from "../reseed";
 
 interface GeneralValueCardProps<
-	K extends "negate" | "here" | "case-list-search-text" | "value-list",
+	K extends
+		| "negate"
+		| "here"
+		| "call"
+		| "case-list-search-text"
+		| "case-list-lookup-count"
+		| "value-list",
 > {
 	readonly value: ExpressionOfKind<K>;
 	readonly onChange: (next: Expression) => void;
@@ -56,6 +72,64 @@ export function HereCard(_props: GeneralValueCardProps<"here">) {
 	return (
 		<p className="text-[13px] text-nova-text-muted">
 			Where the worker is when the case list shows.
+		</p>
+	);
+}
+
+export function ChoicePositionCard({
+	value,
+	onChange,
+}: GeneralValueCardProps<"call">) {
+	const { expressionContext, formFields = [] } = usePredicateEditContext();
+	const questions = formFields.filter((field) =>
+		choiceQuestionPositionAvailable(expressionContext, field.uuid),
+	);
+	const argument = value.args[0];
+	const selected =
+		argument?.kind === "term" && argument.term.kind === "field"
+			? argument.term.uuid
+			: "source-row";
+	return (
+		<div className="space-y-2">
+			{questions.length > 0 && (
+				<Select
+					value={selected}
+					onValueChange={(next) => {
+						const question = questions.find((one) => one.uuid === next);
+						if (next === "source-row") onChange({ ...value, args: [] });
+						else if (question)
+							onChange({ ...value, args: [term(formField(question.uuid))] });
+					}}
+				>
+					<SelectTrigger aria-label="Position source">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="source-row">Choice candidate</SelectItem>
+						{questions.map((question) => (
+							<SelectItem key={question.uuid} value={question.uuid}>
+								{question.label} ({question.id})
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			)}
+			<p className="text-[13px] text-nova-text-muted">
+				{argument === undefined
+					? "The candidate’s place in the source, starting at 1. The choice order applies after the filter."
+					: "A question outside a repeat has position 0. Its answer does not affect that position."}
+			</p>
+		</div>
+	);
+}
+
+export function CaseListLookupCountCard(
+	_props: GeneralValueCardProps<"case-list-lookup-count">,
+) {
+	return (
+		<p className="text-[13px] text-nova-text-muted">
+			How many distinct results the companion app returned. This is blank until
+			the companion returns results.
 		</p>
 	);
 }

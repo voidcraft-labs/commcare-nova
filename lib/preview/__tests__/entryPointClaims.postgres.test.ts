@@ -14,11 +14,17 @@ import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	listIconVisits,
+	visitActionForm,
+	visitActionModule,
+} from "@/lib/__tests__/listIconVisits";
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
+import { mediaIds } from "@/lib/commcare/__tests__/mediaWireFixtures";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { CASE_CLAIM_CASE_TYPE, type Uuid } from "@/lib/domain";
 import {
@@ -26,6 +32,7 @@ import {
 	webAppsDevice,
 } from "../engine/__tests__/fixtures/previewDevices";
 import type { PreviewDevice } from "../engine/previewDevice";
+import { verifyReceiptRunTransition } from "../engine/signedFormOpening";
 import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
 const { authorize, recheck } = vi.hoisted(() => ({
@@ -42,6 +49,95 @@ vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
 vi.mock("@/lib/lookup/service", () => ({ getLookupFixtureData: vi.fn() }));
 
 import { launchEntryPointAction } from "../entryPointLaunchAction";
+
+it("authorizes the temporary list-icon run to return its submission to the original list", async () => {
+	const secret = "synthetic list icon receipt transition secret";
+	vi.stubEnv("BETTER_AUTH_SECRET", secret);
+	try {
+		const doc = listIconVisits(APP_ID, mediaIds.icon);
+		const list = doc.modules[visitActionModule];
+		const action = list?.caseListConfig?.columns.find(
+			(column) => column.kind === "image-map",
+		);
+		const endpoint = doc.forms[visitActionForm].entryPoint;
+		if (!action || !endpoint)
+			throw new Error("The list icon needs its visit endpoint");
+		const device = webAppsDevice();
+		const sessionId = "list-icon-session";
+		const listRun = testUuid("list-icon-return-run");
+		const store = storeAs(WORKER);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "list-icon-visit",
+				case_type: "visit",
+				case_name: "Visit",
+				status: "open",
+				properties: { visit_state: "ready" },
+			},
+		});
+		authorize.mockResolvedValue({
+			...readyContext(device),
+			blueprint: toPersistableDoc(doc),
+			sessionId,
+		});
+		const result = await launchEntryPointAction({
+			appId: APP_ID,
+			entryPointUuid: endpoint.uuid,
+			listIcon: { moduleUuid: visitActionModule, columnUuid: action.uuid },
+			listIconRun: listRun,
+			expectedSeq: 4,
+			selections: [
+				{ moduleUuid: visitActionModule, caseIds: ["list-icon-visit"] },
+			],
+			device,
+		});
+		if (result.kind !== "ready" || !result.launch.receiptRunTransition)
+			throw new Error(`No list-icon launch: ${JSON.stringify(result)}`);
+		const transition = result.launch.receiptRunTransition;
+		const audience = {
+			app: APP_ID,
+			project: PROJECT,
+			actor: WORKER,
+			worker: WORKER,
+			persona: null,
+			session: sessionId,
+			device,
+			form: visitActionForm,
+			revision: 4,
+		};
+		const entry = testUuid("list-icon-submitted-entry");
+		expect(transition.from).not.toBe(listRun);
+		expect(
+			verifyReceiptRunTransition(
+				secret,
+				audience,
+				transition,
+				transition.from,
+				entry,
+			),
+		).toBe(listRun);
+		expect(() =>
+			verifyReceiptRunTransition(secret, audience, transition, listRun, entry),
+		).toThrow();
+		expect(() =>
+			verifyReceiptRunTransition(
+				secret,
+				{ ...audience, session: "different-session" },
+				transition,
+				transition.from,
+				entry,
+			),
+		).toThrow();
+	} finally {
+		vi.unstubAllEnvs();
+	}
+});
 
 const APP_ID = "app-entry-point-claims";
 const PROJECT = "project-entry-point-claims";

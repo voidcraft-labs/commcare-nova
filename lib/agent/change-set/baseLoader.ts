@@ -28,6 +28,7 @@ import { type Kysely, sql, type Transaction } from "kysely";
 import {
 	type BoundedCanonicalAppChangeFoldInput,
 	foldCanonicalAppChangeSuffixBounded,
+	parseFoldBaselineSnapshot,
 } from "@/lib/db/canonicalMutationFold";
 import type { AppDatabase } from "@/lib/db/pg";
 import {
@@ -154,6 +155,44 @@ export async function readCanonicalFoldInputs(
 			to_project_id: row.to_project_id,
 		})),
 	};
+}
+
+/** An app edit that already trailed its saved head at a representation
+ * change keeps exactly that earlier base. Current edits use the new canonical
+ * horizon. Only the cutover operator can install the earlier converted base. */
+export async function loadPrivateEditBase(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	changeSetId: string,
+	args: { appId: string; seq: number; expectedDigest: string },
+): Promise<LoadedCanonicalBase> {
+	const fold = await db
+		.selectFrom("authoring_workspace_folds")
+		.select([
+			"app_id",
+			"project_id",
+			"effective_base_seq",
+			"effective_base_digest",
+		])
+		.select(sql<string>`base_snapshot::text`.as("snapshot_text"))
+		.where("change_set_id", "=", changeSetId)
+		.where("base_snapshot", "is not", null)
+		.executeTakeFirst();
+	if (!fold) return loadCanonicalBlueprintAtSequence(db, args);
+	const doc = parseFoldBaselineSnapshot(fold.snapshot_text);
+	const snapshot = toPersistableDoc(doc);
+	const digest = canonicalJsonDigest(snapshot);
+	if (
+		fold.app_id !== args.appId ||
+		doc.appId !== args.appId ||
+		fold.effective_base_seq === null ||
+		safePersistedSequence(fold.effective_base_seq) !== args.seq ||
+		digest !== args.expectedDigest ||
+		fold.effective_base_digest !== digest
+	)
+		throw new ChangeSetIntegrityError(
+			"The converted private base no longer matches the workspace that holds it.",
+		);
+	return { doc, snapshot, digest, projectId: fold.project_id };
 }
 
 /**

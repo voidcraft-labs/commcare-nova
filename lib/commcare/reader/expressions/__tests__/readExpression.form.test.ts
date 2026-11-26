@@ -1346,7 +1346,7 @@ describe("a form slot read by the whole expression stage", () => {
 		const READ =
 			"instance('search-input:results')/input/field[@name = 'district'] = 'north'";
 
-		it("claims the child-menu entry in a child menu of an inline-search menu", () => {
+		it("refuses a standalone search answer even when the child selection loads an inline search", () => {
 			const doc = searchesDoc();
 			const reading = readExpressions(
 				doc,
@@ -1355,7 +1355,7 @@ describe("a form slot read by the whole expression stage", () => {
 			);
 			expect(reading.bound[0]).toBeUndefined();
 			expect(refusalOf(reading).map((claim) => claim.entryId)).toEqual([
-				"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
+				"expressions-and-data/search-input-read-in-form-expressions-reached-through-a-search",
 			]);
 		});
 

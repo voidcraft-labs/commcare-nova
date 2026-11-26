@@ -1,0 +1,45 @@
+[
+	{
+		"id": "clinic-in-french",
+		"entry": "questions/label-default-text-itext-value",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "fra",
+			"expressions": ["jr:itext('site-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Clinique"
+			}
+		]
+	},
+	{
+		"id": "native-site-business-key",
+		"entry": "questions/lookup-table-select-selectdynamic-mselectdynamic-itemset-nodeset",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/site",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/site"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "south"
+			}
+		]
+	}
+]

@@ -175,7 +175,7 @@ export interface CaseListEmitContext {
 	 * pins `instance('results:inline')/results/case[...]`). Absent means
 	 * the device casedb.
 	 */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: "casedb" | `results:${string}`;
 	/** Effective property catalog for the module's case type. Plain select
 	 * columns derive worker-facing option labels from this metadata; other plain
 	 * fields remain raw. */

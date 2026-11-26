@@ -102,6 +102,10 @@ def test_an_authored_app_is_remade_with_its_ids(hq, base):
     places = (
         json.loads((directory / "places.json").read_text("utf-8")) if (directory / "places.json").is_file() else None
     )
+    from proof.hq.project_search import install_project_searches, project_searches_of
+
+    search_file = directory / "project-searches.json"
+    searches = json.loads(search_file.read_text("utf-8")) if search_file.is_file() else []
     workers_file = directory / "practice-workers.json"
     workers = json.loads(workers_file.read_text("utf-8")) if workers_file.is_file() else None
     with hq_check(base.configuration) as (state, _), hq_redis.shared(None), state.committing():
@@ -110,14 +114,18 @@ def test_an_authored_app_is_remade_with_its_ids(hq, base):
                 operations.save_authored_tables(state, json.loads((directory / "tables.json").read_text("utf-8")))
             if places is not None:
                 operations.save_authored_places(state, places)
+            if searches:
+                install_project_searches(state, searches)
             if workers is not None:
                 operations.save_authored_practice_workers(state, workers)
             app_id = operations.save_authored_app(state, document, _media(directory))
             remade = json.loads(json.dumps(stored_document(operations.held_app(state, app_id))))
             remade_places = places_of(state)
             remade_workers = practice_workers_of(state)
+            remade_searches = project_searches_of(state)
             # The lookup HQ's validation and suite make of the app's practice worker; it raises where none is found.
             operations.held_app(state, app_id).get_practice_user()
+    assert remade_searches == searches
     assert remade_workers == workers, (
         f"The practice workers made again from proof/hq-apps/{base.id}/practice-workers.json are not the ones"
         f" retained there: HQ holds {remade_workers}."

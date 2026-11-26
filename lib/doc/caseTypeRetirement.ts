@@ -52,8 +52,10 @@ import {
 	fieldReferenceSlotsFor,
 	isOwnerOnlyCaseSearchConfig,
 	MODULE_REFERENCE_SLOTS,
+	optionsSourceFilter,
 	ownRecordValue,
 	type ProseTemplate,
+	readSlotStrings,
 	readSlotValues,
 	searchInputDefault,
 	searchInputOptions,
@@ -531,14 +533,14 @@ function collectFieldReferences(
 				}
 				break;
 			}
-			case "options-source":
+			case "options-source": {
+				if (field.kind !== "single_select" && field.kind !== "multi_select")
+					break;
+				const source = field.optionsSource;
+				const filter = optionsSourceFilter(source);
 				if (
-					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource.kind !== "inline" &&
-					((field.optionsSource.kind === "cases" &&
-						field.optionsSource.caseType === caseType) ||
-						(field.optionsSource.filter !== undefined &&
-							expressionRefsCaseType(field.optionsSource.filter, caseType)))
+					(source.kind === "cases" && source.caseType === caseType) ||
+					(filter !== undefined && expressionRefsCaseType(filter, caseType))
 				) {
 					out.push({
 						verbose: `field "${field.id}" in ${where} reads a "${caseType}" property in its choice source`,
@@ -546,6 +548,7 @@ function collectFieldReferences(
 					});
 				}
 				break;
+			}
 			case "case-type-ref":
 			case "entity-uuid":
 			case "case-property-ref":
@@ -600,7 +603,11 @@ function collectFormSlotReferences(
 	}
 	for (const operation of form.caseOperations ?? []) {
 		const operationLabel = `case operation "${operation.id || operation.uuid}"`;
-		if (operation.caseType === caseType) {
+		if (
+			operation.caseType === caseType ||
+			(operation.action === "create" &&
+				operation.typeChoice?.otherwise === caseType)
+		) {
 			out.push(sameRef(`${operationLabel} in ${where} targets "${caseType}"`));
 		}
 		if (operation.retype === caseType) {
@@ -621,6 +628,9 @@ function collectFormSlotReferences(
 					);
 					break;
 				case "case_operation_condition":
+				case "case_operation_close_condition":
+				case "case_operation_type_condition":
+				case "case_operation_owner_condition":
 					out.push(
 						sameRef(
 							`${operationLabel} in ${where} has a condition using "${caseType}"`,
@@ -904,6 +914,22 @@ function collectModuleConfigReferences(
 				}
 				break;
 			}
+			case "search_request_type":
+			case "case_list_additional_type":
+				if (
+					readSlotStrings(mod, slot.path).some(
+						(value) => value.text === caseType,
+					)
+				)
+					out.push({
+						verbose: `the record list on ${where} uses "${caseType}"`,
+						concise: `the record list uses "${caseType}"`,
+					});
+				break;
+			case "case_list_lookup_result_property":
+			case "search_request_related_property":
+			case "search_related_property":
+				break;
 			case "search_filter_property":
 			case "search_filter_ancestor_type": {
 				if (
@@ -1039,6 +1065,21 @@ function collectModuleConfigReferences(
 				}
 				break;
 			}
+			case "project_search":
+				break;
+			case "project_search_parameter": {
+				if (search && !isOwnerOnlyCaseSearchConfig(search)) {
+					for (const parameter of search.projectSearch?.defaults ?? []) {
+						if (expressionRefsCaseType(parameter.value, caseType))
+							out.push(
+								sameRef(
+									`the search value “${parameter.name}” on ${where} uses "${caseType}" information`,
+								),
+							);
+					}
+				}
+				break;
+			}
 			case "search_input_hidden_value": {
 				for (const input of list?.searchInputs ?? []) {
 					if (
@@ -1115,6 +1156,7 @@ function termRefsCaseType(term: Term, caseType: string): boolean {
 		case "fixed-location":
 		case "choice":
 		case "form-node":
+		case "search-result-field":
 		case "case-row-type":
 		case "repeat-row":
 		case "location-level":

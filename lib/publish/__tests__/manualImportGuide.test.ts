@@ -79,6 +79,27 @@ describe("manualImportGuide", () => {
 		]);
 	});
 
+	it("names the lookup install file before the independent workbook and app import", () => {
+		const steps = manualImportGuide({
+			...BARE,
+			manualLookupTables: ["types"],
+			lookupTags: ["clinics"],
+		});
+		expect(steps.map(({ kind }) => kind)).toEqual([
+			"install-lookup-data",
+			"lookup-tables",
+			"import-app",
+			"commcare-version",
+		]);
+		expect(steps[0].lines.join("\n")).toContain("/build/install-lookup-data");
+		expect(steps[0].lines.join("\n")).toContain('"lookup-install.json"');
+		expect(steps[0].lines.join("\n")).toContain("types");
+		expect(steps[1].lines.join("\n")).toContain("lookup-tables.xlsx");
+		expect(decodeManualImportGuide(encodeManualImportGuide(steps))).toEqual(
+			steps,
+		);
+	});
+
 	it("adds one step per project space that manages tables, right after the lookup tables, each naming its own file and space", () => {
 		const health = {
 			fileName: "lookup-tables-managed-in-acme-health.xlsx",

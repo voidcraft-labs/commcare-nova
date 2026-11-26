@@ -23,7 +23,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	type HqAppSource,
 	type HqMediaType,
@@ -32,9 +33,11 @@ import {
 import type { HqLocationType } from "@/lib/commcare/hq/locations";
 import { LOCATION_LEVELS } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { levelsAsPublished } from "@/lib/commcare/reader/worldEntities";
-import type { BlueprintDoc } from "@/lib/domain";
-import { count, eq, term } from "@/lib/domain/expression";
+import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { type BlueprintDoc, NEW_APP_SETTINGS } from "@/lib/domain";
+import { count, eq, literal, term } from "@/lib/domain/expression";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { projectSearchOf } from "@/lib/domain/modules";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import type {
@@ -56,6 +59,7 @@ import {
 	readingMediaFindings,
 } from "../../reading/projectData/media";
 import { readBackDifferences } from "../../reading/readBack";
+import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 import { alignedFromSource } from "../baselineSource";
 import {
 	type HqChangeReadingsInput,
@@ -262,6 +266,7 @@ function readingsOf(
 		readonly published?: readonly HqMediaPath[];
 		readonly media?: HqChangeReadingsInput["media"];
 		readonly data?: ReadingProjectData;
+		readonly targetIdentity?: HqChangeReadingsInput["targetIdentity"];
 	} = {},
 ) {
 	const source = parsed(now);
@@ -278,7 +283,7 @@ function readingsOf(
 			renamesSince: [],
 			actors: [],
 		},
-		overrides: [],
+		targetIdentity: options.targetIdentity ?? EMPTY_TARGET_IDENTITY,
 		media: options.media ?? {
 			published: options.published ?? [],
 			base: null,
@@ -313,6 +318,131 @@ describe("both readings of one app", () => {
 			}),
 		).toEqual([]);
 	});
+
+	it.each([
+		{
+			label: "continues a shared search when both menus move",
+			before: [17, 17],
+			after: [22, 22],
+			owners: ["first", "first"],
+		},
+		{
+			label: "keeps the original search when its menus split",
+			before: [17, 17],
+			after: [17, 22],
+			owners: ["first", "new"],
+		},
+		{
+			label: "converges on the search already at the destination ID",
+			before: [17, 35],
+			after: [35, 35],
+			owners: ["second", "second"],
+		},
+		{
+			label: "gives two converging menus a new search at a new ID",
+			before: [17, 35],
+			after: [22, 22],
+			owners: ["new", "new"],
+		},
+	])(
+		"$label even when a contributor has chosen an unpublished ID",
+		({ before, after, owners }) => {
+			const first = testUuid("directory first");
+			const second = testUuid("directory second");
+			const menus = before.map((id, index) => ({
+				name: `Visit ${index}`,
+				caseType: "visit",
+				forms: [
+					{
+						name: "Register",
+						type: "registration" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: "name",
+								caseWrite: { caseType: "visit", property: "case_name" },
+							}),
+						],
+					},
+				],
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Visit" },
+				]),
+				caseSearchConfig: {
+					projectSearch: {
+						searchUuid: id === 17 ? first : second,
+						defaults: [
+							{
+								uuid: testUuid(`region ${index}`),
+								name: "region",
+								value: term(literal("north")),
+							},
+						],
+					},
+				},
+			}));
+			const doc = buildDoc({
+				appId: APP_ID,
+				modules: menus,
+				appSettings: {
+					...NEW_APP_SETTINGS,
+					projectSearches: {
+						[first]: { name: "Outreach" },
+						...(before.includes(35) && { [second]: { name: "Outreach" } }),
+					},
+				},
+			});
+			const issued = [
+				{ searchUuid: first, endpointId: 17 },
+				...(before.includes(35)
+					? [{ searchUuid: second, endpointId: 35 }]
+					: []),
+			];
+			const { body } = servedExport(doc, {
+				identity: targetWireIdentity([], [], issued),
+			});
+			const now = structuredClone(body);
+			const native = now.modules as {
+				search_config: { case_search_endpoint_id: number };
+			}[];
+			native.forEach((module, index) => {
+				module.search_config.case_search_endpoint_id = after[index];
+			});
+			const made = readingsOf(doc, body, now, {
+				targetIdentity: {
+					...EMPTY_TARGET_IDENTITY,
+					projectSearches: issued.map((row) => ({
+						...row,
+						endpointId: row.endpointId + 100,
+					})),
+				},
+			});
+			if (made.kind !== "readings")
+				throw new Error(`No baseline: ${made.reason}`);
+			const changed = made.readings.now;
+			if (changed.kind !== "read")
+				throw new Error(JSON.stringify(changed.findings));
+			const identities = changed.draft.doc.moduleOrder.map(
+				(uuid) => projectSearchOf(changed.draft.doc.modules[uuid])?.searchUuid,
+			);
+			for (const [index, expected] of owners.entries()) {
+				if (expected === "new") {
+					expect(identities[index]).toBeDefined();
+					expect([first, second]).not.toContain(identities[index]);
+				} else
+					expect(identities[index]).toBe(expected === "first" ? first : second);
+			}
+			expect(identities[0] === identities[1]).toBe(after[0] === after[1]);
+			expect(changed.draft.identities.projectSearches).toEqual(
+				expect.arrayContaining(
+					after.map((endpointId, index) => ({
+						searchUuid: identities[index],
+						endpointId,
+					})),
+				),
+			);
+		},
+	);
 
 	it("share every input but the source, its menus and the media index", () => {
 		const doc = clinic();

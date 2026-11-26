@@ -193,6 +193,8 @@ export function queryPrinter(context: QueryPrintContext) {
 			}
 			case "case-type":
 				return quote(value.caseType);
+			case "search-result-field":
+				return call("result-field", quote(value.name));
 			case "case-row-type":
 				return "record-type()";
 			case "input":
@@ -263,6 +265,12 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "acting-user":
 			case "unowned":
 				return call(value.kind);
+			case "call":
+				if (value.fn === "position")
+					return call(value.fn, ...value.args.map(expression));
+				throw new Error(
+					`The saved ${value.fn}() call has no record value spelling.`,
+				);
 			case "case-text":
 				return call("case-text", quote(value.textUuid));
 			case "id-of":

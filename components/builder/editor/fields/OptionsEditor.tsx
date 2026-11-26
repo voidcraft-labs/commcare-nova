@@ -39,6 +39,7 @@ import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
@@ -50,6 +51,7 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	asUuid,
 	type CommitOutcome,
+	EMPTY_PROSE_TEMPLATE,
 	type Field,
 	mintSelectOptionPlaceholder,
 	type ProseTemplate,
@@ -225,6 +227,28 @@ export function OptionsEditorWidget({
 			const next = replaceOptionLabel(draft, index, label);
 			setDraft(next);
 			return commit(next);
+		},
+		[draft, commit],
+	);
+
+	const [editingExtended, setEditingExtended] = useState<string | null>(null);
+	const saveExtended = useCallback(
+		(index: number, text: ProseTemplate | undefined) => {
+			const option = draft[index];
+			if (option === undefined) return;
+			if (text === undefined && option.extended_text === undefined) {
+				setEditingExtended(null);
+				return;
+			}
+			const row = { ...option };
+			if (text === undefined) delete row.extended_text;
+			else row.extended_text = text;
+			const next = [...draft];
+			next[index] = row;
+			setDraft(next);
+			const result = commit(next);
+			if (!result || result.ok) setEditingExtended(null);
+			return result;
 		},
 		[draft, commit],
 	);
@@ -456,8 +480,40 @@ export function OptionsEditorWidget({
 										)}
 									</span>
 								</DropdownMenuCheckboxItem>
+								{opt.extended_text === undefined && showsSource && (
+									<DropdownMenuItem
+										onClick={() => setEditingExtended(opt.uuid)}
+									>
+										Add extended text
+									</DropdownMenuItem>
+								)}
 							</DropdownMenuContent>
 						</DropdownMenu>
+						{(opt.extended_text !== undefined ||
+							editingExtended === opt.uuid) && (
+							<fieldset
+								className="basis-full min-w-0 border-0 p-0 m-0"
+								onBlur={(event) => event.stopPropagation()}
+							>
+								<RefLabelInput
+									label="Extended text"
+									value={opt.extended_text ?? EMPTY_PROSE_TEMPLATE}
+									onSave={(text) => saveExtended(i, text)}
+									onEmpty={() => saveExtended(i, undefined)}
+									autoFocus={editingExtended === opt.uuid}
+									proseSlot={
+										fieldUuid === undefined
+											? undefined
+											: {
+													entity: "field",
+													uuid: fieldUuid,
+													slot: "option_extended_text",
+													member: { optionUuid: opt.uuid },
+												}
+									}
+								/>
+							</fieldset>
+						)}
 						<OptionValueRefusal message={optionValueRefusal(draft, i)} />
 						{opt.plainLabel === true && !formFormattingOff && (
 							<p

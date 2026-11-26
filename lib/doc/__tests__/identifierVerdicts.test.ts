@@ -504,22 +504,16 @@ describe("case-operation names HQ's form builder can't keep", () => {
 			caseOperationIdVerdict("instance", new Set(["q_instance"])),
 		).toMatchObject({ userMessage: expect.stringContaining('"q_instance_2"') });
 		expect(
-			caseOperationLinkIdentifierVerdict("close", new Set(["q_close"])),
-		).toMatchObject({ userMessage: expect.stringContaining('"q_close_2"') });
+			caseOperationLinkIdentifierVerdict("bind", new Set(["q_bind"])),
+		).toMatchObject({ userMessage: expect.stringContaining('"q_bind_2"') });
 	});
 
-	it("refuses a link named close or create, which reads as the block's own action", () => {
+	it("leaves matching a link named close or create to the candidate form gate", () => {
 		expect(caseOperationLinkIdentifierVerdict("close", new Set())).toEqual({
-			ok: false,
-			code: "reads_as_case_action",
-			userMessage:
-				'"close" is a name CommCare HQ\'s form builder reads as closing the case. "q_close" is free here.',
+			ok: true,
 		});
 		expect(caseOperationLinkIdentifierVerdict("create", new Set())).toEqual({
-			ok: false,
-			code: "reads_as_case_action",
-			userMessage:
-				'"create" is a name CommCare HQ\'s form builder reads as starting a new case. "q_create" is free here.',
+			ok: true,
 		});
 	});
 
@@ -606,14 +600,19 @@ describe("case-operation identifier vocabulary", () => {
 			expect(caseOperationWritePropertyVerdict(candidate, new Set())).toEqual({
 				ok: true,
 			});
-		for (const candidate of ["parent-link", "parent.link", " parent_link"]) {
+		expect(
+			caseOperationLinkIdentifierVerdict("parent-link", new Set()),
+		).toEqual({
+			ok: true,
+		});
+		for (const candidate of ["parent.link", " parent_link"]) {
 			expect(
 				caseOperationLinkIdentifierVerdict(candidate, new Set()),
 			).toMatchObject({
 				ok: false,
 				code: "illegal_format",
 				userMessage:
-					"Start with a letter or underscore; use only letters, digits, or underscores.",
+					"Start with a letter or underscore. Use only letters, digits, underscores, or hyphens.",
 			});
 		}
 	});

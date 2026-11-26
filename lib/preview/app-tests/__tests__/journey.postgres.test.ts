@@ -33,6 +33,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	collectTranslationUnits,
+	columnSort,
 	makeTranslationUnitId,
 	mapLayerColumn,
 	mapLocationColumn,
@@ -41,6 +42,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { eq, formField, literal, term } from "@/lib/domain/expression";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { proseText } from "@/lib/domain/prose";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
@@ -60,6 +62,160 @@ const stepSchema = z.object({
 	testId: z.string(),
 	step: z.number(),
 	observation: z.record(z.string(), z.unknown()),
+});
+
+it("keeps the exact ID set when an App Test form opens after its answer changes", {
+	timeout: 15_000,
+}, async () => {
+	const key = testUuid("app-test-root-exact-id");
+	const doc = buildDoc({
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "Tasks",
+				forms: [
+					{
+						name: "Create person",
+						type: "survey",
+						fields: [
+							f({
+								uuid: key,
+								kind: "text",
+								id: "key",
+								default_value: term(literal("opened-id")),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: testUuid("app-test-exact-create"),
+			id: "exact_create",
+			action: "create",
+			caseType: "person",
+			target: { kind: "new", expr: term(formField(key)) },
+			name: term(literal("Saved person")),
+		},
+	];
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Preserve the ID assigned at opening" },
+	});
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `step-${current.step}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid });
+	await step({ kind: "form", formUuid });
+	await step({ kind: "answer", answers: [{ path: "key", value: "later-id" }] });
+	expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+	const records = await sql<{ case_id: string }>`
+		SELECT case_id FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+		WHERE case_type = 'person'
+	`.execute(h.db());
+	expect(records.rows).toEqual([{ case_id: "opened-id" }]);
+	await step({ kind: "finish" });
+});
+
+it("submits a guarded worker record update through an isolated App Test journey", async () => {
+	const decision = testUuid("app-test-worker-decision");
+	const detail = testUuid("app-test-worker-detail");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Tasks",
+				forms: [
+					{
+						name: "Record a note",
+						type: "survey",
+						fields: [f({ kind: "text", uuid: decision, id: "decision" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	doc.userProperties = {
+		[detail]: { uuid: detail, slug: "visit_note", label: "Visit note" },
+	};
+	doc.userPropertyOrder = [detail];
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: testUuid("app-test-conditional-worker-write"),
+			id: "save_worker_note",
+			action: "update",
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+			condition: eq(term(formField(decision)), literal("save")),
+			writes: [{ property: "visit_note", value: term(literal("visited")) }],
+		},
+	];
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const answer of ["keep", "save"]) {
+		let current = await startAppTest(scope, {
+			requestId: `conditional-worker-${answer}`,
+			expectedBlueprintSeq: 0,
+			input: { purpose: "Record the note when the answer calls for it" },
+		});
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `step-${current.step}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		const rows = () =>
+			sql<{ case_id: string; value: string | null }>`
+			SELECT case_id, properties->>'visit_note' AS value
+			FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+			WHERE case_type = 'commcare-user' AND properties->>'hq_user_id' = ${scope.actorUserId}
+		`.execute(h.db());
+		await step({ kind: "menu", moduleUuid });
+		await step({ kind: "form", formUuid });
+		const before = (await rows()).rows;
+		expect(before).toEqual([{ case_id: expect.any(String), value: "" }]);
+		await step({
+			kind: "answer",
+			answers: [{ path: "decision", value: answer }],
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+		expect((await rows()).rows).toEqual([
+			{
+				case_id: before[0].case_id,
+				value: answer === "save" ? "visited" : before[0].value,
+			},
+		]);
+		await step({ kind: "finish" });
+	}
 });
 
 it("shows shared worker wording for a menu, form, record choice and submit button in each language", async () => {
@@ -506,7 +662,9 @@ it.each([
 		if (required && mod.caseListConfig)
 			mod.caseListConfig.searchInputs = mod.caseListConfig.searchInputs.map(
 				(input) =>
-					input.kind === "hidden" ? input : { ...input, required: {} },
+					input.kind === "hidden" || input.kind === "address"
+						? input
+						: { ...input, required: {} },
 			);
 		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 		await h.seedAppWithBlueprint(doc, {
@@ -5272,3 +5430,110 @@ for (const platform of PLATFORMS) {
 		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
 	});
 }
+
+it("automatically opens and atomically closes the whole ordered case datum", {
+	timeout: 30_000,
+}, async () => {
+	const nameColumn = plainColumn(
+		testUuid("automatic-batch-case-name"),
+		"case_name",
+		"Name",
+		{
+			sort: columnSort("asc", 0),
+		},
+	);
+	const doc = buildDoc({
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "Batch work",
+				caseType: "person",
+				caseListConfig: {
+					columns: [nameColumn],
+					listColumnOrder: [nameColumn.uuid],
+					detailColumnOrder: [nameColumn.uuid],
+					searchInputs: [],
+					selection: { kind: "multiple", maximum: 51, autoSelect: true },
+				},
+				forms: [
+					{
+						name: "Read batch",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
+					{
+						name: "Close batch",
+						type: "close",
+						fields: [f({ kind: "hidden", id: "done", calculate: "'yes'" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const closeUuid = doc.formOrder[moduleUuid][1];
+	const records = Array.from({ length: 51 }, (_, i) => ({
+		id: `case-${String(i).padStart(2, "0")}`,
+		caseType: "person",
+		name: `Name ${51 - i}`,
+	}));
+	const caseIds = records.map((row) => row.id);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "auto-batch-start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Close everyone the device restores",
+			scenario: { records },
+		},
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `auto-batch-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	try {
+		expect(await step({ kind: "menu", moduleUuid })).toMatchObject({
+			screen: "menu",
+			selected: caseIds.map((caseId) => expect.objectContaining({ caseId })),
+		});
+		expect(await step({ kind: "form", formUuid: closeUuid })).toMatchObject({
+			screen: "form",
+			name: "Close batch",
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({
+			savedInTest: true,
+			effects: { primaryCaseIds: caseIds },
+		});
+		const rows = await sql<{
+			case_id: string;
+			case_type: string;
+			status: string;
+		}>`
+			SELECT case_id, case_type, status FROM ${sql.id(appTestNamespace(current.testId), "cases")} ORDER BY case_id
+		`.execute(h.db());
+		expect(rows.rows.filter((row) => row.case_type === "person")).toEqual(
+			caseIds.map((case_id) => ({
+				case_id,
+				case_type: "person",
+				status: "closed",
+			})),
+		);
+		expect(rows.rows.filter((row) => row.case_type !== "person")).toEqual([
+			expect.objectContaining({ case_type: "commcare-user", status: "open" }),
+		]);
+	} finally {
+		await step({ kind: "finish" });
+	}
+});

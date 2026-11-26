@@ -88,7 +88,10 @@ def _list(served, archive, label, command, searches, **device):
     found = observe.app(served, blobs, label=label, archive=archive, commands=[command], searches=searches, **device)
     answer = blobs.get_json(found["answer"])
     assert answer["install"] == "Installed", answer["install"]
-    walk = answer["walks"][command]
+    return _first_list(answer["walks"][command])
+
+
+def _first_list(walk):
     raised = walk.get("raised") or {}
     assert "steps" in walk, f"the walk raised {raised.get('class')}: {raised.get('stack', '')[:3000]}"
     (first, *_) = [step["list"] for step in walk["steps"] if step["screen"] == LIST]
@@ -124,6 +127,41 @@ def test_a_saved_choice_and_its_label_show_in_default_order_on_both_exports(andr
             assert [_texts(row) for row in listed["rows"]] == [
                 ["Ana", "West", "a", "River zone", "Priority", "Visit Ana"], ["Cy", "past", "past", "Unassigned", "Routine", "Visit Cy"], ["Bea", "East", "z", "Routine", "Visit Bea"],
             ], name
+
+
+def test_reached_choice_columns_show_both_paths_in_each_android_language(android_documents, hq, android_walk_evidence):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-reached-choice-columns"]
+    observations = {}
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            # Walking the worker's menu lets the Android harness choose each
+            # language through its own picker. Command-only reads skip that.
+            found = observe.app(served, blobs, label=label, archive=archive)
+            answer = blobs.get_json(found["answer"])
+            assert answer["install"] == "Installed", answer["install"]
+            heard = {"en": [], "fr": []}
+            for path, walk in answer["walks"].items():
+                locale = "fr" if "@language:fr" in path else "en"
+                for step in walk.get("steps", ()):
+                    listed = step.get("list") or {}
+                    # Passing through a list records the selected case. The
+                    # walk that ends there owns the rows the worker saw.
+                    if step["screen"] != LIST or "rows" not in listed:
+                        continue
+                    rows = [_texts(row) for row in listed["rows"]]
+                    if rows not in heard[locale]:
+                        heard[locale].append(rows)
+            observations[label] = heard
+    android_walk_evidence(observations)
+    expected = {
+        "en": [[["Ada", "East bank", "West bank", "Hello!"], ["Bea", "Hello!"]]],
+        "fr": [[["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "Bonjour!"]]],
+    }
+    assert observations == {"hq": expected, "local": expected}
 
 
 def test_android_shows_signed_relative_dates_on_both_exports(android_documents, hq):
@@ -562,3 +600,114 @@ def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_
                 # A navigation path walks the loaded form through save, where the reader records any alert.
                 saved = form["saved"]
                 assert saved["finishing"] is True and saved["alert"] is None, (path, saved)
+
+
+def test_android_displays_the_web_apps_icon_as_a_path_without_submitting(android_documents, hq):
+    """Inspect the Android rendering of the HQ archive even though Nova offers this action only in Web Apps."""
+    from proof.android import observe
+    from proof.formplayer.hq import serve
+    from proof.rules.conftest import published
+
+    document = android_documents["targeted-case-list-icon-action"]
+    with published(document, None) as project:
+        with serve(project.unit, document, project.app_id, database=_restored(document)) as served:
+            path = served.doc["modules"][0]["case_details"]["short"]["columns"][1]["enum"][0]["value"]["en"]
+            assert path.startswith("jr://file/"), path
+            listed = _list(served, observe.release_archive(served), "web-list-icon-on-android", "m0-f0", [])
+            assert [_texts(row)[:2] for row in listed["rows"]] == [["First visit", path], ["Second visit", path]]
+            assert not served.hq.submissions
+def test_android_keeps_named_search_results_without_prompt_answers(android_documents, hq, android_walk_evidence):
+    """An HQ release exposes named results on Android, and Android leaves both prompt instances absent."""
+    from proof.android import observe
+    from proof.formplayer import hq as formplayer_hq
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+    from proof.rules.conftest import published
+
+    document = android_documents["search-named-parent"]
+    # The form reads Search answers and declares Web Apps. Nova's Android
+    # download correctly refuses it. HQ's release lets us witness the device
+    # limit directly with the same search frame and the same XForm.
+    assert document.local_ccz is None
+    database = casedata.document_case_database(document)
+    parent = next(record for record in database.cases if record.case_type == "parent_case")
+    child = next(record for record in database.cases if record.case_type == "patient")
+    parent = replace(parent, name="North")
+    child = replace(child, properties=(("first_name", "West"),),
+                    indices=(("parent", parent.case_type, parent.case_id, "child"),))
+    database = replace(database, cases=(parent, child))
+    family, member = "results:FamilyLookup", "results:MemberLookup"
+    prompts = {family: {"first_name": "North"}, member: {"first_name": "West"}}
+    with (
+        published(document, None) as app,
+        formplayer_hq.serve(app.unit, document, app.app_id, database=database) as served,
+    ):
+        blobs = Blobs()
+        result = observe.app(served, blobs, label="hq", archive=observe.release_archive(served),
+                             commands=["m0-f0"], search_answers=prompts)
+        answer = blobs.get_json(result["answer"])
+        assert answer["install"] == "Installed", answer
+        android_walk_evidence({"walk": answer["walks"]["m0-f0"], "queries": answer["completedSearches"]})
+        assert answer["completedSearches"] == [
+            {
+                "query": query,
+                "submitted": prompts[query],
+                "sources": {family: True, member: query == member, f"search-input:{family}": False,
+                            f"search-input:{member}": False},
+            }
+            for query in (family, member)
+        ], answer["walks"]
+
+
+def test_grouped_search_uses_plain_ordered_fields_on_android(android_documents, hq, android_walk_evidence):
+    from proof.android import observe
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    document = android_documents["search-remote-grouped-prompts"]
+    command = "search_command.m0"
+    observations = {}
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command], views=True)
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            query = next(step["query"] for step in answer["walks"][command]["steps"] if "query" in step)
+            assert query["opened"], (label, query)
+            observations[label] = {
+                "prompts": list(query["prompts"]),
+                "display": _texts(query["controls"]),
+            }
+
+    android_walk_evidence(observations)
+    for platform in observations.values():
+        assert set(platform["prompts"]) == {"first_name", "case_name"}
+        field_labels = [text for text in platform["display"] if text in {"Name", "Record name"}]
+        assert field_labels == ["Name", "Record name"]
+        assert "Personal details" not in platform["display"]
+        assert "Case details" not in platform["display"]
+
+
+def test_android_shows_a_linked_search_receiver_as_an_ordinary_field(android_documents, hq, android_walk_evidence):
+    from proof.android import observe
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    document = android_documents["search-remote-address-picker"]
+    command = "search_command.m0"
+    observations = {}
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command], views=True)
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            query = next(step["query"] for step in answer["walks"][command]["steps"] if "query" in step)
+            assert query["opened"], (label, query)
+            observations[label] = {"prompts": list(query["prompts"]), "display": _texts(query["controls"])}
+
+    android_walk_evidence(observations)
+    for observed in observations.values():
+        assert observed["prompts"] == ["first_name"]
+        assert "Name" in observed["display"] and "Find an address" not in observed["display"]

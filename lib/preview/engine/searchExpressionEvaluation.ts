@@ -261,6 +261,7 @@ export function emitPreviewSearchPredicate(
 ): SearchScreenXPath {
 	const lookupData = environment.lookup;
 	const listAction = types.slot.slot === "case_list_action_condition";
+	const beforeSearch = types.slot.slot === "search_button_display_condition";
 	return {
 		source: printSearchScreenTree(
 			searchScreenTree(
@@ -273,31 +274,32 @@ export function emitPreviewSearchPredicate(
 					: undefined,
 			),
 		),
-		instances: listAction
-			? secondaryXPathInstances({
-					session,
-					lookupData: lookupData ?? null,
-					sessionData: environment.sessionData,
-					caseDatabase: environment.caseDatabase ?? null,
-					caseTypes: environment.doc.caseTypes ?? [],
-					includeFixtureAliases: true,
-				})
-			: searchScreenXPathInstances({
-					session,
-					answers: searchInputInstanceValues(
-						searchInputs,
-						withSeededHiddenValues(
+		instances:
+			listAction || beforeSearch
+				? secondaryXPathInstances({
+						session,
+						lookupData: lookupData ?? null,
+						sessionData: environment.sessionData,
+						caseDatabase: environment.caseDatabase ?? null,
+						caseTypes: environment.doc.caseTypes ?? [],
+						includeFixtureAliases: true,
+					})
+				: searchScreenXPathInstances({
+						session,
+						answers: searchInputInstanceValues(
 							searchInputs,
-							inputValues,
-							session,
-							environment,
+							withSeededHiddenValues(
+								searchInputs,
+								inputValues,
+								session,
+								environment,
+							),
 						),
-					),
-					...(lookupData === undefined ? {} : { lookupData }),
-					...(environment.sessionData === undefined
-						? {}
-						: { sessionData: environment.sessionData }),
-				}),
+						...(lookupData === undefined ? {} : { lookupData }),
+						...(environment.sessionData === undefined
+							? {}
+							: { sessionData: environment.sessionData }),
+					}),
 	};
 }
 
