@@ -9,6 +9,10 @@
 
 import { type Element, isTag } from "domhandler";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import {
+	connectActivitySites,
+	connectForwardedAncestorPaths,
+} from "@/lib/domain/connectActivitySites";
 import { connectSubmissionConflicts } from "@/lib/domain/connectSubmission";
 import type {
 	ConnectActivity,
@@ -80,6 +84,10 @@ const CALCULATE = "xform:model/bind@calculate";
  *  names one. HQ's reader types no question a Connect block's, so no record names a
  *  `mug:Connect*` item. */
 export const C = defineClaims("xform", {
+	"connect-forwarded-ancestor-name": refuse(
+		Q("connect-forwarded-ancestor-name"),
+		NESTED,
+	),
 	"connect-unit-id-changed-by-form-editor": refuse(
 		Q("connect-unit-id-changed-by-form-editor"),
 		NESTED,
@@ -549,6 +557,18 @@ export function accountConnectSubmissionConflicts(
 		for (const form of menu.forms) {
 			if (form.place.kind !== "form" || !form.xform?.connectBlocks.length)
 				continue;
+			const sites = connectActivitySites(doc, form.uuid);
+			for (const path of connectForwardedAncestorPaths(doc, sites).values()) {
+				const names = path.map((uuid) => doc.fields[uuid].id);
+				const node = form.xform.nodes.get(names.join("/"));
+				if (node)
+					ctx.accounting.findingAtNode(
+						C["connect-forwarded-ancestor-name"],
+						questionPlace(form.place, names),
+						{ element: node.element },
+						path.length === 1 ? TOP : NESTED,
+					);
+			}
 			for (const { block, node } of form.xform.connectBlocks) {
 				if (block !== "deliver_unit") continue;
 				const leaf = node.children[0]?.children.find(

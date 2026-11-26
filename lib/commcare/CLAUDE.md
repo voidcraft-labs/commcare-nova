@@ -1790,7 +1790,11 @@ question-id grammar and is never one of the five names Connect's receiver
 searches a submission for at every depth (`assessment`, `deliver`, `module`,
 `task`, `work_area_update`, `lib/domain/questionId.ts::RESERVED_CONNECT_BLOCK_IDS`):
 a wrapper so named has no namespace where the receiver reads one, so Connect
-answers 500 for every submission of the form. A deliver form holds a deliver
+answers 500 for every submission of the form. HQ's Connect forwarder preserves
+any submitted group, section or repeat on the path to a Connect activity. The
+gate and reader refuse an ancestor whose exact ID the app's active Connect role
+searches for. HQ drops unrelated branches with no Connect activity.
+A deliver form holds a deliver
 unit or a task, never both (`CONNECT_DELIVER_FORM_HOLDS_TASK`): Connect checks
 the delivery before it completes a task, so a form holding both has its own
 visit turned away while the task is assigned. A Connect app's forms reach

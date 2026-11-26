@@ -4755,6 +4755,32 @@
 		"gates": []
 	},
 	{
+		"id": "questions/connect-forwarded-ancestor-name",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a group, section or repeat enclosing a Connect activity whose ID is a key the app’s Connect receiver searches for",
+		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
+		"valueClass": "connect-forwarded-ancestor-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare HQ forwards this part of the form because it holds an activity. Connect cannot receive it under an ID that it uses for its own data. Give this part of the form another ID in CommCare HQ.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "CommCare HQ forwards this part of the form because it holds an activity. Connect cannot receive it under an ID that it uses for its own data. Give this part of the form another ID in CommCare HQ."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/connect-unit-id-changed-by-form-editor",
 		"area": "questions",
 		"section": "Question types",

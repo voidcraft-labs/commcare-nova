@@ -1912,6 +1912,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A Case change in ${q(formName(e))} can change the selected cases to another type before the next form opens. Send people to the destination's form list so they can choose matching cases, or keep every selected case as ${q(det(e, "expectedCaseType", "the destination's case type"))}.`,
 	CONNECT_ID_TOO_LONG: (e) =>
 		`Connect stores up to ${det(e, "limit", "50")} characters for this activity ID. You can shorten ${q(fieldName(e))}.`,
+	CONNECT_FORWARDED_ANCESTOR_ID: (e) =>
+		`Connect can't receive the activities inside ${q(fieldName(e))}. You can give this part of the form a different ID.`,
 	CONNECT_ID_INVALID_FORMAT: (e) => {
 		const id = det(e, "connectId", "");
 		const sentence = questionIdSentence(e, id, "connect");

@@ -25,6 +25,7 @@ from proof.connect.conftest import (
 )
 from proof.connect.test_receiver import (
     ASSESSMENT_SCORED,
+    KEY_ERROR,
     PAY,
     VISIT_ATTACHMENTS,
     answered,
@@ -36,7 +37,7 @@ PHOTO = "entrance.png"
 AREA_DOWNLOAD = "commcare_connect.opportunity.tasks.download_inaccessibility_request_attachments"
 
 
-def receiver_instance(document, units, *, tasks=(), modules=(), scores=(), area=False, association=False):
+def receiver_instance(document, units, *, tasks=(), modules=(), scores=(), area=False, association=False, row_name="row"):
     """Move copies of the worker's submitted activity into independent repeat rows."""
     root = etree.fromstring(document)
     (original,) = root.iter(f"{{{CONNECT_XMLNS}}}deliver")
@@ -44,7 +45,7 @@ def receiver_instance(document, units, *, tasks=(), modules=(), scores=(), area=
     ns = etree.QName(root).namespace
     root.remove(wrapper)
     for unit, recipient in units:
-        row = etree.SubElement(root, f"{{{ns}}}row")
+        row = etree.SubElement(root, f"{{{ns}}}{row_name}")
         delivery = copy.deepcopy(wrapper)
         (block,) = delivery.iter(f"{{{CONNECT_XMLNS}}}deliver")
         block.set("id", unit)
@@ -162,6 +163,8 @@ def submissions(seed, unit, second_unit, task):
             scores=[7],
         ),
         "distinct": receiver_instance(seed, [(unit, "A"), (unit, "B")]),
+        "named-ancestor": receiver_instance(seed, [(unit, "A")], row_name="task"),
+        "named-ancestor-control": receiver_instance(seed, [(unit, "A")], row_name="Task"),
         "empty": receiver_instance(seed, [(unit, ""), (unit, "")]),
         "two-units": receiver_instance(seed, [(unit, "A"), (second_unit, "A")]),
         "module-duplicate": receiver_instance(
@@ -248,6 +251,21 @@ def test_receiver_non_null_keys_and_identical_replay(receiver, name, ids):
     assert state["queued"] == [VISIT_ATTACHMENTS] * len(ids)
     answered(repeated)
     assert repeated["state"] == state
+
+
+def test_hq_forwards_a_named_activity_ancestor_and_connect_rejects_it(receiver):
+    refused = receiver.submissions["named-ancestor"]
+    assert "@xmlns" not in refused.payload["form"]["task"]
+    assert refused.payload["form"]["task"]
+    before, after, repeat = receive(receiver, refused, name="named-ancestor")
+    assert (after["status"], after["raised"]) == (500, KEY_ERROR)
+    assert repeat["state"] == after["state"] == before["state"]
+
+    control = receiver.submissions["named-ancestor-control"]
+    assert control.payload["form"]["Task"] == refused.payload["form"]["task"]
+    _, after, _ = receive(receiver, control, name="named-ancestor-control")
+    answered(after)
+    assert visit_keys(after["state"]) == [("A", receiver.unit, "approved")]
 
 
 def test_receiver_colliding_visit_commits_only_earlier_work(receiver):
