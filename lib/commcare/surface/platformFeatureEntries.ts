@@ -24,6 +24,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"case-list-android-lookup": [
 		"menus-and-case-lists/lookup-with-text-extras",
 		"menus-and-case-lists/lookup-name",
+		"menus-and-case-lists/lookup-image-jr",
 		"menus-and-case-lists/lookup-autolaunch",
 		"menus-and-case-lists/lookup-extras-fixed-text",
 		"menus-and-case-lists/lookup-responses-key",

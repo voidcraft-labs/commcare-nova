@@ -6237,11 +6237,6 @@ def lookup_with_nonliteral_arguments(use, manifest):
     )
 
 
-def lookup_with_action_image(use, manifest):
-    detail = _short_lookup(use)
-    return detail is not None and detail.get("lookup_image") not in (None, "")
-
-
 def lookup_with_result_column(use, manifest):
     detail = _short_lookup(use)
     return detail is not None and detail.get("lookup_display_results") is True
@@ -6265,8 +6260,8 @@ def lookup_outside_fixed_text(use, manifest):
         return False
     extras = detail["lookup_extras"]
     return (
-        lookup_with_action_image(use, manifest)
-        or lookup_with_result_column(use, manifest)
+        lookup_with_result_column(use, manifest)
+        or (detail.get("lookup_image") is not None and not isinstance(detail["lookup_image"], str))
         or not _lookup_name(detail.get("lookup_action"))
         or not _lookup_name(detail.get("lookup_name"))
         or not _lookup_names(detail["lookup_responses"], {"key"})
@@ -12923,7 +12918,6 @@ VALUE_CLASSES = {
     "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
     "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
-    "menus-and-case-lists/lookup-image-jr": lookup_with_action_image,
     "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
         lookup_with_result_column
     ),

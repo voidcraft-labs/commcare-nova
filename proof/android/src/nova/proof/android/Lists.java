@@ -2,6 +2,8 @@ package nova.proof.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -19,6 +21,7 @@ import org.commcare.activities.EntitySelectActivity;
 import org.commcare.adapters.EntityListAdapter;
 import org.commcare.dalvik.R;
 import org.commcare.preferences.MainConfigurablePreferences;
+import org.commcare.suite.model.Callout;
 import org.commcare.suite.model.Detail;
 import org.commcare.suite.model.EntityDatum;
 import org.commcare.util.DatumUtil;
@@ -185,7 +188,7 @@ final class Lists {
         if (!passing && lookupReturns != null && shortSelect != null && shortSelect.getCallout() != null) {
             JSONArray commands = lookupReturns;
             lookupReturns = null;
-            list.put("lookupReturns", lookupReturns(activity, shadow, adapter, listView, commands));
+            list.put("lookupReturns", lookupReturns(activity, shadow, adapter, listView, shortSelect.getCallout(), commands));
         }
         List<org.commcare.suite.model.Action> actions = shortSelect == null
                 ? new ArrayList<>() : shortSelect.getCustomActions(activity.evalContext());
@@ -294,8 +297,8 @@ final class Lists {
     }
 
     private static JSONArray lookupReturns(EntitySelectActivity activity, ShadowActivity shadow,
-                                           EntityListAdapter adapter, ListView listView, JSONArray commands)
-            throws Exception {
+                                           EntityListAdapter adapter, ListView listView, Callout callout,
+                                           JSONArray commands) throws Exception {
         // Open the actual case-list toolbar. It wires Android's search view to the adapter
         // and routes a press on the scan item through the installed callout.
         Menu menu = new PopupMenu(activity, new View(activity)).getMenu();
@@ -309,6 +312,16 @@ final class Lists {
             JSONObject command = commands.getJSONObject(i);
             JSONObject sample = new JSONObject().put("before", firstCells(adapter, listView));
             observations.put(sample);
+            if (command.optBoolean("inspectIcon")) {
+                sample.put("lookupName", callout.getDisplayName());
+                sample.put("toolbarTitle", launch.getTitle().toString());
+                if (!(launch.getIcon() instanceof BitmapDrawable)) {
+                    throw new IllegalStateException("The case list lookup toolbar has no loaded bitmap.");
+                }
+                Bitmap image = ((BitmapDrawable)launch.getIcon()).getBitmap();
+                sample.put("iconCenterARGB", String.format("%08x", image.getPixel(image.getWidth() / 2,
+                        image.getHeight() / 2)));
+            }
             ShadowToast.reset();
             boolean missing = command.optBoolean("missingHandler");
             boolean automatic = command.optBoolean("automatic");

@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
@@ -1097,6 +1097,42 @@ describe("a detail's callout and tabs", () => {
 			extras: [{ name: "mode", value: `Worker's "visit"` }],
 			responses: ["first", "second"],
 		});
+	});
+
+	it("brings in a lookup image through the Project media index", async () => {
+		const path = "jr://file/commcare/image/case-lookup.png";
+		const assetId = testMediaAssetId("case-lookup");
+		const read = await readLists(twoColumns(), {
+			edit: (app) => {
+				Object.assign(app.modules[0].case_details.short, {
+					lookup_enabled: true,
+					lookup_action: "org.example.SCAN",
+					lookup_name: "Scan",
+					lookup_image: path,
+					lookup_extras: [{ key: "mode", value: "'scan'" }],
+					lookup_responses: [{ key: "first" }],
+				});
+			},
+			input: (input) => ({
+				...input,
+				media: {
+					resolve: (ref) =>
+						ref === path
+							? { kind: "asset", assetId, mediaKind: "image" }
+							: { kind: "no-entry" },
+				},
+			}),
+		});
+		expect(closedCodes(read)).toEqual([]);
+		expect(listOf(read).deviceLookup?.icon).toBe(assetId);
+		expect(read.ctx.facts.mediaReferences).toContainEqual(
+			expect.objectContaining({
+				path,
+				assetId,
+				slot: "case_list_lookup_icon",
+				mediaKind: "image",
+			}),
+		);
 	});
 
 	it("raises a callout on the list as one finding, each of its keys claimed under it", async () => {

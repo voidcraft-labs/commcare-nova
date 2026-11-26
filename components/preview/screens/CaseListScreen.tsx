@@ -3799,6 +3799,13 @@ export function CaseListScreen({
 				config?.deviceLookup && (
 					<div className="mb-4 space-y-1">
 						<Button type="button" variant="outline" disabled>
+							{config.deviceLookup.icon !== undefined && (
+								<ProjectMediaImage
+									assetId={config.deviceLookup.icon}
+									alt=""
+									className="size-5 shrink-0 object-contain"
+								/>
+							)}
 							{config.deviceLookup.label}
 						</Button>
 						<p className="text-sm text-nova-text-muted">

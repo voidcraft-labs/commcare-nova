@@ -2,12 +2,14 @@
 
 import { useId, useState } from "react";
 import { v4 } from "uuid";
+import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import {
 	type CaseListDeviceLookup,
 	type CommitOutcome,
 	caseListDeviceLookupSchema,
+	type Uuid,
 } from "@/lib/domain";
 
 function row(name = "", value = "") {
@@ -16,8 +18,10 @@ function row(name = "", value = "") {
 
 function edit(value?: CaseListDeviceLookup) {
 	return {
+		id: v4(),
 		action: value?.action ?? "",
 		label: value?.label ?? "",
+		icon: value?.icon,
 		automatic: value?.automatic,
 		extras: value?.extras.map(({ name, value }) => row(name, value)) ?? [row()],
 		responses: value?.responses.map((name) => row(name)) ?? [row()],
@@ -25,6 +29,7 @@ function edit(value?: CaseListDeviceLookup) {
 }
 
 interface Props {
+	readonly moduleUuid: Uuid;
 	readonly disabled: boolean;
 	readonly value: CaseListDeviceLookup | undefined;
 	readonly canEdit: boolean;
@@ -32,6 +37,7 @@ interface Props {
 }
 
 export function CaseListDeviceLookupSetting({
+	moduleUuid,
 	disabled,
 	value,
 	canEdit,
@@ -92,13 +98,18 @@ export function CaseListDeviceLookupSetting({
 					onSubmit={(event) => {
 						event.preventDefault();
 						const parsed = caseListDeviceLookupSchema.safeParse({
-							...draft,
+							action: draft.action,
+							label: draft.label,
+							...(draft.icon !== undefined && { icon: draft.icon }),
+							...(draft.automatic !== undefined && {
+								automatic: draft.automatic,
+							}),
 							extras: draft.extras.map(({ name, value }) => ({ name, value })),
 							responses: draft.responses.map(({ name }) => name),
 						});
 						if (!parsed.success) {
 							setError(
-								"Add an action and a label. Give each sent value and each response its own name.",
+								"Add an action and a lookup name. Give each sent value and each response its own name.",
 							);
 							return;
 						}
@@ -111,10 +122,24 @@ export function CaseListDeviceLookupSetting({
 						onChange={(action) => setDraft({ ...draft, action })}
 					/>
 					<LookupInput
-						label="Button label"
+						label="Lookup name"
 						value={draft.label}
 						onChange={(label) => setDraft({ ...draft, label })}
 					/>
+					<div className="space-y-1">
+						<p className="text-sm text-nova-text">Button icon</p>
+						<SingleAssetSlot
+							kind="image"
+							value={draft.icon}
+							onChange={(icon) =>
+								setDraft((latest) =>
+									latest?.id === draft.id ? { ...latest, icon } : latest,
+								)
+							}
+							slotKey={`case-list-lookup:${moduleUuid}:${draft.id}`}
+							ariaLabel="Case lookup button icon"
+						/>
+					</div>
 					<label className="flex gap-2 text-sm text-nova-text">
 						<input
 							type="checkbox"
