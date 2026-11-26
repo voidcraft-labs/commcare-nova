@@ -186,6 +186,51 @@ _CHECK_CHOICES = {
 }
 
 
+def _choose_second_in_browser():
+    return [
+        {"mark": True},
+        *steps.click("#webforms .q input[id$='-choice-1']"),
+        {"awaitRequest": {"method": "POST", "pathname": steps.ANSWER}, "sinceMark": True, "unlessMissed": True},
+        steps.SETTLE,
+        *steps.submit_form(),
+    ]
+
+
+def _submitted_key(submissions):
+    (submission,) = submissions
+    return ElementTree.fromstring(submission.instance).findtext("{*}clinic")
+
+
+def _same_label_different_keys(released, browser, bridge, evidence):
+    from proof.formplayer import apps
+    from proof.formplayer.walk import questions
+
+    (answer,) = browser.answered("answer")
+    (submitted,) = browser.answered("submit-all")
+    assert int(json.loads(answer.body)["answer"]) == 1
+    assert submitted.json()["status"] == "success"
+    picked_in_browser = _submitted_key(bridge.submissions)
+
+    # Use the browser's own menu route to open the same form and forward the
+    # second ordinal directly. Formplayer has both keys even though the browser
+    # sends the first ordinal for either same-named radio button.
+    (last_menu,) = [
+        exchange for exchange in browser.answered("navigate_menu")
+        if exchange.json().get("session_id")
+    ]
+    with released.run("worker-journey-numbered-choice"):
+        client = apps.web(released.runner, released)
+        opened = client.navigate(json.loads(last_menu.body)["selections"])
+        (clinic,) = questions(opened["tree"])
+        assert clinic["choices"] == ["Clinique jumelle", "Clinique jumelle"]
+        before = len(released.hq.submissions)
+        response = client.submit(opened["session_id"], {clinic["ix"]: "2"})
+        assert response["status"] == "success", response
+        picked_by_number = _submitted_key(released.hq.submissions[before:])
+    evidence("same-label-different-keys", {"browser": picked_in_browser, "formplayerOrdinal2": picked_by_number})
+    assert (picked_in_browser, picked_by_number) == ("east-one", "east-two")
+
+
 @pytest.fixture
 def evidence(native, request):
     directory = native.out / "worker-journey-reads" / request.node.name
@@ -260,12 +305,18 @@ def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
         for worker, language, case, expected, caption in workers:
             bridge = FullRestores(unit, worker.username)
             profile = replace(released, worker=worker, hq=bridge)
-            run = Session(profile, editor_driver).run([
+            actions = [
                 *steps.open_app("Clinic rounds"),
                 *steps.choose("Rounds"), steps.SCREEN,
                 *steps.choose("Visit"), *steps.select_case(case),
                 steps.SCREEN, _CHECK_CHOICES,
-            ], name=f"worker-journey-{case}", worker_language=language)
+            ]
+            choices_step = len(actions) - 1
+            if case == "case-east":
+                actions.extend(_choose_second_in_browser())
+            run = Session(profile, editor_driver).run(
+                actions, name=f"worker-journey-{case}", worker_language=language,
+            )
             evidence(case, run.screens)
             assert run.page_errors == []
             assert bridge.full, "Formplayer did not request a full HQ restore"
@@ -277,7 +328,9 @@ def test_two_grid_languages_use_only_each_workers_own_rich_fixture(
             (question,) = form["form"]["questions"]
             (image,) = [item["src"] for item in question["media"] if item["kind"] == "img"]
             assert paths[f"form{caption}"].rsplit("/", 1)[-1] in image
-            assert run.value(-1) == [occurrences[1][1] for _, occurrences in expected]
+            assert run.value(choices_step) == [occurrences[1][1] for _, occurrences in expected]
+            if case == "case-east":
+                _same_label_different_keys(released, run, bridge, evidence)
 
         with unit.committing():
             _edit_and_read_form_translation(unit, released.app_id, paths, evidence)
