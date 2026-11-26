@@ -313,6 +313,92 @@ describe("a completed search's snapshot", () => {
 		expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
 	});
 
+	// HQ's own proof (`proof/hq/test_case_search.py::
+	// test_ordered_server_keys_choose_matches_after_excluding_named_owners`)
+	// runs these cases through HQ's index: the same orders and exclusion give
+	// the same primary ids in the same order here.
+	it("orders the server's matches by each key in turn after leaving out the named owners", async () => {
+		const store = storeAs(WORKER, async () => ({
+			revision: "settings",
+			maximum: 500,
+			timeZone: "UTC",
+			projectSpace: "clinic",
+			matcherFor: () => ({ fuzzy: false, ignoreLiterals: [] }),
+		}));
+		const cases = [
+			["none", "blue", "absent", "2024-06-12"],
+			["two-early", "blue", "2", "2024-01-03"],
+			["two-late", "blue", "2", "2024-09-03"],
+			["ten", "blue", "10", "2023-01-03"],
+			["excluded-a", "red", "1", "2024-01-01"],
+			["excluded-b", "gold", "3", "2024-01-02"],
+		] as const;
+		for (const [id, owner, priority, visit] of cases)
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: id,
+					case_type: "patient",
+					case_name: id,
+					status: "open",
+					owner_id: owner,
+					properties: { district: "north", priority, visit },
+				},
+			});
+		const exclude = {
+			field: "Owners to leave out",
+			key: "commcare_blacklisted_owner_ids",
+			target: { kind: "excluded-owners", placement: "search-setting" },
+			values: ["red gold"],
+		} as const;
+		const ordered = async (
+			order: CaseSearchRequest["order"],
+			parameters: CaseSearchRequest["parameters"] = [exclude],
+		) =>
+			(
+				await store.readSearchResultInstance({
+					...SEARCH,
+					caseTypeSchemas: new Map([[PATIENT.name, PATIENT]]),
+					searchPopulation: {
+						...SEARCH.searchPopulation,
+						request: {
+							maximum: 500,
+							configuration: { revision: "settings" },
+							parameters,
+							order,
+						},
+					},
+				})
+			).primaryIds;
+		const first = {
+			key: "priority",
+			type: "number",
+			direction: "asc",
+		} as const;
+		const second = { key: "visit", type: "date", direction: "desc" } as const;
+		expect(await ordered([first, second])).toEqual([
+			"none",
+			"two-late",
+			"two-early",
+			"ten",
+		]);
+		expect(await ordered([second, first])).toEqual([
+			"two-late",
+			"none",
+			"two-early",
+			"ten",
+		]);
+		expect(
+			await ordered([
+				{ key: "priority", type: "text", direction: "asc" },
+				second,
+			]),
+		).toEqual(["ten", "two-late", "two-early", "none"]);
+		expect([...(await ordered([first, second], []))].sort()).toEqual(
+			cases.map(([id]) => id).sort(),
+		);
+	});
+
 	it("returns the selected destination’s day, literal matcher and distinct supporting case", async () => {
 		const store = storeAs(WORKER, async () => ({
 			revision: "settings",

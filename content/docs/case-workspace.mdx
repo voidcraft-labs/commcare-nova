@@ -333,6 +333,8 @@ letting them search for a household by name. Choose the information to match,
 enter its starting value, then open the value editor to choose a search answer,
 an earlier selection or information about the worker. You can edit and reorder
 individual filters. Filters for the same information send their values together.
+To keep particular owners' records out of the online results, or to choose which
+matches arrive first, see [Choose which matches Search sends](#choose-which-matches-search-sends).
 
 A search field can also send its answer under the field's own name. Choose
 **Use project space matching** when your project space manages how to compare
@@ -765,11 +767,11 @@ switch stays on until the menu has a form.
 
 ## Choose which matches Search sends
 
-A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** controls which records the server sends. Pick a property, how to compare its values and a direction. For example, comparing a priority as a number puts 2 before 10 in ascending order. Compare the same values as text and 10 comes first. Add a tie-breaker to decide between records that share a priority. Your list can display the returned records in a different order.
+A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** sets which records the server sends. Pick a property, how to compare its values and a direction. Comparing a priority as a number puts 2 before 10 in ascending order; compared as text, 10 comes first. Add a tie-breaker to decide between records that share a priority. Your list can still show the records it receives in its own order.
 
-The dedicated order uses advanced case search in your CommCare HQ project space. **Add order as a search filter** works with ordinary search filters. Nova keeps the choice when you bring in an existing app. When both are present, the server applies the default filters' sort choices first, then the dedicated order.
+This order uses advanced case search in your CommCare HQ project space. If your project space doesn't have it, **Add order as a search filter** sets the same kind of order among the search filters instead. When a search has both, the server applies the filters' orders first, then the one above. An app you bring in from CommCare HQ keeps each order where it was.
 
-To keep particular owners out of the online results, add a search filter and choose **Owners to leave out of Search**. Its value gives the owner IDs, separated by spaces. It can come from the worker's Search answers. Assigned cases on the device keep their own rule. Use one owner exclusion per search and combine the IDs in its value.
+To keep particular owners' records out of the online results, add a search filter and choose **Owners to leave out of Search**. Its value names the owner IDs, separated by spaces, and can come from the worker's Search answers. It applies to the online search only: **Assigned cases** still decides which records the device list shows. A search takes one such rule, so name every owner in its value.
 
 ## Choose which cases appear first
 

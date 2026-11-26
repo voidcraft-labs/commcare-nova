@@ -7,7 +7,8 @@
  * session/current-user values and Search answers, but never a case property
  * or relationship because it resolves before a case is selected.
  *
- * The existing slots are required on the SA boundary. `requestOrder` can be omitted to keep the current order. `excludedOwnerIds` and
+ * The existing slots are required on the SA boundary; `requestOrder` may be
+ * omitted to keep the current order. `excludedOwnerIds` and
  * `formsReadSearch` are nullable (`null` clears); `searchWorkflow` always
  * names one workflow. The tool computes a whole editor projection so the display
  * cluster round-trips byte-identically, then `updateModuleMutations` splits
@@ -73,7 +74,7 @@ export type SetCaseSearchAdvancedResult =
 
 export const setCaseSearchAdvancedTool = {
 	description:
-		"Set the order that chooses the first records the server sends, which owners to exclude, what the menu opens on, and whether its forms read the search. The order needs advanced case search in the project space. Omit requestOrder to keep the existing order or use null to clear it. The owner rule limits both assigned records and online matches unless the search has its own excluded-owners filter.",
+		"Set the order that decides which matches the server sends first, the excluded-owner rule, what the menu opens on, and whether its forms read the search. The order needs advanced case search in the project space; omit requestOrder to keep it or use null to clear it. The owner rule can use fixed owners, worker values and Search answers before record selection, and limits both the case list and the online matches unless the search has its own excluded-owners filter.",
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,
