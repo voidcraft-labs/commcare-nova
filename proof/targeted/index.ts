@@ -21,6 +21,7 @@ import {
 import { ancestorIndexNames } from "./documents/ancestorIndexNames";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
 import { blankLabels } from "./documents/blankLabels";
+import { calculationTextNames } from "./documents/calculationTextNames";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
@@ -189,6 +190,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchHqCompile,
 	validatedBarcodeSecret,
 	labelSort,
+	calculationTextNames,
 	customTile,
 	closeConditions,
 	closeConditionUnparsable,
