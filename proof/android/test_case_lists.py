@@ -145,12 +145,15 @@ def test_reached_choice_columns_show_both_paths_in_each_android_language(android
             heard = {"en": [], "fr": []}
             for path, walk in answer["walks"].items():
                 locale = "fr" if "@language:fr" in path else "en"
-                if not any(step["screen"] == LIST for step in walk.get("steps", ())):
-                    continue
-                listed = _first_list(walk)
-                rows = [_texts(row) for row in listed["rows"]]
-                if rows not in heard[locale]:
-                    heard[locale].append(rows)
+                for step in walk.get("steps", ()):
+                    listed = step.get("list") or {}
+                    # Passing through a list records the selected case. The
+                    # walk that ends there owns the rows the worker saw.
+                    if step["screen"] != LIST or "rows" not in listed:
+                        continue
+                    rows = [_texts(row) for row in listed["rows"]]
+                    if rows not in heard[locale]:
+                        heard[locale].append(rows)
             observations[label] = heard
     android_walk_evidence(observations)
     expected = {
