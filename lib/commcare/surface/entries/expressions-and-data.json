@@ -5353,7 +5353,7 @@
 			"lookup-code:corehq/apps/fixtures/upload/const.py::MAX_FIXTURE_ROWS"
 		],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: import-sized tables. HQ caps one workbook upload at 500,000 rows over all its sheets, the types sheet and header rows included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, `WorkbookJSONReader`); Nova splits a push into workbooks under that cap (today it refuses an over-cap workbook, `lib/export/boundaryValidation.ts`), which HQ allows because a workbook leaves tables it does not name alone (`run_upload.py` processes tables with `delete_missing=False`), and a table too large for one workbook can be referenced but not adopted",
+		"dispositionCell": "**HELD-NEW**: import-sized tables. A reading no longer stops on a size: a table past one inline read comes in as its definition for a paged Project data refresh, a copy holds any number of columns (HQ caps no table's field count: `fixtures/models.py::LookupTable.fields`), and a downloadable app walks every complete global table a page at a time. HQ caps one workbook upload at 500,000 rows over all its sheets, the types sheet and header rows included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, `WorkbookJSONReader`); Nova splits a push into workbooks under that cap, which HQ allows because a workbook leaves tables it does not name alone (`run_upload.py` processes tables with `delete_missing=False`). Still held: a table past one workbook (499,997 data rows), or one a workbook cannot carry exactly once it is read in pages, has no carrier to a direct publish yet, because the JSON resources take only a table held in memory (`lib/deployment/lookupJsonExecutor.ts`)",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
