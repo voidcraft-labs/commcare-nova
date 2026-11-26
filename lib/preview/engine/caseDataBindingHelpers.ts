@@ -36,11 +36,13 @@ import { workerDistanceValueId } from "@/lib/domain";
 import {
 	entryOperationCaseType,
 	formEntryRecord,
+	menuEmittedAdvanced,
 	sharedWorkerTarget,
 } from "@/lib/domain/advancedEntryDatums";
 import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
 import { formContentUuid } from "@/lib/domain/formEntryCases";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { FormOpeningProjection } from "./formOpeningSnapshot";
 import { restoreOpeningCases } from "./formOpeningSnapshot";
 import {
@@ -130,6 +132,7 @@ import {
 	type Module,
 	orderedCaseOperations,
 	organizationLevelsOf,
+	ownCaseOperationHasEffects,
 	type PersistableDoc,
 	searchInputRuntimeValueType,
 	suppliedCreationIssue,
@@ -2004,8 +2007,16 @@ function caseOperationAnswerScopes(
 	answers: SubmissionOperationAnswers,
 	operations: readonly CaseOperation[],
 ): Pick<CaseOperationProgram, "scopes" | "scopeOrder" | "effectOrder"> {
-	const answerMap = (entries: readonly SubmissionAnswerEntry[]) =>
-		new Map(entries.map((entry) => [asUuid(entry.fieldUuid), entry.value]));
+	const bindings = (entries: readonly SubmissionAnswerEntry[]) => {
+		const formFields = new Map<Uuid, SubmissionAnswerEntry["value"]>();
+		const absentFields = new Set<Uuid>();
+		for (const { fieldUuid, value, absent } of entries) {
+			const field = asUuid(fieldUuid);
+			formFields.set(field, value);
+			if (absent) absentFields.add(field);
+		}
+		return { formFields, ...(absentFields.size > 0 && { absentFields }) };
+	};
 	const repeats = caseOperationRepeatScopes(doc, formUuid);
 	const supplied = new Map(
 		answers.repeats.map((scope) => [scope.repeat, scope]),
@@ -2029,12 +2040,10 @@ function caseOperationAnswerScopes(
 			);
 	}
 	const scopes: OperationScopeIterations[] = [
-		{ iterations: [{ formFields: answerMap(answers.root) }] },
+		{ iterations: [bindings(answers.root)] },
 		...repeats.map(({ repeat }) => ({
 			repeat,
-			iterations: (supplied.get(repeat)?.iterations ?? []).map((entries) => ({
-				formFields: answerMap(entries),
-			})),
+			iterations: (supplied.get(repeat)?.iterations ?? []).map(bindings),
 		})),
 	];
 	const layout = caseEffectLayout(doc, formUuid, operations);
@@ -2636,19 +2645,28 @@ export function buildCaseOperationProgramFromDoc(args: {
 		ordinaryFormType: form.type,
 	};
 	const committed = committedProgramForm(doc, formUuid);
-	// An unused own load may be omitted from a shared entry. Its empty
-	// follow-up arm has no case to touch. The other operations still run.
+	const entryMenu = moduleUuidOfForm(doc, entryUuid);
+	const noOwnSelection =
+		!!doc.forms[entryUuid]?.shadowOf && !record.requiresCase;
+	const readsWorkerAlongsideRepeat =
+		record.caseType === USERCASE_CASE_TYPE &&
+		entryMenu !== undefined &&
+		menuEmittedAdvanced(doc, entryMenu) &&
+		committed.operations.some(
+			(op) =>
+				op.action === "update" &&
+				op.target.kind === "worker-record" &&
+				op.forEach !== undefined,
+		);
+	// An omitted own load or an input-only advanced worker load has no
+	// submitted case block. The ordinary entry selection stays authorized.
 	const operations =
-		doc.forms[entryUuid]?.shadowOf &&
-		!record.requiresCase &&
-		form.type === "followup"
+		form.type === "followup" && (noOwnSelection || readsWorkerAlongsideRepeat)
 			? committed.operations.filter(
 					(op) =>
 						op.action !== "own" ||
-						op.name ||
-						op.owner ||
-						op.writes?.length ||
-						op.links?.length,
+						ownCaseOperationHasEffects(op) ||
+						(!noOwnSelection && op.placement?.kind === "save-to-case"),
 				)
 			: committed.operations;
 	if (operations.length === 0 && mutation.entrySupplies === undefined)

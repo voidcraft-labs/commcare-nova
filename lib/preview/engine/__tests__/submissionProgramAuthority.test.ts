@@ -6,6 +6,7 @@ import {
 	caseListConfig,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { sharedWorkerRepeat } from "@/lib/__tests__/sharedWorkerRepeat";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { CaseOperation } from "@/lib/domain";
@@ -107,6 +108,38 @@ describe("automatic submission location", () => {
 			"device location",
 		);
 	});
+});
+
+it("authorizes the shared worker selection without executing its empty advanced load", () => {
+	const { doc, form, shared, worker } = sharedWorkerRepeat(false);
+	const build = (formUuid: typeof shared) => {
+		const input = buildEngineInput(doc, formUuid, null);
+		if (!input) throw new Error("Expected the committed follow-up entry");
+		const mutation = new FormEngine(input).computeSubmissionMutation({
+			caseIds: [SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		return buildCaseOperationProgramFromDoc({
+			blueprint: doc,
+			identity: IDENTITY,
+			device: webAppsDevice(),
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+		});
+	};
+	const selected = build(shared);
+	expect(selected.ordinaryAction).toMatchObject({
+		kind: "followup",
+		caseType: "commcare-user",
+		caseIds: [SESSION_CASE],
+	});
+	expect(
+		selected.program?.operations.map(({ operation }) => operation.uuid),
+	).toEqual([worker]);
+	expect(selected.program?.scopes[1]?.iterations).toEqual([]);
+	expect(
+		build(form).program?.operations.map(({ operation }) => operation.action),
+	).toEqual(["own", "update"]);
 });
 
 describe("automatic submission location on a shared entry", () => {

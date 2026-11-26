@@ -36596,6 +36596,37 @@
 	{
 		"id": "hq-questions/save-to-case-worker-in-repeat",
 		"base": "hq-questions",
+		"entry": "questions/savetocase-inside-a-repeat",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_worker_in_repeat"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/target/kind",
+				"value": "worker-record"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/0/property",
+				"value": "last_member"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-worker-under-repeat-condition",
+		"base": "hq-questions",
 		"entry": "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat",
 		"standing": "not-yet",
 		"place": {
@@ -36604,11 +36635,11 @@
 			"form": 0,
 			"menuName": "Questions",
 			"formName": "Survey",
-			"path": "members/nova_operations/worker"
+			"path": "members/nova_operations/nova_condition_worker/worker"
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_worker_in_repeat"
+			"name": "save_to_case_worker_under_repeat_condition"
 		}
 	},
 	{

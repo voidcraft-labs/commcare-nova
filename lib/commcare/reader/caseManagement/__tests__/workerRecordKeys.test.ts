@@ -27,12 +27,14 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { sharedWorkerRepeat } from "@/lib/__tests__/sharedWorkerRepeat";
 import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
-import { eq, formField, literal, term } from "@/lib/domain/expression";
+import { entryDatumSupplies } from "@/lib/domain/entryDatumSupplies";
+import { eq, formField, idOf, literal, term } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
 import {
 	advancedFixture,
@@ -432,9 +434,173 @@ describe("operation-level execution of a Save to Case worker update", () => {
 		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 	});
 
-	it("still refuses an update in a repeat at its exact block", async () => {
+	it("keeps a single update in the ordinary repeat and supplies no worker entry datum", async () => {
 		const doc = workerApp({
 			forEach: { repeat: KIDS },
+			writes: [{ property: WRITTEN, value: term(formField(NOTE)) }],
+		});
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		const body = exportedBody(doc);
+		const [module] = body.modules as {
+			forms: { actions?: { usercase_update?: { update?: object } } }[];
+		}[];
+		const [wireForm] = module.forms;
+		expect(wireForm.actions?.usercase_update?.update).toEqual({});
+		expect(JSON.stringify(body)).toContain("/data/kids/nova_operations/worker");
+		expect(
+			entryDatumSupplies(doc, {
+				kind: "form",
+				module: doc.moduleOrder[0],
+				form: FORM,
+			}).refs.map(({ ref }) => ref.kind),
+		).not.toContain("worker-record");
+		const outcome = await readWith(doc, WRITTEN);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		expect(outcome.draft.doc.forms[FORM]?.caseOperations).toContainEqual(
+			expect.objectContaining({
+				target: { kind: "worker-record" },
+				forEach: { repeat: KIDS },
+				writes: [{ property: WRITTEN, value: term(formField(NOTE)) }],
+			}),
+		);
+	});
+
+	it("refuses a repeated worker write whose producer adds an inherited operation guard", () => {
+		const createUuid = testUuid("repeated-worker-source-create");
+		const condition = eq(term(formField(KID)), literal("keep"));
+		const mixed = (dependent: boolean, guarded: boolean) =>
+			produce(
+				workerApp({
+					forEach: { repeat: KIDS },
+					writes: [
+						{
+							property: WRITTEN,
+							value: dependent ? idOf(createUuid) : term(formField(KID)),
+						},
+					],
+				}),
+				(draft) => {
+					draft.forms[FORM].caseOperations?.splice(-1, 0, {
+						uuid: createUuid,
+						id: "new_patient",
+						action: "create",
+						caseType: "patient",
+						target: { kind: "new" },
+						forEach: { repeat: KIDS },
+						name: term(formField(KID)),
+						...(guarded && { condition }),
+					});
+				},
+			);
+		for (const doc of [mixed(false, true), mixed(true, false)]) {
+			const verdict = mutationCommitVerdict(
+				doc,
+				[],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		}
+		const held = mutationCommitVerdict(
+			mixed(true, true),
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			held.ok ? [] : held.findings.map((finding) => finding.details),
+		).toEqual([
+			expect.objectContaining({
+				reason: "worker-record-facet",
+				operationId: "worker",
+				facet: "forEach",
+			}),
+		]);
+	});
+
+	it("keeps an independently addressed worker alias out of a form with a repeated worker write", () => {
+		const selection = testUuid("repeated-worker-alias-selection");
+		const aliasUuid = testUuid("repeated-worker-alias-change");
+		const mixed = (repeated: boolean) =>
+			produce(
+				workerApp(repeated ? { forEach: { repeat: KIDS } } : {}),
+				(draft) => {
+					draft.forms[FORM].caseSelections = [
+						{
+							uuid: selection,
+							name: "Worker",
+							tag: "worker",
+							caseType: "commcare-user",
+							source: { kind: "worker-record" },
+						},
+					];
+					draft.forms[FORM].caseOperations?.push({
+						uuid: aliasUuid,
+						id: "worker_alias",
+						action: "update",
+						caseType: "commcare-user",
+						target: {
+							kind: "expression",
+							expr: term({
+								kind: "session-datum",
+								datum: { kind: "form-selection", selection },
+							}),
+						},
+						writes: [{ property: WRITTEN, value: term(literal("alias")) }],
+					});
+				},
+			);
+		const held = mutationCommitVerdict(
+			mixed(true),
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			held.ok ? [] : held.findings.map((finding) => finding.details),
+		).toContainEqual(
+			expect.objectContaining({
+				reason: "worker-record-twice",
+				operationUuid: aliasUuid,
+			}),
+		);
+		const rootOnly = mutationCommitVerdict(
+			mixed(false),
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			rootOnly.ok ? [] : rootOnly.findings.map((finding) => finding.details),
+		).not.toContainEqual(
+			expect.objectContaining({ reason: "worker-record-twice" }),
+		);
+	});
+
+	it("allows an input-only worker load at a shared entry and refuses a second worker write", () => {
+		const { doc, shared, own } = sharedWorkerRepeat(true);
+		const readsOnly = mutationCommitVerdict(
+			sharedWorkerRepeat(false).doc,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(readsOnly.ok ? [] : readsOnly.findings).toEqual([]);
+		const writesAlso = mutationCommitVerdict(
+			doc,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(writesAlso.ok ? [] : writesAlso.findings).toEqual([
+			expect.objectContaining({
+				code: "CASE_OPERATION_TARGET_INVALID",
+				location: expect.objectContaining({ formUuid: shared, field: own }),
+				details: expect.objectContaining({ reason: "worker-record-twice" }),
+			}),
+		]);
+	});
+
+	it("still refuses a guarded update in a repeat at its exact block", async () => {
+		const doc = workerApp({
+			forEach: { repeat: KIDS },
+			condition: eq(term(formField(NOTE)), literal("yes")),
 			writes: [{ property: WRITTEN, value: term(formField(KID)) }],
 		});
 		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);

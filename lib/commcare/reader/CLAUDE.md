@@ -979,10 +979,12 @@ A change that holds one removes its line.
   later owner and its condition separately. The generated scalar guard checks the later
   value only when the condition holds. Aliased creates, worker transfers, and shapes
   whose guard or scope does not print back keep their dedicated refusal.
-- **A Save to Case update of the worker's record in a repeat**: one finding at the block under
+- **A Save to Case update of the worker's record** can run under a root condition or once for
+  each entry of a single ordinary repeat. The repeat block keeps its scope and each live entry
+  updates the same worker in row order. A nested or query-driven repeat, or an extra condition
+  on the repeated update, has one finding at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
-  (`caseManagement/saveToCase.ts::readBlock`). One root worker update may have its own condition.
-  The reader keeps its condition group and the gate retains the repeat and duplicate restrictions.
+  (`caseManagement/saveToCase.ts::readBlock`).
 - **A Save to Case update of the worker's record beside another update of it in the same form**
   (CommCare HQ's `usercase_update`, an advanced form's load of the worker's record, or a second
   such block): one finding at the form under

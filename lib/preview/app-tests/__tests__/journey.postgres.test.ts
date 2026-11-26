@@ -136,87 +136,128 @@ it("keeps the exact ID set when an App Test form opens after its answer changes"
 	await step({ kind: "finish" });
 });
 
-it("submits a guarded worker record update through an isolated App Test journey", async () => {
-	const decision = testUuid("app-test-worker-decision");
-	const detail = testUuid("app-test-worker-detail");
-	const doc = buildDoc({
-		modules: [
+it.each(["guarded", "repeated"] as const)(
+	"submits a %s worker record update through an isolated App Test journey",
+	async (scopeKind) => {
+		const repeated = scopeKind === "repeated";
+		const members = testUuid("app-test-worker-members");
+		const member = testUuid("app-test-worker-member");
+		const decision = testUuid("app-test-worker-decision");
+		const detail = testUuid("app-test-worker-detail");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Tasks",
+					forms: [
+						{
+							name: "Record a note",
+							type: "survey",
+							fields: repeated
+								? [
+										f({ kind: "int", uuid: decision, id: "decision" }),
+										f({
+											kind: "repeat",
+											uuid: members,
+											id: "members",
+											repeat_mode: "count_bound",
+											repeat_count: term(formField(decision)),
+											children: [
+												f({ kind: "text", uuid: member, id: "member" }),
+											],
+										}),
+									]
+								: [f({ kind: "text", uuid: decision, id: "decision" })],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		doc.userProperties = {
+			[detail]: { uuid: detail, slug: "visit_note", label: "Visit note" },
+		};
+		doc.userPropertyOrder = [detail];
+		doc.forms[formUuid].caseOperations = [
 			{
-				name: "Tasks",
-				forms: [
+				uuid: testUuid("app-test-conditional-worker-write"),
+				id: "save_worker_note",
+				action: "update",
+				caseType: "commcare-user",
+				target: { kind: "worker-record" },
+				...(repeated
+					? { forEach: { repeat: members } }
+					: {
+							condition: eq(term(formField(decision)), literal("save")),
+						}),
+				writes: [
 					{
-						name: "Record a note",
-						type: "survey",
-						fields: [f({ kind: "text", uuid: decision, id: "decision" })],
+						property: "visit_note",
+						value: term(repeated ? formField(member) : literal("visited")),
 					},
 				],
 			},
-		],
-	});
-	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid][0];
-	doc.userProperties = {
-		[detail]: { uuid: detail, slug: "visit_note", label: "Visit note" },
-	};
-	doc.userPropertyOrder = [detail];
-	doc.forms[formUuid].caseOperations = [
-		{
-			uuid: testUuid("app-test-conditional-worker-write"),
-			id: "save_worker_note",
-			action: "update",
-			caseType: "commcare-user",
-			target: { kind: "worker-record" },
-			condition: eq(term(formField(decision)), literal("save")),
-			writes: [{ property: "visit_note", value: term(literal("visited")) }],
-		},
-	];
-	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
-	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
-	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
-	await h.seedAppWithBlueprint(doc, {
-		id: scope.appId,
-		owner: scope.actorUserId,
-		projectId: scope.projectId,
-	});
-	for (const answer of ["keep", "save"]) {
-		let current = await startAppTest(scope, {
-			requestId: `conditional-worker-${answer}`,
-			expectedBlueprintSeq: 0,
-			input: { purpose: "Record the note when the answer calls for it" },
+		];
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
 		});
-		const step = async (action: AppTestAction) => {
-			current = await continueAppTest(scope, {
-				testId: current.testId,
-				requestId: `step-${current.step}`,
-				expectedStep: current.step,
-				action,
+		for (const saves of [false, true]) {
+			const answer = repeated ? (saves ? "2" : "0") : saves ? "save" : "keep";
+			let current = await startAppTest(scope, {
+				requestId: `${scopeKind}-worker-${answer}`,
+				expectedBlueprintSeq: 0,
+				input: { purpose: "Record the note when the answer calls for it" },
 			});
-			return current.observation;
-		};
-		const rows = () =>
-			sql<{ case_id: string; value: string | null }>`
+			const step = async (action: AppTestAction) => {
+				current = await continueAppTest(scope, {
+					testId: current.testId,
+					requestId: `step-${current.step}`,
+					expectedStep: current.step,
+					action,
+				});
+				return current.observation;
+			};
+			const rows = () =>
+				sql<{ case_id: string; value: string | null }>`
 			SELECT case_id, properties->>'visit_note' AS value
 			FROM ${sql.id(appTestNamespace(current.testId), "cases")}
 			WHERE case_type = 'commcare-user' AND properties->>'hq_user_id' = ${scope.actorUserId}
 		`.execute(h.db());
-		await step({ kind: "menu", moduleUuid });
-		await step({ kind: "form", formUuid });
-		const before = (await rows()).rows;
-		expect(before).toEqual([{ case_id: expect.any(String), value: "" }]);
-		await step({
-			kind: "answer",
-			answers: [{ path: "decision", value: answer }],
-		});
-		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
-		expect((await rows()).rows).toEqual([
-			{
-				case_id: before[0].case_id,
-				value: answer === "save" ? "visited" : before[0].value,
-			},
-		]);
-		await step({ kind: "finish" });
-	}
-});
+			await step({ kind: "menu", moduleUuid });
+			await step({ kind: "form", formUuid });
+			const before = (await rows()).rows;
+			expect(before).toEqual([{ case_id: expect.any(String), value: "" }]);
+			await step({
+				kind: "answer",
+				answers: [{ path: "decision", value: answer }],
+			});
+			if (repeated && saves) {
+				await step({
+					kind: "answer",
+					answers: [
+						{ path: "members[0]/member", value: "first" },
+						{ path: "members[1]/member", value: "last" },
+					],
+				});
+			}
+			expect(await step({ kind: "submit" })).toMatchObject({
+				savedInTest: true,
+			});
+			expect((await rows()).rows).toEqual([
+				{
+					case_id: before[0].case_id,
+					value: saves ? (repeated ? "last" : "visited") : before[0].value,
+				},
+			]);
+			await step({ kind: "finish" });
+		}
+	},
+);
 
 it("submits both guarded owner outcomes for a fresh case through App Tests", async () => {
 	const decision = testUuid("app-test-later-owner-decision");

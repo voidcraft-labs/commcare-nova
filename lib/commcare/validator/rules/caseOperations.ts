@@ -24,6 +24,7 @@ import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
+	caseOperationConditionalGuardUuids,
 	caseOperationDependencyUuids,
 	caseOperationsInSubmissionOrder,
 	caseOperationTargetTypeOrderViolations,
@@ -67,6 +68,7 @@ import {
 	operationSavesOnlyChanged,
 	operationTarget,
 	orderedCaseOperations,
+	ownCaseOperationHasEffects,
 	placementIneligibilitySentence,
 	planCaseRetype,
 	prepareCaseScalarTextValue,
@@ -78,7 +80,10 @@ import {
 	type Uuid,
 	userPropertiesOf,
 } from "@/lib/domain";
-import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
+import {
+	entryOperationCaseType,
+	menuEmittedAdvanced,
+} from "@/lib/domain/advancedEntryDatums";
 import {
 	isKeyedRootCreate,
 	isWorkerRecordUpdate,
@@ -256,8 +261,18 @@ export function sharedEntryWriteFindings(
 		lookupTables,
 	);
 	const errors: ValidationError[] = [];
+	const repeatedWorker = orderedCaseOperations(parent).find(
+		isRepeatedWorkerUpdate,
+	);
 	for (const { op, actual } of changed) {
 		const worker = actual === USERCASE_CASE_TYPE;
+		if (
+			worker &&
+			repeatedWorker !== undefined &&
+			op !== repeatedWorker &&
+			hasWorkerRecordEffect(ctx, op)
+		)
+			errors.push(workerRecordTwiceFinding(ctx, op, repeatedWorker));
 		if (worker && op.action === "own") {
 			validateOwnWorkerFacets(ctx, op, errors);
 			if (entry.type === "close")
@@ -1752,6 +1767,42 @@ const WORKER_RECORD_FACETS = [
 	["forEach", "run for each row of a repeat"],
 ] as const;
 
+function isRepeatedWorkerUpdate(operation: CaseOperation): boolean {
+	return isWorkerRecordUpdate(operation) && operation.forEach !== undefined;
+}
+
+function hasWorkerRecordEffect(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+): boolean {
+	// An empty advanced load has no submitted block. A basic or retained
+	// Save to Case block still advances the case timestamp.
+	return (
+		operation.action !== "own" ||
+		ctx.form.type !== "followup" ||
+		ownCaseOperationHasEffects(operation) ||
+		operation.placement?.kind === "save-to-case" ||
+		!menuEmittedAdvanced(ctx.doc, ctx.moduleUuid)
+	);
+}
+
+function workerRecordTwiceFinding(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	other: CaseOperation,
+): ValidationError {
+	return opError(
+		ctx,
+		operation,
+		"CASE_OPERATION_TARGET_INVALID",
+		`This form already saves to the worker's record in “${other.id}”. You can add these saves there.`,
+		{
+			reason: "worker-record-twice" satisfies WorkerRecordReason,
+			firstOperationUuid: other.uuid,
+		},
+	);
+}
+
 /**
  * The worker's record (`{kind: "worker-record"}`) is the target of at most
  * one update of `commcare-user` per form, which only saves properties: HQ's
@@ -1763,10 +1814,20 @@ function workerRecordFindings(
 	operations: readonly CaseOperation[],
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const repeatedWorker = operations.find(isRepeatedWorkerUpdate);
 	let first: CaseOperation | undefined;
 	for (const operation of operations) {
+		if (!addressesWorkerRecord(ctx.form, operation, ctx.module.caseType))
+			continue;
+		// A repeated direct block cannot also reach the worker through an
+		// own case, a worker selection, or another direct worker change.
+		if (
+			repeatedWorker !== undefined &&
+			operation !== repeatedWorker &&
+			hasWorkerRecordEffect(ctx, operation)
+		)
+			errors.push(workerRecordTwiceFinding(ctx, operation, repeatedWorker));
 		if (operation.action === "own") continue;
-		if (!addressesWorkerRecord(ctx.form, operation)) continue;
 		if (
 			operation.action !== "update" ||
 			operation.caseType !== USERCASE_CASE_TYPE
@@ -1782,24 +1843,39 @@ function workerRecordFindings(
 			);
 			continue;
 		}
-		if (operation.target.kind === "worker-record" && first !== undefined) {
-			errors.push(
-				opError(
-					ctx,
-					operation,
-					"CASE_OPERATION_TARGET_INVALID",
-					`This form already saves to the worker's record in “${first.id}”. You can add these saves there.`,
-					{
-						reason: "worker-record-twice" satisfies WorkerRecordReason,
-						firstOperationUuid: first.uuid,
-					},
-				),
-			);
-		} else if (operation.target.kind === "worker-record") first = operation;
+		if (
+			repeatedWorker === undefined &&
+			operation.target.kind === "worker-record"
+		) {
+			if (first === undefined) first = operation;
+			else errors.push(workerRecordTwiceFinding(ctx, operation, first));
+		}
 		for (const [facet, words] of WORKER_RECORD_FACETS) {
 			// Only the direct worker-record target can carry a root condition.
 			if (facet === "condition" && operation.target.kind === "worker-record")
 				continue;
+			if (
+				facet === "forEach" &&
+				operation.target.kind === "worker-record" &&
+				operation.condition === undefined &&
+				operation.forEach !== undefined &&
+				ctx.form.uuid === ctx.formUuid
+			) {
+				const repeat = operation.forEach.repeat;
+				const field = ctx.doc.fields[repeat];
+				if (
+					field?.kind === "repeat" &&
+					field.repeat_mode !== "query_bound" &&
+					ctx.fields.get(repeat)?.repeatPath.length === 1
+				) {
+					const guards = caseOperationConditionalGuardUuids(
+						ctx.doc,
+						ctx.formUuid,
+						operations,
+					).get(operation.uuid);
+					if (!guards?.size) continue;
+				}
+			}
 			const value = operation[facet];
 			if (value === undefined || (Array.isArray(value) && value.length === 0))
 				continue;

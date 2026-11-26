@@ -336,9 +336,9 @@ function suppliedAtEntry(
 		)
 			add({ kind: "new-case" });
 		if (saved !== undefined) {
-			// The condition on a standalone Save to Case block uses the restore
-			// directly. Only the unconditional action can supply the entry datum.
-			if (savesToWorkerRecord(saved, "unconditional"))
+			// Guarded and repeated Save to Case blocks use the restore directly.
+			// Only an unconditional root update can supply the entry datum.
+			if (savesToWorkerRecord(saved, "root-unconditional"))
 				add({ kind: "worker-record" });
 			if (
 				mod.caseType !== undefined &&

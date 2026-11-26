@@ -106,6 +106,8 @@ export interface SubmissionReceiptClaim extends SubmissionReceiptIdentity {
  */
 export interface OperationIterationBindings {
 	readonly formFields: ReadonlyMap<Uuid, string | readonly string[]>;
+	/** Non-relevant fields are blank for expressions but absent from the submission. */
+	readonly absentFields?: ReadonlySet<Uuid>;
 }
 
 /**

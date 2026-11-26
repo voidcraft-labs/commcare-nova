@@ -138,9 +138,10 @@ Nova offers only the worker information you declared. CommCare's own fields, the
 name, the login, the language, the locations, are kept in step with the worker's
 profile, so an answer saved into one of them would be replaced the next time
 that worker changed; Nova says so instead of letting you find out later. A
-question inside a repeating section cannot save here either, because a form
-writes one worker record and every repetition would be competing for the same
-slot.
+question inside a repeating section can save here through a case change. Under
+**How often**, choose to run the change for each entry in one repeating section.
+The entries update the same worker record in the order they appear. For a property the change sets more than once, the last update takes effect. An
+empty repeating section leaves the record alone.
 
 <Callout type="info">
 CommCare projects on some plans do not have the worker's own record turned on.

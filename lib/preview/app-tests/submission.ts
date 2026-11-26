@@ -2,6 +2,7 @@ import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import { formContentUuid, type Uuid } from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
+import { workerUpdateUsesOpeningCase } from "@/lib/domain/forms";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import {
 	afterSubmitFrameLanding,
@@ -100,7 +101,7 @@ export async function submitAppTest(
 			"Media capture needs a check in the running app. This test cannot submit attachment bytes.",
 		);
 	const form = context.doc.forms[formContentUuid(context.doc, screen.formUuid)];
-	// These two effects choose their physical target at entry, so the
+	// These effects choose their physical target at entry, so the
 	// submission reads the journey server's held opening, not its live data.
 	const retainsOpening = form?.caseOperations?.some(
 		(operation) =>
@@ -108,9 +109,7 @@ export async function submitAppTest(
 			(operation.action === "create" &&
 				operation.target.kind === "new" &&
 				operation.target.expr !== undefined) ||
-			(operation.action === "update" &&
-				operation.target.kind === "worker-record" &&
-				operation.condition !== undefined),
+			workerUpdateUsesOpeningCase(operation),
 	);
 
 	const built = await buildSubmissionOperationProgram({
