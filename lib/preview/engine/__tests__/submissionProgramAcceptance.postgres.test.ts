@@ -235,6 +235,9 @@ describe("engine → builder → executor acceptance", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Follow up",
