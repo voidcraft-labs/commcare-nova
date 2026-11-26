@@ -1,4 +1,6 @@
-"""A conditional owner leaf survives the editor and has a distinct case effect."""
+"""Conditional owner leaves survive the editor and retain their distinct case effects."""
+
+from uuid import UUID
 
 import pytest
 from lxml import etree
@@ -8,7 +10,9 @@ from proof.core.client import load_answer_table
 from proof.core.test_session import form_step, person_cases
 from proof.editors import compare, vellum
 from proof.editors.conftest import TWO_LANGUAGE_APP, publish_hq_app
+from proof.formplayer.hq import sign_in
 from proof.hq import operations
+from proof.hq import redis as hq_redis
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 from proof.hq.test_case_processing import _case, _submission
@@ -23,15 +27,27 @@ PATH = "/data/save_person/case"
 CONDITION = "/data/decision = 'transfer'"
 
 
-def _form_source(xmlns, action):
+def _form_source(xmlns, action, *, owners=None):
     casedb = ""
+    owner_bind = f"""<bind nodeset="{PATH}/{action}/owner_id" calculate="'new-owner'" relevant="{CONDITION}"/>"""
     if action == "create":
-        effects = "<create><case_type/><case_name/><owner_id/></create><update><visits/></update>"
-        identity = f'<setvalue event="xforms-ready" ref="{PATH}/@case_id" value="\'{CASE_ID}\'"/>'
-        fields = (
-            f'<bind nodeset="{PATH}/create/case_type" calculate="\'person\'"/>'
-            f'<bind nodeset="{PATH}/create/case_name" calculate="\'Known person\'"/>'
+        update_owner = "<owner_id/>" if owners is not None else ""
+        effects = (
+            "<create><case_type/><case_name/><owner_id/></create>"
+            f"<update><visits/>{update_owner}</update>"
         )
+        case_id = "uuid()" if owners is not None else f"'{CASE_ID}'"
+        identity = f'<setvalue event="xforms-ready" ref="{PATH}/@case_id" value="{case_id}"/>'
+        fields = (
+            f"""<bind nodeset="{PATH}/create/case_type" calculate="'person'"/>"""
+            f"""<bind nodeset="{PATH}/create/case_name" calculate="'Known person'"/>"""
+        )
+        if owners is not None:
+            initial_owner, next_owner = owners
+            owner_bind = (
+                f"""<bind nodeset="{PATH}/create/owner_id" calculate="'{initial_owner}'"/>"""
+                f"""<bind nodeset="{PATH}/update/owner_id" calculate="'{next_owner}'" relevant="{CONDITION}"/>"""
+            )
     else:
         effects = "<update><owner_id/><visits/></update>"
         existing = (
@@ -53,7 +69,7 @@ def _form_source(xmlns, action):
         <bind nodeset="{PATH}/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
         <bind nodeset="{PATH}/@user_id" calculate="/data/meta/userID"/>
         <bind nodeset="{PATH}/update/visits" calculate="'2'"/>
-        <bind nodeset="{PATH}/{action}/owner_id" calculate="'new-owner'" relevant="{CONDITION}"/>
+        {owner_bind}
         {fields}{identity}
         <itext><translation lang="en" default=""><text id="decision-label"><value>Decision</value></text></translation></itext>
       </model></h:head>
@@ -68,12 +84,12 @@ def _restore():
     return etree.tostring(root)
 
 
-def _observe(state, core_runner, app, form, decision, action):
+def _submitted(core_runner, app, form, decision, restore):
     table = load_answer_table()
     table["novaKinds"]["owner-decision"] = [decision]
     trace = core_runner.session(
         app,
-        restore=_restore(),
+        restore=restore,
         answer_table=table,
         question_kinds={"/data/decision": "owner-decision"},
     )
@@ -81,7 +97,11 @@ def _observe(state, core_runner, app, form, decision, action):
         run for run in trace["runs"]
         if (step := form_step(run)) and step.get("xmlns") == form.xmlns and run["end"] == "submitted"
     )
-    step = form_step(run)
+    return run, form_step(run)
+
+
+def _observe(state, core_runner, app, form, decision, action):
+    run, step = _submitted(core_runner, app, form, decision, _restore())
     transaction, = etree.fromstring(step["submission"].encode()).iter(f"{{{CASE}}}case")
     assert transaction.get("case_id") == CASE_ID
     assert transaction.findtext(f"{{{CASE}}}update/{{{CASE}}}visits") == "2"
@@ -136,3 +156,85 @@ def test_vellum_keeps_conditional_owner_effects_and_core_and_hq_process_them(
     else:
         assert retained[0] is None
         assert retained[1] != "old-owner" and retained[2] == "old-owner"
+
+
+def test_fresh_create_applies_the_initial_owner_before_a_guarded_effect_in_the_same_block(
+    hq, core_runner, editor_driver, tmp_path
+):
+    from corehq.apps.users.models import CommCareUser
+    from corehq.apps.users.util import format_username
+
+    with hq_check(Configuration(privileges={"VELLUM_SAVE_TO_CASE"})) as (state, record):
+        # Use three HQ accounts to distinguish an omitted create owner
+        # (defaults to the submitter) from the intended initial owner.
+        password = "proof-owner-effects-worker"
+        with hq_redis.shared(None), state.committing():
+            with state.operation("owner-effects-workers", b"fresh-owner-effects-workers"):
+                submitter, initial, next_owner = [
+                    CommCareUser.create(
+                        state.domain,
+                        format_username(username, state.domain),
+                        password,
+                        created_by=None,
+                        created_via=None,
+                    )
+                    for username in ("owner-effects-submitter", "owner-effects-initial", "owner-effects-next")
+                ]
+            for worker in (submitter, initial, next_owner):
+                sign_in(state, worker, password, worker.raw_username)
+        assert len({submitter._id, initial._id, next_owner._id}) == 3
+
+        restore = etree.fromstring(TEMPLATE_RESTORE.read_bytes())
+        registration, = restore.xpath("./*[local-name()='Registration']")
+        registration.find("{*}username").text = submitter.raw_username
+        registration.find("{*}uuid").text = submitter._id
+        for existing in restore.findall(f"{{{CASE}}}case"):
+            restore.remove(existing)
+        restore_xml = etree.tostring(restore)
+
+        app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
+        form = operations.held_app(state, app_id).modules[0].forms[0]
+        authored = _form_source(form.xmlns, "create", owners=(initial._id, next_owner._id))
+        _patched(state, app_id, form.unique_id, authored, "fresh create and guarded owner update")
+        saved = vellum.fresh_open_and_save(editor_driver, state, app_id, form.unique_id)
+        assert saved.loaded and saved.saved, (saved.load_error, saved.save_refusal)
+        model = etree.fromstring(saved.stored_source.encode())
+        binds = {
+            bind.get("nodeset"): (bind.get("calculate"), bind.get("relevant"))
+            for bind in model.iter(f"{{{XFORMS}}}bind")
+        }
+        assert binds[f"{PATH}/create/owner_id"] == (f"'{initial._id}'", None)
+        assert binds[f"{PATH}/update/owner_id"] == (f"'{next_owner._id}'", CONDITION)
+        allocation, = [node for node in model.iter(f"{{{XFORMS}}}setvalue") if node.get("ref") == f"{PATH}/@case_id"]
+        assert (allocation.get("event"), allocation.get("value")) == ("xforms-ready", "uuid()")
+
+        built = compare.build(state, app_id, record)
+        assert not built.errors, built.errors
+        with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
+            assert admission["admitted"], admission["problems"]
+            for decision, updated_owner in (("keep", None), ("transfer", next_owner._id)):
+                run, step = _submitted(core_runner, admission["app"], form, decision, restore_xml)
+                # Match the marked case ID in the device's recorded store, then
+                # hand HQ the unmarked XML containing the actual generated ID.
+                marked, = etree.fromstring(step["submission"].encode()).iter(f"{{{CASE}}}case")
+                case_mark = marked.get("case_id")
+                device, = etree.fromstring(step["caseDb"].encode()).xpath(f"/*/case[@case_id='{case_mark}']")
+                assert device.get("owner_id") == (updated_owner or initial._id)
+                assert device.findtext("visits") == "2"
+                submission, tokens = unmarked_submission(run)
+                transaction, = etree.fromstring(submission).iter(f"{{{CASE}}}case")
+                case_id = transaction.get("case_id")
+                assert tokens[case_mark] == case_id and str(UUID(case_id)) == case_id
+                assert transaction.get("user_id") == submitter._id
+                assert [etree.QName(action).localname for action in transaction] == ["create", "update"]
+                assert transaction.findtext(f"{{{CASE}}}create/{{{CASE}}}owner_id") == initial._id
+                assert transaction.findtext(f"{{{CASE}}}update/{{{CASE}}}owner_id") == updated_owner
+                assert transaction.findtext(f"{{{CASE}}}update/{{{CASE}}}visits") == "2"
+
+                applied = operations.process_case_blocks(state, submission)
+                assert applied.refusal is None
+                assert list(applied.touched) == [case_id]
+                effect = applied.touched[case_id]
+                assert effect.is_creation
+                assert effect.case.owner_id == (updated_owner or initial._id)
+                assert effect.case.case_json["visits"] == "2"
