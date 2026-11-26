@@ -39,7 +39,7 @@ from lxml import etree
 
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
-from proof.observe.manifest import CSQL_HOLES, form_language_profiles
+from proof.observe.manifest import CSQL_HOLES, expression_tree, form_language_profiles
 from proof.rules._xpath import tokens as xpath_tokens
 
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -463,22 +463,48 @@ class Form:
     @cached_property
     def question_references(self):
         """Each attribute value by which a question names its itext as Vellum reads it, with what the text is:
-        its controls' ``label``, ``hint``, ``help`` and ``alert``, its choices' labels (``choice``) and its repeat
-        captions (``caption``; ``javaRosa/plugin.js::populateControlMug``, ``parseRepeatItexts``), and its binds'
-        validation messages (``message``, ``getITextID``), in document order."""
+        its controls' ``label``, ``hint``, ``help`` and ``alert``, the labels of a group or repeat
+        (``container-label``), the choices' labels (``choice``), its repeat captions (``caption``;
+        ``javaRosa/plugin.js::populateControlMug``, ``parseRepeatItexts``), and its binds' validation messages
+        (``message``, ``getITextID``), in document order."""
         found = []
         for element in self.body.iter() if self.body is not None else ():
             if not isinstance(element.tag, str):
                 continue
             parent = element.getparent()
             local = _local(element)
-            if local in ("label", "hint", "help", "alert") and _local(parent) in QUESTION_CONTROLS | {"item"}:
-                found.append((element.get("ref"), "choice" if (local, _local(parent)) == ("label", "item") else local))
+            parent_kind = _local(parent)
+            if local in ("label", "hint", "help", "alert") and parent_kind in QUESTION_CONTROLS | {"item"}:
+                kind = local
+                if local == "label":
+                    if parent_kind == "item":
+                        kind = "choice"
+                    elif parent_kind in {"group", "repeat"}:
+                        kind = "container-label"
+                found.append((element.get("ref"), kind))
             elif element.tag in (f"{{{JAVAROSA}}}addCaption", f"{{{JAVAROSA}}}addEmptyCaption"):
                 found.append((element.get("ref"), "caption"))
         for binds in self.binds.values():
             found += [(bind.get(f"{{{JAVAROSA}}}constraintMsg"), "message") for bind in binds]
         return tuple((value, kind) for value, kind in found if value is not None)
+
+    @cached_property
+    def long_text_owners(self):
+        """The text IDs named by the form's question references, retaining the kind of each owner.
+
+        The retained variants see HQ's source before the device observations. Use the same XPath grammar
+        as the observer there, so these classes still separate actual text owners from arbitrary IDs.
+        """
+        kinds = {}
+        for reference, kind in self.question_references:
+            if self.readings is None:
+                text_id = _variant_itext_owner(reference)
+            else:
+                tree = self.tree(reference)
+                text_id = _itext_id(tree) if tree is not None else None
+            if text_id is not None:
+                kinds.setdefault(text_id, set()).add(kind)
+        return kinds
 
     def tree(self, text):
         """HQ's XPath grammar's structure of an expression (the observation's ``trees``), or None where the records
@@ -613,7 +639,7 @@ class Form:
                 continue
             text_id = _itext_id(tree)
             if text_id is not None:
-                kinds.setdefault(text_id, set()).add(kind)
+                kinds.setdefault(text_id, set()).add("label" if kind == "container-label" else kind)
         return {text_id: frozenset(held) for text_id, held in kinds.items()}, unplaced
 
     @cached_property
@@ -715,6 +741,12 @@ DATA_ROLES = frozenset(
         "ConnectWorkAreaUpdate",
     }
 )
+
+
+@cache
+def _variant_itext_owner(reference):
+    tree = expression_tree(reference)
+    return _itext_id(tree) if tree is not None else None
 
 
 def _itext_id(tree):
@@ -1365,6 +1397,20 @@ def label_text_missing_in_default(use, manifest):
         return None if _form_element(use)[0] is None else False
     form, values = group
     return form.default_translation is not None and form.default_translation not in values
+
+
+def _long_form_on(owners):
+    """A ``long`` value whose itext entry is referenced by one of these question text owners."""
+
+    def reader(use, manifest):
+        form, value = _itext_value(use)
+        if form is None:
+            return None
+        if value is None or value.get("form") != "long":
+            return False
+        return bool(form.long_text_owners.get(value.getparent().get("id"), set()) & owners)
+
+    return reader
 
 
 def media_blank_beside_file(use, manifest):
@@ -12099,6 +12145,10 @@ VALUE_CLASSES = {
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
+    "questions/long-form-on-a-hint-help-text-validation-message-or-choice": _long_form_on(
+        {"hint", "help", "alert", "message", "choice"}
+    ),
+    "questions/long-form-on-a-group-or-repeat-label": _long_form_on({"container-label"}),
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
