@@ -26,6 +26,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
+	and,
 	eq,
 	formField,
 	literal,
@@ -49,7 +50,13 @@ import {
 } from "../caseDataBindingHelpers";
 import { buildEngineInput } from "../engineInput";
 import { FormEngine } from "../formEngine";
+import {
+	type FormOpeningProjection,
+	formNeedsOpeningEvidence,
+	openingCaseData,
+} from "../formOpeningSnapshot";
 import type { ResolvedPreviewIdentity } from "../identity";
+import { signFormOpening, verifyFormOpening } from "../signedFormOpening";
 import {
 	acceptanceDoc,
 	conditionalCloseDoc,
@@ -238,7 +245,20 @@ describe("engine → builder → executor acceptance", () => {
 						action: "update",
 						caseType: "commcare-user",
 						target: { kind: "worker-record" },
-						condition: eq(term(formField(field)), literal("save")),
+						condition: or(
+							eq(term(formField(field)), literal("save")),
+							and(
+								eq(term(formField(field)), literal("check")),
+								eq(
+									term({
+										kind: "session-user-property",
+										userPropertyUuid: property,
+										source: "worker-record",
+									}),
+									literal("before"),
+								),
+							),
+						),
 						writes: [
 							{ property: "visit_note", value: term(literal("updated")) },
 						],
@@ -246,6 +266,7 @@ describe("engine → builder → executor acceptance", () => {
 				];
 			},
 		);
+		expect(formNeedsOpeningEvidence(doc, form)).toBe(true);
 		const store = makeStore(true);
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -256,6 +277,7 @@ describe("engine → builder → executor acceptance", () => {
 			decision: string,
 			entryKey: string,
 			expectedAppMutationSeq = 0,
+			opening?: FormOpeningProjection,
 		) => {
 			const input = buildEngineInput(doc, form, null);
 			if (!input) throw new Error("Expected the worker survey");
@@ -269,6 +291,7 @@ describe("engine → builder → executor acceptance", () => {
 				mutation,
 				projection,
 				identity: IDENTITY,
+				opening,
 			});
 			return store.applySubmission(
 				submissionEnvelopeArgs(mutation, APP_ID, {
@@ -309,6 +332,46 @@ describe("engine → builder → executor acceptance", () => {
 		});
 		const held = await apply("keep", entry(4));
 		expect(held.caseDatabasePatch?.rows).toEqual([]);
+		const [before] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "commcare-user",
+		});
+		if (!before) throw new Error("Expected the worker's live row.");
+		const audience = {
+			app: APP_ID,
+			project: PROJECT,
+			actor: ACTOR,
+			worker: ACTOR,
+			session: "session",
+			persona: null,
+			device: webAppsDevice(),
+			module: doc.moduleOrder[0],
+			form,
+			entry: entry(6),
+			run: entry(7),
+			revision: 0,
+			blueprintDigest: "0".repeat(64),
+		};
+		const secret = "synthetic worker entry signing key";
+		const signed = await signFormOpening(secret, audience, {
+			cases: openingCaseData({ rows: [before], indices: [] }),
+			lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+			choices: [],
+			primaryCaseIds: [],
+			datums: {},
+			resolvedEntries: {},
+			sessionData: {},
+			complete: true,
+		});
+		await expect(
+			verifyFormOpening(
+				secret,
+				{ ...audience, worker: "another-worker" },
+				signed,
+			),
+		).rejects.toThrow();
+		const opening = await verifyFormOpening(secret, audience, signed);
 		const changed = await apply("save", entry(5));
 		expect(changed.operations).toEqual([
 			expect.objectContaining({ executed: true, caseId: workerCaseId }),
@@ -325,6 +388,12 @@ describe("engine → builder → executor acceptance", () => {
 			hq_user_id: ACTOR,
 			visit_note: "updated",
 		});
+		// Live now says "updated". The "check" condition is true only against
+		// the worker property retained by the authorized opening.
+		const fromOpening = await apply("check", audience.entry, 0, opening);
+		expect(fromOpening.operations).toEqual([
+			expect.objectContaining({ executed: true, caseId: workerCaseId }),
+		]);
 	});
 
 	it("submits a shared entry’s parent answers to the case selected by that entry", async () => {
