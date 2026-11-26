@@ -21,8 +21,9 @@
  *
  * - `scope`: no load takes the change (its target is no case the form
  *   loads, or it is not the form's first change of the worker's record), or
- *   it runs in a repeat, where a load runs once, or its own selected record's
- *   load already carries a passive label that reads as a follow-up write.
+ *   it runs in a repeat, where a load runs once, or it closes a follow-up's
+ *   own record beside a passive label write. The label may already have a
+ *   published Save to Case path.
  * - `value-not-a-question`: a write value or a rename is not a bare
  *   question read, or reads a question inside a repeat
  *   (`xform.py::_create_casexml_advanced` binds each update to one path;

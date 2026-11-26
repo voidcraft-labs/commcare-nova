@@ -551,9 +551,10 @@ function ownerExpressible(
 	return readsQuestion(f, owner, repeat);
 }
 
-/** An expression can target the same load as the own update. Keep a close
- * on that record separate so the load continues to read as a follow-up. */
-function loadCarriesOwnPassiveLabel(
+/** Keep an aliased close separate so its selected load still reads as a
+ * follow-up. The own passive label may already have a published Save to Case
+ * path, or may take the chosen load directly. */
+function ownPassiveLabelNeedsSeparateClose(
 	f: CaseSlotFacts,
 	load: Extract<AdvancedLoadRef, { kind: "chain" }>,
 ): boolean {
@@ -561,11 +562,13 @@ function loadCarriesOwnPassiveLabel(
 	return (
 		own !== undefined &&
 		f.form.type === "followup" &&
+		!f.severalCases &&
+		f.module?.caseType !== USERCASE_CASE_TYPE &&
 		ownFormSelectionIndex(f.doc, f.formUuid) === load.index &&
 		!f.positionedOperations.has(own.uuid) &&
-		!heldOwnOrCreateBlockExpresses(f, own) &&
 		own.writes?.some((write) => readsOwnPassiveLabel(f, write)) === true &&
-		loadClause(f, own, load) === undefined
+		(heldOwnOrCreateBlockExpresses(f, own) ||
+			loadClause(f, own, load) === undefined)
 	);
 }
 
@@ -616,7 +619,7 @@ export function loadClause(
 	if (operation.action === "close") {
 		if (!stateable(f, operation.condition, undefined))
 			return "condition-not-stateable";
-		if (load.kind === "chain" && loadCarriesOwnPassiveLabel(f, load))
+		if (load.kind === "chain" && ownPassiveLabelNeedsSeparateClose(f, load))
 			return "scope";
 	}
 	if (

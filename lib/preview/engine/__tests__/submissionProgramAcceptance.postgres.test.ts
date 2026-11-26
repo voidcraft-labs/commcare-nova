@@ -24,6 +24,7 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import {
 	advancedFixture,
+	choice,
 	read,
 	U,
 	UNDER_TEST,
@@ -65,6 +66,7 @@ import {
 	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
 import { buildEngineInput } from "../engineInput";
+import { entrySessionData } from "../entrySessionData";
 import { FormEngine } from "../formEngine";
 import {
 	type FormOpeningProjection,
@@ -223,175 +225,303 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
-	it("saves only a relevant passive Advanced label to the signed selected case", async () => {
-		const {
-			doc: initial,
-			formUuid,
-			moduleUuid,
-		} = advancedFixture({
-			menu: "members",
-			formType: "followup",
-			configure(doc) {
-				const label = doc.fields[U("note")];
-				if (label.kind !== "label") throw new Error("Expected a label");
-				doc.fields[U("note")] = {
-					...label,
-					relevant: eq(read("name"), literal("Show the reminder")),
-				};
-				doc.forms[UNDER_TEST].caseSelections = [
-					...formCaseSelections(doc, UNDER_TEST),
-				];
-			},
-		});
-		const operation: CaseOperation = {
-			uuid: testUuid("passive-label-own"),
-			id: "member",
-			action: "own",
-			writes: [
-				{ property: "seen", value: read("note") },
-				{ property: "notes", value: read("name") },
-			],
-		};
-		const verdict = mutationCommitVerdict(
-			initial,
-			addCaseOperationMutations(initial, formUuid, operation),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
-		const doc = verdict.nextDoc;
-		expect(
-			planPlacements(doc, formUuid).placements.get(operation.uuid)?.placement,
-		).toEqual({
-			kind: "advanced",
-			tag: "load_member1",
-		});
-		const store = makeStore(true);
-		const household = testUuid("label-parent");
-		const unrelated = testUuid("label-unrelated-member");
-		const catalog = buildCaseTypeMap(doc);
-		for (const caseType of ["household", "member"])
-			await store.applySchemaChange({
-				appId: APP_ID,
-				caseType,
-				caseTypeSchemas: catalog,
-			});
-		for (const [caseId, caseType, previous] of [
-			[household, "household", ""],
-			[SESSION_CASE, "member", "before"],
-			[unrelated, "member", "unrelated"],
-		] as const) {
-			await store.insert({
-				appId: APP_ID,
-				row: {
-					case_id: caseId,
-					case_type: caseType,
-					case_name: caseType,
-					status: "open",
-					properties: caseType === "member" ? { seen: previous } : {},
-					...(caseType === "member" && { parent_case_id: household }),
+	it.each(["Advanced", "held Save to Case"] as const)(
+		"saves only a relevant passive label on %s to the signed selected case",
+		async (source) => {
+			const held = source === "held Save to Case";
+			const {
+				doc: initial,
+				formUuid,
+				moduleUuid,
+			} = advancedFixture({
+				menu: "members",
+				formType: "followup",
+				configure(doc) {
+					const label = doc.fields[U("note")];
+					if (label.kind !== "label") throw new Error("Expected a label");
+					doc.fields[U("note")] = {
+						...label,
+						relevant: eq(read("name"), literal("Show the reminder")),
+					};
+					doc.forms[UNDER_TEST].caseSelections = [
+						...formCaseSelections(doc, UNDER_TEST),
+					];
 				},
 			});
-		}
-		const device = androidDevice();
-		for (const [visible, note] of [
-			[false, "The reminder is hidden"],
-			[true, "Show the reminder"],
-		] as const) {
-			const entryKey = testUuid(`label-entry-${visible}`);
-			const audience = {
-				app: APP_ID,
-				project: PROJECT,
-				actor: ACTOR,
-				worker: ACTOR,
-				session: "session",
-				persona: null,
-				device,
-				module: moduleUuid,
-				form: formUuid,
-				entry: entryKey,
-				run: ENTRY_KEY,
-				revision: 0,
-				blueprintDigest: "0".repeat(64),
+			const operation: CaseOperation = {
+				uuid: testUuid("passive-label-own"),
+				id: "member",
+				action: "own",
+				writes: [
+					{ property: "seen", value: read("note") },
+					{ property: "notes", value: read("name") },
+				],
 			};
-			const snapshot = await store.readDeviceCaseDatabase({
-				appId: APP_ID,
-				restoreScope: { ownerIds: [ACTOR] },
-			});
-			const choices = formCaseSelections(doc, formUuid).map((row, index) => ({
-				selection: row.uuid,
-				caseId: index === 0 ? household : SESSION_CASE,
-			}));
-			expect(choices).toHaveLength(2);
-			const secret = "synthetic Advanced label opening key";
-			const signed = await signFormOpening(secret, audience, {
-				cases: openingCaseData(snapshot),
-				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
-				choices,
-				primaryCaseIds: [SESSION_CASE],
-				datums: {},
-				resolvedEntries: {},
-				sessionData: {},
-				complete: true,
-			});
-			const input = buildEngineInput(doc, formUuid, null);
-			if (!input) throw new Error("Expected the Advanced member form");
-			const engine = new FormEngine(
-				input,
-				"member",
-				undefined,
-				IDENTITY,
-				null,
-				snapshot,
-				{ device },
+			const verdict = mutationCommitVerdict(
+				initial,
+				addCaseOperationMutations(initial, formUuid, operation),
+				LOOKUP_CONTEXT_UNAVAILABLE,
 			);
-			engine.setValue("/data/name", note);
-			expect(engine.getState("/data/note").visible).toBe(visible);
-			expect(engine.validateAll()).toBe(true);
-			const mutation = engine.computeSubmissionMutation({
-				caseIds: [SESSION_CASE],
-				entryKey,
-			});
-			const label = mutation.operationAnswers?.root.find(
-				(answer) => answer.fieldUuid === U("note"),
-			);
-			expect(label).toMatchObject(visible ? { value: "OK" } : { absent: true });
-			const projection = validateCaptureSubmissionProjection(mutation);
-			const built = buildCaseOperationProgramFromDoc({
-				device,
-				blueprint: doc,
-				mutation,
-				projection,
-				identity: IDENTITY,
-				opening: await verifyFormOpening(secret, audience, signed),
-			});
-			await store.applySubmission(
-				submissionEnvelopeArgs(mutation, APP_ID, {
-					...built,
-					submissionReceipt: {
-						...buildSubmissionReceiptIdentity({
-							appId: APP_ID,
-							identity: IDENTITY,
-							mutation,
-							projection,
-						}),
-						expectedAppMutationSeq: 0,
-						blueprintDigest: audience.blueprintDigest,
+			if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+			let doc = verdict.nextDoc;
+			const heldPlacement = {
+				kind: "save-to-case",
+				path: ["nova_operations", "member"],
+			} satisfies NonNullable<CaseOperation["placement"]>;
+			if (held) {
+				const form = doc.forms[formUuid];
+				doc = {
+					...doc,
+					forms: {
+						...doc.forms,
+						[formUuid]: {
+							...form,
+							caseOperations: form.caseOperations?.map((candidate) =>
+								candidate.uuid === operation.uuid
+									? { ...candidate, placement: heldPlacement }
+									: candidate,
+							),
+						},
 					},
-				}),
-			);
-			const rows = await store.query({
-				appId: APP_ID,
-				caseType: "member",
-				reading: SEARCH_READING,
-			});
+				};
+			}
+			const selections = formCaseSelections(doc, formUuid);
+			const selected = selections[1];
+			expect(selections).toHaveLength(2);
+			const closeUuid = testUuid("held-passive-label-close");
+			const closePlacement = {
+				kind: "save-to-case",
+				path: [
+					"nova_operations",
+					"nova_condition_finish_member",
+					"finish_member",
+				],
+			};
+			if (held) {
+				const close: CaseOperation = {
+					uuid: closeUuid,
+					id: "finish_member",
+					action: "close",
+					caseType: "member",
+					target: {
+						kind: "expression",
+						expr: term({
+							kind: "session-datum",
+							datum: { kind: "form-selection", selection: selected.uuid },
+						}),
+					},
+					condition: eq(read("status"), choice("status", "yes")),
+				};
+				const edit = mutationCommitVerdict(
+					doc,
+					addCaseOperationMutations(doc, formUuid, close),
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				);
+				if (!edit.ok) throw new Error(JSON.stringify(edit.findings));
+				doc = edit.nextDoc;
+				expect(
+					planPlacements(doc, formUuid).placements.get(closeUuid)?.placement,
+				).toEqual(closePlacement);
+			}
 			expect(
-				rows.find((row) => row.case_id === SESSION_CASE)?.properties,
-			).toEqual({ seen: visible ? "OK" : "before", notes: note });
-			expect(rows.find((row) => row.case_id === unrelated)?.properties).toEqual(
-				{ seen: "unrelated" },
+				planPlacements(doc, formUuid).placements.get(operation.uuid)?.placement,
+			).toEqual(
+				held ? heldPlacement : { kind: "advanced", tag: "load_member1" },
 			);
-		}
-	});
+			const store = makeStore(true);
+			const household = testUuid("label-parent");
+			const unrelated = testUuid("label-unrelated-member");
+			const catalog = buildCaseTypeMap(doc);
+			for (const caseType of ["household", "member"])
+				await store.applySchemaChange({
+					appId: APP_ID,
+					caseType,
+					caseTypeSchemas: catalog,
+				});
+			for (const [caseId, caseType, previous] of [
+				[household, "household", ""],
+				[SESSION_CASE, "member", "before"],
+				[unrelated, "member", "unrelated"],
+			] as const) {
+				await store.insert({
+					appId: APP_ID,
+					row: {
+						case_id: caseId,
+						case_type: caseType,
+						case_name: caseType,
+						status: "open",
+						properties: caseType === "member" ? { seen: previous } : {},
+						...(caseType === "member" && { parent_case_id: household }),
+					},
+				});
+			}
+			if (held) {
+				// The own note can save while open. The separate close attempt
+				// fails after that write, which must roll back with the close.
+				await sql`ALTER TABLE cases ADD CONSTRAINT label_close_rollback
+				CHECK (status <> 'closed' OR properties->>'notes' IS DISTINCT FROM 'Refuse closing')`.execute(
+					dbHandle.db,
+				);
+			}
+			const device = androidDevice();
+			const scenarios = [
+				{
+					visible: false,
+					note: "The reminder is hidden",
+					closes: false,
+					fails: false,
+				},
+				...(held
+					? [
+							{
+								visible: false,
+								note: "Refuse closing",
+								closes: true,
+								fails: true,
+							},
+						]
+					: []),
+				{
+					visible: true,
+					note: "Show the reminder",
+					closes: held,
+					fails: false,
+				},
+			];
+			for (const { visible, note, closes, fails } of scenarios) {
+				const entryKey = testUuid(`label-entry-${note}`);
+				const audience = {
+					app: APP_ID,
+					project: PROJECT,
+					actor: ACTOR,
+					worker: ACTOR,
+					session: "session",
+					persona: null,
+					device,
+					module: moduleUuid,
+					form: formUuid,
+					entry: entryKey,
+					run: ENTRY_KEY,
+					revision: 0,
+					blueprintDigest: "0".repeat(64),
+				};
+				const snapshot = await store.readDeviceCaseDatabase({
+					appId: APP_ID,
+					restoreScope: { ownerIds: [ACTOR] },
+				});
+				const choices = selections.map((row, index) => ({
+					selection: row.uuid,
+					caseId: index === 0 ? household : SESSION_CASE,
+				}));
+				const ready = entrySessionData(doc, formUuid, {
+					appId: APP_ID,
+					entryKey,
+					caseDatabase: snapshot,
+					session: IDENTITY.session,
+					boundCases: [],
+					menuSelections: {},
+					entryChoices: choices.map(({ selection, caseId }) => ({
+						selectionUuid: selection,
+						caseId,
+						caseName: caseId === household ? "household" : "member",
+					})),
+				});
+				expect(ready.nextSelection).toBeUndefined();
+				expect(ready.reachedCaseIds.get(selected.uuid)).toBe(SESSION_CASE);
+				const secret = "synthetic Advanced label opening key";
+				const signed = await signFormOpening(secret, audience, {
+					cases: openingCaseData(snapshot),
+					lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+					choices,
+					primaryCaseIds: [SESSION_CASE],
+					datums: { ...ready.datumsByRef },
+					resolvedEntries: { ...ready.resolvedEntryValues },
+					sessionData: { ...ready.data },
+					complete: true,
+				});
+				const input = buildEngineInput(doc, formUuid, null);
+				if (!input) throw new Error("Expected the Advanced member form");
+				const engine = new FormEngine(
+					input,
+					"member",
+					undefined,
+					IDENTITY,
+					null,
+					snapshot,
+					{ device, sessionData: ready.data },
+				);
+				engine.setValue("/data/name", note);
+				if (held) engine.setValue("/data/status", closes ? "yes" : "no");
+				expect(engine.getState("/data/note").visible).toBe(visible);
+				expect(engine.validateAll()).toBe(true);
+				const mutation = engine.computeSubmissionMutation({
+					caseIds: [SESSION_CASE],
+					entryKey,
+				});
+				const label = mutation.operationAnswers?.root.find(
+					(answer) => answer.fieldUuid === U("note"),
+				);
+				expect(label).toMatchObject(
+					visible ? { value: "OK" } : { absent: true },
+				);
+				const projection = validateCaptureSubmissionProjection(mutation);
+				const built = buildCaseOperationProgramFromDoc({
+					device,
+					blueprint: doc,
+					mutation,
+					projection,
+					identity: IDENTITY,
+					opening: await verifyFormOpening(secret, audience, signed),
+				});
+				const applied = store.applySubmission(
+					submissionEnvelopeArgs(mutation, APP_ID, {
+						...built,
+						submissionReceipt: {
+							...buildSubmissionReceiptIdentity({
+								appId: APP_ID,
+								identity: IDENTITY,
+								mutation,
+								projection,
+							}),
+							expectedAppMutationSeq: 0,
+							blueprintDigest: audience.blueprintDigest,
+						},
+					}),
+				);
+				if (fails) {
+					await expect(applied).rejects.toMatchObject({
+						code: "23514",
+						constraint: "label_close_rollback",
+					});
+				} else {
+					const result = await applied;
+					if (held) {
+						expect(
+							result.operations.find((row) => row.operationUuid === closeUuid),
+						).toMatchObject({
+							executed: closes,
+							caseId: SESSION_CASE,
+						});
+					}
+				}
+				const rows = await store.query({
+					appId: APP_ID,
+					caseType: "member",
+					reading: SEARCH_READING,
+				});
+				expect(rows.find((row) => row.case_id === SESSION_CASE)).toMatchObject({
+					status: closes && !fails ? "closed" : "open",
+					properties: {
+						seen: visible ? "OK" : "before",
+						notes: fails ? "The reminder is hidden" : note,
+					},
+				});
+				expect(
+					rows.find((row) => row.case_id === unrelated)?.properties,
+				).toEqual({ seen: "unrelated" });
+			}
+		},
+	);
 
 	it("keeps the signed parent user block with omitted and present blank answers", async () => {
 		const { doc, form } = parentUserWriteFixture(APP_ID);
