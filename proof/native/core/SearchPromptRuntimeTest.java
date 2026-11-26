@@ -283,6 +283,9 @@ public class SearchPromptRuntimeTest {
             }
             answer(manager, "first_name", "Ada'\"");
             assertEquals(Collections.singleton("first_name"), manager.getErrors().keySet());
+            assertEquals("Sorry, this response is invalid!", manager.getErrors().get("first_name"));
+            answer(manager, "first_name", "ada");
+            assertEquals("Sorry, this response is invalid!", manager.getErrors().get("first_name"));
             answer(manager, "first_name", "Ada'");
             assertTrue(manager.getErrors().isEmpty());
             assertEquals(Arrays.asList("first_name = \"Ada'\"", "match-all()", "match-all()"), new ArrayList<>(manager.getRawQueryParams(false).get("_xpath_query")));

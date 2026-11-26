@@ -116,7 +116,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}search-button-display-condition-reading-what-the-case-list-does-not-load`,
 		"schema:CaseSearch.search_button_display_condition",
 	),
-	/** A check with no message on a field Nova's search guards (`settleSearchSettings`). */
+	/** A check whose native test cannot keep the guard and its runtime message together. */
 	checkWithoutMessageGuarded: refuse(
 		`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
 		"schema:Assertion.text",
@@ -2139,12 +2139,9 @@ export function settleSearchSettings(
 }
 
 /**
- * The fields of `prompts` read as a check with no message of its own whose answers Nova's search
- * guards (`moduleXPathQuery.ts::searchGuardedFieldNames`): the guard shares the field's one check
- * and its sentence follows the field's message, so Nova's gate holds no such check
- * (`validator/rules/case-list/searchCheckMessage.ts`), and the projection prints the guard's
- * sentence where HQ's build printed none. A stored test that ends with Nova's guard is settled as
- * an untold check (`index.ts::settleUntoldChecks`).
+ * A native check with no message can share the runtime sentence when its
+ * authored rule and existing guard project to the same native test. This
+ * names the remaining checked shapes whose projected test cannot match.
  */
 function checksWithoutMessageTheSearchGuards(
 	doc: BlueprintDoc,

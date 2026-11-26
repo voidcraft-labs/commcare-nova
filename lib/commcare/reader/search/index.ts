@@ -1601,19 +1601,23 @@ function settleUntoldChecks(
 		const sentence = group[0].ending.message.message;
 		const texts = recordFromEntries(
 			codes.flatMap((code) => {
-				const alone = group.find((field) => field.ending.whole)?.texts[code];
-				const joined = group
-					.filter((field) => !field.ending.whole)
-					.map((field) => field.texts[code] ?? "");
+				const alone = group.find(
+					(field) => field.ending.whole && field.texts[code],
+				)?.texts[code];
+				const joined = group.flatMap((field) =>
+					!field.ending.whole && field.texts[code] ? [field.texts[code]] : [],
+				);
+				if (alone === undefined && joined.length === 0) return [];
 				const text = readGuardText(sentence, alone, joined);
 				return text ? [[code, text] as const] : [];
 			}),
 		);
-		ctx.translations.set(
-			makeTranslationUnitId("system", "search-validation", key),
-			"text",
-			translatedTexts(ctx, texts, true),
-		);
+		if (Object.keys(texts).length > 0)
+			ctx.translations.set(
+				makeTranslationUnitId("system", "search-validation", key),
+				"text",
+				translatedTexts(ctx, texts, true),
+			);
 		for (const { prompt, index, ending, module, texts: stored } of group) {
 			const point = ctx.pending.site(index).at;
 			const held = ctx.doc;
@@ -1628,9 +1632,15 @@ function settleUntoldChecks(
 						: [];
 				}),
 			);
-			let kept = ending.whole
-				? codes.every((code) => stored[code] === texts[code])
-				: !!rule && codes.every((code) => ownMessages[code]?.trim());
+			const usesNativeMessage =
+				rule !== undefined && codes.every((code) => stored[code] === "");
+			let kept =
+				usesNativeMessage ||
+				(ending.whole
+					? codes.every(
+							(code) => stored[code] !== "" && stored[code] === texts[code],
+						)
+					: !!rule && codes.every((code) => ownMessages[code]?.trim()));
 			if (kept && rule) {
 				const registration = ctx.pending.list()[index];
 				const { deferRefusal: _defer, ...own } = registration;
@@ -1680,10 +1690,12 @@ function settleUntoldChecks(
 				]?.caseListConfig?.searchInputs.find((one) => one.uuid === prompt.uuid);
 				if (!input || input.kind === "hidden") return;
 				if (ending.whole) delete input.validation;
-				else if (input.validation)
-					input.validation.message = ownMessages[source];
+				else if (input.validation) {
+					if (usesNativeMessage) delete input.validation.message;
+					else input.validation.message = ownMessages[source];
+				}
 			});
-			if (!ending.whole)
+			if (!ending.whole && !usesNativeMessage)
 				ctx.translations.set(
 					makeTranslationUnitId(
 						"search-input",

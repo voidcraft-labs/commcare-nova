@@ -703,6 +703,10 @@ export function promptCheckText(
 	runtimeValidation?: RuntimeCsqlPromptValidation,
 ): SearchPromptText | undefined {
 	const authored = input.kind === "hidden" ? undefined : input.validation;
+	// Core runs the authored check and guard as one validation. Explicitly
+	// choosing its own message leaves both branches on the native sentence.
+	if (authored !== undefined && authored.message === undefined)
+		return undefined;
 	const parts: { text: string; unit: TranslationUnitId }[] = [];
 	if (authored?.message !== undefined)
 		parts.push({
