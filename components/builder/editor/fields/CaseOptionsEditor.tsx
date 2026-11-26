@@ -78,6 +78,9 @@ export function CaseOptionsEditor({
 	const labelProperty = type?.properties.find(
 		(property) => property.name === source.labelProperty,
 	);
+	const sortProperty = type?.properties.find(
+		(property) => property.name === source.sortProperty,
+	);
 	const selectedType =
 		formContext &&
 		formOpensWithOneCase(
@@ -102,10 +105,7 @@ export function CaseOptionsEditor({
 		type?.properties.some(
 			(property) => property.name === source.labelProperty,
 		) &&
-		(source.sortProperty === undefined ||
-			type?.properties.some(
-				(property) => property.name === source.sortProperty,
-			)) &&
+		(source.sortProperty === undefined || sortProperty !== undefined) &&
 		(source.filter === undefined ||
 			checkExpression(source.filter, expressionContext).errors.length === 0);
 	return (
@@ -187,7 +187,11 @@ export function CaseOptionsEditor({
 					}}
 				>
 					<SelectTrigger id={sortId} wrapValue>
-						<SelectValue />
+						<SelectValue>
+							{sortProperty
+								? propertyDisplayLabel(sortProperty, project)
+								: "Device record order"}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="-">Device record order</SelectItem>
