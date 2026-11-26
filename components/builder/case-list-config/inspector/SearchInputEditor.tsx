@@ -46,7 +46,7 @@ import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { type RefObject, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
@@ -226,6 +226,11 @@ export interface SearchInputEditorProps {
 	/** Opens one of this field's conditions in the center-canvas workbench:
 	 *  the custom match, the required condition, or the check rule. */
 	readonly onEditCondition: (slot: SearchConditionSlot) => void;
+	readonly addressRemovalReview?: {
+		readonly sourceLabel: string;
+		readonly token: number;
+		readonly onReturn: () => void;
+	};
 }
 
 /** Placeholder a fresh check carries until the author writes the real one. */
@@ -378,13 +383,23 @@ function AddressFillSetting({
 	inputs,
 	receiver,
 	onChange,
+	review,
 }: {
 	readonly inputs: readonly SearchInputDef[];
 	readonly receiver: SearchAddressReceiver | undefined;
 	readonly onChange: (receiver: SearchAddressReceiver | undefined) => void;
+	readonly review?: SearchInputEditorProps["addressRemovalReview"];
 }) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const reviewToken = review?.token;
+	useEffect(() => {
+		if (reviewToken === undefined) return;
+		const frame = requestAnimationFrame(() => triggerRef.current?.focus());
+		return () => cancelAnimationFrame(frame);
+	}, [reviewToken]);
 	const addresses = inputs.filter((input) => input.kind === "address");
-	if (addresses.length === 0 && receiver === undefined) return null;
+	if (addresses.length === 0 && receiver === undefined && review === undefined)
+		return null;
 	const linked = receiver?.kind === "address" ? receiver : undefined;
 	const source = addresses.find((input) => input.uuid === linked?.source);
 	const label = source?.label || source?.name;
@@ -393,8 +408,15 @@ function AddressFillSetting({
 			label="Fill from an address"
 			hint="Workers can still edit the answer in Web Apps."
 		>
+			{review && (
+				<p className="text-[12px] text-nova-text-muted">
+					Choose No address field or another address field to remove the link to{" "}
+					{review.sourceLabel}.
+				</p>
+			)}
 			<DropdownMenu>
 				<DropdownMenuTrigger
+					ref={triggerRef}
 					render={<Button type="button" variant="outline" />}
 				>
 					{label ??
@@ -418,17 +440,31 @@ function AddressFillSetting({
 							);
 						}}
 					>
-						<DropdownMenuRadioItem value="">
+						<DropdownMenuRadioItem value="" closeOnClick>
 							No address field
 						</DropdownMenuRadioItem>
 						{addresses.map((input) => (
-							<DropdownMenuRadioItem key={input.uuid} value={input.uuid}>
+							<DropdownMenuRadioItem
+								key={input.uuid}
+								value={input.uuid}
+								closeOnClick
+							>
 								{input.label || input.name}
 							</DropdownMenuRadioItem>
 						))}
 					</DropdownMenuRadioGroup>
 				</DropdownMenuContent>
 			</DropdownMenu>
+			{review && (
+				<Button
+					type="button"
+					variant="outline"
+					className="h-auto min-h-11 whitespace-normal break-words"
+					onClick={review.onReturn}
+				>
+					Back to {review.sourceLabel} search field
+				</Button>
+			)}
 			{linked?.parts.map((part, index) => (
 				<DropdownMenu key={part}>
 					<DropdownMenuTrigger
@@ -504,6 +540,7 @@ function AddressFillSetting({
 }
 
 function VisibleSearchInputEditor({
+	addressRemovalReview,
 	moduleUuid,
 	value,
 	index,
@@ -1134,9 +1171,14 @@ function VisibleSearchInputEditor({
 						<AddressFillSetting
 							inputs={siblings}
 							receiver={value.addressReceiver}
-							onChange={(addressReceiver) =>
-								onChange({ ...value, addressReceiver })
-							}
+							review={addressRemovalReview}
+							onChange={(addressReceiver) => {
+								const { addressReceiver: _previous, ...input } = value;
+								onChange({
+									...input,
+									...(addressReceiver === undefined ? {} : { addressReceiver }),
+								});
+							}}
 						/>
 					)}
 				{value.kind === "simple" && (
