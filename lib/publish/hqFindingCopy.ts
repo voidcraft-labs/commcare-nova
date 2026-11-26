@@ -124,6 +124,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"search-default-filters": "Search filters",
 	"search-expressions": "Search expressions",
 	"search-fields": "Search fields",
+	"search-group-display-key": "Search heading and field label",
 	"search-setup": "Search setup",
 	"shadow-forms": "Shadow forms",
 	"supply-features": "CommCare Supply",
@@ -349,6 +350,10 @@ export const FINDING_COPY: Readonly<
 		never:
 			"Nova couldn’t read this Search group or its heading. In CommCare HQ, give the group a heading and check that each field is assigned to the right group. Then bring the app in again.",
 		"not-yet": "A search field here is set up in a way Nova can't hold yet.",
+	},
+	"search-group-display-key": {
+		never:
+			"One label is used for both a Search heading and a field here. You can recreate the heading in CommCare HQ, check the headings and field labels, then bring the app in again.",
 	},
 	"search-setup": {
 		never: "This uses a search setting, which Nova doesn't bring in.",

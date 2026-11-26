@@ -378,6 +378,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}search-group-layout-unreadable`,
 		"schema:CaseSearchProperty.group_key",
 	),
+	groupDisplayKey: refuse(
+		`${S}search-group-shares-its-display-key-with-a-field`,
+		"schema:CaseSearchProperty.group_key",
+	),
 	groupHeading: refuse(
 		`${S}search-group-heading-unreadable`,
 		"schema:CaseSearchProperty.label",
@@ -589,7 +593,8 @@ function readSearchGroups(
 	place: HqPlace,
 ) {
 	const groups: SearchInputGroup[] = [];
-	const hasFields = prompts.some((row) => row.peek("is_group") !== true);
+	const fields = prompts.filter((row) => row.peek("is_group") !== true);
+	const fieldNames = new Set(fields.map((row) => row.peek("name")));
 	const memberships = new Map<JsonCursor, Uuid>();
 	const headingRefusals = new Map<JsonCursor, Finding>();
 	const keys = new Set<string>();
@@ -600,7 +605,7 @@ function readSearchGroups(
 		if (
 			typeof key !== "string" ||
 			!key ||
-			!hasFields ||
+			fields.length === 0 ||
 			keys.has(key) ||
 			row.peek("name") !== key
 		) {
@@ -618,6 +623,20 @@ function readSearchGroups(
 				continue;
 			}
 			members.push(member);
+		}
+		// HQ writes headings and prompt labels to the same locale table by
+		// their exact saved names. A populated heading can share a value with
+		// a field in any group, even without a stored translation override.
+		if (
+			fieldNames.has(key) &&
+			members.some((member) => member.peek("hidden") !== true)
+		) {
+			const detail = { name: key };
+			row.refuseWhole(P.groupDisplayKey, detail);
+			const finding = manifestFindingOf(P.groupDisplayKey, place, detail);
+			for (const member of members) headingRefusals.set(member, finding);
+			refused = true;
+			continue;
 		}
 		const codes = appCodes(ctx);
 		const copy = promptText(

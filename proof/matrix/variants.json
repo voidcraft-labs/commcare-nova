@@ -40308,6 +40308,17 @@
 		}
 	},
 	{
+		"id": "hq-search/field-sharing-the-saved-group-display-key",
+		"base": "hq-search",
+		"entry": "case-search/search-group-shares-its-display-key-with-a-field",
+		"standing": "never",
+		"place": { "kind": "search", "menu": 0, "name": "Clients" },
+		"change": {
+			"op": "named",
+			"name": "field_sharing_the_saved_group_display_key"
+		}
+	},
+	{
 		"id": "hq-search/fields-with-a-blank-heading",
 		"base": "hq-search",
 		"entry": "case-search/search-group-heading-unreadable",

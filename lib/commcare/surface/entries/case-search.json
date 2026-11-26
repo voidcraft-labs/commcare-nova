@@ -3835,6 +3835,27 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/search-group-shares-its-display-key-with-a-field",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A displayed Search group whose saved key also names a Search field",
+		"surfaceKeys": ["schema:CaseSearchProperty.group_key"],
+		"valueClass": "search-group-display-key-shared",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: CommCare uses one app string for the heading and the field label. The field's value may replace the heading even without a stored translation.",
+		"subject": "search-group-display-key",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "one generated locale supplies two distinct Search controls"
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "case-search/search-group-heading-unreadable",
 		"area": "case-search",
 		"section": "Case search",

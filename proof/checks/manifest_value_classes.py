@@ -5294,6 +5294,32 @@ def search_group_layout_unreadable(use, manifest):
     return None
 
 
+def search_group_display_key_shared(use, manifest):
+    """A displayed heading and a distinct prompt emit the same locale ID."""
+    at = _json(use)
+    if at is None:
+        return None
+    search = at.nearest("CaseSearch")
+    group = at.nearest("CaseSearchProperty")
+    if search is None or group is None or group.get("is_group") is not True:
+        return False
+    key = group.get("group_key")
+    if not isinstance(key, str) or not key or group.get("name") != key:
+        return False
+    rows = search.get("properties") or []
+    if not any(isinstance(row, dict) and row.get("is_group") is not True and row.get("name") == key for row in rows):
+        return False
+    for index, row in enumerate(rows):
+        if row is group:
+            for member in rows[index + 1:]:
+                if not isinstance(member, dict) or member.get("is_group") is True:
+                    break
+                if member.get("group_key") == key and member.get("hidden") is not True:
+                    return True
+            return False
+    return False
+
+
 def search_group_heading_unreadable(use, manifest):
     """An otherwise valid header must give the app's worker languages a visible label."""
     at = _json(use)
@@ -13737,6 +13763,7 @@ VALUE_CLASSES = {
     "case-search/additional-record-type-without-menu": additional_record_type_without_menu,
     "case-search/search-group-layout-unreadable": search_group_layout_unreadable,
     "case-search/search-group-heading-unreadable": search_group_heading_unreadable,
+    "case-search/search-group-shares-its-display-key-with-a-field": search_group_display_key_shared,
     "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
     "case-search/allow-blank-value-on-a-prompt-named-owner-id": allow_blank_beside_the_owner,
     "case-search/validations-1": later_validations,
