@@ -46,6 +46,7 @@
 		"hq-advanced/two-opens-sharing-a-repeat-block"
 	],
 	"hq-case-lists": [
+		"hq-case-lists/address-in-a-web-apps-grouped-tile-body",
 		"hq-case-lists/address-popup-column",
 		"hq-case-lists/audio-column",
 		"hq-case-lists/calculation-loading-faster",

@@ -48,9 +48,9 @@ import {
 	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
 	moduleSearchWorkflow,
-	rawTileTextShowsInGroupedWebBody,
 	type SearchInputDef,
 	tileCellFor,
+	tileCellIsGroupBody,
 	tileCellOnlyOnAndroid,
 } from "./modules";
 import { holdsLabelOnlyMedia } from "./multimedia";
@@ -653,28 +653,21 @@ function moduleUses(
 			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
 		}
 		const cell = tileCellFor(column, list?.tile);
-		if (
-			rawTileTextShowsInGroupedWebBody(cell, list?.tile?.grouping?.headerRows)
-		) {
-			if (wanted("raw-grouped-tile-body-field"))
+		if (tileCellOnlyOnAndroid(column, cell)) {
+			const feature =
+				list?.tile?.namedSlots === undefined &&
+				tileCellIsGroupBody(cell, list?.tile?.grouping?.headerRows)
+					? "raw-grouped-tile-body-field"
+					: "raw-custom-tile-field";
+			if (wanted(feature))
 				uses.push(
 					slotUse(
-						"raw-grouped-tile-body-field",
+						feature,
 						target,
-						slot("tile.androidOnly"),
+						slot(cell?.androidOnly ? "tile.androidOnly" : "kind"),
 					),
 				);
-		} else if (
-			tileCellOnlyOnAndroid(column, cell) &&
-			wanted("raw-custom-tile-field")
-		)
-			uses.push(
-				slotUse(
-					"raw-custom-tile-field",
-					target,
-					slot(cell?.androidOnly ? "tile.androidOnly" : "kind"),
-				),
-			);
+		}
 		if (
 			cell !== undefined &&
 			cell.verticalAlign !== "middle" &&

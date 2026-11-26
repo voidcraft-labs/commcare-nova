@@ -48,12 +48,12 @@ import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
 	type CaseListConfig,
 	type Column,
-	rawTileTextShowsInGroupedWebBody,
 	TILE_GRID_COLUMNS,
 	type TileCell,
 	type TileFontSize,
 	type TileHorizontalAlign,
 	type TileVerticalAlign,
+	tileCellIsGroupBody,
 	type Uuid,
 } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
@@ -249,10 +249,7 @@ export function TileCellInspector({
 								disabledReason={
 									webApps &&
 									cell.androidOnly !== true &&
-									rawTileTextShowsInGroupedWebBody(
-										{ y: cell.y, androidOnly: true },
-										config.tile?.grouping?.headerRows,
-									)
+									tileCellIsGroupBody(cell, config.tile?.grouping?.headerRows)
 										? "Web Apps shows this value below the group heading. You can move the field into the heading first."
 										: undefined
 								}

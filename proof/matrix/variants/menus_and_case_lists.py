@@ -1266,6 +1266,12 @@ def invisible_text_in_a_web_apps_grouped_tile_body(authoring, app_id):
     )
 
 
+def address_in_a_web_apps_grouped_tile_body(authoring, app_id):
+    """Place a native address below Follow-ups' grouping heading at the same stored cell."""
+    invisible_text_in_a_web_apps_grouped_tile_body(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/1/case_details/short/columns/0/format", "address")
+
+
 def tile_grouped_by_parent(authoring, app_id):
     """Households' list laid out as a tile of two rows, a household's name above its village, the cases grouped by
     their parent with the first row as each group's header."""

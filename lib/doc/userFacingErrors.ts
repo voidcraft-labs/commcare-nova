@@ -745,7 +745,7 @@ const PLATFORM_BUILDER_COPY = {
 	},
 	"raw-grouped-tile-body-field": {
 		lead: (subject) =>
-			`${subject} is visible below the group heading in Web Apps even when marked to show only on Android.`,
+			`${subject} is visible below the group heading in Web Apps, where its value is meant to stay hidden.`,
 		alternative: "move it into the heading or take it out of the tile",
 	},
 } as const satisfies Readonly<

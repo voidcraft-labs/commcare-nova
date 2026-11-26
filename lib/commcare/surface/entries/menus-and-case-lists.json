@@ -6002,7 +6002,7 @@
 		],
 		"valueClass": "invisible-or-address-in-a-custom-tile",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: preserve the placed short field and its Android value. Web Apps hides a zero-width template on an ungrouped tile and in its group heading. A placed invisible text column in a Web Apps group body has its own refusal.",
+		"dispositionCell": "**HELD**: preserve the placed short field and its Android value. Web Apps hides a zero-width template on an ungrouped tile and in its group heading. The Web Apps body has separate refusals for invisible text and address values.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6050,13 +6050,40 @@
 		"gates": []
 	},
 	{
-		"id": "menus-and-case-lists/android-only-text-in-a-grouped-tile-body",
+		"id": "menus-and-case-lists/address-in-a-web-apps-grouped-tile-body",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column formats",
-		"item": "An Android-only text field below a tile group heading",
+		"item": "A placed address column below a Web Apps tile group heading",
+		"surfaceKeys": ["schema:DetailColumn.format"],
+		"valueClass": "address-in-a-web-apps-grouped-tile-body",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps displays the raw map location from every row below the group heading even though its field has width hint 0.",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "`tile_grouped_item.html` renders grouped body address data without checking the zero-width hint"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "the gate refuses this Android-only field in a grouped body in an app that runs on Web Apps",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/android-only-value-in-a-grouped-tile-body",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "An Android-only field below a tile group heading",
 		"surfaceKeys": [],
-		"noSurfaceKey": "The placement, orientation of the heading cut, and platform declaration together. The app-source refusal is invisible-text-in-a-web-apps-grouped-tile-body.",
+		"noSurfaceKey": "The field format, its placement below the heading, and the platform declaration together. The source refusals account for the invisible and address carriers separately.",
 		"origin": "export-use",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: an Android-only declaration keeps the placed field. The shared gate refuses the placement on Web Apps.",

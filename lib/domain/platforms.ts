@@ -839,7 +839,7 @@ export const PLATFORM_FEATURES: Readonly<
 		},
 	},
 	"raw-grouped-tile-body-field": {
-		label: "Search Only text below a group heading",
+		label: "An Android-only value below a group heading",
 		channel: "structure",
 		webApps: {
 			reading: "unavailable",
@@ -847,8 +847,8 @@ export const PLATFORM_FEATURES: Readonly<
 		},
 		android: { reading: "runs" },
 		refusal: {
-			what: "places Search Only text below a group heading",
-			why: "Web Apps displays the value there even when it is marked to show only on Android.",
+			what: "places an Android-only field below a group heading",
+			why: "Web Apps displays the value there, including saved map locations.",
 			alternative:
 				"move the field into the heading, remove it from the tile, or turn off grouping",
 		},

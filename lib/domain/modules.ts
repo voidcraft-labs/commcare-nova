@@ -617,8 +617,9 @@ export function tileCellFor(
  * Whether a Results tile cell draws only on Android. HQ writes an
  * `invisible` field (a cell marked `androidOnly`) and an `address` (a map
  * location) with a zero template width (`detail_screen.py::HideShortColumn`):
- * Web Apps hides a zero-width tile field (`tile_item.html`), and Android
- * draws its stored value at its cell (`EntityViewTile.addFieldView`).
+ * Web Apps hides a zero-width field on ordinary tiles and in group headings.
+ * The platform gate keeps these fields out of grouped bodies on Web Apps.
+ * Android draws the value at its cell (`EntityViewTile.addFieldView`).
  */
 export function tileCellOnlyOnAndroid(
 	column: Pick<Column, "kind">,
@@ -2830,17 +2831,12 @@ export function tileCellIsGroupHeader(
 	return cell.y < headerRows;
 }
 
-/** Web Apps ignores width zero in grouped body rows. This flag is the
- * authored invisible text carrier; map addresses use their own wire format. */
-export function rawTileTextShowsInGroupedWebBody(
-	cell: Pick<TileCell, "y" | "androidOnly"> | undefined,
+/** Web Apps partitions grouped tile cells by their starting row. */
+export function tileCellIsGroupBody(
+	cell: Pick<TileCell, "y"> | undefined,
 	headerRows: number | undefined,
 ): boolean {
-	return (
-		cell?.androidOnly === true &&
-		headerRows !== undefined &&
-		cell.y >= headerRows
-	);
+	return cell !== undefined && headerRows !== undefined && cell.y >= headerRows;
 }
 
 /**
@@ -2859,12 +2855,15 @@ export function rawTileTextShowsInGroupedWebBody(
  * emits no `<style>`, so it is not on the tile and must not widen this
  * arithmetic either.
  *
+ * For Web Apps, pass the shown cells whose value should only appear on
+ * Android. A cut must keep every one of them in the heading.
+ *
  * Empty when the tile has no shown cell, and empty for a one-row tile:
  * a single row has no room for both a header and a body.
  */
 export function tileGroupHeaderRowChoices(
 	cells: readonly TileCell[],
-	webApps = false,
+	androidOnlyCells: readonly TileCell[] = [],
 ): readonly number[] {
 	if (cells.length === 0) return [];
 	const occupiedRows = Math.max(...cells.map(tileCellBottomEdge));
@@ -2876,10 +2875,7 @@ export function tileGroupHeaderRowChoices(
 				tileCellBottomEdge(cell) > headerRows,
 		);
 		if (straddles) continue;
-		if (
-			webApps &&
-			cells.some((cell) => rawTileTextShowsInGroupedWebBody(cell, headerRows))
-		)
+		if (androidOnlyCells.some((cell) => tileCellIsGroupBody(cell, headerRows)))
 			continue;
 		if (!cells.some((cell) => tileCellIsGroupHeader(cell, headerRows)))
 			continue;

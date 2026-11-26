@@ -55,6 +55,7 @@ import {
 	orderedColumns,
 	type TileCell,
 	tileCellFor,
+	tileCellOnlyOnAndroid,
 	tileGroupHeaderRowChoices,
 	type Uuid,
 } from "@/lib/domain";
@@ -92,14 +93,17 @@ export function TileGroupingSection({
 	// that, shared with both emitters: a hidden, order-driving column
 	// keeps a stored cell but is not on the tile, so it must not widen
 	// this arithmetic either.
-	const cells: TileCell[] = orderedColumns(config, "list").flatMap((column) => {
+	const cells: TileCell[] = [];
+	const androidOnlyCells: TileCell[] = [];
+	const webApps = platforms.includes("web-apps");
+	for (const column of orderedColumns(config, "list")) {
 		const cell = tileCellFor(column, tile);
-		return cell === undefined ? [] : [cell];
-	});
-	const choices = tileGroupHeaderRowChoices(
-		cells,
-		platforms.includes("web-apps"),
-	);
+		if (cell === undefined) continue;
+		cells.push(cell);
+		if (webApps && tileCellOnlyOnAndroid(column, cell))
+			androidOnlyCells.push(cell);
+	}
+	const choices = tileGroupHeaderRowChoices(cells, androidOnlyCells);
 	const reopenNotice = groupingReopenNotice(grouping, platforms);
 
 	if (choices.length === 0 && grouping === undefined) {

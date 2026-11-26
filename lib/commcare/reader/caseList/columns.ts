@@ -244,6 +244,10 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}invisible-text-in-a-web-apps-grouped-tile-body`,
 		"schema:DetailColumn.format",
 	),
+	addressGroupedBody: refuse(
+		`${A}address-in-a-web-apps-grouped-tile-body`,
+		"schema:DetailColumn.format",
+	),
 	invisibleInTile: take(
 		`${A}invisible-or-address-column-in-a-custom-tile`,
 		"schema:DetailColumn.format",
@@ -1367,7 +1371,7 @@ export interface ColumnOptions {
 	/** Whether the short detail is a custom tile. */
 	readonly inTile: boolean;
 	readonly namedTile?: boolean;
-	readonly invisibleTextShowsInWebApps?: boolean;
+	readonly widthZeroValueShowsInWebApps?: boolean;
 	/** Whether the menu's faster loading is on, without which HQ's build writes no column's
 	 *  load behavior (`detail_screen.py::FormattedDetailColumn.fields`). */
 	readonly optimizationsOn?: boolean;
@@ -1785,11 +1789,17 @@ function readColumn(
 		typeof column.peek("format") === "string"
 			? (column.peek("format") as string)
 			: "plain";
-	if (options.invisibleTextShowsInWebApps) {
-		column.refuse("format", C.invisibleGroupedBody, {
-			reason:
-				"Web Apps displays this Search Only value below the group heading.",
-		});
+	if (options.widthZeroValueShowsInWebApps) {
+		const address = format === "address";
+		column.refuse(
+			"format",
+			address ? C.addressGroupedBody : C.invisibleGroupedBody,
+			{
+				reason: address
+					? "Web Apps displays this map value below the group heading."
+					: "Web Apps displays this Search Only value below the group heading.",
+			},
+		);
 		return undefined;
 	}
 	const others =
@@ -2203,8 +2213,8 @@ function readColumn(
 			column.refuse("format", C.severalOfOneFormat, formatName(format));
 			return undefined;
 		}
-		// HQ writes an address with a zero template width, so a custom
-		// Results tile hides it on Web Apps and Android draws it at its cell.
+		// HQ writes a zero template width. Android draws the address at its
+		// cell and Web Apps hides it on ordinary tiles and group headings.
 		column.take(
 			"format",
 			count > 1

@@ -21,12 +21,12 @@ import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import {
 	type CaseListConfig,
 	caseTileGroupingSchema,
-	rawTileTextShowsInGroupedWebBody,
 	TILE_FONT_SIZES,
 	TILE_GRID_COLUMNS,
 	TILE_HORIZONTAL_ALIGNS,
 	type TileCell,
 	type TileVerticalAlign,
+	tileCellIsGroupBody,
 	tileCellsOverlap,
 	tileRowLimit,
 } from "@/lib/domain/modules";
@@ -391,15 +391,16 @@ function storedBox(column: JsonCursor): TileCell | undefined {
 	return { x, y, width, height } as TileCell;
 }
 
-/** Body placement of an ordinary invisible field in a custom Web Apps tile. */
-export function invisibleTileTextShowsInWebApps(
+/** Body placement of a width-zero field in a custom Web Apps tile. */
+export function widthZeroTileValueShowsInWebApps(
 	short: JsonCursor,
 	column: JsonCursor,
 ): boolean {
 	const group = short.peek("case_tile_group");
+	const format = column.peek("format");
 	if (
 		short.peek("case_tile_template") !== "custom" ||
-		column.peek("format") !== "invisible" ||
+		(format !== "invisible" && format !== "address") ||
 		!isJsonObject(group)
 	)
 		return false;
@@ -415,10 +416,7 @@ export function invisibleTileTextShowsInWebApps(
 	const fit = gridFit(column, screenTileRows(short, false));
 	return (
 		(fit === "fits" || fit === "below-the-twelfth-row") &&
-		rawTileTextShowsInGroupedWebBody(
-			{ y: cell.y, androidOnly: true },
-			grouping.data.headerRows,
-		)
+		tileCellIsGroupBody(cell, grouping.data.headerRows)
 	);
 }
 

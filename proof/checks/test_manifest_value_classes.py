@@ -6647,7 +6647,7 @@ def _held_new():
     def columns(*listed, **short_fields):
         return _app([_detail_module(listed, short=short_fields)])
 
-    def invisible_tile(y=1, web_apps=True, grouped=True, fmt="invisible"):
+    def width_zero_tile(y=1, web_apps=True, grouped=True, fmt="invisible"):
         short = {"case_tile_template": "custom"}
         if grouped:
             short["case_tile_group"] = {
@@ -6896,11 +6896,18 @@ def _held_new():
             accepted("app", keyed("enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
         ),
         "menus-and-case-lists/invisible-text-in-a-web-apps-grouped-tile-body": (
-            refused("app", invisible_tile(), "schema:DetailColumn.format", f"{short}/columns/1/format"),
-            accepted("app", invisible_tile(y=0), "schema:DetailColumn.format", f"{short}/columns/1/format"),
-            accepted("app", invisible_tile(web_apps=False), "schema:DetailColumn.format", f"{short}/columns/1/format"),
-            accepted("app", invisible_tile(grouped=False), "schema:DetailColumn.format", f"{short}/columns/1/format"),
-            accepted("app", invisible_tile(fmt="address"), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            refused("app", width_zero_tile(), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", width_zero_tile(y=0), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", width_zero_tile(web_apps=False), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", width_zero_tile(grouped=False), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", width_zero_tile(fmt="address"), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+        ),
+        "menus-and-case-lists/address-in-a-web-apps-grouped-tile-body": (
+            refused("app", width_zero_tile(fmt="address"), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", width_zero_tile(y=0, fmt="address"), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", width_zero_tile(web_apps=False, fmt="address"), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", width_zero_tile(grouped=False, fmt="address"), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", width_zero_tile(), "schema:DetailColumn.format", f"{short}/columns/1/format"),
         ),
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(
