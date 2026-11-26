@@ -54,7 +54,7 @@ def test_android_uses_long_recipients_and_only_one_inline_video(android_document
         entries[path] = _blank_help_and_control(entries[path], VIDEO)
         patched = archive_bytes(entries.items())
         answer, sent = _app(
-            served, patched, "itext-recipients", commands=[FORM], views=True, controls=True,
+            served, patched, "itext-recipients", commands=[FORM], views=True,
             questions={"/data/household/address": ["proof"]}, repeat_additions=1,
         )
         refused, refusal_submissions = _app(
@@ -68,10 +68,17 @@ def test_android_uses_long_recipients_and_only_one_inline_video(android_document
     form, = _forms(walk)
     screens = form["screens"]
     views = [screen.get("view") or {} for screen in screens]
-    banners = [screen.get("banners") or {} for screen in screens]
-    text = " ".join(label for view in [*views, *banners] for label in _texts(view))
-    for expected in ("The address label", "The address hint", "The address help", "The household title", "The chosen option", "The entries title"):
+    text = " ".join(label for view in views for label in _texts(view))
+    for expected in ("The address label", "The address hint", "The address help", "The chosen option"):
         assert expected in text, (expected, text)
+    headings = [
+        heading["text"].strip()
+        for screen in screens
+        for heading in _visible_views(screen.get("groupHeading") or {}, "TextView")
+    ]
+    assert "The household title" in headings, headings
+    assert "The entries title (1)" in headings, headings
+    assert any(screen.get("chose") == "Add a new The entries title?" for screen in screens)
     rejected, = _forms(refusal_walk)
     assert "The address violation" in json.dumps(rejected["screens"]), rejected["screens"]
     assert rejected["saved"]["finishing"] is False and not refusal_submissions
