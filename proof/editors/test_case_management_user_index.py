@@ -68,6 +68,8 @@ def test_basic_case_management_writes_through_user_index_and_refuses_a_missing_l
         form = module.forms[0]
         module.case_type = "person"
         form.requires = "case"
+        # The legacy fixture stores an unused open mapping as null. HQ's editor saves an empty mapping.
+        form.actions.open_case.name_update = ConditionalCaseUpdate()
         form.actions.update_case.condition.type = "always"
         form.actions.update_case.update = {
             key: ConditionalCaseUpdate(question_path="/data/note", update_mode="always")
