@@ -48,6 +48,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import replace
 
+import json
+
 import pytest
 
 pytestmark = pytest.mark.reader("android")
@@ -244,10 +246,16 @@ def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(a
             assert last_list(first) == chosen, name
             assert last_list(second) == chosen, name
             # Every form the walks sent, by its root and the cases it changed, where more than one came.
-            assert len(sent) == 1, (name, [_sent_summary(one) for one in sent], {
-                "/".join(path): [_step_summary(step) for step in navs["path:" + "/".join(path)]["steps"]]
-                for path in (own, first, second, completed)
-            })
+            if len(sent) != 1:
+                print(json.dumps({
+                    "archive": name,
+                    "sent": [_sent_summary(one) for one in sent],
+                    "walks": {
+                        "/".join(path): [_step_summary(step) for step in navs["path:" + "/".join(path)]["steps"]]
+                        for path in (own, first, second, completed)
+                    },
+                }, indent=1))
+            assert len(sent) == 1, (name, len(sent))
             (instance,) = sent
             submitted = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
             assert [submitted.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
@@ -298,10 +306,9 @@ def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_
                 walk = navs["path:" + "/".join(path)]
                 assert "raised" not in walk, walk
                 steps = walk["steps"]
-                assert len([step for step in steps if step["screen"] == LIST]) == len(picked), (
-                    path,
-                    [_step_summary(step) for step in steps],
-                )
+                if len([step for step in steps if step["screen"] == LIST]) != len(picked):
+                    print(json.dumps({"archive": name, "path": path, "steps": [_step_summary(s) for s in steps]}, indent=1))
+                assert len([step for step in steps if step["screen"] == LIST]) == len(picked), (path, len(steps))
                 opened = next(step for step in steps if step["screen"] == "FormEntryActivity")
                 assert opened["session"]["command"] == command, (path, opened)
                 assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (path, opened)
