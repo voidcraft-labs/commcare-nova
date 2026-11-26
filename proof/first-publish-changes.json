@@ -2217,6 +2217,11 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/translations/*/app.display.name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/homescreen.title"
 			}
 		]
 	},
