@@ -2234,8 +2234,26 @@
 	{
 		"id": "hq-advanced/open-index-named-with-a-hyphen",
 		"base": "hq-advanced",
+		"entry": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
+		"standing": "not-yet",
+		"place": { "kind": "menu", "menu": 1, "name": "Member visits" },
+		"change": { "op": "named", "name": "open_member_with_parent_index" },
+		"second": {
+			"entry": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
+			"standing": "not-yet",
+			"place": { "kind": "menu", "menu": 2, "name": "Member reviews" },
+			"change": {
+				"op": "set-json",
+				"pointer": "/modules/1/forms/0/actions/open_cases/0/case_indices/0/reference_id",
+				"value": "my-parent"
+			}
+		}
+	},
+	{
+		"id": "hq-advanced/visitor-opened-with-a-hyphenated-index",
+		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
-		"change": { "op": "named", "name": "open_member_with_hyphenated_index" },
+		"change": { "op": "named", "name": "open_visitor_with_hyphenated_index" },
 		"holds": [
 			{
 				"key": ["form", { "$xmlns": [1, 0] }],

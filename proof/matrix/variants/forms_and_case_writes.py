@@ -141,11 +141,18 @@ def _open(tag, case_type, name_path, indices, repeat_context=""):
     }
 
 
-def open_member_with_hyphenated_index(authoring, app_id):
-    """The member the advanced form opens keeps its link to the selected household."""
+def open_member_with_parent_index(authoring, app_id):
+    """Open another member under the existing household connection."""
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
+        _open("open_member_0", "member", "/data/notes", [_index("load_household0")]),
+    ])
+
+
+def open_visitor_with_hyphenated_index(authoring, app_id):
+    """Use the distinct connection for a type whose menu has no existing child chain."""
     ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
         _open(
-            "open_member_0", "member", "/data/notes",
+            "open_member_0", "visitor", "/data/notes",
             [{**_index("load_household0"), "reference_id": "my-parent"}],
         ),
     ])
