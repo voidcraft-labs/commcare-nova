@@ -268,6 +268,16 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 	if (site?.kind !== "single_select" || site.optionsSource.kind !== "lookup")
 		throw new Error("The adopted visit needs its lookup question.");
 	const initial = await getLookupTable(projectScope, tableId);
+	const code = initial.columns.find((column) => column.wireName === "code");
+	const label = initial.columns.find((column) => column.wireName === "name");
+	if (!code || !label)
+		throw new Error("The shared table needs its code and name.");
+	expect(
+		initial.rows.map((row) => [row.values[code.id], row.values[label.id]]),
+	).toEqual([
+		["north", "Hill clinic"],
+		["south", "River clinic"],
+	]);
 	expect(initial.hq).toMatchObject({
 		managedBy: "commcare-hq",
 		...origin,
