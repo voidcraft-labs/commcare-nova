@@ -29,7 +29,7 @@ export type AuthKind = "oauth" | "api-key";
  * The route's verify layer checks the floor scopes (`nova.read`,
  * `nova.write`) before any handler runs; orthogonal scopes
  * (`nova.hq.read` / `nova.hq.write` / `nova.hq.import`,
- * `nova.projects.read` / `nova.projects.write`) layer on top through
+ * `nova.projects.read` / `nova.projects.write`, and Preview search scopes) layer on top through
  * `scopedTool.ts::registerScopedTool`, which declares each tool's OAuth
  * scope challenge and checks its scopes before the handler runs. This
  * context carries the full scope set so that check can read it without
@@ -49,10 +49,8 @@ export interface ToolContext {
 	 * `offline_access`) Nova doesn't own but must preserve alongside
 	 * its own. `registerScopedTool` checks a tool's orthogonal scopes
 	 * (`scopes.ts::TOOL_SCOPES`) against this list before its handler
-	 * runs. Shared
-	 * SA tools never see scopes — the route's verify layer already
-	 * enforced the floor (`nova.read`, `nova.write`) before any tool
-	 * body runs.
+	 * runs. The shared adapter applies the same check before opening a
+	 * saved app or work session for a tool that needs additional consent.
 	 */
 	scopes: readonly string[];
 	/**

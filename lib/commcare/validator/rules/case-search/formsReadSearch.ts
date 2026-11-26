@@ -40,6 +40,7 @@ import {
 	moduleIsBareCaseList,
 	moduleIsCaseFirst,
 	moduleParent,
+	searchOpensOnList,
 	type Uuid,
 } from "@/lib/domain";
 import { parentSelectModuleUuid } from "../../../formLinkProjection";
@@ -150,7 +151,7 @@ export function formsReadSearchWithListFirst(
 	_doc: BlueprintDoc,
 ): ValidationError[] {
 	const config = effectiveCaseSearchConfig(mod);
-	if (config?.workflow !== "listFirst" || config.formsReadSearch !== true)
+	if (config?.formsReadSearch !== true || !searchOpensOnList(config.workflow))
 		return [];
 	return [
 		validationError(

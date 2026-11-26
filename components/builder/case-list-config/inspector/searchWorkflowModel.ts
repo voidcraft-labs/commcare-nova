@@ -12,7 +12,11 @@ import {
 	formsReadSearchOnMutations,
 } from "@/lib/doc/caseListRegistrationForm";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import type { SearchWorkflow, Uuid } from "@/lib/domain";
+import {
+	type SearchWorkflow,
+	searchOpensOnList,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	type Platform,
 	type PlatformFeatureId,
@@ -75,7 +79,8 @@ export function searchWorkflowPatch(
 		case "skipToResults":
 			return { workflow: "skipToResults" };
 		case "listFirst":
-			return { workflow: "listFirst", formsReadSearch: null };
+		case "listFirstWithDefaultResults":
+			return { workflow, formsReadSearch: null };
 	}
 }
 
@@ -108,7 +113,7 @@ export function formsReadSearchMutations(
 
 /** The switch sits under Search first and Results first only. */
 export function formsReadSearchOffered(workflow: SearchWorkflow): boolean {
-	return workflow !== "listFirst";
+	return !searchOpensOnList(workflow);
 }
 
 /** The Android note under a choice: Search first and Results first each
@@ -116,7 +121,7 @@ export function formsReadSearchOffered(workflow: SearchWorkflow): boolean {
 export function searchWorkflowNoteFeature(
 	workflow: SearchWorkflow,
 ): PlatformFeatureId | undefined {
-	return workflow === "listFirst"
+	return searchOpensOnList(workflow)
 		? undefined
 		: SEARCH_WORKFLOW_CHOICES.find((choice) => choice.workflow === workflow)
 				?.feature;
@@ -183,7 +188,7 @@ export function searchWorkflowCanvasLines({
 	readonly hasButtonCondition: boolean;
 	readonly formsReadSearch: boolean;
 }): readonly string[] {
-	if (workflow === "listFirst") return [];
+	if (searchOpensOnList(workflow)) return [];
 	const lines: string[] = [];
 	if (!hasVisibleField)
 		lines.push(

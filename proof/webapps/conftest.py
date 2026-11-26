@@ -17,6 +17,9 @@ import pytest
 DOCUMENTS = (
     "hq-question-display",
     "targeted-question-calendar",
+    "prompt-periods",
+    "prompt-period-spellings",
+    "prompt-period-held",
     "case-capture-multiple",
     "case-capture-repeat",
     "case-list-browse",
@@ -29,6 +32,7 @@ DOCUMENTS = (
     "media-only",
     "navigation-base",
     "no-matches-basic",
+    "prompt-checkboxes",
     "prompt-widgets",
     "search-browse",
     "targeted-menu-badges",

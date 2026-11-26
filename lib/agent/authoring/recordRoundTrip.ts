@@ -134,6 +134,17 @@ function moduleReadSite(
 			return site(module.badge, ["expression"]);
 		case "module_display_condition":
 			return site(module.displayCondition, []);
+		case "search_filter_value": {
+			const position =
+				list?.searchFilters?.findIndex(
+					(filter) => filter.uuid === ref.member.filterUuid,
+				) ?? -1;
+			return position < 0
+				? undefined
+				: site(list, ["searchFilters", position, "value"]);
+		}
+		case "case_search_filter":
+			return site(list, ["searchCondition"]);
 		case "case_list_filter":
 			return site(list, ["filter"]);
 		case "search_button_display_condition":

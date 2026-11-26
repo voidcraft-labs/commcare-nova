@@ -179,6 +179,18 @@ function everyKindDoc(): BlueprintDoc {
 					mode: { kind: "exact" },
 				},
 			] as unknown as CaseListConfig["searchInputs"],
+			searchFilters: [
+				{
+					uuid: testUuid("map-filter-owner"),
+					target: { kind: "owner" },
+					value: { kind: "term", term: { kind: "literal", value: "a" } },
+				},
+				{
+					uuid: testUuid("map-filter-owner-again"),
+					target: { kind: "owner" },
+					value: { kind: "term", term: { kind: "literal", value: "b" } },
+				},
+			] as unknown as CaseListConfig["searchFilters"],
 		},
 	};
 	const kidsModule = doc.moduleOrder[1];
@@ -268,6 +280,15 @@ describe("externalIdentityMap's keys", () => {
 		expectKey(
 			testUuid("map-search-name"),
 			externalKey.searchInput(menu, "patient_name"),
+		);
+		// Two filters on one request key count apart, in their order.
+		expectKey(
+			testUuid("map-filter-owner"),
+			externalKey.searchFilter(menu, "owner_id", 0),
+		);
+		expectKey(
+			testUuid("map-filter-owner-again"),
+			externalKey.searchFilter(menu, "owner_id", 1),
 		);
 		expectKey(
 			testUuid("map-menu-entry"),

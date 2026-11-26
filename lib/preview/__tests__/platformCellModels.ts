@@ -81,8 +81,12 @@ import {
 	searchInputConstraintErrors,
 	searchInputRequiredMarks,
 } from "../engine/searchInputConstraints";
+import {
+	startingSearchRange,
+	webSearchRangeDraft,
+} from "../engine/searchRangeAnswer";
+import { drawnSearchInputs } from "../engine/searchRunState";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
-import { drawnSearchInputs } from "../hooks/useSearchInputRunState";
 import { labelPresentation } from "../labelPresentation";
 import { shownMenuBadge } from "../menuProjection";
 import {
@@ -92,6 +96,7 @@ import {
 	WEB_APPS_APPVERSION,
 	WEB_APPS_DEVICE_ID,
 } from "../platform";
+import { searchAfterClear } from "../searchStanding";
 import { evaluateAsync } from "../xpath/asyncEvaluator";
 import {
 	coreDateAdd,
@@ -476,6 +481,12 @@ export const PLATFORM_MODEL_CHECKS = {
 		expect(firstMenuPrevious("android")).toEqual([row().case_id]);
 	},
 
+	"desktop-search-on-clear": () => {
+		expect(searchAfterClear(true, WEB_APPS, 991)).toBe(false);
+		expect(searchAfterClear(true, WEB_APPS, 992)).toBe(true);
+		expect(searchAfterClear(false, WEB_APPS, 992)).toBe(false);
+		expect(searchAfterClear(true, ANDROID, 1280)).toBe(false);
+	},
 	/* A calculate over the clock and a condition over it re-evaluate after
 	 * an unrelated answer on Web Apps; a starting value does not; on Android
 	 * neither moves. */
@@ -923,6 +934,36 @@ export const PLATFORM_MODEL_CHECKS = {
 	},
 
 	/* Android searches whatever the answers: no checks, no required marks. */
+	"starting-dates-android": () => {
+		expect(
+			startingSearchRange(
+				"2024-03-10 to 2024-03-11",
+				"device-zone",
+				"America/New_York",
+			),
+		).toEqual({ kind: "pair", from: "2024-03-09", to: "2024-03-10" });
+		expect(
+			startingSearchRange("unfinished", "device-zone", "America/New_York"),
+		).toEqual({ kind: "unparsed", text: "unfinished" });
+	},
+	"starting-dates-web-apps": () => {
+		const range = simpleSearchInputDef(
+			testUuid("platform-range"),
+			"dates",
+			"Dates",
+			"date-range",
+			"dob",
+		);
+		expect(startingSearchRange("2024-03-10 to 2024-03-11", "utc")).toEqual({
+			kind: "pair",
+			from: "2024-03-10",
+			to: "2024-03-11",
+		});
+		expect(
+			webSearchRangeDraft([range], new Map([["dates:starting", "unfinished"]]))
+				.unavailable?.inputUuid,
+		).toBe(range.uuid);
+	},
 	"search-field-checks-android": () => {
 		const { inputs, session, environment } = searchFixture();
 		expect(
@@ -949,8 +990,9 @@ export const PLATFORM_MODEL_CHECKS = {
 		).toBe(1);
 	},
 
-	/* Android draws a hidden Search field with a starting value as an
-	 * ordinary field. */
+	/* Android reads no `hidden`: it draws a hidden value, with or without a
+	 * starting value, and a field Web Apps does not draw, as ordinary fields;
+	 * Web Apps draws none of them (`SearchInputForm` reads the same rule). */
 	"hidden-search-field-android": () => {
 		const hidden = hiddenSearchInputDef(
 			testUuid("cell-model-hidden"),
@@ -958,8 +1000,37 @@ export const PLATFORM_MODEL_CHECKS = {
 			"District",
 			term(literal("north")),
 		);
-		expect(drawnSearchInputs([hidden], ANDROID)).toEqual([hidden]);
-		expect(drawnSearchInputs([hidden], WEB_APPS)).toEqual([]);
+		const empty = hiddenSearchInputDef(
+			testUuid("cell-model-hidden-empty"),
+			"zone",
+			"Zone",
+			undefined,
+		);
+		const field = simpleSearchInputDef(
+			testUuid("cell-model-hidden-field"),
+			"region",
+			"Region",
+			"text",
+			"region",
+			{ hidden: true, default: term(literal("north")) },
+		);
+		expect(drawnSearchInputs([hidden, empty, field], ANDROID)).toEqual([
+			hidden,
+			empty,
+			field,
+		]);
+		expect(drawnSearchInputs([hidden, empty, field], WEB_APPS)).toEqual([]);
+		expect(ANDROID.hiddenSearchField).toBe("editable");
+		expect(WEB_APPS.hiddenSearchField).toBe("hidden");
+	},
+
+	/* Android reads no `allow_blank_value`: its Search screen draws the field
+	 * alone, so no blank is ever ticked or sent; Web Apps draws the box
+	 * (`SearchInputForm`'s row reads this rule; the browser witness is
+	 * `preview-search-audit.spec.ts`). */
+	"search-for-blank-android": () => {
+		expect(ANDROID.searchForBlank).toBe(false);
+		expect(WEB_APPS.searchForBlank).toBe(true);
 	},
 
 	/* A search that found nothing keeps the search screen on Android, and a

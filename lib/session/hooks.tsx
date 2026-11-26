@@ -38,6 +38,7 @@ import {
 	type PreviewPlatformRules,
 	previewPlatformRules,
 } from "@/lib/preview/platform";
+import { usePreviewSearchConfiguration } from "@/lib/preview/searchConfigurationContext";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	deriveAgentError,
@@ -136,6 +137,10 @@ export function useSetPreviewAndroidAppInstalled() {
 	return useBuilderSession((s) => s.setPreviewAndroidAppInstalled);
 }
 
+export function useSetPreviewSearchRevision() {
+	return useBuilderSession((s) => s.setPreviewSearchRevision);
+}
+
 export function useSetPreviewPlatform(): (platform: Platform) => void {
 	return useBuilderSession((s) => s.setPreviewPlatform);
 }
@@ -173,14 +178,23 @@ export function useMarkPreviewDeviceSynced(): (at: number) => void {
  */
 export function usePreviewDevice(): PreviewDevice {
 	const platform = usePreviewPlatform();
+	const { catalog, target, facts } = usePreviewSearchConfiguration();
+	const revision = catalog === null ? undefined : facts.revision;
 	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
 	const androidDeviceId = useStore(store, (s) => s.previewAndroidDeviceId);
 	const localization = useBlueprintDoc((s) => s.localization);
 	const language = useContext(BlueprintAuthoringLanguageContext);
 	const appLanguage = previewAppLanguage(localization, language);
 	return useMemo(
-		() => ({ platform, androidDeviceId, appLanguage }),
-		[platform, androidDeviceId, appLanguage],
+		() => ({
+			platform,
+			androidDeviceId,
+			appLanguage,
+			...(revision !== undefined && {
+				searchConfiguration: { target, revision },
+			}),
+		}),
+		[platform, androidDeviceId, appLanguage, target, revision],
 	);
 }
 

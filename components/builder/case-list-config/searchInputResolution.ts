@@ -28,12 +28,15 @@ import {
 	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
+	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
 	effectiveSimpleSearchModeKind,
 	exactMode,
 	fuzzyDateMode,
 	fuzzyMode,
+	hiddenSearchFieldRefusal,
 	phoneticMode,
+	projectSpaceMatchingFits,
 	rangeMode,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
@@ -41,13 +44,17 @@ import {
 	type SearchInputMode,
 	type SearchInputType,
 	type SimpleSearchInputDef,
+	searchForBlankRefusal,
 	searchInputRuntimeValueType,
 	startsWithMode,
+	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import {
 	compatibleTypesFor,
+	concat,
 	type Expression,
 	eq,
+	formatDate,
 	input,
 	literal,
 	match,
@@ -94,6 +101,7 @@ export const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
 	barcode: "Barcode",
 	select: "Single choice",
 	"multi-select": "Multiple choice",
+	checkboxes: "Checkboxes",
 };
 
 export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
@@ -103,6 +111,7 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 	barcode: tablerBarcode,
 	select: tablerCircleDot,
 	"multi-select": tablerSquareCheck,
+	checkboxes: tablerSquareCheck,
 };
 
 /** The icon a row wears in the canvas and its drag preview. A hidden value
@@ -121,7 +130,8 @@ export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
 	"date-range": "Two calendars for a start and end date",
 	barcode: "A field for scanning a barcode",
 	select: "A list to pick one choice from a lookup table",
-	"multi-select": "Checkboxes to pick several choices from a lookup table",
+	"multi-select": "A list to pick several choices from a lookup table",
+	checkboxes: "Checkboxes to pick several choices from a lookup table",
 };
 
 /**
@@ -362,8 +372,10 @@ export function computeTypeCouplingErrors(
 		}
 	}
 
-	// Property-anchored gates. Skip when property is unresolved.
-	if (property === undefined) return errors;
+	// Property-anchored gates. Skip when property is unresolved, and where the
+	// project space's own matching rule matches the field, over any type
+	// (`nativeSearchFilters`), as the gate does.
+	if (property === undefined || row.matching === "project-space") return errors;
 	const dataType = effectiveDataType(property);
 
 	const typeAllowList = SEARCH_INPUT_TYPE_PROPERTY_TYPES[row.type];
@@ -383,6 +395,106 @@ export function computeTypeCouplingErrors(
 	}
 
 	return errors;
+}
+
+/**
+ * Why the builder can't offer the row an edit would make (a Field type, a
+ * match or a binding the author points at), or `undefined` where the gate
+ * admits it: the widget and the match fit the property's type unless the
+ * project space matches the field (`projectSpaceMatchingFits`, which
+ * matches any type), and a field Web Apps hides stays one it can hide
+ * (`hiddenSearchFieldRefusal`). The pickers disable a choice with this
+ * reason rather than let the author pick into a refusal.
+ */
+export function searchFieldCandidateRefusal(
+	candidate: VisibleSearchInputDef,
+	propertyDataType: CasePropertyDataType | undefined,
+): string | undefined {
+	if (
+		candidate.kind === "simple" &&
+		candidate.matching !== "project-space" &&
+		propertyDataType !== undefined
+	) {
+		const typeFits =
+			SEARCH_INPUT_TYPE_PROPERTY_TYPES[candidate.type]?.includes(
+				propertyDataType,
+			) ?? true;
+		// The gate reads only a stored match; a type's own match is absent.
+		const modeFits =
+			candidate.mode === undefined ||
+			(SEARCH_MODE_PROPERTY_TYPES[candidate.mode.kind]?.includes(
+				propertyDataType,
+			) ??
+				true);
+		if (!typeFits || !modeFits)
+			return projectSpaceMatchingFits(candidate)
+				? "This works with this information through project space matching. Turn it on first."
+				: typeFits
+					? "This match doesn't work with this information"
+					: "This field type doesn't work with this information";
+	}
+	if (candidate.hidden === true) return hiddenSearchFieldRefusal(candidate);
+	return undefined;
+}
+
+/** The row a Field type would make, as far as the gate reads it: the match
+ *  kept where the type takes it, a date range's own, and the project
+ *  space's matching kept only where the row still fits it. Choice widgets
+ *  need their table to be built for real, so this is a check, not a row. */
+export function typeCandidate(
+	value: VisibleSearchInputDef,
+	type: SearchInputType,
+): VisibleSearchInputDef {
+	if (value.kind !== "simple")
+		return { ...value, type } as VisibleSearchInputDef;
+	const keepMode =
+		value.mode === undefined ||
+		applicableSearchModes(type).includes(value.mode.kind);
+	const { mode: _mode, matching: _matching, ...rest } = value;
+	const mode =
+		type === "date-range"
+			? { kind: "range" as const }
+			: keepMode
+				? value.mode
+				: undefined;
+	return withFittingMatching(value, {
+		...rest,
+		type,
+		...(mode === undefined ? {} : { mode }),
+	} as SimpleSearchInputDef);
+}
+
+/** The row a standard match would make (`setModeKind`), as far as the gate
+ *  reads it. */
+export function modeCandidate(
+	value: SimpleSearchInputDef,
+	kind: SearchInputMode["kind"],
+): SimpleSearchInputDef {
+	const { mode: _mode, matching: _matching, ...rest } = value;
+	if (kind === "range" && value.type !== "date-range")
+		return withFittingMatching(value, {
+			...rest,
+			type: "date-range",
+			mode: { kind: "range" },
+		} as SimpleSearchInputDef);
+	return withFittingMatching(value, {
+		...rest,
+		...(kind === DEFAULT_SEARCH_MODE_KIND[value.type]
+			? {}
+			: { mode: { kind } }),
+	} as SimpleSearchInputDef);
+}
+
+/** The candidate keeps the project space's matching only where it still
+ *  fits it, as `rebuildRow` does. */
+function withFittingMatching(
+	value: SimpleSearchInputDef,
+	candidate: SimpleSearchInputDef,
+): SimpleSearchInputDef {
+	return value.matching === "project-space" &&
+		projectSpaceMatchingFits(candidate)
+		? ({ ...candidate, matching: "project-space" } as SimpleSearchInputDef)
+		: candidate;
 }
 
 export function rowHasStructuralError(resolved: ResolvedRow): boolean {
@@ -439,10 +551,11 @@ export function expectedTypeForDefault(
 		case "date":
 			return "date";
 		case "select":
+		case "checkboxes":
 		case "multi-select":
 			return "text";
 		case "date-range":
-			return undefined;
+			return "text";
 	}
 }
 
@@ -454,37 +567,33 @@ export function expectedTypeForDefault(
  * slot context. Frozen module-level entries keep the constraint
  * identity stable across renders (the editor memoizes on it).
  */
-export type ScalarDefaultSearchInputType = Exclude<
-	SearchInputType,
-	"date-range"
->;
 
-const CONSTRAINT_FOR_DEFAULT: Record<
-	ScalarDefaultSearchInputType,
-	SlotConstraint
-> = {
+const CONSTRAINT_FOR_DEFAULT: Record<SearchInputType, SlotConstraint> = {
 	text: { accepts: compatibleTypesFor("text") },
 	barcode: { accepts: compatibleTypesFor("text") },
 	date: { accepts: compatibleTypesFor("date") },
+	"date-range": { accepts: compatibleTypesFor("text") },
 	select: { accepts: compatibleTypesFor("text") },
 	"multi-select": { accepts: compatibleTypesFor("text") },
+	checkboxes: { accepts: compatibleTypesFor("text") },
 };
 
-export function constraintForDefault(
-	type: ScalarDefaultSearchInputType,
-): SlotConstraint {
+export function constraintForDefault(type: SearchInputType): SlotConstraint {
 	return CONSTRAINT_FOR_DEFAULT[type];
 }
 
-export function seedDefaultExpression(
-	type: ScalarDefaultSearchInputType,
-): Expression {
+export function seedDefaultExpression(type: SearchInputType): Expression {
 	switch (type) {
 		case "date":
 			return today();
+		case "date-range": {
+			const day = formatDate(today(), "%Y-%m-%d");
+			return concat(day, term(literal(" to ")), day);
+		}
 		case "text":
 		case "barcode":
 		case "select":
+		case "checkboxes":
 		case "multi-select":
 			return term(literal(""));
 	}
@@ -599,4 +708,24 @@ export function recoverAnchoredProperty(
 	const ref = left.term;
 	if (ref.via !== undefined && ref.via.kind !== "self") return undefined;
 	return ref.property;
+}
+
+// ── Search for blank across a Match change ────────────────────────
+
+/**
+ * A standard field a Match change builds keeps the author's search for blank
+ * only where the field can carry it (`searchForBlankRefusal`): a match the
+ * field now leaves the bare prompt for, or a property under another name,
+ * turns it off in the same edit, so the Builder never offers a replacement the
+ * gate refuses. `removed` says the search for blank was turned off, which the
+ * confirmation names.
+ */
+export function withSearchForBlankItCanCarry(row: SimpleSearchInputDef): {
+	readonly row: SimpleSearchInputDef;
+	readonly removed: boolean;
+} {
+	if (row.allowBlank !== true || searchForBlankRefusal(row) === undefined)
+		return { row, removed: false };
+	const { allowBlank: _removed, ...rest } = row;
+	return { row: rest, removed: true };
 }

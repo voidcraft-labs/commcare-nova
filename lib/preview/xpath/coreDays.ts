@@ -39,6 +39,7 @@ import {
 	javaZoneOffsetMs,
 	standardOffsetInstant,
 } from "@/lib/domain/javaZoneOffset";
+import { ianaZoneOffsetMs } from "@/lib/domain/temporalValues";
 
 const DAY = 86_400_000;
 
@@ -204,6 +205,25 @@ export function isCoreCalendarDate(
 	return day <= length;
 }
 
+let evaluationZone: string | undefined;
+
+/** A server rendering a worker's expression uses the worker's calendar for
+ * the whole synchronous XPath calculation, including today, date arithmetic
+ * and formatting. Only an evaluated string can leave the scope. */
+export function evaluateTextInDeviceZone(
+	zone: string | undefined,
+	evaluateText: () => string,
+): string {
+	if (zone === undefined) return evaluateText();
+	const previous = evaluationZone;
+	evaluationZone = zone;
+	try {
+		return evaluateText();
+	} finally {
+		evaluationZone = previous;
+	}
+}
+
 /**
  * The realm zone's IANA offset at an instant in milliseconds, seconds
  * included (a local mean time such as Kolkata's +5:21:10 keeps them). An
@@ -211,6 +231,8 @@ export function isCoreCalendarDate(
  */
 function ianaOffsetMs(instantMs: number): number {
 	const clamped = withinLocalLimit(instantMs);
+	if (evaluationZone !== undefined)
+		return ianaZoneOffsetMs(evaluationZone, clamped);
 	const local = new Date(clamped);
 	const wall = new Date(0);
 	wall.setUTCFullYear(local.getFullYear(), local.getMonth(), local.getDate());
@@ -302,20 +324,34 @@ export function javaWallInstant(wall: WallClock): number {
 	);
 }
 
+/** The day Core prints after its date-range parser offsets a local midnight
+ * to UTC. The explicit zone lets a server verify an Android default using
+ * the worker’s zone without changing the JVM/Node process clock. */
+export function javaRangeDefaultDay(
+	days: number,
+	offsetAt: (instant: number) => number = offsetMsAt,
+): number {
+	const local = wallInstantOnDay(days, MIDNIGHT, offsetAt);
+	if (!Number.isFinite(local)) return Number.NaN;
+	const adjusted = local + Math.trunc(offsetAt(local) / 60_000) * 60_000;
+	return Math.floor((adjusted + offsetAt(adjusted)) / DAY);
+}
+
 function wallInstantOnDay(
 	days: number,
 	clock: Pick<WallClock, "hour" | "minute" | "second" | "millisecond">,
+	offsetAt = offsetMsAt,
 ): number {
 	const clockMs =
 		((clock.hour * 60 + clock.minute) * 60 + clock.second) * 1000 +
 		clock.millisecond;
 	const wallUtc = days * DAY + clockMs;
 	if (Math.abs(wallUtc) > LOCAL_LIMIT_MS - DAY) return Number.NaN;
-	const offsets = [wallUtc - DAY, wallUtc, wallUtc + DAY].map(offsetMsAt);
+	const offsets = [wallUtc - DAY, wallUtc, wallUtc + DAY].map(offsetAt);
 	let latest: number | null = null;
 	for (const offset of offsets) {
 		const candidate = wallUtc - offset;
-		if (wallMs(candidate) !== wallUtc) continue;
+		if (candidate + offsetAt(candidate) !== wallUtc) continue;
 		if (latest === null || candidate > latest) latest = candidate;
 	}
 	return latest ?? wallUtc - Math.min(...offsets);

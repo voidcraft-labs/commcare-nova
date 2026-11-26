@@ -126,7 +126,9 @@ export async function translateLanguage(
 		const value = hasGeneratedWording(sourceRow)
 			? presentedSearchWording(doc, sourceRow).effective
 			: sourceRow.source;
-		return [{ ...sourceRow, source: value }];
+		return sourceRow.valueKind === "text" && value === ""
+			? []
+			: [{ ...sourceRow, source: value }];
 	});
 	const mutations: Mutation[] = exists
 		? []

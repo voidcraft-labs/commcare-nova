@@ -105,6 +105,7 @@ import {
 	caseListWordingUnitId,
 	effectiveCaseTypes,
 	type Module,
+	moduleShowsFormsInMenuAbove,
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
@@ -332,9 +333,11 @@ export function buildShortDetail(args: {
 	// `target: "search"` would be a logic error at the orchestrator
 	// (the search-target detail is the action's destination, not
 	// its host); the emitter ignores the arg defensively.
-	const searchAction = target === "case" ? args.searchAction : undefined;
+	const showsActions = !moduleShowsFormsInMenuAbove(mod);
+	const searchAction =
+		target === "case" && showsActions ? args.searchAction : undefined;
 	const register =
-		args.registerAction === undefined
+		!showsActions || args.registerAction === undefined
 			? undefined
 			: buildRegisterActionBlock(
 					args.registerAction,
