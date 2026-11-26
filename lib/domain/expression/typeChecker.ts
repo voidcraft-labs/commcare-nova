@@ -2,6 +2,7 @@
  * rules and native held classes share the same lexical contexts and cache. */
 
 import type { CasePropertyDataType } from "../casePropertyTypes";
+import { reachedPropertyType } from "../columnRelation";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
 import {
 	FUNCTION_REGISTRY,
@@ -477,7 +478,7 @@ function infer(
 	// being validated. The dependency checker reports the cycle; inference
 	// remains unknown rather than recursively manufacturing a type.
 	byPosition.set(key, { type: undefined, errors: [] });
-	const refusal = admission(expression, ctx, position);
+	const refusal = admission(expression, ctx, position, whole);
 	if (refusal !== undefined) {
 		const outcome = { type: undefined, errors: [refusal] };
 		byPosition.set(key, outcome);
@@ -776,6 +777,21 @@ export function checkExpression(
 		...csqlFindings(expression, ctx),
 	];
 	const slot = ctx.slot;
+	if (slot.entity === "module" && slot.slot === "case_detail_tab_rows") {
+		const row = expressionRowScope(expression, ctx);
+		if (
+			!["cases", "table-rows", "locations"].includes(expression.kind) ||
+			!row ||
+			(row.kind === "case" && !row.caseType)
+		)
+			errors.push(
+				refusal(
+					"incompatible-values",
+					"Choose an ordered collection of cases of one type, rows of a data table, or places for this detail tab.",
+					"unresolved-detail-tab-rows",
+				),
+			);
+	}
 	if (
 		slot.entity === "form" &&
 		slot.slot === "form_link_datum_xpath" &&
@@ -944,6 +960,7 @@ function admission(
 	expression: Expression,
 	ctx: TypingContext,
 	position?: RecordPosition,
+	whole = false,
 ): CheckError | undefined {
 	if (!("profile" in ctx)) return undefined;
 	const profile = ctx.profile;
@@ -1000,6 +1017,15 @@ function admission(
 				platform: { feature: leaf, platform },
 			};
 	}
+	if (
+		expression.kind === "case-text" &&
+		!ctx.caseTexts?.some((item) => item.uuid === expression.textUuid)
+	)
+		return refusal(
+			"arm-unavailable",
+			"Choose translated text that belongs to this calculated field.",
+			"case-text",
+		);
 	if (expression.kind === "itext" || expression.kind === "choice-name") {
 		const refused = formTextAdmission(expression, ctx);
 		if (refused !== undefined) return refused;
@@ -1052,6 +1078,27 @@ function admission(
 			"This record expression has no form expression spelling.",
 			expression.kind,
 		);
+	if (
+		expression.kind === "locations" &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has("places")
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition needs places on every route that opens it. Show a place value on those screens or choose a condition based on the selected case.",
+			"detail-condition-places-unavailable",
+		);
+	if (
+		(expression.kind === "table-lookup" || expression.kind === "table-rows") &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has(expression.tableId)
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition reads a table the case screen does not load. Show a value from that table in Results or Details, or choose a condition based on the selected case.",
+			"detail-condition-table-unavailable",
+		);
+
 	if (ctx.ruleSet === "record") {
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
@@ -1100,13 +1147,18 @@ function admission(
 				(expression.kind === "count" && !isRelationPath(expression.via)))
 		)
 			return undefined;
+		const tabCollection =
+			whole &&
+			ctx.slot.entity === "module" &&
+			ctx.slot.slot === "case_detail_tab_rows";
 		// Places reach the device as the `locations` fixture, which an XForm
 		// or a form link's source entry declares; no menu, case list or
 		// search setting declares it, so none of them can read places.
 		if (
-			expression.kind === "locations" ||
-			(expression.kind === "count" && expression.via.kind === "locations") ||
-			(expression.kind === "project" && expression.of.kind === "locations")
+			!tabCollection &&
+			(expression.kind === "locations" ||
+				(expression.kind === "count" && expression.via.kind === "locations") ||
+				(expression.kind === "project" && expression.of.kind === "locations"))
 		)
 			return refusal(
 				"arm-unavailable",
@@ -1152,9 +1204,9 @@ function admission(
 		)
 			return undefined;
 		if (
-			["call", "cases", "table-rows", "worker-groups", "project"].includes(
-				expression.kind,
-			) ||
+			["call", "project", "worker-groups"].includes(expression.kind) ||
+			(!tabCollection &&
+				(expression.kind === "cases" || expression.kind === "table-rows")) ||
 			(expression.kind === "count" && !isRelationPath(expression.via))
 		)
 			return refusal(
@@ -1434,10 +1486,17 @@ function termAdmission(
 				"form-node",
 				"repeat-row",
 				"case-index",
-				"location-field",
-				"worker-group-field",
 				"location-level",
+				"worker-group-field",
 			].includes(term.kind) ||
+			(term.kind === "location-field" &&
+				!(
+					activeRowScope(ctx)?.kind === "location" &&
+					ctx.slot.entity === "module" &&
+					(ctx.slot.slot === "case_detail_tab_rows" ||
+						(ctx.slot.slot === "case_list_column_expression" &&
+							!profile.targets.has("PG")))
+				)) ||
 			// A case's type is read where a case row is in scope.
 			((term.kind === "case-type" || term.kind === "case-row-type") &&
 				activeRowScope(ctx)?.kind !== "case") ||
@@ -1525,6 +1584,16 @@ function termAdmission(
 					"not-forms-read-search",
 				);
 
+	if (
+		term.kind === "owner-location-at-level" &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has("places")
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition needs places on every route that opens it. Show a place value on those screens or choose a condition based on the selected case.",
+			"detail-condition-places-unavailable",
+		);
 	if (term.kind === "session-datum") {
 		const datum = term.datum;
 		if ("module" in term.datum && !ctx.facts.moduleUuids.has(term.datum.module))
@@ -2783,6 +2852,7 @@ function inferNode(
 				),
 				{ reason: "selected-cases", module: expression.module },
 			);
+		case "case-text":
 		case "itext":
 			return scalar("text");
 		case "choice-name":
@@ -3139,6 +3209,31 @@ function inferTerm(
 					`Property reference originating scope '${term.caseType}' must equal the current scope '${row.caseType}'.`,
 				);
 			const origin = term.caseType ?? row?.caseType;
+			// CommCare HQ's server search reaches a related record only through
+			// the record type this app declares for the link (the CSQL relation
+			// lift names it), so a condition it runs holds no reached read. A
+			// Search menu's columns and order are refused by Search's own rule
+			// (`searchRelatedCalculationCompatibility`).
+			if (term.readReached && searchesOnServer(ctx))
+				return fail(
+					"relation-destination",
+					"A search can't read whichever record a link reaches, of any type. You can read the parent through a link this app declares, or use this record's own information.",
+					"reached-in-search",
+				);
+			if (
+				term.readReached &&
+				origin !== undefined &&
+				term.via?.kind === "ancestor"
+			)
+				return nodes(
+					reachedPropertyType(
+						{ field: term.property, via: term.via.via },
+						origin,
+						ctx.facts.caseTypes,
+					),
+					"string",
+					"one",
+				);
 			const destination = resolveRelationDestination(
 				term.via,
 				origin,

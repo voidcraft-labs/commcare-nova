@@ -7,12 +7,16 @@
 "use client";
 
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import type { DetailTabGroup } from "@/lib/doc/caseDetailTabMutations";
 import type {
 	CaseListConfig,
 	CaseProperty,
 	CaseType,
 	Column,
+	UserProperty,
+	Uuid,
 } from "@/lib/domain";
+import type { CaseFormContextChoice } from "@/lib/domain/caseFormContext";
 import { useCanEdit } from "@/lib/session/hooks";
 import {
 	representedColumnProperties,
@@ -20,7 +24,10 @@ import {
 } from "../seeds";
 import { projectCaseWorkspaceColumns } from "../workspaceProjection";
 import type { WorkspaceSelection } from "../workspaceSelection";
+import { CaseFormContextEditor } from "./CaseFormContextEditor";
 import { CanvasNotice } from "./canvasChrome";
+import { DetailTabEditor } from "./DetailTabEditor";
+import { DetailTileEditor } from "./DetailTileEditor";
 import {
 	AddInformationControl,
 	DisplayFieldComposer,
@@ -28,6 +35,16 @@ import {
 
 export interface DetailCanvasProps {
 	readonly config: CaseListConfig;
+	readonly moduleUuid: Uuid;
+	readonly caseTypes: readonly CaseType[];
+	readonly userProperties: readonly UserProperty[];
+	readonly onSaveContext: (
+		choice: CaseFormContextChoice | null,
+	) => string | undefined;
+	readonly onSaveTile: (
+		tile: NonNullable<CaseListConfig["detailTile"]> | null,
+	) => string | undefined;
+	readonly onSaveTabs: (tabs: readonly DetailTabGroup[]) => string | undefined;
 	readonly caseType: CaseType | undefined;
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly selection: WorkspaceSelection | null;
@@ -41,6 +58,12 @@ export interface DetailCanvasProps {
 
 export function DetailCanvas({
 	config,
+	onSaveContext,
+	onSaveTile,
+	onSaveTabs,
+	moduleUuid,
+	caseTypes,
+	userProperties,
 	caseType,
 	brokenColumns,
 	selection,
@@ -72,6 +95,32 @@ export function DetailCanvas({
 					</p>
 				</header>
 
+				<CaseFormContextEditor
+					moduleUuid={moduleUuid}
+					config={config}
+					currentCaseType={caseType?.name ?? ""}
+					caseTypes={caseTypes}
+					userProperties={userProperties}
+					canEdit={canEdit}
+					onSave={onSaveContext}
+				/>
+				<DetailTabEditor
+					moduleUuid={moduleUuid}
+					caseTypes={caseTypes}
+					currentCaseType={caseType?.name ?? ""}
+					userProperties={userProperties}
+					config={config}
+					columns={projection.detailVisible}
+					canEdit={canEdit}
+					onSave={onSaveTabs}
+				/>
+				<DetailTileEditor
+					moduleUuid={moduleUuid}
+					config={config}
+					canEdit={canEdit}
+					columns={projection.detailVisible}
+					onSave={onSaveTile}
+				/>
 				<section aria-labelledby="details-information-heading">
 					<div className="mb-4">
 						<h2

@@ -8,14 +8,20 @@
  * and a type only where a reader needs it to write the same wire, or, for an
  * app Nova holds, where its document declares one (`ReaderInput.knownCaseTypes`).
  */
+
 import { type Draft, produce } from "immer";
 import {
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
+	caseListColumnTextShows,
 	type Uuid,
 } from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
+import {
+	CaseRelationCatalog,
+	relationMetadata,
+} from "@/lib/domain/caseRelations";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import {
 	concreteCasePropertyWriterTypes,
@@ -117,49 +123,55 @@ interface ReadLink {
 	readonly relationship: "child" | "extension";
 }
 
-/** `parent_type` and `relationship` of each child type where every link
- *  out of it under `parent` agrees, else neither key. A parent selection
- *  gives its menu's case type a parent where no link says otherwise. A type
- *  no link and no selection gives a parent takes the one `known` names, and
- *  that parent is a type of the catalog. */
+/** Bind the declared catalog after all case writers and selections have been
+ * read. HQ's index name is scoped to the source type and can reach several
+ * different target types, including child and extension relationships. */
 function noteParents(
 	caseTypes: Catalog,
 	links: readonly ReadLink[],
 	selections: readonly { readonly child: string; readonly parent: string }[],
 	known: ReaderKnownCaseTypes | undefined,
 ): void {
-	// The catalog grows by the parents `known` names, which are walked in turn.
+	const graph = new CaseRelationCatalog([]);
+	for (const link of links)
+		graph.note(link.child, {
+			identifier: link.identifier,
+			targetType: link.parent,
+			relationship: link.relationship,
+		});
+	for (const selected of selections) {
+		const existing = graph.edges(selected.child, "parent");
+		if (!existing.some((edge) => edge.targetType === selected.parent))
+			graph.note(selected.child, {
+				identifier: "parent",
+				targetType: selected.parent,
+				relationship: "child",
+			});
+	}
 	for (let at = 0; at < caseTypes.length; at++) {
-		const type = caseTypes[at] as CatalogType;
-		const out = links.filter(
-			(link) => link.child === type.name && link.identifier === "parent",
-		);
-		const parents = new Set(out.map((link) => link.parent));
-		const relationships = new Set(out.map((link) => link.relationship));
-		if (out.length > 0) {
-			if (parents.size === 1 && relationships.size === 1) {
-				type.parent_type = [...parents][0] as string;
-				type.relationship = [...relationships][0] as "child" | "extension";
-			}
-			continue;
+		const type = caseTypes[at];
+		for (const edge of known?.relationsOf?.(type.name) ?? [])
+			graph.note(type.name, edge);
+		if (
+			known?.relationsOf === undefined &&
+			graph.edges(type.name, "parent").length === 0
+		) {
+			const parent = known?.targetOf(type.name, "parent");
+			if (parent !== undefined)
+				graph.note(type.name, {
+					identifier: "parent",
+					targetType: parent.caseType,
+					...(parent.relationship !== undefined && {
+						relationship: parent.relationship,
+					}),
+				});
 		}
-		const selected = new Set(
-			selections
-				.filter((one) => one.child === type.name)
-				.map((one) => one.parent),
+		const edges = graph.edges(type.name);
+		for (const edge of edges) noteType(caseTypes, edge.targetType);
+		const held = edges.filter((edge) =>
+			caseTypes.some((one) => one.name === edge.targetType),
 		);
-		if (selected.size === 1) {
-			type.parent_type = [...selected][0] as string;
-			type.relationship = "child";
-		}
-		if (selected.size > 0) continue;
-		const parent = known?.targetOf(type.name, "parent");
-		if (parent === undefined) continue;
-		noteType(caseTypes, parent.caseType);
-		if (!caseTypes.some((one) => one.name === parent.caseType)) continue;
-		type.parent_type = parent.caseType;
-		if (parent.relationship !== undefined)
-			type.relationship = parent.relationship;
+		Object.assign(type, relationMetadata(held));
 	}
 }
 
@@ -538,13 +550,16 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 						...(boundDateTime(form, field) && { dateTime: true }),
 					});
 				}
-				for (const link of block.links)
+				for (const link of block.links) {
+					noteType(caseTypes, link.targetType);
+					if (link.target === null) continue;
 					links.push({
-						child: caseType,
+						child: destination,
 						identifier: link.identifier,
 						parent: link.targetType,
 						relationship: link.relationship,
 					});
+				}
 			}
 			// A preload is a default reading the case's property.
 			const xform = form.xform;
@@ -725,6 +740,9 @@ function listProperties(
 		| undefined;
 	for (const column of config?.columns ?? []) {
 		if (typeof column.field !== "string") continue;
+		// The worker's own record is no case type the app declares: a column
+		// reads its property as the record holds it, declared or not.
+		if (column.readFrom === "worker-record") continue;
 		if (column.via === undefined) {
 			out.push({ caseType, property: column.field });
 			continue;
@@ -998,21 +1016,16 @@ export function catalogAsRead(
 							}),
 					});
 				}
-				for (const link of (
-					op as {
-						links?: readonly {
-							identifier: string;
-							targetType: string;
-							relationship: "child" | "extension";
-						}[];
-					}
-				).links ?? [])
+				for (const link of op.links ?? []) {
+					noteType(caseTypes, link.targetType);
+					if (link.target === null) continue;
 					links.push({
-						child: caseType,
+						child: destination,
 						identifier: link.identifier,
 						parent: link.targetType,
 						relationship: link.relationship,
 					});
+				}
 			}
 		}
 	}
@@ -1053,6 +1066,23 @@ export function catalogAsRead(
 					draft.push({ name: one.caseType, properties: [] });
 				noteProperty(draft, one.caseType, one.property);
 			}
+			// A Details tab's child type, and the related type a search requests
+			// beside a tab's own rows, are types the list reader declares
+			// (`caseList/details.ts`).
+			for (const tab of module.caseListConfig?.detailTabs ?? []) {
+				const source = tab.rowSource;
+				const named =
+					source?.kind === "children"
+						? source.caseType
+						: source?.includeChildrenOfType;
+				if (
+					named !== undefined &&
+					CASE_TYPE_PATTERN.test(named) &&
+					!NOT_CATALOGUED.has(named) &&
+					!draft.some((type) => type.name === named)
+				)
+					draft.push({ name: named, properties: [] });
+			}
 		}
 		for (const read of reads) noteProperty(draft, read.caseType, read.property);
 		// A walk to the cases under a case names the child type and its parent
@@ -1091,12 +1121,8 @@ export function catalogAsRead(
 					entry.data_type = property.data_type;
 			}
 		}
-		// A plain column states its property's choices, as the list reader reads
-		// them (`caseList/details.ts::declareShownChoices`,
-		// `withholdRawShownChoices`): where the column shows the choices' labels,
-		// its enum is the property's kind and its choices exactly, whatever the
-		// select questions writing it hold; where it shows the values, the
-		// property keeps no choices and keeps its select type.
+		// The writer supplies the ordinary choices. Only a column actually showing labels
+		// states their catalog order and wording independently of the writer.
 		const effective = effectiveCaseTypes(doc);
 		const stated = new Set<string>();
 		for (const uuid of doc.moduleOrder) {
@@ -1104,7 +1130,12 @@ export function catalogAsRead(
 			const caseType = module?.caseType;
 			if (caseType === undefined) continue;
 			for (const column of module?.caseListConfig?.columns ?? []) {
-				if (column.kind !== "plain") continue;
+				if (
+					column.kind !== "plain" ||
+					column.showChoice === "saved-value" ||
+					!caseListColumnTextShows(column)
+				)
+					continue;
 				// A column read through a relation states the reached type's choices.
 				const owner = columnPropertyCaseType(
 					column,
@@ -1119,10 +1150,7 @@ export function catalogAsRead(
 					.find((type) => type.name === owner)
 					?.properties.find((one) => one.name === column.field);
 				if (shown === undefined || entry === undefined) continue;
-				if (!casePropertyShowsOptionLabels(shown)) {
-					delete entry.options;
-					continue;
-				}
+				if (!casePropertyShowsOptionLabels(shown)) continue;
 				const key = `${owner}\u0000${column.field}`;
 				if (
 					stated.has(key) ||

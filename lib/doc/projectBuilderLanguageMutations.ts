@@ -3,9 +3,11 @@
  * overlay while preserving structural edits in the canonical source document.
  */
 
+import { mappingRowUnitMoves } from "@/lib/doc/caseListColumnMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	authoredTranslationValueMode,
+	caseListWordingUnitId,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	effectiveAppLocalization,
@@ -22,6 +24,7 @@ import {
 	translationUnitsById,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 
 export type BuilderLanguageMutationProjection =
@@ -105,6 +108,24 @@ export function projectBuilderLanguageMutations(
 			});
 		}
 		return unit.source;
+	};
+
+	/** `redirect` for a row whose unit this batch moves (`mappingRowUnitMoves`):
+	 * the words are compared with the row's old unit, and a changed value is
+	 * written under the unit it moves to, where the batch's carry puts the
+	 * row's existing translation. */
+	const redirectMoved = (
+		from: TranslationUnitId,
+		to: TranslationUnitId,
+		presented: LocalizedValue,
+	): LocalizedValue | undefined => {
+		const pending = targetWrites.has(from);
+		const source = redirect(from, presented);
+		if (!pending && targetWrites.has(from)) {
+			targetWrites.set(to, targetWrites.get(from) ?? null);
+			targetWrites.delete(from);
+		}
+		return source;
 	};
 
 	/** A reset on a localized configuration slot means use source fallback. */
@@ -274,6 +295,44 @@ export function projectBuilderLanguageMutations(
 				if (Object.keys(next.patch).length > 0) projected.push(next);
 				break;
 			}
+			case "setCaseListMeta": {
+				// A case list's own wording edited in a target language is that
+				// language's translation; the source keeps its text.
+				const next = structuredClone(mutation);
+				const patch = next.patch;
+				for (const [key, slot] of [
+					["emptyText", "empty"],
+					["selectButtonText", "select"],
+				] as const) {
+					if (!hasOwn(patch, key)) continue;
+					const id = caseListWordingUnitId(mutation.uuid, slot);
+					const value = patch[key];
+					if (!units.has(id)) {
+						if (value != null) refuseMissingSource();
+					} else if (value === null) redirectClear(id);
+					else if (typeof value === "string") redirect(id, value);
+					delete patch[key];
+				}
+				if (Object.keys(patch).length > 0) projected.push(next);
+				break;
+			}
+			case "updateCalculatedSort": {
+				if (!hasOwn(mutation.patch, "label")) {
+					projected.push(mutation);
+					break;
+				}
+				const next = structuredClone(mutation);
+				const id = makeTranslationUnitId("case-sort", mutation.uuid, "label");
+				if (!units.has(id)) {
+					if (next.patch.label != null) refuseMissingSource();
+				} else if (next.patch.label === null) redirectClear(id);
+				else if (typeof next.patch.label === "string")
+					redirect(id, next.patch.label);
+				delete next.patch.label;
+				if (next.after !== undefined || Object.keys(next.patch).length > 0)
+					projected.push(next);
+				break;
+			}
 			case "updateColumn": {
 				if (mutation.column === undefined) {
 					projected.push(mutation);
@@ -301,30 +360,33 @@ export function projectBuilderLanguageMutations(
 					refuseMissingSource();
 				}
 				if (column.kind === "id-mapping" && current.kind === "id-mapping") {
-					if (
-						column.mapping.some(
-							(mapping) =>
-								!current.mapping.some(
-									(candidate) => candidate.value === mapping.value,
-								),
-						)
-					) {
-						refuseMissingSource();
-					}
-					column.mapping = column.mapping.map((mapping) => {
+					// A row the edit moves to another unit (a row saved before rows
+					// carried identities, given one or a new value) is the row it was:
+					// its words are read against its old unit, and a changed label is
+					// this language's translation under the unit it moves to.
+					const moves = mappingRowUnitMoves(
+						mutation.uuid,
+						current.mapping,
+						column.mapping,
+						"mapping",
+					);
+					column.mapping = column.mapping.map((mapping, index) => {
+						const unitId = caseMappingTextUnit(
+							mutation.uuid,
+							mapping,
+							"mapping",
+						);
 						const prior = current.mapping.find(
-							(candidate) => candidate.value === mapping.value,
+							(candidate) =>
+								caseMappingTextUnit(mutation.uuid, candidate, "mapping") ===
+								unitId,
 						);
-						if (prior === undefined) return mapping;
-						const source = redirect(
-							makeTranslationUnitId(
-								"column",
-								mutation.uuid,
-								"mapping",
-								mapping.value,
-							),
-							mapping.label,
-						);
+						const move = moves.get(index);
+						let source: LocalizedValue | undefined;
+						if (prior !== undefined) source = redirect(unitId, mapping.label);
+						else if (move !== undefined)
+							source = redirectMoved(move.from, move.to, mapping.label);
+						else refuseMissingSource();
 						return typeof source === "string"
 							? { ...mapping, label: source }
 							: mapping;
@@ -332,6 +394,67 @@ export function projectBuilderLanguageMutations(
 				}
 				if (column.kind === "id-mapping" && current.kind !== "id-mapping") {
 					if (column.mapping.length > 0) refuseMissingSource();
+				}
+				if (column.kind === "calculated" && column.texts) {
+					const prior =
+						current.kind === "calculated" ? current.texts : undefined;
+					column.texts = column.texts.map((piece) => {
+						if (!prior?.some((item) => item.uuid === piece.uuid))
+							refuseMissingSource();
+						const original = redirect(
+							makeTranslationUnitId(
+								"column",
+								mutation.uuid,
+								"calculation-text",
+								piece.uuid,
+							),
+							piece.label,
+						);
+						if (typeof original !== "string") refuseMissingSource();
+						return {
+							...piece,
+							label: typeof original === "string" ? original : piece.label,
+						};
+					});
+				}
+				if (column.kind === "image-map") {
+					const moves =
+						current.kind === "image-map"
+							? mappingRowUnitMoves(
+									mutation.uuid,
+									current.mapping,
+									column.mapping,
+									"image-description",
+								)
+							: undefined;
+					column.mapping = column.mapping.map((row, index) => {
+						const move = moves?.get(index);
+						const id =
+							move?.from ??
+							caseMappingTextUnit(mutation.uuid, row, "image-description");
+						if (row.altText === undefined) {
+							if (units.has(id)) {
+								if (move === undefined) redirectClear(id);
+								else if (
+									localization.translations[language]?.[id] !== undefined
+								)
+									targetWrites.set(move.to, null);
+								const original = units.get(id)?.source;
+								if (typeof original === "string")
+									return { ...row, altText: original };
+							}
+							return row;
+						}
+						const original =
+							move === undefined
+								? redirect(id, row.altText)
+								: redirectMoved(move.from, move.to, row.altText);
+						if (typeof original !== "string") refuseMissingSource();
+						return {
+							...row,
+							altText: typeof original === "string" ? original : row.altText,
+						};
+					});
 				}
 				if (column.kind === "interval") {
 					if (current.kind === "interval") {

@@ -254,6 +254,7 @@ function places(entries: readonly RestorePlace[]): ChildNode[] {
 export function restoreXml(
 	content: {
 		readonly cases?: readonly RestoreCase[];
+		readonly groups?: readonly { id: string; name: string }[];
 		readonly tables?: readonly RestoreTable[];
 		readonly richTables?: readonly RestoreDataRows[];
 		readonly places?: readonly RestorePlace[];
@@ -274,6 +275,21 @@ export function restoreXml(
 			el("uuid", {}, [text(RESTORE_USER_ID)]),
 			el("date", {}, [text("2012-04-30")]),
 		]),
+		...(content.groups === undefined
+			? []
+			: [
+					el("fixture", { id: "user-groups", user_id: RESTORE_USER_ID }, [
+						el(
+							"groups",
+							{},
+							content.groups.map((group) =>
+								el("group", { id: group.id }, [
+									el("name", {}, [text(group.name)]),
+								]),
+							),
+						),
+					]),
+				]),
 		...(content.tables ?? []).map(fixture),
 		...(content.richTables ?? []).map(richFixture),
 		...(content.places === undefined ? [] : places(content.places)),

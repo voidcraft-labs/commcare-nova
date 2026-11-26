@@ -61,6 +61,7 @@ export function appOverview(doc: BlueprintDoc) {
 		})),
 		caseTypes: effectiveCaseTypes(doc).map((type) => ({
 			name: type.name,
+			...(type.relations?.length && { links: type.relations }),
 			...(type.parent_type && {
 				parent: type.parent_type,
 				relationship: type.relationship ?? "child",

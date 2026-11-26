@@ -221,3 +221,106 @@ def test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves(
     assert [cells[0] for _, cells in searched_cards] == ["Nurse Chiku", "Nurse Baraka"]
     # Cal's card holds Cal's row alone: Ada, who does not match, is no row of it.
     assert searched_cards[1][1] == ["Nurse Baraka", "Cal", "Referred"]
+
+
+def _to_visits(scenario):
+    return steps.path(steps.open_app(f"Tile {scenario}"), steps.choose("Visits"), steps.choose("Record visit"))
+
+
+def _open_visit(case_id):
+    return steps.click(f"#menu-region [id='row-{case_id}']")
+
+
+def test_web_apps_offers_each_selected_cases_tabs_and_opens_their_own_fields(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.observe.visit_layout_data import visits
+
+    with webapps_hq.project(webapps_documents["tile-detail-tabs"], "maximum") as project:
+        with project.released(formplayer_runner, database=visits()) as release:
+            session = Session(release, editor_driver)
+            west = session.run([
+                *_to_visits("detail-tabs"), *_open_visit("west"), steps.SCREEN,
+                *steps.click("#case-detail-modal .js-detail-tabs [role='tab']", "Follow-up"), steps.SCREEN,
+            ])
+            east = Session(release, editor_driver).run([*_to_visits("detail-tabs"), *_open_visit("east"), steps.SCREEN])
+    first, second = [screen["detail"] for screen in west.screens]
+    other = east.screens[0]["detail"]
+    evidence("visit-tabs", {"west": [first, second], "east": other})
+    assert first["tabs"] == [{"title": "Visit", "active": True}, {"title": "Follow-up", "active": False}]
+    assert first["rows"] == [{"header": "Name", "value": "Amina"}, {"header": "Village", "value": "West"}]
+    assert second["tabs"][1]["active"] is True
+    assert second["rows"] == [{"header": "Last visit", "value": "Monday"}]
+    assert [tab["title"] for tab in other["tabs"]] == ["Visit"]
+    assert [row["value"] for row in other["rows"]] == ["Baraka", "East"]
+    assert west.page_errors == east.page_errors == []
+
+
+def test_web_apps_lays_out_the_selected_cases_independent_details_grid(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.observe.visit_layout_data import visits
+
+    with webapps_hq.project(webapps_documents["tile-detail-layout"], "maximum") as project:
+        with project.released(formplayer_runner, database=visits()) as release:
+            run = Session(release, editor_driver).run([
+                *_to_visits("detail-layout"), *_open_visit("east"),
+                {"call": "webapps/case_layout", "arg": {"surface": "detail"}},
+            ])
+    cells = run.value(-1)["cells"]
+    evidence("detail-grid", cells)
+    assert [cell["value"] for cell in cells] == ["Baraka", "East", "Tuesday"]
+    assert [cell["position"] for cell in cells] == ["1 / 1 / 2 / 13", "2 / 1 / 3 / 13", "3 / 1 / 4 / 13"]
+
+
+def test_web_apps_shows_the_named_slots_in_layout_order(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.observe.visit_layout_data import visits
+
+    with webapps_hq.project(webapps_documents["tile-named-layout"], "maximum") as project:
+        with project.released(formplayer_runner, database=visits()) as release:
+            run = Session(release, editor_driver).run([*_to_visits("named-layout"), steps.SCREEN])
+    listed = run.screens[0]["list"]
+    assert listed["tiles"]
+    west = next(row for row in listed["rows"] if row["id"] == "row-west")
+    evidence("named-slots-west", west["cells"])
+    # The list's hidden sort field rides the tile as a zero-width cell Web
+    # Apps hides; the ten named positions are the cells it shows.
+    shown = [cell for cell in west["cells"] if not cell["hidden"]]
+    assert len(shown) == 10
+    assert len(west["cells"]) - len(shown) == 1
+    assert shown[0]["text"] == "Amina"
+    assert shown[1]["text"] == "Village\u2005West"
+    assert shown[-1]["text"] == "Visit part 7\u2005Amina 7"
+
+
+def test_web_apps_keeps_the_selected_case_above_forms_and_expands_the_chosen_detail(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.observe.visit_layout_data import visits
+
+    observed = {}
+    for scenario, values, expanded in (
+        ("persistent-line", ["East"], None),
+        ("persistent-inline", ["Baraka", "East", "Tuesday"], ["Baraka", "East", "Tuesday"]),
+        ("persistent-external", ["Tuesday"], ["Tuesday"]),
+    ):
+        with webapps_hq.project(webapps_documents[f"tile-{scenario}"], "maximum") as project:
+            with project.released(formplayer_runner, database=visits()) as release:
+                select = _open_visit("east") if expanded else steps.select_case("east")
+                actions = [*_to_visits(scenario), *select, steps.SCREEN,
+                           {"call": "webapps/case_layout", "arg": {"surface": "form"}}]
+                context_index = len(actions) - 1
+                if expanded:
+                    actions.extend([*steps.click("#persistent-case-tile .persistent-sticky", visible=True), steps.SCREEN])
+                run = Session(release, editor_driver).run(actions)
+                assert run.screens[0]["form"]["title"] == "Record visit"
+                context = run.value(context_index)
+                observed[scenario] = context
+                assert [cell["value"] for cell in context["cells"]] == values
+                assert context["expands"] is bool(expanded)
+                if expanded:
+                    assert [row["value"] for row in run.screens[1]["detail"]["rows"]] == expanded
+                assert run.page_errors == []
+    evidence("selected-case-above-form", observed)

@@ -300,6 +300,13 @@ function findCaseTypeReferences(
 	const references: RetirementReference[] = [];
 
 	for (const ct of doc.caseTypes ?? []) {
+		for (const edge of ct.relations ?? [])
+			if (ct.name !== caseType && edge.targetType === caseType)
+				references.push(
+					sameRef(
+						`case type "${ct.name}" uses the "${edge.identifier}" link to "${caseType}"`,
+					),
+				);
 		if (ct.name !== caseType && ct.parent_type === caseType) {
 			references.push(
 				sameRef(`case type "${ct.name}" declares "${caseType}" as its parent`),
@@ -544,6 +551,7 @@ function collectFieldReferences(
 			case "case-property-ref":
 			case "relation-path":
 			case "datum-ref":
+			case "worker-property-ref":
 				// No field slot carries these kinds — kept explicit so
 				// the registry's kind union stays exhaustively handled here,
 				// the same contract the rename rewriters hold.
@@ -726,6 +734,7 @@ function collectModuleConfigReferences(
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
 			case "module_parent":
+			case "case_form_context_menu":
 			case "module_case_parent":
 			case "listed_forms_source":
 			case "unlisted_source_form":
@@ -744,6 +753,11 @@ function collectModuleConfigReferences(
 					out.push(
 						sameRef(`the badge on ${where} uses "${caseType}" information`),
 					);
+				break;
+			case "case_list_icon_action":
+				// An icon names a form's deep link by identity; whether that form
+				// takes the list's cases is the gate's question
+				// (`CASE_LIST_ICON_ACTION_INVALID`), not the catalog's.
 				break;
 			case "module_display_condition": {
 				if (
@@ -766,6 +780,10 @@ function collectModuleConfigReferences(
 				// A column's property name follows the type it reads, which is
 				// the module's own or the one its walk reaches.
 				break;
+			case "case_list_column_worker_information":
+				// A worker information identity names the worker's own record,
+				// never a case type a menu manages.
+				break;
 			case "case_list_column_via": {
 				// A column read through a relation names the types its walk
 				// passes through.
@@ -787,6 +805,66 @@ function collectModuleConfigReferences(
 				// Contextual property names — they follow the module's own
 				// type and never name a type.
 				break;
+			case "case_list_sort_expression": {
+				for (const rule of list?.calculatedSorts ?? []) {
+					if (expressionRefsCaseType(rule.expression, caseType)) {
+						out.push({
+							verbose: `a default order calculation on ${where} reads a "${caseType}" property`,
+							concise: `the default order on ${where} uses "${caseType}" information`,
+						});
+					}
+				}
+				break;
+			}
+			case "case_list_mapping_condition": {
+				for (const col of list?.columns ?? []) {
+					if (
+						(col.kind === "image-map" || col.kind === "id-mapping") &&
+						col.mapping.some(
+							(row) => row.when && expressionRefsCaseType(row.when, caseType),
+						)
+					)
+						out.push({
+							verbose: `a mapping condition in "${col.header}" on ${where} reads a "${caseType}" property`,
+							concise: `a rule in "${col.header}" on ${where} uses "${caseType}" information`,
+						});
+				}
+				break;
+			}
+			case "case_detail_tab_child_type":
+			case "case_detail_tab_search_child_type": {
+				for (const tab of list?.detailTabs ?? []) {
+					const source = tab.rowSource;
+					const type =
+						slot.slot === "case_detail_tab_child_type" &&
+						source?.kind === "children"
+							? source.caseType
+							: slot.slot === "case_detail_tab_search_child_type" &&
+									source?.kind === "records"
+								? source.includeChildrenOfType
+								: undefined;
+					if (type === caseType)
+						out.push(
+							sameRef(
+								`the Details tab "${tab.title}" on ${where} uses child cases of type "${caseType}"`,
+							),
+						);
+				}
+				break;
+			}
+			case "case_form_context_line":
+			case "case_detail_tab_rows":
+			case "case_detail_tab_filter":
+			case "case_detail_tab_condition": {
+				for (const { value } of readSlotValues(mod, slot.path))
+					if (value && expressionRefsCaseType(value as Expression, caseType))
+						out.push(
+							sameRef(
+								`a Details setting on ${where} uses "${caseType}" information`,
+							),
+						);
+				break;
+			}
 			case "case_list_column_expression": {
 				for (const col of list?.columns ?? []) {
 					if (

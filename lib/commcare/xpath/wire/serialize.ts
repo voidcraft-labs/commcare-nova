@@ -2,6 +2,7 @@ import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
 import { isPortableName } from "@/lib/domain/portableName";
 import { hasInterpolatedNamePeriod } from "@/lib/lookup/pathNames";
 import { hqHtmlUnescape, instanceScanCuts } from "../../hqInstanceScan";
+import { caseTextWireKey } from "../../suite/case-list/calculationText";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
 import { chargeWork } from "../../workMeter";
 import { w } from "./builders";
@@ -396,8 +397,17 @@ export function serializeWire(
 			case "calculated-property-var":
 				result = suiteVariable("calculated_property");
 				break;
+			case "case-text-variable": {
+				const key = caseTextWireKey(node.textUuid, node.padding);
+				if (mode.target === "hq-json") result = `$${key}`;
+				else result = suiteVariable(keyAsVariable(key));
+				break;
+			}
 			case "enum-label-var":
 				result = suiteVariable(`knova_text_${node.index}`);
+				break;
+			case "image-mapping-variable":
+				result = suiteVariable(keyAsVariable(node.key));
 				break;
 			case "image-alt-var":
 				result = suiteVariable(

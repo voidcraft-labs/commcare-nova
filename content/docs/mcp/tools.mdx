@@ -316,11 +316,23 @@ form entry snapshot. Observations identify the session and distinguish retained
 form data from current isolated-store reads. These are Preview/Postgres
 observations; native offline conflict handling needs separate evidence.
 
+A record list reports the cells its worker sees. When a case map is
+available, `renderedResults.availableMap` identifies each listed record’s
+map location and the layers its platform draws. You can open the record
+by its record ID.
+
 Form observations include the displayed container and repeat-instance hierarchy
 for the current page. `pageNext` and `pagePrevious` turn form pages while
 `routeBack` and `routeContinue` follow screen navigation. Existing `back` and
 `continue` remain accepted route actions. Forward page turns validate earlier
 pages, and answers on a later page need that page to be open.
+
+On a case Details screen, a `detailTab` action opens a tab by its offered
+`tabUuid` or title. A condition can make different tabs available for two
+cases from the same menu. During a form with expandable case information,
+`{"kind":"caseContext","expanded":true}` opens the selected case’s Details.
+Include `tabUuid` to choose a tab there, or send `expanded:false` to collapse it
+and return to the same form page.
 
 `continue_app_test` accepts `actions: [{sessionId?, action, expect?}, ...]` with up to eight
 ordered actions. Each produces its own step. Optional expectations can name the
@@ -944,9 +956,9 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 | Tool | What it does |
 |---|---|
-| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, set what the menu opens on with `searchWorkflow` and whether its forms read the search with `formsReadSearch` (both as `set_case_search_advanced` takes them), and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. |
-| `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / link / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. A column that is not calculated may give `via`, the links to walk to a case above the listed one (`[{"identifier":"parent"}]`, or another link with the `throughCaseType` it reaches), to show that case's property. |
-| `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. |
+| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, set what the menu opens on with `searchWorkflow` and whether its forms read the search with `formsReadSearch` (both as `set_case_search_advanced` takes them), set the list's own empty text with `emptyText` and its several-case Continue label with `selectButtonText` (`null` restores the ordinary words), turn faster loading on phones on or off with `optimizations` (a calculated or link column then chooses its `loadBehavior`: `cache`, `defer` or `cache-and-defer`; off clears every column's choice), and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. Use `calculatedSorts` to add or update independent order calculations. Each calculation supplies an expression, priority and direction, and may give a `comparator` (`text`, `integer` or `decimal`) to compare its values other than as their own type does. `removeCalculatedSorts` accepts the identities to remove. |
+| `add_case_list_columns` | Add one or more columns to the case list (plain / date / date-count / overdue-marker / formatted-text / worker-distance / map-location / map-layer / phone / id-mapping / image-map / interval / link / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. A column that is not calculated may give `via`, the links to walk to a case above the listed one (`[{"identifier":"parent"}]`, or another link with the `throughCaseType` it reaches), to show that case's property. In a menu that offers Search, a link, an interval, or a plain column showing a choice's label can't read through `via`: show the saved value instead. A column's `sort` may give a `comparator` (`text`, `integer`, `decimal`, or `distance` from the worker on an app that runs only on Android, over a value that can hold a location) and, on a sort-only property, a `menuPosition` among the extra choices workers pick in Sort by. |
+| `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. Its `sort` takes the same `comparator` and `menuPosition` as `add_case_list_columns`. |
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
 | `reorder_case_list_columns` | Reorder a surface by passing its complete `columnUuids` sequence. |
 | `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
@@ -955,7 +967,8 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
 | `configure_case_selection` | Pass `selection: { kind: "multiple", maximum: N }` to let workers choose several cases, where `N` is 1 through 100. Pass `selection: null` to return to opening one case at a time. A several-case module needs a follow-up or close form that can consume the batch. Questions saved to the selected case start without one case's value; each nonblank answer is saved to every selected case, while blank preserves their existing values. A capture destination updates only when the runtime submission provides a file, and each case then stores the link to that file. Preview creates none. `applied` and `unchanged` are complete outcomes. `needs_changes` applies no mutations. For `needs: "confirmation"`, review the returned effects, then repeat the same request with `confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids` and `confirmationToken` copied unchanged from that same result. The token binds the approval to the requested source selection and every reviewed module effect. If that effect changed, no mutation is applied and the result supplies the current review and a new token. For `needs: "repair"`, fix the UUID-owned blockers before retrying. For `needs: "refresh"`, call again without either confirmation field to review the current effects. `unavailable` also applies nothing and returns the reason the request cannot run against the current app. |
-| `set_case_list_tile` | Lay the case list out as a tile — a 12 x 12 grid where each field shown in Results occupies a rectangle — and place its fields on that grid. `tile` turns the layout on or off (`null` turns it off and keeps every placement), `placements` moves fields, and both may ride one call. While the tile is on, every field shown in Results needs a place and no two fields may share a square, so the whole layout lands in one call. |
+| `set_case_detail_tabs` | Group the fields shown in Details into named tabs. Supply all visible fields once, in the order workers should see them. An existing tab keeps its identity and translations when you move it. A tab can have a display condition evaluated on the selected case. An empty tab list shows the fields together. |
+| `set_case_list_tile` | Lay the case list out as a tile — a grid 12 columns wide with a row for each field it shows (at least 6), where each field shown in Results occupies a rectangle — and place its fields on that grid. `tile` turns the layout on or off (`null` turns it off and keeps every placement), `placements` moves fields, and both may ride one call. While the tile is on, every field shown in Results needs a place and no two fields may share a square, so the whole layout lands in one call. |
 
 A column's `sort` is one order rule; the rule with the lowest `priority` decides
 first, and the next breaks ties. `blanks` says where cases with no value sort,
@@ -968,9 +981,10 @@ order a list the same way:
 - Each column kind orders by its own key. A plain column orders by the saved
   value, as a number for a number property, and shown on Results over a choice
   property with options, by the option label it shows. A date column orders by
-  the saved date, whatever `pattern` shows it. An `id-mapping` or `image-map`
-  column shown on Results orders by the order of its `mapping` entries, never by
-  label, and a value with no entry counts as no value. An interval column shown
+  the saved date, whatever `pattern` shows it. An `image-map` orders by its first matching row’s position. An
+  `id-mapping` uses the same order by default. With `behavior: "first-match"`
+  it orders by the displayed label in the worker’s language. An unmatched value
+  counts as blank. An interval column shown
   on Results orders by the text it shows, compared as text. A link column orders
   by the saved value, and a calculated column by its result. A column hidden
   from Results orders by the saved value.
@@ -995,14 +1009,63 @@ the list altogether: only Details shows it, and the list doesn't search or sort
 by it.
 
 A date column's `pattern` is a CommCare date pattern such as `%Y-%m-%d`; it
-can't hold a straight apostrophe (`'`), and a curved one (`’`) works. An
-`id-mapping` value is one word and can't hold `&`, `<`, `>`, `"` or `'`.
+can't hold a straight apostrophe (`'`), and a curved one (`’`) works. A default
+`id-mapping` accepts a blank or several words and matches the sequence
+between spaces. Its literal keys exclude `&`, `<`, `>`, `"` and `'`.
+For a whole saved value or a typed case condition, use `behavior: "first-match"`.
+Each rule has a `label` and either `value` or `when`. An `image-map` row has
+an `assetId` and can include `altText`. It matches `value` among the saved
+choices, compares the whole value with `match: "exact"`, or evaluates its
+`when` condition. Keep a row’s `uuid` when editing its rule or order so its
+translations follow it.
+
+A plain column over a choice property shows the option label; give it
+`showChoice: "saved-value"` to show the saved value instead. A property column
+with `readFrom: "worker-record"` shows a field of the signed-in worker's own
+record, and one over `owner_id` with `showOwner: "name"` shows the name of the
+group or worker who owns the case. A `date-count` column shows the whole number
+of periods since or until a saved date (`period`, such as `years-since` or
+`days-until`), and an `overdue-marker` shows an asterisk when the date is
+missing or more than `afterDays` days have passed. A `formatted-text` column
+shows a saved value with its formatting marks. A `worker-distance` column shows
+how far the case is from the worker, which only Android can show. A
+`map-location` column holds the coordinates a case list map places the case
+at, and a `map-layer` adds a `boundary`, `points` or color layer over it: each
+layer needs a map location in Results, and a color layer needs its boundary or
+points layer, so add them together in one call. A calculated column's `texts`
+holds reusable wording, each piece with its own `uuid` and label, which the
+calculation reads with `case-text('UUID')`; keep each `uuid` when editing its
+wording, so its translations follow it.
 
 A tile cell's `horizontalAlign` (`left`, `center` or `right`), `verticalAlign`
 (`top`, `middle` or `bottom`) and `fontSize` (`small`, `medium` or `large`) may
 be left out of a placement or a born-placed column: Nova gives each `left`,
 `top` and `medium`, and every saved cell holds all three. A tile's text has its
 own three sizes and never follows the rest of the list.
+
+Use `get_module` to read `detail_tabs`, including each title, tab UUID and ordered field UUIDs. Pass those groups to `set_case_detail_tabs` with each tab’s existing fields in `columnUuids`.
+A tab can show its own records. For example, setting `rowSource` to
+`{"kind":"children","caseType":"visit"}` shows the open visits linked to the
+chosen parent, and its `condition`, such as `#row/status = 'due'`, keeps the
+visits it holds. A `records` source's `rows` is `cases('visit')`, the open
+visits on the device, `table-rows('Visits')`, a data table's rows, or
+`places()`, the places the worker can see. Each takes conditions after its
+first argument, as in `cases('visit', #row/status = 'due')`. A field of the
+tab reads one row: `#row/<property>` of a case or table row, and
+`place-field('name')`, `place-level('<level>')` or `place-property('<slug>')`
+of a place. Use `addFields` to add a header and row expression for each new
+field in the same edit. An `orderFields` entry names a field in that tab to use
+as a hidden sort key. The tab’s `displayCondition` reads the selected case.
+
+An explicit `records` source may also carry `includeChildrenOfType`. A search-enabled menu then includes those child cases in its search results for the app to read, while the tab continues to show its chosen collection.
+
+Use `set_case_list_tile` with `tile.namedSlots` to put existing Results fields
+in named image or text positions. Use `detailPlacements` to lay out the fields
+shown after opening a case in Web Apps. Android shows those fields in rows.
+Pass `contextAboveForm` to keep a line or a tile above a form. For example,
+`{"kind":"menu-tile","moduleUuid":"<menu UUID>","expandDetails":true}`
+uses that menu’s layout for the selected case and lets the worker open
+its Details. Both menus need the same case type.
 
 `set_case_list_tile` also carries **grouping**, through `tile.grouping`. It shows
 the cases that share a connection together, under one heading:
@@ -1256,7 +1319,12 @@ standard scalars out of custom case-property data.
 Record expressions can read the stable, read-only `#case/case_id`. To update the
 selected record's parent, an expression target can use
 `via(ancestor('parent'), #case/case_id)` with that parent's case type. The saved
-relationship supplies the identity; no copied custom ID is needed. A `session`
+relationship supplies the identity; no copied custom ID is needed.
+`property('patient', 'village', reached('parent'))` reads a property on
+whatever record each named link reaches, of any type, which is how a case list
+column brought in from CommCare HQ reads a related record's property. Search
+can't read it: in a menu that offers Search, read the parent through
+`via(ancestor('parent'), ...)` instead. A `session`
 target means the single record selected before opening a form, so it is not
 available in registration or survey forms. To create an independently owned
 record explicitly, use a survey with a create operation rather than a

@@ -236,11 +236,14 @@ const MODULE_SLOT_PHRASES: Readonly<
 	Record<ReadPhraseAudience, Readonly<Record<string, string>>>
 > = {
 	agent: {
+		case_detail_tab_condition: "a detail tab rule on module",
 		case_list_filter: "the case-list filter on module",
 		case_list_action_condition: "the form button condition on module",
 		case_list_column_field: "a case-list column of module",
 		case_list_column_via: "a case-list column of module",
+		case_list_mapping_condition: "a mapping condition of module",
 		case_list_column_expression: "a case-list column of module",
+		case_list_sort_expression: "a default order calculation of module",
 		search_input_property: "a search input of module",
 		search_input_via: "a search input of module",
 		search_input_default: "a search input of module",
@@ -249,11 +252,14 @@ const MODULE_SLOT_PHRASES: Readonly<
 		excluded_owner_ids: "the owner filter on module",
 	} satisfies Partial<Record<ModuleSlotId, string>>,
 	builder: {
+		case_detail_tab_condition: "a detail tab rule in module",
 		case_list_filter: "a Cases available condition in module",
 		case_list_action_condition: "the form button condition on the list in",
 		case_list_column_field: "case information in module",
 		case_list_column_via: "case information in module",
+		case_list_mapping_condition: "a mapping condition in module",
 		case_list_column_expression: "a calculated value in module",
+		case_list_sort_expression: "a default order calculation in module",
 		search_input_property: "a search field in module",
 		search_input_via: "a search field in module",
 		search_input_default: "a search field's starting value in module",

@@ -445,6 +445,7 @@ function affectsCaseWriteProjection(
 		case "declareCaseType":
 		case "retireCaseType":
 		case "addCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseProperty":
 		case "setCaseTypeMeta":
@@ -507,6 +508,9 @@ function affectsCaseWriteProjection(
 		case "removeOption":
 		case "moveOption":
 		case "setCaseListMeta":
+		case "addCalculatedSort":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":

@@ -1,3 +1,4 @@
+import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
 /**
  * Reference-index construction, per-mutation maintenance, and queries —
  * the machinery behind `BlueprintDoc.refIndex`
@@ -59,10 +60,10 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseOperationWrite,
+	type CaseType,
 	casePropertyDeclKey,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
-	columnPropertyCaseType,
 	columnRelationPath,
 	entityTargetKey,
 	type Field,
@@ -94,6 +95,11 @@ import {
 	uuidSchema,
 	workerFieldNameTargetKey,
 } from "@/lib/domain";
+import {
+	carrierCaseRelations,
+	caseTypesWithRelations,
+} from "@/lib/domain/appCaseRelations";
+import { columnPropertyBindings } from "@/lib/domain/columnRelation";
 import { entryPointByUuid } from "@/lib/domain/entryPoints";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import type {
@@ -384,10 +390,10 @@ function unindexCarrier(
  * neither resolves; the validator refuses that write.
  */
 function writeDestinationType(
-	doc: BlueprintDoc,
 	operation: CaseOperation,
 	write: CaseOperationWrite,
 	moduleCaseType: string | undefined,
+	relationTypes: RelationTypes,
 ): string | undefined {
 	const operationType =
 		operation.action === "own"
@@ -399,7 +405,7 @@ function writeDestinationType(
 	const destination = resolveRelationDestination(
 		{ kind: "ancestor", via: write.via },
 		operationType,
-		doc.caseTypes ?? [],
+		relationTypes(),
 	);
 	return destination.ok ? destination.caseType : undefined;
 }
@@ -413,6 +419,7 @@ function registerFormDeclarations(
 	doc: BlueprintDoc,
 	carrier: string,
 	placement: CarrierPlacement,
+	relationTypes: RelationTypes,
 ): void {
 	const form = ownRecordValue(doc.forms, carrier);
 	if (!form) return;
@@ -422,10 +429,10 @@ function registerFormDeclarations(
 		for (const write of operation.writes ?? []) {
 			if (write.property.length === 0) continue;
 			const caseType = writeDestinationType(
-				doc,
 				operation,
 				write,
 				moduleCaseType,
+				relationTypes,
 			);
 			if (caseType === undefined) continue;
 			declarations.add(casePropertyDeclKey(caseType, write.property));
@@ -488,33 +495,44 @@ function makeSink(
 
 // ── Per-carrier extraction ──────────────────────────────────────────
 
+// Relation-dependent carriers are re-extracted when a writer or typed load
+// elsewhere changes the destinations, or an open read gains a declaration.
+const RELATION_CATALOG_TARGET = "case-relation-catalog";
+type RelationTypes = () => readonly CaseType[];
+
+function relationTypesForPass(doc: BlueprintDoc): RelationTypes {
+	let types: readonly CaseType[] | undefined;
+	return () => (types ??= caseTypesWithRelations(doc));
+}
+
 function extractCarrierEdges(
 	index: ReferenceIndex,
 	doc: BlueprintDoc,
 	carrier: string,
 	ctx: CarrierContext,
+	relationTypes: RelationTypes,
 ): void {
 	const mod = ownRecordValue(doc.modules, carrier);
 	if (mod) {
 		const sink = makeSink(index, carrier, ctx);
-		extractModuleEdges(sink, doc, mod);
+		extractModuleEdges(sink, doc, mod, relationTypes);
 		for (const { ref, expression } of expressionSlotValues(doc, {
 			entity: "module",
 			uuid: mod.uuid,
 		})) {
-			expressionEdges(sink, ref.slot, expression, doc, ctx);
+			expressionEdges(sink, ref.slot, expression, doc, ctx, relationTypes);
 		}
 		return;
 	}
 	const form = ownRecordValue(doc.forms, carrier);
 	if (form) {
 		const sink = makeSink(index, carrier, ctx);
-		extractFormEdges(sink, doc, form, ctx);
+		extractFormEdges(sink, form, ctx, relationTypes);
 		for (const { ref, expression } of expressionSlotValues(doc, {
 			entity: "form",
 			uuid: form.uuid,
 		})) {
-			expressionEdges(sink, ref.slot, expression, doc, ctx);
+			expressionEdges(sink, ref.slot, expression, doc, ctx, relationTypes);
 		}
 		return;
 	}
@@ -531,7 +549,7 @@ function extractCarrierEdges(
 			entity: "field",
 			uuid: field.uuid,
 		})) {
-			expressionEdges(sink, ref.slot, expression, doc, ctx);
+			expressionEdges(sink, ref.slot, expression, doc, ctx, relationTypes);
 		}
 		return;
 	}
@@ -802,6 +820,7 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 			case "entity-uuid":
 			case "relation-path":
 			case "datum-ref":
+			case "worker-property-ref":
 				break;
 			default: {
 				const _exhaustive: never = slot.kind;
@@ -835,9 +854,9 @@ function formLinkDatumsAt(
 
 function extractFormEdges(
 	sink: EdgeSink,
-	doc: BlueprintDoc,
 	form: Form,
 	ctx: CarrierContext,
+	relationTypes: RelationTypes,
 ): void {
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		switch (slot.kind) {
@@ -882,10 +901,10 @@ function extractFormEdges(
 					// module retype re-keys its writes.
 					if (operation.action === "own") sink.markCtx();
 					const caseType = writeDestinationType(
-						doc,
 						operation,
 						write,
 						ctx.moduleCaseType,
+						relationTypes,
 					);
 					if (caseType !== undefined && value.text.length > 0)
 						sink.edge(casePropertyTargetKey(caseType, value.text), slot.slot);
@@ -910,6 +929,7 @@ function extractModuleEdges(
 	sink: EdgeSink,
 	doc: BlueprintDoc,
 	mod: Module,
+	relationTypes: RelationTypes,
 ): void {
 	const effectiveType = menuWithInheritedCaseSettings(doc, mod.uuid)?.caseType;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
@@ -924,25 +944,39 @@ function extractModuleEdges(
 				}
 				break;
 			case "case-type-ref":
-				if (mod.caseType) sink.edge(caseTypeTargetKey(mod.caseType), slot.slot);
+				for (const value of readSlotStrings(mod, slot.path))
+					if (value.text) sink.edge(caseTypeTargetKey(value.text), slot.slot);
+				break;
+			case "worker-property-ref":
+				for (const value of readSlotStrings(mod, slot.path))
+					sink.edge(userPropertyTargetKey(value.text), slot.slot);
 				break;
 			case "case-property-ref":
 				if (slot.slot === "case_list_column_field") {
 					if (effectiveType === undefined) break;
 					for (const column of mod.caseListConfig?.columns ?? []) {
 						if (column.kind === "calculated") continue;
+						if (column.readFrom && !column.workerPropertyUuid)
+							sink.edge(workerFieldNameTargetKey(column.field), slot.slot);
 						// A column read through a relation names a property of the
 						// case its walk reaches, and the walk names that type
 						// (the walk's own hints are `case_list_column_via`'s).
-						const caseType = columnPropertyCaseType(
+						for (const caseType of columnCaseScopes(
+							doc,
+							{ ...mod, caseType: effectiveType },
 							column,
-							effectiveType,
-							doc.caseTypes ?? [],
-						);
-						if (caseType === undefined) continue;
-						sink.edge(casePropertyTargetKey(caseType, column.field), slot.slot);
-						if (column.via !== undefined)
-							sink.edge(caseTypeTargetKey(caseType), slot.slot);
+						).flatMap((origin) =>
+							column.via === undefined
+								? [origin]
+								: columnPropertyBindings(column, origin, relationTypes()),
+						)) {
+							sink.edge(
+								casePropertyTargetKey(caseType, column.field),
+								slot.slot,
+							);
+							if (column.via !== undefined)
+								sink.edge(caseTypeTargetKey(caseType), slot.slot);
+						}
 					}
 				} else {
 					for (const input of mod.caseListConfig?.searchInputs ?? []) {
@@ -950,7 +984,9 @@ function extractModuleEdges(
 						const destination = resolveRelationDestination(
 							input.via,
 							effectiveType,
-							doc.caseTypes ?? [],
+							input.via === undefined || input.via.kind === "self"
+								? (doc.caseTypes ?? [])
+								: relationTypes(),
 						);
 						if (!destination.ok) continue;
 						sink.edge(
@@ -1033,6 +1069,7 @@ function termEdges(
 	term: Term,
 	doc: BlueprintDoc,
 	ctx: CarrierContext,
+	relationTypes: RelationTypes,
 ): void {
 	if (
 		term.kind === "field" ||
@@ -1082,10 +1119,27 @@ function termEdges(
 		case "prop": {
 			if (term.caseType !== undefined)
 				sink.edge(caseTypeTargetKey(term.caseType), slot);
+			if (
+				term.readReached &&
+				term.via?.kind === "ancestor" &&
+				term.caseType !== undefined
+			) {
+				for (const name of columnPropertyBindings(
+					{ field: term.property, via: term.via.via },
+					term.caseType,
+					relationTypes(),
+				)) {
+					sink.edge(caseTypeTargetKey(name), slot);
+					sink.edge(casePropertyTargetKey(name, term.property), slot);
+				}
+				return;
+			}
 			const destination = resolveRelationDestination(
 				term.via,
 				term.caseType,
-				doc.caseTypes ?? [],
+				term.via === undefined || term.via.kind === "self"
+					? (doc.caseTypes ?? [])
+					: relationTypes(),
 			);
 			if (destination.ok)
 				sink.edge(
@@ -1141,6 +1195,7 @@ function relationHintEdges(
 	via: RelationPath | undefined,
 ): void {
 	if (via === undefined || via.kind === "self") return;
+	sink.edge(RELATION_CATALOG_TARGET, slot);
 	if (via.kind === "ancestor") {
 		for (const step of via.via)
 			if (step.throughCaseType)
@@ -1158,10 +1213,11 @@ function expressionEdges(
 	expression: Expression,
 	doc: BlueprintDoc,
 	ctx: CarrierContext,
+	relationTypes: RelationTypes,
 ): void {
 	try {
 		walkExpression(expression, {
-			visitTerm: (term) => termEdges(sink, slot, term, doc, ctx),
+			visitTerm: (term) => termEdges(sink, slot, term, doc, ctx, relationTypes),
 			visitRelation: (relation) => relationHintEdges(sink, slot, relation),
 			visitExpression: (node) => {
 				switch (node.kind) {
@@ -1252,6 +1308,7 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 	const index = emptyReferenceIndex();
 	const placement = documentPlacement(doc);
 	const contexts = new Map<string, CarrierContext>();
+	const relationTypes = relationTypesForPass(doc);
 	const carriers = [
 		...Object.keys(doc.modules),
 		...Object.keys(doc.forms),
@@ -1265,10 +1322,16 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 		contexts.set(carrier, carrierContext(doc, carrier, placement));
 	}
 	for (const carrier of Object.keys(doc.forms)) {
-		registerFormDeclarations(index, doc, carrier, placement);
+		registerFormDeclarations(index, doc, carrier, placement, relationTypes);
 	}
 	for (const carrier of carriers) {
-		extractCarrierEdges(index, doc, carrier, contexts.get(carrier) ?? {});
+		extractCarrierEdges(
+			index,
+			doc,
+			carrier,
+			contexts.get(carrier) ?? {},
+			relationTypes,
+		);
 	}
 	return index;
 }
@@ -1413,6 +1476,25 @@ export function declarersOf(
  */
 export interface ReferenceIndexMaintenance {
 	carriers: Set<string>;
+	previousRelationEvidence?: Map<string, string>;
+}
+
+function relationEvidence(
+	doc: BlueprintDoc,
+	carrier: string,
+	batch: ReferenceIndexBatch,
+): string {
+	const uuid = uuidSchema.safeParse(carrier);
+	if (!uuid.success) return "";
+	const module =
+		ownRecordValue(doc.forms, carrier) === undefined
+			? undefined
+			: batch.moduleOf(doc, uuid.data);
+	const origin =
+		module === undefined
+			? undefined
+			: ownRecordValue(doc.modules, module)?.caseType;
+	return JSON.stringify(carrierCaseRelations(doc, uuid.data, origin));
 }
 
 const NO_MAINTENANCE: ReferenceIndexMaintenance = { carriers: new Set() };
@@ -1443,6 +1525,12 @@ export function planReferenceIndexMaintenance(
 		const inbound = ownRecordValue(index.in, entityTargetKey(source));
 		for (const [uuid, slots] of Object.entries(inbound ?? {}))
 			if (ownRecordValue(slots, "listed_forms_source")) carriers.add(uuid);
+	};
+	const addParentMenuDependents = (moduleUuid: Uuid): void => {
+		for (const [carrier, slots] of Object.entries(
+			ownRecordValue(index.in, entityTargetKey(moduleUuid)) ?? {},
+		))
+			if (slots.module_case_parent) carriers.add(carrier);
 	};
 	const addFieldSubtree = (uuid: Uuid): void => {
 		carriers.add(uuid);
@@ -1486,6 +1574,7 @@ export function planReferenceIndexMaintenance(
 		case "setDefaultLanguage":
 		case "addCaseProperty":
 		case "setCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 			break;
 		case "setTranslation":
@@ -1528,7 +1617,7 @@ export function planReferenceIndexMaintenance(
 			for (const uuid of Object.keys(doc.fields)) carriers.add(uuid);
 			break;
 		case "setCaseTypeMeta":
-			if ("parent_type" in mut) {
+			if ("parent_type" in mut || mut.relationChange !== undefined) {
 				for (const uuid of Object.keys(doc.modules)) carriers.add(uuid);
 				for (const uuid of Object.keys(doc.forms)) carriers.add(uuid);
 				for (const uuid of Object.keys(doc.fields)) carriers.add(uuid);
@@ -1566,6 +1655,7 @@ export function planReferenceIndexMaintenance(
 		case "removeModule":
 			carriers.add(mut.uuid);
 			addRoutesOf(mut.uuid);
+			addParentMenuDependents(mut.uuid);
 			for (const formUuid of ownRecordValue(doc.formOrder, mut.uuid) ?? []) {
 				carriers.add(formUuid);
 				addRegistrationHosts(formUuid);
@@ -1594,6 +1684,17 @@ export function planReferenceIndexMaintenance(
 				const previous = ownRecordValue(doc.modules, mut.uuid)?.caseType;
 				if (mut.patch.caseType !== previous) {
 					addRoutesOf(mut.uuid);
+					addParentMenuDependents(mut.uuid);
+					// A form's own-case operations take the module's type as the
+					// origin of their links and walks, so their relation evidence
+					// moves with it; a form with no such operation keeps its own.
+					for (const uuid of ownRecordValue(doc.formOrder, mut.uuid) ?? [])
+						if (
+							ownRecordValue(doc.forms, uuid)?.caseOperations?.some(
+								(operation) => operation.action === "own",
+							)
+						)
+							carriers.add(uuid);
 					for (const carrier of Object.keys(
 						ownRecordValue(index.ctx, mut.uuid) ?? {},
 					)) {
@@ -1694,6 +1795,9 @@ export function planReferenceIndexMaintenance(
 		// search-input AST edges + the always-on filter live on the module
 		// carrier, so a re-extract of the module keeps the index current (a
 		// later rename must find these edges, so they cannot be stubbed away).
+		case "addCalculatedSort":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":
@@ -1758,7 +1862,26 @@ export function planReferenceIndexMaintenance(
 			break;
 		}
 	}
-	return { carriers };
+	const dependents = ownRecordValue(index.in, RELATION_CATALOG_TARGET);
+	if (dependents === undefined) return { carriers };
+	switch (mut.kind) {
+		case "addCaseProperty":
+		case "setCaseProperty":
+		case "moveCaseProperty":
+		case "removeCaseProperty":
+		case "declareCaseType":
+		case "retireCaseType":
+		case "setCaseTypeMeta":
+		case "renameCaseProperties":
+			for (const uuid of Object.keys(dependents)) carriers.add(uuid);
+			return { carriers };
+	}
+	return {
+		carriers,
+		previousRelationEvidence: new Map(
+			[...carriers].map((uuid) => [uuid, relationEvidence(doc, uuid, batch)]),
+		),
+	};
 }
 
 /** The parent (form or container) whose order lists `uuid`. */
@@ -1783,18 +1906,35 @@ export function applyReferenceIndexMaintenance(
 	const index = doc.refIndex;
 	if (!index) return;
 	const carriers = new Set(plan.carriers);
+	if (plan.previousRelationEvidence !== undefined) {
+		for (const [uuid, before] of plan.previousRelationEvidence) {
+			if (before === relationEvidence(doc, uuid, batch)) continue;
+			for (const dependent of Object.keys(
+				ownRecordValue(index.in, RELATION_CATALOG_TARGET) ?? {},
+			))
+				carriers.add(dependent);
+			break;
+		}
+	}
 	if (carriers.size === 0) return;
 	const placement = batch.placement(doc);
 	const contexts = new Map<string, CarrierContext>();
+	const relationTypes = relationTypesForPass(doc);
 	for (const carrier of carriers) {
 		contexts.set(carrier, carrierContext(doc, carrier, placement));
 	}
 	for (const carrier of carriers) unindexCarrier(index, carrier, batch.emptied);
 	for (const carrier of carriers) {
-		registerFormDeclarations(index, doc, carrier, placement);
+		registerFormDeclarations(index, doc, carrier, placement, relationTypes);
 	}
 	for (const carrier of carriers) {
-		extractCarrierEdges(index, doc, carrier, contexts.get(carrier) ?? {});
+		extractCarrierEdges(
+			index,
+			doc,
+			carrier,
+			contexts.get(carrier) ?? {},
+			relationTypes,
+		);
 	}
 }
 

@@ -1,7 +1,6 @@
 /** Registry-driven case-property renames over the one Expression tree. */
 import {
 	type CaseType,
-	columnPropertyCaseType,
 	type Field,
 	FORM_REFERENCE_SLOTS,
 	type Form,
@@ -10,6 +9,7 @@ import {
 	type Module,
 	mapCasePropertiesInProse,
 	type ProseTemplate,
+	reachedPropertyRename,
 	readSlotValues,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
@@ -97,6 +97,7 @@ export function rewriteFieldReferenceSlots(
 			case "entity-uuid":
 			case "relation-path":
 			case "datum-ref":
+			case "worker-property-ref":
 				break;
 			default: {
 				const exhaustive: never = slot.kind;
@@ -170,13 +171,12 @@ export function rewriteModuleCaseRefs(
 				if (column.kind === "calculated") continue;
 				// A column read through a relation names a property of the case
 				// its walk reaches, so a rename of that type's property renames it.
-				const caseType = columnPropertyCaseType(
+				const next = reachedPropertyRename(
 					column,
 					mod.caseType,
 					caseTypes,
-				);
-				if (caseType === undefined) continue;
-				const next = resolveCaseProperty(caseType, column.field);
+					resolveCaseProperty,
+				).name;
 				if (next !== undefined && next !== column.field) {
 					column.field = next;
 					columnsRewritten++;

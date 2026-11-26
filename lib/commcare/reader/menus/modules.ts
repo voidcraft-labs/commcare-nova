@@ -214,8 +214,14 @@ const MENU = {
 	),
 	optimizations: perClass(
 		MENU_CLASSES,
-		refuse,
+		take,
 		`${M}/module-show-case-list-optimization-options`,
+		"show_case_list_optimization_options",
+	),
+	optimizationsUnread: perClass(
+		MENU_CLASSES,
+		drop,
+		`${M}/module-show-case-list-optimization-options-on-a-menu-with-no-case-list`,
 		"show_case_list_optimization_options",
 	),
 	customAssertions: perClass(
@@ -1321,8 +1327,21 @@ function readMenuSettings(
 		else json.drop("fixture_select", MENU.fixtureSelectInactive[cls]);
 	if (stored.report_context_tile === true)
 		json.refuse("report_context_tile", MENU.reportContextTile[cls]);
-	if (stored.show_case_list_optimization_options === true)
-		json.refuse("show_case_list_optimization_options", MENU.optimizations[cls]);
+	// Faster loading, which the menu's case list holds (`caseList/details.ts`); HQ's build reads
+	// it only where a case list is built (`suite_xml/sections/details.py`).
+	if (stored.show_case_list_optimization_options === true) {
+		if (module.module.caseType !== undefined)
+			json.take(
+				"show_case_list_optimization_options",
+				MENU.optimizations[cls],
+				() => true,
+			).value;
+		else
+			json.drop(
+				"show_case_list_optimization_options",
+				MENU.optimizationsUnread[cls],
+			);
+	}
 	if (nonEmptyList(stored.custom_assertions))
 		json.refuse("custom_assertions", MENU.customAssertions[cls]);
 	readBadge(ctx, module);

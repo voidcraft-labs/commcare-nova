@@ -7,16 +7,24 @@
  */
 
 import { z } from "zod";
+import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import { withWorkflowAfterInputChange } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { planSearchTakeawayDependents } from "@/lib/doc/searchReadDependents";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
 	type BlueprintDoc,
+	CASE_LIST_EMPTY_TEXT_DEFAULT,
+	CASE_LIST_SELECT_TEXT_DEFAULT,
 	type CaseSearchConfig,
+	calculatedSortSchema,
+	caseListWordingSchema,
+	caseListWordingUnitId,
+	defaultSortBlanks,
 	findAuthoredBlueprintIdentity,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
@@ -77,6 +85,32 @@ export const configureCaseListInputSchema = z
 			.describe(
 				`Columns to add, in their initial Results and Details order. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE} ${CASE_LIST_ORDER_GUIDANCE}`,
 			),
+		calculatedSorts: z
+			.array(
+				z.strictObject({
+					sortUuid: uuidInputSchema
+						.optional()
+						.describe(
+							"Use the existing order calculation’s ID to change it. Leave this out for a new calculation.",
+						),
+					expression: calculatedSortSchema.shape.expression,
+					direction: calculatedSortSchema.shape.direction,
+					priority: calculatedSortSchema.shape.priority,
+					comparator: calculatedSortSchema.shape.comparator,
+					blanks: calculatedSortSchema.shape.blanks,
+					label: calculatedSortSchema.shape.label,
+				}),
+			)
+			.min(1)
+			.optional()
+			.describe(
+				"Add or replace these independent Default order calculations. Priority is shared with column ordering. The optional label makes the calculation available in the worker’s Sort by menu.",
+			),
+		removeCalculatedSorts: z
+			.array(uuidInputSchema)
+			.min(1)
+			.optional()
+			.describe("IDs of independent order calculations to remove."),
 		searchInputs: z
 			.array(searchInputDefInputSchema)
 			.min(1)
@@ -89,6 +123,24 @@ export const configureCaseListInputSchema = z
 			.optional()
 			.describe(
 				"Replacement always-on case-list filter. null clears it; omission leaves it unchanged. Ordinary case lists already omit closed cases.",
+			),
+		emptyText: caseListWordingSchema
+			.nullable()
+			.optional()
+			.describe(
+				"What Results says when it holds no case. null restores the ordinary “List is empty.”; omission keeps it. Web Apps shows it, Android keeps its own wording, and the project space needs its empty case list text setting.",
+			),
+		selectButtonText: caseListWordingSchema
+			.nullable()
+			.optional()
+			.describe(
+				"The label of Continue after a worker chooses several cases. null restores the ordinary “Continue”; omission keeps it. Web Apps shows it, Android keeps its own wording.",
+			),
+		optimizations: z
+			.boolean()
+			.optional()
+			.describe(
+				"Turn faster loading on phones on or off. On lets a calculated or link column choose its loadBehavior; off clears every column's choice. The project space needs CommCare HQ's case list optimizations setting.",
 			),
 		...configureSearchDisplaySchema.shape,
 		searchWorkflow: searchWorkflowInputSchema
@@ -133,10 +185,15 @@ export const configureCaseListInputSchema = z
 		}
 		if (
 			input.columns === undefined &&
+			input.calculatedSorts === undefined &&
+			input.removeCalculatedSorts === undefined &&
 			input.searchInputs === undefined &&
 			input.searchWorkflow === undefined &&
 			input.formsReadSearch === undefined &&
 			!("filter" in input) &&
+			input.emptyText === undefined &&
+			input.selectButtonText === undefined &&
+			input.optimizations === undefined &&
 			displaySlots.length === 0 &&
 			input.resultsColumnOrder === undefined &&
 			input.detailsColumnOrder === undefined &&
@@ -145,10 +202,17 @@ export const configureCaseListInputSchema = z
 			ctx.addIssue({
 				code: "custom",
 				message:
-					"Configure at least one case-list resource: columns, search inputs, filter, search display, what the menu opens on, whether its forms read the search, or an order.",
+					"Configure at least one case-list resource: columns, search inputs, filter, the list's own text, search display, what the menu opens on, whether its forms read the search, or an order.",
 			});
 		}
 	});
+
+/** Whether some language other than the source holds its own text for `unit`. */
+function hasTranslations(doc: BlueprintDoc, unit: TranslationUnitId): boolean {
+	return Object.values(doc.localization?.translations ?? {}).some(
+		(entries) => entries?.[unit] != null,
+	);
+}
 
 export type ConfigureCaseListInput = z.infer<
 	typeof configureCaseListInputSchema
@@ -173,6 +237,7 @@ function hasCompleteSearchDisplay(
 export interface ConfigureCaseListSuccess {
 	readonly ok: true;
 	readonly columnUuids: readonly Uuid[];
+	readonly calculatedSortUuids?: readonly Uuid[];
 	readonly searchInputUuids: readonly Uuid[];
 	readonly summary: ToolCallSummary;
 }
@@ -326,10 +391,65 @@ export const configureCaseListTool = {
 					addColumnsMutation(
 						workingModule,
 						input.columns.map((column, index) =>
-							stampColumnUuid(column, columnUuids[index]),
+							stampColumnUuid(column, columnUuids[index], doc),
 						),
 					).mutations,
 				);
+			}
+			const sortUuids = (input.calculatedSorts ?? []).map((rule) =>
+				rule.sortUuid === undefined ? newUuid() : asUuid(rule.sortUuid),
+			);
+			if (input.calculatedSorts || input.removeCalculatedSorts) {
+				const before = workingModule.caseListConfig?.calculatedSorts ?? [];
+				const removals = new Set(
+					(input.removeCalculatedSorts ?? []).map(asUuid),
+				);
+				if (
+					removals.size !== (input.removeCalculatedSorts?.length ?? 0) ||
+					[...removals].some(
+						(uuid) => !before.some((rule) => rule.uuid === uuid),
+					) ||
+					new Set(sortUuids).size !== sortUuids.length ||
+					sortUuids.some((uuid) => removals.has(uuid))
+				) {
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: {
+							error:
+								"Each order calculation can be changed once in a call. Remove a calculation that this menu already holds.",
+						},
+					};
+				}
+				const next = new Map(
+					before
+						.filter((rule) => !removals.has(rule.uuid))
+						.map((rule) => [rule.uuid, rule]),
+				);
+				for (const [i, inputRule] of (input.calculatedSorts ?? []).entries()) {
+					const { sortUuid: _id, blanks, ...values } = inputRule;
+					const uuid = sortUuids[i];
+					if (
+						createdUuids.includes(uuid) ||
+						(!next.has(uuid) && findAuthoredBlueprintIdentity(doc, uuid))
+					) {
+						return {
+							kind: "mutate",
+							mutations: [],
+							result: {
+								error:
+									"This ID already belongs to another part of the app. Choose a calculation from this menu or add a new one.",
+							},
+						};
+					}
+					next.set(uuid, {
+						uuid,
+						...values,
+						...(blanks !== undefined &&
+							blanks !== defaultSortBlanks(values.direction) && { blanks }),
+					});
+				}
+				append(calculatedSortMutations(moduleUuid, before, [...next.values()]));
 			}
 			if (input.searchInputs !== undefined) {
 				append(
@@ -350,6 +470,74 @@ export const configureCaseListTool = {
 					},
 				]);
 			}
+			const wording: {
+				emptyText?: string | null;
+				selectButtonText?: string | null;
+			} = {};
+			for (const [key, fallback] of [
+				["emptyText", CASE_LIST_EMPTY_TEXT_DEFAULT],
+				["selectButtonText", CASE_LIST_SELECT_TEXT_DEFAULT],
+			] as const) {
+				const value = input[key];
+				if (value === undefined) continue;
+				// The ordinary text in the source language with no other language's
+				// own is no text of the list's.
+				const ordinary =
+					value === null ||
+					(value.trim() === fallback &&
+						!hasTranslations(
+							doc,
+							caseListWordingUnitId(
+								moduleUuid,
+								key === "emptyText" ? "empty" : "select",
+							),
+						));
+				wording[key] = ordinary ? null : value.trim();
+			}
+			if (input.optimizations === true)
+				append([
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { optimizations: true },
+					},
+				]);
+			if (input.optimizations === false) {
+				// Every column's choice goes in the same batch as the switch.
+				const columns = workingModule.caseListConfig?.columns ?? [];
+				const cleared: Mutation[] = columns.flatMap((column) => {
+					if (!("loadBehavior" in column) || column.loadBehavior === undefined)
+						return [];
+					const {
+						loadBehavior: _cleared,
+						uuid,
+						sort: _sort,
+						tile: _tile,
+						visibleInList: _list,
+						visibleInDetail: _detail,
+						notOnList: _notOnList,
+						...content
+					} = column;
+					return [
+						{
+							kind: "updateColumn" as const,
+							moduleUuid,
+							uuid,
+							column: content,
+						},
+					];
+				});
+				append([
+					...cleared,
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { optimizations: null },
+					},
+				]);
+			}
+			if (Object.keys(wording).length > 0)
+				append([{ kind: "setCaseListMeta", uuid: moduleUuid, patch: wording }]);
 			if (hasCompleteSearchDisplay(input)) {
 				append(displayMutations(workingModule, input));
 			}
@@ -432,6 +620,7 @@ export const configureCaseListTool = {
 				result: {
 					ok: true,
 					columnUuids,
+					...(input.calculatedSorts && { calculatedSortUuids: sortUuids }),
 					searchInputUuids,
 					summary: { location: originalModule.name },
 				},

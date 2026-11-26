@@ -15,6 +15,7 @@ import {
 	snapshotTranslationUnits,
 	type Uuid,
 } from "@/lib/domain";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import {
 	menuWithInheritedCaseSettings,
@@ -537,6 +538,11 @@ export function appTestRecordsHaveDetails(
 	screen: AppTestRecordsScreen,
 	listHasDetails: boolean,
 ): boolean {
+	if (
+		resolveCaseFormContext(context.doc.modules, screen.moduleUuid)
+			?.inlineModuleUuid
+	)
+		return false;
 	const request = appTestParentRequestOf(screen);
 	return request === undefined
 		? listHasDetails

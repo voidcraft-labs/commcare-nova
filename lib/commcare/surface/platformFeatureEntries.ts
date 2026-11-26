@@ -12,6 +12,8 @@ import type { PlatformFeatureId } from "@/lib/domain/platforms";
 /** Each platform feature's manifest entries, in inventory order. */
 export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
+	"worker-distance": ["menus-and-case-lists/9-distance"],
+	"sort-by-distance": ["menus-and-case-lists/type-distance"],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
 	],
@@ -182,8 +184,32 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"forms-and-case-writes/custom-icons-0",
 		"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
 	],
+	"named-case-tile": [
+		"menus-and-case-lists/detail-case-tile-template-icon-text-grid",
+		"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid",
+		// An image column differs only in a named tile's image position.
+		"menus-and-case-lists/19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a",
+		"menus-and-case-lists/19-enum-image-whose-keys-are-plain-values",
+		"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot",
+	],
+	"details-tile": [
+		"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile",
+	],
+	"raw-custom-tile-field": [
+		"menus-and-case-lists/invisible-or-address-column-in-a-custom-tile",
+	],
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
+	],
+	"case-list-faster-loading": [
+		"menus-and-case-lists/module-show-case-list-optimization-options",
+		"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load",
+	],
+	"case-list-empty-text": [
+		"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
+	],
+	"case-list-continue-label": [
+		"menus-and-case-lists/detail-select-text-non-default",
 	],
 	"tile-alignment": ["menus-and-case-lists/horizontal-align-vertical-align"],
 	"tile-border-and-shading": ["menus-and-case-lists/show-border-show-shading"],
@@ -193,6 +219,23 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"case-list-sort-label": [
 		"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
 		"menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
+	],
+	"case-image-descriptions": [
+		"menus-and-case-lists/enum-mappingitem-alt-text-lang",
+		"menus-and-case-lists/enum-mappingitem-alt-text-non-blank",
+	],
+	"case-map-location": ["menus-and-case-lists/8-address"],
+	"case-map-fallback-locations": [
+		"menus-and-case-lists/more-than-one-address-column-in-a-detail-of-an-advanced-module",
+	],
+	"case-map-layers": [
+		"menus-and-case-lists/11-geo-boundary",
+		"menus-and-case-lists/12-geo-boundary-color-on-the-case-list-only-needs-an-address",
+		"menus-and-case-lists/13-geo-points-on-the-case-list-only",
+		"menus-and-case-lists/14-geo-points-colors-on-the-case-list-only-needs-an-address",
+	],
+	"formatted-case-text": [
+		"menus-and-case-lists/10-markdown-outside-the-link-shape",
 	],
 	"link-column": [
 		"menus-and-case-lists/10-markdown-any-property-or-expression",
@@ -274,10 +317,6 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The local archive's embedded tables; Web Apps installs no archive.",
 	"forms-and-case-writes/usercase-datum-usercase-id-assertion-case-autoload-usercase-case":
 		"The missing worker-record notice; no author chooses its screen.",
-	"menus-and-case-lists/19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a":
-		"Differs only in an icon-text-grid tile, which Nova never writes.",
-	"menus-and-case-lists/enum-mappingitem-alt-text-lang":
-		"Nova writes blank alt text; no author sets it yet.",
 	"questions/hq-generated-meta-deviceid-timestart-timeend-username-userid":
 		"The submission's meta block; authored reads go through the session context features.",
 	"questions/h-title-and-data-name-whatever-their-text":

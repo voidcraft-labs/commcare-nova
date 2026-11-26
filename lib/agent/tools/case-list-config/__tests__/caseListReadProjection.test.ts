@@ -48,6 +48,31 @@ function independentlyArrangedDoc(): BlueprintDoc {
 }
 
 describe("case-list read projections", () => {
+	it("returns the tab field groups the editing tool accepts and reports the independent Details positions", async () => {
+		const doc = independentlyArrangedDoc();
+		const config = doc.modules[MOD_A].caseListConfig;
+		if (!config) throw new Error("The fixture menu has no case list.");
+		const overview = testUuid("overview-tab"),
+			history = testUuid("history-tab");
+		config.detailTabs = [
+			{ uuid: overview, title: "Overview", startColumnUuid: A },
+			{ uuid: history, title: "History", startColumnUuid: C },
+		];
+		config.detailTile = {
+			cells: { [A]: tileCell(0, 0, 12, 1), [C]: tileCell(0, 1, 12, 1) },
+		};
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(getModuleTool, { moduleUuid: MOD_A });
+		if ("error" in result.data) throw Error(result.data.error);
+		expect(result.data.detail_tabs).toEqual([
+			{ tabUuid: overview, title: "Overview", columnUuids: [A] },
+			{ tabUuid: history, title: "History", columnUuids: [C] },
+		]);
+		const text = summarizeBlueprint(expectAdmittedDoc(doc));
+		expect(text).toContain("tab History");
+		expect(text).toContain(" @ 0,1 12x1");
+	});
+
 	it("reports bounded multiple selection on both model-facing reads", async () => {
 		const base = makeCaseListDoc();
 		base.forms[FORM_A] = { ...base.forms[FORM_A], type: "followup" };

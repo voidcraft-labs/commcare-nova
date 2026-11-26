@@ -185,6 +185,21 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 				"A section offered by the current form. Forward navigation validates earlier pages.",
 			),
 		}),
+		z.strictObject({
+			kind: z.literal("detailTab"),
+			tabUuid: reference.describe(
+				"A visible tab UUID or title on the current case Details screen.",
+			),
+		}),
+		z.strictObject({
+			kind: z.literal("caseContext"),
+			expanded: z.boolean(),
+			tabUuid: reference
+				.optional()
+				.describe(
+					"Choose an available detail tab while expanding the form context.",
+				),
+		}),
 		z.strictObject({ kind: z.literal("observe") }),
 		z.strictObject({ kind: z.literal("continue") }),
 		z.strictObject({ kind: z.literal("back") }),
@@ -357,6 +372,7 @@ export type AppTestScreen =
 	  }
 	| {
 			kind: "details";
+			tabUuid?: Uuid;
 			moduleUuid: Uuid;
 			caseId: string;
 			source: Extract<AppTestScreen, { kind: "records" }>;
@@ -393,6 +409,8 @@ export type AppTestScreen =
 	  }
 	| {
 			kind: "form";
+			contextExpanded?: true;
+			contextTabUuid?: Uuid;
 			moduleUuid: Uuid;
 			formUuid: Uuid;
 			caseIds: readonly string[];

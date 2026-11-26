@@ -346,6 +346,8 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"search-field-single-date": "date search fields",
 	"search-field-multiple-choice": "multiple-choice search fields",
 	"window-width": "reads of the window's width",
+	"worker-distance": "distances from the worker",
+	"sort-by-distance": "case lists ordered by distance",
 	"connect-app": "CommCare Connect",
 };
 

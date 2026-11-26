@@ -48,6 +48,7 @@ import {
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { Uuid } from "@/lib/doc/types";
 import { type CaseType, humanizeId } from "@/lib/domain";
+import { declaredCaseRelations } from "@/lib/domain/caseRelations";
 import {
 	isPreviewUnavailable,
 	type PopulateSampleCasesResult,
@@ -150,8 +151,10 @@ export function CaseDataManager({
 		throw new Error("CaseDataManager requires at least one case type.");
 	}
 	const moduleUuid = moduleUuidByCaseType[caseType.name];
-	const hasLinkedChildren = caseTypes.some(
-		(candidate) => candidate.parent_type === caseType.name,
+	const hasLinkedChildren = effectiveCaseTypes.some((candidate) =>
+		declaredCaseRelations(candidate).some(
+			(edge) => edge.targetType === caseType.name,
+		),
 	);
 	const {
 		state: countState,

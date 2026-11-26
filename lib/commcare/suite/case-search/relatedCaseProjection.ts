@@ -33,7 +33,11 @@ import { casePropertyPath } from "../wire";
 export type RelatedCaseSearchProjection =
 	| { readonly kind: "none" }
 	| { readonly kind: "ancestor-property"; readonly hqExpression: WireExpr }
-	| { readonly kind: "unsupported" };
+	| {
+			readonly kind: "unsupported";
+			/** The read walks to whatever case a link reaches, of any type. */
+			readonly reached?: true;
+	  };
 
 /**
  * Build one XPath that is independent of the containing case-fixture name.
@@ -90,6 +94,10 @@ export function classifyRelatedCaseSearchExpression(
 	}
 
 	const property = expression.term;
+	// A reached read walks to whatever case each index names, of any type,
+	// so it has no destination type to canonicalize toward, and Search
+	// supplies no related case it could reach.
+	if (property.readReached) return { kind: "unsupported", reached: true };
 	const via = property.via;
 	if (via === undefined || via.kind === "self") {
 		// The semantic read guard above makes this unreachable for a lone
@@ -120,20 +128,32 @@ export function classifyRelatedCaseSearchExpression(
  * is a field of the short detail.
  */
 export function searchNeedsSupportingCases(
-	config: Pick<CaseListConfig, "columns" | "tile">,
+	config: Pick<CaseListConfig, "columns" | "tile" | "calculatedSorts">,
 	expressions: ModuleExpressionContexts,
 ): boolean {
-	return config.columns.some(
-		(column) =>
-			column.kind === "calculated" &&
-			caseListColumnRuns(column, config) &&
-			classifyRelatedCaseSearchExpression(
-				column.expression,
-				expressions({
-					slot: "case_list_column_expression",
-					member: { columnUuid: column.uuid },
-				}),
-			).kind !== "none",
+	return (
+		(config.calculatedSorts ?? []).some(
+			(rule) =>
+				classifyRelatedCaseSearchExpression(
+					rule.expression,
+					expressions({
+						slot: "case_list_sort_expression",
+						member: { sortUuid: rule.uuid },
+					}),
+				).kind !== "none",
+		) ||
+		config.columns.some(
+			(column) =>
+				column.kind === "calculated" &&
+				caseListColumnRuns(column, config) &&
+				classifyRelatedCaseSearchExpression(
+					column.expression,
+					expressions({
+						slot: "case_list_column_expression",
+						member: { columnUuid: column.uuid },
+					}),
+				).kind !== "none",
+		)
 	);
 }
 

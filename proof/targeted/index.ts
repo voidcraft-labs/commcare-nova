@@ -25,9 +25,11 @@ import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
+import { caseMap } from "./documents/caseMap";
 import { caseTypeNames } from "./documents/caseTypeNames";
 import { caseWriteNames } from "./documents/caseWriteNames";
 import { caseWritesOneConcept } from "./documents/caseWritesOneConcept";
+import { choiceValueColumns } from "./documents/choiceValueColumns";
 import { choiceValues } from "./documents/choiceValues";
 import {
 	closeConditions,
@@ -47,6 +49,7 @@ import { datetimeOrdering } from "./documents/datetimeOrdering";
 import { datetimeSaved } from "./documents/datetimeSaved";
 import { datetimeSplit } from "./documents/datetimeSplit";
 import { detailOnlyColumn } from "./documents/detailOnlyColumn";
+import { nearestClinics } from "./documents/distanceOrder";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import {
 	expressionPropertyRenames,
@@ -135,6 +138,7 @@ import {
 	registerFromCaseListWebApps,
 } from "./documents/registerFromCaseList";
 import { relatedColumns } from "./documents/relatedColumns";
+import { relativeCaseDates } from "./documents/relativeCaseDates";
 import {
 	queryRepeatPlacements,
 	queryRepeatPlaces,
@@ -164,7 +168,7 @@ import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
 import { sortBlanks } from "./documents/sortBlanks";
-import { sharedPropertySort } from "./documents/sortKeys";
+import { independentCaseOrder, sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
 import {
 	parentFormPreviousFrame,
@@ -175,7 +179,9 @@ import { styledValue } from "./documents/styledValue";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
+import { tileRowBound } from "./documents/tileRowBound";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
+import { workerRecordColumns } from "./documents/workerRecordColumns";
 
 /** Every targeted document's maker, in the corpus's order. */
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
@@ -200,6 +206,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchRelatedLookups,
 	loadTimeValues,
 	sharedPropertySort,
+	independentCaseOrder,
+	nearestClinics,
 	searchDefaultFilterName,
 	syncOnFormEntry,
 	hqSideState,
@@ -230,6 +238,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	attributeColumns,
 	hiddenCalculatedColumn,
 	tileHiddenOrder,
+	tileRowBound,
 	hiddenFromMenu,
 	listedForms,
 	listFirstPlaces,
@@ -294,8 +303,12 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	questionCalendar,
 	detailOnlyColumn,
 	relatedColumns,
+	workerRecordColumns,
 	proseValue,
 	searchNoTitle,
+	choiceValueColumns,
+	caseMap,
+	relativeCaseDates,
 	sortBlanks,
 	sortLabels,
 	datetimeSaved,

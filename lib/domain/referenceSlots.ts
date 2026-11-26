@@ -96,6 +96,7 @@ const REFERENCE_SURFACE_KINDS = [
 	"datum-ref",
 	"options-source",
 	"entity-uuid",
+	"worker-property-ref",
 	"case-property-ref",
 	"case-type-ref",
 ] as const;
@@ -678,6 +679,18 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_form_context_menu",
+		path: "caseListConfig.contextAboveForm.moduleUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "case_form_context_line",
+		path: "caseListConfig.contextAboveForm.expression",
+		kind: "expression",
+	},
+	{
+		entity: "module",
 		slot: "module_case_parent",
 		path: "parentCaseModuleUuid",
 		kind: "entity-uuid",
@@ -732,6 +745,13 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_icon_action",
+		path: "caseListConfig.columns[].entryPointUuid",
+		kind: "entity-uuid",
+		columnKinds: ["image-map"],
+	},
+	{
+		entity: "module",
 		slot: "case_list_column_field",
 		path: "caseListConfig.columns[].field",
 		kind: "case-property-ref",
@@ -739,6 +759,33 @@ export const MODULE_REFERENCE_SLOTS = [
 		// its expression is the source.
 		columnKinds: [
 			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
+			"date",
+			"phone",
+			"id-mapping",
+			"image-map",
+			"interval",
+			"link",
+		],
+	},
+	{
+		entity: "module",
+		slot: "case_list_column_worker_information",
+		path: "caseListConfig.columns[].workerPropertyUuid",
+		kind: "worker-property-ref",
+		columnKinds: [
+			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
 			"date",
 			"phone",
 			"id-mapping",
@@ -758,6 +805,12 @@ export const MODULE_REFERENCE_SLOTS = [
 		kind: "relation-path",
 		columnKinds: [
 			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
 			"date",
 			"phone",
 			"id-mapping",
@@ -768,10 +821,53 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_detail_tab_child_type",
+		path: "caseListConfig.detailTabs[].rowSource.caseType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_search_child_type",
+		path: "caseListConfig.detailTabs[].rowSource.includeChildrenOfType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_filter",
+		path: "caseListConfig.detailTabs[].rowSource.condition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_rows",
+		path: "caseListConfig.detailTabs[].rowSource.rows",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_condition",
+		path: "caseListConfig.detailTabs[].displayCondition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
 		slot: "case_list_column_expression",
 		path: "caseListConfig.columns[].expression",
 		kind: "expression",
 		columnKinds: ["calculated"],
+	},
+	{
+		entity: "module",
+		slot: "case_list_mapping_condition",
+		path: "caseListConfig.columns[].mapping[].when",
+		kind: "expression",
+		columnKinds: ["id-mapping", "image-map"],
+	},
+	{
+		entity: "module",
+		slot: "case_list_sort_expression",
+		path: "caseListConfig.calculatedSorts[].expression",
+		kind: "expression",
 	},
 	{
 		entity: "module",
@@ -1000,9 +1096,13 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	if ("operationUuid" in member) {
 		return JSON.stringify([...base, member.operationUuid]);
 	}
+	if ("rowUuid" in member)
+		return JSON.stringify([...base, member.columnUuid, member.rowUuid]);
+	if ("tabUuid" in member) return JSON.stringify([...base, member.tabUuid]);
 	if ("columnUuid" in member) {
 		return JSON.stringify([...base, member.columnUuid]);
 	}
+	if ("sortUuid" in member) return JSON.stringify([...base, member.sortUuid]);
 	return JSON.stringify([...base, member.searchInputUuid]);
 }
 
@@ -1028,9 +1128,48 @@ function expressionRefForEntry(
 			case "module_display_condition":
 			case "case_list_action_condition":
 			case "case_list_filter":
+			case "case_form_context_line":
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
 				return { entity: "module", uuid, slot: entry.slot };
+			case "case_list_mapping_condition": {
+				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
+				if (column?.kind !== "id-mapping" && column?.kind !== "image-map")
+					return undefined;
+				const row = column.mapping[indices[1] ?? -1];
+				return row?.uuid === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { columnUuid: column.uuid, rowUuid: row.uuid },
+						};
+			}
+			case "case_list_sort_expression": {
+				const sort = mod.caseListConfig?.calculatedSorts?.[indices[0] ?? -1];
+				return sort === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { sortUuid: sort.uuid },
+						};
+			}
+			case "case_detail_tab_filter":
+			case "case_detail_tab_rows":
+			case "case_detail_tab_condition": {
+				const tab = mod.caseListConfig?.detailTabs?.[indices[0] ?? -1];
+				return (
+					tab && {
+						entity: "module",
+						uuid,
+						slot: entry.slot,
+						member: { tabUuid: tab.uuid },
+					}
+				);
+			}
 			case "case_list_column_expression": {
 				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
 				return column === undefined
@@ -1899,8 +2038,14 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.detailColumnOrder[]": "identity",
 	"caseListConfig.selection.kind": "discriminator",
 	"caseListConfig.selection.maximum": "config",
+	"caseListConfig.emptyText": "display-text",
+	"caseListConfig.selectButtonText": "display-text",
+	"caseListConfig.optimizations": "config",
+	"caseListConfig.columns[].loadBehavior": "config",
 	"caseListConfig.columns[].uuid": "identity",
 	"caseListConfig.columns[].kind": "discriminator",
+	"caseListConfig.columns[].readFrom": "discriminator",
+	"caseListConfig.columns[].showOwner": "config",
 	"caseListConfig.columns[].header": "display-text",
 	// Display text, but NOT a translation unit: a link cell is emitted as
 	// `<template form="markdown">`, and CommCare HQ builds locale variables
@@ -1911,8 +2056,41 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].sort.direction": "config",
 	"caseListConfig.columns[].sort.priority": "config",
 	"caseListConfig.columns[].sort.blanks": "config",
+	"caseListConfig.columns[].sort.comparator": "config",
+	"caseListConfig.columns[].sort.menuPosition": "config",
 	// The name a hidden column's sort rule gives it in Sort by.
 	"caseListConfig.columns[].sort.label": "display-text",
+	// An independent default-order calculation: its expression is the
+	// `case_list_sort_expression` reference slot; the rest is its identity,
+	// its place and comparison in the order, and its Sort by name.
+	"caseListConfig.calculatedSorts[].uuid": "identity",
+	"caseListConfig.calculatedSorts[].priority": "config",
+	"caseListConfig.calculatedSorts[].direction": "config",
+	"caseListConfig.calculatedSorts[].blanks": "config",
+	"caseListConfig.calculatedSorts[].comparator": "config",
+	"caseListConfig.calculatedSorts[].label": "display-text",
+	// A Details tab: its identity, its title (a translation unit of its own),
+	// and the column uuids it starts at and orders by, which are identity
+	// like the two display sequences. Its condition, row source and child
+	// types are reference slots.
+	"caseListConfig.detailTabs[].uuid": "identity",
+	"caseListConfig.detailTabs[].title": "display-text",
+	"caseListConfig.detailTabs[].startColumnUuid": "identity",
+	"caseListConfig.detailTabs[].orderFields[]": "identity",
+	"caseListConfig.detailTabs[].rowSource.kind": "discriminator",
+	// The Details tile's cells and the named Results positions, each keyed
+	// by a column uuid or naming one; their geometry is closed config.
+	"caseListConfig.detailTile.cells": "config",
+	"caseListConfig.tile.namedSlots": "identity",
+	"caseListConfig.tile.rawSlots[]": "config",
+	// Which source shows the selected case above a form and whether it
+	// expands; its menu and its line are reference slots.
+	"caseListConfig.contextAboveForm.kind": "discriminator",
+	"caseListConfig.contextAboveForm.expandDetails": "config",
+	// A table or place field shown as HQ's direct property field, and a
+	// placed cell only Android draws.
+	"caseListConfig.columns[].rowField": "config",
+	"caseListConfig.columns[].tile.androidOnly": "config",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",
 	"caseListConfig.columns[].notOnList": "config",
@@ -1939,6 +2117,17 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].tile.fontSize": "config",
 	"caseListConfig.columns[].tile.showBorder": "config",
 	"caseListConfig.columns[].tile.showShading": "config",
+	"caseListConfig.columns[].showAs": "config",
+	"caseListConfig.columns[].showChoice": "config",
+	"caseListConfig.columns[].behavior": "config",
+	"caseListConfig.columns[].afterDays": "config",
+	"caseListConfig.columns[].period": "config",
+	"caseListConfig.columns[].layer": "config",
+	"caseListConfig.columns[].texts[].uuid": "identity",
+	"caseListConfig.columns[].texts[].label": "display-text",
+	"caseListConfig.columns[].mapping[].uuid": "identity",
+	"caseListConfig.columns[].mapping[].match": "config",
+	"caseListConfig.columns[].mapping[].altText": "display-text",
 	"caseListConfig.columns[].mapping[].value": "data-literal",
 	"caseListConfig.columns[].mapping[].label": "display-text",
 	"caseListConfig.columns[].mapping[].assetId": "media",

@@ -305,8 +305,11 @@ A translation unit contains:
 - value-specific rules, including whether blank content is legal and which
   reference tokens must survive.
 
-Existing UUIDs identify app structure wherever possible. Nested values without
-UUID identity, such as an ID-mapping row or case-property option, use their
+Existing UUIDs identify app structure wherever possible. Ordered label mappings and image descriptions belong to a row UUID under the
+owning column. A reorder, new comparison or renamed value preserves the row’s translations.
+Earlier immutable documents address a label by its original literal key under
+the column. Current heads convert the row and its managed translations together.
+Nested values without UUID identity, such as a case-property option, use their
 existing stable semantic key under the UUID-bearing owner. Classic permits a
 case-property catalog to repeat one stored value, so later same-value
 occurrences add their zero-based same-value ordinal: every legal label stays
@@ -413,9 +416,18 @@ faithfully today:
 - field hints, help, validation messages, and inline select option labels;
 - case-property option labels when they provide runtime display labels for
   case-list select values;
-- case-list column headings, ID-mapping labels, and interval text;
+- case-list column headings, ordered rule labels, image descriptions, interval text,
+  and phrases used in a calculated value;
 - Search input labels, screen title/subtitle, and action label, including
   effective Nova defaults.
+
+A label or image description belongs to its mapping row. A phrase in a
+calculation belongs to that column and phrase UUID, including while the
+phrase is unused. Moving a rule or changing its condition keeps its
+translations. Preview uses the worker’s selected language to compute both
+the shown cell and the value that orders the list. The HQ reader preserves
+the source meaning of its translated variables, including native text
+replacement inside an expression’s literals.
 
 The same inventory boundary also returns explicit coverage diagnostics through
 the Languages workspace and `get_languages` for content that cannot honestly

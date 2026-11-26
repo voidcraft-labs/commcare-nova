@@ -682,6 +682,10 @@ function printWith(
 				if (node.args.length === 0) emit(`${node.fn}()`);
 				else call(node.fn, () => list(node, "args", node.args, path, ctx));
 				break;
+			case "case-text": {
+				call("case-text", () => literal(node.textUuid, path));
+				break;
+			}
 			case "itext": {
 				const id = named(ctx.itextId?.(node.unit), path);
 				if (id !== undefined) call("jr:itext", () => literal(id, path));

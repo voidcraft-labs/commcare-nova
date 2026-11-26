@@ -36,7 +36,7 @@ export function sortPriorityUniqueness(
 	// the position the author counts — "column #2" has to name the second
 	// column on screen, not the second one written to the document.
 	const columns = config === undefined ? [] : orderedColumns(config, "list");
-	if (columns.length === 0) return [];
+	if (config === undefined) return [];
 
 	// Walk the column list once, tracking the first column index at
 	// every priority. Second occurrences emit one error each — the
@@ -68,6 +68,33 @@ export function sortPriorityUniqueness(
 					duplicateIndex: String(columnIndex),
 					firstUuid: columns[firstIndex].uuid,
 					duplicateUuid: column.uuid,
+				},
+			),
+		);
+	}
+
+	const firstCalculation = new Map<number, Uuid>();
+	for (const rule of config.calculatedSorts ?? []) {
+		const index = firstByPriority.get(rule.priority);
+		const firstUuid =
+			index === undefined
+				? firstCalculation.get(rule.priority)
+				: columns[index].uuid;
+		if (firstUuid === undefined) {
+			firstCalculation.set(rule.priority, rule.uuid);
+			continue;
+		}
+		errors.push(
+			validationError(
+				"CASE_LIST_DUPLICATE_SORT_PRIORITY",
+				"module",
+				`Two rules use position ${rule.priority + 1} in the default order for "${mod.name}". Give each rule its own position.`,
+				{ moduleUuid, moduleName: mod.name },
+				{
+					priority: String(rule.priority),
+					firstUuid,
+					duplicateUuid: rule.uuid,
+					sortUuid: rule.uuid,
 				},
 			),
 		);

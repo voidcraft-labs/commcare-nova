@@ -21,6 +21,8 @@ export const NAMED_IDENTITY_FAMILIES = {
 	field: "Field name or path",
 	"select-option": "Choice value",
 	"case-list-column": "Column header",
+	"case-list-sort": "Default order calculation name",
+	"case-detail-tab": "Details tab title",
 	"search-input": "Search input name",
 	"worker-property": "Worker property name",
 	"user-type": "Role name",

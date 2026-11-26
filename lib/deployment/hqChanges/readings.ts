@@ -26,6 +26,7 @@ import { isDeepStrictEqual } from "node:util";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	knownCaseTypesOf,
 	knownLanguageCodesOf,
@@ -306,11 +307,13 @@ export function* makeHqChangeReadingsSteps(
 	input: HqChangeReadingsInput,
 ): Generator<void, HqChangeReadingsResult, void> {
 	const { appId, reference, data } = input;
+	const lookup = readerLookupContext(data);
 	const resolver = matchingResolver(
 		appId,
 		externalIdentityMap(
 			reference.identityDoc,
 			targetWireIdentity(input.overrides),
+			lookupWireNaming(lookup.definitions),
 		),
 	);
 	const shared = {
@@ -320,7 +323,7 @@ export function* makeHqChangeReadingsSteps(
 		lookup: data.lookups,
 		organization: data.organization,
 		sourceProjectFactories: data.sourceProjectFactories,
-		appStrings: readingAppStrings(readerLookupContext(data)),
+		appStrings: readingAppStrings(lookup),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),

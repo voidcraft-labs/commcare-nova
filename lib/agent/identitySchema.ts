@@ -10,6 +10,9 @@ export type AuthorableIdentityFamily =
 	| "field"
 	| "select-option"
 	| "case-list-column"
+	| "case-list-sort"
+	| "case-detail-tab"
+	| "case-mapping-row"
 	| "search-input"
 	| "worker-property"
 	| "user-type"
@@ -264,6 +267,8 @@ export function classifyIdentity(
 	if (
 		property === "columnUuid" ||
 		property === "columnUuids" ||
+		// A named tile position holds the field placed there.
+		property === "namedSlots" ||
 		property === "resultsColumnOrder" ||
 		property === "detailsColumnOrder"
 	) {
@@ -276,7 +281,17 @@ export function classifyIdentity(
 	) {
 		return "search-input";
 	}
-	if (property === "userPropertyUuid") return "worker-property";
+	if (
+		property === "sortUuid" ||
+		property === "calculatedSortUuids" ||
+		property === "removeCalculatedSorts"
+	)
+		return "case-list-sort";
+	if (property === "tabUuid") return "case-detail-tab";
+	if (property === "orderFields" && tool === "set_case_detail_tabs")
+		return "case-list-column";
+	if (property === "userPropertyUuid" || property === "workerPropertyUuid")
+		return "worker-property";
 	if (property === "userTypeUuid") return "user-type";
 	if (property === "personaUuid") return "persona";
 	if (
@@ -329,7 +344,12 @@ export function classifyIdentity(
 		return "media-asset";
 	}
 
+	// A column's ordered display rule and a calculation's translated text are
+	// anonymous items of their column, each named by its stable id.
+	if (property === "textUuid") return "case-mapping-row";
 	if (property === "uuid") {
+		if (pointer.includes("/mapping/") || pointer.includes("/texts/"))
+			return "case-mapping-row";
 		if (tool === "add_automations" || tool === "update_automation") {
 			if (pointer.includes("/criteria/")) return "automation-criterion";
 			if (pointer.includes("/setupOnlyCriteria/")) {

@@ -115,6 +115,7 @@ export interface SessionDatum {
 	 * the case list carries a tile layout that asks to persist.
 	 */
 	detailPersistent?: string;
+	detailInline?: string;
 	autoselect?: boolean;
 	/**
 	 * Present for CommCare's collection-valued `<instance-datum>` selector.
@@ -441,6 +442,7 @@ export function deriveCaseSelectionDatum(args: {
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly parentSelection?: SessionDatum;
 	/**
 	 * The one index name the case is chosen under `parentSelection` by: an
@@ -477,9 +479,11 @@ export function deriveCaseSelectionDatum(args: {
 	if (args.entryMetadataOnly)
 		return {
 			...selection,
-			...(args.detailConfirm === true && {
-				detailConfirm: `m${args.moduleIndex}_case_long`,
-			}),
+			...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
+			...(args.detailConfirm === true &&
+				!args.inlineDetailId && {
+					detailConfirm: `m${args.moduleIndex}_case_long`,
+				}),
 			projectionOnlySelection: true,
 		};
 	const inline = args.caseSource === "results:inline";
@@ -577,9 +581,11 @@ export function deriveCaseSelectionDatum(args: {
 		renderNodeset,
 		value: w.context([w.self(), w.attr("case_id")]),
 		detailSelect: `m${args.moduleIndex}_case_short`,
-		...(args.detailConfirm === true && {
-			detailConfirm: `m${args.moduleIndex}_case_long`,
-		}),
+		...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
+		...(args.detailConfirm === true &&
+			!args.inlineDetailId && {
+				detailConfirm: `m${args.moduleIndex}_case_long`,
+			}),
 		...(args.persistentDetailId !== undefined && {
 			detailPersistent: args.persistentDetailId,
 		}),
@@ -691,6 +697,7 @@ export interface SessionDatumsInput {
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly tileGrouping?: CaseTileGrouping;
 	/** Pre-projected selectable datums. Nested child menus use this to carry
 	 * their parent-select chain and root-menu datum alignment. */
@@ -720,6 +727,7 @@ export interface AdvancedLoadDatumInput {
 		readonly expressions: ModuleExpressionContexts;
 		readonly lookupNaming?: LookupWireNaming;
 		readonly persistentDetailId?: string;
+		readonly inlineDetailId?: string;
 		/** Whether the entry shows the case's details before going on. */
 		readonly detailConfirm: boolean;
 		readonly entryMetadataOnly?: boolean;
@@ -775,6 +783,7 @@ export function deriveAdvancedLoadDatums(
 			expressions: load.list.expressions,
 			lookupNaming: load.list.lookupNaming,
 			persistentDetailId: load.list.persistentDetailId,
+			inlineDetailId: load.list.inlineDetailId,
 			detailConfirm: load.list.detailConfirm,
 			entryMetadataOnly: load.list.entryMetadataOnly,
 			datumId: load.list.datumId,
@@ -817,6 +826,7 @@ export function deriveAdvancedCaseListDatum(args: {
 	readonly expressions: ModuleExpressionContexts;
 	readonly hasDetailScreen: boolean;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly entryMetadataOnly?: boolean;
 }): SessionDatum {
 	return deriveCaseSelectionDatum({
@@ -825,6 +835,7 @@ export function deriveAdvancedCaseListDatum(args: {
 		moduleIndex: args.moduleIndex,
 		expressions: args.expressions,
 		persistentDetailId: args.persistentDetailId,
+		inlineDetailId: args.inlineDetailId,
 		detailConfirm: args.hasDetailScreen,
 		entryMetadataOnly: args.entryMetadataOnly,
 	});
@@ -1358,6 +1369,7 @@ function buildDatumElement(
 				...(d.detailConfirm === undefined
 					? {}
 					: { "detail-confirm": d.detailConfirm }),
+				...(d.detailInline && { "detail-inline": d.detailInline }),
 				...(d.detailPersistent === undefined
 					? {}
 					: { "detail-persistent": d.detailPersistent }),

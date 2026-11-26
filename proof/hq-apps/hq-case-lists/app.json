@@ -468,6 +468,22 @@
 									},
 									"alt_text": {},
 									"doc_type": "MappingItem"
+								},
+								{
+									"key": "",
+									"value": {
+										"en": "Unspecified"
+									},
+									"alt_text": {},
+									"doc_type": "MappingItem"
+								},
+								{
+									"key": "east bank",
+									"value": {
+										"en": "East Bank"
+									},
+									"alt_text": {},
+									"doc_type": "MappingItem"
 								}
 							],
 							"useXpathExpression": false,
@@ -680,6 +696,22 @@
 									},
 									"alt_text": {},
 									"doc_type": "MappingItem"
+								},
+								{
+									"key": "",
+									"value": {
+										"en": "Unspecified"
+									},
+									"alt_text": {},
+									"doc_type": "MappingItem"
+								},
+								{
+									"key": "east bank",
+									"value": {
+										"en": "East Bank"
+									},
+									"alt_text": {},
+									"doc_type": "MappingItem"
 								}
 							],
 							"useXpathExpression": false,
@@ -716,6 +748,98 @@
 								"doc_type": "GraphConfiguration"
 							},
 							"late_flag": 30,
+							"time_ago_interval": 365.25,
+							"date_format": "%d/%m/%y",
+							"doc_type": "DetailColumn"
+						},
+						{
+							"model": "case",
+							"field": "notes",
+							"header": {
+								"en": "Visit instructions"
+							},
+							"format": "markdown",
+							"useXpathExpression": false,
+							"grid_x": null,
+							"grid_y": null,
+							"enum": [],
+							"graph_configuration": {
+								"config": {},
+								"locale_specific_config": {},
+								"annotations": [],
+								"series": [],
+								"doc_type": "GraphConfiguration"
+							},
+							"late_flag": 30,
+							"time_ago_interval": 365.25,
+							"date_format": "%d/%m/%y",
+							"doc_type": "DetailColumn"
+						},
+						{
+							"model": "case",
+							"field": "dob",
+							"header": {
+								"en": "Weeks since birth"
+							},
+							"format": "time-ago",
+							"time_ago_interval": 7.0,
+							"useXpathExpression": false,
+							"grid_x": null,
+							"grid_y": null,
+							"enum": [],
+							"graph_configuration": {
+								"config": {},
+								"locale_specific_config": {},
+								"annotations": [],
+								"series": [],
+								"doc_type": "GraphConfiguration"
+							},
+							"late_flag": 30,
+							"date_format": "%d/%m/%y",
+							"doc_type": "DetailColumn"
+						},
+						{
+							"model": "case",
+							"field": "dob",
+							"header": {
+								"en": "Due"
+							},
+							"format": "late-flag",
+							"late_flag": 1,
+							"useXpathExpression": false,
+							"grid_x": null,
+							"grid_y": null,
+							"enum": [],
+							"graph_configuration": {
+								"config": {},
+								"locale_specific_config": {},
+								"annotations": [],
+								"series": [],
+								"doc_type": "GraphConfiguration"
+							},
+							"time_ago_interval": 365.25,
+							"date_format": "%d/%m/%y",
+							"doc_type": "DetailColumn"
+						},
+						{
+							"model": "case",
+							"field": "dob",
+							"header": {
+								"en": "Upcoming"
+							},
+							"format": "late-flag",
+							"late_flag": -2,
+							"useXpathExpression": false,
+							"grid_x": null,
+							"grid_y": null,
+							"enum": [],
+							"graph_configuration": {
+								"config": {},
+								"locale_specific_config": {},
+								"annotations": [],
+								"series": [],
+								"doc_type": "GraphConfiguration"
+							},
 							"time_ago_interval": 365.25,
 							"date_format": "%d/%m/%y",
 							"doc_type": "DetailColumn"
@@ -1055,9 +1179,9 @@
 						"doc_type": "FormActions"
 					},
 					"doc_type": "Form",
-					"unique_id": "f5dd8b4fd01d465ca560aa59cdaab96a",
+					"unique_id": "bcd7f92290ab48df845999bb3521ccf7",
 					"show_count": false,
-					"xmlns": "http://openrosa.org/formdesigner/46e2f096-5177-486c-9138-f0a4292a3f82",
+					"xmlns": "http://openrosa.org/formdesigner/20158cc8-3b4d-48b6-9f2c-8b8d698fd174",
 					"version": null,
 					"post_form_workflow": "default",
 					"post_form_workflow_fallback": null,
@@ -1354,7 +1478,7 @@
 			"lazy_load_case_list_fields": false,
 			"show_case_list_optimization_options": false,
 			"doc_type": "Module",
-			"unique_id": "e24ec077aad04bf991351f6a99f74d73",
+			"unique_id": "9eee7b4a29104d449ba49f205c50bf42",
 			"case_list_form": {
 				"form_id": null,
 				"label": {},
@@ -1527,9 +1651,9 @@
 						"doc_type": "FormActions"
 					},
 					"doc_type": "Form",
-					"unique_id": "ddc9e7dea4854c2abd6529995af7d14c",
+					"unique_id": "4ad89462378c4cc6a53ba6a48b5f6ce4",
 					"show_count": false,
-					"xmlns": "http://openrosa.org/formdesigner/1d46562e-bbb4-4b76-9b4c-7684669a8489",
+					"xmlns": "http://openrosa.org/formdesigner/fdf1c4ff-cdf4-44e2-b282-a14b3307daf8",
 					"version": null,
 					"post_form_workflow": "default",
 					"post_form_workflow_fallback": null,
@@ -1883,7 +2007,7 @@
 			"lazy_load_case_list_fields": false,
 			"show_case_list_optimization_options": false,
 			"doc_type": "Module",
-			"unique_id": "ced2870baaa44b6cb64be50ebebc3b01",
+			"unique_id": "9bea87f631be47e7a0f6e455f3c65421",
 			"case_list_form": {
 				"form_id": null,
 				"label": {},
@@ -2010,13 +2134,13 @@
 	"logo_refs": {},
 	"archived_media": {},
 	"_id": "d753ed80-c0a3-11f1-a75c-d37524b23a70",
-	"_rev": "18-e175ec00-c0a3-11f1-9e70-938948c3700a",
+	"_rev": "18-e175ec00-c0a3-11f1-8891-f79de5125530",
 	"_attachments": {
-		"0b804e5f551040709436e8caa7403040.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n  <h:head>\n    <h:title>Registration Form</h:title>\n    <model>\n      <instance>\n        <data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/41445377-E4D7-4049-A95B-8A6677257680\" uiVersion=\"1\" version=\"1\" name=\"Registration Form\">\n        </data>\n      </instance>\n    </model>\n  </h:head>\n  <h:body>\n  </h:body>\n</h:html>\n",
+		"4ad89462378c4cc6a53ba6a48b5f6ce4.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Followup Form</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/fdf1c4ff-cdf4-44e2-b282-a14b3307daf8\" uiVersion=\"1\" version=\"3\" name=\"Followup Form\"><due_note/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"due_note-label\"><value>What is due at this visit?</value></text></translation></itext><bind nodeset=\"/data/due_note\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/due_note\"><label ref=\"jr:itext('due_note-label')\"/></input></h:body></h:html>",
 		"8db7b1671aa2415192ff919eed3312d6.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Followup Form</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/519c6bcb-fe52-4551-af25-887e86d7a4f9\" uiVersion=\"1\" version=\"3\" name=\"Followup Form\"><visit_note/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"visit_note-label\"><value>How did the visit go?</value></text></translation></itext><bind nodeset=\"/data/visit_note\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/visit_note\"><label ref=\"jr:itext('visit_note-label')\"/></input></h:body></h:html>",
-		"c8861021da74448fbe45de44658f8607.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Registration Form</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/2720e422-79e6-4161-bf68-94e5aca3c47e\" uiVersion=\"1\" version=\"3\" name=\"Registration Form\"><patient_name/><dob/><phone/><village/><visits/><weight/><notes/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"patient_name-label\"><value>Patient's name</value></text><text id=\"dob-label\"><value>Date of birth</value></text><text id=\"phone-label\"><value>Phone number</value></text><text id=\"village-label\"><value>Village</value></text><text id=\"village-north-label\"><value>North</value></text><text id=\"village-south-label\"><value>South</value></text><text id=\"visits-label\"><value>Visits so far</value></text><text id=\"weight-label\"><value>Weight in kilograms</value></text><text id=\"notes-label\"><value>Notes</value></text></translation></itext><bind nodeset=\"/data/patient_name\" type=\"xsd:string\"/><bind nodeset=\"/data/dob\" type=\"xsd:date\"/><bind nodeset=\"/data/phone\" type=\"xsd:string\"/><bind nodeset=\"/data/visits\" type=\"xsd:int\"/><bind nodeset=\"/data/weight\" type=\"xsd:double\"/><bind nodeset=\"/data/notes\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/patient_name\"><label ref=\"jr:itext('patient_name-label')\"/></input><input ref=\"/data/dob\"><label ref=\"jr:itext('dob-label')\"/></input><input ref=\"/data/phone\"><label ref=\"jr:itext('phone-label')\"/></input><select1 ref=\"/data/village\"><label ref=\"jr:itext('village-label')\"/><item><label ref=\"jr:itext('village-north-label')\"/><value>north</value></item><item><label ref=\"jr:itext('village-south-label')\"/><value>south</value></item></select1><input ref=\"/data/visits\"><label ref=\"jr:itext('visits-label')\"/></input><input ref=\"/data/weight\"><label ref=\"jr:itext('weight-label')\"/></input><input ref=\"/data/notes\"><label ref=\"jr:itext('notes-label')\"/></input></h:body></h:html>",
-		"ddc9e7dea4854c2abd6529995af7d14c.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Followup Form</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/1d46562e-bbb4-4b76-9b4c-7684669a8489\" uiVersion=\"1\" version=\"3\" name=\"Followup Form\"><due_note/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"due_note-label\"><value>What is due at this visit?</value></text></translation></itext><bind nodeset=\"/data/due_note\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/due_note\"><label ref=\"jr:itext('due_note-label')\"/></input></h:body></h:html>",
-		"f5dd8b4fd01d465ca560aa59cdaab96a.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Followup Form</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/46e2f096-5177-486c-9138-f0a4292a3f82\" uiVersion=\"1\" version=\"3\" name=\"Followup Form\"><follow_note/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"follow_note-label\"><value>What needs to happen next?</value></text></translation></itext><bind nodeset=\"/data/follow_note\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/follow_note\"><label ref=\"jr:itext('follow_note-label')\"/></input></h:body></h:html>",
-		"f86712d170eb4b568a0361426354154e.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n  <h:head>\n    <h:title>Registration Form</h:title>\n    <model>\n      <instance>\n        <data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/3A6DE808-57B6-428B-987E-F43E8C70924A\" uiVersion=\"1\" version=\"1\" name=\"Registration Form\">\n        </data>\n      </instance>\n    </model>\n  </h:head>\n  <h:body>\n  </h:body>\n</h:html>\n"
+		"90db2031c0664ece8832d96e269c5653.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n  <h:head>\n    <h:title>Registration Form</h:title>\n    <model>\n      <instance>\n        <data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/558E15FD-9A03-4E6A-B88F-9A8251C0A34D\" uiVersion=\"1\" version=\"1\" name=\"Registration Form\">\n        </data>\n      </instance>\n    </model>\n  </h:head>\n  <h:body>\n  </h:body>\n</h:html>\n",
+		"bcd7f92290ab48df845999bb3521ccf7.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Followup Form</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/20158cc8-3b4d-48b6-9f2c-8b8d698fd174\" uiVersion=\"1\" version=\"3\" name=\"Followup Form\"><follow_note/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"follow_note-label\"><value>What needs to happen next?</value></text></translation></itext><bind nodeset=\"/data/follow_note\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/follow_note\"><label ref=\"jr:itext('follow_note-label')\"/></input></h:body></h:html>",
+		"c5237c5698e74045a8e358c3a91be31d.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n  <h:head>\n    <h:title>Registration Form</h:title>\n    <model>\n      <instance>\n        <data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/45355EBE-58BE-46B2-811D-A9FB29E1992E\" uiVersion=\"1\" version=\"1\" name=\"Registration Form\">\n        </data>\n      </instance>\n    </model>\n  </h:head>\n  <h:body>\n  </h:body>\n</h:html>\n",
+		"c8861021da74448fbe45de44658f8607.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Registration Form</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/2720e422-79e6-4161-bf68-94e5aca3c47e\" uiVersion=\"1\" version=\"3\" name=\"Registration Form\"><patient_name/><dob/><phone/><village/><visits/><weight/><notes/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"patient_name-label\"><value>Patient's name</value></text><text id=\"dob-label\"><value>Date of birth</value></text><text id=\"phone-label\"><value>Phone number</value></text><text id=\"village-label\"><value>Village</value></text><text id=\"village-north-label\"><value>North</value></text><text id=\"village-south-label\"><value>South</value></text><text id=\"visits-label\"><value>Visits so far</value></text><text id=\"weight-label\"><value>Weight in kilograms</value></text><text id=\"notes-label\"><value>Notes</value></text></translation></itext><bind nodeset=\"/data/patient_name\" type=\"xsd:string\"/><bind nodeset=\"/data/dob\" type=\"xsd:date\"/><bind nodeset=\"/data/phone\" type=\"xsd:string\"/><bind nodeset=\"/data/visits\" type=\"xsd:int\"/><bind nodeset=\"/data/weight\" type=\"xsd:double\"/><bind nodeset=\"/data/notes\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/patient_name\"><label ref=\"jr:itext('patient_name-label')\"/></input><input ref=\"/data/dob\"><label ref=\"jr:itext('dob-label')\"/></input><input ref=\"/data/phone\"><label ref=\"jr:itext('phone-label')\"/></input><select1 ref=\"/data/village\"><label ref=\"jr:itext('village-label')\"/><item><label ref=\"jr:itext('village-north-label')\"/><value>north</value></item><item><label ref=\"jr:itext('village-south-label')\"/><value>south</value></item></select1><input ref=\"/data/visits\"><label ref=\"jr:itext('visits-label')\"/></input><input ref=\"/data/weight\"><label ref=\"jr:itext('weight-label')\"/></input><input ref=\"/data/notes\"><label ref=\"jr:itext('notes-label')\"/></input></h:body></h:html>"
 	}
 }

@@ -45,6 +45,7 @@
  *
  * Memoised per document reference; never persisted.
  */
+import { caseTypesWithRelations } from "../appCaseRelations";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -599,6 +600,7 @@ const propertyKey = (caseType: string, property: string): string =>
 	`${caseType}\u0000${property}`;
 
 class Inference {
+	private readonly relationTypes: readonly CaseType[];
 	private readonly untyped: ReturnType<typeof untypedExpressionFacts>;
 	private readonly fieldWriters: readonly FieldWriter[];
 	private readonly hiddenSites: readonly HiddenWriterSite[];
@@ -644,6 +646,7 @@ class Inference {
 	>();
 
 	constructor(private readonly doc: BlueprintDoc) {
+		this.relationTypes = caseTypesWithRelations(doc);
 		this.untyped = untypedExpressionFacts(doc);
 		const fieldWriters: FieldWriter[] = [];
 		const hiddenWrites = new Map<
@@ -688,7 +691,7 @@ class Inference {
 							: resolveRelationDestination(
 									{ kind: "ancestor", via: write.via },
 									operationType,
-									doc.caseTypes ?? [],
+									this.relationTypes,
 								);
 					if (!destination.ok) continue;
 					writes.push({
@@ -1470,7 +1473,7 @@ class Inference {
 		properties: ReadonlyMap<string, PropertyAgreement>,
 	): readonly CaseType[] {
 		const result: CaseType[] = [];
-		for (const caseType of this.doc.caseTypes ?? []) {
+		for (const caseType of this.relationTypes) {
 			const declaredNames = new Set(
 				caseType.properties.map((property) => property.name),
 			);

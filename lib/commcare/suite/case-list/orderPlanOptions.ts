@@ -13,20 +13,27 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type BlueprintDoc,
+	type CalculatedSort,
 	type CaseListOrderOptions,
 	type CaseListOrderPlan,
 	type CaseType,
 	type Column,
 	caseListOrderPlan,
 	casePropertyShowsOptionLabels,
-	columnPropertyCaseType,
+	EMPTY_CASE_LIST_ORDER_PLAN,
 	EXPRESSION_ONLY_COLUMN_PROPERTIES,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	type Module,
-	moduleFormsReadSearch,
 } from "@/lib/domain";
-import { checkExpression, scalarDataType } from "@/lib/domain/expression";
+import { propertiesReachedByColumn } from "@/lib/domain/columnRelation";
+import {
+	checkExpression,
+	type Expression,
+	type ExpressionContext,
+	type ScalarType,
+	scalarDataType,
+} from "@/lib/domain/expression";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -35,14 +42,15 @@ import { w } from "../../xpath/wire/builders";
 import { toWire } from "../../xpath/wire/fromExpression";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
-import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
 import { columnPropertyPath } from "../wire";
+import { bindCaseTextVariables, caseTextKeyPadding } from "./calculationText";
 import {
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
 	plainSelectDisplayXpath,
 } from "./columns";
+import { detailBindings } from "./detailBindings";
 
 /**
  * HQ's `XPathEnum` builder discovers a `translatable-enum` column's variables
@@ -64,6 +72,41 @@ export function columnStoredAsExpression(column: Column): boolean {
 		column.kind !== "calculated" &&
 		(EXPRESSION_ONLY_COLUMN_PROPERTIES as ReadonlySet<string>).has(column.field)
 	);
+}
+
+/** The selected case, Search's supporting-case view and suite lookup names
+ * are the same when HQ prints a sort calculation for its editor and when
+ * the reader checks the expression it bound against the stored text. */
+export function hqCalculatedSortExpression(
+	sort: Pick<CalculatedSort, "uuid" | "expression">,
+	mod: Module,
+	doc: BlueprintDoc,
+	expressions: ModuleExpressionContexts,
+	naming?: LookupWireNaming,
+	rewrites?: RewriteControl,
+): WireExpr {
+	const types = expressions({
+		slot: "case_list_sort_expression",
+		member: { sortUuid: sort.uuid },
+	});
+	if (effectiveCaseSearchConfig(mod) !== undefined) {
+		const related = classifyRelatedCaseSearchExpression(sort.expression, types);
+		if (related.kind === "ancestor-property") return related.hqExpression;
+	}
+	return toWire(sort.expression, {
+		target: "hq-json",
+		types,
+		rewrites,
+		bindings: {
+			lookup: {
+				naming: naming ?? identityLookupWireNaming(),
+				instanceScope: "suite",
+			},
+			// The suite's sort field binds the same prior selections and
+			// search answers (`columns.ts::lookupTermContext`).
+			...detailBindings(doc, mod),
+		},
+	});
 }
 
 /**
@@ -104,7 +147,7 @@ export function hqExpressionField(
 			);
 			if (related.kind === "ancestor-property") return related.hqExpression;
 		}
-		return toWire(column.expression, {
+		const wire = toWire(column.expression, {
 			target: "hq-json",
 			types: expressions({
 				slot: "case_list_column_expression",
@@ -115,19 +158,24 @@ export function hqExpressionField(
 					naming: lookupNaming ?? identityLookupWireNaming(),
 					instanceScope: "suite",
 				},
-				...(moduleFormsReadSearch(mod)
-					? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
-					: {}),
+				...detailBindings(doc, mod),
 			},
 			...(rewrites === undefined ? {} : { rewrites }),
 		});
+		return column.texts
+			? bindCaseTextVariables(wire, caseTextKeyPadding(wire, column.texts))
+			: wire;
 	}
 	const path = columnPropertyPath(column);
 	if (screen === "results" && column.visibleInList === false) return path;
 	switch (column.kind) {
 		case "plain": {
 			const property = columnProperty(column, mod, effectiveCaseTypes(doc));
-			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
+			if (
+				column.showChoice === "saved-value" ||
+				property === undefined ||
+				!casePropertyShowsOptionLabels(property)
+			) {
 				return path;
 			}
 			return plainSelectDisplayXpath(path, property, doc, (_option, index) =>
@@ -144,19 +192,23 @@ export function hqExpressionField(
 }
 
 /**
- * The catalog entry of the property a property column shows, from the type
- * its walk reaches (`columnPropertyCaseType`); undefined where the walk
- * reaches no type or the type holds no such property.
+ * The catalog entry of the property a property column shows, over the types
+ * its walk reaches (`columnRelation.ts::propertiesReachedByColumn`): a lone
+ * destination's own entry, or one merged over several destinations or an
+ * open link, typed as text unless they agree; undefined where a lone
+ * destination holds no such property.
  */
 export function columnProperty(
 	column: Exclude<Column, { kind: "calculated" }>,
 	mod: Pick<Module, "caseType">,
 	caseTypes: readonly CaseType[],
 ): CaseType["properties"][number] | undefined {
-	const caseType = columnPropertyCaseType(column, mod.caseType, caseTypes);
-	return caseTypes
-		.find((type) => type.name === caseType)
-		?.properties.find((candidate) => candidate.name === column.field);
+	return propertiesReachedByColumn(
+		column,
+		mod.caseType,
+		caseTypes,
+		column.field,
+	).find((candidate) => candidate.name === column.field);
 }
 
 /** The canonical HQ print used to join an expression column to its sort rule. */
@@ -237,34 +289,26 @@ export function caseListOrderOptions(
 	const caseTypes = effectiveCaseTypes(doc);
 	return {
 		mediaOn,
-		relatedProperties: (via) => {
-			const reached = columnPropertyCaseType({ via }, mod.caseType, caseTypes);
-			return caseTypes.find((type) => type.name === reached)?.properties;
-		},
-		calculatedType: (column) => {
-			if (column.kind !== "calculated") return undefined;
-			const context = expressions({
-				slot: "case_list_column_expression",
-				member: { columnUuid: column.uuid },
-			});
-			const outcome = checkExpression(column.expression, context);
-			// A leaf a declared platform lacks types as it does on any other,
-			// so a document whose declaration is still to be settled (a
-			// reading's) orders by the type no declaration narrows.
-			const platformOnly =
-				outcome.errors.length > 0 &&
-				outcome.errors.every(
-					(error) =>
-						error.code === "arm-unavailable" &&
-						error.reason === "platform-unavailable",
-				);
-			const typed = platformOnly
-				? checkExpression(column.expression, { ...context, platforms: [] })
-				: outcome;
-			return typed.errors.length > 0
-				? undefined
-				: scalarDataType(typed.type?.data);
-		},
+		relatedProperties: (via) =>
+			propertiesReachedByColumn({ via }, mod.caseType, caseTypes),
+		sortType: (sort) =>
+			orderValueType(
+				sort.expression,
+				expressions({
+					slot: "case_list_sort_expression",
+					member: { sortUuid: sort.uuid },
+				}),
+			),
+		calculatedType: (column) =>
+			column.kind === "calculated"
+				? orderValueType(
+						column.expression,
+						expressions({
+							slot: "case_list_column_expression",
+							member: { columnUuid: column.uuid },
+						}),
+					)
+				: undefined,
 		expressionText: (column) =>
 			hqExpressionFieldText(
 				column,
@@ -276,6 +320,30 @@ export function caseListOrderOptions(
 				columnRewrites?.(column.uuid),
 			),
 	};
+}
+
+/**
+ * The type an order value orders by. A leaf a declared platform lacks types
+ * as it does on any other, so a document whose declaration is still to be
+ * settled (a reading's) orders by the type no declaration narrows, the one
+ * it orders by once the declaration that admits the leaf is chosen.
+ */
+function orderValueType(
+	expression: Expression,
+	context: ExpressionContext,
+): ScalarType | undefined {
+	const outcome = checkExpression(expression, context);
+	const platformOnly =
+		outcome.errors.length > 0 &&
+		outcome.errors.every(
+			(error) =>
+				error.code === "arm-unavailable" &&
+				error.reason === "platform-unavailable",
+		);
+	const typed = platformOnly
+		? checkExpression(expression, { ...context, platforms: [] })
+		: outcome;
+	return typed.errors.length > 0 ? undefined : scalarDataType(typed.type?.data);
 }
 
 /** The reader's control over one calculated column's print, by the column's UUID, asked once
@@ -294,7 +362,7 @@ export function moduleCaseListOrderPlan(
 	lookupNaming?: LookupWireNaming,
 ): CaseListOrderPlan {
 	const config = mod.caseListConfig;
-	if (config === undefined) return { fields: [], carriers: [], authored: [] };
+	if (config === undefined) return EMPTY_CASE_LIST_ORDER_PLAN;
 	const caseProperties =
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];

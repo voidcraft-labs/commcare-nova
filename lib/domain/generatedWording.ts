@@ -1,10 +1,18 @@
 /** Worker wording belonging to one output of a control. The output identity
  * stays with the control even when several controls use the same starting text. */
 
+import { caseTypesWithRelations } from "./appCaseRelations";
 import type { BlueprintDoc } from "./blueprint";
+import {
+	type CaseMappingRow,
+	caseMappingRowUuid,
+	caseMappingTextUnit,
+} from "./caseMappingRows";
 import { columnPropertyCaseType } from "./columnRelation";
 import { makeTranslationUnitId, type TranslationUnitId } from "./localization";
 import {
+	CASE_LIST_EMPTY_TEXT_DEFAULT,
+	CASE_LIST_SELECT_TEXT_DEFAULT,
 	CASE_SEARCH_BUTTON_LABEL,
 	columnSortLabelShows,
 	DEFAULT_CASE_SEARCH_TITLE,
@@ -12,7 +20,12 @@ import {
 	moduleHasCaseListMenuItem,
 } from "./modules";
 import { projectProseTemplate } from "./prose";
-import type { TranslationUnit, TranslationUnitOwner } from "./translationUnits";
+import {
+	caseListWordingUnitId,
+	type TranslationUnit,
+	type TranslationUnitOwner,
+} from "./translationUnits";
+import type { Uuid } from "./uuid";
 
 export const generatedWordingRoles = {
 	caseRows: "Case list wording",
@@ -53,6 +66,28 @@ export function generatedWordingId(
 	...slot: string[]
 ): TranslationUnitId {
 	return makeTranslationUnitId("generated", owner, role, ...slot);
+}
+
+/** One view's own description of an image rule. A saved-value row from before
+ * row identities is addressed by its value, every other row by its UUID, as
+ * its ordinary description unit is (`caseMappingTextUnit`). */
+export function imageDescriptionWordingId(
+	columnUuid: Uuid,
+	role: GeneratedWordingRole,
+	row: CaseMappingRow,
+): TranslationUnitId {
+	return generatedWordingId(
+		columnUuid,
+		role,
+		"image-description",
+		...imageDescriptionSlot(columnUuid, row),
+	);
+}
+
+function imageDescriptionSlot(columnUuid: Uuid, row: CaseMappingRow) {
+	return row.uuid === undefined && !row.when
+		? [row.value ?? ""]
+		: ["row", caseMappingRowUuid(columnUuid, row)];
 }
 
 export function columnWordingRole(
@@ -126,6 +161,7 @@ export function generatedWordingUnits(
 		});
 	};
 	const app = { kind: "app" } as const;
+	let relationTypes: ReturnType<typeof caseTypesWithRelations> | undefined;
 
 	add(false, app, "app", "caseTitle", [doc.appName], "Case");
 	// The two strings CommCare HQ's build writes from the app's name: the name a phone and Web Apps
@@ -150,8 +186,30 @@ export function generatedWordingUnits(
 		add(false, owner, moduleUuid, "menuTitle", path, mod.name, name);
 		const search = effectiveCaseSearchConfig(mod);
 		const noCases = !mod.caseListConfig && !mod.caseType;
-		add(noCases, owner, moduleUuid, "selectCase", path, "Continue");
-		add(noCases, owner, moduleUuid, "emptyList", path, "List is empty.");
+		// A list's own text is the default its per-output wording follows.
+		const ownText = mod.caseListConfig;
+		add(
+			noCases,
+			owner,
+			moduleUuid,
+			"selectCase",
+			path,
+			ownText?.selectButtonText ?? CASE_LIST_SELECT_TEXT_DEFAULT,
+			ownText?.selectButtonText === undefined
+				? undefined
+				: caseListWordingUnitId(moduleUuid, "select"),
+		);
+		add(
+			noCases,
+			owner,
+			moduleUuid,
+			"emptyList",
+			path,
+			ownText?.emptyText ?? CASE_LIST_EMPTY_TEXT_DEFAULT,
+			ownText?.emptyText === undefined
+				? undefined
+				: caseListWordingUnitId(moduleUuid, "empty"),
+		);
 		{
 			const slot =
 				mod.caseListMenuItem?.label === undefined
@@ -200,9 +258,17 @@ export function generatedWordingUnits(
 				moduleUuid,
 				columnUuid: column.uuid,
 			} as const;
+			if (column.kind === "plain" && column.via !== undefined)
+				relationTypes ??= caseTypesWithRelations(doc);
 			const propertyType =
 				column.kind === "plain"
-					? columnPropertyCaseType(column, mod.caseType, doc.caseTypes ?? [])
+					? columnPropertyCaseType(
+							column,
+							mod.caseType,
+							column.via === undefined
+								? (doc.caseTypes ?? [])
+								: (relationTypes ?? []),
+						)
 					: undefined;
 			if (column.kind === "image-map") {
 				for (const entry of column.mapping) {
@@ -218,11 +284,22 @@ export function generatedWordingUnits(
 								own,
 								column.uuid,
 								columnWordingRole(searchView, detail),
-								[...path, column.header, entry.value, "Image description"],
-								"",
-								undefined,
+								[
+									...path,
+									column.header,
+									entry.value ?? entry.altText ?? "",
+									"Image description",
+								],
+								entry.altText ?? "",
+								entry.altText === undefined
+									? undefined
+									: caseMappingTextUnit(
+											column.uuid,
+											entry,
+											"image-description",
+										),
 								"image-description",
-								entry.value,
+								...imageDescriptionSlot(column.uuid, entry),
 							);
 						}
 					}

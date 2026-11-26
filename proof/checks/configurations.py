@@ -152,6 +152,7 @@ def _usercase_reads(content):
         if condition:
             yield condition
     yield from _link_reads(content)
+    yield from _detail_usercase_reads(content)
     for root in _parsed_sources(content):
         for tag, attributes in _XPATH_ATTRIBUTES.items():
             for element in root.iter(tag):
@@ -159,6 +160,31 @@ def _usercase_reads(content):
                     value = element.get(attribute)
                     if value:
                         yield value
+
+
+def _detail_usercase_reads(content):
+    """Each read a case list or case detail column of a menu makes, as the XPath HQ's build gives it: a column over
+    ``user/<property>`` reads ``UsercaseXPath().case()`` (``detail_screen.py::PropertyXpathGenerator``), a calculated
+    column (``useXpathExpression``) reads its own field, and a mapping row whose key HQ treats as a condition
+    (``models/case_list.py::MappingItem.treat_as_expression``) reads that key in the column's ``if()``
+    (``key_as_condition``). A worker reads each read of the record blank where the space makes no record, as a form's
+    read is. Nova asks for the privilege for such a column
+    (``lib/commcare/planPrivileges.ts::menusUsingWorkerRecord``)."""
+    from corehq.apps.app_manager.xpath import UsercaseXPath
+
+    for module in _modules(content):
+        details = getattr(module, "case_details", None)
+        for detail in (getattr(details, "short", None), getattr(details, "long", None)):
+            for column in getattr(detail, "columns", None) or []:
+                field = getattr(column, "field", None) or ""
+                if getattr(column, "useXpathExpression", False):
+                    if field:
+                        yield field
+                elif field.split("/")[0] == "user" and "/" in field:
+                    yield str(UsercaseXPath().case())
+                for item in getattr(column, "enum", None) or []:
+                    if item.treat_as_expression:
+                        yield item.key
 
 
 def _needs_usercase(content):

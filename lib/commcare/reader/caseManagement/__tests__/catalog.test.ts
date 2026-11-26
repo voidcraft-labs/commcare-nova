@@ -692,8 +692,10 @@ describe("the date-and-time join", () => {
  *  no form opens a patient under a household and no menu chooses a household first. With
  *  `clinics`, a menu of clinics whose form opens a patient as a clinic's child, and the catalog
  *  names that parent. */
-function parentWrite(clinics = false): BlueprintDoc {
-	const parent = clinics ? "clinic" : "household";
+function parentWrite(
+	clinics = false,
+	parent = clinics ? "clinic" : "household",
+): BlueprintDoc {
 	const nameColumn = (key: string) =>
 		caseListConfigOf([
 			plainColumn(testUuid(`${key}-name`), "case_name", "Name"),
@@ -789,7 +791,7 @@ function parentWrite(clinics = false): BlueprintDoc {
 						links: [
 							{
 								identifier: "parent",
-								targetType: "clinic",
+								targetType: parent,
 								target: { kind: "session" },
 								relationship: "child",
 							},
@@ -846,6 +848,24 @@ describe("a parent Nova holds that no export carries", () => {
 		expect(districtVia(reading)).toEqual([
 			{ identifier: "parent", throughCaseType: "household" },
 		]);
+	});
+
+	it("reads a replacement of the old published link from the current HQ app", async () => {
+		const previous = parentWrite(true, "clinic");
+		const changed = parentWrite(true, "household");
+		const read = readHqApp(
+			await inputFor(exportedBody(changed), {
+				knownCaseTypes: knownCaseTypesOf(previous),
+			}),
+		);
+		expect(read.kind === "account" ? read.findings : []).toEqual([]);
+		if (read.kind !== "read") throw new Error("The edited app did not read.");
+		const types = read.draft.doc.caseTypes ?? [];
+		expect(types.find((type) => type.name === "patient")).toMatchObject({
+			parent_type: "household",
+			relationship: "child",
+		});
+		expect(types.some((type) => type.name === "clinic")).toBe(false);
 	});
 
 	it("never overrides the parent a link of the app names", async () => {

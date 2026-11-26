@@ -9,12 +9,13 @@
 
 import { z } from "zod";
 import { automationNestedUuids, automationSchema } from "./automations";
-import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import { readCasePropertyNameSchema } from "./casePropertyName";
 import {
 	type CasePropertyDataType,
 	casePropertyDataTypeSchema,
 	casePropertyDataTypes,
 } from "./casePropertyTypes";
+import { caseRelationSchema } from "./caseRelations";
 import { fieldSchema, isContainer } from "./fields";
 import { formSchema } from "./forms";
 import { appLocalizationSchema } from "./localization";
@@ -49,7 +50,7 @@ export {
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
 
 export const casePropertySchema = z.strictObject({
-	name: authoredCasePropertyNameSchema,
+	name: readCasePropertyNameSchema,
 	label: catalogProseTemplateSchema,
 	data_type: casePropertyDataTypeSchema.optional(),
 	hint: catalogProseTemplateSchema.optional(),
@@ -65,6 +66,7 @@ export const caseTypeSchema = z.strictObject({
 	name: z.string(),
 	properties: z.array(casePropertySchema),
 	parent_type: z.string().optional(),
+	relations: z.array(caseRelationSchema).min(1).optional(),
 	relationship: z.enum(["child", "extension"]).optional(),
 });
 export type CaseType = z.infer<typeof caseTypeSchema>;

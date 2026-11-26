@@ -149,6 +149,7 @@ export interface AdvancedFormActions {
  * surfaces in place of the key when the row matches.
  */
 export interface MappingItem<Key = string> {
+	alt_text?: LocalizedString;
 	key: Key;
 	value: LocalizedString;
 }
@@ -168,7 +169,14 @@ export type DetailColumnFormat =
 	| "date"
 	| "phone"
 	| "enum"
+	// Ordered conditions over the column, each showing its translated text
+	// (`detail_screen.py::ConditionalEnum`).
+	| "conditional-enum"
 	| "enum-image"
+	// An `enum-image` a worker's tap on a case list runs: it submits the form
+	// whose entry point `endpoint_action_id` names
+	// (`detail_screen.py::ClickableIcon`).
+	| "clickable-icon"
 	| "time-ago"
 	| "late-flag"
 	| "translatable-enum"
@@ -177,7 +185,13 @@ export type DetailColumnFormat =
 	// `detail_screen.py::Markdown` (`@register_format_type('markdown')`) and
 	// unconstrained on the wire — `models/case_list.py::DetailColumn.format`
 	// is a bare `StringProperty()` with no `choices`, so it imports cleanly.
+	| "distance"
 	| "markdown"
+	| "address"
+	| "geo-boundary"
+	| "geo-boundary-color"
+	| "geo-points"
+	| "geo-points-colors"
 	| "invisible";
 
 interface DetailColumnBase<XPath> {
@@ -207,7 +221,10 @@ interface DetailColumnBase<XPath> {
 	isTab: boolean;
 	graph_configuration: null;
 	relevant: XPath | "";
-	case_tile_field: null;
+	case_tile_field: string | null;
+	/** How a phone loads the value (`DetailColumn.optimization`), written
+	 *  only on a column that holds a load behavior. */
+	optimization?: "cache" | "lazy_load" | "cache_and_lazy_load";
 	/**
 	 * Custom-tile placement, zero-based. CCHQ's own names are
 	 * `grid_x` / `grid_y` for the origin and the unprefixed
@@ -246,9 +263,15 @@ export type DetailColumn<
 		| { useXpathExpression: false; field: string }
 		| { useXpathExpression: true; field: XPath }
 	) &
-	(Format extends "enum-image"
-		? { format: Format; enum: MappingItem<XPath>[] }
-		: { format: Format; enum: MappingItem[] });
+	(Format extends "clickable-icon"
+		? {
+				format: Format;
+				enum: MappingItem<XPath | string>[];
+				endpoint_action_id: string;
+			}
+		: Format extends "enum-image" | "conditional-enum"
+			? { format: Format; enum: MappingItem<XPath | string>[] }
+			: { format: Format; enum: MappingItem[] });
 
 /**
  * One sort row of a case-list short detail, CCHQ's `SortElement`
@@ -258,8 +281,9 @@ export type DetailColumn<
  * `_cc_calculated_<position>`; `type` the page's word (`plain`, `date`,
  * `int`, `double`); `direction` the long-form `ascending` / `descending`;
  * `blanks` `first` ascending and `last` descending; `display` the first
- * language's wire code with empty text; `sort_calculation` empty, since the
- * save empties it unless the project has `SORT_CALCULATION_IN_CASE_LIST`.
+ * language's wire code with empty text when no label is supplied. A calculation-only
+ * rule stores its expression under `sort_calculation` and needs the project
+ * flag `SORT_CALCULATION_IN_CASE_LIST` for the Case List editor to retain it.
  * The oracle (`validator/hqJsonOracle.ts`) refuses the former spellings.
  */
 export interface SortElement<XPath = string> {
@@ -269,6 +293,18 @@ export interface SortElement<XPath = string> {
 	blanks: string;
 	display: LocalizedString | Record<string, never>;
 	sort_calculation: XPath | "";
+}
+
+export interface DetailTab<XPath = string> {
+	doc_type: "DetailTab";
+	isTab: true;
+	header: Record<string, string>;
+	starting_index: number;
+	has_nodeset: boolean;
+	relevant?: XPath;
+	nodeset?: XPath;
+	nodeset_case_type?: string;
+	nodeset_filter?: XPath;
 }
 
 export interface DetailBase<XPath = string> {
@@ -288,7 +324,12 @@ export interface DetailBase<XPath = string> {
 	 * page's language.
 	 */
 	no_items_text?: LocalizedString;
-	tabs: unknown[];
+	/**
+	 * The Continue label, per app language, written only where the case
+	 * list holds its own; HQ's model default is `{en: "Continue"}`.
+	 */
+	select_text?: LocalizedString;
+	tabs: DetailTab<XPath>[];
 	/** Always-on filter applied to the case list nodeset, before user
 	 *  search. The bare on-device XPath wire string lands here per
 	 *  CCHQ's `Detail.filter = StringProperty(exclude_if_none=True)`.
@@ -305,7 +346,7 @@ export interface DetailBase<XPath = string> {
 	lookup_field_header: Record<string, never>;
 	lookup_extras: unknown[];
 	lookup_responses: unknown[];
-	persist_case_context: null;
+	persist_case_context: true | null;
 	persistent_case_context_xml: XPath;
 	/**
 	 * Keeps the short detail on screen once a case is chosen from the list,
@@ -316,8 +357,8 @@ export interface DetailBase<XPath = string> {
 	 * (`suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`).
 	 */
 	persist_tile_on_forms: boolean | null;
-	persistent_case_tile_from_module: null;
-	pull_down_tile: null;
+	persistent_case_tile_from_module: string | null;
+	pull_down_tile: true | null;
 	/**
 	 * Which tile vocabulary CCHQ regenerates this detail with. Nova emits
 	 * only `"custom"` — the arm where every column carries its own grid
@@ -335,7 +376,7 @@ export interface DetailBase<XPath = string> {
 	 * which is exactly why it bypasses the per-template slot-mapping
 	 * validators.
 	 */
-	case_tile_template: "custom" | null;
+	case_tile_template: "custom" | "icon_text_grid" | null;
 	/**
 	 * Grouping for a tile-laid-out short detail: which case index keys
 	 * the groups, and how many of the tile's top rows are the group
@@ -637,6 +678,9 @@ export interface HqAdvancedForm<XPath = string, LinkXPath = XPath>
 /** The keys a basic and an advanced module share (HQ's `ModuleBase` and its mixins). */
 interface HqModuleBase<XPath> {
 	session_endpoint_id?: string;
+	/** Faster loading is on (`show_case_list_optimization_options`, a field of
+	 *  `Module`, `AdvancedModule` and `ShadowModule`); written only where on. */
+	show_case_list_optimization_options?: true;
 	case_list_session_endpoint_id?: string;
 	unique_id: string;
 	name: LocalizedString;

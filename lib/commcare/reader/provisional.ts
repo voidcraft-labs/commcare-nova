@@ -961,6 +961,13 @@ export function applyExpressionReading(
 	};
 	for (const claim of reading.claims) {
 		if (claim.source < 0) continue;
+		// A tree a registrar's own read claims (`PendingExpression.readerClaimed`) takes no claim
+		// of the stage at its node; where the stage held no tree, its claims are why, and stand.
+		if (
+			pending[claim.source]?.readerClaimed === true &&
+			reading.bound[claim.source] !== undefined
+		)
+			continue;
 		apply(claim.source, () =>
 			applyExpressionClaim(ctx, claim, ctx.pending.site(claim.source).at),
 		);
@@ -976,6 +983,34 @@ export function applyExpressionReading(
 		);
 	for (const [source, finding] of underInline)
 		ctx.accounting.cover(ctx.pending.site(source).at, finding);
+	// A tree a registrar's own read claims holds its slot only once the stage binds it: one the
+	// stage held no tree for and named no reason for is the reader's own gap, never a slot kept
+	// at its placeholder with nothing said (a bring-in would propose content it lost).
+	pending.forEach((registration, index) => {
+		if (
+			registration.readerClaimed !== true ||
+			reading.bound[index] !== undefined ||
+			underInline.has(index) ||
+			reading.claims.some(
+				(claim) =>
+					claim.source === index &&
+					(claim.handOff ?? claim.refusal?.handOff) !== undefined,
+			) ||
+			findingAtOrAbove(ctx.accounting.findings(), registration.place) !==
+				undefined
+		)
+			return;
+		applyExpressionCircumstance(
+			ctx,
+			{
+				source: index,
+				code: "unrecognized",
+				place: registration.place,
+				detail: { name: registration.key, reason: "unknown-reason" },
+			},
+			ctx.pending.site(index).at,
+		);
+	});
 	DEFERRED.set(ctx, deferred);
 	for (const at of reading.ownerless) {
 		const registration = pending[at];

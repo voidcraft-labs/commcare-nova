@@ -22,6 +22,34 @@ when you want to change its properties.
 The tab strip stays in place while you work. Only the active tab's body
 scrolls, and each tab remembers where you were when you switch away and back.
 
+### Grouping details into tabs
+
+Under **Details**, **Group fields into tabs** lets you give related information a title, such as “Household” or “Visit history.” Each field belongs to one tab. Moving a tab moves its fields together. You can give a tab a display condition when only some cases need it. The condition reads the case the worker opened.
+
+A tab can show the selected case, its open child cases or rows from a Project
+data table. For example, a household can have a **Members** tab that CommCare
+shows with one row per open member. A tab can show child cases of a type a form
+of this case type adds, such as members a household form adds, which is what
+CommCare HQ keeps when the app is saved there. A table-backed tab can add fields from the
+table when you choose it. Those fields show the value from each row. The
+running app shows a tab of records by its title for now, without its records.
+
+**Save tabs** applies the layout in one change. You can preview it by opening a case in the running app. To return to one list of fields, choose **Edit tabs** and **Show fields without tabs**.
+
+
+### Keeping case information visible
+
+A Results tile and a Web Apps Details tile have separate placements. You can
+arrange fields differently after someone opens a case. Android shows the
+Details fields as labeled rows. A Results tile can also give ten fields fixed
+image and text positions.
+
+**Case context above a form** can show one value, this menu’s Results tile
+or a tile from another menu for the same case type. With expandable Details,
+selecting a case opens its form. The worker can open the tile to see more.
+For example, a visit can use a directory menu’s layout while continuing to
+show the person chosen for this visit.
+
 ## Choose a parent first
 
 In Results, **Choose a parent first** lets people pick a record from a menu for
@@ -74,6 +102,13 @@ concept. Less-common choices sit quietly at the bottom: **Calculated value**
 for information derived from other values, and **Show information another
 way** when the same property needs a second label or format.
 
+To show a detail such as the current worker’s district beside each case, choose
+**The worker’s record** under **From**, then choose the information to display.
+Every row reads that worker’s record. For a case’s **Owner**, choose **Name** to
+show the name of its case-sharing group or the current worker’s username for a
+case they own. An owner outside the worker’s synced groups appears blank.
+**ID** shows the stored owner identifier.
+
 Calculated values and filters using `today()` follow your local day in Preview,
 just as form questions do. On a device they use the device’s local day. This
 keeps a case due today from appearing overdue because the server is already
@@ -115,18 +150,45 @@ Search button's display condition.
 After each update, return to the field to see the remaining uses. Once none
 remain, the dialog closes and **Remove search field** is ready for you again.
 
-## Show information of the case above
+## Show a choice label or its saved value
 
-A column can show information of a case above the one listed, such as the
-household a member belongs to or the cooperative a farmer joined. In the
-column's properties, **From** lists this case and each case type above it. Pick
-one, then choose its information as you would for this case. Every kind of
-column works this way, from plain text to dates, phone numbers, value labels
-and images, and it sorts and matches the list's search like any other.
+For a text column that reads a choice, **Show choices as** offers **Choice labels**
+and **Saved values**. A label follows the worker’s language. A saved value shows
+the code from the case, including a value the app no longer offers. A list can
+show both side by side. When you order by one of these columns, it uses the
+version you chose for that column.
 
-A case with nothing above it shows a blank cell. A case list that offers
-Search can't show such a column, since a search's results read the case above
-in a different way: add a calculated column that reads the case above instead.
+## Show information from a linked case
+
+A column can show information from another case, such as a household's
+address beside each member. In the column's **From** menu, choose the
+household link, then choose the address. **Follow another link** lets you
+continue from the household to another case.
+
+An app can also have older cases with links its current forms never create.
+**Choose another link** lets you enter the link name those cases carry.
+**Use a property by name** lets you enter the information to show when the
+destination is unknown. A missing link or property leaves the cell blank.
+
+In a menu with Search, Results reads the linked cases included in the
+search result. A worker can see a blank cell there when the related case
+is available only on the device.
+
+A **Calculated value** can use wording that changes with the worker’s language. Choose **Translated text** as the display, then **Add translated text**. Enter the phrase and select it as a value in your calculation. The same phrase can appear more than once. Its translations live in **Languages**. Workers see and sort by the result in their own language.
+
+For each **Value images** entry, choose **One of the saved choices** or **The entire saved value**. The first matching entry supplies the image. Choose **Show no image** when a rule should hide an icon, even when a later rule also matches. Web Apps can still show its image description. You can also give the image a description for Web Apps. In the entry, describe what the image tells the worker. Other app languages can supply their own wording in **Languages**.
+
+## Show how far away a case is
+
+For an app that runs on Android, choose **Distance from worker** and the information that holds the case coordinates. The worker sees the distance in kilometers, rounded to the nearest tenth. If the worker has not shared a location, or the case has no coordinates, the distance stays blank. In Preview, you can share your own location to try the list.
+
+## Put cases on a map
+
+Choose **Map location** for information that stores coordinates. The coordinates stay out of the Results table. A worker can open a map of the cases on Android. In Web Apps, a project space with the case list map enabled can show the first location in Results. Details shows the saved address, with **Show address** on Android.
+
+If a case can have more than one location, arrange them in the order a worker should use. Android looks for the first usable one on that case. In Web Apps, a case with a blank first location has no marker.
+
+On Android, you can also show a boundary around a case or add points near it. Choose **Map layer**, then pick the information for the layer and its case location. A color layer also needs the boundary or points it colors. The setup saves these choices together. Boundaries and point sets use a series of latitude and longitude pairs. Point colors follow the same order as the points.
 
 ## Show a link to a file
 
@@ -153,8 +215,12 @@ they cannot tap it.
 A result is normally one row: each piece of information gets a column, and the
 columns run left to right. A **tile** is the other way to lay Results out. The
 result becomes a card, and each piece of information takes a rectangle on a
-12 × 12 grid, a name across the top, a status in the corner, a date
-underneath.
+grid, a name across the top, a status in the corner, a date underneath. The
+grid is 12 columns wide and has a row for each piece of information the tile
+shows, and at least six, the rows CommCare HQ's own case list page keeps. When
+you remove or hide a piece of information, the tile loses a row once it has
+more than six, and anything sitting below the new bottom moves up into free
+space.
 
 Reach for a tile when the row runs out of room or stops reading well: when a
 name deserves to be larger than everything beside it, when two short values
@@ -245,6 +311,28 @@ ignores it, so a grouped list there is an ordinary tile list, one tile per case.
 
 Grouping is part of the tile, so turning the tile off turns grouping off with
 it.
+
+## Choose your list's own words
+
+**List wording** in Results lets you say what an empty list shows, in place of
+"List is empty.". When people can choose several cases, it also names the
+button they press after choosing, in place of "Continue". Each language can
+have its own words, and you can translate them in Languages like any other
+text. Web Apps shows both. Android keeps its own wording. To use your own empty
+list text, the project space you publish to needs CommCare HQ's empty case list
+text setting, and Nova checks for it before it publishes.
+
+## Load slow values faster on phones
+
+A calculated value or a link can choose **Loading on phones** in its
+inspector. **Keep between visits** reuses the value the phone worked out last
+time, **Work it out after the list shows** opens the list first and fills the
+value in, and **Both** does the two. Choosing one turns on faster loading for
+the case list. Returning the last such value to **As the list shows**, or
+removing its column, turns it off.
+Web Apps loads the whole list later instead and keeps nothing between visits.
+The project space you publish to needs CommCare HQ's case list optimizations
+setting, and Nova checks for it before it publishes.
 
 ## Let people work with several cases at once
 
@@ -701,6 +789,31 @@ first, and drag the rules into priority order. The first rule decides first;
 when two cases match, the next rule breaks the tie. The information used for
 ordering can stay hidden from both Results and Details.
 
+Choose **Add calculation** to order the list by a value that workers don’t need
+to see as a column. For example, an appointment number saved as text can put
+appointment 2 ahead of appointment 10. Choose **Whole numbers**, then add the
+case name as the next item to break ties. **Name in Sort by** gives workers a
+way to choose that calculation themselves. Publishing checks that the project
+space can keep calculated order rules.
+
+In an app that runs only on Android, a location can order cases by distance
+from the worker: open the rule of an item that holds a location and choose
+**Distance from worker**. Web Apps never shares where the worker is with a case
+list, so in an app that runs there the choice stays unavailable until you
+change where the app runs in App settings. Distance needs a value that holds a
+location, so an item holding numbers, dates or choices can't order by it.
+Preview uses the worker location selected for the run. A case with no location comes
+last in nearest-first order. Without a worker position, all located cases tie,
+so the next rule determines their order.
+
+To sort a number saved as text, open its rule in **Default order** and choose
+**Whole numbers** or **Decimals**. For example, a visit count of 2 comes before
+10 in number order. Choose **Text** for a code that workers look up
+alphabetically. **Use field order** follows the kind of value the field holds. A
+comparison you choose stays with the rule if the field's kind changes later, so
+change it back to **Use field order** whenever you'd like the rule to follow the
+field again.
+
 When you order by a calculated value, Results uses the same case values for
 display and ordering, including information from a supporting parent case in
 Search results.
@@ -713,14 +826,14 @@ list the same way:
 - **Cases with no value** come first in a rule that goes up (A to Z, earliest,
   lowest) and last in one that goes down.
 - **Each item orders by what it is.** A date orders by the date, whatever style
-  shows it. A choice shown on Results orders by the labels it shows. **Value
-  labels** and **Value images** order by the order of their own table, so the
-  first entry's cases come first, and a value with no entry counts as no value.
+  shows it. A choice shown on Results orders by the labels it shows. **Value images** and labels for each saved choice sort by the matching row’s
+  position. **The first matching label** sorts by the label the worker sees.
+  A case with no match has a blank sort value.
   A time since a date orders by the text it shows. A calculated value orders by
   its result, and a link by the saved address. An item hidden from Results
   orders by the saved value.
-- **A list keeps one rule for each value.** Two rules over the same property,
-  or over two calculated values with the same formula, can't both order it.
+- **A list keeps one rule for each value.** Two column rules over the same property go to its first matching field.
+  Independent calculations can give workers different named choices over the same value.
   Where two items read one property and order it differently, such as a plain
   item and its Value labels, the rule belongs on whichever comes first in
   Results. **Add to order** still lists a choice like that, with the reason it
@@ -732,17 +845,44 @@ listed there only under a name you give it: type one in **Name in Sort by** on
 its rule in Default order, such as "Feeling sick" for an item that orders the
 list by whether a patient feels sick. Leave the name empty to keep it out of
 Sort by. Android lists every named item, and Web Apps lists them only in the
-Sort By menu of a list laid out as tiles. When you show the item on Results
+Sort By menu of a list laid out as tiles. When a list has several named
+calculations or extra tile fields, **Sort by position** arranges the choices
+within that group. Workers can see “Next appointment” first while the list
+itself opens with the most urgent cases first. When you show the item on Results
 again, its heading takes over and the name is cleared. Preview's running list has the
 same menu, so you can try a name there; [Preview on Web Apps and
 Android](/docs/building-with-nova#preview-on-web-apps-and-android) says how
 each platform's menu works.
 
-A saved value in **Value labels** is one word, and it can't hold `&`, `<`, `>`,
+**Time since or until** shows whole days, weeks, months or years since a date.
+For a due date, choose days, weeks or months until it. The count turns negative
+after the date passes. An empty date stays blank. A month is one twelfth of
+365.25 days. Ordering this item uses the saved date.
+
+**Formatted text** shows a case property's Markdown. A calculated item can
+also show its result as formatted text. On Web Apps, workers see the formatted
+result in the list and Details. Android shows the saved wording and formatting
+marks in a list and renders Markdown in Details. An Android tile reads inline
+HTML formatting instead.
+
+An **Overdue marker** shows an asterisk when a date is missing or its deadline
+has passed. A threshold of zero marks a case starting the next day. A threshold
+of two marks it on the third day. A negative threshold moves the marker earlier.
+Results shows a narrow marker. Details also shows the heading you chose.
+
+In **Value labels**, a saved value can be one word or a sequence such as
+**follow up**. The label appears wherever that whole sequence falls between
+spaces or at the ends of a response. A blank key labels an empty response and
+also matches an extra space at either end or between words. Keys can't hold `&`, `<`, `>`,
 `"` or `'`, because CommCare HQ's ID mapping has no way to store one.
 
-This is separate from arranging information inside a result. One controls the
-order of cases; the other controls how each case is presented.
+Choose **The first matching label** to show one label for an entire saved value
+or a condition. For example, a visit count above three can show **Frequent visitor**.
+Put the most specific rule first. Workers see the first matching rule’s label in
+their language, and the list sorts by that label. With no match, the cell is
+blank. An image rule also takes the first match. It can match one of the saved
+choices, the entire saved value, or a condition. You can give the image a
+description in each app language.
 
 ## Use the sidebar for properties
 

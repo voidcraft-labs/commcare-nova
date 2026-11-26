@@ -15,7 +15,7 @@ export interface ReachedDeploymentTarget {
 	readonly domain: string;
 	readonly hqAppId: string;
 	/**
-	 * The target holds `USH_EMPTY_CASE_LIST_TEXT`, as the last publish read
+	 * The target holds the empty case list text flag (`lib/commcare` names it), as the last publish read
 	 * it: a `.ccz` made for it writes the empty-list text where HQ's build
 	 * there does. False where no publish has read it.
 	 */

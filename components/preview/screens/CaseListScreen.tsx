@@ -63,6 +63,7 @@ import {
 	previewParentCaseStepBack,
 	previewTargetKeptForParentCase,
 } from "@/components/preview/screens/moduleScreenNavigation";
+import { CaseDetailFields } from "@/components/preview/shared/CaseDetailFields";
 import { CaseListSortMenu } from "@/components/preview/shared/CaseListSortMenu";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
@@ -124,6 +125,7 @@ import {
 	searchScreenTitleText,
 	visibleSearchInputs,
 } from "@/lib/domain";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
@@ -157,6 +159,8 @@ import {
 	LIST_ORDER,
 	pickCaseListSort,
 } from "@/lib/preview/caseListSortMenu";
+import { caseListOwnWording } from "@/lib/preview/caseListWording";
+import { ordinaryCaseResultCell } from "@/lib/preview/caseMap";
 import {
 	caseSelectionRouteCaseAction,
 	caseSelectionRowAction,
@@ -328,6 +332,7 @@ import type { PreviewCaseChoice } from "@/lib/session/types";
 import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { showToast } from "@/lib/ui/toastStore";
+import { CaseMap } from "../shared/CaseMap";
 import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
 import { PreviewMenuChoice, PreviewMenuChoices } from "./MenuLayout";
 import { PreviewFormChoiceIcon } from "./MenuScreenRows";
@@ -365,6 +370,7 @@ interface PreviewChoiceStep {
 }
 
 interface CaseListScreenProps {
+	readonly caseListMapConfirmed?: boolean | null;
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
 	/** The location on show is a list's. While a step away renders,
@@ -374,7 +380,11 @@ interface CaseListScreenProps {
 	current: boolean;
 }
 
-export function CaseListScreen({ screen, current }: CaseListScreenProps) {
+export function CaseListScreen({
+	screen,
+	current,
+	caseListMapConfirmed,
+}: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const language = useBuilderLanguage();
@@ -596,6 +606,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
+	const ownWording = caseListOwnWording(platformRules, config);
 	const canonicalConfig = menuSource.doc.modules[moduleUuid]?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
 	const projectProse = useProseProjection();
@@ -1696,6 +1707,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * sending the same display config/catalog solely for calculated projection;
 	 * when the list query also contains the row, prefer that existing projection. */
 	const { state: routeCaseState, reload: reloadRouteCase } = useCaseData({
+		language: language.language,
 		appId,
 		caseType: caseType?.name,
 		caseId: routeCaseId,
@@ -1777,9 +1789,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			: orderedColumns(config, "list").map((column) =>
 					projectWorkerColumn(column, claimsAtResult, false, localizedValues),
 				);
-	const visibleColumns = listOrderedColumns.filter(
+	const shownColumns = listOrderedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
+	const visibleColumns = shownColumns.filter(ordinaryCaseResultCell);
 	/* The quick filter matches what a device's search matches: every field's
 	 * text, the hidden fields and the order plan's carriers included, an
 	 * image map's field by the path a device holds for its image. */
@@ -1942,11 +1955,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					}),
 				})
 			: undefined;
+	const inlineDetails =
+		moduleUuid &&
+		resolveCaseFormContext(menuSource.doc.modules, moduleUuid)
+			?.inlineModuleUuid;
 	const rowAction = caseSelectionRowAction({
 		hasDetails:
-			parentListHasDetails !== undefined
-				? parentListHasDetails && detailColumns.length > 0
-				: detailColumns.length > 0,
+			!inlineDetails &&
+			parentListHasDetails !== false &&
+			detailColumns.length > 0,
 		multiple: multipleSelection !== undefined,
 		canContinue,
 	});
@@ -1956,7 +1973,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * (`caseSelectionNavigation.ts::caseSelectionRouteCaseAction`). */
 	const routeCaseAction = caseSelectionRouteCaseAction({
 		rowAction,
-		selectsForParentRequest,
+		selectsForParentRequest: selectsForParentRequest || !!inlineDetails,
 	});
 	const routeCaseGoesOnRef = useRef<
 		((row: CaseRowWithCalculated) => void) | null
@@ -2473,7 +2490,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			</ContentFrame>
 		);
 	}
-	if (visibleColumns.length === 0) {
+	if (shownColumns.length === 0) {
 		return (
 			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
 				<CaseListEmptyNotice
@@ -3067,6 +3084,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	const menuItemDetailAction = openedFromCaseListMenuItem
 		? caseListMenuItemDetailAction(platformRules)
 		: undefined;
+
 	const detailPane = displayedOpenCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
 			<Button
@@ -3085,31 +3103,12 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			>
 				{caseTitle ?? (displayedOpenCase.case_name || message("case"))}
 			</h1>
-			<dl
-				data-case-detail="responsive"
-				className="@container/detail overflow-hidden rounded-lg border border-pv-input-border bg-pv-surface"
-			>
-				{detailColumns.map((col, i) => {
-					const label = caseColumnLabel(col, caseType.properties, projectProse);
-					return (
-						<div
-							key={col.uuid}
-							data-case-detail-field={col.uuid}
-							className={`grid grid-cols-1 items-start gap-1 px-4 py-3 @sm/detail:grid-cols-[minmax(110px,0.38fr)_minmax(0,1fr)] @sm/detail:gap-3 ${i > 0 ? "border-t border-nova-violet/[0.08]" : ""}`}
-						>
-							<dt className="break-words text-xs font-medium text-nova-text-muted">
-								{label}
-							</dt>
-							<dd
-								data-case-detail-value
-								className="min-w-0 break-words text-[14px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]"
-							>
-								{renderColumnCell(col, displayedOpenCase, detailDisplayContext)}
-							</dd>
-						</div>
-					);
-				})}
-			</dl>
+			<CaseDetailFields
+				config={config}
+				columns={detailColumns}
+				row={displayedOpenCase}
+				displayContext={detailDisplayContext}
+			/>
 			{/* The running app's confirm step ends in Continue: on to the
 			 *  case-loading form (or the form menu, when the module has more
 			 *  than one). A module with no case-loading form has nowhere to
@@ -3133,11 +3132,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						onClick={() => proceedWithCase(displayedOpenCase)}
 						className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
-						{platformRules.caseListDetailWording && selectWording ? (
-							selectWording
-						) : (
-							<WorkerText message="continue" />
-						)}
+						<WorkerText message="continue" />
 						<Icon icon={tablerArrowRight} width="15" height="15" />
 					</Button>
 				))}
@@ -3538,11 +3533,13 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							<CaseListSortMenu
 								options={sortOptions}
 								nameOf={(option) =>
-									caseColumnLabel(
-										option.column,
-										caseType.properties,
-										projectProse,
-									)
+									option.column.kind === "independent-calculation"
+										? option.column.header
+										: caseColumnLabel(
+												option.column,
+												caseType.properties,
+												projectProse,
+											)
 								}
 								onPick={pickSort}
 							/>
@@ -3597,6 +3594,18 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					onShare={viewerPosition.share}
 				/>
 			)}
+			{config &&
+				state.kind === "rows" &&
+				deviceValues.kind !== "unavailable" && (
+					<CaseMap
+						config={config}
+						platform={platform}
+						confirmed={caseListMapConfirmed}
+						rows={filteredRows}
+						context={resultsDisplayContext}
+						onOpenCase={handleOpenCase}
+					/>
+				)}
 			<ResultsBody
 				state={
 					/* The device's cases the search reads didn't load: the
@@ -3631,8 +3640,9 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				caseProperties={caseType.properties}
 				columnDisplayContext={resultsDisplayContext}
 				emptyResultContext={resultsContext}
-				workerEmptyMessage={
-					platformRules.caseListDetailWording ? noItemsWording : undefined
+				workerEmptyText={
+					(platformRules.caseListDetailWording ? noItemsWording : undefined) ??
+					ownWording.emptyText
 				}
 				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
@@ -3670,6 +3680,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						);
 					}}
 					onContinue={continueWithSelectedCases}
+					continueText={
+						(platformRules.caseListDetailWording ? selectWording : undefined) ??
+						ownWording.continueText
+					}
 					validating={validatingSelection}
 				/>
 			)}
@@ -3868,7 +3882,36 @@ function CasesLoading() {
 	);
 }
 
+/** Results, with the list's own empty text above an empty result where the
+ *  platform draws it: Web Apps shows the worker that text on any empty list,
+ *  and the author's notice stays beneath it. */
 function ResultsBody({
+	workerEmptyText,
+	...props
+}: Parameters<typeof ResultsContent>[0] & {
+	readonly workerEmptyText?: string;
+}) {
+	const content = <ResultsContent {...props} />;
+	if (
+		workerEmptyText === undefined ||
+		props.state.kind !== "empty" ||
+		props.fetching
+	)
+		return content;
+	return (
+		<div className="flex flex-col gap-3">
+			<p
+				className="text-sm text-nova-text-secondary"
+				data-testid="case-list-empty-text"
+			>
+				{workerEmptyText}
+			</p>
+			{content}
+		</div>
+	);
+}
+
+function ResultsContent({
 	state,
 	unfilteredCountState,
 	authoredMatchingCount,
@@ -3887,7 +3930,6 @@ function ResultsBody({
 	caseProperties,
 	columnDisplayContext,
 	emptyResultContext,
-	workerEmptyMessage,
 	parentScoped,
 	canEdit,
 	searchErrorShown,
@@ -3923,7 +3965,6 @@ function ResultsBody({
 	readonly columnDisplayContext: ColumnDisplayContext;
 	/** Why an empty server result may differ from a truly empty case type. */
 	readonly emptyResultContext: CaseQueryConstraintContext;
-	readonly workerEmptyMessage?: string;
 	/** The reachable population is limited to one selected parent's direct cases. */
 	readonly parentScoped: boolean;
 	readonly canEdit: boolean;
@@ -4036,10 +4077,6 @@ function ResultsBody({
 		// the caller asked for, so with no restore in play it proves no cases
 		// exist without waiting for the sibling count. The restore arm above is
 		// what keeps that inference honest once a device scope narrows it.
-		if (workerEmptyMessage)
-			return (
-				<p className="text-sm text-nova-text-secondary">{workerEmptyMessage}</p>
-			);
 		if (emptyResultContext === "unconstrained") {
 			return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 		}
@@ -4165,6 +4202,7 @@ function MultiSelectionTray({
 	onReviewOpenChange,
 	onRemove,
 	onContinue,
+	continueText,
 	validating,
 }: {
 	readonly choices: readonly PreviewCaseChoice[];
@@ -4174,6 +4212,8 @@ function MultiSelectionTray({
 	readonly onReviewOpenChange: (open: boolean) => void;
 	readonly onRemove: (caseId: string) => void;
 	readonly onContinue: () => void | Promise<void>;
+	/** The list's own Continue label, where the platform draws it. */
+	readonly continueText?: string;
 	readonly validating: boolean;
 }) {
 	const message = useWorkerMessage();
@@ -4211,7 +4251,11 @@ function MultiSelectionTray({
 						onClick={() => void onContinue()}
 						className="bg-pv-accent text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
-						<WorkerText message={validating ? "checkingCases" : "continue"} />
+						{!validating && continueText !== undefined ? (
+							continueText
+						) : (
+							<WorkerText message={validating ? "checkingCases" : "continue"} />
+						)}
 					</Button>
 				</div>
 				{blocker !== undefined && (
@@ -4568,7 +4612,7 @@ function ResultsTable({
 	const clickable = rowAction !== "none";
 	const message = useWorkerMessage();
 	const layout = resultsLayoutClasses(visibleColumns.length);
-	const gridTemplateColumns = `${visibleColumns.map(() => "minmax(0, 1fr)").join(" ")} 36px`;
+	const gridTemplateColumns = `${visibleColumns.map((column) => (column.kind === "overdue-marker" ? "11%" : "minmax(0, 1fr)")).join(" ")} 36px`;
 	return (
 		<div
 			data-case-results="responsive"
@@ -4592,6 +4636,7 @@ function ResultsTable({
 							col,
 							caseProperties,
 							columnDisplayContext.projectProse,
+							"list",
 						)}
 					</div>
 				))}
@@ -4621,6 +4666,7 @@ function ResultsTable({
 											col,
 											caseProperties,
 											columnDisplayContext.projectProse,
+											"list",
 										)}
 									</span>
 									<span

@@ -330,6 +330,9 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"linkUuid",
 		"operationUuid",
 		"columnUuid",
+		"sortUuid",
+		"rowUuid",
+		"tabUuid",
 		"searchInputUuid",
 		"optionUuid",
 	])
@@ -488,7 +491,16 @@ function registrationName(
 	const ref = registration.ref;
 	if (ref.entity === "module") {
 		const config = doc.modules[ref.uuid]?.caseListConfig;
-		if (ref.slot === "case_list_column_expression") {
+		if (ref.slot === "case_list_sort_expression") {
+			const sort = config?.calculatedSorts?.find(
+				(rule) => rule.uuid === ref.member.sortUuid,
+			);
+			return sort?.label ?? "Default order";
+		}
+		if (
+			ref.slot === "case_list_column_expression" ||
+			ref.slot === "case_list_mapping_condition"
+		) {
 			const column = config?.columns.find(
 				(candidate) => candidate.uuid === ref.member.columnUuid,
 			);
@@ -986,9 +998,30 @@ export function* readExpressionsSteps(
 		withdrawn.forEach((taken, index) => {
 			if (!settled.has(index)) taken.clear();
 		});
-		for (const [at, index] of bindable.entries()) {
-			if (at > 0 && at % SLOTS_PER_STEP === 0) yield;
+		// A Details tab's records are the rows its fields read, so each field's
+		// scope comes from the tab's bound collection: the collections bind
+		// first, and every other slot binds over the document holding them.
+		const supplies = (index: number) =>
+			(pending[index] as PendingExpression).ref.slot === "case_detail_tab_rows";
+		let bound = 0;
+		for (const index of bindable.filter(supplies)) {
+			if (bound > 0 && bound % SLOTS_PER_STEP === 0) yield;
+			bound += 1;
 			bindAt(start, index);
+		}
+		const supplied = new Map(
+			bindable.filter(supplies).flatMap((index) => {
+				const tree = bindings.get(index)?.candidate;
+				return tree === undefined ? [] : [[index, tree] as const];
+			}),
+		);
+		const scoped =
+			supplied.size === 0 ? start : written(start, pending, sites, supplied);
+		for (const index of bindable) {
+			if (supplies(index)) continue;
+			if (bound > 0 && bound % SLOTS_PER_STEP === 0) yield;
+			bound += 1;
+			bindAt(scoped, index);
 		}
 		yield;
 		current = writtenAdmitted();

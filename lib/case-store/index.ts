@@ -53,6 +53,7 @@ export {
 	SubmissionRejectedError,
 } from "./errors";
 export { withProjectContext, withSchemaContext } from "./projectContext";
+export { isInvalidCaseLocationError } from "./sql/compileCaseDistance";
 export type { LookupTableSchemas } from "./sql/compileLookup";
 export type {
 	FormFieldBindingValue,

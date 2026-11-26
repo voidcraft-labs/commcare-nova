@@ -253,6 +253,14 @@ function refs(): readonly SlotContextRef[] {
 			case "excluded_owner_ids":
 				all.push({ entity: "module", uuid: MENU as never, slot });
 				break;
+			case "case_list_mapping_condition":
+				all.push({
+					entity: "module",
+					uuid: MENU as never,
+					slot,
+					member: { columnUuid: member, rowUuid: testUuid("mapping-row") },
+				});
+				break;
 			case "case_list_column_expression":
 				all.push({
 					entity: "module",

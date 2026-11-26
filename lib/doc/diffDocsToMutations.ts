@@ -1,3 +1,4 @@
+import { compareCaseRelations } from "@/lib/domain/caseRelations";
 import type {
 	EntryPointTarget,
 	FormEntryPoint,
@@ -67,7 +68,7 @@ import { wordingSourceUnit } from "./localizationWorkspace";
  *      `updateModule{caseListConfig:null}`.
  *  10. Module order — predecessor-based moves for changed sibling positions.
  *  11. Catalog LAST — granular `declareCaseType` / `setCaseTypeMeta` /
- *      `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
+ *      `addCaseProperty` / `setCaseProperty` / `moveCaseProperty` / `removeCaseProperty` /
  *      `retireCaseType`, diffed against the catalog the field reducers'
  *      `ensureCatalogProperty` side effect leaves after the structural replay
  *      (so a property a writer add reproduces is never re-emitted, merging a
@@ -88,6 +89,7 @@ import { wordingSourceUnit } from "./localizationWorkspace";
 
 import { produce } from "immer";
 import { addModuleMutation } from "@/lib/doc/addModuleMutation";
+import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import {
 	columnAddMutation,
 	columnSnapshotMutations,
@@ -2574,6 +2576,11 @@ function diffCaseListConfig(
 	return [
 		...birth,
 		...diffColumns(prevC, nextConfig, moduleUuid),
+		...calculatedSortMutations(
+			moduleUuid,
+			prevC.calculatedSorts ?? [],
+			nextConfig.calculatedSorts ?? [],
+		),
 		...diffSearchInputs(
 			prevC.searchInputs,
 			nextConfig.searchInputs,
@@ -2839,7 +2846,17 @@ function diffCaseListMeta(
 		filter?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
 		tile?: CaseListConfig["tile"] | null;
+		detailTabs?: CaseListConfig["detailTabs"] | null;
+		detailTile?: CaseListConfig["detailTile"] | null;
+		contextAboveForm?: CaseListConfig["contextAboveForm"] | null;
+		emptyText?: string | null;
+		selectButtonText?: string | null;
+		optimizations?: true | null;
 	} = {};
+	if (prev.optimizations !== next.optimizations)
+		patch.optimizations = next.optimizations ?? null;
+	for (const key of ["emptyText", "selectButtonText"] as const)
+		if (prev[key] !== next[key]) patch[key] = next[key] ?? null;
 	if (!deepEqual(prev.filter, next.filter)) {
 		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);
 	}
@@ -2847,6 +2864,14 @@ function diffCaseListMeta(
 		patch.selection =
 			next.selection === undefined ? null : cloneEntity(next.selection);
 	}
+	if (!deepEqual(prev.contextAboveForm, next.contextAboveForm))
+		patch.contextAboveForm = next.contextAboveForm
+			? cloneEntity(next.contextAboveForm)
+			: null;
+	if (!deepEqual(prev.detailTile, next.detailTile))
+		patch.detailTile = next.detailTile ? cloneEntity(next.detailTile) : null;
+	if (!deepEqual(prev.detailTabs, next.detailTabs))
+		patch.detailTabs = next.detailTabs ? cloneEntity(next.detailTabs) : null;
 	const tileChanged = !deepEqual(prev.tile, next.tile);
 	if (tileChanged) {
 		patch.tile = next.tile === undefined ? null : cloneEntity(next.tile);
@@ -3112,11 +3137,37 @@ function diffCatalog(
 			meta.relationship = toCt.relationship ?? null;
 			metaChanged = true;
 		}
+		// Relation removals go BEFORE the default-parent slots change and
+		// additions after: the reducer reads a `relationChange` against the
+		// type's current default (a removal matching it clears the default,
+		// an addition matching it is a no-op). Run after the slots move, a
+		// removal of a `relations` edge the target promotes to the default
+		// would clear the default this batch just set.
+		const previous = fromCt?.relations ?? [];
+		const wanted = toCt.relations ?? [];
+		for (const edge of previous)
+			if (!wanted.some((one) => compareCaseRelations(one, edge) === 0))
+				out.push({
+					kind: "setCaseTypeMeta",
+					caseType: toCt.name,
+					relationChange: { action: "remove", edge },
+				});
 		if (metaChanged) out.push(meta);
+		for (const edge of wanted)
+			if (!previous.some((one) => compareCaseRelations(one, edge) === 0))
+				out.push({
+					kind: "setCaseTypeMeta",
+					caseType: toCt.name,
+					relationChange: { action: "add", edge },
+				});
 		const fromProps = new Map(
 			(fromCt?.properties ?? []).map((p) => [p.name, p]),
 		);
-		const toPropNames = new Set(toCt.properties.map((p) => p.name));
+		const targetOrder = toCt.properties.map((p) => p.name);
+		const toPropNames = new Set(targetOrder);
+		let projectedOrder = [...fromProps.keys()].filter((name) =>
+			toPropNames.has(name),
+		);
 		for (const [propertyIndex, prop] of toCt.properties.entries()) {
 			const fp = fromProps.get(prop.name);
 			if (!fp) {
@@ -3126,6 +3177,7 @@ function diffCatalog(
 						: propertyIndex === 0
 							? null
 							: toCt.properties[propertyIndex - 1]?.name;
+				projectedOrder = spliceAfter(projectedOrder, prop.name, after);
 				out.push({
 					kind: "addCaseProperty",
 					caseType: toCt.name,
@@ -3148,6 +3200,14 @@ function diffCatalog(
 					property: prop.name,
 				});
 			}
+		}
+		for (const move of sequenceMovesTo(projectedOrder, targetOrder)) {
+			out.push({
+				kind: "moveCaseProperty",
+				caseType: toCt.name,
+				property: move.uuid,
+				after: move.after,
+			});
 		}
 	}
 	for (const ct of fromArr) {

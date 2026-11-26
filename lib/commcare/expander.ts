@@ -572,6 +572,7 @@ export function* expandDocSteps(
 			undefined,
 			undefined,
 			identity.columnFieldWord,
+			identity.moduleUniqueId,
 		);
 		// A menu with no case list of its own (a survey menu, the hidden menu
 		// of a no-matches form) still holds the one `name` column every new
@@ -596,7 +597,8 @@ export function* expandDocSteps(
 		// page's language as an empty text, which reads blank in an app with
 		// no English. Written on both pairs a menu can take, because the save
 		// writes into a survey menu's short detail too.
-		caseDetails.short.no_items_text = repeatForLanguages(
+		// A case list's own text (`projectCaseListForHq`) keeps its place.
+		caseDetails.short.no_items_text ??= repeatForLanguages(
 			localization.languages,
 			EMPTY_CASE_LIST_TEXT,
 		);
@@ -636,6 +638,10 @@ export function* expandDocSteps(
 				);
 		if (shell.doc_type === "Module" && mod.menuLayout === "grid")
 			shell.display_style = "grid";
+		// Faster loading, which HQ's build reads only with a case list
+		// (`details.py::DetailContributor`, `detail_screen.py`).
+		if (hasCases && mod.caseListConfig?.optimizations === true)
+			shell.show_case_list_optimization_options = true;
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
 		const rootModuleUuid = moduleParent(doc, moduleUuid);

@@ -36,7 +36,11 @@ DOCUMENTS = (
     "targeted-custom-tile",
     "targeted-empty-list-no-english",
     "targeted-form-link-hidden-target",
+    "targeted-case-choice-values",
+    "targeted-case-map",
+    "targeted-relative-case-dates",
     "targeted-hidden-column",
+    "targeted-independent-case-order",
     "targeted-hidden-from-menu",
     "targeted-label-content",
     "targeted-listed-forms",
@@ -52,6 +56,12 @@ DOCUMENTS = (
     "targeted-survey-menu",
     "targeted-tile-group-filter",
     "targeted-tile-hidden-order",
+    "tile-detail-layout",
+    "tile-detail-tabs",
+    "tile-named-layout",
+    "tile-persistent-external",
+    "tile-persistent-inline",
+    "tile-persistent-line",
 )
 # Every retained control (``proof/controls/``) a test of this package reads, by id, and no other.
 CONTROLS = ("case-operation-query",)

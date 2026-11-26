@@ -18,6 +18,12 @@ const EXPRESSION_CHARACTERS = "{}()[]=<>.\"'/";
 /** `re.search(r'\W', key)` in Python 3: any character that is not a Unicode word character. */
 const NON_WORD = /[^\p{L}\p{N}_]/u;
 
+export function hqMappingKeyIsExpression(key: string): boolean {
+	return [...EXPRESSION_CHARACTERS].some((character) =>
+		key.includes(character),
+	);
+}
+
 export function keyAsVariable(key: string): string {
 	const treatAsExpression = [...EXPRESSION_CHARACTERS].some((char) =>
 		key.includes(char),

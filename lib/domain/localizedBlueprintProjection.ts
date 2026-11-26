@@ -1,6 +1,7 @@
 /** Pure selected-language projections for Builder and Preview consumers. */
 
 import type { BlueprintDoc } from "./blueprint";
+import { caseMappingTextUnit } from "./caseMappingRows";
 import type { Field } from "./fields";
 import { FIELD_PROSE_SLOTS } from "./labelForms";
 import {
@@ -20,6 +21,7 @@ import { mediaInLanguage } from "./multimedia";
 import { navigationFilesInLanguage } from "./navigationMedia";
 import { filledProse, translationFillSource } from "./translationFill";
 import {
+	caseListWordingUnitId,
 	localizeTranslationUnit,
 	snapshotTranslationUnits,
 	type TranslationUnit,
@@ -125,6 +127,29 @@ export function projectLocalizedModule(
 		module.name,
 	);
 	if (localized.caseListConfig !== undefined) {
+		for (const rule of localized.caseListConfig.calculatedSorts ?? []) {
+			if (rule.label)
+				rule.label = text(
+					makeTranslationUnitId("case-sort", rule.uuid, "label"),
+					rule.label,
+				);
+		}
+		const list = localized.caseListConfig;
+		if (list.emptyText !== undefined)
+			list.emptyText = text(
+				caseListWordingUnitId(module.uuid, "empty"),
+				list.emptyText,
+			);
+		if (list.selectButtonText !== undefined)
+			list.selectButtonText = text(
+				caseListWordingUnitId(module.uuid, "select"),
+				list.selectButtonText,
+			);
+		for (const tab of localized.caseListConfig.detailTabs ?? [])
+			tab.title = text(
+				makeTranslationUnitId("detail-tab", tab.uuid, "title"),
+				tab.title,
+			);
 		localized.caseListConfig.columns = localized.caseListConfig.columns.map(
 			(column) => {
 				const next = {
@@ -143,16 +168,24 @@ export function projectLocalizedModule(
 						),
 					};
 				}
+				if (next.kind === "image-map") {
+					next.mapping = next.mapping.map((item) =>
+						item.altText === undefined
+							? item
+							: {
+									...item,
+									altText: text(
+										caseMappingTextUnit(column.uuid, item, "image-description"),
+										item.altText,
+									),
+								},
+					);
+				}
 				if (next.kind === "id-mapping") {
 					next.mapping = next.mapping.map((mapping) => ({
 						...mapping,
 						label: text(
-							makeTranslationUnitId(
-								"column",
-								column.uuid,
-								"mapping",
-								mapping.value,
-							),
+							caseMappingTextUnit(column.uuid, mapping, "mapping"),
 							mapping.label,
 						),
 					}));

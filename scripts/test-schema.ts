@@ -67,6 +67,7 @@ import { removeCaseListColumnTool } from "../lib/agent/tools/case-list-config/re
 import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "../lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { reorderSearchInputsTool } from "../lib/agent/tools/case-list-config/reorderSearchInputs";
+import { setCaseDetailTabsTool } from "../lib/agent/tools/case-list-config/setCaseDetailTabs";
 import { setCaseListFilterTool } from "../lib/agent/tools/case-list-config/setCaseListFilter";
 import { setCaseListTileTool } from "../lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
@@ -129,6 +130,7 @@ import {
 	updateOrganizationLevelTool,
 } from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
+import { setCaseTypeParentTool } from "../lib/agent/tools/setCaseTypeParent";
 import { setFieldOptionsSourceTool } from "../lib/agent/tools/setFieldOptionsSource";
 import { setFormSectionsTool } from "../lib/agent/tools/setFormSections";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
@@ -245,6 +247,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: moveCaseOperationTool.inputSchema,
 		prompt:
 			"Use moveCaseOperation with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to move the case change 33333333-3333-4333-8333-333333333333 after the case change 44444444-4444-4444-8444-444444444444.",
+	},
+	{
+		name: "setCaseTypeParent",
+		description: setCaseTypeParentTool.description,
+		schema: setCaseTypeParentTool.inputSchema,
+		prompt:
+			"Use setCaseTypeParent to add the supervisor link from visit to worker.",
 	},
 	{
 		name: "updateCaseProperty",
@@ -378,6 +387,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: setCaseListFilterTool.inputSchema,
 		prompt:
 			"Use setCaseListFilter with moduleUuid 11111111-1111-4111-8111-111111111111 to set a comparison: the patient case status property equals the literal string open.",
+	},
+	{
+		name: "setCaseDetailTabs",
+		description: setCaseDetailTabsTool.description,
+		schema: setCaseDetailTabsTool.inputSchema,
+		prompt:
+			"Use setCaseDetailTabs on module 11111111-1111-4111-8111-111111111111 to put field 33333333-3333-4333-8333-333333333333 in a new tab called Visit.",
 	},
 	{
 		name: "setCaseListTile",

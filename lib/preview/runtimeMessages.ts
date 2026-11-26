@@ -45,8 +45,17 @@ const english = {
 	resultRange: "{start}–{end} of {total}",
 	showingResults: "Showing {count}",
 	resultsFound: "{count} found",
+	showCaseMap: "Show map",
+	hideCaseMap: "Hide map",
+	caseMap: "Case locations",
+	caseMapUnavailable:
+		"The map could not open. You can still choose a case from the list.",
+	invalidMapInformation: "Some saved map information could not be drawn.",
+	showCaseAddress: "Show address",
 	pageFilterScope:
 		"This filter checks the {count} on this page. Go to another page to check more cases.",
+	expandCaseDetails: "Show case details",
+	collapseCaseDetails: "Hide case details",
 	viewCaseDetails: "View details for {name}",
 	continueWithCase: "Continue with {name}",
 	chooseCase: "Choose {name}",
@@ -278,6 +287,8 @@ const english = {
 		"{subject} worker information {worker} doesn't have, so a phone stops here. If it reads {worker}'s place, you can give {worker} a place under Users and personas in App setup.",
 	dataRefusalWorkerMe:
 		"{subject} worker information you don't have, so a phone stops here. If it reads your place, you can preview as a persona who has a place.",
+	dataRefusalCaseLocation:
+		"A saved case location has coordinates a phone can’t read. A project editor can correct the location in the case data or choose another way to order the list.",
 	dataRefusalOther:
 		"{subject} a value a phone doesn't have at this point, so a phone stops here.",
 	thisQuestion: "this question",
@@ -382,8 +393,17 @@ const spanish: Record<RuntimeMessage, string> = {
 	resultRange: "{start}–{end} de {total}",
 	showingResults: "Mostrando {count}",
 	resultsFound: "Resultados: {count}",
+	showCaseMap: "Mostrar mapa",
+	hideCaseMap: "Ocultar mapa",
+	caseMap: "Ubicaciones de los registros",
+	caseMapUnavailable:
+		"No se pudo abrir el mapa. Puede elegir un registro de la lista.",
+	invalidMapInformation: "No se pudieron mostrar algunos datos del mapa.",
+	showCaseAddress: "Mostrar dirección",
 	pageFilterScope:
 		"Este filtro busca en esta página ({count}). Puede ir a otra página para buscar más registros.",
+	expandCaseDetails: "Mostrar detalles del caso",
+	collapseCaseDetails: "Ocultar detalles del caso",
 	viewCaseDetails: "Ver detalles de {name}",
 	continueWithCase: "Continuar con {name}",
 	chooseCase: "Seleccionar {name}",
@@ -627,6 +647,8 @@ const spanish: Record<RuntimeMessage, string> = {
 		"{subject} información del trabajador que {worker} no tiene, así que un teléfono se detiene aquí. Si lee el lugar de {worker}, puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalWorkerMe:
 		"{subject} información del trabajador que usted no tiene, así que un teléfono se detiene aquí. Si lee su lugar, puede ver la vista previa como una persona que tenga un lugar.",
+	dataRefusalCaseLocation:
+		"Una ubicación guardada tiene coordenadas que el teléfono no puede leer. Una persona con permiso para editar el proyecto puede corregir la ubicación en los datos del caso o elegir otro orden para la lista.",
 	dataRefusalOther:
 		"{subject} un valor que un teléfono no tiene en este punto, así que un teléfono se detiene aquí.",
 	thisQuestion: "esta pregunta",
@@ -830,6 +852,8 @@ export function dataRefusalCopy(
 			};
 		case "group-count":
 			return { title, body: body("dataRefusalGroupCount") };
+		case "invalid-case-location":
+			return { title, body: body("dataRefusalCaseLocation") };
 		case "owner-place":
 			return {
 				title,

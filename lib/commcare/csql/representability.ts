@@ -657,6 +657,7 @@ function checkRuntimeNode(
 			});
 			return;
 		case "call":
+		case "case-text":
 		case "itext":
 		case "choice-name":
 		case "here":
