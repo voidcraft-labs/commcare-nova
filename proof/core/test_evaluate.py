@@ -118,6 +118,25 @@ def test_a_failure_is_recorded_where_core_constructed_it(core_runner):
     assert len(set(sites.values())) == 5
 
 
+def test_position_requires_a_nodeset_when_a_candidate_is_evaluated(core_runner):
+    result = core_runner.evaluate(
+        restoreBase64=restore64(),
+        formBase64=base64.b64encode(number_form("true()")).decode(),
+        expressions=[
+            "count(/data/n[position(3) < 3])",
+            "count(/data/missing[position(3) < 3])",
+            "count(/data/n[1])",
+            "count(/data/n[position() < 3])",
+        ],
+    )
+    invalid, empty, number, row_position = result["values"]
+    assert invalid["error"]["class"] == "java.lang.ClassCastException"
+    assert invalid["error"]["site"] == core_site(
+        "org/javarosa/xpath/expr/XPathPositionFunc.java", "evalBody", "(XPathNodeset)evaluatedArgs[0]"
+    )
+    assert [x["value"] for x in (empty, number, row_position)] == ["0", "1", "1"]
+
+
 def test_expressions_read_the_sessions_and_the_restores_data(core_runner, basic_app):
     restore = etree.fromstring(BASIC_RESTORE.read_bytes())
     case = next(
