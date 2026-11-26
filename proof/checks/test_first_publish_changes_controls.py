@@ -1468,3 +1468,37 @@ def test_a_native_blank_label_is_filled_only_from_the_first_language_of_that_sam
         assert not proof3.first_language_fill(altered, place, app, read)
     for altered in ((), (*place[:-2], "hin", "default"), (*place[:4], "unrelated", *place[5:])):
         assert not proof3.first_language_fill(difference, altered, app, read)
+
+
+def test_legacy_related_case_text_requires_its_exact_column_and_unchanged_text():
+    change = changes.LEGACY_RELATED_CASE_TEXT
+    register = changes.load()
+    place = "/menu/0/case_details/short/columns/1"
+    header_path = "/m*.*.*_*_*.header"
+    before = replace(
+        _built("app_strings:en", header_path, "/m0.case_short.case_parent~1zone_2.header", "removed"),
+        before="Parent area",
+        after=None,
+    )
+    after = replace(
+        _built("app_strings:en", header_path, "/m0.case_short.case_calculated_property_2.header", "added"),
+        before=None,
+        after="Parent area",
+    )
+    applying = {change: (place,)}
+    assert changes.holders(after, register, applying, siblings=(before, after)) == [change]
+    changed = replace(after, after="A different title")
+    assert changes.holders(changed, register, applying, siblings=(before, changed)) == []
+    assert changes.holders(after, register, applying, siblings=(before, after, after)) == []
+    assert changes.holders(after, register, {change: (place[:-1] + "0",)}, siblings=(before, after)) == []
+
+    header = replace(
+        _built(
+            "suite.xml", "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+            "/suite/detail[@id=m0_case_short]/field[2]/header[1]/text[1]/locale[1]/@id",
+        ),
+        before="m0.case_short.case_parent/zone_2.header",
+        after="m0.case_short.case_calculated_property_2.header",
+    )
+    assert changes.holders(header, register, applying) == [change]
+    assert changes.holders(header, register, {change: (place[:-1] + "0",)}) == []

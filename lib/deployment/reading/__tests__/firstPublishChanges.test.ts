@@ -2842,6 +2842,29 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 			];
 		}),
 	),
+	"legacy-related-case-text-rekeyed": editedPair(
+		() => patients([plainColumn(uuid(1), "case_name", "Name")]),
+		onMenu((menu) => {
+			Object.assign(menu.case_details.short.columns[0], {
+				field: "parent/case_name",
+				format: "translatable-enum",
+				useXpathExpression: false,
+				enum: [
+					{
+						doc_type: "MappingItem",
+						key: "guide",
+						value: { en: "Guide" },
+						alt_text: {},
+					},
+				],
+			});
+		}),
+		onMenu((menu) => {
+			Object.assign(menu.case_details.short.columns[0], {
+				field: "parent/case_name",
+			});
+		}),
+	),
 	// A several-case list's limit of -1, which CommCare HQ reads as its own default.
 	"list-settings-respelled": editedPair(
 		() =>

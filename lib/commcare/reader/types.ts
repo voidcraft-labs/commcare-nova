@@ -365,6 +365,7 @@ export const SAME_STATE_REGISTERS = [
 	"case-settings-respelled",
 	"search-filter-rows-recut",
 	"sort-rule-kept-as-hidden-column",
+	"legacy-related-case-text-rekeyed",
 	"list-settings-respelled",
 	"search-filter-joined-to-list",
 	"search-restates-list-filter",

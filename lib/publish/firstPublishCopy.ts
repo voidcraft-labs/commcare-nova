@@ -70,6 +70,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"Nova writes each form's case settings in its own way, so some of them can look different on CommCare HQ's case management page. Where a form loads a value from its case, that page stops listing it, and the question holds it as its default value. What each form saves and loads stays the same.",
 	"sort-rule-kept-as-hidden-column":
 		"A sort rule over a property the list doesn't show is kept as a hidden column. Lists sort the same way.",
+	"legacy-related-case-text-rekeyed":
+		"Older translated text about related cases is stored as a calculated column. The list keeps its wording and order.",
 	"search-filter-joined-to-list":
 		"Where a menu's forms read its search, Nova keeps the search's filter and the case list's filter as one. The search finds the same cases.",
 	"search-restates-list-filter":

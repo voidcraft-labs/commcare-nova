@@ -150,6 +150,7 @@ OPTIONAL_ROW_KEYS = frozenset({"kind"})
 OWNED_PROFILE_SETTINGS = ("/profile/properties/cc-show-saved", "/profile/properties/cc-show-incomplete")
 CASE_SCALAR_TRIM = "".join(chr(unit) for unit in range(0x21))
 UNSHOWN_MEDIA = "unshown-form-media-removed"
+LEGACY_RELATED_CASE_TEXT = "legacy-related-case-text-rekeyed"
 # The kinds of place (``lib/deployment/reading/firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS``).
 APP_WIDE = "app-wide"
 PLACE_KINDS = frozenset({APP_WIDE, "app", "menu", "form", "form-node", "form-part", "case"})
@@ -676,6 +677,63 @@ APP_NAME_KEYS = frozenset({"app.display.name", "homescreen.title"})
 APP_STRINGS = "app_strings"
 
 
+def _legacy_related_case_text_location(d) -> tuple[str, ...]:
+    """A generated locale or variable key of the recorded legacy Case List column."""
+    if d.check != "proof2":
+        return NOWHERE
+    artifact = d.artifact.rsplit("/", 1)[-1]
+    if artifact.startswith("app_strings:"):
+        steps = unescaped(d.at)
+        if len(steps) != 1:
+            return NOWHERE
+        key = steps[0]
+        place = _app_strings_location(key)
+        if len(place) != 7 or place[4] != "columns":
+            return NOWHERE
+        field, header, role = key.partition(".header")
+        if not header:
+            field, _, role = key.partition(".enum.")
+        if d.kind == "removed" and "/" in field and "instance(" not in field:
+            return place[:6]
+        if d.kind == "added" and ("case_calculated_property_" in field or role.startswith("kcase_text_")):
+            return place[:6]
+        return NOWHERE
+    if artifact != "suite.xml" or not isinstance(d.before, str) or not isinstance(d.after, str):
+        return NOWHERE
+    steps = _xml_steps(d.at)
+    if len(steps) < 4 or steps[0] != "suite":
+        return NOWHERE
+    detail = detail_place(_identity(steps[1]))
+    name, left, position = steps[2].partition("[")
+    position = position.removesuffix("]")
+    if len(detail) != 4 or name != "field" or not left or not position.isdigit() or int(position) < 1:
+        return NOWHERE
+    if steps[-1] == "@id":
+        if "/" not in d.before or ("case_calculated_property_" not in d.after and ".enum.kcase_text_" not in d.after):
+            return NOWHERE
+    elif steps[-1] != "@name" or not d.after.startswith("kcase_text_"):
+        return NOWHERE
+    return (*detail, "columns", str(int(position) - 1))
+
+
+def _legacy_text_is_unchanged(d, owner, siblings) -> bool:
+    if not d.artifact.rsplit("/", 1)[-1].startswith("app_strings:"):
+        return True
+    before, after = [], []
+    for other in siblings:
+        if (
+            other.artifact != d.artifact
+            or other.path != d.path
+            or _legacy_related_case_text_location(other) != owner
+        ):
+            continue
+        if other.kind == "removed" and isinstance(other.before, str):
+            before.append(other.before)
+        elif other.kind == "added" and isinstance(other.after, str):
+            after.append(other.after)
+    return bool(before) and sorted(before) == sorted(after)
+
+
 def _build_location(difference, sites: Sites) -> tuple[str, ...]:
     """A proof 2 difference's location, by the ids of its build's own vocabulary its pointer carries (a menu's,
     a detail's, a command's: each holds the menu's and the form's positions), the app string key, the form's
@@ -1070,6 +1128,8 @@ def holders(
     applying: Mapping[str, tuple[str, ...]],
     places: ClaimPlaces = NO_CLAIMS,
     sites: Sites = NO_SITES,
+    *,
+    siblings=(),
 ):
     """The applying changes that hold ``difference`` and stand most exactly where it is: of the changes in
     ``applying`` a row of which names its class and a place of which stands at its location, those whose most exact
@@ -1084,6 +1144,15 @@ def holders(
             owner = _unshown_media_location(difference, sites)
             # A nearby slot or an unknown location anywhere below this form cannot authorize a removal.
             score = len(owner) if owner and any(tuple(unescaped(place)) == owner for place in where) else None
+        elif change.change == LEGACY_RELATED_CASE_TEXT:
+            owner = _legacy_related_case_text_location(difference)
+            score = (
+                len(owner)
+                if owner
+                and any(tuple(unescaped(place)) == owner for place in where)
+                and _legacy_text_is_unchanged(difference, owner, siblings)
+                else None
+            )
         else:
             score = _most_exact(where, located)
         if score is not None:
@@ -1109,7 +1178,7 @@ def declared(
     for difference in differences:
         if difference.check != check:
             continue
-        holding = holders(difference, changes, applying, places, sites)
+        holding = holders(difference, changes, applying, places, sites, siblings=differences)
         if holding:
             found.append(difference)
             ids.update(holding)
@@ -1222,7 +1291,7 @@ def judged(
         for difference in checked.get(check, ()):
             if held(difference):
                 continue
-            holding = holders(difference, changes, applying, places, sites)
+            holding = holders(difference, changes, applying, places, sites, siblings=checked.get(check, ()))
             if holding:
                 seen.update(holding)
                 continue
@@ -1350,7 +1419,9 @@ def replayed(record, register=None) -> dict:
     held_count, undeclared_count = 0, 0
     for check in ROW_CHECKS:
         for difference in found.checked.get(check, ()):
-            if not held(difference) and holders(difference, changes, found.applying, found.places, found.sites):
+            if not held(difference) and holders(
+                difference, changes, found.applying, found.places, found.sites, siblings=found.checked.get(check, ()),
+            ):
                 held_count += 1
             else:
                 undeclared_count += 1
@@ -1466,7 +1537,7 @@ def rows(output: Path, document: str, register=None) -> list[dict]:
         candidates = _evidence(output, document)
     printed, seen = [], set()
     for evidence in candidates:
-        if held(evidence) or holders(evidence, changes, applying, places, sites):
+        if held(evidence) or holders(evidence, changes, applying, places, sites, siblings=candidates):
             continue
         row = Row(
             evidence.check, evidence.artifact, evidence.path, None if evidence.check == "source" else evidence.kind

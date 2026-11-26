@@ -1472,6 +1472,20 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/short/sort_elements/*/display",
 		],
 	},
+	/** HQ accepts stored legacy related-property text, and its editor keeps
+	 * Translatable Text only on calculated columns. The worker's text and
+	 * ordering are the same with the calculation's generated keys. */
+	"legacy-related-case-text-rekeyed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("legacy-related-case-text-rekeyed"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "legacy-related-case-text-rekeyed"),
+		},
+		paths: [],
+	},
 	/**
 	 * A case list's, a search's or a menu's stored setting or text map Nova
 	 * writes another way with nothing a device shows changed, recorded by the
