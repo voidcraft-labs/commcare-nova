@@ -19455,6 +19455,24 @@
 		}
 	},
 	{
+		"id": "hq-case-management/hidden-clock-saved-as-a-day",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-datetime-question-saved-straight-to-a-case",
+		"change": { "op": "named", "name": "hidden_clock_saved_as_a_day" },
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [1, 0] }, ["recorded_at"]],
+				"pointer": "/answerType",
+				"value": "datetime"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "visit_day"
+			}
+		]
+	},
+	{
 		"id": "hq-case-management/write-through-a-typed-user-index",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-key-through-a-typed-user-index",

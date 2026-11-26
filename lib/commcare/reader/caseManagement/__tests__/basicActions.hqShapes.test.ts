@@ -10,7 +10,11 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
-import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import {
+	clockKeepingJoin,
+	INSTANT_TEXT_PATTERN,
+} from "@/lib/domain/expression/datePattern";
+import { hiddenWriterVerdicts } from "@/lib/domain/expression/inference";
 import { proseText } from "@/lib/domain/prose";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
@@ -295,7 +299,20 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 								f({
 									kind: "hidden",
 									id: "seen",
-									calculate: "now()",
+									calculate: {
+										kind: "date-coerce",
+										value: {
+											kind: "format-date",
+											date: {
+												kind: "term",
+												term: {
+													kind: "literal",
+													value: "2025-04-05T23:24:47.321Z",
+												},
+											},
+											pattern: INSTANT_TEXT_PATTERN,
+										},
+									},
 									caseWrite: { caseType: "patient", property: "seen_at" },
 								}),
 							],
@@ -319,6 +336,87 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			},
 		});
 		expect(codes(straight)).toContain(STRAIGHT);
+	});
+
+	it("keeps an explicitly typed hidden stamp separate from the day Case Management writes", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "seen_on", label: proseText("Seen on"), data_type: "date" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "seen",
+									answerType: "datetime",
+									calculate: { kind: "now" },
+									caseWrite: { caseType: "patient", property: "seen_on" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const reading = await readCases(doc);
+		expect(codes(reading)).toEqual([]);
+		expect(entries(reading)).toContain(
+			`${F}/a-datetime-question-saved-straight-to-a-case`,
+		);
+		const whole = await reading.whole;
+		if (whole?.kind !== "read")
+			throw new Error("The typed hidden instant should read.");
+		const held = whole.draft.doc;
+		expect(
+			Object.values(held.fields).find(({ id }) => id === "seen"),
+		).toMatchObject({
+			kind: "hidden",
+			answerType: "datetime",
+		});
+		expect(held.caseTypes).toContainEqual(
+			expect.objectContaining({
+				name: "patient",
+				properties: expect.arrayContaining([
+					expect.objectContaining({ name: "seen_on", data_type: "date" }),
+				]),
+			}),
+		);
+		const form = Object.values(held.forms).find(({ name }) => name === "Visit");
+		if (form === undefined) throw new Error("Missing visit form.");
+		const plan = planFormCaseWire(held, form.uuid);
+		if (plan.kind !== "basic")
+			throw new Error("Expected basic Case Management.");
+		expect(plan.actions.update_case.update.seen_on?.question_path).toBe(
+			"/data/seen",
+		);
+
+		const stamp = Object.values(held.fields).find(({ id }) => id === "seen");
+		if (stamp === undefined) throw new Error("Missing hidden clock.");
+		const withOpening = produce(held, (draft) => {
+			draft.forms[form.uuid].openingAssignments = [
+				{
+					uuid: testUuid("direct-hidden-day-opening"),
+					field: stamp.uuid,
+					source: { kind: "own" },
+					property: "seen_on",
+				},
+			];
+		});
+		expect(hiddenWriterVerdicts(withOpening)[0]?.findings).toContainEqual(
+			expect.objectContaining({ reason: "type", type: "datetime" }),
+		);
 	});
 
 	it("reads `open_case.external_id` as the external id write", async () => {
