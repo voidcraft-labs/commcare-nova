@@ -85,7 +85,10 @@ import {
 	startingSearchRange,
 	webSearchRangeDraft,
 } from "../engine/searchRangeAnswer";
-import { drawnSearchInputs } from "../engine/searchRunState";
+import {
+	drawnSearchInputs,
+	searchInputAnswerKeys,
+} from "../engine/searchRunState";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
 import { labelPresentation } from "../labelPresentation";
 import { shownMenuBadge } from "../menuProjection";
@@ -1089,6 +1092,37 @@ export const PLATFORM_MODEL_CHECKS = {
 	/* Android reads no `hidden`: it draws a hidden value, with or without a
 	 * starting value, and a field Web Apps does not draw, as ordinary fields;
 	 * Web Apps draws none of them (`SearchInputForm` reads the same rule). */
+	"search-address-picker-android": () => {
+		const source = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("address-source"),
+			name: "source",
+			label: "Address",
+		} as const;
+		const receiver = {
+			...simpleSearchInputDef(
+				testUuid("address-receiver"),
+				"city",
+				"City",
+				"text",
+				"city",
+			),
+			addressReceiver: {
+				kind: "address",
+				source: source.uuid,
+				parts: ["city"] as "city"[],
+			},
+		} as const;
+		expect(drawnSearchInputs([source, receiver], ANDROID)).toEqual([receiver]);
+		expect(drawnSearchInputs([source, receiver], WEB_APPS)).toEqual([
+			source,
+			receiver,
+		]);
+		expect(searchInputAnswerKeys([source, receiver])).toEqual(
+			new Set(["city"]),
+		);
+	},
 	"hidden-search-field-android": () => {
 		const hidden = hiddenSearchInputDef(
 			testUuid("cell-model-hidden"),

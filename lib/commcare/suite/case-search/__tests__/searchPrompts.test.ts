@@ -100,6 +100,55 @@ it("projects all widget attributes and preserves authored prompt order", () => {
 		"search-input:results",
 	]);
 });
+it("prints receivers from the current address field name and retains their fallback order", () => {
+	const { doc, config, expressions } = projection("prompt-widgets");
+	const source = {
+		kind: "address",
+		type: "address",
+		uuid: testUuid("search-address"),
+		name: "address",
+		label: "Address",
+	} as const;
+	const receiver = config.searchInputs[0];
+	if (
+		receiver.kind === "hidden" ||
+		receiver.kind === "address" ||
+		receiver.type !== "text"
+	)
+		throw new Error("The fixture starts with a text search field");
+	const linked = {
+		...receiver,
+		addressReceiver: {
+			kind: "address",
+			source: source.uuid,
+			parts: ["us_state", "city"] as ("us_state" | "city")[],
+		},
+	} as const;
+	config.searchInputs = [source, linked];
+	const elements = () =>
+		buildSearchPrompts(
+			config.searchInputs,
+			"m0",
+			undefined,
+			expressions,
+		).elements.map((element) => element.attribs);
+	expect(runValidation(doc, promptLookupContext)).toEqual([]);
+	expect(elements()).toEqual([
+		{ key: "address", input: "address" },
+		{ key: receiver.name, receive: "address-us_state||city" },
+	]);
+	config.searchInputs[0] = { ...source, name: "visit_address" };
+	expect(elements()[1]).toMatchObject({
+		receive: "visit_address-us_state||city",
+	});
+	config.searchInputs.shift();
+	expect(runValidation(doc, promptLookupContext)).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ code: "CASE_LIST_SEARCH_ADDRESS_FIELD" }),
+		]),
+	);
+});
+
 it("binds each display and assertion locale to its own stable translation units", () => {
 	const { emission, config } = projection("prompt-widgets");
 	const expectedStrings: Record<string, string> = {};

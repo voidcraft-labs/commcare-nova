@@ -209,6 +209,8 @@ it("serves a named address picker and an ordered Search receiver", () => {
 		},
 	};
 	const withInputs = (receiver: typeof city) => ({
+		work_id: "00000000-0000-4000-8000-000000000001",
+		request_id: "address-search",
 		moduleUuid: "Patients",
 		searchInputs: [address, receiver],
 	});
