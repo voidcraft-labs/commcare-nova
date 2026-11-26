@@ -63,7 +63,7 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
 ):
     document = webapps_documents["hq-search"]
     opening = [*steps.open_app("Client search"), *steps.choose("Clients"), *steps.choose("Followup Form"), steps.SCREEN]
-    select = [TYPE_ADDRESS, {"until": "webapps/choose_address", "arg": PLACE["place_name"]}, steps.SETTLE]
+    select = [TYPE_ADDRESS, {"until": "webapps/choose_address", "arg": {"name": PLACE["place_name"]}, "within": 8000}, steps.SETTLE]
 
     def enable(config):
         return replace(
