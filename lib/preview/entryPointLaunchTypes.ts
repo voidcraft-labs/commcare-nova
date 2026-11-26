@@ -5,6 +5,7 @@ import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 } from "@/lib/session/types";
+import type { ReceiptRunTransition } from "./engine/formOpeningSnapshot";
 
 export interface EntryPointSelection {
 	readonly moduleUuid: Uuid;
@@ -33,6 +34,7 @@ export interface ListIconReturn {
 
 export interface EntryPointPreviewLaunch {
 	readonly listIconReturn?: ListIconReturn;
+	readonly receiptRunTransition?: ReceiptRunTransition;
 	readonly entryPointUuid: Uuid;
 	readonly expectedSeq: number;
 	readonly location: Location;

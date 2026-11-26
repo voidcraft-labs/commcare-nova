@@ -89,6 +89,7 @@ export interface SubmissionReceiptIdentity {
  */
 export interface SubmissionReceiptClaim extends SubmissionReceiptIdentity {
 	readonly expectedAppMutationSeq: number;
+	readonly openingCarryScope?: string;
 	/** Digest of the exact committed Blueprint whose after-submit topology the
 	 * client may evaluate when this receipt is returned or replayed. */
 	readonly blueprintDigest: string;
@@ -409,6 +410,9 @@ export interface SubmissionEnvelopeResult {
 	 * state rather than whatever a later writer changed the rows to. Historical
 	 * receipts predate this slot, so the parser keeps it optional. */
 	readonly caseDatabasePatch?: DeviceCaseDatabase;
+	/** Immutable receipt metadata. The Preview action exposes only whether
+	 *  this release belongs in the currently requested device journal. */
+	readonly openingCarryScope?: string;
 }
 
 function hasInvalidCreatedChildren(value: unknown): boolean {

@@ -87,6 +87,14 @@ export interface FormOpeningAudience {
 	readonly blueprintDigest: string;
 }
 
+/** An authorized move between two client-owned runs within one device scope. */
+export interface ReceiptRunTransition {
+	readonly from: string;
+	readonly to: string;
+	readonly entry?: string;
+	readonly signature: string;
+}
+
 export interface FormOpeningProjection {
 	readonly webActivity?: WebFormActivityEntry;
 	/** A bound restore's start is the conservative proof of when the

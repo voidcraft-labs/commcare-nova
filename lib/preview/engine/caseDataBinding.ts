@@ -190,7 +190,12 @@ import {
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
 import { serverPreviewDataRefusalOf } from "./serverDataRefusal";
 import type { ServerSearchWorld } from "./serverSearchRead";
-import { verifyFormOpening } from "./signedFormOpening";
+import {
+	openingCarryScope,
+	requestedReceiptRun,
+	verifyFormOpening,
+	verifyReceiptRunTransition,
+} from "./signedFormOpening";
 import type { ViewerLocation } from "./viewerLocation";
 import { workerLocationFixture } from "./workerLocationFixture";
 import { readPreviewLookup } from "./workerLookupScope";
@@ -2156,6 +2161,8 @@ export async function submitFormAction(
 	 *  operation writing a session context value writes the platform's. */
 	device?: PreviewDevice,
 	entryGroupOwner?: string,
+	previewRun?: string,
+	receiptRunTransition?: unknown,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
@@ -2177,6 +2184,26 @@ export async function submitFormAction(
 		}
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
+		const journalRun = requestedReceiptRun(receiptRunTransition, previewRun);
+		const journalScope = (
+			project: string,
+			identity: ResolvedPreviewIdentity,
+			device: PreviewDevice | undefined,
+		) =>
+			previewRun === undefined || !device
+				? undefined
+				: journalRun
+					? openingCarryScope({
+							app: appId,
+							project,
+							actor: identity.actorUserId,
+							session: session.session.id,
+							worker: identity.ownerId,
+							persona: identity.personaUuid ?? null,
+							device,
+							run: journalRun,
+						})
+					: "";
 		const authorized = await loadAuthorizedFormSubmissionSnapshot({
 			appId,
 			actorUserId: session.user.id,
@@ -2218,6 +2245,7 @@ export async function submitFormAction(
 						normalizedMutation,
 						verdict.result,
 						expectedBlueprintDigest,
+						journalScope(authorized.projectId, replayIdentity, suppliedDevice),
 					);
 				}
 			}
@@ -2378,8 +2406,40 @@ export async function submitFormAction(
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
+		const envelope = submissionEnvelopeArgs(normalizedMutation, appId, built);
+		// The accepted write belongs to the device run that will keep it. An
+		// action opened from a case list returns to that list's run, and a resumed
+		// draft keeps its original signed opening even after a new run starts.
+		const sourceRun = binding?.run ?? z.uuid().optional().parse(previewRun);
+		const receiptAudience = {
+			app: appId,
+			project: authorized.projectId,
+			actor: identity.actorUserId,
+			session: session.session.id,
+			worker: identity.ownerId,
+			persona: identity.personaUuid ?? null,
+			device: admitted.device,
+			form: projection.formUuid,
+			revision: authorized.app.mutation_seq,
+		};
+		const run =
+			receiptRunTransition === undefined
+				? sourceRun
+				: verifyReceiptRunTransition(
+						process.env.BETTER_AUTH_SECRET ?? "",
+						receiptAudience,
+						receiptRunTransition,
+						sourceRun,
+						projection.entryKey,
+					);
 		const result = await store.applySubmission({
-			...submissionEnvelopeArgs(normalizedMutation, appId, built),
+			...envelope,
+			submissionReceipt: {
+				...envelope.submissionReceipt,
+				openingCarryScope: run
+					? openingCarryScope({ ...receiptAudience, run })
+					: undefined,
+			},
 			...(admitted.device.platform === "web-apps" &&
 				opening?.webActivity && {
 					webActivity: opening.webActivity,
@@ -2390,6 +2450,7 @@ export async function submitFormAction(
 			normalizedMutation,
 			result,
 			expectedBlueprintDigest,
+			journalScope(authorized.projectId, identity, admitted.device),
 		);
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
@@ -2412,6 +2473,7 @@ function submissionResultFromEnvelope(
 	mutation: SubmissionMutation,
 	result: Awaited<ReturnType<CaseStore["applySubmission"]>>,
 	expectedBlueprintDigest: string,
+	requestedCarryScope?: string,
 ): SubmissionResult {
 	if (result.blueprintDigest !== expectedBlueprintDigest) {
 		return {
@@ -2425,12 +2487,18 @@ function submissionResultFromEnvelope(
 	 * rather than reading today's rows and pretending they were submission-time
 	 * state. */
 	const caseDatabasePatch = result.caseDatabasePatch;
+	const journal =
+		requestedCarryScope !== undefined &&
+		requestedCarryScope !== result.openingCarryScope
+			? { receiptOutsideRun: true as const }
+			: {};
 	const childCaseIds =
 		result.legacyChildCaseIds ??
 		result.createdChildren.map((createdChild) => createdChild.caseId);
 	if (mutation.kind === "survey") {
 		return {
 			kind: "survey",
+			...journal,
 			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
 			...(result.submissionLocation !== undefined && {
 				submissionLocation: result.submissionLocation,
@@ -2458,6 +2526,7 @@ function submissionResultFromEnvelope(
 		}
 		return {
 			kind: "registration",
+			...journal,
 			caseId: result.primaryCaseIds[0] as string,
 			childCaseIds,
 			...(result.legacyChildCaseIds === undefined
@@ -2474,6 +2543,7 @@ function submissionResultFromEnvelope(
 	}
 	return {
 		kind: mutation.kind,
+		...journal,
 		caseIds: result.primaryCaseIds,
 		...(result.primaryCaseIds.length === 1
 			? { caseId: result.primaryCaseIds[0] as string }

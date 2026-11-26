@@ -56,7 +56,12 @@ import {
 } from "./lookupTableReferences";
 import { resolveAuthorizedPreviewContext } from "./previewAuthorization";
 import type { PreviewDevice } from "./previewDevice";
-import { signFormOpening, verifyFormOpening } from "./signedFormOpening";
+import {
+	openingCarryScope,
+	signFormOpening,
+	signReceiptRunTransition,
+	verifyFormOpening,
+} from "./signedFormOpening";
 import {
 	evaluateFormOpeningActions,
 	InvalidWebActivityWindowError,
@@ -81,6 +86,7 @@ const requestSchema = z.strictObject({
 	parentChoices: z.record(uuidSchema, z.array(z.string().min(1))).optional(),
 	previous: signedOpeningSchema.optional(),
 	restore: z.literal(true).optional(),
+	resumeInto: z.uuid().optional(),
 	choice: manualChoiceSchema.optional(),
 	carried: z.array(manualChoiceSchema).optional(),
 	/** The form entries the device submitted since it last synced, oldest
@@ -110,6 +116,28 @@ function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
 }
 
 export async function readFormOpeningAction(
+	input: Omit<z.input<typeof requestSchema>, "resumeInto">,
+	device: PreviewDevice,
+) {
+	const result = await readOpening(input, device);
+	if (result.kind === "receipt-run-ready")
+		return {
+			kind: "reopen",
+			message: "Open the form again to load its records.",
+		} as const;
+	return result;
+}
+
+export async function authorizeSavedFormReceiptRun(
+	input: z.input<typeof requestSchema> & { resumeInto: string; restore: true },
+	device: PreviewDevice,
+) {
+	// The return value deliberately carries no opening snapshot.
+	const result = await readOpening(input, device);
+	return result.kind === "receipt-run-ready" ? result.transition : undefined;
+}
+
+async function readOpening(
 	input: z.input<typeof requestSchema>,
 	device: PreviewDevice,
 ) {
@@ -173,6 +201,22 @@ export async function readFormOpeningAction(
 				(args.restore ? args.choice : prior.complete || !args.choice)
 			)
 				return reopen;
+			if (args.resumeInto) {
+				if (
+					!args.restore ||
+					!prior.complete ||
+					context.device.platform !== "android"
+				)
+					return reopen;
+				return {
+					kind: "receipt-run-ready",
+					transition: signReceiptRunTransition(secret, audience, {
+						from: args.run,
+						to: args.resumeInto,
+						entry: args.entry,
+					}),
+				} as const;
+			}
 			submittedCaseIds = new Set(prior.submittedCaseIds ?? []);
 			if (
 				!(await context.store.holdsDeviceCases({
@@ -203,7 +247,7 @@ export async function readFormOpeningAction(
 					return reopen;
 			}
 		} else {
-			if (args.choice || args.restore) return reopen;
+			if (args.choice || args.restore || args.resumeInto) return reopen;
 			const tableIds = tablesForOpening(doc, args.form);
 			const lookup = await loadLookupFixtureDataAction(args.app, tableIds);
 			if (lookup.kind !== "data") return lookup;
@@ -227,10 +271,12 @@ export async function readFormOpeningAction(
 			 * each of those submissions' committed patches, read from this
 			 * actor's own receipts, laid over it in order. */
 			let restored = restore;
+			const carryScope = openingCarryScope(audience);
 			for (const entryKey of args.afterSubmission ?? []) {
 				const submitted = await context.store.readSubmittedCaseDatabasePatch({
 					appId: args.app,
 					entryKey,
+					openingCarryScope: carryScope,
 				});
 				if (submitted === undefined) return reopen;
 				restored = overlayCaseDatabasePatch(restored, submitted);
@@ -271,25 +317,51 @@ export async function readFormOpeningAction(
 			parentCase?: ParentCaseSelection,
 			explicit = false,
 			chosenCaseIds?: Readonly<Record<string, string>>,
+			boundAfterSubmit = false,
 		) {
 			if (ids.length === 0) return true;
 			if (new Set(ids).size !== ids.length || ids.some((id) => !rows.has(id)))
 				return false;
-			if (ids.every((id) => submittedCaseIds.has(id))) return true;
 			const listed = explicit
 				? workerListDocument(doc, module, "form-selection")
 				: doc;
 			const list = listed.modules[module];
 			if (
 				!list?.caseType ||
+				ids.some((id) => rows.get(id)?.case_type !== list.caseType) ||
 				ids.length > (explicit ? 1 : caseSelectionMaximum(list))
 			)
 				return false;
+			const carried = boundAfterSubmit
+				? ids.filter((id) => submittedCaseIds.has(id))
+				: [];
+			if (
+				carried.length &&
+				parentCase &&
+				(parentCase.caseIds.some(
+					(id) => rows.get(id)?.case_type !== parentCase.caseType,
+				) ||
+					carried.some(
+						(id) =>
+							!snapshot.indices.some(
+								(edge) =>
+									edge.case_id === id &&
+									edge.depth === 1 &&
+									parentCase.caseIds.includes(edge.ancestor_id) &&
+									(parentCase.index === undefined
+										? edge.relationship !== "extension"
+										: edge.identifier === parentCase.index),
+							),
+					))
+			)
+				return false;
+			const toChoose = ids.filter((id) => !carried.includes(id));
+			if (toChoose.length === 0) return true;
 			const result = await loadCasesAction({
 				appId: args.app,
 				caseType: list.caseType,
 				moduleUuid: module,
-				caseIds: ids,
+				caseIds: toChoose,
 				blueprint: listed,
 				caseListConfig: list.caseListConfig,
 				excludedOwnerIdsExpression: list.caseSearchConfig?.excludedOwnerIds,
@@ -304,7 +376,7 @@ export async function readFormOpeningAction(
 				personaUuid: args.persona,
 				parentCase,
 			});
-			return result.kind === "rows" && result.rows.length === ids.length;
+			return result.kind === "rows" && result.rows.length === toChoose.length;
 		}
 		const owner = doc.forms[args.form];
 		const bound = args.bound ?? prior.primaryCaseIds;
@@ -356,7 +428,8 @@ export async function readFormOpeningAction(
 				(isCaseForm && parent && !under)
 			)
 				return reopen;
-			if (!(await available(args.module, bound, under))) return unavailable;
+			if (!(await available(args.module, bound, under, false, undefined, true)))
+				return unavailable;
 		} else if (args.bound) return reopen;
 		const resolve = (choices: FormOpeningProjection["choices"]) =>
 			entrySessionData(doc, args.form, {
@@ -419,6 +492,7 @@ export async function readFormOpeningAction(
 					under,
 					true,
 					next.chosenCaseIds,
+					manual === undefined,
 				))
 			)
 				return reopen;
