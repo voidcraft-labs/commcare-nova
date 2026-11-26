@@ -81,12 +81,12 @@ def test_formplayer_submits_the_answers_and_hq_stores_the_household(
 
 @pytest.mark.parametrize("bulk", [False, True], ids=["normal", "bulk"])
 @pytest.mark.parametrize(("name", "reason"), [
-    ("case", "case_id"),
-    ("Case", "case_id"),
-    ("Registration", "username"),
-    ("FiXtUrE", "fixture is lacking id attribute"),
-    ("schema", "schema is lacking an 'id' attribute"),
-    ("sync", "restore_id"),
+    pytest.param("case", "case_id", id="case-lowercase"),
+    pytest.param("Case", "case_id", id="case-capitalized"),
+    pytest.param("Registration", "username", id="registration"),
+    pytest.param("FiXtUrE", "fixture is lacking id attribute", id="fixture"),
+    pytest.param("schema", "schema is lacking an 'id' attribute", id="schema"),
+    pytest.param("sync", "restore_id", id="sync-namespace"),
 ])
 def test_formplayer_dispatches_an_ordinary_answer_name_before_posting(
     hq, core_runner, formplayer_documents, formplayer_runner, evidence, bulk, name, reason
@@ -94,7 +94,7 @@ def test_formplayer_dispatches_an_ordinary_answer_name_before_posting(
     """HQ can build the form. Formplayer reads the submitted child as an action and never posts the form."""
     document = formplayer_documents["targeted-receiving-answers"]
     mode = "bulk" if bulk else "normal"
-    label = f"{mode}-{name.lower()}"
+    label = f"{mode}-{name}"
     with apps.published(document, core_runner, "maximum") as published:
         write = apps.form_written(published, {"0.0": lambda source: with_submitted_answer(source, name)})
 

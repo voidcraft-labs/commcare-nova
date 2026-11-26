@@ -55,7 +55,7 @@ def test_android_keeps_the_answer_and_processes_the_household(android_documents,
     assert kept["cases"] == {case.get("case_id"): {"name": "Chen", "type": "household", "forms": [kept["instanceID"]]}}
 
 
-@pytest.mark.parametrize("name", ["case", "Case"])
+@pytest.mark.parametrize("name", ["case", "Case"], ids=["lowercase", "capitalized"])
 def test_android_cannot_submit_the_ordinary_case_answer(android_documents, hq, core_runner, name):
     """HQ can release this form. Android's local case processor refuses its ordinary text before it sends a form."""
     document = android_documents["targeted-receiving-answers"]
