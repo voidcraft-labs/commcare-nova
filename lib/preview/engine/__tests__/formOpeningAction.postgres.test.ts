@@ -885,6 +885,17 @@ it("pins the original form's write with each entry's own lookup choice", async (
 			if (!visit || !choices || !firstPerson || !write)
 				throw new Error("Missing the form shared by both lookup routes.");
 			firstPerson.source = uses(originalTable);
+			// The base fixture supplies this choice through a link. Once it
+			// comes from a table, that link can carry only the other choice.
+			const incoming = Object.values(blueprint.forms).find(
+				(form) => form.name === "Open the assigned pair",
+			)?.formLinks?.[0];
+			if (incoming?.datums === undefined)
+				throw new Error("Missing the original form's incoming link.");
+			incoming.datums = incoming.datums.filter(
+				({ name }) =>
+					name.kind !== "form-selection" || name.selection !== firstPerson.uuid,
+			);
 			write.value = tableLookup(
 				writeTable.id,
 				writeTable.columns[0].id,
