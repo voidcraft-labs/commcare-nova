@@ -282,6 +282,7 @@ async function readPlaces(
  * different physical layout on a reached scope cannot corroborate it.
  */
 function commonLocations(sources: readonly (string | null | undefined)[]) {
+	if (sources.length === 0) return;
 	if (sources.every((source) => source === "jr://fixture/locations"))
 		return "flat";
 	if (sources.every((source) => source === "jr://fixture/commtrack:locations"))
@@ -391,19 +392,22 @@ export function sourceFactoryReads(input: {
 					const scopes = [...detailReads].filter(([, ids]) =>
 						ids.has("locations"),
 					);
-					const scoped = formWitness ? [] : scopes;
-					const observed = scoped.length
-						? commonLocations(
-								scoped.map(([key]) => suiteDetails?.get(key)?.get("locations")),
-							)
-						: await readWorkingLocationFixture({
-								creds,
-								domain,
-								working: input.working,
-								witness: formWitness,
-								sameSuiteSource,
-								cancel,
-							});
+					const observed =
+						!formWitness && scopes.length > 0
+							? commonLocations(
+									scopes.flatMap(([key]) => {
+										const reached = suiteDetails?.get(key);
+										return reached ? [reached.get("locations")] : [];
+									}),
+								)
+							: await readWorkingLocationFixture({
+									creds,
+									domain,
+									working: input.working,
+									witness: formWitness,
+									sameSuiteSource,
+									cancel,
+								});
 					if (observed !== undefined)
 						sourceProjectFactories.locations = observed;
 				}
