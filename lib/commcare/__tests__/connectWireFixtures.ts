@@ -33,6 +33,7 @@ export function connectWireFixtures() {
 				: learn
 					? [
 							f({
+								uuid: `${name}-lesson`,
 								kind: "connect_activity",
 								id: "lesson",
 								activity: {
@@ -43,6 +44,7 @@ export function connectWireFixtures() {
 								},
 							}),
 							f({
+								uuid: `${name}-quiz`,
 								kind: "connect_activity",
 								id: "quiz",
 								activity: {
@@ -55,6 +57,7 @@ export function connectWireFixtures() {
 						]
 					: [
 							f({
+								uuid: `${name}-visit`,
 								kind: "connect_activity",
 								id: "visit",
 								activity: {
@@ -107,7 +110,6 @@ export function connectWireFixtures() {
 										uuid: `${name}-task-form`,
 										name: task.name,
 										type: "survey" as const,
-
 										fields: [
 											f({
 												uuid: `${name}-task-note`,
@@ -116,6 +118,7 @@ export function connectWireFixtures() {
 												label: proseText(task.description),
 											}),
 											f({
+												uuid: `${name}-task`,
 												kind: "connect_activity",
 												id: task.id,
 												activity: {
