@@ -1,5 +1,6 @@
-"""The pinned Form Designer preserves a hyphen in an index calculation's path."""
+"""The pinned Form Designer keeps or changes deployed index identifiers."""
 
+import pytest
 from lxml import etree
 
 from proof.editors import vellum
@@ -11,7 +12,7 @@ CASE = "http://commcarehq.org/case/transaction/v2"
 VELLUM = "http://commcarehq.org/xforms/vellum"
 
 
-def _save_with_link(editor_driver, name):
+def _save_with_link(editor_driver, name, *, action_present=None):
     document = corpus_document("case-operation-query")
     with _published(document, "VELLUM_SAVE_TO_CASE", True) as opened:
         form = _form(
@@ -25,6 +26,10 @@ def _save_with_link(editor_driver, name):
             for node in root.iter(f"{{{CASE}}}case")
             if node.getparent().get(f"{{{VELLUM}}}role") == "SaveToCase"
             and node.find(f"{{{CASE}}}index") is None
+            and (
+                action_present is None
+                or (node.find(f"{{{CASE}}}{name}") is not None) == action_present
+            )
         )
         index = etree.SubElement(transaction, f"{{{CASE}}}index")
         link = etree.SubElement(
@@ -79,3 +84,43 @@ def test_period_in_save_to_case_link_cannot_keep_its_calculation(
         )
     else:
         assert run.save_refusal, run
+
+
+@pytest.mark.parametrize("name", ["create", "close"])
+def test_an_index_named_for_an_absent_action_cannot_keep_the_action_set(
+    hq, core_runner, editor_driver, name
+):
+    run, path = _save_with_link(editor_driver, name, action_present=False)
+    if not run.saved:
+        assert run.save_refusal, run
+        return
+    root = etree.fromstring(run.stored_source.encode())
+    case_path = path.removesuffix(f"/index/{name}")
+    transaction = next(
+        node
+        for node in root.iter(f"{{{CASE}}}case")
+        if "/" + "/".join(
+            etree.QName(part).localname
+            for part in (*reversed(list(node.iterancestors())), node)[4:]
+        ) == case_path
+    )
+    assert transaction.find(f"{{{CASE}}}{name}") is not None
+
+
+def test_an_index_named_create_keeps_its_bind_on_a_block_that_already_creates(
+    hq, core_runner, editor_driver
+):
+    run, path = _save_with_link(editor_driver, "create", action_present=True)
+    assert run.saved, run.save_refusal
+    root = etree.fromstring(run.stored_source.encode())
+    assert any(
+        bind.get("nodeset") == path and bind.get("calculate") == "'household-123'"
+        for bind in root.iter(f"{{{XFORMS}}}bind")
+    )
+    blocks = [
+        node
+        for node in root.iter(f"{{{CASE}}}case")
+        if node.find(f"{{{CASE}}}index/{{{CASE}}}create") is not None
+    ]
+    assert len(blocks) == 1
+    assert [etree.QName(node).localname for node in blocks[0]].count("create") == 1

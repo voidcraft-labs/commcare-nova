@@ -35133,19 +35133,22 @@
 		"id": "hq-questions/save-to-case-owner-condition",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-owner-id-condition",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
 		"change": {
 			"op": "named",
 			"name": "save_to_case_owner_condition"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerCondition/kind",
+				"value": "gt"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-reserved-key",
