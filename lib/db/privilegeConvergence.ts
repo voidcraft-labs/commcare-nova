@@ -729,6 +729,7 @@ const EXPECTED_PUBLIC_ROUTINES = [
 	{ name: "nova_check_assignment_app_project", identityArguments: "" },
 	{ name: "nova_set_lookup_external_bytes", identityArguments: "" },
 	{ name: "nova_invalidate_export_target", identityArguments: "" },
+	{ name: "nova_invalidate_search_targets", identityArguments: "" },
 	{ name: "nova_rotate_api_key_grant", identityArguments: "" },
 	EXPIRED_FORM_OPENINGS,
 	{ name: "nova_immutable_thread_source", identityArguments: "" },
