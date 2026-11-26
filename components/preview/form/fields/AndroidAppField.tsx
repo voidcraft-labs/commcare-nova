@@ -194,10 +194,13 @@ export function AndroidAppField({
 			<Dialog
 				open={launch !== undefined}
 				onOpenChange={(visible) => {
-					if (!visible) close();
+					if (!visible && !busy) close();
 				}}
 			>
-				<DialogContent className="max-h-[85vh] overflow-y-auto">
+				<DialogContent
+					className="max-h-[85vh] overflow-y-auto"
+					showCloseButton={!busy}
+				>
 					<DialogTitle>Return to {label}</DialogTitle>
 					{launch && (
 						<>
@@ -412,7 +415,12 @@ export function AndroidAppField({
 							)}
 							{error && <p role="alert">{error}</p>}
 							<div className="flex justify-end gap-2">
-								<Button type="button" variant="outline" onClick={close}>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={busy}
+									onClick={close}
+								>
 									Cancel
 								</Button>
 								<Button type="button" disabled={busy} onClick={returnToForm}>
