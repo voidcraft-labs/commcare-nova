@@ -112,6 +112,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"android-map": ["questions/geopoint-maps"],
 	"edit-scan": ["questions/barcode-editable"],
 	"camera-only": ["questions/image-acquire", "questions/video-acquire"],
+	"face-camera": ["questions/face-capture-image-face"],
 	"photo-overlay": ["questions/image-overlay-small"],
 	"classic-recorder": ["questions/audio-legacy"],
 	"record-or-choose": ["questions/audio-acquire-or-upload"],

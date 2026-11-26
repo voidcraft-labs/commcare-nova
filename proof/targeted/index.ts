@@ -57,6 +57,7 @@ import {
 	expressionPropertyRenames,
 	expressionRenames,
 } from "./documents/expressionRenames";
+import { facePhoto } from "./documents/facePhoto";
 import { formLinkCarriedCase } from "./documents/formLinkCarriedCase";
 import { formLinkChain } from "./documents/formLinkChain";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
@@ -204,6 +205,7 @@ import { workerRecordColumns } from "./documents/workerRecordColumns";
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	receivingAnswersOnBoth,
 	receivingAnswersOnAndroid,
+	facePhoto,
 	lookupReservedTags,
 	searchHqCompile,
 	validatedBarcodeSecret,

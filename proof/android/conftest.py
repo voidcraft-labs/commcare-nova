@@ -42,6 +42,7 @@ DOCUMENTS = (
     "targeted-worker-messages",
     "targeted-repeat-invitations",
     "targeted-capture-widgets",
+    "targeted-face-photo",
     "targeted-form-link-hidden-target",
     "targeted-forms-in-menu-above-one-case",
     "targeted-case-choice-values",

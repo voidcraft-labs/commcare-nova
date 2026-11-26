@@ -21,7 +21,11 @@ export const FIELD_DISPLAY_SETTING_TOKENS = {
 	},
 	clock: { "twelve-hour": "12-hour" },
 	locationPicker: { map: "maps" },
-	captureSource: { camera: "acquire", "record-or-choose": "acquire-or-upload" },
+	captureSource: {
+		camera: "acquire",
+		"face-camera": "face",
+		"record-or-choose": "acquire-or-upload",
+	},
 	overlaySize: { small: "overlay-small" },
 	recorder: { legacy: "legacy" },
 	banner: {

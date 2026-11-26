@@ -89,7 +89,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | Audio Capture (`audio/*`) | **HELD**: `audio` | DIFFERENT (file picker) / RUNS | `audio/*` |
 | Video Capture (`video/*`) | **HELD**: `video` | DIFFERENT (file picker) / RUNS | `video/*` |
 | Signature (`image/*` + `signature`) | **HELD**: `signature` | RUNS / RUNS | `appearance="signature"` |
-| Face Capture (`image/*` + `face`) | **HELD-NEW**: `faceCapture` capture kind | DIFFERENT (a plain image upload) / RUNS | `appearance="face"`; FACE_CAPTURE gates only creating it |
+| Face Capture (`image/*` + `face`) | **HELD**: `image.captureSource = face-camera` | DIFFERENT (a plain image upload) / RUNS | `appearance="face"`; FACE_CAPTURE gates only creating it |
 | Document Upload (`application/*,text/*`) | **HELD**: `file` | RUNS / RUNS | that mediatype |
 | `<upload>` with any other mediatype, or none | **REFUSED**: not HQ-editable: Vellum refuses to open the form (`parser.js::buildControlNodeAdaptorMap` `upload`), and for a case variant of the four mediatypes (`IMAGE/*`) a save rewrites it to lowercase, which Core reads as a different control, since its match is case-sensitive (`XFormParser.parseUpload`; executed) | — | — |
 | Android App Callout (`input appearance="intent:<id>"`, bind `type="intent"`, head `<odkx:intent>` with extras/responses) | **HELD-NEW**: `callout` field kind (app id, extras, responses) | UNAVAILABLE (unsupported entry; the literal "Not Supported by Web Entry" can be submitted) / RUNS | as Vellum writes it; privilege `templated_intents` / `custom_intents` |

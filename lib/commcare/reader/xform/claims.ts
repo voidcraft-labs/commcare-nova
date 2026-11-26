@@ -639,6 +639,13 @@ export const X = {
 			mediatype: "xform:upload@mediatype",
 			appearance: "xform:upload@appearance",
 		}),
+		face: kind("face-capture-image-face", {
+			node: "mug:Image",
+			control: "xform:upload",
+			ref: "xform:upload@ref",
+			mediatype: "xform:upload@mediatype",
+			appearance: "xform:upload@appearance",
+		}),
 		audio: kind("audio-capture-audio", {
 			node: "mug:Audio",
 			control: "xform:upload",

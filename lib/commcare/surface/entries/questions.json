@@ -2640,6 +2640,7 @@
 		"item": "Face Capture (`image/*` + `face`)",
 		"surfaceKeys": [
 			"mug:FaceCapture",
+			"mug:Image",
 			"jr-control:upload",
 			"appearance:android/face",
 			"vellum-feature:face_capture",
@@ -2649,10 +2650,9 @@
 			"xform:upload@appearance"
 		],
 		"valueClass": "face-capture",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `faceCapture` capture kind",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `image.captureSource = face-camera`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (a plain image upload) / RUNS",

@@ -627,7 +627,7 @@ function questionDisplayFields() {
 			.nullable()
 			.optional()
 			.describe(
-				"On Android, camera captures a picture or video. Record-or-choose lets a worker record or attach audio.",
+				"On Android, camera takes a picture or video, face-camera frames and crops a face on an image question, and record-or-choose lets the worker record or attach audio. Web Apps attaches a file.",
 			),
 		overlaySize: displaySchemas.overlaySize
 			.nullable()

@@ -883,6 +883,12 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		"captureSource",
 		"camera",
 	),
+	"face-camera": questionSettingPair(
+		"face-camera",
+		"image",
+		"captureSource",
+		"face-camera",
+	),
 	"photo-overlay": questionSettingPair(
 		"photo-overlay",
 		"image",

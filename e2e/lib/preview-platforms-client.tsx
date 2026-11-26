@@ -67,6 +67,18 @@ function inSection(label: string, children: FieldSpec[]): FieldSpec {
 
 function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 	switch (fixture) {
+		case "face-photo":
+			return [
+				inSection("Visit", [
+					{
+						uuid: IDS.image,
+						kind: "image",
+						id: "portrait",
+						label: "Portrait",
+						captureSource: "face-camera",
+					},
+				]),
+			];
 		case "question-display": {
 			const options = [
 				{ value: "north", label: "North valley" },

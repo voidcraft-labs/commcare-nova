@@ -152,6 +152,7 @@ describe("fieldAppearance", () => {
 			"gregorian cancel",
 		],
 		["signature", "signature", {}, "signature"],
+		["image", "face", { captureSource: "face-camera" }, "face"],
 		["date", "ethiopian", { calendar: "ethiopian" }, "ethiopian"],
 		[
 			"date",
