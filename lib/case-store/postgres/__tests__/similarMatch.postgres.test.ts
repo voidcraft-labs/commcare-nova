@@ -141,7 +141,6 @@ async function search(property: string, query: string, negated = false) {
 			appId: APP_ID,
 			caseType: PATIENT.name,
 			reading: SEARCH_READING,
-			tileGrouping: "grouped",
 			caseTypeSchemas: new Map([[PATIENT.name, PATIENT]]),
 			predicate: negated ? not(similar) : similar,
 			limit: 1000,
@@ -218,7 +217,10 @@ describe("on production-shaped data", () => {
 		return [...queries];
 	}
 
-	it("decides every record of every field for every word and near miss", async () => {
+	// Some 200 searches, each reading the Project's words once.
+	it("decides every record of every field for every word and near miss", {
+		timeout: 120_000,
+	}, async () => {
 		await insert(RECORDS);
 		const undecided: string[] = [];
 		let searches = 0;
