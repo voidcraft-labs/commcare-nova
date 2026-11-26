@@ -4236,8 +4236,14 @@ def _search_and_menus():
                 "format:clickable-icon",
                 f"{short}/columns/0/format",
             ),
-            accepted(
+            refused(
                 "app", columns_app(_column(fmt="clickable-icon")), "format:clickable-icon", f"{short}/columns/0/format"
+            ),
+            accepted(
+                "app",
+                columns_app(_column(fmt="clickable-icon", endpoint_action_id="visit")),
+                "format:clickable-icon",
+                f"{short}/columns/0/format",
             ),
             # its icon mapping is the column's, never the column editor's extras on another format
             refused(
@@ -4413,6 +4419,18 @@ def _search_and_menus():
                 "app",
                 columns_app(_column("a", "image"), _column("b", "plain")),
                 "format:image",
+                f"{short}/columns/0/format",
+            ),
+            refused(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "address")),
+                "schema:DetailColumn.format",
+                f"{short}/columns/1/format",
+            ),
+            accepted(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "plain")),
+                "schema:DetailColumn.format",
                 f"{short}/columns/0/format",
             ),
             # The class is a fact about the repeated columns, never a neighbour of another format.

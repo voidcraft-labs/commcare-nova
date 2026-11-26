@@ -5482,11 +5482,10 @@ def differs_from_the_default(use, manifest):
 
 
 def _clickable_icon_list_empty(at, column, detail, kind, module):
-    if _format(column) != "clickable-icon" or kind != "short" or column.get("endpoint_action_id"):
-        return False
-    # In a basic or shadow module HQ's build refuses it (``invalid clickable icon configuration``), which the
-    # bar reports; an advanced module skips that check and builds no action.
-    return module.get("doc_type") == "AdvancedModule"
+    # The missing action is the same source class whether HQ's build refuses
+    # it on a basic or shadow module or skips the check on an advanced module
+    # and emits an icon with no action.
+    return _format(column) == "clickable-icon" and kind == "short" and not column.get("endpoint_action_id")
 
 
 clickable_icon_list_empty = _column_reader(_clickable_icon_list_empty)
@@ -5706,22 +5705,25 @@ filter_changes_the_build.__doc__ = """``menus-and-case-lists/24p-filter-otherwis
 SINGLE_FORMATS = ("image", "geo-boundary", "geo-boundary-color", "geo-points", "geo-points-colors")
 
 
-def _repeated_single_format(detail, column=None):
-    """Whether a detail holds a second column of one of ``SINGLE_FORMATS``; for a use in a column, whether that
-    column is of the repeated format, since the class is a fact about those columns and not their neighbours."""
+def _repeated_single_format(detail, column=None, *, single_formats=SINGLE_FORMATS):
+    """Whether a detail holds a second column of a single-use format. A use
+    in a column belongs to the class only if that column's format repeats.
+    """
     formats = [_format(one) for one in _columns(detail)]
-    repeated = {single for single in SINGLE_FORMATS if formats.count(single) > 1}
+    repeated = {single for single in single_formats if formats.count(single) > 1}
     return bool(repeated) if column is None else _format(column) in repeated
 
 
 def several_of_one_format_basic(use, manifest):
     """``menus-and-case-lists/more-than-one-address-column-or-more-than-one-image-or-geo``: in a basic or
-    shadow module's detail, a second ``image`` or geo column of one format, which the editor refuses; a
-    second ``address`` fails HQ's build (``invalid tile configuration``), which the bar reports."""
+    shadow module's detail, a second ``image`` or geo column of one format, which the editor refuses, or a
+    second ``address``, which HQ's build refuses (``invalid tile configuration``)."""
     at, column, detail, kind, module = _column(use)
     if detail is None:
         return None
-    return (module or {}).get("doc_type") != "AdvancedModule" and _repeated_single_format(detail, column)
+    return (module or {}).get("doc_type") != "AdvancedModule" and _repeated_single_format(
+        detail, column, single_formats=(*SINGLE_FORMATS, "address")
+    )
 
 
 def several_of_one_format_advanced(use, manifest):
