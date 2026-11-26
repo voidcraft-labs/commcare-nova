@@ -205,11 +205,13 @@ interface GeneratedGroup {
 	readonly controls: Element[];
 }
 
-export interface CaseOperationDataChild {
+export type CaseOperationDataChild = {
 	readonly parentPath: FormPath;
 	readonly element: Element;
-	readonly placement?: "prepend" | "append" | "replace";
-}
+} & (
+	| { readonly placement?: "prepend" | "append" }
+	| { readonly placement: "replace"; readonly following: readonly Element[] }
+);
 
 export interface CaseOperationBodyChild {
 	/** Undefined means the form body itself; otherwise the exact authored repeat. */
@@ -1664,7 +1666,7 @@ export function buildCaseOperations(
 		}
 
 		const guardCaseIdPath = (kind: GuardKind): FormPath =>
-			(conditionPath ?? group.path)
+			(site.authoredPath?.parent() ?? conditionPath ?? group.path)
 				.child(generatedNodes.guard(operation.uuid, kind))
 				.child("case")
 				.attr("case_id");
@@ -1871,18 +1873,13 @@ export function buildCaseOperations(
 		// guard that ran while its operation did not would fail the submission.
 		const caseBlock = saveToCaseBlock(site.name, caseType, caseChildren);
 		if (site.authoredPath !== undefined) {
-			const root = form.dataRootName ?? "data";
-			const parent = site.authoredPath
-				.segments()
-				.slice(0, -1)
-				.map((segment) => segment.name);
 			authoredBlocks.push({
-				parentPath: FormPath.parse(`/${parent.join("/")}`, root),
+				parentPath: site.authoredPath.parent(),
 				placement: "replace",
 				element: caseBlock,
+				following: guards,
 			});
 			binds.push(...blockBinds, ...guardBinds);
-			group.children.push(...guards);
 			if (create) priorCreates.set(operation.uuid, location);
 			continue;
 		}
@@ -2770,8 +2767,9 @@ export function attachCaseOperationData(
 				throw new Error(
 					"The authored case change is missing from the submitted form.",
 				);
-			child.element.parent = parent;
-			parent.children[index] = child.element;
+			const replacements = [child.element, ...child.following];
+			for (const node of replacements) node.parent = parent;
+			parent.children.splice(index, 1, ...replacements);
 			relinkSiblings(parent.children);
 		} else if (child.placement === "append") {
 			appendChildren(parent, [child.element]);

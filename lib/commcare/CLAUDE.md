@@ -2573,7 +2573,7 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 - Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
-- A Save to Case question at an authored position, a late flag column, a search filter the case list does not share on a menu whose forms do not read the search, a preload held at the end of the load, saving only a changed answer anywhere but a follow-up form's own update, an advanced tag or an index name with a hyphen (each a manifest HELD-NEW row the reader raises).
+- A Save to Case question whose position or guards the form cannot preserve, a late flag column, a search filter the case list does not share on a menu whose forms do not read the search, a preload held at the end of the load, saving only a changed answer anywhere but a follow-up form's own update, an advanced tag or an index name with a hyphen (each a manifest HELD-NEW row the reader raises).
 
 ### Named entry points
 

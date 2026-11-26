@@ -70,7 +70,10 @@ import {
 	userPropertiesOf,
 } from "@/lib/domain";
 import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
-import { isWorkerRecordUpdate } from "@/lib/domain/basicCaseSlots";
+import {
+	isKeyedRootCreate,
+	isWorkerRecordUpdate,
+} from "@/lib/domain/basicCaseSlots";
 import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
 	activeRowScope,
@@ -306,12 +309,12 @@ export function validateCaseOperations(
 					: operation.forEach?.repeat !== location.repeat
 						? "Place this case change in the section it repeats over."
 						: operation.action === "own" ||
-								operation.action === "create" ||
+								isKeyedRootCreate(operation) ||
 								operation.condition !== undefined ||
 								isWorkerRecordUpdate(operation) ||
 								operationSavesOnlyChanged(operation) ||
 								operation.writes?.some((write) => write.via !== undefined)
-							? "Choose a direct update or close for this position."
+							? "Choose a direct create, update or close for this position."
 							: undefined;
 		positions.add(field.operationUuid);
 		if (invalid !== undefined)

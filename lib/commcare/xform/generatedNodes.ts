@@ -542,6 +542,7 @@ function allocateGeneratedNodes(
 
 	// Field namespaces: one per container's child element, in field order.
 	const fieldScopes = new Map<string, Namespace>();
+	const positioned = new Map<Uuid, { scope: Namespace; fieldId: string }>();
 	const heldContainerScopes = new Map<string, Uuid | undefined>();
 	const repeatScopes = new Map<Uuid, FormPath>();
 	const walk = (parentUuid: Uuid, parentPath: FormPath, root: boolean) => {
@@ -566,6 +567,8 @@ function allocateGeneratedNodes(
 		}
 		for (const field of children) {
 			const path = parentPath.child(field.id);
+			if (field.kind === "case_change")
+				positioned.set(field.operationUuid, { scope, fieldId: field.id });
 			const expression = expressionSlotValue(doc, {
 				entity: "field",
 				uuid: field.uuid,
@@ -763,13 +766,20 @@ function allocateGeneratedNodes(
 				operation.uuid,
 				allocate(generatedBaseName("condition", operation.id)),
 			);
-		for (const kind of operationGuardKinds(operation))
+		const position = positioned.get(operation.uuid);
+		for (const kind of operationGuardKinds(operation)) {
+			const base = generatedBaseName(
+				"guard",
+				position?.fieldId ?? operation.id,
+				kind,
+			);
 			record(
 				"guard",
 				operation.uuid,
-				allocate(generatedBaseName("guard", operation.id, kind)),
+				position === undefined ? allocate(base) : position.scope.allocate(base),
 				kind,
 			);
+		}
 	}
 	const root = FormPath.root(form.dataRootName).toXPath();
 	const rootOperations = operationNamespace(root);
