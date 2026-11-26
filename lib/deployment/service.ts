@@ -2660,6 +2660,12 @@ export async function publishAppToHq(
 			// returned id is the one asked for, so this is the store's
 			// same-remote-id arm: the live row updates in place, and a mapping
 			// HQ had reported gone is no longer.
+			const publishedEntries = () =>
+				publishedEntryPoints(prepared, hqJson, input.appName, {
+					server: target.server,
+					domain: target.domain,
+					appId: result.appId,
+				});
 			const imported = await recordRemoteResource(
 				input.scope,
 				target,
@@ -2700,7 +2706,12 @@ export async function publishAppToHq(
 					...(completedReview && {
 						practicePublication: {
 							expected: completedReview,
-							...(resumed && { promotesPreparedContent: true as const }),
+							...(resumed && {
+								promotedEntry: {
+									generation: contentGeneration,
+									entries: publishedEntries(),
+								},
+							}),
 							requireHqImport: requireProfileImport,
 						},
 					}),
@@ -2736,22 +2747,14 @@ export async function publishAppToHq(
 			 * needs `edit`. */
 			const landedRecord = imported.deployment;
 
-			const entries = publishedEntryPoints(prepared, hqJson, input.appName, {
-				server: target.server,
-				domain: target.domain,
-				appId: result.appId,
-			});
-
-			entryPointManifest =
-				imported.pushToken === null
-					? null
-					: {
-							generation: contentGeneration,
-							remoteAppId: result.appId,
-							sourceSequence: seq,
-							entries,
-							dependencies: imported.dependencies,
-						};
+			if (!prepareContent && !resumed && imported.pushToken !== null)
+				entryPointManifest = {
+					generation: contentGeneration,
+					remoteAppId: result.appId,
+					sourceSequence: seq,
+					entries: publishedEntries(),
+					dependencies: imported.dependencies,
+				};
 			log.info("[deployment] app imported", {
 				domain,
 				hqAppId: result.appId,
@@ -2930,35 +2933,36 @@ export async function publishAppToHq(
 				appBaseline?.remoteAppId === result.appId
 					? appBaseline.mediaFiles
 					: null;
-			const mediaRecorded = mediaUnverified
-				? null
-				: await recordDeploymentMediaFiles(input.scope, target, {
-						...fence,
-						remoteAppId: result.appId,
-						sourceDigest:
-							imported.laterObservation?.digest ??
-							pushBaseline.write.sourceDigest,
-						pushToken: imported.pushToken,
-						novaRevision: pushBaseline.write.novaRevision,
-						files: {
-							read: previousMedia,
-							next: nextHqMediaRecord({
-								published,
-								previous: previousMedia,
-								learned: {
-									...ready.media?.learned,
-									...learnedBetween,
-								},
-								reported: upload.reported,
-								settled: [
-									...(ready.media?.paths ?? []),
-									...settledBetween,
-									...afterImportPaths,
-								],
-							}),
-						},
-						admitted: { writeIds: mediaWrites, settle: [] },
-					});
+			const mediaRecorded =
+				mediaUnverified || resumed
+					? null
+					: await recordDeploymentMediaFiles(input.scope, target, {
+							...fence,
+							remoteAppId: result.appId,
+							sourceDigest:
+								imported.laterObservation?.digest ??
+								pushBaseline.write.sourceDigest,
+							pushToken: imported.pushToken,
+							novaRevision: pushBaseline.write.novaRevision,
+							files: {
+								read: previousMedia,
+								next: nextHqMediaRecord({
+									published,
+									previous: previousMedia,
+									learned: {
+										...ready.media?.learned,
+										...learnedBetween,
+									},
+									reported: upload.reported,
+									settled: [
+										...(ready.media?.paths ?? []),
+										...settledBetween,
+										...afterImportPaths,
+									],
+								}),
+							},
+							admitted: { writeIds: mediaWrites, settle: [] },
+						});
 			if (
 				!imported.retainedTake &&
 				!imported.obsoleteFold &&

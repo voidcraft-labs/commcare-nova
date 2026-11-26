@@ -2672,7 +2672,11 @@ export interface RecordRemoteAppInput
 	};
 	readonly practicePublication?: {
 		readonly expected: InstallationProfileCheckpoint;
-		readonly promotesPreparedContent?: true;
+		/** Install the final manifest with the exact prepared-content promotion. */
+		readonly promotedEntry?: Pick<
+			PublishedEntryPointManifest,
+			"generation" | "entries"
+		>;
 		readonly next?: InstallationProfileCheckpoint;
 		readonly requireHqImport: HqManagementGrant | null;
 		readonly failure?: NonNullable<
@@ -2862,8 +2866,22 @@ export async function recordRemoteResource(
 					.select("source_digest")
 					.where("deployment_id", "=", row.id)
 					.executeTakeFirst();
+				const competingWrite =
+					practice.promotedEntry &&
+					(await tx
+						.selectFrom("hq_remote_writes")
+						.select("id")
+						.where("deployment_id", "=", row.id)
+						.where("write_kind", "!=", "worker")
+						.where(openRemoteWrite)
+						.executeTakeFirst());
 				if (
-					(practice.promotesPreparedContent &&
+					competingWrite ||
+					(practice.promotedEntry &&
+						(input.pushedRevision === null ||
+							input.pushedRevision !== practice.expected.sequence ||
+							input.remoteRevision !== practice.expected.workingVersion)) ||
+					(practice.promotedEntry &&
 						(saved?.source_digest !==
 							practice.expected.preparedContent?.baselineDigest ||
 							live?.pushed_revision !== null)) ||
@@ -3027,6 +3045,16 @@ export async function recordRemoteResource(
 						: undefined,
 				);
 
+			const entryManifest: PublishedEntryPointManifest | undefined =
+				practice?.promotedEntry && input.pushedRevision !== null
+					? {
+							...practice.promotedEntry,
+							remoteAppId: input.remoteId,
+							sourceSequence: input.pushedRevision,
+							dependencies: await contentDependencies(tx, row.id),
+						}
+					: undefined;
+
 			const record = toDeploymentRecord(row);
 			const progress = applyPhaseOutcome(
 				record,
@@ -3050,6 +3078,10 @@ export async function recordRemoteResource(
 						clearObservationOutcomes(progress.phases),
 						now,
 					),
+					...(entryManifest && {
+						content_generation: entryManifest.generation,
+						entry_point_manifest: JSON.stringify(entryManifest),
+					}),
 					...(input.targetEmptyCaseListText !== undefined && {
 						target_empty_case_list_text: input.targetEmptyCaseListText,
 					}),

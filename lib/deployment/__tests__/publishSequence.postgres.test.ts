@@ -136,6 +136,7 @@ import {
 	readAppBaseline,
 	readDeployment,
 	readDeploymentNovaRevisions,
+	readEntryPointEvidence,
 	readSiblingLookupMappings,
 	readTargetFacts,
 	readTargetIdentity,
@@ -5827,6 +5828,9 @@ describe("named installations on a destination", () => {
 						return;
 					}
 					const waiting = refusal(await publish(doc, undefined, null, token));
+					expect(
+						(await readEntryPointEvidence(SCOPE, TARGET)).manifest,
+					).toBeNull();
 					if (saveDuring === "content-suite") {
 						expect(changed).toBe(true);
 						expect(waiting.failure.message).toMatch(/changed|verify/);
@@ -5956,6 +5960,12 @@ describe("named installations on a destination", () => {
 					if (entitled) {
 						expect(finished).toMatchObject({ landed: true });
 						expect((await mapping()).pushed_revision).not.toBeNull();
+						const evidence = await readEntryPointEvidence(SCOPE, TARGET);
+						expect(evidence.manifest).toMatchObject({
+							generation: evidence.generation,
+							remoteAppId: HQ_APP,
+							sourceSequence: Number((await mapping()).pushed_revision),
+						});
 						expect(
 							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
 						).toMatchObject([
