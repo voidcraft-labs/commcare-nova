@@ -384,7 +384,7 @@ test("Web Apps offers a search for blank under a field that allows it, and Andro
 	}
 });
 
-test("Web Apps holds a search for a requirement with no message and shows CommCare's sentence for a check with none, and Android searches", async ({
+test("Web Apps holds a search for a requirement with no message, marking the field with no words, and shows CommCare's sentence for a check with none, and Android searches", async ({
 	page,
 }) => {
 	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
@@ -404,13 +404,18 @@ test("Web Apps holds a search for a requirement with no message and shows CommCa
 		await expect(
 			page.getByText("Sorry, this response is invalid!"),
 		).toHaveCount(0);
-		// The name is still required and has no message: the search waits, and says nothing.
+		// The name is still required and has no message: the search waits, and
+		// the field shows as invalid with no words under it (HQ writes the
+		// blank text as a no-break space, which Web Apps reads as a message).
+		const name = page.getByLabel("Patient name", { exact: true });
+		await expect(name).toHaveAttribute("aria-invalid", "true");
 		await expect(
 			page.getByText("Fill in this answer before searching."),
 		).toHaveCount(0);
 		await expect.poll(submitted).toEqual({});
-		await page.getByLabel("Patient name", { exact: true }).fill("Amina");
+		await name.fill("Amina");
 		await search.click();
+		await expect(name).not.toHaveAttribute("aria-invalid", "true");
 		await expect
 			.poll(submitted)
 			.toEqual({ barcode: "123", case_name: "Amina" });

@@ -1556,7 +1556,8 @@ function RequiredSlot({
 							</div>
 							<p className="text-[13px] leading-relaxed text-nova-text-muted">
 								No message. In Web Apps the search waits until this field is
-								answered, and people don't see why.
+								answered, and the field shows as needing attention without
+								saying why.
 							</p>
 							<Button
 								type="button"

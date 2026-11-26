@@ -697,14 +697,15 @@ export function SearchInputForm({
 									validationAttempted
 										? (() => {
 												const source = submissionErrors.get(input.name);
-												/* A requirement with no message keeps the
-												 * search from running and marks nothing:
-												 * Web Apps lets a blank message through its
-												 * own check (`query.js::isValid`) and
-												 * Formplayer then runs no search
-												 * (`MenuSessionRunnerService.doQuery`). */
+												/* A requirement with no message marks the
+												 * field invalid with no words under it: HQ's
+												 * build writes its text as a no-break space,
+												 * which Core keeps, so Web Apps reads a
+												 * message (`query.js::getError`), draws the
+												 * field invalid (`item.html`) and sends no
+												 * search (`inputsHaveErrors`). */
 												return source === undefined || source === ""
-													? undefined
+													? source
 													: localizeValidationMessage(source);
 											})()
 										: undefined
@@ -1001,7 +1002,7 @@ function describedBy(
 ): string | undefined {
 	const ids = [
 		...(hint === undefined ? [] : [hintId]),
-		...(error === undefined ? [] : [errorId]),
+		...(error === undefined || error === "" ? [] : [errorId]),
 	];
 	return ids.length === 0 ? undefined : ids.join(" ");
 }

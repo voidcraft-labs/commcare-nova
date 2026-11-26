@@ -3357,7 +3357,7 @@
 		],
 		"valueClass": "check-without-a-message",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchInputs[].required.noMessage`, a requirement whose worker reads a blank message (HQ's build writes its text blank, `app_strings.py`; Web Apps then runs no search and says nothing, `query.js::isValid`, `MenuSessionRunnerService.doQuery`), and a `searchInputs[].validation` with no `message`, whose worker reads Core's own sentence (`remote_requests.py`, `validation.has_text`; `QueryPrompt.getValidationMessage`)",
+		"dispositionCell": "**HELD**: `searchInputs[].required.noMessage`, a requirement whose worker reads a blank message (HQ's build writes its text as a no-break space, `app_strings.py`, `commcare_translations.dumps`; Web Apps then draws the field invalid with no words under it, names it among the fields to check and sends no search, `query.js::getError`, `inputsHaveErrors`, `displayErrors`), and a `searchInputs[].validation` with no `message`, whose worker reads Core's own sentence (`remote_requests.py`, `validation.has_text`; `QueryPrompt.getValidationMessage`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

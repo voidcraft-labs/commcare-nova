@@ -1390,11 +1390,12 @@ const searchInputBase = z.strictObject({
  * builds one whose text is blank in every language: its build writes the
  * requirement's text blank (`remote_requests.py::build_query_prompts`,
  * `app_strings.py`: `clean_trans` of an empty map), so Core reports a blank
- * message for it (`QueryPrompt.getRequiredMessage`). Web Apps lets a blank
- * message through its own check (`query.js::isValid`), and Formplayer runs
- * no search while any prompt has an error
- * (`MenuSessionRunnerService.doQuery`), so the search waits for the answer
- * and the worker reads nothing. It never stands beside a `message`
+ * message for it (`QueryPrompt.getRequiredMessage`). The blank is a no-break
+ * space in the language table (`localeFile.ts::hqLocaleFileValue`, HQ's
+ * `commcare_translations.dumps`), which Core's line trim keeps, so Web Apps
+ * reads a message (`query.js::getError`): it draws the field invalid with no
+ * words under it, names it among the fields to check, and sends no search
+ * (`inputsHaveErrors`), so the search waits for the answer. It never stands beside a `message`
  * (`searchCheckMessageRefusal`).
  *
  * Evaluated on the Search screen where the worker's answers ARE loaded
