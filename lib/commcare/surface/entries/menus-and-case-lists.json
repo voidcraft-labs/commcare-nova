@@ -5553,10 +5553,9 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "translatable-enum-on-a-non-calculated-column-over-a-relation-in-a-non-searching-module",
-		"disposition": "HELD-NEW",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
-		"dispositionCell": "**HELD-NEW**: the calculated `translatable-enum` over that path, which Nova's reader does not hold yet: the calculation it would read the column as prints a link the app declares with its case type, which HQ's stored path (`detail_screen.py::PropertyXpathGenerator`) lacks, reads no link the app does not declare and no worker's record as HQ's build does, and the record dialect has no spelling of a reached read",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the calculated `translatable-enum` over HQ's own read of the path, which is the same state: HQ's build walks each index to whatever case it reaches, of any type, with no case-type test (`detail_screen.py::PropertyXpathGenerator`), Nova's reached read (`PropertyRef.readReached`, `reached(…)` in the record dialect), and hands that read to the enum as a calculated column's field (`TranslatableEnum`); it differs only in the column's app-string ids, and nothing reads the relation path, which HQ collects only for modules that offer search (executed). A read of the worker's record (`user/<prop>`) or of an owner's name stands under that read's own row",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

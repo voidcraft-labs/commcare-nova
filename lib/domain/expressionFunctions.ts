@@ -384,6 +384,7 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		children: [0, 2],
 		related: [0, 2],
 		ancestor: [1, -1],
+		reached: [1, -1],
 		link: [1, 2],
 		property: [2, 3],
 		via: [2, 2],

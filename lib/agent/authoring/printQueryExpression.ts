@@ -129,6 +129,16 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "prop":
 				if (value.caseType === undefined)
 					throw new Error("This record property has no scoped record type.");
+				if (value.readReached && value.via?.kind === "ancestor")
+					return call(
+						"property",
+						quote(value.caseType),
+						quote(value.property),
+						call(
+							"reached",
+							...value.via.via.map(({ identifier }) => quote(identifier)),
+						),
+					);
 				return value.via === undefined
 					? call("property", quote(value.caseType), quote(value.property))
 					: call(

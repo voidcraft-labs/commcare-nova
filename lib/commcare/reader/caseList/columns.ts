@@ -362,7 +362,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-offers`,
 		"schema:DetailColumn.format",
 	),
-	translatableEnumRelationDoes: refuse(
+	translatableEnumRelationDoes: take(
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
 		"schema:DetailColumn.format",
 	),
@@ -1526,26 +1526,31 @@ function readOwnTranslatableEnum(
 	const relation = readRelationField(field, options);
 	const source = relation ?? classifyField(field);
 	const keysOk = calculationKeysAreEditable(column);
-	// A search fetches the related cases a non-calculated relation path names
-	// (`case_search/utils.py::get_search_detail_relationship_paths` reads only
-	// non-calculated columns), which the calculated spelling Nova keeps
-	// would not ask for.
+	// A search fetches the related cases a non-calculated path of more than one step names
+	// (`case_search/utils.py::get_search_detail_relationship_paths` reads only non-calculated
+	// columns, the worker's `user/` among them), which the calculated spelling Nova keeps would
+	// not ask for.
 	if (
 		options.offersSearch &&
-		isRelationPath(field) &&
+		field.includes("/") &&
 		relation?.kind === "property"
 	) {
-		column.take("field", C.relationPath, String).value;
+		if (isRelationPath(field))
+			column.take("field", C.relationPath, String).value;
+		else claimPropertySource(ctx, column, field, relation, true);
 		column.refuse("format", C.translatableEnumRelationOffers, { name: field });
 		return undefined;
 	}
-	// Over any other relation the calculation Nova would hold the column as does not read what
-	// HQ's build reads yet (the row's own disposition cell says why): not yet held.
-	if (relation?.kind === "property") {
-		claimPropertySource(ctx, column, field, relation, options.offersSearch);
-		column.refuse("format", C.translatableEnumRelationDoes, { name: field });
-		return undefined;
-	}
+	if (relation?.kind === "property")
+		return readRelationTranslatableEnum(
+			ctx,
+			column,
+			field,
+			relation,
+			header,
+			base,
+			others,
+		);
 	column.take("format", C.translatableEnumOwn, String).value;
 	if (source.kind === "finding") {
 		column.refuse(
@@ -1566,6 +1571,44 @@ function readOwnTranslatableEnum(
 		base,
 		others,
 		C.translatableEnumOwn,
+		false,
+	);
+}
+
+/**
+ * A non-calculated `translatable-enum` over a path that leaves the row: a walk of its indices
+ * (`parent/prop`, `host/parent/prop`) or the worker's record (`user/prop`). HQ's build reads
+ * the path's last word on the case the walk reaches, of whatever type, or on the worker's
+ * record (`detail_screen.py::PropertyXpathGenerator`), and the column's calculation over that
+ * read is the same state (`TranslatableEnum` hands `self.xpath` to the enum either way). Nova
+ * holds it as the calculation: the expression stage binds the walk as a reached read
+ * (`PropertyRef.readReached`), whose print is HQ's. A read the stage holds no tree for (an
+ * owner's name, HQ's `owner_name` over the groups fixture) is the stage's finding at the field
+ * (`provisional.ts::applyExpressionReading`), never an empty calculation.
+ */
+function readRelationTranslatableEnum(
+	ctx: ReadContext,
+	column: JsonCursor,
+	field: string,
+	relation: Extract<
+		ReturnType<typeof readRelationField>,
+		{ readonly kind: "property" }
+	>,
+	header: Readonly<Record<string, string>>,
+	base: { header: string },
+	others: boolean,
+): ColumnProposal | undefined {
+	column.take("format", C.translatableEnumRelationDoes, String).value;
+	claimPropertySource(ctx, column, field, relation, false);
+	if (!calculationKeysAreEditable(column)) return undefined;
+	return readGeneralCalculation(
+		ctx,
+		column,
+		imageMapPropertyText(relation.name, relation.via, relation),
+		header,
+		base,
+		others,
+		C.translatableEnumRelationDoes,
 		false,
 	);
 }

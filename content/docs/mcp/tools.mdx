@@ -1260,7 +1260,10 @@ standard scalars out of custom case-property data.
 Record expressions can read the stable, read-only `#case/case_id`. To update the
 selected record's parent, an expression target can use
 `via(ancestor('parent'), #case/case_id)` with that parent's case type. The saved
-relationship supplies the identity; no copied custom ID is needed. A `session`
+relationship supplies the identity; no copied custom ID is needed.
+`property('patient', 'village', reached('parent'))` reads a property on
+whatever record each named link reaches, of any type, which is how a case list
+column brought in from CommCare HQ reads a related record's property. A `session`
 target means the single record selected before opening a form, so it is not
 available in registration or survey forms. To create an independently owned
 record explicitly, use a survey with a create operation rather than a

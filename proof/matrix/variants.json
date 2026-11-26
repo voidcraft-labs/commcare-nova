@@ -13803,12 +13803,28 @@
 		"id": "hq-case-lists/translatable-text-over-a-parent-property",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/kind",
+				"value": "calculated"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/texts/0/label",
+				"value": "North"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",

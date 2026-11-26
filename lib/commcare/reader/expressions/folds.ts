@@ -86,6 +86,7 @@ export type FoldId =
 	| "blank-branch"
 	| "switch"
 	| "relation-property"
+	| "reached-property"
 	| "relation-presence"
 	| "relation-count";
 
@@ -2686,6 +2687,52 @@ function destinationType(
 	return at;
 }
 
+/**
+ * A walk of the row's indices with no case-type test,
+ * `instance('casedb')/casedb/case[@case_id = current()/index/<id>]/<property>` and its chains:
+ * Core reads the property on whatever case each index reaches, of any type, declared or not,
+ * which is the reached read (`PropertyRef.readReached`), whose print is that walk. HQ's build
+ * writes it for a stored relation path (`detail_screen.py::PropertyXpathGenerator`). Offered after
+ * `relation-property`, so a walk the typed relation reproduces stays typed, and this holds the
+ * walk the typed one does not print (an undeclared link, a link beside a declared parent).
+ */
+const reachedProperty: Fold = {
+	id: "reached-property",
+	ruleSets: ["record"],
+	propose(node, context, api) {
+		const read = casedbRow(node);
+		if (read === undefined) return undefined;
+		const [step, ...more] = read.rest;
+		const property = rowProperty(step);
+		if (property === undefined || more.length > 0) return undefined;
+		const steps = ancestorSteps(read.row);
+		const [first, ...rest] = steps ?? [];
+		if (
+			first === undefined ||
+			steps?.some((hop) => hop.throughCaseType !== undefined)
+		)
+			return undefined;
+		const row = activeRowScope(context);
+		if (row?.kind !== "case" || row.caseType === undefined) return undefined;
+		return api.term(
+			{
+				kind: "prop",
+				caseType: row.caseType,
+				property,
+				via: {
+					kind: "ancestor",
+					via: [first, ...rest].map(({ identifier }) => ({ identifier })) as [
+						RelationStep,
+						...RelationStep[],
+					],
+				},
+				readReached: true,
+			},
+			node,
+		);
+	},
+};
+
 const relationProperty: Fold = {
 	id: "relation-property",
 	ruleSets: ["record"],
@@ -3093,6 +3140,7 @@ export const EXPRESSION_FOLDS: readonly Fold[] = [
 	typedBranchLiteral,
 	blankBranch,
 	relationProperty,
+	reachedProperty,
 	relationPresence,
 	relationCount,
 ];

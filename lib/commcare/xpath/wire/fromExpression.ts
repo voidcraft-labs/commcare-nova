@@ -1113,10 +1113,13 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			);
 		case "term": {
 			const input = expr.term;
+			// A reached read walks its links to whatever case each reaches, of any type: no
+			// declared destination to canonicalize it toward.
 			if (
 				input.kind !== "prop" ||
 				input.via === undefined ||
-				input.via.kind === "self"
+				input.via.kind === "self" ||
+				input.readReached
 			)
 				return term(input, ctx);
 			const scope = relationScope(ctx);

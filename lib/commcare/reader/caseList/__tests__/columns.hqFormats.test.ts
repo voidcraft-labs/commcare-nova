@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -206,25 +207,112 @@ describe("CommCare HQ's column formats", () => {
 			texts: [{ label: "Hello" }],
 		});
 	});
-	it("names translated text over a parent's property when the app declares no parent type", async () => {
-		// HQ's build walks `index/parent` to whatever case it reaches; the calculation Nova would
-		// hold the column as reads no relation as HQ's build does yet, so the reading names the
-		// column instead of holding a calculation with an empty value.
-		const read = await readDetails((short, long) => {
-			for (const detail of [short, long])
-				Object.assign(detail.columns[1], {
-					format: "translatable-enum",
-					field: "parent/village",
-					useXpathExpression: false,
-					enum: [{ key: "north", value: { en: "North" } }],
-				});
-		}, false);
-		// One finding a detail: the list's column and the case detail's.
-		expect(closedCodes(read)).toEqual([
-			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
-			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
-		]);
-	});
+	it.each([
+		[
+			"parent/village",
+			{
+				kind: "prop",
+				caseType: "patient",
+				property: "village",
+				via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+				readReached: true,
+			},
+		],
+		[
+			"host/parent/village",
+			{
+				kind: "prop",
+				caseType: "patient",
+				property: "village",
+				via: {
+					kind: "ancestor",
+					via: [{ identifier: "host" }, { identifier: "parent" }],
+				},
+				readReached: true,
+			},
+		],
+	] as const)(
+		"holds translated text over %s as a calculation over HQ's own read",
+		async (field, read) => {
+			// HQ's build walks each index to whatever case it reaches, of any type, or reads the
+			// worker's record (`PropertyXpathGenerator`); the app declares no parent type here, so
+			// only the reached read is that walk.
+			const reading = await readDetails((short, long) => {
+				for (const detail of [short, long])
+					Object.assign(detail.columns[1], {
+						format: "translatable-enum",
+						field,
+						useXpathExpression: false,
+						enum: [{ key: "north", value: { en: "North" } }],
+					});
+			}, false);
+			expect(
+				closedCodes(reading),
+				JSON.stringify(reading.ctx.close().findings),
+			).toEqual([]);
+			const column = listOf(reading).columns[1];
+			if (column.kind !== "calculated")
+				throw new Error("Expected the translated text as a calculation");
+			expect(column.texts).toEqual([
+				{ uuid: expect.any(String), label: "North" },
+			]);
+			const reads: unknown[] = [];
+			walkExpressionTerms(column.expression, (term) => {
+				if (term.kind === "prop" || term.kind === "session-user")
+					reads.push(term);
+			});
+			expect(reads).toEqual([read]);
+			// Nova's own emission of the calculation reads back to the same column.
+			const doc = reading.ctx.doc;
+			if (!doc) throw new Error("Missing bound document");
+			const reread = await readLists(doc, {
+				identity: readProjectionInputs(reading.ctx).identity,
+				input: (input) => ({
+					...input,
+					resolver: matchingResolver(
+						input.appId,
+						reading.ctx.identities.entries(),
+					),
+				}),
+			});
+			expect(
+				closedCodes(reread),
+				JSON.stringify(reread.ctx.close().findings),
+			).toEqual([]);
+			expect(listOf(reread).columns[1]).toMatchObject({
+				uuid: column.uuid,
+				expression: column.expression,
+				texts: column.texts,
+			});
+		},
+	);
+	it.each([
+		// The worker's record in a list slot is that read's own row, not held yet.
+		[
+			"user/district",
+			"forms-and-case-writes/user-prop-in-module-filter-form-filter-case-list-slots-the",
+		],
+		// HQ's `owner_name` read over the groups fixture.
+		[
+			"parent/#owner_name",
+			"expressions-and-data/groups-jr-fixture-user-groups",
+		],
+	])(
+		"names translated text over %s by the read the calculation cannot hold, never as an empty calculation",
+		async (field, code) => {
+			const reading = await readDetails((short, long) => {
+				for (const detail of [short, long])
+					Object.assign(detail.columns[1], {
+						format: "translatable-enum",
+						field,
+						useXpathExpression: false,
+						enum: [{ key: "north", value: { en: "North" } }],
+					});
+			}, false);
+			// One finding a detail: the list's column and the case detail's.
+			expect(closedCodes(reading)).toEqual([code, code]);
+		},
+	);
 	it("keeps a distance order on a translated saved property bound to the real row", async () => {
 		const read = await readDetails((short, long) => {
 			for (const detail of [short, long])

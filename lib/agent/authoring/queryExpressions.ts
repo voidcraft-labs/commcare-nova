@@ -15,6 +15,7 @@ import {
 	type Expression,
 	type Literal,
 	locationRowFieldSchema,
+	propertyRefSchema,
 	type RelationPath,
 	relationPathSchema,
 	type Term,
@@ -231,8 +232,11 @@ function relation(node: Node): RelationPath {
 				return { identifier: string(step) };
 			}),
 		};
-	} else
-		throw new AuthoringInputError(`Unknown relationship function: ${name}.`);
+	} else if (name === "reached")
+		throw new AuthoringInputError(
+			"reached() names the links one property() reads through, as in property('patient', 'village', reached('parent')). Name a record relationship here with self(), children(), or ancestor().",
+		);
+	else throw new AuthoringInputError(`Unknown relationship function: ${name}.`);
 	return relationPathSchema.parse(result);
 }
 
@@ -243,6 +247,26 @@ function compiler(bindings: QueryBindings) {
 		if (node.kind === "call") {
 			const { name, args } = node;
 			arity(name, args);
+			if (name === "property" && args[2] && isCall(args[2], "reached")) {
+				// A walk of each named link to whatever record it reaches, of any type: the
+				// property is read as that record holds it, declared or not.
+				const origin = string(args[0]);
+				if (origin !== bindings.currentCaseType)
+					throw new AuthoringInputError(
+						`property() starts from ${bindings.currentCaseType ?? "an unspecified record"}, not ${origin}.`,
+					);
+				const steps = args[2].kind === "call" ? args[2].args : [];
+				return propertyRefSchema.parse({
+					kind: "prop",
+					caseType: origin,
+					property: string(args[1]),
+					via: {
+						kind: "ancestor",
+						via: steps.map((step) => ({ identifier: string(step) })),
+					},
+					readReached: true,
+				});
+			}
 			if (name === "property") {
 				const via = args[2] ? relation(args[2]) : undefined;
 				const origin = string(args[0]);
