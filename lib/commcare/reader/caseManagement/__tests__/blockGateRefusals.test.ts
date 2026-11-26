@@ -988,7 +988,7 @@ it("refuses the later owner on aliased and competing case changes", () => {
 	if (change.action !== "create") throw new Error("Missing the create.");
 	const alias: CaseOperation = {
 		...change,
-		target: { kind: "new", expr: term(literal("visit-01")) },
+		target: { kind: "new" as const, expr: term(literal("visit-01")) },
 	};
 	for (const changes of [[alias], [change, update({})]]) {
 		const doc = produce(app("survey", changes), (draft) => {
