@@ -131,7 +131,7 @@ const linkIdInputSchema = z
 		ctx.addIssue({ code: "custom", message: verdict.userMessage });
 	})
 	.describe(
-		"A connection name. A period is allowed only when CommCare HQ builds this change as an Advanced open action.",
+		"A connection name. Periods and the letter é are allowed only when CommCare HQ builds this change as an Advanced open action. Start with a plain English letter or underscore.",
 	);
 
 const newTargetInputSchema = z.strictObject({

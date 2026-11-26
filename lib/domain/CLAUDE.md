@@ -285,11 +285,11 @@ or extension. `parent_type`/`relationship` stay the compact spelling of a lone
 default `parent` edge; `CaseType.relations` holds only what that slot cannot
 say (`relationMetadata` is the canonical split, `declaredCaseRelations` the
 union). An index name is one Core name step (`CASE_INDEX_NAME_PATTERN`: a
-letter or underscore, then letters, digits, `_`, `.`, `-`), which a read or
-catalog declaration takes. A link on an actual Advanced open action can use
-complete name parts separated by a period. Each part starts with a letter or
-underscore. Other case changes keep the narrower link grammar because Vellum
-drops a Save to Case calculation bind over a name with a period.
+plain letter or underscore, then plain letters, digits, `_`, `.`, `-`, or
+precomposed `é`), which a read or catalog declaration takes. An actual
+Advanced open action can write that exact connection. The letter is kept
+as authored, including before or after a hyphen. Basic and Save to Case
+changes use the narrower ASCII link grammar.
 A native property column reads through `PropertyRef.readReached`: the walk
 prints and compiles with no case-type predicate, and its value is text unless
 every known destination agrees on a type and no hop is open. Property names

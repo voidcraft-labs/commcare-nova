@@ -13,16 +13,17 @@
 
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "./casePropertyName";
 import { suffixUntilFree } from "./idSlug";
+import { isPortableName } from "./portableName";
 import { questionIdProblem } from "./questionId";
 import { submittedAction } from "./submittedAnswerName";
+import { XML_NCNAME_PATTERN } from "./xmlName";
 
 export const CASE_OPERATION_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const CASE_OPERATION_LINK_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_-]*$/;
-/** Advanced case actions and their entry selections also allow periods
- * after the first character. The placement gate keeps these writes on the
- * Advanced open action that can build the connection. */
+/** Advanced case actions and entry selections also preserve periods and
+ * the precomposed é proved through a fresh authenticated worker restore. */
 export const ADVANCED_CASE_INDEX_IDENTIFIER_REGEX =
-	/^[A-Za-z_][A-Za-z0-9_.-]*$/;
+	/^[A-Za-z_][A-Za-z0-9_.é-]*$/;
 /** A written property's name: the catalog's grammar. */
 export const CASE_OPERATION_PROPERTY_REGEX =
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN;
@@ -34,7 +35,7 @@ export const CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE =
 	"Start with a letter or underscore. Use only letters, digits, underscores, or hyphens.";
 
 export const ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE =
-	"Start with a letter or underscore. Use letters, digits, underscores, hyphens, or periods.";
+	"Start with an unaccented letter or underscore. Use unaccented letters, é, digits, underscores, hyphens, or periods.";
 
 export const CASE_OPERATION_PROPERTY_FORMAT_MESSAGE =
 	"Start with a letter; use only letters, digits, underscores, or hyphens.";
@@ -45,6 +46,14 @@ export function isCaseOperationIdentifier(value: string): boolean {
 
 export function isCaseOperationLinkIdentifier(value: string): boolean {
 	return CASE_OPERATION_LINK_IDENTIFIER_REGEX.test(value);
+}
+
+export function isAdvancedCaseIndexIdentifier(value: string): boolean {
+	return (
+		ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(value) &&
+		XML_NCNAME_PATTERN.test(value) &&
+		isPortableName(value)
+	);
 }
 
 export function isCaseOperationProperty(value: string): boolean {

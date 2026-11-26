@@ -31,7 +31,6 @@ import {
 	sameCaseOperationTargetIdentity,
 } from "@/lib/doc/caseOperationOrder";
 import {
-	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	type BlueprintDoc,
 	CASE_FACET_OF_ONLY_IF_CHANGED,
 	CASE_LOADING_FORM_TYPES,
@@ -56,6 +55,7 @@ import {
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
 	hasUpdateOnlyCaseFacets,
+	isAdvancedCaseIndexIdentifier,
 	isCaseOperationIdentifier,
 	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
@@ -943,8 +943,7 @@ function validateLinks(
 	for (const link of links) {
 		const standardName = isCaseOperationLinkIdentifier(link.identifier);
 		const advancedName =
-			!standardName &&
-			ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(link.identifier);
+			!standardName && isAdvancedCaseIndexIdentifier(link.identifier);
 		if (advancedName)
 			advancedOpen ??=
 				placementsOfForm().advanced?.opens.some(
@@ -952,7 +951,7 @@ function validateLinks(
 				) === true;
 		const validFormat = standardName || (advancedName && advancedOpen === true);
 		const formatMessage = advancedName
-			? "A connection name with a period requires an Advanced open action. Keep the change in that action or choose a name without a period."
+			? "This connection name requires an Advanced open action. Keep the change in that action or choose a name using unaccented letters, digits, underscores, and hyphens."
 			: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE;
 		const invalidLinkFormat = !validFormat;
 		const linkTooLong =

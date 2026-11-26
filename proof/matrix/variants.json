@@ -2216,6 +2216,24 @@
 	{
 		"id": "hq-advanced/open-index-named-with-an-accent",
 		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+		"change": { "op": "named", "name": "open_visitor_with_accented_index" },
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/identifier",
+				"value": "métrique"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/targetType",
+				"value": "household"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/open-index-named-with-a-decomposed-accent",
+		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"standing": "not-yet",
 		"place": {
@@ -2225,7 +2243,7 @@
 			"menuName": "Member visits",
 			"name": "Untitled Form"
 		},
-		"change": { "op": "named", "name": "open_visitor_with_accented_index" }
+		"change": { "op": "named", "name": "open_visitor_with_decomposed_index" }
 	},
 	{
 		"id": "hq-advanced/open-index-named-with-a-slash",
