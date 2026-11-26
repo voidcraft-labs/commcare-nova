@@ -124,6 +124,7 @@
 		"hq-case-lists/late-flag-zero",
 		"hq-case-lists/ledger-column",
 		"hq-case-lists/location-column",
+		"hq-case-lists/lookup-result-with-an-empty-heading-map",
 		"hq-case-lists/long-detail-pull-down-setting",
 		"hq-case-lists/markdown-column",
 		"hq-case-lists/menu-without-unique-id",
