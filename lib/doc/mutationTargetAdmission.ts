@@ -1125,6 +1125,12 @@ export function mutationTargetsInvalid(
 				if (!modules.has(m.uuid) || !modulesWithConfig.has(m.uuid)) {
 					return true;
 				}
+				if (
+					m.patch.searchGroupAssignments?.some(
+						({ input }) => searchInputOwners.get(input) !== m.uuid,
+					)
+				)
+					return true;
 				if (m.patch.searchFilterEdit) {
 					const edit = m.patch.searchFilterEdit;
 					const id = edit.operation === "add" ? edit.filter.uuid : edit.uuid;

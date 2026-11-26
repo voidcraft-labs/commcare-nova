@@ -724,9 +724,20 @@ export function applyModuleMutation(
 				filter,
 				listCondition,
 				searchCondition,
+				searchGroupAssignments,
 				searchFilterEdit,
 				...rest
 			} = mut.patch;
+			if (searchGroupAssignments !== undefined) {
+				const assignments = new Map(
+					searchGroupAssignments.map(({ input, group }) => [input, group]),
+				);
+				for (const input of config.searchInputs) {
+					const group = assignments.get(input.uuid);
+					if (group === null) delete input.group;
+					else if (group !== undefined) input.group = group;
+				}
+			}
 			if (searchFilterEdit !== undefined) {
 				const edit = searchFilterEdit;
 				const rows = config.searchFilters ?? [];

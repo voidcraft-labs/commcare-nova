@@ -1,7 +1,6 @@
 import type { Mutation } from "@/lib/doc/types";
 import type { CaseListConfig, SearchInputGroup, Uuid } from "@/lib/domain";
 import { sequenceMovesTo } from "./mutations/sequence";
-import { searchInputUpdateMutation } from "./searchInputMutations";
 
 export type SearchGroupLayout = SearchInputGroup & {
 	readonly inputs: readonly Uuid[];
@@ -33,6 +32,12 @@ export function planSearchInputGroups(
 		return { error: "Put every Search field under one heading." };
 	}
 
+	const searchGroupAssignments = config.searchInputs.flatMap((input) => {
+		const group = sectionsByField.get(input.uuid);
+		return input.group === group
+			? []
+			: [{ input: input.uuid, group: group ?? null }];
+	});
 	const mutations: Mutation[] = [
 		{
 			kind: "setCaseListMeta",
@@ -41,20 +46,10 @@ export function planSearchInputGroups(
 				searchInputGroups: sections.length
 					? sections.map(({ uuid, label }) => ({ uuid, label }))
 					: null,
+				...(searchGroupAssignments.length > 0 && { searchGroupAssignments }),
 			},
 		},
 	];
-	for (const input of config.searchInputs) {
-		const group = sectionsByField.get(input.uuid);
-		if (input.group === group) continue;
-		const { group: _group, ...inputSettings } = input;
-		mutations.push(
-			searchInputUpdateMutation(moduleUuid, input, {
-				...inputSettings,
-				...(group && { group }),
-			}),
-		);
-	}
 	for (const move of sequenceMovesTo(before, order))
 		mutations.push({ kind: "moveSearchInput", moduleUuid, ...move });
 	return { mutations };

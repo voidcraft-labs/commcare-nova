@@ -1866,6 +1866,14 @@ function createMutationSchema({
 					.min(1)
 					.nullable()
 					.optional(),
+				searchGroupAssignments: z
+					.array(
+						z.strictObject({
+							input: uuidSchema,
+							group: uuidSchema.nullable(),
+						}),
+					)
+					.optional(),
 				additionalCaseTypes: otherRecordTypesSchema.nullable().optional(),
 				searchFilterEdit: z
 					.discriminatedUnion("operation", [
