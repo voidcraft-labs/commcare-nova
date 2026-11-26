@@ -172,8 +172,8 @@ def test_a_set_json_row_names_its_pointer_and_value():
 
 def test_a_row_names_a_menu_or_a_form_by_position_only_where_the_lane_resolves_it():
     """Contract: a row names a menu or form of its base by position (``{"$menu": m}``, ``{"$form": [m, f]}``,
-    ``{"$xmlns": [m, f]}``) in a set-json value at any depth and in a holds key given as a list (a form there the id
-    the variant's own read serves, ``retain.hold_key``), and nowhere else. The plausible failures: a misspelled
+    ``{"$xmlns": [m, f]}``) in a set-json value at any depth and in a holds key given as a list (a form there the real
+    id the variant's own application resource serves, ``retain.hold_key``), and nowhere else. The plausible failures: a misspelled
     reference stored as data and one in a place no code resolves, each read as the literal object where an id was
     meant."""
     form = {"unique_id": {"$form": [0, 1]}, "case_list_form": {"form_id": {"$form": [2, 0]}}}
@@ -242,8 +242,8 @@ def test_a_reference_is_the_id_the_app_holds_at_its_position_when_set_and_the_id
     assert ops.resolve_references({"$xmlns": [0, 0]}, ops.ids_at(stored)) == "x00"
     assert ops.resolve_references({"$xmlns": [0, 0]}, resolve) == "x00"
     assert retain.hold_key(["field", {"$xmlns": [0, 0]}, ["age"]], stored) == '["field","x00",["age"]]'
-    # A form in a holds key is the id the variant's own source read serves at that position: the reader keys a
-    # shared entry, which holds no xmlns, by it, and a read mints it anew.
+    # A form in a holds key is the real id the variant's own application resource serves at that position: the
+    # reader keys a shared entry, which holds no xmlns, by it, and an authoring mints it anew.
     shared = {"modules": [{"unique_id": "m0", "forms": [{"unique_id": "f00"}, {"unique_id": "read-1"}]}]}
     assert retain.hold_key(["form", ["shared-form", {"$form": [0, 1]}]], stored, shared) == (
         '["form",["shared-form","read-1"]]'

@@ -20,9 +20,10 @@ a set-json change's value, at any depth, which ``ops.set_json`` resolves to
 what the stored app holds at that position before the change, and in a
 ``holds`` fragment's key given as a list (``[kind, ...parts]``), which the
 lane writes as the key's text with the id HQ keeps for the base's menu there,
-the base's form's ``xmlns``, and for a form reference the id the variant's own
-source read serves for the form at that position, as the reader keys a
-shared entry, which holds no ``xmlns`` (``retain.py::hold_key``).
+the base's form's ``xmlns``, and for a form reference the real id the
+variant's own application resource serves for the form at that position, as
+the reader keys a shared entry, which holds no ``xmlns``
+(``retain.py::hold_key``).
 ``load_variants`` refuses one anywhere else and one that is not well formed.
 
 A holding row names ``holds``, a list, which is empty where no fragment of
