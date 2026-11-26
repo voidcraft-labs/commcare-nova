@@ -338,7 +338,7 @@ never stored raw-XPath validation codes. There is no printed-source checker.
   has no spelling, and no Postgres-target slot admits it.
 - `case-list-lookup-count {module}` names the list whose Android companion
   lookup contributed a result to the form’s session. Only a directly reached
-  basic follow-up with one list selection admits the read
+  basic follow-up with one list selection and no alternate entry or child return admits the read
   (`caseListLookupCountSource`). It is numeric when the one result count is
   present, including zero, and blank otherwise. It counts distinct returned
   keys even when no worker-visible match has that key. The form text spells

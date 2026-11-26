@@ -45,7 +45,6 @@ function directLookupSelection(
 		module.formsInMenuAbove ||
 		module.hiddenFromMenu ||
 		module.autoSelectSingle ||
-		module.caseListConfig.selection?.autoSelect ||
 		module.entryPoint !== undefined ||
 		module.caseListEntryPoint !== undefined ||
 		caseSelectionCardinality(module) !== "single" ||
@@ -58,6 +57,16 @@ function directLookupSelection(
 		firstMenuOpensOneCase(doc) ||
 		menuEmittedAdvanced(doc, moduleUuid) ||
 		formRouteUuids(doc, moduleUuid, formUuid).length !== 1
+	)
+		return undefined;
+	// A child can enter the list again with the frame it brought out of its own form.
+	// The direct-entry witness does not prove which session steps that return preserves.
+	if (
+		Object.values(doc.modules).some(
+			(other) =>
+				other.parentModuleUuid === moduleUuid ||
+				other.parentCaseModuleUuid === moduleUuid,
+		)
 	)
 		return undefined;
 	const selections = entrySelections(doc, {
