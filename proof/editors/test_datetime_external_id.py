@@ -22,7 +22,9 @@ CASE = "http://commcarehq.org/case/transaction/v2"
 RECORD = "date-time-external-id-household"
 ORIGINAL = "original opaque reference"
 QUESTION = "/data/seen_at"
-MOMENT = "2025-04-05T23:24:47.125-07:00"
+MOMENT = "2025-04-06T06:24:47.125Z"
+OFFSET_INPUT = "2025-04-05T23:24:47.125-07:00"
+OFFSET_CAST = "2025-04-05T06:24:47.125Z"
 DAY = "2025-04-06"
 
 
@@ -83,12 +85,34 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
             stored = snapshot.findtext(f"case[@case_id='{RECORD}']/external_id")
             applied = operations.process_case_blocks(unit, submission, cases=[initial.touched[RECORD].case])
             assert applied.refusal is None
-            return payload, tokens.get(stored, stored), applied.touched[RECORD].case
+            kept = applied.touched.get(RECORD) or initial.touched[RECORD]
+            return payload, tokens.get(stored, stored), kept.case
 
-        payload, on_device, on_hq = read("moment", [MOMENT])
-        assert datetime.fromisoformat(payload.findtext("{*}seen_at")) == datetime.fromisoformat(MOMENT)
-        update = payload.find(f"{{{CASE}}}case/{{{CASE}}}update")
-        assert update.findtext(f"{{{CASE}}}external_id") == DAY
-        assert datetime.fromisoformat(update.findtext(f"{{{CASE}}}seen_at")) == datetime.fromisoformat(MOMENT)
-        assert on_device == on_hq.external_id == DAY
-        assert "external_id" not in on_hq.case_json
+        def expects_moment(label, answer, moment, day):
+            payload, on_device, on_hq = read(label, [answer])
+            assert datetime.fromisoformat(payload.findtext("{*}seen_at")) == datetime.fromisoformat(moment)
+            update = payload.find(f"{{{CASE}}}case/{{{CASE}}}update")
+            assert update.findtext(f"{{{CASE}}}external_id") == day
+            assert datetime.fromisoformat(update.findtext(f"{{{CASE}}}seen_at")) == datetime.fromisoformat(moment)
+            assert on_device == on_hq.external_id == day
+            assert "external_id" not in on_hq.case_json
+            assert datetime.fromisoformat(on_hq.case_json["seen_at"]) == datetime.fromisoformat(moment)
+
+        expects_moment("utc-clock", MOMENT, MOMENT, DAY)
+        # The harness casts text the way Formplayer does. DateUtils applies a
+        # foreign offset to hours/minutes while retaining the written day.
+        expects_moment("foreign-offset-cast", OFFSET_INPUT, OFFSET_CAST, "2025-04-05")
+
+        payload, on_device, on_hq = read("blank", [""])
+        external = payload.find(f"{{{CASE}}}case/{{{CASE}}}update/{{{CASE}}}external_id")
+        assert external is not None and not external.text
+        assert not on_device and not on_hq.external_id
+
+        def hide(root, _form):
+            (bind,) = root.xpath("//*[local-name()='bind'][@nodeset=$path]", path=QUESTION)
+            bind.set("relevant", "false()")
+
+        ops.set_form_source(authoring, app_id, 0, 3, hide, what="hide the date-and-time question")
+        payload, on_device, on_hq = read("irrelevant", [MOMENT])
+        assert payload.find(f"{{{CASE}}}case/{{{CASE}}}update/{{{CASE}}}external_id") is None
+        assert on_device == on_hq.external_id == ORIGINAL
