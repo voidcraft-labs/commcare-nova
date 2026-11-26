@@ -44,9 +44,11 @@ class Discarded:
     kind: str
 
     def matches(self, difference) -> bool:
+        # A statement names a structural path, or, where the structural path keeps no key that tells one element
+        # from its siblings (``/suite/fixture[@id=*]``), the element's own path.
         return (
             difference.check == self.check
-            and difference.path == self.path
+            and self.path in (difference.path, difference.at)
             and difference.kind == self.kind
             and fnmatch.fnmatchcase(difference.artifact, self.artifact)
         )

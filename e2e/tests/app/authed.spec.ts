@@ -5808,7 +5808,8 @@ test.describe("authenticated builder", () => {
 		await expect(page.getByText("District hospital")).toBeVisible();
 
 		// A refusal keeps the author's spelling and offers a correction. The
-		// ordinary tag "locations" can coexist with the app's Places.
+		// tag "locations" is one CommCare HQ's form builder holds for itself and
+		// is refused; "Locations" can coexist with the app's Places.
 		await page.setViewportSize({ width: 500, height: 780 });
 		await page.getByRole("button", { name: "Edit export tag" }).click();
 		const exportTag = page.getByRole("textbox", { name: "Export tag" });
@@ -5829,7 +5830,12 @@ test.describe("authenticated builder", () => {
 		await exportTag.fill("locations");
 		await saveTag.click();
 		await expect(
-			page.getByText("Export tag: locations", { exact: true }),
+			page.getByRole("alert").filter({ hasText: "locations_table" }),
+		).toBeVisible();
+		await exportTag.fill("Locations");
+		await saveTag.click();
+		await expect(
+			page.getByText("Export tag: Locations", { exact: true }),
 		).toBeVisible();
 		await page.setViewportSize({ width: 1280, height: 900 });
 		await page
@@ -6194,7 +6200,7 @@ test.describe("authenticated builder", () => {
 		const editor = condition.locator('.cm-content[contenteditable="true"]');
 		await expect(editor).toBeFocused();
 		await page.keyboard.insertText(
-			"count(instance('item-list:locations')/locations_list/locations[cód.2 = 'dh']) > 0",
+			"count(instance('item-list:Locations')/Locations_list/Locations[cód.2 = 'dh']) > 0",
 		);
 		const [savedCondition] = await Promise.all([
 			page.waitForResponse(
@@ -6217,7 +6223,7 @@ test.describe("authenticated builder", () => {
 			CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
 		);
 		await expect(
-			condition.locator('[data-ref-raw*="item-list:locations"]'),
+			condition.locator('[data-ref-raw*="item-list:Locations"]'),
 		).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
 		await expect(condition.locator('[data-ref-raw="cód.2"]')).toHaveText(
 			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
