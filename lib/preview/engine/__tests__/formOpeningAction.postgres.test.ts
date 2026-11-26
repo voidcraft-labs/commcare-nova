@@ -8,7 +8,10 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import { submitFormAction } from "../caseDataBinding";
 import { blueprintRevisionDigest } from "../caseDataBindingClient";
-import { readFormOpeningAction } from "../formOpeningAction";
+import {
+	authorizeSavedFormReceiptRun,
+	readFormOpeningAction,
+} from "../formOpeningAction";
 import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
 import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
@@ -538,7 +541,7 @@ it("carries the submission into its continuing device run even when the signed e
 	if (opened.kind !== "opening") throw new Error("Could not finish choices");
 	const note = Object.values(doc.fields).find((field) => field.id === "note");
 	if (!note) throw new Error("Fixture is missing its visit note");
-	const resumed = await readFormOpeningAction(
+	const resumed = await authorizeSavedFormReceiptRun(
 		{
 			...request,
 			previous: opened.evidence,
@@ -547,7 +550,7 @@ it("carries the submission into its continuing device run even when the signed e
 		},
 		device,
 	);
-	if (resumed.kind !== "opening" || !resumed.receiptRunTransition)
+	if (!resumed)
 		throw new Error("Could not authorize the saved entry's new device run");
 	const result = await submitFormAction(
 		{
@@ -570,7 +573,7 @@ it("carries the submission into its continuing device run even when the signed e
 		device,
 		undefined,
 		continuingRun,
-		resumed.receiptRunTransition,
+		resumed,
 	);
 	expect(result.kind).toBe("followup");
 	// The case leaves this worker's restore, as a case the entry closed does;

@@ -116,6 +116,28 @@ function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
 }
 
 export async function readFormOpeningAction(
+	input: Omit<z.input<typeof requestSchema>, "resumeInto">,
+	device: PreviewDevice,
+) {
+	const result = await readOpening(input, device);
+	if (result.kind === "receipt-run-ready")
+		return {
+			kind: "reopen",
+			message: "Open the form again to load its records.",
+		} as const;
+	return result;
+}
+
+export async function authorizeSavedFormReceiptRun(
+	input: z.input<typeof requestSchema> & { resumeInto: string; restore: true },
+	device: PreviewDevice,
+) {
+	// The return value deliberately carries no opening snapshot.
+	const result = await readOpening(input, device);
+	return result.kind === "receipt-run-ready" ? result.transition : undefined;
+}
+
+async function readOpening(
 	input: z.input<typeof requestSchema>,
 	device: PreviewDevice,
 ) {
@@ -187,11 +209,8 @@ export async function readFormOpeningAction(
 				)
 					return reopen;
 				return {
-					kind: "opening",
-					evidence: args.previous,
-					projection: prior,
-					next: undefined,
-					receiptRunTransition: signReceiptRunTransition(secret, audience, {
+					kind: "receipt-run-ready",
+					transition: signReceiptRunTransition(secret, audience, {
 						from: args.run,
 						to: args.resumeInto,
 						entry: args.entry,

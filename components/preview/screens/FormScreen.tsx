@@ -136,7 +136,7 @@ import {
 	projectTargetCaseSelectionsAsync,
 	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
-import { readFormOpeningAction } from "@/lib/preview/engine/formOpeningAction";
+import { authorizeSavedFormReceiptRun } from "@/lib/preview/engine/formOpeningAction";
 import {
 	type FormOpeningProjection,
 	type FormOpeningState,
@@ -3232,7 +3232,7 @@ function ReadyFormScreen({
 				}
 				let receiptTransition = launchTransition;
 				if (draft && opening && opening.binding.run !== submitted.run) {
-					const resumed = await readFormOpeningAction(
+					const resumed = await authorizeSavedFormReceiptRun(
 						{
 							app: submittedAppId,
 							module: opening.binding.module,
@@ -3248,13 +3248,13 @@ function ReadyFormScreen({
 						previewDevice,
 					);
 					if (!isCurrent()) return "stale";
-					if (resumed.kind !== "opening" || !resumed.receiptRunTransition)
+					if (!resumed)
 						return {
 							kind: "error",
 							message:
 								"This saved form could not reconnect. Open it again to try submitting.",
 						} as const;
-					receiptTransition = resumed.receiptRunTransition;
+					receiptTransition = resumed;
 				}
 				return await submitFormAction(
 					{
