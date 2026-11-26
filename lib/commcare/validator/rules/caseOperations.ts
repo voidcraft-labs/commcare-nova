@@ -88,6 +88,8 @@ import {
 	menuEmittedAdvanced,
 } from "@/lib/domain/advancedEntryDatums";
 import {
+	basicOwnExternalIdDayValue,
+	caseSlotFacts,
 	isKeyedRootCreate,
 	isWorkerRecordUpdate,
 } from "@/lib/domain/basicCaseSlots";
@@ -1201,6 +1203,35 @@ function validateWrites(
 				? destination
 				: validateVia(ctx, operation, write, write.via, destination, errors);
 		validateOnlyIfChanged(ctx, operation, write, errors);
+		if (write.calendarDayInExternalId) {
+			const placement = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+				operation.uuid,
+			)?.placement;
+			const stable =
+				operation.action === "own" &&
+				placement?.kind === "basic" &&
+				placement.slot === "own" &&
+				basicOwnExternalIdDayValue(
+					caseSlotFacts(ctx.doc, ctx.formUuid),
+					write,
+				) !== undefined &&
+				!Object.values(ctx.doc.forms).some(
+					(entry) => entry.shadowOf?.form === ctx.formUuid,
+				);
+			if (!stable)
+				errors.push(
+					opError(
+						ctx,
+						operation,
+						"CASE_OPERATION_EXPRESSION_TYPE",
+						"This question saves its calendar day as the external ID of the case this form opens. You can remove that save before changing how the form opens or saves to the case.",
+						{
+							property: write.property,
+							reason: "external-id-calendar-day-placement",
+						},
+					),
+				);
+		}
 		if (
 			seenWrites.some(
 				(seen) =>

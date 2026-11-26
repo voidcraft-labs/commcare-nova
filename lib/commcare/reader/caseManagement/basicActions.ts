@@ -25,7 +25,12 @@ import {
 	type RelationStep,
 	type Uuid,
 } from "@/lib/domain";
-import { formField, matchAll, term } from "@/lib/domain/expression/builders";
+import {
+	dateCoerce,
+	formField,
+	matchAll,
+	term,
+} from "@/lib/domain/expression/builders";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { isPortableNameContinuation } from "@/lib/domain/portableName";
@@ -298,6 +303,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	hiddenDay: take(`${F}/a-datetime-question-saved-straight-to-a-case`, null),
 	linkedDay: take(
 		`${F}/a-datetime-question-saved-straight-through-a-parent-index`,
+		null,
+	),
+	externalIdDay: take(
+		`${F}/a-datetime-question-s-day-as-the-external-id`,
 		null,
 	),
 	datetimeStraight: refuse(
@@ -601,6 +610,8 @@ export interface ProposedValue {
 	/** A date-and-time question's answer saved as it is, which CommCare keeps
 	 *  as its day: the property it writes is a `date` one. */
 	readonly day?: true;
+	/** The untyped basic leaf saves the answer's day as the case's text ID. */
+	readonly dayAsExternalId?: true;
 }
 
 interface ProposedWrite {
@@ -918,7 +929,7 @@ export function questionValue(
 	form: DraftForm,
 	path: string,
 	property: string,
-	allowHiddenDay = false,
+	days: { readonly hiddenClock?: boolean; readonly externalId?: boolean } = {},
 ): QuestionValue {
 	const xform = form.xform;
 	const relative = conditionQuestionPath(form, path);
@@ -971,7 +982,7 @@ export function questionValue(
 	// writes the day on an ordinary date property.
 	if (boundDateTime(form, field)) {
 		if (
-			!allowHiddenDay ||
+			!days.hiddenClock ||
 			!DAY_PROPERTY_CLASS.test(property) ||
 			STANDARD_KEYS.has(property) ||
 			!hiddenClockCalculation(form, field)
@@ -989,6 +1000,18 @@ export function questionValue(
 		};
 	}
 	if (field.kind === "datetime") {
+		if (
+			days.externalId &&
+			property === "external_id" &&
+			field.parent === null &&
+			field.dataParent === null &&
+			!field.expressions.some((slot) => slot.slot === "default_value")
+		)
+			return {
+				kind: "value",
+				value: { field, link: false, dayAsExternalId: true },
+				datetimeSibling: false,
+			};
 		if (!DAY_PROPERTY_CLASS.test(property) || STANDARD_KEYS.has(property))
 			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
 		return {
@@ -1441,6 +1464,7 @@ function pathClaimOf(
 	keyClaim: Claim<"take"> | undefined,
 ): Claim<"take"> | "join" {
 	if (read.value.link) return BASIC_CLAIMS.captureLink;
+	if (read.value.dayAsExternalId) return BASIC_CLAIMS.externalIdDay;
 	if (read.value.day === true && read.value.field.kind === "hidden")
 		return BASIC_CLAIMS.hiddenDay;
 	if (read.datetimeSibling)
@@ -1461,7 +1485,11 @@ function readUpdate(
 	edit: Claim<"take">,
 	pathClaim: Claim<"take">,
 	keyClaim?: Claim<"take">,
-	dayWrites?: { readonly hiddenClock: boolean; readonly parent: boolean },
+	dayWrites?: {
+		readonly hiddenClock: boolean;
+		readonly parent: boolean;
+		readonly externalId?: boolean;
+	},
 ): {
 	readonly value?: ProposedValue;
 	readonly onlyIfChanged?: true;
@@ -1481,13 +1509,13 @@ function readUpdate(
 	}
 	const read =
 		typeof path === "string" && path !== ""
-			? questionValue(
-					r.ctx,
-					r.form,
-					path,
-					property,
-					dayWrites?.hiddenClock === true && onlyIfChanged === undefined,
-				)
+			? questionValue(r.ctx, r.form, path, property, {
+					hiddenClock:
+						dayWrites?.hiddenClock === true && onlyIfChanged === undefined,
+					externalId:
+						dayWrites?.externalId === true &&
+						cursor.peek("update_mode") === "always",
+				})
 			: undefined;
 	if (read === undefined || read.kind === "finding") {
 		consume(cursor.take("question_path", pathClaim, (value) => value));
@@ -1766,6 +1794,17 @@ function readUpdateMap(
 				via === undefined &&
 				!RESERVED_CASE_OPERATION_TYPES.has(r.caseType),
 			parent: linkedDay,
+			externalId:
+				slot === "own" &&
+				r.type === "followup" &&
+				via === undefined &&
+				property === "external_id" &&
+				conditionType(parent.peek("condition")) === "always" &&
+				!RESERVED_CASE_OPERATION_TYPES.has(r.caseType) &&
+				!isMultiSelectMenu({
+					case_details: r.module.json.peek("case_details"),
+					search_config: r.module.json.peek("search_config"),
+				}),
 		});
 		if (!read.ok || read.value === undefined) continue;
 		// The catalog types a supported parent write at its reached case.
@@ -2756,6 +2795,7 @@ export function dropCreateNameRequired(
 function valueExpression(value: ProposedValue): Expression | undefined {
 	const uuid = value.field.uuid;
 	if (uuid === undefined) return undefined;
+	if (value.dayAsExternalId) return dateCoerce(term(formField(uuid)));
 	return value.link
 		? term({ kind: "capture-link", field: uuid })
 		: term(formField(uuid));
@@ -2806,6 +2846,7 @@ export function writeBasicOperations(
 			writes.push({
 				property: write.property,
 				value,
+				...(write.value.dayAsExternalId && { calendarDayInExternalId: true }),
 				...(write.via !== undefined && { via: write.via }),
 				...(write.onlyIfChanged !== undefined && { onlyIfChanged: true }),
 			});

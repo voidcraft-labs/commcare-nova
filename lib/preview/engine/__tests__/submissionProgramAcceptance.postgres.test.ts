@@ -41,6 +41,7 @@ import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	and,
+	dateCoerce,
 	eq,
 	formField,
 	literal,
@@ -225,6 +226,151 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it("saves the Android calendar day as the signed selected case external ID", async () => {
+		const toggle = testUuid("datetime-external-id-toggle");
+		const seen = testUuid("datetime-external-id-seen");
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Follow up",
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "toggle", uuid: toggle }),
+								f({
+									kind: "datetime",
+									id: "seen",
+									uuid: seen,
+									relevant: eq(formField(toggle), literal("yes")),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.appSettings.runsOnlyOn = "android";
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		doc.forms[formUuid].caseOperations = [
+			{
+				uuid: OP_ROOT,
+				id: "patient",
+				action: "own",
+				writes: [
+					{
+						property: "external_id",
+						value: dateCoerce(term(formField(seen))),
+						calendarDayInExternalId: true,
+					},
+				],
+			},
+		];
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+		const store = makeStore(true);
+		await seedSessionCase(store, doc);
+		await seedSecondSessionCase(store);
+		const input = buildEngineInput(doc, formUuid, null);
+		if (!input) throw new Error("Expected the ordinary follow-up form");
+		const device = androidDevice();
+		const answer = "2025-04-06T06:24:47.125Z";
+		for (const [kind, externalId] of [
+			["irrelevant", "seed-external"],
+			["answered", "2025-04-05"],
+			["blank", ""],
+		] as const) {
+			const entryKey = testUuid(`external-id-${kind}`);
+			const snapshot = await store.readDeviceCaseDatabase({
+				appId: APP_ID,
+				restoreScope: { ownerIds: [ACTOR] },
+			});
+			const audience = {
+				app: APP_ID,
+				project: PROJECT,
+				actor: ACTOR,
+				worker: ACTOR,
+				session: "session",
+				persona: null,
+				device,
+				module: moduleUuid,
+				form: formUuid,
+				entry: entryKey,
+				run: ENTRY_KEY,
+				revision: 0,
+				blueprintDigest: "0".repeat(64),
+			};
+			const secret = "synthetic calendar day opening key";
+			const signed = await signFormOpening(secret, audience, {
+				cases: openingCaseData(snapshot),
+				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+				choices: [],
+				primaryCaseIds: [SESSION_CASE],
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+			});
+			const engine = new FormEngine(
+				input,
+				"patient",
+				undefined,
+				IDENTITY,
+				null,
+				snapshot,
+				{ device },
+			);
+			engine.setValue("/data/toggle", kind === "irrelevant" ? "no" : "yes");
+			if (kind === "answered") engine.setValue("/data/seen", answer);
+			expect(engine.getState("/data/seen").visible).toBe(kind !== "irrelevant");
+			expect(engine.validateAll()).toBe(true);
+			const mutation = engine.computeSubmissionMutation({
+				caseIds: [SESSION_CASE],
+				entryKey,
+			});
+			expect(
+				mutation.operationAnswers?.root.find(
+					(entry) => entry.fieldUuid === seen,
+				)?.absent,
+			).toBe(kind === "irrelevant");
+			const projection = validateCaptureSubmissionProjection(mutation);
+			const built = buildCaseOperationProgramFromDoc({
+				device,
+				blueprint: doc,
+				mutation,
+				projection,
+				identity: IDENTITY,
+				opening: await verifyFormOpening(secret, audience, signed),
+				viewerTimeZone: "America/Los_Angeles",
+			});
+			await store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, {
+					...built,
+					submissionReceipt: {
+						...buildSubmissionReceiptIdentity({
+							appId: APP_ID,
+							identity: IDENTITY,
+							mutation,
+							projection,
+						}),
+						expectedAppMutationSeq: 0,
+						blueprintDigest: audience.blueprintDigest,
+					},
+				}),
+			);
+			expect(await loadCase(store, SESSION_CASE)).toMatchObject({
+				external_id: externalId,
+			});
+			expect(await loadCase(store, SECOND_SESSION_CASE)).toMatchObject({
+				external_id: "seed-external-2",
+			});
+		}
+	});
+
 	it.each(["Advanced", "held Save to Case"] as const)(
 		"saves only a relevant passive label on %s to the signed selected case",
 		async (source) => {

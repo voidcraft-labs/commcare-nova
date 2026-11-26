@@ -39,6 +39,11 @@ import {
 	menuEmittedAdvanced,
 	sharedWorkerTarget,
 } from "@/lib/domain/advancedEntryDatums";
+import {
+	basicCaseSlots,
+	basicOwnExternalIdDayValue,
+	caseSlotFacts,
+} from "@/lib/domain/basicCaseSlots";
 import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
 import { formContentUuid } from "@/lib/domain/formEntryCases";
@@ -113,6 +118,7 @@ import {
 	type CaseListOrderPlan,
 	type CaseListSortKey,
 	type CaseOperation,
+	type CaseOperationWrite,
 	type CaseProperty,
 	type CaseTileGrouping,
 	type CaseType,
@@ -2759,6 +2765,20 @@ export function buildCaseOperationProgramFromDoc(args: {
 			(operation.action === "update" &&
 				operation.target.kind === "worker-record")
 		);
+	const facts = caseSlotFacts(doc, formUuid);
+	const basicOwnDaySlot =
+		entryUuid === formUuid &&
+		form.type === "followup" &&
+		facts.moduleUuid !== undefined &&
+		!menuEmittedAdvanced(doc, facts.moduleUuid) &&
+		basicCaseSlots(doc, formUuid).ownBasic;
+	const externalIdDayValue = (
+		operation: CaseOperation,
+		write: CaseOperationWrite,
+	) =>
+		basicOwnDaySlot && operation.action === "own"
+			? basicOwnExternalIdDayValue(facts, write)
+			: undefined;
 	const withoutAbsentAnswerWrites = (
 		operation: CaseOperation,
 	): CaseOperation => {
@@ -2769,6 +2789,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 		)
 			return operation;
 		const writes = operation.writes.filter((write) => {
+			const day = externalIdDayValue(operation, write);
+			if (day !== undefined) return !absentRootFields.has(day.field);
 			const answer = caseWriteValueField(write.value);
 			return (
 				answer === undefined ||
@@ -2854,6 +2876,11 @@ export function buildCaseOperationProgramFromDoc(args: {
 			},
 			...(viaCaseTypes.size > 0 && { viaCaseTypes }),
 			...(parentUserCaseTypes && { parentUserCaseTypes }),
+			...(operation.writes?.some(
+				(write) => externalIdDayValue(operation, write) !== undefined,
+			) && {
+				basicExternalIdDay: true as const,
+			}),
 		};
 	});
 

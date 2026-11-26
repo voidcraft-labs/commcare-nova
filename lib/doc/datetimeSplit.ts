@@ -34,6 +34,10 @@ import {
 	translationSourceFingerprintsEqual,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	basicOwnExternalIdDayValue,
+	caseSlotFacts,
+} from "@/lib/domain/basicCaseSlots";
 import { datetimeSplitFieldUuid } from "@/lib/domain/datetimeSplitIdentity";
 import { expressionChildren } from "@/lib/domain/expression/children";
 import {
@@ -69,7 +73,8 @@ export interface DatetimeSplit {
 export type DatetimeSplitRefusal =
 	| "not-a-date-and-time-question"
 	| "self-read-through-a-filter"
-	| "saves-straight-to-date";
+	| "saves-straight-to-date"
+	| "saves-day-as-external-id";
 
 export type DatetimeSplitPlan =
 	| ({
@@ -105,6 +110,8 @@ export const DATETIME_SPLIT_REFUSAL_MESSAGES: Readonly<
 		"This question's own rule reads it through a filtered repeat, which Nova can't move onto the time question. You can simplify that rule and try again.",
 	"saves-straight-to-date":
 		"This question saves its calendar day to a case. To split it, you can first save the day with a separate date calculation.",
+	"saves-day-as-external-id":
+		"This question saves its calendar day as the case’s external ID. You can remove that save before separating the questions.",
 };
 
 /** A time of day as Core's `TimeData.cast` reads it back. */
@@ -299,6 +306,13 @@ export function planDatetimeSplit(
 	)
 		return refusal("self-read-through-a-filter");
 
+	const facts = caseSlotFacts(doc, where.formUuid);
+	if (
+		facts.own?.writes?.some(
+			(write) => basicOwnExternalIdDayValue(facts, write)?.field === fieldUuid,
+		)
+	)
+		return refusal("saves-day-as-external-id");
 	const writes = fieldCaseWriteViews(doc, fieldUuid);
 	if (
 		writes.some(

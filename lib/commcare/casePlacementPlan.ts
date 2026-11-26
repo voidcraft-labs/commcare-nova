@@ -1,3 +1,7 @@
+import {
+	basicOwnExternalIdDayValue,
+	caseSlotFacts,
+} from "@/lib/domain/basicCaseSlots";
 import { formCaseEntryPlan } from "./formCaseEntryPlan";
 import {
 	advancedAutosetsOwner,
@@ -375,12 +379,16 @@ function buildPlan(
 			mode: ConditionalCaseUpdate["update_mode"],
 			slot: FieldCaseWriteSlot,
 			via?: CaseWriteVia,
+			directQuestion?: Uuid,
 		) => {
-			const path = questionPath(value, property, {
-				operationUuid: operation.uuid,
-				slot,
-				...(via !== undefined && { via }),
-			});
+			const path =
+				directQuestion === undefined
+					? questionPath(value, property, {
+							operationUuid: operation.uuid,
+							slot,
+							...(via !== undefined && { via }),
+						})
+					: fieldPath(directQuestion).toXPath();
 			if (path !== null)
 				update[key] = { question_path: path, update_mode: mode };
 		};
@@ -425,6 +433,10 @@ function buildPlan(
 				write.via === undefined
 					? property
 					: `${write.via.map((step) => step.identifier).join("/")}/${property}`;
+			const day =
+				formKind === "basic" && operation.action === "own"
+					? basicOwnExternalIdDayValue(caseSlotFacts(doc, formUuid), write)
+					: undefined;
 			put(
 				key,
 				write.value,
@@ -432,6 +444,7 @@ function buildPlan(
 				write.onlyIfChanged ? "edit" : "always",
 				"write",
 				write.via,
+				day?.field,
 			);
 		}
 		return update;
