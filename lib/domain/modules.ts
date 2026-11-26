@@ -2579,10 +2579,12 @@ export function simpleSearchInputDef(
 		| SimpleDateRangeSearchInputSlots
 		| SimpleSelectSearchInputSlots = {},
 ): SimpleSearchInputDef {
-	const candidate: Record<string, unknown> = withSearchInputCommonSlots(
-		{ uuid, kind: "simple", name, label, type, property },
-		slots,
-	);
+	const candidate: Record<string, unknown> = {
+		...withSearchInputCommonSlots(
+			{ uuid, kind: "simple", name, label, type, property },
+			slots,
+		),
+	};
 	if (slots.matching) candidate.matching = slots.matching;
 	if ("options" in slots) candidate.options = slots.options;
 	if (slots.via !== undefined && slots.via.kind !== "self")
