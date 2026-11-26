@@ -3187,10 +3187,40 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/update-key-through-a-typed-user-index",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "update key `user/<property>` on the case opened by basic Case Management, where that index has one ordinary declared destination",
+		"surfaceKeys": [
+			"schema:Form.actions",
+			"schema:FormActions.update_case",
+			"schema:UpdateCaseAction.update"
+		],
+		"valueClass": "typed-user-index-key",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a write through the actual `index/user` connection. The form and case store save to the connected case and refuse a missing connection at submission.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`user/p` key",
+			"markers": []
+		},
+		"gates": ["privilege/user_case"]
+	},
+	{
 		"id": "forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key whose index segments include `user`, each `parent`, `host` or `user` (`user/p`, `parent/user/p`), where the project space has usercase access, on a form that loads its case",
+		"item": "update key whose index segments include `user`, each `parent`, `host` or `user` (`user/p`, `parent/user/p`), outside a direct index with one declared ordinary case at each end",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3198,7 +3228,7 @@
 		],
 		"valueClass": "user-index-key-on-loaded-case",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the write's `via` through the loaded case's indices, `user` naming an index called `user`: HQ's build writes through `index/user` (`xform.py::get_case_parent_id_xpath`), not to the usercase, so where the case has no such index the block's `case_id` is empty and Core rejects the submission",
+		"dispositionCell": "**HELD-NEW**: a path containing a user index whose destination is undeclared, platform-owned, or takes additional index steps.",
 		"subject": "worker-record",
 		"owner": "forms-and-case-management",
 		"platforms": {

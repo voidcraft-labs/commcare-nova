@@ -15,7 +15,10 @@ import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
-import { requiredPlanFeatures } from "@/lib/commcare/planPrivileges";
+import {
+	formsWritingThroughUserIndex,
+	requiredPlanFeatures,
+} from "@/lib/commcare/planPrivileges";
 import type { ReadMenuAndFormIdentities } from "@/lib/commcare/reader";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import { type BlueprintDoc, operationCaseType } from "@/lib/domain";
@@ -589,14 +592,18 @@ export function adoptionPlanFeatureConfirmations(input: {
 		attachmentUrlTarget(input.target),
 	)
 		.filter((feature) =>
-			feature.id === "installation-profiles" ||
-			feature.id === "practice-workers"
+			// A stored user index key says nothing about the Case Management editor's USERCASE privilege.
+			feature.id === "worker-records" &&
+			formsWritingThroughUserIndex(input.doc).length > 0
 				? false
-				: feature.id === "web-apps"
-					? input.sourceWebAppsOn
-					: feature.id === "advanced-case-actions"
-						? input.sourceHoldsSaveToCase
-						: feature.id !== "geocoder",
+				: feature.id === "installation-profiles" ||
+						feature.id === "practice-workers"
+					? false
+					: feature.id === "web-apps"
+						? input.sourceWebAppsOn
+						: feature.id === "advanced-case-actions"
+							? input.sourceHoldsSaveToCase
+							: feature.id !== "geocoder",
 		)
 		.map((feature) => ({ kind: "plan-feature", subject: feature.id }));
 }

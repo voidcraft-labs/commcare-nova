@@ -2418,7 +2418,8 @@ async function resolveOperationProgram(
 					: await ancestorCaseId(trx, host, appId, target.caseId, write.via);
 				const slot = `write:${writeIndex}` as const;
 				if (!reached) {
-					if (!opening) continue;
+					if (!opening && !write.via.some((step) => step.identifier === "user"))
+						continue;
 					throw new SubmissionRejectedError({
 						kind: "target",
 						operationUuid: operation.uuid,
