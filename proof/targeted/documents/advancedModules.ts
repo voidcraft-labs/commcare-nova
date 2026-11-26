@@ -72,6 +72,8 @@ import {
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
+import type { Expectation } from "../expected";
+import { restoreXml } from "../restore";
 import { answerHeld, type HeldSession } from "./echo";
 
 /**
@@ -1100,5 +1102,239 @@ export function commtrackAdvanced() {
 				),
 			],
 		},
+	});
+}
+
+const PARENT_INDEX_AGAINST_SELECTION =
+	"targeted-parent-index-against-selection";
+
+/**
+ * Households, and members chosen under their household in Member visits, a
+ * menu advanced by "Visit member"'s visit its link carries into "Review
+ * visit". "Add member" (Households) creates a member under `parent` to the
+ * household; "Visit member" also creates a relative under `parent` to the
+ * member chosen, an open action whose index reaches another case type than
+ * the household the menu's parent selection chooses through
+ * (`forms-and-case-writes/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection`).
+ * The member's `parent` links reach two types, so the catalog gives the
+ * member no parent, as Nova's reader reads it back.
+ */
+export function parentIndexAgainstSelectionApp(): BlueprintDoc {
+	const { uuid, read, text, nameColumn } = namer(
+		PARENT_INDEX_AGAINST_SELECTION,
+	);
+	const households = uuid("households");
+	const memberVisits = uuid("member-visits");
+	const visits = uuid("visits");
+	const addHousehold = uuid("add-household");
+	const addMember = uuid("add-member");
+	const visitMember = uuid("visit-member");
+	const reviewVisit = uuid("review-visit");
+	return buildDoc(
+		{
+			appId: PARENT_INDEX_AGAINST_SELECTION,
+			appName: "Household relatives",
+			caseTypes: [
+				caseType("household"),
+				caseType("member", ["note"]),
+				caseType("visit", ["note"]),
+			],
+			modules: [
+				{
+					uuid: households,
+					name: "Households",
+					caseType: "household",
+					caseListConfig: caseListOf([nameColumn("households")]),
+					forms: [
+						{
+							uuid: addHousehold,
+							name: "Add household",
+							type: "registration",
+							fields: [text("household-name", "Household name")],
+						},
+						{
+							uuid: addMember,
+							name: "Add member",
+							type: "followup",
+							fields: [text("member-name", "New member")],
+						},
+					],
+				},
+				{
+					uuid: memberVisits,
+					name: "Member visits",
+					caseType: "member",
+					parentCaseModuleUuid: households,
+					caseListConfig: caseListOf([nameColumn("member-visits")]),
+					forms: [
+						{
+							uuid: visitMember,
+							name: "Visit member",
+							type: "followup",
+							formLinks: [
+								{
+									uuid: uuid("open-review"),
+									target: {
+										type: "form" as const,
+										moduleUuid: visits,
+										formUuid: reviewVisit,
+									},
+								},
+							],
+							fields: [
+								text("visit-note", "Note"),
+								text("relative-name", "New relative"),
+								text("visit-name", "Visit"),
+							],
+						},
+					],
+				},
+				{
+					uuid: visits,
+					name: "Visits",
+					caseType: "visit",
+					caseListConfig: caseListOf([nameColumn("visits")]),
+					forms: [
+						{
+							uuid: reviewVisit,
+							name: "Review visit",
+							type: "followup",
+							fields: [text("review-note", "Note")],
+						},
+					],
+				},
+			],
+		},
+		(built) => {
+			built.forms[addHousehold].caseOperations = [
+				{
+					uuid: uuid("add-household-own"),
+					id: "household",
+					action: "own",
+					name: read("household-name"),
+				},
+			];
+			built.forms[addMember].caseOperations = [
+				{ uuid: uuid("add-member-own"), id: "household", action: "own" },
+				{
+					uuid: uuid("add-member-member"),
+					id: "member",
+					action: "create",
+					caseType: "member",
+					target: { kind: "new" },
+					name: read("member-name"),
+					links: linkTo("parent", "household", { kind: "session" }, "child"),
+				},
+			];
+			built.forms[visitMember].caseOperations = [
+				{
+					uuid: uuid("visit-member-own"),
+					id: "member",
+					action: "own",
+					writes: [{ property: "note", value: read("visit-note") }],
+				},
+				{
+					uuid: uuid("add-relative"),
+					id: "relative",
+					action: "create",
+					caseType: "member",
+					target: { kind: "new" },
+					name: read("relative-name"),
+					links: linkTo("parent", "member", { kind: "session" }, "child"),
+				},
+				{
+					// Carried by the link into "Review visit", which makes the
+					// menu advanced.
+					uuid: uuid("open-visit"),
+					id: "visit",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: read("visit-name"),
+				},
+			];
+			built.forms[reviewVisit].caseOperations = [
+				{
+					uuid: uuid("review-visit-own"),
+					id: "visit",
+					action: "own",
+					writes: [{ property: "note", value: read("review-note") }],
+				},
+			];
+		},
+	);
+}
+
+/** The household and its member a visit opens on: the member's case under `parent` to the household. */
+const RELATIVE_RESTORE = restoreXml({
+	cases: [
+		{ id: "targeted-hill-farm", type: "household", name: "Hill farm" },
+		{
+			id: "targeted-amina",
+			type: "member",
+			name: "Amina",
+			indices: [
+				{
+					identifier: "parent",
+					caseType: "household",
+					caseId: "targeted-hill-farm",
+				},
+			],
+		},
+	],
+});
+
+/**
+ * The relative "Visit member" creates is indexed under `parent` to the member
+ * chosen in Member visits, a case of the member's own type, on HQ's build and
+ * on Nova's archive: the open action's index stands as its link says, apart
+ * from the household the menu chose through.
+ */
+function relativeUnderChosenMember(
+	exportName: Expectation["export"],
+): Expectation {
+	return {
+		id: `relative-under-the-chosen-member-${exportName === "A" ? "hq" : "local"}`,
+		export: exportName,
+		form: targetedUuid(PARENT_INDEX_AGAINST_SELECTION, "visit-member"),
+		restore: "restore.xml",
+		request: {
+			session: {
+				command: "m1-f0",
+				data: {
+					case_id_load_household0: "targeted-hill-farm",
+					case_id_load_member1: "targeted-amina",
+					case_id_new_member_0: "targeted-new-relative",
+					case_id_new_visit_1: "targeted-new-visit",
+				},
+			},
+			expressions: [
+				"/data/case_open_member_0/case/index/parent",
+				"/data/case_open_member_0/case/index/parent/@case_type",
+				"/data/case_open_member_0/case/index/parent/@relationship",
+			],
+		},
+		expect: [
+			{ pointer: "/values/0/value", value: "targeted-amina" },
+			{ pointer: "/values/1/value", value: "member" },
+			{ pointer: "/values/2/value", value: "child" },
+		],
+	};
+}
+
+export function parentIndexAgainstSelection() {
+	return targetedDocument({
+		id: PARENT_INDEX_AGAINST_SELECTION,
+		rows: [
+			"an advanced open action's parent index against a menu's parent selection",
+		],
+		doc: parentIndexAgainstSelectionApp(),
+		expected: {
+			intent: [
+				relativeUnderChosenMember("A"),
+				relativeUnderChosenMember("local"),
+			],
+		},
+		files: { "restore.xml": RELATIVE_RESTORE },
 	});
 }

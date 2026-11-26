@@ -69,10 +69,10 @@ import type { DraftField, ReadXForm } from "../xform";
 import {
 	ADVANCED_CLAIMS,
 	advancedCaseReading,
+	claimParentIndicesAgainstSelections,
 	listFormRulesPlace,
 	readAdvancedActions,
 	readAdvancedMenu,
-	refuseParentIndicesAgainstSelections,
 	settleAdvancedForm,
 	settleAdvancedMenu,
 	writeAdvancedChains,
@@ -1003,7 +1003,7 @@ function* settleCaseManagementForms(
 	}
 	yield;
 	settleWriterTypes(ctx, app, ctx.doc ?? doc);
-	refuseParentIndicesAgainstSelections(ctx, app, ctx.doc ?? doc);
+	claimParentIndicesAgainstSelections(ctx, ctx.doc ?? doc);
 }
 
 // ── The entry facts ─────────────────────────────────────────────────────

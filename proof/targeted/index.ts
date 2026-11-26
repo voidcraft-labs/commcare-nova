@@ -15,6 +15,7 @@ import {
 	advancedModule,
 	commtrackAdvanced,
 	extensionCarried,
+	parentIndexAgainstSelection,
 	rootCaseBlockNames,
 } from "./documents/advancedModules";
 import { ancestorIndexNames } from "./documents/ancestorIndexNames";
@@ -258,6 +259,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	extensionCarried,
 	advancedChildModule,
 	advancedHeldKind,
+	parentIndexAgainstSelection,
 	rootCaseBlockNames,
 	sameTypeChild,
 	supplyPointText,

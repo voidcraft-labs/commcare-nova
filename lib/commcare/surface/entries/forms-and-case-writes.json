@@ -6747,17 +6747,22 @@
 			"schema:CaseIndex.relationship"
 		],
 		"valueClass": "parent-index-against-a-parent-selection",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: one case type whose `parent` links reach two case types, or reach one as both a child and an extension; Nova's case catalog holds one parent and one relationship per type (`CaseType.parent_type`, `CaseType.relationship`), which a menu's parent selection follows",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the create's link under `parent`, to its own target type and relationship, beside the menu's parent selection (`Module.parentCaseModuleUuid`), neither following the case catalog: HQ's build writes the index from `case_indices` and the selection's filter from the load's own index (`entries.py::get_parent_filter_by_ref_id`), and the catalog then gives the type no single parent (`CaseType.parent_type`), which only authoring reads",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`case_indices`",
+			"markers": []
 		},
 		"gates": []
 	},

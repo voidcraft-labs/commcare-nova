@@ -43,7 +43,6 @@ import { hiddenMenuEntryPoints } from "../../validator/rules/hiddenFromMenu";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import type { HeldTexts } from "../caseList/columns";
-import { parentSelectionsExplained } from "../caseManagement/advancedActions";
 import {
 	account,
 	type Claim,
@@ -1728,11 +1727,9 @@ function settleParentSelections(
 		}
 		// A finding at the named menu or its case list left out of the document
 		// what the selection would choose through: that finding is the cause.
-		// So did a refused `parent` index that leaves the catalog with no parent for the type.
 		const namedRefused =
 			ctx.accounting.hasFindingAt(named.place) ||
-			ctx.accounting.hasFindingAt(caseListPlaceOf(named)) ||
-			parentSelectionsExplained(ctx).has(module.uuid);
+			ctx.accounting.hasFindingAt(caseListPlaceOf(named));
 		if (!namedRefused) ctx.accounting.finding(MENU.selectInvalid, module.place);
 		ctx.doc = withCandidate(doc, (draft) => {
 			const target = draft.modules[module.uuid];

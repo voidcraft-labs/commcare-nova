@@ -1627,14 +1627,6 @@
 		"id": "hq-advanced/member-opened-under-a-member-against-the-menu-s-household",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/open_cases",
@@ -1675,7 +1667,26 @@
 					"doc_type": "AdvancedOpenCaseAction"
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/links/0",
+				"value": {
+					"identifier": "parent",
+					"targetType": "member",
+					"relationship": "child",
+					"target": {
+						"kind": "session"
+					}
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/member-opened-under-a-member-in-one-repeat",
