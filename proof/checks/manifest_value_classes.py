@@ -6214,11 +6214,10 @@ def _literal_lookup_text(tree):
 
 def _worker_lookup_value(tree):
     return bool(
-        tree and tree[:2] == ["path", "instance:commcaresession"] and tree[3] == []
-        and tree[4] in [
-            [["child", "session", 0], ["child", "context", 0], ["child", field, 0]]
-            for field in ("username", "userid")
-        ]
+        tree and tree[:2] == ["path", "instance:commcaresession"]
+        and tree[3] == [["text", "commcaresession"]]
+        and tree[4][:2] == [["child", "session", 0], ["child", "context", 0]]
+        and tree[4][2:] in ([["child", "username", 0]], [["child", "userid", 0]])
     )
 
 

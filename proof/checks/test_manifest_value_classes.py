@@ -7910,6 +7910,9 @@ def _case_list_lookup_shapes():
             use(accepted, "lookup_extras", lookup_extras=[
                 {"key": "worker", "value": "instance('commcaresession')/session/context/username"},
             ]),
+            use(refused, "lookup_extras", lookup_extras=[
+                {"key": "worker", "value": "instance('commcaresession')/session/context/@username"},
+            ]),
         ),
         "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
             use(refused, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=True),
