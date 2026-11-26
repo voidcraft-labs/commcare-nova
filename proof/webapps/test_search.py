@@ -972,6 +972,7 @@ def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
                 *opening,
                 {"eval": """() => {
                     const text = (selector) => [...document.querySelectorAll(selector)]
+                        .filter(label => label.getClientRects().length !== 0)
                         .map(label => label.textContent.trim());
                     return {
                         headings: text('#query-list-contents .search-query-group-header-label'),
