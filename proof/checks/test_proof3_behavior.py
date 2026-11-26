@@ -1954,6 +1954,55 @@ def test_a_forms_title_is_compared_only_where_android_runs_both_builds():
     ]
 
 
+def test_a_web_apps_media_rename_requires_one_stored_file_and_the_original_bytes_matched_at_the_new_path():
+    import hashlib
+    import io
+    import zipfile
+    from types import SimpleNamespace
+
+    from proof.checks.differences import Difference
+    from proof.hq.operations import Upload
+
+    original = "jr://file/large photo.png"
+    digest = hashlib.sha256(b"picture").hexdigest()
+    entry = f"commcare/{digest}.png"
+    path = "/runs/*/screens/*/form/questions/*/media/*/src"
+    src = "/hq/multimedia/file/CommCareImage/{}/{}"
+
+    def upload(content):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as zipped:
+            zipped.writestr(entry, content)
+        boundary = "b"
+        body = (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="bulk_upload_file"; filename="multimedia.zip"'
+            "\r\nContent-Type: application/zip\r\n\r\n"
+        ).encode() + archive.getvalue() + f"\r\n--{boundary}--\r\n".encode()
+        return Upload(body, f"multipart/form-data; boundary={boundary}")
+
+    def compared(*, content=b"picture", before_id="m1", after_id="m1", matched=True, status=200):
+        row = Difference(
+            "proof3", "doc", "webapps@B", path, path, "changed",
+            src.format(before_id, "large photo.png"), src.format(after_id, f"{digest}.png"),
+        )
+        source = {"status": status, "path": original, "sha256": digest, "mediaType": "CommCareImage"}
+        media = {"matched": [{"path": f"jr://file/{entry}", "class": "CommCareImage"}] if matched else []}
+        parts = SimpleNamespace(a={"apiReads": {"authored": {"media": [source]}}}, b={"publish": {"media": media}})
+        captured = SimpleNamespace(media_uploads=lambda: [(SimpleNamespace(upload=lambda: upload(content)), None)])
+        document = SimpleNamespace(
+            authored=SimpleNamespace(media_rows=lambda: [{"path": original, "kind": "image", "extension": "png"}]),
+            exports={"minimum": SimpleNamespace(republish=captured)},
+        )
+        records = SimpleNamespace(configurations={"minimum": parts})
+        return proof3.verified_webapps_media_renames(document, "minimum", records, [row])[0].path
+
+    assert compared() == f"{path}:renamed-file"
+    assert compared(content=b"some other picture") == path
+    assert compared(after_id="m2") == path
+    assert compared(matched=False) == path
+    assert compared(status=404) == path
+
+
 def test_a_native_caption_rename_requires_the_original_files_bytes_at_the_exact_new_path():
     import hashlib
     from types import SimpleNamespace
