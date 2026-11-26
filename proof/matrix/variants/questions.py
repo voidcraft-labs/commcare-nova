@@ -2090,8 +2090,8 @@ def save_to_case_link_name_outside_grammar(authoring, app_id):
 
 
 def save_to_case_link_stops_form_designer(authoring, app_id):
-    """An ordinary case link whose element uses the reserved script name."""
-    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "script")
+    """An ordinary case link whose element uses the reserved instance name."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "instance")
 
 
 def save_to_case_index_close_adds_action(authoring, app_id):
