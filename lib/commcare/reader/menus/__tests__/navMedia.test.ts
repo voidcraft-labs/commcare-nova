@@ -27,6 +27,7 @@ import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
 import { manifestFor } from "../../../__tests__/fixtureMediaManifest";
 import { localAppStringTable } from "../../../appStrings";
 import { expandDoc } from "../../../expander";
+import type { AssetManifest } from "../../../multimedia/assetWirePath";
 import {
 	readerInput,
 	retainedSourceBody,
@@ -39,11 +40,17 @@ import { type AppJson, formNamed, inSpanish, moduleNamed } from "./menuReading";
 
 const MENU_ICON = "jr://file/commcare/image/menu.png";
 const OTHER_ICON = "jr://file/commcare/image/other.png";
+const MENU_ICON_ALIAS = "jr://file/commcare/image/menu-alias.png";
 const FORM_AUDIO = "jr://file/commcare/audio/visit.mp3";
 const OTHER_AUDIO = "jr://file/commcare/audio/translated.mp3";
 
 const ASSETS: Readonly<Record<string, ReaderMediaResolution>> = {
 	[MENU_ICON]: {
+		kind: "asset",
+		assetId: testMediaAssetId("menu-icon"),
+		mediaKind: "image",
+	},
+	[MENU_ICON_ALIAS]: {
 		kind: "asset",
 		assetId: testMediaAssetId("menu-icon"),
 		mediaKind: "image",
@@ -125,8 +132,9 @@ function app(): BlueprintDoc {
 async function readWithMedia(
 	doc: BlueprintDoc,
 	edit: (app: AppJson) => void,
+	assets?: AssetManifest,
 ): Promise<ReturnType<typeof readHqApp>> {
-	const emitted = expandDoc(doc);
+	const emitted = expandDoc(doc, { assets });
 	const json = JSON.parse(
 		JSON.stringify({
 			...retainedSourceBody("shell/app-source"),
@@ -596,6 +604,67 @@ describe("an override of a generated media key in `translations`", () => {
 		expect(body.translations?.en["modules.m0.icon"]).toBe(OTHER_ICON);
 	});
 
+	it("reads the same document after publishing two paths mapped to the same strict asset", async () => {
+		const original = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON };
+			// The form carries the alternate path as an ordinary resource, so HQ can
+			// install both paths even though they own one media file.
+			(menu.forms[0] as Record<string, unknown>).media_image = {
+				en: MENU_ICON_ALIAS,
+			};
+			overriding(json, { "modules.m0.icon": MENU_ICON_ALIAS });
+		});
+		expect(findings(original)).toEqual([]);
+		if (original.kind !== "read") throw new Error("The source did not read.");
+		const doc = original.draft.doc;
+		const id = testMediaAssetId("menu-icon");
+		const assets = new Map(manifestFor(doc));
+		const asset = assets.get(id);
+		if (!asset) throw new Error("The source lost its icon.");
+		assets.set(id, { ...asset, wirePath: MENU_ICON.replace("jr://file/", "") });
+		const emitted = expandDoc(doc, { assets });
+		expect(emitted.modules[0].media_image.en).toBe(MENU_ICON);
+		const reread = await readWithMedia(doc, (json) => {
+			json.modules = emitted.modules as AppJson["modules"];
+			json.translations = emitted.translations;
+		});
+		expect(findings(reread)).toEqual([]);
+		if (reread.kind !== "read") throw new Error("The export did not read.");
+		const own = (candidate: BlueprintDoc) =>
+			candidate.modules[candidate.moduleOrder[0]].mediaByLanguage?.eng
+				?.iconOverride;
+		expect(own(reread.draft.doc)).toBe(own(doc));
+		expect(own(doc)).toBeUndefined();
+		expect(translationEntries(original)).toContain(
+			"translations-generated-key-with-no-effect",
+		);
+	});
+
+	it("refuses a same-asset alias HQ does not package as an exact path", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			json.modules[0].media_image = { en: MENU_ICON };
+			overriding(json, { "modules.m0.icon": MENU_ICON_ALIAS });
+		});
+		expect(findings(outcome)).toEqual([
+			"application-and-settings/translations-generated-navigation-file-not-packaged",
+		]);
+	});
+
+	it("does not count a default-for-all fallback as a named language's package", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON, es: MENU_ICON };
+			const form = menu.forms[0] as Record<string, unknown>;
+			form.media_image = { en: OTHER_ICON };
+			form.use_default_image_for_all = true;
+			json.translations = { es: { "modules.m0.icon": OTHER_ICON } };
+		});
+		expect(findings(outcome)).toEqual([
+			"application-and-settings/translations-generated-navigation-file-not-packaged",
+		]);
+	});
+
 	it("keeps an override equal to the full-app fallback for a limited installation", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
 			json.langs.push("fr");
@@ -631,6 +700,37 @@ describe("an override of a generated media key in `translations`", () => {
 			outcome.draft.doc.modules[outcome.draft.doc.moduleOrder[0]]
 				.mediaByLanguage?.eng?.iconOverride,
 		).toBe(testMediaAssetId("other-icon"));
+	});
+
+	it("counts the exact path on a question's ordinary media in that language", async () => {
+		const doc = app();
+		const id = testMediaAssetId("other-icon");
+		const withMedia = produce(doc, (draft) => {
+			const field = Object.values(draft.fields)[0];
+			if (field?.kind !== "text") throw new Error("Missing question.");
+			field.label_media = { image: id };
+		});
+		const assets = new Map(manifestFor(withMedia));
+		const asset = assets.get(id);
+		if (!asset) throw new Error("Missing fixture image.");
+		assets.set(id, {
+			...asset,
+			wirePath: OTHER_ICON.replace("jr://file/", ""),
+		});
+		const outcome = await readWithMedia(
+			withMedia,
+			(json) => {
+				json.modules[0].media_image = { en: MENU_ICON };
+				overriding(json, { "modules.m0.icon": OTHER_ICON });
+			},
+			assets,
+		);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		expect(
+			outcome.draft.doc.modules[outcome.draft.doc.moduleOrder[0]]
+				.mediaByLanguage?.eng?.iconOverride,
+		).toBe(id);
 	});
 
 	it("keeps a form's generated spoken label on that form and locale", async () => {

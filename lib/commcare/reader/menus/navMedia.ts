@@ -12,11 +12,19 @@ import type { IconRef } from "@/lib/domain/builtinIcons";
 import {
 	navigationMediaOverride,
 	ordinaryNavigationAsset,
+	storedNavigationFile,
 } from "@/lib/domain/navigationMedia";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { applicationReading, type HeldTranslationKey } from "../appShell";
-import { type Claim, defineClaims, derived, refuse, take } from "../claims";
+import {
+	account,
+	type Claim,
+	defineClaims,
+	derived,
+	refuse,
+	take,
+} from "../claims";
 import type { ReadContext } from "../context";
 import { compareCodePoints } from "../hqText";
 import { isJsonObject, type JsonCursor, pointerToken } from "../jsonCursor";
@@ -286,9 +294,14 @@ const generatedMediaNotPackaged = refuse(
 	"application-and-settings/translations-generated-navigation-file-not-packaged",
 	"schema:Application.translations",
 );
+const generatedMediaNoEffect = account(
+	"application-and-settings/translations-generated-key-with-no-effect",
+	"schema:Application.translations",
+);
 defineClaims("menus.navMedia", {
 	generatedMediaClaim,
 	generatedMediaNotPackaged,
+	generatedMediaNoEffect,
 });
 const acceptedOverrides = new WeakMap<
 	HeldTranslationKey,
@@ -298,9 +311,64 @@ const acceptedOverrides = new WeakMap<
 		path: string;
 		place: HqPlace;
 		carrierClass: string;
+		repeatsStrictAsset?: true;
 		assetId?: IconRef;
 	}
 >();
+
+const ordinaryPathsByLanguage = new WeakMap<
+	ReadContext,
+	ReadonlyMap<string, ReadonlySet<string>>
+>();
+
+/** HQ gathers the raw ordinary path in each installed language. A fallback
+ * or a different path to the same asset does not package this path. */
+function ordinarySourcePaths(ctx: ReadContext) {
+	const known = ordinaryPathsByLanguage.get(ctx);
+	if (known !== undefined) return known;
+	const languages = applicationReading(ctx)?.languages;
+	const paths = new Map<string, Set<string>>(
+		(languages?.codes ?? []).map((code) => [code, new Set<string>()]),
+	);
+	const codeForTag = new Map(
+		[...(languages?.tagOf ?? [])].map(([code, tag]) => [tag, code]),
+	);
+	const addMap = (value: unknown) => {
+		if (!isJsonObject(value)) return;
+		for (const [code, path] of Object.entries(value))
+			if (typeof path === "string" && path) paths.get(code)?.add(path);
+	};
+	const addCarrier = (value: unknown) => {
+		if (!isJsonObject(value)) return;
+		addMap(value.media_image);
+		addMap(value.media_audio);
+	};
+	const raw = ctx.input.source.raw.modules;
+	if (Array.isArray(raw))
+		for (const module of raw) {
+			if (!isJsonObject(module)) continue;
+			addCarrier(module);
+			const item = module.case_list;
+			if (isJsonObject(item) && item.show === true) addCarrier(item);
+			const registration = module.case_list_form;
+			if (isJsonObject(registration) && registration.form_id)
+				addCarrier(registration);
+			if (Array.isArray(module.forms))
+				for (const form of module.forms) addCarrier(form);
+		}
+	for (const ref of ctx.facts.mediaReferences) {
+		if (ref.slot === "image_map_mapping")
+			for (const code of ref.shownLanguages ?? [])
+				paths.get(code)?.add(ref.path);
+		if (ref.slot === "field_media_bundle" || ref.slot === "option_media")
+			for (const recipient of ref.itextRecipients ?? []) {
+				const code = codeForTag.get(recipient.language);
+				if (code !== undefined) paths.get(code)?.add(ref.path);
+			}
+	}
+	ordinaryPathsByLanguage.set(ctx, paths);
+	return paths;
+}
 
 export function accountNavigationMediaOverride(
 	ctx: ReadContext,
@@ -331,9 +399,15 @@ export function accountNavigationMediaOverride(
 							? registration
 							: undefined
 						: module;
+		const carrierAsset =
+			carrier === undefined
+				? undefined
+				: override.repeatsStrictAsset
+					? storedNavigationFile(carrier, role, language)
+					: navigationMediaOverride(carrier, role, language);
 		if (
-			carrier === undefined ||
-			navigationMediaOverride(carrier, role, language) !== assetId ||
+			carrierAsset !== assetId ||
+			!ordinarySourcePaths(ctx).get(held.language)?.has(override.path) ||
 			!ordinaryNavigationAsset(
 				doc,
 				effectiveAppLocalization(doc.localization),
@@ -343,6 +417,10 @@ export function accountNavigationMediaOverride(
 			)
 		) {
 			held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
+			return true;
+		}
+		if (override.repeatsStrictAsset) {
+			held.json.account(held.key, generatedMediaNoEffect);
 			return true;
 		}
 	}
@@ -390,6 +468,18 @@ function readOverrides(
 		const path = held.value;
 
 		const resolution = ctx.input.media.resolve(path);
+		const strictPath = strictFile(held.language);
+		const strict =
+			typeof strictPath === "string" && strictPath
+				? ctx.input.media.resolve(strictPath)
+				: undefined;
+		// A second path to the strict asset has no independent override,
+		// provided HQ really packs that exact path on an ordinary carrier.
+		const repeatsStrictAsset =
+			resolution.kind === "asset" &&
+			strict?.kind === "asset" &&
+			strict.assetId === resolution.assetId &&
+			strict.mediaKind === resolution.mediaKind;
 		const occurrence = {
 			path,
 			mediaKind,
@@ -398,11 +488,13 @@ function readOverrides(
 			slot,
 		};
 		if (resolution.kind === "asset") {
-			overrides.set(tag, resolution.assetId);
-			ctx.facts.mediaReferences.push({
-				...occurrence,
-				assetId: resolution.assetId,
-			});
+			if (!repeatsStrictAsset) {
+				overrides.set(tag, resolution.assetId);
+				ctx.facts.mediaReferences.push({
+					...occurrence,
+					assetId: resolution.assetId,
+				});
+			}
 		} else {
 			ctx.accounting.handOffAt(
 				{ json: held.json, key },
@@ -420,6 +512,7 @@ function readOverrides(
 			path,
 			place,
 			carrierClass,
+			...(repeatsStrictAsset && { repeatsStrictAsset: true }),
 			...(resolution.kind === "asset" && {
 				assetId: resolution.assetId as IconRef,
 			}),
