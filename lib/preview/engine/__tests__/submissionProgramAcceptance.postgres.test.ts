@@ -332,11 +332,11 @@ describe("engine → builder → executor acceptance", () => {
 				caseIds: [SESSION_CASE],
 				entryKey,
 			});
-			expect(
-				mutation.operationAnswers?.root.find(
-					(entry) => entry.fieldUuid === seen,
-				)?.absent,
-			).toBe(kind === "irrelevant");
+			const submitted = mutation.operationAnswers?.root.find(
+				(entry) => entry.fieldUuid === seen,
+			);
+			expect(submitted).toBeDefined();
+			expect(submitted?.absent === true).toBe(kind === "irrelevant");
 			const projection = validateCaptureSubmissionProjection(mutation);
 			const built = buildCaseOperationProgramFromDoc({
 				device,
