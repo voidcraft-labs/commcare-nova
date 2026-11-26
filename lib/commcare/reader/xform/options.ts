@@ -464,7 +464,11 @@ function readItemset(
 		singleAttribute(valueRef) === "case_id"
 	) {
 		if (chain.predicates.length === 0) {
-			if (sort !== undefined || singleName(labelRef) !== "case_name")
+			if (
+				select !== "select1" ||
+				sort !== undefined ||
+				singleName(labelRef) !== "case_name"
+			)
 				return other();
 			field.field.optionsSource = { kind: "available-cases" };
 			return {

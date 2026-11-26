@@ -14,7 +14,7 @@ import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
 import { caseDbInstance } from "./xpath/wire/instances";
 import type { WireExpr } from "./xpath/wire/tree";
 
-/** The whole local device case instance, with no type or filter predicate. */
+/** The local device case path, with type and filter predicates for a typed source. */
 export function availableCasesNodeset(
 	predicates: readonly WireExpr[] = [],
 ): WireExpr {

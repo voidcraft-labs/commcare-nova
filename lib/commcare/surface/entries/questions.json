@@ -3157,7 +3157,7 @@
 		"id": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
 		"area": "questions",
 		"section": "Question types",
-		"item": "itemset over `casedb` whose value is `@case_id`, over a specified case type or over all of the worker's restored cases with the case name as label",
+		"item": "itemset over `casedb` whose value is `@case_id`, over a specified case type or a single select over all of the worker's restored cases with the case name as label",
 		"surfaceKeys": [
 			"mug:SelectDynamic",
 			"mug:MSelectDynamic",

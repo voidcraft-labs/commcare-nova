@@ -1091,6 +1091,17 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 		]);
 	});
 
+	it("refuses the raw unfiltered source when the control saves several values", async () => {
+		const { atQuestion } = await questionFindings(undefined, {
+			allCases: true,
+			xml: (xml) =>
+				xml.replace("<select1 ", "<select ").replace("</select1>", "</select>"),
+		});
+		expect(atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
+	});
+
 	it("holds the itemset Nova writes with a filter", async () => {
 		const { atQuestion, outcome } = await questionFindings("region = 'north'");
 		expect(atQuestion).toEqual([]);

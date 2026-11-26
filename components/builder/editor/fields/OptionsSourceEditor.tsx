@@ -200,7 +200,7 @@ export function OptionsSourceEditor<
 								if (selected === "cases")
 									return "Cases available to the worker";
 								if (selected === "available-cases")
-									return "All available case types";
+									return "All available cases";
 								const selectedTable = tables.find(
 									(candidate) => candidate.id === selected,
 								);
@@ -218,9 +218,11 @@ export function OptionsSourceEditor<
 					<SelectContent>
 						<SelectItem value={INLINE}>Options in this question</SelectItem>
 						<SelectItem value="cases">Cases available to the worker</SelectItem>
-						<SelectItem value="available-cases">
-							All available case types
-						</SelectItem>
+						{field.kind === "single_select" ? (
+							<SelectItem value="available-cases">
+								All available cases
+							</SelectItem>
+						) : null}
 						{/* Keep a missing saved identity represented. Base UI otherwise
 						 * treats catalog removal as a value change and restores the initial
 						 * inline option, which would incorrectly stage a new source. */}
