@@ -80,6 +80,7 @@ DOCUMENTS = (
     "prompt-checkboxes",
     "targeted-named-answer-root",
     "targeted-android-app-answers",
+    "targeted-case-choice-reopen",
     "targeted-sorted-case-choices",
     "prompt-widgets",
     "prompt-periods",
