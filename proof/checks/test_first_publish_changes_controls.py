@@ -1502,3 +1502,39 @@ def test_legacy_related_case_text_requires_its_exact_column_and_unchanged_text()
     )
     assert changes.holders(header, register, applying) == [change]
     assert changes.holders(header, register, {change: (place[:-1] + "0",)}) == []
+
+
+def test_legacy_related_case_text_allows_only_the_same_stored_projection():
+    from proof.checks import source
+
+    change = changes.LEGACY_RELATED_CASE_TEXT
+    place = "/menu/0/case_details/short/columns/0"
+    apply = {change: (place,)}
+    register = changes.load()
+    before = {
+        "model": "case", "format": "translatable-enum", "field": "parent/village", "useXpathExpression": False,
+        "enum": [{"key": "north", "value": {"en": "North village", "es": "Pueblo del norte"}}],
+    }
+    after = {
+        **before,
+        "field": "instance('casedb')/casedb/case[@case_id = current()/index/parent]/village",
+        "useXpathExpression": True,
+        "enum": [{**before["enum"][0], "key": "case_text_9ab95772fa3351eabc620be9ec96300b"}],
+    }
+
+    def stored(column):
+        return {"modules": [{"case_details": {"short": {"columns": [column]}}}]}
+
+    compared = source.compare_sources("legacy", stored(before), stored(after))
+    assert {d.at.rsplit("/", 1)[-1] for d in compared} == {"field", "key", "useXpathExpression"}
+    assert all(changes.holders(d, register, apply, siblings=compared) == [change] for d in compared)
+    assert all(changes.holders(d, register, {change: (place[:-1] + "1",)}, siblings=compared) == []
+               for d in compared)
+    for damaged in (
+        {**after, "field": after["field"].replace("/parent]", "/uncle]")},
+        {**after, "field": after["field"].replace("/village", "/town")},
+        {**after, "enum": [{**after["enum"][0], "value": {"en": "Changed words"}}]},
+    ):
+        differences = source.compare_sources("legacy", stored(before), stored(damaged))
+        assert any(changes.held(d) for d in differences)
+        assert all(not changes.holders(d, register, apply, siblings=differences) for d in differences)
