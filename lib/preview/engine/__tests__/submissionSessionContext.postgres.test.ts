@@ -242,7 +242,11 @@ it("refuses stale destination effects while allowing an exact receipt replay", a
 			"SELECT case_id FROM cases WHERE app_id = $1 AND case_name = 'Device record'",
 			[appId],
 		);
-	expect(rows.rows.map((row) => row.case_id).sort()).toEqual(
-		[receipt.caseId, localReceipt.caseId].sort(),
+	const effectIds = [receipt, localReceipt].flatMap((result) =>
+		(result.caseDatabasePatch?.rows ?? [])
+			.filter((row) => row.case_name === "Device record")
+			.map((row) => row.case_id),
 	);
+	expect(effectIds).toHaveLength(2);
+	expect(rows.rows.map((row) => row.case_id).sort()).toEqual(effectIds.sort());
 });
