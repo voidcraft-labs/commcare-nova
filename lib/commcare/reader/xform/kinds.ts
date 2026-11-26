@@ -98,8 +98,7 @@ function numericAppearance(appearance: string | undefined): boolean {
 const PHONE_TOKEN = FIELD_DISPLAY_SETTING_TOKENS.keypad.numbers;
 const LABEL_TOKEN = kindAppearanceToken("label");
 const SIGNATURE_TOKEN = UPLOAD_APPEARANCE_BY_CAPTURE_KIND.signature;
-/** The appearance Vellum's Face Capture writes on an image upload, which Nova offers no kind for. */
-const FACE_TOKEN = "face";
+const FACE_TOKEN = FIELD_DISPLAY_SETTING_TOKENS.captureSource["face-camera"];
 
 function takeRow(
 	sites: KindSites,
@@ -338,13 +337,15 @@ export const FIELD_KIND_ROWS: readonly FieldKindRow[] = [
 			facts.appearance === SIGNATURE_TOKEN,
 		{ typeClaim: X.binaryType },
 	),
-	refuseRow(
-		X.refusedKind.face,
+	takeRow(
+		X.kind.face,
+		"image",
 		(facts) =>
 			facts.control === "upload" &&
 			facts.bindType === BINARY &&
 			facts.mediaType === upload("image") &&
 			facts.appearance === FACE_TOKEN,
+		{ slots: { captureSource: "face-camera" }, typeClaim: X.binaryType },
 	),
 	takeRow(
 		X.kind.audio,

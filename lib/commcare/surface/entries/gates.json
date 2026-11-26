@@ -2240,7 +2240,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types face capture)",
+		"content": "HELD (Question types face capture)",
 		"contentEntries": ["questions/face-capture-image-face"],
 		"platforms": "n/a",
 		"preflight": {

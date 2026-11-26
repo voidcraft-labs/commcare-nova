@@ -32875,19 +32875,17 @@
 		"id": "hq-questions/face-capture",
 		"base": "hq-questions",
 		"entry": "questions/face-capture-image-face",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "face_capture"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["photo"]],
+				"pointer": "/captureSource",
+				"value": "face-camera"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/field-list-on-question",

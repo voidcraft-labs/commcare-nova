@@ -124,6 +124,7 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/time-12-hour@android": stated("twelve-hour-clock"),
 	"questions/geopoint-maps@web-apps": stated("android-map"),
 	"questions/barcode-editable@web-apps": stated("edit-scan"),
+	"questions/face-capture-image-face@web-apps": browser("face-photo-web-apps"),
 	"questions/image-acquire@web-apps": browser("visit-display-web-apps"),
 	"questions/image-overlay-small@web-apps": stated("photo-overlay"),
 	"questions/audio-legacy@web-apps": stated("classic-recorder"),

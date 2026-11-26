@@ -38,6 +38,7 @@ DOCUMENTS = (
     "targeted-menu-badges",
     "targeted-worker-messages",
     "targeted-repeat-invitations",
+    "targeted-face-photo",
     "targeted-capture-widgets",
     "targeted-custom-tile",
     "targeted-empty-list-no-english",
