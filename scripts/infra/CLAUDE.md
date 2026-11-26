@@ -56,8 +56,10 @@ reconciles these permanent identities:
 - `nova-media-policy` owns only bucket metadata get/update and applies the exact
   capture retention/CORS policy. It never connects to Postgres.
 - `nova-capture-cleanup` has no runtime-role membership. In Postgres it receives
-  only public-schema `USAGE` and `SELECT`/`UPDATE`/`DELETE` on
-  `form_attachments`; in GCS it receives object get/create/delete restricted to
+  public-schema `USAGE`, `SELECT`/`UPDATE`/`DELETE` on `form_attachments`, and
+  execution of `nova_reclaim_expired_form_openings()`. Each call deletes up to
+  32 expired opening snapshots. The job has no direct access to these rows.
+  In GCS it receives object get/create/delete restricted to
   staged captures and Project durable-capture prefixes.
 - `nova-capture-scheduler` may invoke only the capture-cleanup Cloud Run Job.
 - `nova-audit` is the pool-one canonical-identity scanner login. It has no

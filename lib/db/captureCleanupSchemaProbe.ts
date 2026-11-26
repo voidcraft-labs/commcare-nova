@@ -76,9 +76,9 @@ class IntentionalCaptureCleanupProbeRollback extends Error {}
 
 /**
  * Strict cleanup-identity schema and authority proof. Every statement runs
- * through the same database login as the scheduled worker. SELECT all columns,
- * a no-match UPDATE, and a no-match DELETE prove its complete least-privilege
- * surface; the surrounding transaction is intentionally rolled back.
+ * through the same database login as the scheduled worker. The scheduled identity reads and updates attachments and invokes bounded
+ * reclamation of expired form openings. The transaction rolls back every
+ * change, including any expired openings the probe claimed.
  */
 export async function runCaptureCleanupSchemaProbe(
 	database?: Kysely<AppDatabase>,
@@ -130,6 +130,7 @@ export async function runCaptureCleanupSchemaProbe(
 				.where(sql<boolean>`false`)
 				.execute();
 
+			await sql`SELECT public.nova_reclaim_expired_form_openings()`.execute(tx);
 			columnCount = facts.length;
 			throw rollback;
 		});

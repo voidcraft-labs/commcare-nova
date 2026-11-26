@@ -42,6 +42,8 @@ import {
 } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { ownedFormSelections } from "@/lib/domain/formEntryCases";
+import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import {
 	isDedicatedOwnerFilter,
 	moduleFormsReadSearch,
@@ -69,6 +71,7 @@ import {
 	type FormLinkTargetKey,
 	type IdentityMapEntry,
 	matchingUuidOf,
+	sharedFormKey,
 	sortIdentityMapEntries,
 } from "./identity";
 import { recordSyntaxKey } from "./syntaxCompare";
@@ -334,9 +337,12 @@ export function externalIdentityMap(
 
 	for (const form of Object.values(doc.forms)) {
 		const xmlns = identity.formXmlns(form);
-		add(externalKey.form(xmlns), form.uuid);
+		const entryKey = form.shadowOf
+			? sharedFormKey(identity.formUniqueId(form.uuid))
+			: xmlns;
+		add(externalKey.form(entryKey), form.uuid);
 		if (form.entryPoint)
-			add(externalKey.entryPoint("form", xmlns), form.entryPoint.uuid);
+			add(externalKey.entryPoint("form", entryKey), form.entryPoint.uuid);
 		const structure = formStructure(doc, form.uuid);
 		if (structure === undefined)
 			throw new Error(
@@ -349,12 +355,30 @@ export function externalIdentityMap(
 				for (const option of field.choices.options)
 					add(externalKey.selectOption(xmlns, path, option.value), option.uuid);
 		}
+		if (!form.caseSelections && !form.shadowOf)
+			for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {}))
+				add(externalKey.formSelection(form.uuid, tag), uuid as Uuid);
+		for (const assignment of form.openingAssignments ?? []) {
+			const { key: source } = openingAssignmentSource(
+				doc,
+				form.uuid,
+				assignment.source,
+			);
+			add(
+				externalKey.openingAssignment(form.uuid, source, assignment.field),
+				assignment.uuid,
+			);
+		}
+		for (const row of ownedFormSelections(form))
+			add(externalKey.formSelection(form.uuid, row.tag), row.uuid);
+		for (const row of form.computedDatums ?? [])
+			add(externalKey.entryValue(form.uuid, row.key), row.uuid);
 		addCaseOperations(doc, form, xmlns, structure, add);
 		const linkCounts = new Map<string, number>();
 		for (const { link } of formLinkEntries(form)) {
 			const target = linkTargetKey(doc, identity, link.target);
 			const n = nextOrdinal(linkCounts, JSON.stringify(target));
-			add(externalKey.formLink(xmlns, target, n), link.uuid);
+			add(externalKey.formLink(entryKey, target, n), link.uuid);
 		}
 	}
 
@@ -476,13 +500,12 @@ function linkTargetKey(
 				throw new Error(
 					`Nova could not map an after-submit link to form ${target.formUuid}: the document holds no such form. A document the commit gate admits links only to its own forms.`,
 				);
-			return doc.modules[target.moduleUuid]?.formsFromMenu
-				? [
-						"form-in-menu",
-						identity.moduleUniqueId(target.moduleUuid),
-						identity.formXmlns(targetForm),
-					]
-				: ["form", identity.formXmlns(targetForm)];
+			return [
+				"form",
+				targetForm.shadowOf
+					? sharedFormKey(identity.formUniqueId(targetForm.uuid))
+					: identity.formXmlns(targetForm),
+			];
 		}
 		case "module":
 			return ["module", identity.moduleUniqueId(target.moduleUuid)];

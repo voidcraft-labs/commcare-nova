@@ -63,6 +63,38 @@ describe("storageValueFromEvaluation", () => {
 		).toBe("2026-07-24T09:12:11.123456Z");
 	});
 
+	it("keeps a date-and-time answer saved to a day as its day where the viewer is, as Core's DateData does", () => {
+		// A date-and-time question saved to a `date` property: the device
+		// wraps the moment as `DateData` (`Recalculate.wrapData`) and writes
+		// its day in its own zone, the viewer's here. Late in the evening in
+		// Los Angeles is the next day in UTC.
+		expect(
+			storageValueFromEvaluation(
+				"2026-07-24T23:30:00",
+				"date",
+				"America/Los_Angeles",
+			),
+		).toBe("2026-07-24");
+		expect(
+			storageValueFromEvaluation(
+				"2026-07-25T06:30:00.000Z",
+				"date",
+				"America/Los_Angeles",
+			),
+		).toBe("2026-07-24");
+		expect(
+			storageValueFromEvaluation(
+				"2026-07-24T23:30:00.000-07:00",
+				"date",
+				"Asia/Kolkata",
+			),
+		).toBe("2026-07-25");
+		// A day stays as it is.
+		expect(
+			storageValueFromEvaluation("2026-07-24", "date", "Asia/Kolkata"),
+		).toBe("2026-07-24");
+	});
+
 	it("keeps numerics typed and coerces pg's numeric-string decimals", () => {
 		expect(storageValueFromEvaluation(30, "int")).toBe(30);
 		expect(storageValueFromEvaluation("2.5", "decimal")).toBe(2.5);

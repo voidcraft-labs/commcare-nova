@@ -10,6 +10,7 @@ import {
 import { emissionPlan } from "./emissionPlan";
 import {
 	commonPrefixById,
+	entryDatumIds,
 	entryFrameDatums,
 	type FormLinkProjectionContext,
 	type FrameChild,
@@ -33,6 +34,9 @@ export interface PreviousTaskSelection {
 	readonly source: "form-records" | "menu-records";
 	/** Other selectors that ask for this exact datum after Android returns to Home. */
 	readonly alsoSupplies?: readonly Uuid[];
+	/** The form's opening choices this datum supplies. A form that walks its
+	 *  own choices keeps the chosen record there, not in a menu. */
+	readonly selectionUuids?: readonly Uuid[];
 }
 
 export interface PreviousTaskProjection {
@@ -312,6 +316,14 @@ export function projectPreviousTask(
 	const homeConsumers = command
 		? undefined
 		: homeSelectionConsumers(doc, context, children);
+	const supplied = new Map(
+		entryDatumIds(doc, context, moduleUuid, formUuid).map((row) => [
+			row.id,
+			row.refs.flatMap((ref) =>
+				ref.kind === "form-selection" ? [ref.selection] : [],
+			),
+		]),
+	);
 	const retainedSelections = children.flatMap(
 		(child): PreviousTaskSelection[] => {
 			if (
@@ -334,6 +346,9 @@ export function projectPreviousTask(
 					cardinality: datum.maximum === undefined ? "one" : "multiple",
 					source: datum.id === ownSelectionId ? "form-records" : "menu-records",
 					...(alsoSupplies.length > 0 && { alsoSupplies }),
+					...(supplied.get(datum.id)?.length && {
+						selectionUuids: supplied.get(datum.id),
+					}),
 				},
 			];
 		},

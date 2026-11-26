@@ -37,6 +37,7 @@ import type { Term } from "@/lib/domain/expression/types";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
+import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import type { HqLocationType } from "../hq/locations";
 import { userPropertySlugVerdict } from "../validator/userPropertySlug";
@@ -436,17 +437,6 @@ function orderedLevels(doc: BlueprintDoc): OrganizationLevel[] {
 	});
 }
 
-/** Whether a node of the document is a case operation that writes the worker's record. */
-function isWorkerRecordOperation(node: Record<string, unknown>): boolean {
-	const target = node.target as { kind?: unknown } | undefined;
-	return (
-		typeof node.action === "string" &&
-		node.action !== "own" &&
-		target?.kind === "worker-record" &&
-		Array.isArray(node.writes)
-	);
-}
-
 /** What `doc`'s logic reads of the worker and of places, as a reading meets it: each worker field
  *  by name, each worker property by its slug, each name a write of the worker's record saves to,
  *  and each location property by its slug. A read of a field CommCare HQ writes on every
@@ -461,7 +451,18 @@ function worldReadsOf(doc: BlueprintDoc): {
 	const byName: string[] = [];
 	const userFields: string[] = [];
 	const sessionUserFields: string[] = [];
-	const writtenUserFields: string[] = [];
+	const writtenUserFields = doc.moduleOrder.flatMap((module) =>
+		(doc.formOrder[module] ?? []).flatMap((uuid) => {
+			const form = doc.forms[uuid];
+			return (form?.caseOperations ?? []).flatMap((operation) =>
+				addressesWorkerRecord(form, operation, doc.modules[module]?.caseType)
+					? (operation.writes ?? []).flatMap((write) =>
+							holdsWorkerRecordWrite(write.property) ? [write.property] : [],
+						)
+					: [],
+			);
+		}),
+	);
 	const locationDataSlugs: string[] = [];
 	const worker = (slug: string, source: unknown, named: boolean) => {
 		if (source === "worker-record" && USERCASE_BUILT_IN_KEYS.includes(slug))
@@ -502,17 +503,6 @@ function worldReadsOf(doc: BlueprintDoc): {
 					node.kind === "user-property-ref" ? "worker-record" : node.source,
 					false,
 				);
-		} else if (
-			// A write of the worker's record saves to a worker property the app
-			// declares (`caseManagement/index.ts::workerRecordWriteSlugs`).
-			isWorkerRecordOperation(node)
-		) {
-			for (const write of node.writes as readonly { property?: unknown }[])
-				if (
-					typeof write.property === "string" &&
-					!USERCASE_BUILT_IN_KEYS.includes(write.property)
-				)
-					writtenUserFields.push(write.property);
 		} else if (node.kind === "location-field") {
 			const field = node.field as { property?: Uuid } | undefined;
 			const held =

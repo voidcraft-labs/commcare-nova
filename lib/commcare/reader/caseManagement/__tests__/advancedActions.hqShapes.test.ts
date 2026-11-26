@@ -6,8 +6,7 @@
  * once, at its place, or reads as the same state; `judgeLoads` tells a tag Nova would not derive on a load that changes no
  * case from a chain that differs. The plausible failures: Nova re-tagging a
  * load, which renames a session value HQ's forms read; a hyphenated tag (HQ's
- * page writes one for every hyphenated case type) read as unrecognized
- * instead of its entry; an index name Nova cannot spell held; a saved-if-
+ * page derives one from a hyphenated case type) losing its original spelling; an index name Nova cannot spell held; a saved-if-
  * changed write read as saved every time in a project space that applies it.
  */
 import { produce } from "immer";
@@ -21,6 +20,7 @@ import {
 	proseText,
 	type Uuid,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { formField, term, unowned } from "@/lib/domain/expression/builders";
 import {
 	advancedFixture,
@@ -37,6 +37,7 @@ import { planFormCaseWire } from "../../../casePlacementPlan";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import {
 	codesOf,
+	formNamed,
 	type AppJson as MenuAppJson,
 	readMenusOf as readMenusOfDoc,
 } from "../../menus/__tests__/menuReading";
@@ -138,33 +139,55 @@ const kid: CaseOperation = {
 };
 
 describe("an advanced form's tags", () => {
-	it("refuses a tag holding a hyphen under its entry, and reads the same tag spelled with an underscore", async () => {
-		const { doc } = memberFollowup();
-		const hyphen = await readCases(doc, {
+	it.each(["load_follow-up0", "load_follow_up0"])(
+		"keeps the submitted tag %s on the selected record",
+		async (tag) => {
+			const { doc } = memberFollowup();
+			const reading = await readCases(doc, {
+				edit: (app) => {
+					const loads = actionsOf(app).load_update_cases;
+					(loads[loads.length - 1] as Record<string, unknown>).case_tag = tag;
+				},
+			});
+			expect(actionFindings(reading)).toEqual([]);
+			const own = reading.forms
+				.filter((form) => form.docType === "AdvancedForm")
+				.flatMap((form) => form.form.caseOperations ?? [])
+				.find((operation) => operation.action === "own");
+			expect(own?.placement).toEqual({ kind: "advanced", tag });
+		},
+	);
+
+	it("keeps a hyphenated opened record tag when another case links to it", async () => {
+		const { doc } = registration([kid]);
+		const tag = "open-household_0";
+		const reading = await readCases(doc, {
 			edit: (app) => {
-				const loads = actionsOf(app).load_update_cases;
-				(loads[loads.length - 1] as Record<string, unknown>).case_tag =
-					"load_follow-up0";
+				const [own, child] = actionsOf(app).open_cases;
+				if (!own || !child) throw new Error("The form opens two records.");
+				own.case_tag = tag;
+				const [link] = child.case_indices as { tag: string }[];
+				if (!link) throw new Error("The child needs its household link.");
+				link.tag = tag;
 			},
 		});
-		expect(findingCodes(hyphen)).toContain(`${F}/case-tag-holding-a-hyphen`);
-		const underscore = await readCases(doc, {
-			edit: (app) => {
-				const loads = actionsOf(app).load_update_cases;
-				(loads[loads.length - 1] as Record<string, unknown>).case_tag =
-					"load_follow_up0";
-			},
-		});
-		expect(
-			findingCodes(underscore).filter((code) => code.startsWith(F)),
-		).toEqual([]);
-		const own = underscore.forms
-			.filter((form) => form.docType === "AdvancedForm")
-			.flatMap((form) => form.form.caseOperations ?? [])
-			.find((operation) => operation.action === "own");
-		expect(own?.placement).toEqual({
-			kind: "advanced",
-			tag: "load_follow_up0",
+		expect(actionFindings(reading)).toEqual([]);
+		const operations = reading.forms.flatMap(
+			(form) => form.form.caseOperations ?? [],
+		);
+		const own = operations.find(
+			(op) =>
+				op.action === "own" &&
+				op.placement?.kind === "advanced" &&
+				op.placement.tag === tag,
+		);
+		expect(own).toBeDefined();
+		const child = operations.find(
+			(op) => op.action === "create" && op.caseType === "member",
+		);
+		expect(child?.links?.[0]?.target).toEqual({
+			kind: "op",
+			opUuid: own?.uuid,
 		});
 	});
 
@@ -285,7 +308,29 @@ describe("an advanced form's loads and open actions", () => {
 		).toEqual([]);
 	});
 
-	it("refuses a load's saved-if-changed write where the project space applies it, and reads it as saved every time where it does not", async () => {
+	it("refuses a load indexed to a load stored before the one right before it", async () => {
+		// HQ's editor indexes a load only to the load stored right before it
+		// (`advanced/actions.js`, `subcase.write`), so an index past it is one
+		// no editor makes.
+		const { doc } = memberFollowup();
+		const reading = await readCases(doc, {
+			edit: (app) => {
+				const loads = actionsOf(app).load_update_cases;
+				const [household] = loads;
+				if (household === undefined) throw new Error("The chain loads.");
+				loads.splice(1, 0, {
+					...structuredClone(household),
+					case_tag: "load_household_again",
+					case_properties: {},
+				});
+			},
+		});
+		expect(actionFindings(reading)).toContain(
+			`${F}/loadupdateaction-case-index-tag-naming-a-load-other-than-the-one`,
+		);
+	});
+
+	it("reads a load's saved-if-changed write as onlyIfChanged where the project space applies it, and as saved every time where it does not", async () => {
 		const { doc } = memberFollowup();
 		const edit = (app: AppJson) => {
 			const loads = actionsOf(app).load_update_cases;
@@ -297,9 +342,16 @@ describe("an advanced form's loads and open actions", () => {
 			(properties.age as Record<string, unknown>).update_mode = "edit";
 		};
 		const applied = await readCases(doc, { edit, saveOnlyEditedApplied: true });
-		expect(findingCodes(applied)).toContain(
-			`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
+		expect(findingCodes(applied).filter((code) => code.startsWith(F))).toEqual(
+			[],
 		);
+		expect(
+			applied.forms
+				.flatMap((form) => form.form.caseOperations ?? [])
+				.flatMap((operation) => operation.writes ?? [])
+				.filter((write) => write.onlyIfChanged === true)
+				.map((write) => write.property),
+		).toEqual(["age"]);
 		const unapplied = await readCases(doc, {
 			edit,
 			saveOnlyEditedApplied: false,
@@ -307,6 +359,65 @@ describe("an advanced form's loads and open actions", () => {
 		expect(
 			findingCodes(unapplied).filter((code) => code.startsWith(F)),
 		).toEqual([]);
+	});
+
+	it("writes a load's and an open action's name and owner saved only when changed as `edit` and reads them back as the facets' flags", async () => {
+		const followup = memberFollowup();
+		const own = followup.doc.forms[followup.formUuid]?.caseOperations?.[0];
+		if (own === undefined) throw new Error("The fixture holds the own load.");
+		Object.assign(own, {
+			name: read("name"),
+			nameOnlyIfChanged: true,
+			owner: read("name"),
+			ownerOnlyIfChanged: true,
+		});
+		const withKid = registration([
+			{ ...kid, owner: read("kid_name"), ownerOnlyIfChanged: true },
+		]);
+		const loadMode = (app: AppJson) => {
+			const loads = actionsOf(app).load_update_cases;
+			const properties = (
+				loads[loads.length - 1] as {
+					case_properties: Record<string, { update_mode: string }>;
+				}
+			).case_properties;
+			return [properties.name?.update_mode, properties.owner_id?.update_mode];
+		};
+		const openMode = (app: AppJson) =>
+			(
+				actionsOf(app).open_cases.find(
+					(open) => open.case_type === "member",
+				) as { case_properties: Record<string, { update_mode: string }> }
+			).case_properties.owner_id?.update_mode;
+		let loadModes: unknown;
+		let openModes: unknown;
+		const readFollowup = await readCases(followup.doc, {
+			saveOnlyEditedApplied: true,
+			edit: (app) => {
+				loadModes = loadMode(app);
+			},
+		});
+		const readRegistration = await readCases(withKid.doc, {
+			saveOnlyEditedApplied: true,
+			edit: (app) => {
+				openModes = openMode(app);
+			},
+		});
+		expect(loadModes).toEqual(["edit", "edit"]);
+		expect(openModes).toBe("edit");
+		for (const reading of [readFollowup, readRegistration])
+			expect(actionFindings(reading)).toEqual([]);
+		const underTest = (reading: typeof readFollowup) =>
+			reading.forms.find((form) => form.form.name === "Under test")?.form
+				.caseOperations ?? [];
+		expect(
+			underTest(readFollowup).find((operation) => operation.action === "own"),
+		).toMatchObject({ nameOnlyIfChanged: true, ownerOnlyIfChanged: true });
+		expect(
+			underTest(readRegistration).find(
+				(operation) => operation.action === "create",
+			),
+		).toMatchObject({ ownerOnlyIfChanged: true });
 	});
 
 	describe("a written key outside Nova's property grammar, or one HQ's server stores apart", () => {
@@ -318,14 +429,9 @@ describe("an advanced form's loads and open actions", () => {
 		const ILLEGAL = `${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`;
 		const NON_CORE = `${F}/update-key-holding-a-character-validate-property-accepts-that-is`;
 		const NON_ASCII = `${F}/update-key-holding-a-non-ascii-core-name-character`;
-		// HQ's build writes a load's and an open action's keys into the case block's
-		// `<update>` as it writes a basic update's (`_create_casexml_advanced` →
-		// `add_case_updates`), and HQ's server stores these two apart from the case's
-		// properties there (`update_strategy.py::_apply_update_action`).
-		const DIVERTED = `${F}/update-keys-location-id-hq-user-id`;
+		// HQ's user-case sync keeps `hq_user_id` in step with the worker.
+		const WORKER_KEY = `${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`;
 		const CASES: readonly (readonly [string, string])[] = [
-			["location_id", DIVERTED],
-			["hq_user_id", DIVERTED],
 			["dob+1", ILLEGAL],
 			["status", ILLEGAL],
 			["date-opened", ILLEGAL],
@@ -377,9 +483,8 @@ describe("an advanced form's loads and open actions", () => {
 			for (const [key, entry] of [
 				["status", ILLEGAL],
 				["mood\n", NON_CORE],
-				// The worker's record is a case HQ's server updates as any other.
-				["location_id", DIVERTED],
-				["hq_user_id", DIVERTED],
+				// The worker's record keeps `hq_user_id` in step with the worker.
+				["hq_user_id", WORKER_KEY],
 			] as const) {
 				// The key replaces the load's one write, which would leave it writing nothing.
 				const reading = await readMenusOf(doc, (app) => {
@@ -411,6 +516,32 @@ describe("an advanced form's loads and open actions", () => {
 			};
 			return open;
 		};
+
+		for (const [surface, fixture, stored] of [
+			["a load's", () => memberFollowup().doc, lastLoad],
+			["an open action's", () => registration().doc, ownOpen],
+		] as const)
+			it(`reads ${surface} \`location_id\` and \`hq_user_id\` as writes of those keys`, async () => {
+				// HQ's build writes a load's and an open action's keys into the case
+				// block's `<update>` as it writes a basic update's
+				// (`_create_casexml_advanced` → `add_case_updates`), where HQ's server
+				// keeps the case's location and copies its external id
+				// (`update_strategy.py::_apply_update_action`), as Nova's case store does.
+				const doc = fixture();
+				for (const key of ["location_id", "hq_user_id"]) {
+					const reading = await writing(doc, key, stored);
+					expect(reading.outcome.defects, key).toEqual([]);
+					expect(codesOf(reading), key).toEqual([]);
+					expect(
+						Object.values(reading.doc?.forms ?? {}).flatMap((form) =>
+							(form.caseOperations ?? []).flatMap((operation) =>
+								(operation.writes ?? []).map((write) => write.property),
+							),
+						),
+						key,
+					).toContain(key);
+				}
+			});
 
 		for (const [surface, fixture, stored] of [
 			["a load's", () => memberFollowup().doc, lastLoad],
@@ -613,10 +744,20 @@ describe("an advanced form's loads and open actions", () => {
 					| { readonly default_value?: unknown }
 					| undefined
 			)?.default_value;
-		const householdName = {
-			kind: "term",
-			term: { kind: "form-case", caseType: "household", property: "case_name" },
+		/** What a whole reading assigns the form under test's question `name`
+		 *  when the form opens: the load's own record and the property it
+		 *  copies (`FormOpeningAssignment`), with no starting value of its own. */
+		const nameAssignment = (doc: BlueprintDoc | undefined) => {
+			const name = Object.values(doc?.fields ?? {}).find(
+				(field) => field.id === "name",
+			);
+			const rows = Object.values(doc?.forms ?? {}).flatMap(
+				(form) => form.openingAssignments ?? [],
+			);
+			const row = rows.find((assignment) => assignment.field === name?.uuid);
+			return row && { source: row.source.kind, property: row.property };
 		};
+		const householdName = { source: "selection", property: "case_name" };
 		/** Visits chosen under Members, which holds households chosen under a household:
 		 *  the chain household, household, visit, the form's own last. */
 		const visitUnderTwoHouseholds = () =>
@@ -651,7 +792,8 @@ describe("an advanced form's loads and open actions", () => {
 			const { doc } = memberFollowup();
 			const reading = await readMenusOf(doc, preloadOn(0));
 			expect(codesOf(reading)).toEqual([]);
-			expect(nameDefault(reading.doc)).toEqual(householdName);
+			expect(nameDefault(reading.doc)).toBeUndefined();
+			expect(nameAssignment(reading.doc)).toEqual(householdName);
 		});
 
 		it("refuses a preloaded property HQ's build refuses, and reads `owner_id`, which it does not", async () => {
@@ -677,13 +819,9 @@ describe("an advanced form's loads and open actions", () => {
 				load.preload = { "/data/name": "owner_id" };
 			});
 			expect(codesOf(owner)).toEqual([]);
-			expect(nameDefault(owner.doc)).toEqual({
-				kind: "term",
-				term: {
-					kind: "form-case",
-					caseType: "household",
-					property: "owner_id",
-				},
+			expect(nameAssignment(owner.doc)).toEqual({
+				source: "selection",
+				property: "owner_id",
 			});
 		});
 
@@ -702,7 +840,7 @@ describe("an advanced form's loads and open actions", () => {
 				});
 			const named = await preloadOf("case_name\n");
 			expect(codesOf(named)).toEqual([]);
-			expect(nameDefault(named.doc)).toEqual(householdName);
+			expect(nameAssignment(named.doc)).toEqual(householdName);
 			expect(named.doc).toEqual((await preloadOf("name")).doc);
 			const UNNAMED =
 				"expressions-and-data/a-form-expression-outside-what-nova-types";
@@ -713,6 +851,24 @@ describe("an advanced form's loads and open actions", () => {
 					`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
 				);
 				expect(reading.outcome.defects, property).toEqual([]);
+			}
+		});
+
+		it("refuses a name HQ's grammar takes and Nova's document cannot hold on its load, never failing the whole reading", async () => {
+			// HQ's `validate_property` admits any Unicode letter and a hyphen in an
+			// index step; Nova's case-property and index grammars do not.
+			const { doc } = memberFollowup();
+			for (const property of ["prénom", "my-index/village"]) {
+				const reading = await readMenusOf(doc, (app) => {
+					const load = actionsOf(app).load_update_cases[0] as Record<
+						string,
+						unknown
+					>;
+					load.preload = { "/data/name": property };
+				});
+				expect(reading.outcome.defects, property).toEqual([]);
+				expect(codesOf(reading).length, property).toBeGreaterThan(0);
+				expect(nameAssignment(reading.doc), property).toBeUndefined();
 			}
 		});
 
@@ -727,15 +883,18 @@ describe("an advanced form's loads and open actions", () => {
 			// The read walks one `parent` index from the visit: the household HQ reads it from.
 			const reading = await readMenusOf(doc, preloadOn(1));
 			expect(codesOf(reading)).toEqual([]);
-			expect(nameDefault(reading.doc)).toEqual(householdName);
+			expect(nameDefault(reading.doc)).toBeUndefined();
+			expect(nameAssignment(reading.doc)).toEqual(householdName);
 		});
 
-		it("refuses one on a load the read of its type does not reach, a nearer load holding that type", async () => {
+		it("holds one on a load a read of its type from the form's own record does not reach, as that load's own value", async () => {
+			// HQ reads a load's preload from that load's own case
+			// (`XForm.add_case_preloads`), so the assignment names the load and
+			// walks no index from the form's own record.
 			const { doc } = visitUnderTwoHouseholds();
 			const reading = await readMenusOf(doc, preloadOn(0));
-			expect(codesOf(reading).filter((code) => code === OTHER_CASE)).toEqual([
-				OTHER_CASE,
-			]);
+			expect(codesOf(reading)).not.toContain(OTHER_CASE);
+			expect(nameAssignment(reading.doc)).toEqual(householdName);
 			// Members holds households too: a household chosen under a household.
 			const { doc: twoHouseholds } = advancedFixture({
 				formType: "followup",
@@ -757,9 +916,8 @@ describe("an advanced form's loads and open actions", () => {
 			});
 			expect(codesOf(await readMenusOf(twoHouseholds))).toEqual([]);
 			const own = await readMenusOf(twoHouseholds, preloadOn(0));
-			expect(codesOf(own).filter((code) => code === OTHER_CASE)).toEqual([
-				OTHER_CASE,
-			]);
+			expect(codesOf(own)).not.toContain(OTHER_CASE);
+			expect(nameAssignment(own.doc)).toEqual(householdName);
 		});
 
 		it("reads one reached through an index other than `parent` where the read walks that index", async () => {
@@ -812,24 +970,32 @@ describe("an advanced form's loads and open actions", () => {
 			expect(codesOf(plain)).toEqual([]);
 			const reading = await readMenusOf(doc, preloadOn(0));
 			expect(codesOf(reading)).toEqual([]);
-			expect(nameDefault(reading.doc)).toEqual(householdName);
+			expect(nameDefault(reading.doc)).toBeUndefined();
+			expect(nameAssignment(reading.doc)).toEqual(householdName);
 		});
 
-		it("refuses one reached through an index the app's links do not name, which the read does not walk", async () => {
-			// No link of the app joins a member to its household, so a read of the household
-			// walks `index/parent`; HQ chose the member by `index/mother`.
+		it("adds no refusal of its own on a load whose index the app's links do not name", async () => {
+			// No link of the app joins a member to its household, and HQ chose the member by
+			// `index/mother`: the load itself is what the reading cannot hold. A preload on
+			// the household load reads that load's own case, so it walks no index and adds
+			// nothing to what the reading gives without it.
 			const { doc } = memberFollowup();
-			const reading = await readMenusOf(doc, (app) => {
+			const renamed = (app: MenuAppJson) => {
 				const [, own] = actionsOf(app).load_update_cases;
 				(own?.case_index as Record<string, unknown>).reference_id = "mother";
+			};
+			const plain = await readMenusOf(doc, renamed);
+			const reading = await readMenusOf(doc, (app) => {
+				renamed(app);
 				preloadOn(0)(app);
 			});
-			expect(codesOf(reading)).toContain(OTHER_CASE);
+			expect(codesOf(reading)).not.toContain(OTHER_CASE);
+			expect(codesOf(reading)).toEqual(codesOf(plain));
 			expect(reading.outcome.defects).toEqual([]);
 		});
 	});
 
-	it("refuses an auto-selected load in a mode Nova does not hold", async () => {
+	it("reaches the record named by a worker data key and keeps its write on that record", async () => {
 		const { doc } = memberFollowup([
 			{
 				uuid: OP("worker"),
@@ -855,7 +1021,29 @@ describe("an advanced form's loads and open actions", () => {
 				};
 			},
 		});
-		expect(findingCodes(reading)).toContain(`${F}/auto-select-mode-user`);
+		expect(
+			reading.whole?.kind === "account" ? reading.whole.findings : [],
+		).toEqual([]);
+		if (reading.whole?.kind !== "read") throw new Error("Expected a held read");
+		const opened = formNamed(reading.whole.draft.doc, "Under test");
+		const selected = opened.caseSelections?.find(
+			(row) => row.source.kind === "worker-data",
+		);
+		expect(selected?.source).toEqual({
+			kind: "worker-data",
+			property: { kind: "session-user", field: "district" },
+		});
+		const change = opened.caseOperations?.find((row) =>
+			row.writes?.some((write) => write.property === "last_household"),
+		);
+		if (!selected) throw new Error("Expected the worker's record supply");
+		expect(change?.target).toEqual({
+			kind: "expression",
+			expr: term({
+				kind: "session-datum",
+				datum: { kind: "form-selection", selection: selected.uuid },
+			}),
+		});
 	});
 
 	it("claims every key of the worker's load Nova writes, and refuses one indexed to another load", async () => {
@@ -990,17 +1178,19 @@ describe("an advanced form's loads and open actions", () => {
 		]);
 	});
 
-	for (const [why, change] of [
+	for (const [why, change, expected] of [
 		[
 			"whose forms read the search",
 			{ caseSearchConfig: { formsReadSearch: true } },
+			["menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one"],
 		],
 		[
 			"whose case list menu item is narrowed (its cases are chosen after a parent's)",
 			{ caseListMenuItem: {} },
+			[],
 		],
 	] as const)
-		it(`raises one finding at an advanced menu ${why}`, async () => {
+		it(`accounts for the independent list item on an advanced menu ${why}`, async () => {
 			const { doc } = memberFollowup();
 			const reading = await readCases(doc);
 			const members = reading.ctx.draft.modules.find(
@@ -1018,12 +1208,7 @@ describe("an advanced form's loads and open actions", () => {
 			const before = reading.ctx.accounting.findings().length;
 			settleAdvancedMenu(reading.ctx, blocked, { ...members, uuid: MEMBERS });
 			const raised = reading.ctx.accounting.findings().slice(before);
-			expect(raised.map((one) => [one.code, one.place.kind])).toEqual([
-				[
-					"menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
-					"menu",
-				],
-			]);
+			expect(raised.map((one) => one.code)).toEqual(expected);
 		});
 
 	it("reads an open action with a close back with the close sharing its place", async () => {
@@ -1054,7 +1239,36 @@ describe("an advanced form's loads and open actions", () => {
 		);
 	});
 
-	it("raises the tag entry for a load that changes no case tagged after the menu's case type", async () => {
+	it("keeps a manual list's stored connection question through minting and a rebuild", async () => {
+		const { doc } = memberFollowup();
+		const reading = await readMenusOf(doc, (app) => {
+			const second = actionsOf(app as unknown as AppJson).load_update_cases[1];
+			if (!second) throw new Error("Expected the member load");
+			Object.assign(second.case_index as Record<string, unknown>, {
+				relationship: "question",
+				relationship_question: "/data/age",
+			});
+		});
+		expect(codesOf(reading)).toEqual([]);
+		if (!reading.doc) throw new Error("Expected a read");
+		const form = formNamed(reading.doc, "Under test");
+		const field = Object.values(reading.doc.fields).find(
+			(question) => question.id === "age",
+		);
+		expect(field).toBeDefined();
+		expect(form.caseSelections?.[1]?.source).toMatchObject({
+			under: { relationship: { question: field?.uuid } },
+		});
+		const wire = planFormCaseWire(reading.doc, form.uuid);
+		expect(
+			wire.kind === "advanced" && wire.actions.load_update_cases[1]?.case_index,
+		).toMatchObject({
+			relationship: "question",
+			relationship_question: "/data/age",
+		});
+	});
+
+	it("keeps a tag on a selection that writes no case and the following selection that uses it", async () => {
 		const { doc } = memberFollowup();
 		const reading = await readMenusOf(doc, (app) => {
 			const loads = actionsOf(app as unknown as AppJson).load_update_cases;
@@ -1069,15 +1283,23 @@ describe("an advanced form's loads and open actions", () => {
 				throw new Error("The own load names the parent's tag.");
 			index.tag = "load_member0";
 		});
-		expect(menuCodes(reading)).toContain(
-			`${F}/load-changing-no-case-with-a-tag-nova-does-not-derive`,
-		);
-		expect(menuCodes(reading)).not.toContain(
-			`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
-		);
+		expect(codesOf(reading)).toEqual([]);
+		if (!reading.doc) throw new Error("Expected a held read");
+		const form = formNamed(reading.doc, "Under test");
+		const [first, second] = formCaseSelections(reading.doc, form.uuid);
+		expect(first?.tag).toBe("load_member0");
+		expect(second?.source).toMatchObject({
+			kind: "choose",
+			under: { selection: first?.uuid, identifier: "parent" },
+		});
+		const wire = planFormCaseWire(reading.doc, form.uuid);
+		expect(
+			wire.kind === "advanced" &&
+				wire.actions.load_update_cases[1]?.case_index.tag,
+		).toBe("load_member0");
 	});
 
-	it("raises the chain entry where two forms of one menu load different chains", async () => {
+	it("keeps independent selections for two forms in one menu", async () => {
 		const { doc } = memberFollowup();
 		const reading = await readMenusOf(doc, (app) => {
 			const module = app.modules.find((one) =>
@@ -1118,9 +1340,22 @@ describe("an advanced form's loads and open actions", () => {
 			).load_update_cases = [own];
 			module.forms.push(copy);
 		});
-		expect(menuCodes(reading)).toContain(
-			`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
-		);
+		expect(codesOf(reading)).toEqual([]);
+		if (!reading.doc) throw new Error("Expected a held read");
+		const original = formNamed(reading.doc, "Under test"),
+			copy = formNamed(reading.doc, "Second");
+		const originalSteps = formCaseSelections(reading.doc, original.uuid);
+		const copySteps = formCaseSelections(reading.doc, copy.uuid);
+		expect(originalSteps.map((step) => step.caseType)).toEqual([
+			"household",
+			"member",
+		]);
+		expect(copySteps.map((step) => step.caseType)).toEqual(["member"]);
+		expect(copySteps[0]?.uuid).not.toBe(originalSteps[1]?.uuid);
+		expect(copySteps[0]?.source).not.toHaveProperty("under");
+		expect(originalSteps[1]?.source).toMatchObject({
+			under: { selection: originalSteps[0]?.uuid },
+		});
 	});
 });
 
@@ -1290,10 +1525,24 @@ describe("an open action's index beside the menus' parent selection", () => {
 			expect(members?.parentCaseModuleUuid, relationship).toBe(
 				households?.uuid,
 			);
+			if (!reading.doc) throw new Error("Expected a held read");
+			const form = formNamed(reading.doc, "Under test");
+			const own = form.caseOperations?.find(
+				(operation) => operation.action === "own",
+			);
+			const targetType = relationship === "child" ? "member" : "household";
+			expect(own?.links).toMatchObject([
+				{ identifier: "parent", relationship, targetType },
+			]);
+			const wire = planFormCaseWire(reading.doc, form.uuid);
+			const sourceIndices = actionsOf(reading.app).open_cases[0]?.case_indices;
+			expect(
+				wire.kind === "advanced" && wire.actions.open_cases[0]?.case_indices,
+			).toEqual(sourceIndices);
 		}
 	});
 
-	it("stands an index to a refused load under that load's finding", async () => {
+	it("retains a registration linked to one selection of a different type", async () => {
 		const { doc } = memberFollowup();
 		const reading = await readMenusOf(doc, (app) => {
 			const actions = actionsOf(app);
@@ -1302,10 +1551,29 @@ describe("an open action's index beside the menus' parent selection", () => {
 			actions.open_cases = [memberOpen(String(household?.case_tag), "child")];
 		});
 		expect(reading.outcome.defects).toEqual([]);
-		expect(codesOf(reading)).toContain(
-			`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
+		expect(codesOf(reading)).toEqual([]);
+		if (!reading.doc) throw new Error("Expected a held read");
+		const form = formNamed(reading.doc, "Under test");
+		expect(form.type).toBe("registration");
+		const steps = formCaseSelections(reading.doc, form.uuid);
+		expect(steps.map((step) => step.caseType)).toEqual(["household"]);
+		const own = form.caseOperations?.find(
+			(operation) => operation.action === "own",
 		);
-		expect(codesOf(reading)).not.toContain("unrecognized:schema:CaseIndex.tag");
+		const selected = steps[0];
+		if (!selected) throw new Error("Expected the household choice");
+		expect(own?.links).toMatchObject([
+			{
+				targetType: "household",
+				target: {
+					kind: "expression",
+					expr: term({
+						kind: "session-datum",
+						datum: { kind: "form-selection", selection: selected.uuid },
+					}),
+				},
+			},
+		]);
 	});
 });
 

@@ -29,6 +29,7 @@ import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	knownCaseTypesOf,
+	knownFormOpenings,
 	knownLanguageCodesOf,
 	type ReadDraft,
 	type ReaderInput,
@@ -45,6 +46,7 @@ import {
 } from "@/lib/commcare/wireIdentity";
 import type { FormParseIssueCode } from "@/lib/commcare/xpath/formParseIssues";
 import type { CheckErrorCode } from "@/lib/domain/expression/typeChecker";
+import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import { isMediaKind } from "@/lib/domain/multimedia";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import type { Finding } from "@/lib/publish/hqFindings";
@@ -308,6 +310,7 @@ export function* makeHqChangeReadingsSteps(
 ): Generator<void, HqChangeReadingsResult, void> {
 	const { appId, reference, data } = input;
 	const lookup = readerLookupContext(data);
+	const identity = targetWireIdentity(input.overrides);
 	const resolver = matchingResolver(
 		appId,
 		externalIdentityMap(
@@ -316,7 +319,9 @@ export function* makeHqChangeReadingsSteps(
 			lookupWireNaming(lookup.definitions),
 		),
 	);
+	const baseSource = sourceFromBaseline(input.baselineSource);
 	const shared = {
+		knownOpenings: knownFormOpenings(reference.doc, baseSource),
 		appId,
 		target: input.target,
 		resolver,
@@ -326,6 +331,7 @@ export function* makeHqChangeReadingsSteps(
 		appStrings: readingAppStrings(lookup),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
+		knownFormEntryChoices: knownFormEntryChoicesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
 		...(input.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: input.saveOnlyEditedApplied,
@@ -335,7 +341,6 @@ export function* makeHqChangeReadingsSteps(
 		}),
 	} satisfies Omit<ReaderInput, "source" | "modules" | "media">;
 
-	const baseSource = sourceFromBaseline(input.baselineSource);
 	yield;
 	const current =
 		data.suiteDetails && normalizedHqAppSource(input.now.source.raw);
@@ -348,7 +353,10 @@ export function* makeHqChangeReadingsSteps(
 				? data.suiteDetails
 				: undefined,
 		source: baseSource,
-		modules: alignedFromSource(baseSource),
+		modules: alignedFromSource(baseSource, {
+			doc: reference.identityDoc,
+			identity,
+		}),
 		media: baseIndex(
 			baseSource,
 			appId,
