@@ -2004,8 +2004,16 @@ function caseOperationAnswerScopes(
 	answers: SubmissionOperationAnswers,
 	operations: readonly CaseOperation[],
 ): Pick<CaseOperationProgram, "scopes" | "scopeOrder" | "effectOrder"> {
-	const answerMap = (entries: readonly SubmissionAnswerEntry[]) =>
-		new Map(entries.map((entry) => [asUuid(entry.fieldUuid), entry.value]));
+	const bindings = (entries: readonly SubmissionAnswerEntry[]) => {
+		const formFields = new Map<Uuid, SubmissionAnswerEntry["value"]>();
+		const absentFields = new Set<Uuid>();
+		for (const { fieldUuid, value, absent } of entries) {
+			const field = asUuid(fieldUuid);
+			formFields.set(field, value);
+			if (absent) absentFields.add(field);
+		}
+		return { formFields, ...(absentFields.size > 0 && { absentFields }) };
+	};
 	const repeats = caseOperationRepeatScopes(doc, formUuid);
 	const supplied = new Map(
 		answers.repeats.map((scope) => [scope.repeat, scope]),
@@ -2029,12 +2037,10 @@ function caseOperationAnswerScopes(
 			);
 	}
 	const scopes: OperationScopeIterations[] = [
-		{ iterations: [{ formFields: answerMap(answers.root) }] },
+		{ iterations: [bindings(answers.root)] },
 		...repeats.map(({ repeat }) => ({
 			repeat,
-			iterations: (supplied.get(repeat)?.iterations ?? []).map((entries) => ({
-				formFields: answerMap(entries),
-			})),
+			iterations: (supplied.get(repeat)?.iterations ?? []).map(bindings),
 		})),
 	];
 	const layout = caseEffectLayout(doc, formUuid, operations);

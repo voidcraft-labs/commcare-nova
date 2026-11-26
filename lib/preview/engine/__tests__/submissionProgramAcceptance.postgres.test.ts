@@ -211,6 +211,7 @@ describe("engine → builder → executor acceptance", () => {
 		const form = testUuid("repeated-worker-form");
 		const repeat = testUuid("repeated-worker-members");
 		const answer = testUuid("repeated-worker-member-name");
+		const showAnswer = testUuid("repeated-worker-show-member");
 		const property = testUuid("repeated-worker-property");
 		const doc = buildDoc(
 			{
@@ -230,7 +231,16 @@ describe("engine → builder → executor acceptance", () => {
 										id: "members",
 										repeat_mode: "user_controlled",
 										children: [
-											f({ kind: "text", uuid: answer, id: "member_name" }),
+											f({ kind: "text", uuid: showAnswer, id: "show_member" }),
+											f({
+												kind: "text",
+												uuid: answer,
+												id: "member_name",
+												relevant: eq(
+													term(formField(showAnswer)),
+													literal("yes"),
+												),
+											}),
 										],
 									}),
 								],
@@ -279,7 +289,7 @@ describe("engine → builder → executor acceptance", () => {
 		const apply = async (
 			entryKey: string,
 			rows: Awaited<ReturnType<typeof workerRows>>,
-			members: readonly string[],
+			members: readonly (string | null)[],
 		) => {
 			const audience = {
 				app: APP_ID,
@@ -313,9 +323,22 @@ describe("engine → builder → executor acceptance", () => {
 			const engine = new FormEngine(input);
 			for (const [index, member] of members.entries()) {
 				engine.addRepeat("/data/members");
-				engine.setValue(`/data/members[${index}]/member_name`, member);
+				const path = `/data/members[${index}]`;
+				engine.setValue(`${path}/show_member`, member === null ? "no" : "yes");
+				if (member !== null) engine.setValue(`${path}/member_name`, member);
 			}
 			const mutation = engine.computeSubmissionMutation({ entryKey });
+			expect(
+				mutation.operationAnswers?.repeats[0].iterations.map((entries) =>
+					entries.find((entry) => entry.fieldUuid === answer),
+				),
+			).toEqual(
+				members.map((member) => ({
+					fieldUuid: answer,
+					value: member ?? "",
+					...(member === null && { absent: true }),
+				})),
+			);
 			const projection = validateCaptureSubmissionProjection(mutation);
 			const built = buildCaseOperationProgramFromDoc({
 				device: webAppsDevice(),
@@ -383,6 +406,17 @@ describe("engine → builder → executor acceptance", () => {
 				properties: { visit_note: "last" },
 			},
 		]);
+		await apply(entry(5), await workerRows(), ["retained", null]);
+		expect(await workerRows()).toMatchObject([
+			{
+				case_id: SECOND_SESSION_CASE,
+				properties: { visit_note: "retained" },
+			},
+		]);
+		await apply(entry(6), await workerRows(), ["replaced", ""]);
+		const [worker] = await workerRows();
+		expect(worker.case_id).toBe(SECOND_SESSION_CASE);
+		expect(worker.properties).not.toHaveProperty("visit_note");
 	});
 
 	it("applies a root worker update only on the committed condition to the scoped row", async () => {

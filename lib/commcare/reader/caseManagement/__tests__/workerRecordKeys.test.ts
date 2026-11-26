@@ -33,7 +33,7 @@ import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { entryDatumSupplies } from "@/lib/domain/entryDatumSupplies";
-import { eq, formField, literal, term } from "@/lib/domain/expression";
+import { eq, formField, idOf, literal, term } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
 import {
 	advancedFixture,
@@ -441,7 +441,10 @@ describe("operation-level execution of a Save to Case worker update", () => {
 		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		const body = exportedBody(doc);
-		const wireForm = body.modules[0].forms[0];
+		const [module] = body.modules as {
+			forms: { actions?: { usercase_update?: { update?: object } } }[];
+		}[];
+		const [wireForm] = module.forms;
 		expect(wireForm.actions?.usercase_update?.update).toEqual({});
 		expect(JSON.stringify(body)).toContain("/data/kids/nova_operations/worker");
 		expect(
@@ -460,6 +463,114 @@ describe("operation-level execution of a Save to Case worker update", () => {
 				forEach: { repeat: KIDS },
 				writes: [{ property: WRITTEN, value: term(formField(NOTE)) }],
 			}),
+		);
+	});
+
+	it("refuses a repeated worker write whose producer adds an inherited operation guard", () => {
+		const createUuid = testUuid("repeated-worker-source-create");
+		const condition = eq(term(formField(KID)), literal("keep"));
+		const mixed = (dependent: boolean, guarded: boolean) =>
+			produce(
+				workerApp({
+					forEach: { repeat: KIDS },
+					writes: [
+						{
+							property: WRITTEN,
+							value: dependent ? idOf(createUuid) : term(formField(KID)),
+						},
+					],
+				}),
+				(draft) => {
+					draft.forms[FORM].caseOperations?.splice(-1, 0, {
+						uuid: createUuid,
+						id: "new_patient",
+						action: "create",
+						caseType: "patient",
+						target: { kind: "new" },
+						forEach: { repeat: KIDS },
+						name: term(formField(KID)),
+						...(guarded && { condition }),
+					});
+				},
+			);
+		for (const doc of [mixed(false, true), mixed(true, false)]) {
+			const verdict = mutationCommitVerdict(
+				doc,
+				[],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		}
+		const held = mutationCommitVerdict(
+			mixed(true, true),
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			held.ok ? [] : held.findings.map((finding) => finding.details),
+		).toEqual([
+			expect.objectContaining({
+				reason: "worker-record-facet",
+				operationId: "worker",
+				facet: "forEach",
+			}),
+		]);
+	});
+
+	it("keeps an independently addressed worker alias out of a form with a repeated worker write", () => {
+		const selection = testUuid("repeated-worker-alias-selection");
+		const aliasUuid = testUuid("repeated-worker-alias-change");
+		const mixed = (repeated: boolean) =>
+			produce(
+				workerApp(repeated ? { forEach: { repeat: KIDS } } : {}),
+				(draft) => {
+					draft.forms[FORM].caseSelections = [
+						{
+							uuid: selection,
+							name: "Worker",
+							tag: "worker",
+							caseType: "commcare-user",
+							source: { kind: "worker-record" },
+						},
+					];
+					draft.forms[FORM].caseOperations?.push({
+						uuid: aliasUuid,
+						id: "worker_alias",
+						action: "update",
+						caseType: "commcare-user",
+						target: {
+							kind: "expression",
+							expr: term({
+								kind: "session-datum",
+								datum: { kind: "form-selection", selection },
+							}),
+						},
+						writes: [{ property: WRITTEN, value: term(literal("alias")) }],
+					});
+				},
+			);
+		const held = mutationCommitVerdict(
+			mixed(true),
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			held.ok ? [] : held.findings.map((finding) => finding.details),
+		).toContainEqual(
+			expect.objectContaining({
+				reason: "worker-record-twice",
+				operationUuid: aliasUuid,
+			}),
+		);
+		const rootOnly = mutationCommitVerdict(
+			mixed(false),
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			rootOnly.ok ? [] : rootOnly.findings.map((finding) => finding.details),
+		).not.toContainEqual(
+			expect.objectContaining({ reason: "worker-record-twice" }),
 		);
 	});
 

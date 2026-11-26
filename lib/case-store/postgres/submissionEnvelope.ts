@@ -59,6 +59,7 @@ import {
 	type CaseWriteVia,
 	caseOperationRunsPerSelectedCase,
 	casePropertyDataTypes,
+	caseWriteValueField,
 	deriveAuthoredCaseId,
 	isFacetWriteThroughIndex,
 	prepareCaseScalarTextValue,
@@ -310,6 +311,7 @@ interface PhysicalInstance {
 	readonly perSelectedCase: boolean;
 	readonly sessionCaseId: string | undefined;
 	readonly formFields: ReadonlyMap<Uuid, FormFieldBindingValue>;
+	readonly absentFields?: ReadonlySet<Uuid>;
 }
 
 /**
@@ -431,6 +433,7 @@ function expandPhysicalInstances(
 					perSelectedCase,
 					sessionCaseId,
 					formFields: bindings.formFields,
+					absentFields: bindings.absentFields,
 				});
 			}
 		};
@@ -1718,6 +1721,15 @@ async function resolveOperationProgram(
 		write?: number;
 		laterOwner?: true;
 	}> = [];
+	const skippedWrites = new Map<number, Set<number>>();
+	const skipWrite = (instance: number, write: number) => {
+		let writes = skippedWrites.get(instance);
+		if (writes === undefined) {
+			writes = new Set();
+			skippedWrites.set(instance, writes);
+		}
+		writes.add(write);
+	};
 	for (const [index, instance] of instances.entries()) {
 		if (!executing[index]) continue;
 		const operation = instance.envelope.operation;
@@ -1742,6 +1754,19 @@ async function resolveOperationProgram(
 			});
 		}
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
+			// The repeated worker block's direct-answer write has a wire
+			// presence guard. A relevant blank still participates.
+			if (
+				operation.target.kind === "worker-record" &&
+				operation.forEach !== undefined &&
+				instance.absentFields !== undefined
+			) {
+				const answer = caseWriteValueField(write.value);
+				if (answer && !answer.link && instance.absentFields.has(answer.field)) {
+					skipWrite(index, writeIndex);
+					continue;
+				}
+			}
 			if (write.condition === undefined) continue;
 			leafGuardSlots.push({ instance: index, write: writeIndex });
 			leafGuardRequests.push({
@@ -1764,7 +1789,6 @@ async function resolveOperationProgram(
 	);
 	const skippedOwners = new Set<number>();
 	const skippedLaterOwners = new Set<number>();
-	const skippedWrites = new Map<number, Set<number>>();
 	for (const [slotIndex, slot] of leafGuardSlots.entries()) {
 		if (leafGuardResults[slotIndex] === true) continue;
 		if (slot.laterOwner) {
@@ -1775,12 +1799,7 @@ async function resolveOperationProgram(
 			skippedOwners.add(slot.instance);
 			continue;
 		}
-		let writes = skippedWrites.get(slot.instance);
-		if (writes === undefined) {
-			writes = new Set();
-			skippedWrites.set(slot.instance, writes);
-		}
-		writes.add(slot.write);
+		skipWrite(slot.instance, slot.write);
 	}
 
 	// Phase: values + runtime targets for executing instances and writes.
