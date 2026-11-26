@@ -124,6 +124,8 @@ def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, andro
             assert len(observations) == 1, (label, blobs.get_json(answer["hq"]), installed["walks"].keys())
             (results,) = observations
             assert results[0]["iconCenterARGB"] == "ff49a274"  # The uploaded PNG’s one pixel.
+            assert results[0]["lookupName"] == "Find a visit"
+            assert results[0]["toolbarTitle"] == "Scan Barcode"
             assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], []]
             assert [result["searchText"] for result in results] == ["Cedar", "Juniper", "none-matches"]
             assert all(result["action"] == ACTION for result in results)

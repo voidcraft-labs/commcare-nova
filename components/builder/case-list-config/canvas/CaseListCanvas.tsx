@@ -220,6 +220,7 @@ export function CaseListCanvas({
 						onChange={onWordingChange}
 					/>
 					<CaseListDeviceLookupSetting
+						key={moduleUuid}
 						moduleUuid={moduleUuid}
 						disabled={caseType === undefined || tile?.namedSlots !== undefined}
 						value={config.deviceLookup}

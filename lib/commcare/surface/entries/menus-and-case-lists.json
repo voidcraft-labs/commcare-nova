@@ -9042,7 +9042,7 @@
 		],
 		"valueClass": "nonempty-button-label-on-a-fixed-text-lookup",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the Android lookup has a required label in the current Case List editor",
+		"dispositionCell": "**HELD**: the current Case List editor requires the lookup name. Android’s short-list toolbar uses its Scan Barcode title.",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
