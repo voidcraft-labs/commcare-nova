@@ -145,6 +145,10 @@ const REGISTRATION = {
 		take,
 		"case-list-form-pointing-at-a-follow-up-form-of-the-parent-case",
 	),
+	missingCreatedResult: blockClaims(
+		refuse,
+		"case-list-form-return-search-needs-the-created-case",
+	),
 	hiddenDefault: blockClaims(
 		take,
 		"case-list-form-post-form-workflow-default-on-the-hidden-module-shape",
@@ -998,6 +1002,18 @@ function gateFindings(
 		);
 		if (found.length === 0) continue;
 		refused.add(block.host.uuid);
+		if (
+			found.some(
+				(error) =>
+					error.code === "CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT",
+			)
+		) {
+			ctx.accounting.finding(
+				REGISTRATION.missingCreatedResult[block.host.docType],
+				caseListPlaceOf(block.host),
+			);
+			continue;
+		}
 		const shared = found.find(
 			(error) =>
 				(error.details as { reason?: unknown } | undefined)?.reason ===

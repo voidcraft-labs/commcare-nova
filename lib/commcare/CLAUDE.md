@@ -2210,6 +2210,13 @@ that scalar `uuid()` as a selected-entities instance. Admission reports
 `CASE_LIST_REGISTRATION_MULTIPLE_RETURN`; never widen the instance allowlist
 or locally scalarize a query that HQ regenerates as a collection.
 
+A return frame can fetch the created case through HQ's case fixture. The
+frame for a registration that skips creating the case can still contain that
+query. HQ then accepts the form but returns 404 to Formplayer for the case
+that never existed. Admission and HQ reading refuse only conditional case
+creation with this return query (`CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT`).
+An explicit form destination or a return frame without that query can still
+use conditional creation.
 
 `Module.caseListRegistrationForm` (`lib/domain/menuForms.ts::afterEmptySearchRegistrationFormOf`
 for the arm on no menu, `alwaysOfferedRegistrationOf` for the arm that stays

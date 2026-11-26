@@ -45,6 +45,9 @@
  *     `Form.get_registration_actions`). So its own arm takes Case
  *     Management's slot, and no basic child of the host's type stands at its
  *     root (`basicCaseSlots.ts::rootBasicSubcaseCreates`).
+ *   - `CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT`: a return query keyed
+ *     to a case that might not be created receives a 404 from HQ after the
+ *     form saves.
  *   - `CASE_LIST_REGISTRATION_MULTIPLE_RETURN`: a several-case host can't
  *     carry the one new case back into a selection of several.
  *
@@ -76,6 +79,13 @@ import {
 } from "@/lib/domain/caseListActionTargets";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
 import { advancedFormLoads } from "../../../advancedSelections";
+import { emissionPlan } from "../../../emissionPlan";
+import {
+	caseListActionReturnFrames,
+	entrySessionDatums,
+	formLinkProjectionContext,
+	moduleFrameActionsBuildable,
+} from "../../../formLinkProjection";
 import { emittedModuleKind } from "../../../moduleKind";
 import { caseListActionUndeclaredInstances } from "../../../suite/case-list/actionCondition";
 import { type ValidationError, validationError } from "../../errors";
@@ -277,10 +287,67 @@ export function caseListRegistrationApp(doc: BlueprintDoc): ValidationError[] {
 		const mod = doc.modules[moduleUuid];
 		const slot = mod?.caseListRegistrationForm;
 		if (mod === undefined || slot === undefined) return [];
-		return slot.kind === "after-empty-search"
-			? afterEmptySearchFindings(doc, mod, moduleUuid, slot.formUuid)
-			: alwaysFindings(doc, mod, moduleUuid, slot.formUuid, slot.afterSubmit);
+		const errors =
+			slot.kind === "after-empty-search"
+				? afterEmptySearchFindings(doc, mod, moduleUuid, slot.formUuid)
+				: alwaysFindings(doc, mod, moduleUuid, slot.formUuid, slot.afterSubmit);
+		const conditionalReturn = conditionalRegistrationReturn(doc, mod);
+		if (conditionalReturn) errors.push(conditionalReturn);
+		return errors;
 	});
+}
+
+/** HQ saves the form before it rebuilds the return frame. A query in that
+ * frame can use the ID allocated before the form ran even when the form never
+ * created the case. HQ's case fixture returns 404 on that ID. */
+function conditionalRegistrationReturn(
+	doc: BlueprintDoc,
+	host: Module,
+): ValidationError | undefined {
+	const slot = host.caseListRegistrationForm;
+	const returned = caseListRegistrationReturnOf(doc, host.uuid);
+	if (
+		!slot ||
+		!moduleFormsReadSearch(host) ||
+		!returned ||
+		returned.kind === "own"
+	)
+		return undefined;
+	const form = doc.forms[slot.formUuid];
+	if (!form) return undefined;
+	const target = slot.kind === "always" ? slot.target : undefined;
+	const condition =
+		target?.kind === "created-case"
+			? form.caseOperations?.find(
+					(operation) =>
+						operation.uuid === target.operationUuid &&
+						operation.action === "create",
+				)?.condition
+			: form.openCondition;
+	if (!condition || condition.kind === "match-all") return undefined;
+	const projected = emissionPlan(doc).doc;
+	const owner = moduleUuidOfForm(projected, form.uuid);
+	if (!owner || !moduleFrameActionsBuildable(projected, [host.uuid, owner]))
+		return undefined;
+	const ctx = formLinkProjectionContext(projected, {
+		entryMetadataOnly: true,
+		expressionDoc: doc,
+	});
+	const frames = caseListActionReturnFrames(
+		projected,
+		ctx,
+		host.uuid,
+		entrySessionDatums(projected, ctx, owner, form.uuid),
+	);
+	const withoutCase = returned.kind === "new-case" ? frames[1] : frames[0];
+	if (!withoutCase?.newCaseSearchModuleUuids.length) return undefined;
+	return validationError(
+		"CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT",
+		"module",
+		`“${form.name}” can save without creating the case “${host.name}” needs to reopen its search results. You can have the form always create that case or choose First menu after submit.`,
+		{ moduleUuid: host.uuid, moduleName: host.name },
+		{ formUuid: form.uuid, formName: form.name },
+	);
 }
 
 function afterEmptySearchFindings(

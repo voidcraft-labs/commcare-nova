@@ -229,8 +229,12 @@ def test_reaching_shared_forms_by_android_intent_keeps_each_routes_command_and_b
         "private_notes": ("m0-f3", "Visits", "Private notes"),
         "clinic_private": ("m1-f3", "Clinic", "Private notes"),
     }
+    paths = [["m0", "m0-f1"], ["m1", "m1-f1"]]
     navs = _navs(
-        android_documents["targeted-listed-forms"], "listed-forms", endpoints=[{"id": key} for key in routes]
+        android_documents["targeted-listed-forms"],
+        "listed-forms",
+        endpoints=[{"id": key} for key in routes],
+        paths=paths,
     )
     for endpoint, (command, menu, title) in routes.items():
         record = navs[f"endpoint:{endpoint}"]
@@ -239,6 +243,13 @@ def test_reaching_shared_forms_by_android_intent_keeps_each_routes_command_and_b
         assert opened["screen"] == FORM_ENTRY and opened["session"]["command"] == command, (endpoint, opened)
         assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (endpoint, opened)
         assert opened["form"]["FormEntryActivity.getHeaderString"] == f"Field visits > {menu} > {title}", opened
+
+    for path, menu in zip(paths, ("Visits", "Clinic"), strict=True):
+        steps = _steps(navs[f"path:{'/'.join(path)}"])
+        opened = next(step for step in steps if step["screen"] == FORM_ENTRY)
+        assert opened["session"]["command"] == path[-1], opened
+        assert opened["form"]["loaded"] and opened["form"].get("alert") is None, opened
+        assert opened["form"]["FormEntryActivity.getHeaderString"] == f"Field visits > {menu} > Visit notes", opened
 
 
 def test_a_form_a_deep_link_opened_ends_the_visit_submitted_or_left(android_documents, hq):
@@ -277,12 +288,13 @@ def test_a_form_a_deep_link_opened_ends_the_visit_submitted_or_left(android_docu
     assert any(step["screen"] == LIST for step in fresh), fresh
 
 
-def test_list_actions_open_the_parent_form_or_the_form_creating_a_member(android_documents, hq):
+@pytest.mark.parametrize("layout", ["basic", "advanced"])
+def test_list_actions_open_the_parent_form_or_the_form_creating_a_member(android_documents, hq, layout):
     paths = [
         ["m2", "@case:household-2", "@action:0"],
         ["m1", "@case:household-2", "@action:0"],
     ]
-    navs = _navs(android_documents["case-list-action-basic"], "list-action-roles", paths=paths)
+    navs = _navs(android_documents[f"case-list-action-{layout}"], "list-action-roles", paths=paths)
     for path, command in zip(paths, ("m3-f0","m3-f1"), strict=True):
         steps = _steps(navs["path:"+"/".join(path)])
         forms = [step for step in steps if step["screen"] == FORM_ENTRY]
