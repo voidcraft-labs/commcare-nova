@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	ROUTE,
 	twoMenus,
@@ -26,13 +26,23 @@ const NOTES = testUuid("listed-surveys-notes");
 function surveysListed(withLink: boolean, caseType?: string) {
 	const doc = buildDoc({
 		...(caseType !== undefined && {
-			caseTypes: [{ name: caseType, properties: [] }],
+			caseTypes: [
+				{
+					name: caseType,
+					properties: [{ name: "case_name", label: proseText("Site name") }],
+				},
+			],
 		}),
 		modules: [
 			{
 				uuid: SURVEYS,
 				name: "Surveys",
-				...(caseType !== undefined && { caseType }),
+				...(caseType !== undefined && {
+					caseType,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+				}),
 				forms: [
 					{
 						uuid: NOTES,
@@ -49,6 +59,9 @@ function surveysListed(withLink: boolean, caseType?: string) {
 		id: "clinic",
 		name: "Clinic",
 		entryPoint: { uuid: testUuid("listed-surveys-link"), id: "clinic" },
+		...(caseType !== undefined && {
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Site" }]),
+		}),
 		formsFromMenu: {
 			menuUuid: SURVEYS,
 			...(withLink && {
@@ -100,6 +113,6 @@ describe("a listing menu's deep links to single forms", () => {
 	it("are held where the menu it lists has a case type though its forms are all surveys", () => {
 		const doc = surveysListed(true, "site");
 		expect(moduleCaseTypeForActions(doc, SURVEYS)).toBe("");
-		expect(linkFindings(doc)).toEqual([]);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 });
