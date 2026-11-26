@@ -1,8 +1,8 @@
 // lib/domain/labelForms.ts
 //
-// A question's label may hold three more texts beside the label itself, each
-// its own prose slot with its own translation, each written as one more form
-// of the label's itext entry:
+// A question's label may hold three more texts, each in a prose slot with
+// its own translation and its own form in the label's itext entry. Group,
+// repeat and section labels carry extended text alone.
 //
 //   - `extended_text` (`<value form="long">`): the text a runtime shows in
 //     place of the label where the label has no markdown form. Core's
@@ -69,8 +69,7 @@ export const LABEL_TEXT_SLOT_LABELS: Readonly<Record<LabelTextSlot, string>> = {
 	spoken_text: "Spoken text",
 };
 
-/** Whether a field kind carries the label text slots: exactly the kinds whose
- *  label carries media, a visible question's label. */
+/** Whether a field kind carries any of the label text slots. */
 export function fieldKindCarriesLabelTexts(kind: FieldKind): boolean {
 	return fieldKindDeclaresKey(kind, "extended_text");
 }

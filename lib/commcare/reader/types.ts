@@ -329,7 +329,17 @@ export interface ReadFacts {
 	readonly mediaReferences: readonly ReadMediaReference[];
 	/** Each mapped itext reference on a slot that holds no media in Nova. HQ may require the file at install. */
 	readonly unheldMedia: readonly (Omit<PendingMedia, "resolution"> & {
-		readonly role: "hint" | "constraintMsg" | "label";
+		readonly role:
+			| readonly [
+					| "label"
+					| "hint"
+					| "help"
+					| "constraintMsg"
+					| "add-empty-caption"
+					| "add-caption",
+			  ]
+			| readonly ["item", string];
+		readonly form: MediaKind | "video-inline";
 		readonly languageCode: string;
 	})[];
 	/** Every media reference handed off: no file for its path. */

@@ -721,6 +721,7 @@ const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	data: [],
 	logic: [xpathEntry<GroupField, "relevant">("relevant", "Show when")],
 	ui: [
+		textEntry<GroupField, "extended_text">("extended_text", "Extended text"),
 		{
 			key: "fieldList",
 			component: FieldListEditor,
@@ -739,6 +740,7 @@ const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 	data: [{ key: "repeat_mode", component: RepeatRowsEditor, label: "Rows" }],
 	logic: [xpathEntry<RepeatField, "relevant">("relevant", "Show when")],
 	ui: [
+		textEntry<RepeatField, "extended_text">("extended_text", "Extended text"),
 		textEntry<RepeatField, "addFirstLabel">(
 			"addFirstLabel",
 			"First entry button",

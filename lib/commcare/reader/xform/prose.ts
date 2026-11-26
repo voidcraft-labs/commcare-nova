@@ -1350,9 +1350,11 @@ const MEDIA_FORMS = new Set(["image", "audio", "video"]);
 /** Whether a slot's media reader holds a value of this form: an image, an audio or a video on
  *  every slot that holds media, and an inline video on a question's label alone, the one text
  *  commcare-android asks for its `video-inline` form (`QuestionWidget.java`). */
-function heldMediaForm(owner: ItextOwner, form: string): boolean {
-	if (MEDIA_FORMS.has(form)) return true;
-	return form === "video-inline" && mediaHolding(owner) === "label_media";
+function putsMediaInDocument(owner: ItextOwner, form: string): boolean {
+	return (
+		MEDIA_FORMS.has(form) ||
+		(form === "video-inline" && mediaHolding(owner) === "label_media")
+	);
 }
 
 /** The media a slot holds, by the kind of its field. */
@@ -1379,7 +1381,8 @@ function writesMedia(
 	const holding = mediaHolding(owner);
 	if (holding === "unheld") return false;
 	for (const held of forms.values())
-		for (const form of held.keys()) if (heldMediaForm(owner, form)) return true;
+		for (const form of held.keys())
+			if (putsMediaInDocument(owner, form)) return true;
 	return false;
 }
 
@@ -1489,17 +1492,20 @@ function takeLabelText(
 	cursor: XmlCursor,
 	value: Element,
 	slot: LabelTextSlot,
+	owner: ItextOwner,
 ): void {
-	cursor.take({ element: value }, X.labelText[slot]).value;
-	cursor.partOf({ element: value, attribute: "form" }, X.labelText[slot]);
+	const claim =
+		slot === "extended_text" && CONTAINER_KINDS.has(owner.field.kind)
+			? X.longFormOnContainer
+			: X.labelText[slot];
+	cursor.take({ element: value }, claim).value;
+	cursor.partOf({ element: value, attribute: "form" }, claim);
 }
 
-/** Whether a slot is a question's label, whose text Nova holds the other texts of: every
- *  question's label but a container's (`fieldKindCarriesLabelTexts`). */
+/** Whether this label carries extended text. QR code and speech are decided by the field kind. */
 function heldLabelTexts(owner: ItextOwner): boolean {
 	return (
 		owner.slot === "label" &&
-		!CONTAINER_KINDS.has(owner.field.kind) &&
 		fieldKindDeclaresKey(owner.field.kind, "extended_text")
 	);
 }
@@ -1531,6 +1537,7 @@ function readLabelTexts(
 	const context: ValueContext = { cursor, accounting, scope, place };
 	const out: LabelTextReading[] = [];
 	for (const slot of LABEL_TEXT_SLOTS) {
+		if (!fieldKindDeclaresKey(owner.field.kind, slot)) continue;
 		const wire = LABEL_TEXT_WIRE_FORMS[slot];
 		const elements = new Map<LanguageTag, Element>();
 		for (const [language, held] of forms) {
@@ -1561,7 +1568,7 @@ function readLabelTexts(
 							X.blankFirstLanguage,
 							place,
 						);
-					else takeLabelText(cursor, value.element, slot);
+					else takeLabelText(cursor, value.element, slot, owner);
 				}
 			continue;
 		}
@@ -1575,7 +1582,7 @@ function readLabelTexts(
 		if (first) {
 			for (const value of read.values()) {
 				claimFormValue(accounting, value.element, place);
-				takeLabelText(cursor, value.element, slot);
+				takeLabelText(cursor, value.element, slot, owner);
 			}
 			const registered = ownValue.parts.flatMap((part) =>
 				part.kind === "output" ? [part.output] : [],
@@ -1984,20 +1991,10 @@ function claimMarkdown(
 	return true;
 }
 
-/** A value of a form other than the default, markdown and the media its slot holds
- *  (`heldMediaForm`), claimed by the form it names. An inline video on any text but a question's
- *  label is not yet held: no runtime shows it there (Android asks a question's label alone,
- *  `QuestionWidget.java`; Formplayer sends no such form, `PromptToJson`), while HQ ships its file
- *  (`xform.py::video_references`).
- *  A question label's other texts are read by `readLabelTexts` (`heldLabelTexts`). On any other
- *  text a `long` form is what both runtimes show in place of the text, which Nova holds no slot
- *  for, so it is not yet held: Core reads `long` first and the default after it for a choice
- *  (`FormEntryPrompt.getSelectItemText`) and for a hint, a help text and a validation message
- *  its alert names (`localizeText` through `FormEntryCaption.getQuestionText`), and for a
- *  group's or repeat's header (Android `QuestionsView.java` reads the group's `getLongText()`,
- *  Formplayer sends it as the caption, `PromptToJson`). A `qrcode` or `tts` form there is read by
- *  no runtime: Android asks only a question's label for either (`QuestionWidget.addQuestionText`),
- *  and Core reads neither of any other text. */
+/** A form unknown to this text's prose and media readers. Containers carry
+ * extended labels. Core reads `long` on hints, help text, validation refusals
+ * and choices too, so those forms still have a placed refusal. Android reads
+ * QR and speech forms only on question labels. */
 function claimOtherForm(
 	input: ReadTextInput,
 	owner: ItextOwner,
@@ -2011,26 +2008,26 @@ function claimOtherForm(
 		form === undefined ||
 		form === "default" ||
 		form === "markdown" ||
-		heldMediaForm(owner, form)
+		MEDIA_FORMS.has(form) ||
+		form === "video-inline"
 	)
 		return;
 	if (form.startsWith("__nova_")) return;
 	const labelText = labelTextSlotOfWireForm(form);
-	if (labelText !== undefined && heldLabelTexts) return;
+	if (
+		labelText !== undefined &&
+		heldLabelTexts &&
+		fieldKindDeclaresKey(owner.field.kind, labelText)
+	)
+		return;
 	claimFormValue(input.accounting, value, place);
 	if (labelText !== undefined) {
 		if (labelText === "extended_text")
-			cursor.refuseSubtree(
-				value,
-				owner.slot === "label" ? X.longFormOnContainer : X.longFormOnOtherText,
-				place,
-			);
+			cursor.refuseSubtree(value, X.longFormOnOtherText, place);
 		else cursor.dropSubtree(value, X.labelTextElsewhere[labelText]);
 		return;
 	}
-	if (form === "video-inline")
-		cursor.refuseSubtree(value, X.videoInlineElsewhere, place);
-	else if (form === "short") cursor.accountSubtree(value, X.shortForm, place);
+	if (form === "short") cursor.accountSubtree(value, X.shortForm, place);
 	else if (form === "big-image")
 		cursor.refuseSubtree(
 			value,

@@ -279,7 +279,7 @@ describe("a question label's other texts", () => {
 		expect(fieldById(coded.draft.doc, "answer").qr_code).toBeUndefined();
 	});
 
-	it("refuses a group's long form as not yet held", async () => {
+	it("keeps a group's default and long forms as separately editable text", async () => {
 		const grouped = buildDoc({
 			appName: "Group text",
 			modules: [
@@ -310,9 +310,12 @@ describe("a question label's other texts", () => {
 				'$1<value form="long">The household</value>',
 			),
 		);
-		expect(headed.kind).toBe("account");
-		expect(
-			JSON.stringify(headed.kind === "account" ? headed.findings : []),
-		).toContain("long-form-on-a-group-or-repeat-label");
+		expect(headed.defects).toEqual([]);
+		if (headed.kind !== "read")
+			throw new Error(JSON.stringify(headed.findings));
+		expect(fieldById(headed.draft.doc, "household")).toMatchObject({
+			label: proseText("Household"),
+			extended_text: proseText("The household"),
+		});
 	});
 });

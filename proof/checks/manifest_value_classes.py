@@ -1493,6 +1493,17 @@ def label_text_missing_in_default(use, manifest):
     return form.default_translation is not None and form.default_translation not in values
 
 
+def inline_video_off_question_label(use, manifest):
+    """An inline video referenced by a text Android does not read as a question label."""
+    form, value = _itext_value(use)
+    if form is None:
+        return None
+    if value is None or value.get("form") != "video-inline":
+        return False
+    owners = form.long_text_owners.get(value.getparent().get("id"), ())
+    return not {"hint", "help", "alert", "message", "choice", "container-label"}.isdisjoint(owners)
+
+
 def _long_form_on(owners):
     """A ``long`` value whose itext entry is referenced by one of these question text owners."""
 
@@ -12378,6 +12389,7 @@ VALUE_CLASSES = {
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
+    "questions/video-inline-form-on-a-text-other-than-a-question-label": inline_video_off_question_label,
     "questions/long-form-on-a-hint-help-text-validation-message-or-choice": _long_form_on(
         {"hint", "help", "alert", "message", "choice"}
     ),

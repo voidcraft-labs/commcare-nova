@@ -414,7 +414,7 @@ export const FIELD_REFERENCE_SLOTS = [
 				slot,
 				path: slot,
 				kind: "prose",
-				appliesTo: LABEL_TEXT_KINDS,
+				appliesTo: slot === "extended_text" ? LABELED_KINDS : LABEL_TEXT_KINDS,
 			}) as const,
 	),
 	{

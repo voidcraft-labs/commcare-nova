@@ -28,6 +28,7 @@ import type { ReadContext } from "../context";
 import { shownText } from "../hqText";
 import { pointerToken } from "../jsonCursor";
 import { builtScopes, sameElementWhole } from "../sameElement";
+import type { ItextRecipient, ReadFacts } from "../types";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
@@ -37,13 +38,12 @@ import { claimFormValue, formText, type SlotText, valueIsBlank } from "./prose";
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
 
 /** The media forms a slot's text is read for: each role of a `Media` bundle, the kind of file
- *  it plays, and the `form` its values name. An inline video is a question label's alone
- *  (`prose.ts::heldMediaForm`): another text's `video-inline` form is claimed by its own entry
- *  where the text's other forms are. */
+ *  it plays, and the `form` its values name. Inline video plays on a question label.
+ *  Another text's inline video goes through first-publish review as unshown media. */
 const MEDIA_FORM_ROLES: readonly {
 	readonly role: MediaRole;
 	readonly kind: MediaKind;
-	readonly form: string;
+	readonly form: MediaKind | "video-inline";
 }[] = [
 	{ role: "image", kind: "image", form: "image" },
 	{ role: "audio", kind: "audio", form: "audio" },
@@ -165,6 +165,28 @@ function setMedia(
 	};
 }
 
+/** The exact source comparison path of an unshown media recipient. */
+function unshownRole(
+	recipient: ItextRecipient,
+): ReadFacts["unheldMedia"][number]["role"] {
+	switch (recipient.slot) {
+		case "option_label":
+			if (recipient.choiceValue === null)
+				throw new Error(
+					"A choice's unshown media reached the reader without its value.",
+				);
+			return ["item", recipient.choiceValue];
+		case "validate_msg":
+			return ["constraintMsg"];
+		case "addFirstLabel":
+			return ["add-empty-caption"];
+		case "addLabel":
+			return ["add-caption"];
+		default:
+			return [recipient.slot];
+	}
+}
+
 /**
  * Reads the media forms of one text for one slot. Each slot that references the text reads its
  * media as its own. Each slot records its use and raises its own finding where refused. The
@@ -181,8 +203,8 @@ function readSlotMedia(
 	const place = slot.place;
 	const first = slot.first;
 	for (const { role, kind, form } of MEDIA_FORM_ROLES) {
-		if (role === "videoInline" && slot.media !== "label_media") continue;
 		const inline = role === "videoInline";
+		const unshownInline = inline && slot.media !== "label_media";
 		const values = new Map<LanguageTag, Element>();
 		for (const [language, forms] of slot.forms) {
 			const value = forms.get(form);
@@ -209,13 +231,19 @@ function readSlotMedia(
 		if (first)
 			for (const value of values.values())
 				claimFormValue(ctx.accounting, value, place);
-		if (slot.media === "unheld") {
+		if (slot.media === "unheld" || unshownInline) {
 			for (const [language, value] of values) {
+				if (unshownInline && !emitterMediaValue(value, form, scope)) continue;
+				const recipient = itextRecipient(slot.owner, language);
 				const path = ownText(value).trim();
 				const resolution = ctx.input.media.resolve(path);
 				if (resolution.kind === "asset") {
 					if (first)
-						cursor.accountSubtree(value, unheldClaim(slot, kind), place);
+						cursor.accountSubtree(
+							value,
+							unshownInline ? X.videoInlineElsewhere : unheldClaim(slot, kind),
+							place,
+						);
 					const translation = value.parent?.parent;
 					if (
 						!translation ||
@@ -230,15 +258,11 @@ function readSlotMedia(
 						mediaKind: kind,
 						place,
 						slot: "unheld_itext",
-						itextRecipients: [itextRecipient(slot.owner, language)],
+						itextRecipients: [recipient],
 						...inheritedAt(value === defaultValue),
 						languageCode: translation.attribs.lang,
-						role:
-							slot.owner.slot === "validate_msg"
-								? "constraintMsg"
-								: slot.owner.slot === "hint"
-									? "hint"
-									: "label",
+						form,
+						role: unshownRole(recipient),
 					});
 					continue;
 				}

@@ -999,6 +999,14 @@ A form behavior (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `valid
 
 ### Markdown itext
 
+Group, repeat and section labels can carry localized `extended_text`. Both
+workers use the long caption where the label has no Markdown form. Core
+always reads the long title when it generates repeat add and delete captions.
+For inline video outside question labels, the reader records the exact itext
+recipient, language and wire form as unshown. First-publish review removes
+that reference and keeps shared files or mappings wherever a held slot still
+uses them.
+
 A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`, and a help text unless its question holds `plainHelp`; a form holding `plainText` writes none and carries `vellum:ignore="markdown"`. A hint and a validation message never write one: no runtime reads it. CommCare holds markdown per text across every language, so no setting is per language. A question's extended text, QR code and spoken text (`lib/domain/labelForms.ts`) are written after the label's markdown form as its `long`, `qrcode` and `tts` forms, in every language, wherever the field holds them, a blank one included (`xform/builder.ts::addItext`); the reader holds them back on a question's label (`reader/xform/prose.ts::readLabelTexts`), refuses one the form's default language lacks, leaves a `long` form on any other text not yet held (both runtimes show it in place of a group's label, a hint, a help text, a validation message its alert names, or a choice: `FormEntryCaption.getQuestionText`, `FormEntryPrompt.getSelectItemText`), and drops a `qrcode` or `tts` form on any other text as inert. A question label's inline video (`label_media.videoInline`) is written as its `video-inline` form after the label's other media (`multimedia/itextMedia.ts`), which HQ's `xform.py::video_references` collects beside `video`, so its file ships; the reader holds it as the label's media (`reader/xform/media.ts`, one file, a file per language, and the media refusals), and leaves one on any other text not yet held (`prose.ts::heldMediaForm`): Android asks a question's label alone for it.
 
 `xform/builder.ts::buildLabelNodes` protects authored whitespace-only runs with

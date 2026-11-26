@@ -71,7 +71,10 @@ import {
 	usePresentationField,
 	useVisibleFieldOrder,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
-import { labelPresentation } from "@/lib/preview/labelPresentation";
+import {
+	labelPresentation,
+	presentedLabelText,
+} from "@/lib/preview/labelPresentation";
 import { requiredMarkShown } from "@/lib/preview/platform";
 import { questionRows } from "@/lib/preview/questionRows";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
@@ -324,6 +327,11 @@ const InteractiveField = memo(function InteractiveField({
 	)
 		return null;
 
+	const containerTitle =
+		field.kind === "group" || field.kind === "section"
+			? presentedLabelText(field, labelShowsAsTyped(textForm, field), state)
+			: undefined;
+
 	// Transparent group: an empty/absent label means the group has no UI
 	// chrome at runtime: matches CommCare's behavior for unlabeled
 	// `<group>` elements. Render the children inline at the same depth as
@@ -342,7 +350,7 @@ const InteractiveField = memo(function InteractiveField({
 	// above it (`groupLabel: "screen-header"`), which the pager draws.
 	if (
 		field.kind === "group" &&
-		((!field.label && !field.border) || rules.groupLabel === "screen-header")
+		((!containerTitle && !field.border) || rules.groupLabel === "screen-header")
 	) {
 		const childContext = [accessibleContext, transparentSectionId]
 			.filter(Boolean)
@@ -426,10 +434,10 @@ const InteractiveField = memo(function InteractiveField({
 							pageBreak={position > 1}
 							titleInset
 							title={
-								field.label ? (
+								containerTitle ? (
 									<LabelContent
-										label={field.label}
-										resolvedLabel={state.resolvedLabel}
+										label={containerTitle.template}
+										resolvedLabel={containerTitle.resolved}
 										isEditMode={false}
 										rendering={rules.labelMarkdown}
 										plainLabel={labelShowsAsTyped(textForm, field)}

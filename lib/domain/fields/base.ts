@@ -142,6 +142,7 @@ export const fieldBaseSchema = structuralFieldBase.extend({
  */
 export const containerFieldBase = structuralFieldBase.extend({
 	label: proseTemplateSchema.optional(),
+	extended_text: proseTemplateSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel: z.literal(true).optional(),
 });

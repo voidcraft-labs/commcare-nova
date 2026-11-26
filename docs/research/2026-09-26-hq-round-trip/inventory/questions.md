@@ -377,6 +377,8 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | choice `audio`, `video` | **HELD**: option `media.audio`/`video` | IGNORED / RUNS (select-one/multi, quick) | itext media |
 | choice `big-image` | **REFUSED**: broken at runtime (as for labels) | — | — |
 | group/repeat label text (+ markdown) | **HELD**: container `label`, markdown on (markdown off is `plainLabel`) | DIFFERENT (card header) / DIFFERENT (breadcrumb) | itext |
+| group/repeat or section `long` label | **HELD**: localized `extended_text` | RUNS / RUNS, Markdown wins on headings, generated repeat captions read the long title | `form="long"` |
+| inline video outside a question label | **INERT**: neither worker renders the video, and the first-publish review names the source references HQ packages | n/a | omit |
 | group/repeat label media, other than a missing file the Media section refuses | **INERT**: Vellum offers no media on group, question list or repeat labels (`javaRosa/plugin.js`, `isSpecialGroup`), and neither runtime renders it | n/a | omit (Nova emits container `label_media` today; no runtime reads it) |
 | `<output value="…">` of a question, case or user reference | **HELD**: prose `field-ref`/`case-ref`/`user-ref`/`user-property-ref` parts | RUNS / RUNS | `<output value>` |
 | a text whose `<output>`s differ between languages: a value one language's text shows and another's does not | **HELD-NEW**: a translation that shows other values than its source text | RUNS / RUNS | `<output value>` |

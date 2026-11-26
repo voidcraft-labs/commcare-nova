@@ -1480,7 +1480,7 @@ export const X = {
 	},
 	/** An inline video on a text other than a question's label, which no runtime shows. */
 	videoInlineElsewhere: one(
-		"refuse",
+		"account",
 		Q("video-inline-form-on-a-text-other-than-a-question-label"),
 		"itext-form:android/video-inline",
 	),
@@ -1513,7 +1513,7 @@ export const X = {
 	),
 	/** A `long` form on a group's or repeat's label, which both runtimes show as its header. */
 	longFormOnContainer: one(
-		"refuse",
+		"take",
 		Q("long-form-on-a-group-or-repeat-label"),
 		"itext-form:core/long",
 	),
