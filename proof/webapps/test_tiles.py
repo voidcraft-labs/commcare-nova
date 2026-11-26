@@ -223,6 +223,95 @@ def test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves(
     assert searched_cards[1][1] == ["Nurse Baraka", "Cal", "Referred"]
 
 
+def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from django.urls import reverse
+    from lxml import etree
+
+    from proof.editors.hq import HQAnswers, editor_build
+    from proof.hq import operations
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.ops import set_form_source
+
+    document = webapps_documents[GROUP_FILTER]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    kijiji = "targeted-kijiji-household"
+    riverside = "targeted-riverside-household"
+    targets = {
+        "Ada": riverside,
+        "Cal": riverside,
+        "Ben": kijiji,
+        "Dot": kijiji,
+    }
+    database = replace(database, cases=tuple(
+        replace(case, indices=(
+            ("parent", "household", kijiji, "child"),
+            *((("my-parent", "household", targets[case.name], "child"),) if case.name in targets else ()),
+        )) if case.case_type == "visit" else case
+        for case in database.cases
+    ))
+
+    def show_companion(root, _form):
+        xforms = "http://www.w3.org/2002/xforms"
+        model = root.find(f".//{{{xforms}}}model")
+        etree.SubElement(model, f"{{{xforms}}}instance", id="commcaresession", src="jr://instance/session")
+        notes = root.find(f".//{{{xforms}}}input[@ref='/data/notes']/{{{xforms}}}label")
+        notes.attrib.pop("ref", None)
+        notes.text = "Grouping target "
+        etree.SubElement(notes, f"{{{xforms}}}output", value="instance('commcaresession')/session/data/case_id_parent_ids")
+
+    with webapps_hq.project(document, "maximum") as project:
+        unit = project.unit
+        args = [unit.domain, project.app_id, project.module_id(0)]
+        page = pages.CASE_LIST
+        save_path = reverse(page.save, args=args)
+        editor_build()
+        answers = HQAnswers(unit, unit)
+        edited = editor_driver.run([
+            {"goto": reverse(page.view, args=args)},
+            {"until": "pages/ready", "arg": {"bar": page.bar}},
+            {"eval": """() => {
+                const field = document.getElementById('id_case_tile_group_by');
+                field.value = 'my-parent';
+                field.dispatchEvent(new Event('change', { bubbles: true }));
+            }"""},
+            {"click": f"{page.bar} > .btn:not(.disabled)"},
+            {"awaitRequest": {"method": "POST", "pathname": save_path}},
+            {"settle": True},
+        ], answer=answers)
+        answers.check()
+        assert edited["pageErrors"] == []
+        saved = [exchange for exchange in answers.exchanges
+                 if exchange.method == "POST" and exchange.path == save_path]
+        assert [exchange.status for exchange in saved] == [200]
+        group = operations.held_app(unit, project.app_id).modules[0].case_details.short.case_tile_group
+        assert (group.index_identifier, group.header_rows) == ("my-parent", 1)
+
+        authoring = Authoring(unit, {}, "hyphenated-tile-session", operation=unit.operation)
+        set_form_source(authoring, project.app_id, 0, 0, show_companion)
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Grouped visits"),
+                *steps.choose("Visits"),
+                steps.SCREEN,
+                *steps.click("#menu-region [id='row-targeted-ada-visit']"),
+                *steps.click("#select-case", visible=True, within=steps.WITHIN_MS),
+                steps.SCREEN,
+            ])
+    listed, selected = run.screens
+    evidence("hyphenated-tile-grouping", {"listed": listed, "selected": selected})
+    assert run.page_errors == []
+    assert listed["list"]["tiles"] is True
+    assert [_card(row) for row in listed["list"]["rows"]] == [
+        ("row-targeted-ada-visit", ["Nurse Amani", "Ada", "Seen", "Cal", "Referred"]),
+        ("row-targeted-ben-visit", ["Nurse Chiku", "Ben", "Referred", "Dot", "Referred"]),
+        ("row-targeted-eve-visit", ["Nurse Imani", "Eve", "Seen"]),
+    ]
+    assert selected["form"]["title"] == "Follow up"
+    assert f"Grouping target {riverside}" in str(selected["form"])
+
+
 def _to_visits(scenario):
     return steps.path(steps.open_app(f"Tile {scenario}"), steps.choose("Visits"), steps.choose("Record visit"))
 
