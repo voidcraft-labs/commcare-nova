@@ -277,6 +277,17 @@ async function readPlaces(
 	};
 }
 
+/**
+ * Nova holds one source-project location factory. A missing declaration or
+ * different physical layout on a reached scope cannot corroborate it.
+ */
+function commonLocations(sources: readonly (string | null | undefined)[]) {
+	if (sources.every((source) => source === "jr://fixture/locations"))
+		return "flat";
+	if (sources.every((source) => source === "jr://fixture/commtrack:locations"))
+		return "hierarchical";
+}
+
 /** Project settings for factories an expression in this source actually consumes.
  * A baseline can ask for the project setting, but only the current working
  * app can supply its rendered form or suite. */
@@ -375,14 +386,24 @@ export function sourceFactoryReads(input: {
 					input.working?.source === input.source &&
 					(formWitness || currentSuite)
 				) {
-					const observed = await readWorkingLocationFixture({
-						creds,
-						domain,
-						working: input.working,
-						witness: formWitness,
-						sameSuiteSource,
-						cancel,
-					});
+					// The same source bracket already authenticated these declarations.
+					// A location inside a form attachment still needs its own witness.
+					const scopes = [...detailReads].filter(([, ids]) =>
+						ids.has("locations"),
+					);
+					const scoped = formWitness ? [] : scopes;
+					const observed = scoped.length
+						? commonLocations(
+								scoped.map(([key]) => suiteDetails?.get(key)?.get("locations")),
+							)
+						: await readWorkingLocationFixture({
+								creds,
+								domain,
+								working: input.working,
+								witness: formWitness,
+								sameSuiteSource,
+								cancel,
+							});
 					if (observed !== undefined)
 						sourceProjectFactories.locations = observed;
 				}

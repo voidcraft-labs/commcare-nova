@@ -520,7 +520,7 @@ describe("a source project's location instance factory", () => {
 					.intercept({ path: suite, method: "GET" })
 					.reply(
 						200,
-						'<suite><entry><instance id="locations" src="jr://fixture/commtrack:locations"/></entry></suite>',
+						'<suite><entry><command id="m0-f0"/><instance id="locations" src="jr://fixture/commtrack:locations"/></entry></suite>',
 					);
 				serveJson(
 					peer,
