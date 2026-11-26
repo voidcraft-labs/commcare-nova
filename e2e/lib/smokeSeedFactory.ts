@@ -9,6 +9,10 @@ import {
 } from "@/lib/__tests__/caseChoiceFixture";
 import { connectSectionForm } from "@/lib/__tests__/connectSectionForm";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	listIconVisits,
+	visitActionModule,
+} from "@/lib/__tests__/listIconVisits";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
@@ -1260,6 +1264,49 @@ export async function createSmokeBuilders(
 					},
 				});
 			return { previousTask: { appId, routes: previousTaskRoutes(appId) } };
+		},
+		"list-icon-action": async () => {
+			const bytes = Buffer.from(
+				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWNQDmz5DwADiwH4gz7gMgAAAABJRU5ErkJggg==",
+				"base64",
+			);
+			const contentHash = createHash("sha256").update(bytes).digest("hex");
+			const { assetId } = await createReadyAsset({
+				owner: SEED.userId,
+				project_id: seedProjectId,
+				contentHash,
+				mimeType: "image/png",
+				kind: "image",
+				extension: ".png",
+				sizeBytes: bytes.length,
+				gcsObjectKey: gcsObjectKeyFor(seedProjectId, contentHash, ".png"),
+				originalFilename: "record-visit.png",
+				mediaFormat: "png",
+			});
+			const appId = await seedRuntimeApp("Visit actions", (id) =>
+				listIconVisits(id, assetId),
+			);
+			for (const name of ["First visit", "Second visit"])
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: "visit",
+						case_name: name,
+						status: "open",
+						properties: { visit_state: "ready" },
+					},
+				});
+			return {
+				listIconAction: {
+					appId,
+					assetId,
+					bytes: bytes.toString("base64"),
+					route: buildUrl(`/build/${appId}`, {
+						kind: "cases",
+						moduleUuid: visitActionModule,
+					}),
+				},
+			};
 		},
 		"deep-links": async () => {
 			const { appId, baseSeq } = await createExplicitBlankApp(

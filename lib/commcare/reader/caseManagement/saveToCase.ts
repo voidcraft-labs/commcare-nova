@@ -27,6 +27,7 @@ import {
 	formFieldCanKeyCreate,
 	isAuthoredCaseIdPrefix,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
@@ -1878,7 +1879,7 @@ function readBlock(
 			// (`questionId.ts::caseOperationLinkNameProblem`), as the gate refuses it.
 			// A name it cannot open a form with was refused above.
 			if (
-				!isCaseOperationIdentifier(identifier) ||
+				!isCaseOperationLinkIdentifier(identifier) ||
 				caseOperationLinkNameProblem(identifier) !== undefined
 			)
 				return fail(SAVE_TO_CASE_CLAIMS.linkName, { name: identifier });

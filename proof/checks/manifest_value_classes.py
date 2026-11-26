@@ -5360,6 +5360,58 @@ clickable_icon_on_detail = _column_reader(
 clickable_icon_on_detail.__doc__ = """``menus-and-case-lists/16pp-clickable-icon-on-the-case-detail-…``: the
 column, read on each use of its keys, its icon mapping (``enum``) among them."""
 
+
+def _unusable_clickable_icon(at, column, detail, kind, module):
+    if _format(column) != "clickable-icon" or kind != "short" or not column.get("endpoint_action_id"):
+        return False
+    endpoint = column["endpoint_action_id"]
+    grouping = detail.get("case_tile_group")
+    if isinstance(grouping, dict):
+        row, header = column.get("grid_y"), grouping.get("header_rows")
+        if isinstance(row, int) and isinstance(header, int) and row >= header:
+            return True
+    targets = [
+        (owner, form)
+        for owner in at.app.modules
+        for form in owner.get("forms") or []
+        if isinstance(form, dict) and form.get("session_endpoint_id") == endpoint
+    ]
+    if not targets:
+        return True
+    if len(targets) != 1:
+        return True
+    owner, target = targets[0]
+    if target.get("doc_type") == "Form" and target.get("requires") != "case":
+        return True
+    if owner.get("case_type") != module.get("case_type"):
+        # The action's target type can be a related record selected by the grouped header.
+        return None
+    xform = at.app.xform(target)
+    if xform is None:
+        return None
+    body = next((node for node in xform.root if _local(node) == "body"), None)
+    if body is None:
+        return True
+    for label in body.iter():
+        if not isinstance(label.tag, str) or _local(label) != "label":
+            continue
+        if not re.fullmatch(r"jr:itext\(\s*(['\"])Pragma-Submit-Automatically\1\s*\)", label.get("ref") or ""):
+            continue
+        if _local(label.getparent()) in ("group", "repeat"):
+            continue
+        if (not grouping and target.get("doc_type") == "Form"
+                and target.get("requires") == "case"
+                and not (owner.get("parent_select") or {}).get("active")
+                and not (owner.get("case_details") or {}).get("short", {}).get("multi_select")):
+            return False
+        return None
+    return True
+
+
+clickable_icon_unusable = _column_reader(_unusable_clickable_icon)
+clickable_icon_unusable.__doc__ = """A case-list icon missing a case-requiring form with a leaf label that
+sets Pragma-Submit-Automatically, which HQ requires before offering the endpoint in its Case List editor."""
+
 # Characters HQ's mapping editor marks in a translatable-enum key (ui-element-key-val-mapping.js::hasBadXML):
 # anything outside [A-Za-z0-9_-].
 TRANSLATABLE_KEY = re.compile(r"[A-Za-z0-9_-]*", re.ASCII)
@@ -12284,6 +12336,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/advancedmodule-product-details-differing-from-the-default": differs_from_the_default,
     "menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-on-the-case": clickable_icon_list_empty,
     "menus-and-case-lists/16pp-clickable-icon-on-the-case-detail-whatever-its-endpoint": clickable_icon_on_detail,
+    "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint": clickable_icon_unusable,
     "menus-and-case-lists/21p-translatable-enum-key-outside-a-za-z0-9": translatable_enum_key_grammar,
     "menus-and-case-lists/translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-offers": (
         translatable_enum_over_relation

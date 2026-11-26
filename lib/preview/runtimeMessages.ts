@@ -15,6 +15,10 @@ const english = {
 	breadcrumbPath: "Show breadcrumb path",
 	pageNavigation: "Page navigation",
 	formGettingReady: "This form is getting ready.",
+	formActivityOpened: "{worker} recently opened this form for {record}.",
+	formActivitySubmitted: "{worker} recently submitted this form for {record}.",
+	formActivitySameRecord: "the same record",
+	formActivityStale: "Your data may have changed since your last sync.",
 	searchGettingReady: "This search is getting ready.",
 	retrySearchStartingDates: "Try loading starting dates again",
 	answersLocked: "Answers are locked while this submission finishes.",
@@ -348,6 +352,9 @@ const english = {
 	// Android's barcode question.
 	scanBarcode: "Scan",
 	// Android's capture widgets (`R.string.capture_image` and its siblings).
+	switchCamera: "Switch camera",
+	facePhotoGuide:
+		"Center the face in the guide and keep still, or take the picture when you are ready.",
 	photoFrameGuide:
 		"Line up the subject inside the rectangle. The photo includes the whole frame.",
 	cameraUnavailable:
@@ -378,6 +385,12 @@ const spanish: Record<RuntimeMessage, string> = {
 	breadcrumbPath: "Mostrar la ruta de navegación",
 	pageNavigation: "Navegación de páginas",
 	formGettingReady: "El formulario se está preparando.",
+	formActivityOpened: "{worker} abrió hace poco este formulario para {record}.",
+	formActivitySubmitted:
+		"{worker} envió hace poco este formulario para {record}.",
+	formActivitySameRecord: "el mismo registro",
+	formActivityStale:
+		"Es posible que tus datos hayan cambiado desde la última sincronización.",
 	searchGettingReady: "La búsqueda se está preparando.",
 	retrySearchStartingDates: "Volver a cargar las fechas iniciales",
 	answersLocked: "Las respuestas están bloqueadas mientras termina el envío.",
@@ -715,6 +728,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	altitudeLine: "Altitud: {m}m",
 	accuracyLine: "Precisión: {m}m",
 	scanBarcode: "Escanear",
+	switchCamera: "Cambiar de cámara",
+	facePhotoGuide:
+		"Centra el rostro en la guía y quédate quieto, o toma la foto cuando estés listo.",
 	photoFrameGuide:
 		"Coloque el motivo dentro del rectángulo. La foto incluye todo el encuadre.",
 	cameraUnavailable:

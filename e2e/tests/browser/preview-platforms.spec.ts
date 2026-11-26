@@ -320,6 +320,126 @@ async function photoSize(page: Page, android: boolean) {
 const PREVIEW_PLATFORM_CHECKS: Readonly<
 	Record<PreviewPlatformScenarioId, (page: Page) => Promise<void>>
 > = {
+	async "face-photo-android"(page) {
+		await page.addInitScript(() => {
+			const streams: MediaStream[] = [];
+			Object.defineProperty(window, "photoTestStreams", { value: streams });
+			Object.defineProperty(window, "FaceDetector", {
+				value: undefined,
+				configurable: true,
+			});
+			Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+				value: async () => {
+					const canvas = document.createElement("canvas");
+					canvas.width = 800;
+					canvas.height = 600;
+					const stream = canvas.captureStream(0);
+					const track =
+						stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
+					const context = canvas.getContext("2d");
+					if (!context) throw new Error("The test sensor needs a canvas.");
+					context.fillStyle = "blue";
+					const render = () => {
+						if (track.readyState !== "live") return;
+						context.fillRect(0, 0, canvas.width, canvas.height);
+						track.requestFrame();
+						requestAnimationFrame(render);
+					};
+					render();
+					streams.push(stream);
+					return stream;
+				},
+			});
+		});
+		await acceptAttachments(page);
+		await openScenario(page, "face-photo-android");
+		await expect(
+			page.getByRole("button", { name: "Choose image" }),
+		).toHaveCount(0);
+		const open = page.getByRole("button", {
+			name: "Take picture",
+			exact: true,
+		});
+		await open.click();
+		const dialog = page.getByRole("dialog");
+		await expect(
+			dialog.getByRole("button", { name: "Take picture" }),
+		).toBeEnabled();
+		await dialog.getByRole("button", { name: "Switch camera" }).click();
+		await expect(
+			dialog.getByRole("button", { name: "Take picture" }),
+		).toBeEnabled();
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		const closed = () =>
+			page.evaluate(() => {
+				const streams =
+					(window as Window & { photoTestStreams?: MediaStream[] })
+						.photoTestStreams ?? [];
+				return streams.map((s) => s.getVideoTracks()[0]?.readyState);
+			});
+		await expect.poll(closed).toEqual(["ended", "ended"]);
+		await open.click();
+		const pending = page.waitForRequest((request) =>
+			request.url().endsWith("/capture-upload"),
+		);
+		await dialog.getByRole("button", { name: "Take picture" }).click();
+		const bytes = (await pending).postDataBuffer();
+		if (!bytes) throw new Error("The submitted photo held no bytes.");
+		const sizeOf = (input: Buffer) =>
+			page.evaluate(async (base64) => {
+				const data = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+				const image = await createImageBitmap(
+					new Blob([data], { type: "image/jpeg" }),
+				);
+				try {
+					return [image.width, image.height];
+				} finally {
+					image.close();
+				}
+			}, input.toString("base64"));
+		expect(await sizeOf(bytes)).toEqual([660, 580]);
+		await expect.poll(closed).toEqual(["ended", "ended", "ended"]);
+		await page.evaluate(() => {
+			let observation = 0;
+			class PreviewCameraDetector {
+				async detect() {
+					observation++;
+					if (observation === 1) return [];
+					const x = observation === 2 ? 100 : 300;
+					return [{ boundingBox: new DOMRect(x, 200, 120, 100) }];
+				}
+			}
+			Object.defineProperty(window, "FaceDetector", {
+				value: PreviewCameraDetector,
+			});
+		});
+		const detected = page.waitForRequest((request) =>
+			request.url().endsWith("/capture-upload"),
+		);
+		await open.click();
+		const detectedBytes = (await detected).postDataBuffer();
+		if (!detectedBytes) throw new Error("The face camera sent no photo.");
+		expect(await sizeOf(detectedBytes)).toEqual([140, 200]);
+		await expect.poll(closed).toEqual(["ended", "ended", "ended", "ended"]);
+	},
+	async "face-photo-web-apps"(page) {
+		await acceptAttachments(page);
+		await openScenario(page, "face-photo-web-apps");
+		await expect(
+			page.getByRole("button", { name: "Take picture" }),
+		).toHaveCount(0);
+		const uploaded = page.waitForRequest((request) =>
+			request.url().endsWith("/capture-upload"),
+		);
+		await page
+			.locator('input[type="file"]')
+			.setInputFiles({
+				name: "portrait.png",
+				mimeType: "image/png",
+				buffer: PIXEL,
+			});
+		expect((await uploaded).postDataBuffer()).toEqual(PIXEL);
+	},
 	async "visit-display-web-apps"(page) {
 		await openScenario(page, "visit-display-web-apps");
 		const question = (id: string) =>

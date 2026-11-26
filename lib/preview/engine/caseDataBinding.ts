@@ -2264,9 +2264,13 @@ export async function submitFormAction(
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
-		const result = await store.applySubmission(
-			submissionEnvelopeArgs(normalizedMutation, appId, built),
-		);
+		const result = await store.applySubmission({
+			...submissionEnvelopeArgs(normalizedMutation, appId, built),
+			...(admitted.device.platform === "web-apps" &&
+				opening?.webActivity && {
+					webActivity: opening.webActivity,
+				}),
+		});
 
 		return submissionResultFromEnvelope(
 			normalizedMutation,

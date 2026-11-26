@@ -1942,15 +1942,61 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/links/0",
-				"value": {
-					"identifier": "parent",
-					"targetType": "member",
-					"relationship": "child",
-					"target": {
-						"kind": "session"
+				"pointer": "/caseOperations/0/action",
+				"value": "own"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
 					}
+				],
+				"pointer": "/caseOperations/0/placement",
+				"value": {
+					"kind": "advanced",
+					"tag": "open_member_0"
 				}
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/identifier",
+				"value": "parent"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/targetType",
+				"value": "member"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/relationship",
+				"value": "child"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/target/expr/term/datum/kind",
+				"value": "form-selection"
 			}
 		]
 	},
@@ -26099,8 +26145,8 @@
 	{
 		"id": "hq-menus/clickable-icon",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 1,
@@ -26143,6 +26189,20 @@
 				"endpoint_action_id": "register_household"
 			}
 		}
+	},
+	{
+		"id": "hq-menus/clickable-icon-for-a-visit",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
+		"change": { "op": "named", "name": "clickable_icon_for_a_visit" },
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/columns/1/kind",
+				"value": "image-map"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/close-without-open-in-a-caseless-menu",
@@ -32829,19 +32889,17 @@
 		"id": "hq-questions/face-capture",
 		"base": "hq-questions",
 		"entry": "questions/face-capture-image-face",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "face_capture"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["photo"]],
+				"pointer": "/captureSource",
+				"value": "face-camera"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/field-list-on-question",
@@ -34116,33 +34174,29 @@
 		"id": "hq-questions/pragma-form-descriptor-text",
 		"base": "hq-questions",
 		"entry": "questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "weight"
-		},
 		"change": {
 			"op": "named",
 			"name": "pragma_form_descriptor_text"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/savedFormDescriptorText/carrier/role",
+				"value": "field-label"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/pragma-question-text",
 		"base": "hq-questions",
 		"entry": "questions/a-question-text-label-hint-help-validation-message-repeat-add",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "weight"
-		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/activityKeyText/carrier/role",
+				"value": "field-label"
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "pragma_question_text"
@@ -34933,6 +34987,27 @@
 			"op": "named",
 			"name": "save_to_case_link_long_name"
 		}
+	},
+	{
+		"id": "hq-questions/save-to-case-hyphenated-link-name",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-index-name-child-extension-and-unlink-empty",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_hyphenated_link_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/identifier",
+				"value": "par-ent"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-link-name-outside-grammar",

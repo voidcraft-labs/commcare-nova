@@ -47,6 +47,10 @@ export const formBehaviorRoleNames = {
 	automaticSubmissionText: "Automatic submission",
 	skipAutomaticSyncText: "Skip automatic sync",
 	validateChangedAnswersText: "Check changed answers",
+	activityKeyText: "Activity notice key",
+	activityTitleText: "Activity notice record title",
+	activityWindowText: "Activity notice window",
+	savedFormDescriptorText: "Saved form label",
 } as const;
 export type FormBehaviorRole = keyof typeof formBehaviorRoleNames;
 export type FormBehaviorTexts = Partial<Record<FormBehaviorRole, BehaviorText>>;
@@ -831,6 +835,10 @@ export const formSchema = z.strictObject({
 	automaticSubmissionText: behaviorTextSchema.optional(),
 	skipAutomaticSyncText: behaviorTextSchema.optional(),
 	validateChangedAnswersText: behaviorTextSchema.optional(),
+	activityKeyText: behaviorTextSchema.optional(),
+	activityTitleText: behaviorTextSchema.optional(),
+	activityWindowText: behaviorTextSchema.optional(),
+	savedFormDescriptorText: behaviorTextSchema.optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),

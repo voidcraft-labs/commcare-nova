@@ -18,6 +18,7 @@ export const SMOKE_PROFILES = [
 	"form-links",
 	"previous-task",
 	"deep-links",
+	"list-icon-action",
 	"forms-read-search",
 	"form-refused",
 	"menu-held-case",

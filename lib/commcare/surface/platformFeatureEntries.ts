@@ -14,8 +14,15 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
 	"worker-distance": ["menus-and-case-lists/9-distance"],
 	"sort-by-distance": ["menus-and-case-lists/type-distance"],
+	"saved-form-descriptor": [
+		"questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where",
+	],
 	"web-apps-form-behavior": [
+		"questions/a-question-text-label-hint-help-validation-message-repeat-add",
 		"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
+	],
+	"case-list-icon-actions": [
+		"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
 	],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
@@ -111,6 +118,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"android-map": ["questions/geopoint-maps"],
 	"edit-scan": ["questions/barcode-editable"],
 	"camera-only": ["questions/image-acquire", "questions/video-acquire"],
+	"face-camera": ["questions/face-capture-image-face"],
 	"photo-overlay": ["questions/image-overlay-small"],
 	"classic-recorder": ["questions/audio-legacy"],
 	"record-or-choose": ["questions/audio-acquire-or-upload"],

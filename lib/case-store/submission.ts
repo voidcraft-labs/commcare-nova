@@ -2,6 +2,7 @@ import type {
 	ActivityFact,
 	ConnectSubmissionProgram,
 } from "@/lib/domain/connectSubmissionFacts";
+import type { WebFormActivityEntry } from "@/lib/domain/webFormActivity";
 // lib/case-store/submission.ts
 //
 // The atomic submission envelope's public contract — the argument and
@@ -275,6 +276,7 @@ export interface CaseOperationProgram {
 }
 
 export interface ApplySubmissionArgs {
+	readonly webActivity?: WebFormActivityEntry;
 	/** Empty when the requested location was unavailable; absent when the form requested none. */
 	readonly submissionLocation?: DeviceLocation | null;
 	readonly connect?: ConnectSubmissionProgram;

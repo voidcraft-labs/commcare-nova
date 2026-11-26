@@ -1949,9 +1949,14 @@ def save_to_case_link_long_name(authoring, app_id):
     _save_to_case_link(authoring, app_id, "save-to-case-link-long-name", "p" * 256)
 
 
+def save_to_case_hyphenated_link_name(authoring, app_id):
+    """The create keeps the exact spelling of its hyphenated connection."""
+    _save_to_case_link(authoring, app_id, "save-to-case-hyphenated-link-name", "par-ent")
+
+
 def save_to_case_link_name_outside_grammar(authoring, app_id):
-    """A link of the created case by the name ``par-ent``, outside Nova's link names."""
-    _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par-ent")
+    """The bind path contains a period that Vellum does not parse as an index bind."""
+    _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
 
 
 def _save_to_case_link(authoring, app_id, what, name, value="'abc'"):

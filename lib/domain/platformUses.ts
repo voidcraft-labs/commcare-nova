@@ -515,8 +515,16 @@ export function platformFeatureUses(
 				);
 			if (wanted("web-apps-form-behavior"))
 				for (const role of formBehaviorRoles)
-					if (form[role])
+					if (role !== "savedFormDescriptorText" && form[role])
 						formUses.push(slotUse("web-apps-form-behavior", formOwner, role));
+			if (form.savedFormDescriptorText && wanted("saved-form-descriptor"))
+				formUses.push(
+					slotUse(
+						"saved-form-descriptor",
+						formOwner,
+						"savedFormDescriptorText",
+					),
+				);
 			if (form.plainText === true && wanted("plain-text"))
 				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(
@@ -755,6 +763,14 @@ function moduleUses(
 		if (column.sort?.comparator === "distance" && wanted("sort-by-distance")) {
 			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
 		}
+		if (
+			column.kind === "image-map" &&
+			column.entryPointUuid &&
+			wanted("case-list-icon-actions")
+		)
+			uses.push(
+				slotUse("case-list-icon-actions", target, slot("entryPointUuid")),
+			);
 		const cell = tileCellFor(column, list?.tile);
 		if (tileCellOnlyOnAndroid(column, cell) && wanted("raw-custom-tile-field"))
 			uses.push(

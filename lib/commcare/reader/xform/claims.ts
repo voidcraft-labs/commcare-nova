@@ -639,6 +639,13 @@ export const X = {
 			mediatype: "xform:upload@mediatype",
 			appearance: "xform:upload@appearance",
 		}),
+		face: kind("face-capture-image-face", {
+			node: "mug:Image",
+			control: "xform:upload",
+			ref: "xform:upload@ref",
+			mediatype: "xform:upload@mediatype",
+			appearance: "xform:upload@appearance",
+		}),
 		audio: kind("audio-capture-audio", {
 			node: "mug:Audio",
 			control: "xform:upload",
@@ -1301,7 +1308,7 @@ export const X = {
 		"xform:model/itext/translation/text@id",
 	),
 	pragmaFormDescriptor: one(
-		"refuse",
+		"take",
 		Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 		"xform:model/itext/translation/text@id",
 	),
@@ -1310,8 +1317,8 @@ export const X = {
 		Q("a-question-text-whose-itext-id-is-a-web-apps-presence-pragma"),
 		"xform:model/itext/translation/text@id",
 	),
-	pragmaKey: one(
-		"refuse",
+	pragmaActivity: one(
+		"take",
 		Q("a-question-text-label-hint-help-validation-message-repeat-add"),
 		"xform:model/itext/translation/text@id",
 	),

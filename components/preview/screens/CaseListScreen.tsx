@@ -102,6 +102,7 @@ import {
 } from "@/components/shadcn/dialog";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
+import { listIconSelectionModule } from "@/lib/doc/entryPointProjection";
 import { useEntryCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
 	useOrderedForms,
@@ -237,6 +238,7 @@ import {
 } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useClaimSearchedCases } from "@/lib/preview/hooks/useClaimSearchedCases";
+import { useEntryPointLaunch } from "@/lib/preview/hooks/useEntryPointLaunch";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import {
 	usePreviewStandingSearchState,
@@ -1538,12 +1540,76 @@ export function CaseListScreen({
 		() => ({ ...columnDisplayContext, ...columnDisplayContext.detailWording }),
 		[columnDisplayContext],
 	);
+	const launchListEntry = useEntryPointLaunch();
+	const iconLaunchPending = useRef(false);
+	const [launchingIcon, setLaunchingIcon] = useState(false);
 	const resultsDisplayContext = useMemo<ColumnDisplayContext>(
 		() => ({
 			...columnDisplayContext,
 			linkColumnInList: platformRules.linkColumnInList,
+			...(platform === "web-apps" &&
+				entryStep === undefined && {
+					listIconAction: {
+						disabled: !canEdit || !current || launchingIcon,
+						run(column, id) {
+							if (
+								!canEdit ||
+								!current ||
+								iconLaunchPending.current ||
+								!column.entryPointUuid ||
+								!moduleUuid
+							)
+								return;
+							const target = listIconSelectionModule(
+								menuSource.doc,
+								moduleUuid,
+								column,
+							);
+							if (!target) {
+								showToast("error", "This icon's form is unavailable.");
+								return;
+							}
+							iconLaunchPending.current = true;
+							setLaunchingIcon(true);
+							void launchListEntry(
+								column.entryPointUuid,
+								[{ moduleUuid: target, caseIds: [id] }],
+								previewPersonaUuid,
+								undefined,
+								{ moduleUuid, columnUuid: column.uuid },
+							)
+								.then(
+									(result) => {
+										if (result.kind === "refused")
+											showToast("error", result.message);
+									},
+									() =>
+										showToast(
+											"error",
+											"The action couldn't open. You can try the icon again.",
+										),
+								)
+								.finally(() => {
+									iconLaunchPending.current = false;
+									setLaunchingIcon(false);
+								});
+						},
+					},
+				}),
 		}),
-		[columnDisplayContext, platformRules.linkColumnInList],
+		[
+			columnDisplayContext,
+			platformRules.linkColumnInList,
+			platform,
+			canEdit,
+			entryStep,
+			current,
+			launchingIcon,
+			launchListEntry,
+			menuSource.doc,
+			moduleUuid,
+			previewPersonaUuid,
+		],
 	);
 	/* A claim writes the worker's claim rows, then the device is read again
 	 * as a restore after a claim would be (Android syncs after every claim).
@@ -5056,6 +5122,7 @@ function ResultsTiles({
 					tile: (
 						<CaseTileGroup
 							projection={groupedTile}
+							groupCaseId={card.key}
 							columns={tile.columns}
 							rows={card.rows}
 							caseProperties={caseProperties}

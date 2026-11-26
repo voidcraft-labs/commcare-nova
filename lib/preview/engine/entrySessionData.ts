@@ -73,6 +73,7 @@ export interface EntrySessionInput {
 	readonly entryChoices?: readonly PreviewEntryChoice[];
 	readonly heldEntryValues?: Readonly<Record<string, string>>;
 	readonly openedEntryKey?: string;
+	readonly resumedCheckpoint?: import("./formEngine").FormEngineEntryCheckpoint;
 	readonly openingLookup?: PreviewLookupData;
 	/** The menu's case selections, keyed by the module that chose them. */
 	readonly menuSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;

@@ -207,6 +207,7 @@ def app(
     questions=None,
     repeat_additions=None,
     save_incomplete: str | None = None,
+    save_language: str | None = None,
     reopen: bool = False,
     searches=None,
 ) -> dict:
@@ -265,6 +266,8 @@ def app(
         options["keys"] = True
     if save_incomplete is not None:
         options["saveIncomplete"] = save_incomplete
+    if save_language is not None:
+        options["saveLanguage"] = save_language
     if reopen:
         options["reopen"] = True
     if searches is not None:

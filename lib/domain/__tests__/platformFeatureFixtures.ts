@@ -451,6 +451,34 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"automaticSubmissionText",
 		),
 	},
+	"case-list-icon-actions": {
+		with: () =>
+			caseApp({
+				columns: [
+					imageMapColumn(FIXTURE_COLUMN, "case_name", "Action", [], {
+						entryPointUuid: testUuid("platform-list-action-endpoint"),
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [imageMapColumn(FIXTURE_COLUMN, "case_name", "Image", [])],
+			}),
+		use: slotUse(
+			"case-list-icon-actions",
+			COLUMN_OWNER,
+			"caseListConfig.columns[0].entryPointUuid",
+		),
+	},
+	"saved-form-descriptor": {
+		with: () => formBehaviorFixture("savedFormDescriptorText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse(
+			"saved-form-descriptor",
+			FORM_OWNER,
+			"savedFormDescriptorText",
+		),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"worker-distance": {
 		with: () =>
@@ -882,6 +910,12 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		"image",
 		"captureSource",
 		"camera",
+	),
+	"face-camera": questionSettingPair(
+		"face-camera",
+		"image",
+		"captureSource",
+		"face-camera",
 	),
 	"photo-overlay": questionSettingPair(
 		"photo-overlay",
