@@ -66,6 +66,7 @@ from dataclasses import dataclass
 
 from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
+from proof.checks.manifest_value_classes import long_itext_role
 from proof.observe.manifest import expression_tree
 
 CHECK = "parity"
@@ -149,6 +150,8 @@ def decides(held, use, standing) -> bool:
         return False
     if standing == manifest_usage.HELD and _new_without_reader(held, use.key):
         return False
+    if use.key == "itext-form:core/long" and standing == manifest_usage.HELD:
+        return long_itext_role(use) == "question"
     return True
 
 

@@ -480,6 +480,52 @@ class Form:
             found += [(bind.get(f"{{{JAVAROSA}}}constraintMsg"), "message") for bind in binds]
         return tuple((value, kind) for value, kind in found if value is not None)
 
+    @cached_property
+    def literal_itext_roles(self):
+        """The native text roles that a direct literal reference identifies in the XForm source."""
+        from proof.checks.xpath_tree import tree
+
+        roles = {}
+
+        def name(reference, role):
+            if not reference:
+                return
+            parsed = tree(reference)
+            if parsed is None or parsed[:2] != ("call", "jr:itext") or len(parsed[2]) != 1:
+                return
+            argument, = parsed[2]
+            if argument[0] == "str":
+                roles.setdefault(argument[1], set()).add(role)
+
+        controls = {f"{{{XFORMS}}}{tag}" for tag in QUESTION_CONTROLS}
+        containers = {f"{{{XFORMS}}}group", f"{{{XFORMS}}}repeat"}
+        label = f"{{{XFORMS}}}label"
+        other_texts = {f"{{{XFORMS}}}{tag}" for tag in ("hint", "help", "alert")}
+        captions = {f"{{{JAVAROSA}}}{tag}" for tag in (
+            "addCaption", "addEmptyCaption", "chooseCaption", "delCaption", "doneCaption",
+        )}
+        for element in self.body.iter() if self.body is not None else ():
+            parent = element.getparent()
+            if parent is None:
+                continue
+            if element.tag == label and parent.tag in controls:
+                name(element.get("ref"), "container" if parent.tag in containers else "question")
+            elif element.tag in other_texts and parent.tag in controls:
+                name(element.get("ref"), "other")
+            elif (
+                element.tag == label
+                and parent.tag in {f"{{{XFORMS}}}item", f"{{{XFORMS}}}itemset"}
+                and parent.getparent() is not None
+                and parent.getparent().tag in {f"{{{XFORMS}}}select", f"{{{XFORMS}}}select1"}
+            ):
+                name(element.get("ref"), "other")
+            elif element.tag in captions and parent.tag == f"{{{XFORMS}}}repeat":
+                name(element.get("ref"), "caption")
+        for binds in self.binds.values():
+            for bind in binds:
+                name(bind.get(f"{{{JAVAROSA}}}constraintMsg"), "other")
+        return roles
+
     def tree(self, text):
         """HQ's XPath grammar's structure of an expression (the observation's ``trees``), or None where the records
         hold none."""
@@ -10758,6 +10804,24 @@ def _itext_value(use):
     return form, element
 
 
+def long_itext_role(use):
+    """The single known role of a long value. A missing use or a shared id with
+    incompatible roles has no verdict from this source-only classifier."""
+    form, value = _itext_value(use)
+    if value is None or value.get("form") != "long":
+        return None
+    roles = form.literal_itext_roles.get(value.getparent().get("id"), ())
+    return next(iter(roles)) if len(roles) == 1 else None
+
+
+def long_itext_container(use, manifest):
+    return long_itext_role(use) == "container"
+
+
+def long_itext_other(use, manifest):
+    return long_itext_role(use) == "other"
+
+
 def _inner(element):
     """An element's content as written: its text and its children with their tails."""
     return (element.text or "") + "".join(etree.tostring(child, encoding=str) for child in element)
@@ -12228,6 +12292,8 @@ VALUE_CLASSES = {
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
+    "questions/long-form-on-a-group-or-repeat-label": long_itext_container,
+    "questions/long-form-on-a-hint-help-text-validation-message-or-choice": long_itext_other,
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,

@@ -6984,6 +6984,67 @@ def _label_texts():
     }
 
 
+_LONG_TEXT_KEY = "itext-form:core/long"
+_LONG_TEXT_PLACE = "translation[1]/text[1]/value[2]/@form"
+_LONG_LABEL = '<input ref="/data/q"><label ref="jr:itext( &quot;wording&quot; )"/></input>'
+_LONG_CONTAINER = '<group ref="/data/g"><label ref="jr:itext(&apos;wording&apos;)"/></group>'
+_LONG_HELP = '<input ref="/data/q"><help ref="jr:itext(&apos;wording&apos;)"/></input>'
+_LONG_CHOICE = (
+    '<select1 ref="/data/q"><item><label ref="jr:itext(&apos;wording&apos;)"/>'
+    '<value>choice</value></item></select1>'
+)
+_LONG_MESSAGE = '<bind nodeset="/data/q" constraint="required(.)" jr:constraintMsg="jr:itext(&apos;wording&apos;)"/>'
+
+
+def _long_text_source(body, extra_model=""):
+    return _form(
+        data="<q/><g/>",
+        model=extra_model + """<itext><translation lang="en" default="">
+          <text id="wording"><value>Short</value><value form="long">Long text</value></text>
+        </translation></itext>""",
+        body=body,
+    )
+
+
+def _long_text_roles():
+    label = accepted("form", _long_text_source(_LONG_LABEL), _LONG_TEXT_KEY, _LONG_TEXT_PLACE)
+    group = _long_text_source(_LONG_CONTAINER)
+    help_text = _long_text_source(_LONG_HELP)
+    return {
+        "questions/long-form-on-a-group-or-repeat-label": (
+            refused("form", group, _LONG_TEXT_KEY, _LONG_TEXT_PLACE),
+            label,
+            accepted("form", help_text, _LONG_TEXT_KEY, _LONG_TEXT_PLACE),
+        ),
+        "questions/long-form-on-a-hint-help-text-validation-message-or-choice": (
+            refused("form", help_text, _LONG_TEXT_KEY, _LONG_TEXT_PLACE),
+            refused("form", _long_text_source(_LONG_CHOICE), _LONG_TEXT_KEY, _LONG_TEXT_PLACE),
+            refused("form", _long_text_source(_LONG_LABEL.replace("wording", "other"), _LONG_MESSAGE),
+                    _LONG_TEXT_KEY, _LONG_TEXT_PLACE),
+            label,
+            accepted("form", group, _LONG_TEXT_KEY, _LONG_TEXT_PLACE),
+        ),
+    }
+
+
+@pytest.mark.parametrize(("body", "judged"), [
+    (_LONG_LABEL, True),
+    (_LONG_LABEL + _LONG_LABEL.replace("/data/q", "/data/q2"), True),
+    (_LONG_LABEL + _LONG_HELP, False),
+    (_LONG_CONTAINER + _LONG_HELP, False),
+    (_LONG_LABEL.replace("wording", "other"), False),
+    (_LONG_LABEL.replace("jr:itext( &quot;wording&quot; )", "jr:itext(/data/q)"), False),
+    (_LONG_LABEL.replace("<label ", "<x:label ").replace("</label>", "</x:label>"), False),
+])
+def test_retained_long_text_parity_requires_an_exact_unambiguous_question_label(manifest, body, judged):
+    from proof.checks import parity
+
+    shape = accepted("form", _long_text_source(body), _LONG_TEXT_KEY, _LONG_TEXT_PLACE)
+    found = _shape_uses(shape, manifest)
+    decisions, _ = parity.decided_uses(found, manifest)
+    assert any(decision.use.key == _LONG_TEXT_KEY for decision in decisions) == judged
+
+
 def _held_new():
     """The shapes of the HELD-NEW classes beside an allowing class of their key: a use the class takes (``refused``:
     its reader says True, and the use stands held-new) and one beside it that the allowing class holds."""
@@ -7783,6 +7844,7 @@ SHAPES = {
     **_localized_media(),
     **_per_rows(),
     **_label_texts(),
+    **_long_text_roles(),
     **_held_new(),
     **_listed_forms_and_first_menu(),
     **_menu_badges(),
