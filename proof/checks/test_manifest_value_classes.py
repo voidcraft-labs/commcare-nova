@@ -4398,45 +4398,6 @@ def _search_and_menus():
                 f"{short}/columns/1/grid_x",
             ),
         ),
-        "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row": (
-            # Thirteen columns: HQ's page offers thirteen rows, so a cell ending on the thirteenth is this class.
-            refused(
-                "app",
-                columns_app(*stacked(12), _column("notes", **cell(0, 12, 12)), short=tile),
-                "schema:DetailColumn.grid_y",
-                f"{short}/columns/12/grid_y",
-            ),
-            # Eleven fields and two tabs are thirteen columns of the Case Detail page.
-            refused(
-                "app",
-                columns_app(
-                    *stacked(10), _column("notes", **cell(0, 11, 12, 2)), where="long",
-                    long={**tile, "tabs": [tab(0), tab(5)]},
-                ),
-                "schema:DetailColumn.height",
-                f"{long_}/columns/10/height",
-            ),
-            # The twelfth row is inside, a cell past the rows offered is the other class, and so is one past the
-            # twelfth column.
-            accepted(
-                "app",
-                columns_app(*stacked(12), _column("notes", **cell(0, 11, 12)), short=tile),
-                "schema:DetailColumn.grid_y",
-                f"{short}/columns/12/grid_y",
-            ),
-            accepted(
-                "app",
-                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 12, 12)), short=tile),
-                "schema:DetailColumn.grid_y",
-                f"{short}/columns/1/grid_y",
-            ),
-            accepted(
-                "app",
-                columns_app(*stacked(12), _column("notes", **cell(8, 12, 6)), short=tile),
-                "schema:DetailColumn.grid_y",
-                f"{short}/columns/12/grid_y",
-            ),
-        ),
         "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers": (
             # Two columns: HQ's page offers six rows and its save moves a cell ending on the seventh.
             refused(
@@ -4487,6 +4448,23 @@ def _search_and_menus():
                 columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 6, 12)), where="long", long=tile),
                 "schema:DetailColumn.grid_y",
                 f"{long_}/columns/1/grid_y",
+            ),
+            # Thirteen columns offer thirteen rows: a cell ending on the thirteenth is the HELD class of a tile taller
+            # than twelve rows, on the case list and, eleven fields and two tabs, on the case detail.
+            accepted(
+                "app",
+                columns_app(*stacked(12), _column("notes", **cell(0, 12, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/12/grid_y",
+            ),
+            accepted(
+                "app",
+                columns_app(
+                    *stacked(10), _column("notes", **cell(0, 11, 12, 2)), where="long",
+                    long={**tile, "tabs": [tab(0), tab(5)]},
+                ),
+                "schema:DetailColumn.height",
+                f"{long_}/columns/10/height",
             ),
             # The sixth row is inside, and a list that is no custom tile lays nothing out.
             accepted(

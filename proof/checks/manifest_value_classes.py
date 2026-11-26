@@ -4977,13 +4977,12 @@ def _grid_fit(box, rows):
     """Where a stored cell stands against the grid of its screen of ``rows`` rows (``caseList/tile.ts::gridFit``):
     ``outside`` for a cell starting left of or above the grid, spanning less than one square, or running past the
     twelfth column; ``past`` for one inside those columns whose bottom edge passes the rows HQ's page offers;
-    ``below`` for one inside those rows running past the twelfth; ``fits`` otherwise."""
+    ``fits`` otherwise, a cell past the twelfth row inside those rows among them (the HELD class
+    ``menus-and-case-lists/custom-tile-cell-below-the-twelfth-row``, an allowing class no reader reads)."""
     x, y, width, height = box
     if x < 0 or y < 0 or width < 1 or height < 1 or x + width > TILE_GRID:
         return "outside"
-    if y + height > rows:
-        return "past"
-    return "below" if y + height > TILE_GRID else "fits"
+    return "past" if y + height > rows else "fits"
 
 
 def _tile_cell_fit(fit):
@@ -5016,11 +5015,6 @@ menu's custom tile (its case list's or its case detail's, every column but a ``f
 above the grid, spans less than one square, or runs past the twelfth column. Nova's reader refuses each such cell
 (``caseList/tile.ts::gridFit``). A detail HQ's build never lays out as a menu's tile is out of the class; a use on
 the detail reads each of its columns."""
-
-tile_cell_below_the_twelfth_row = _tile_cell_fit("below")
-tile_cell_below_the_twelfth_row.__doc__ = """``menus-and-case-lists/custom-tile-cell-below-the-twelfth-row``: a
-placed cell of a menu's custom tile, inside its twelve columns and the rows HQ's page offers its screen, that runs
-past the twelfth row (as ``tile_cell_outside_the_grid`` reads its tile)."""
 
 tile_cell_below_the_offered_rows = _tile_cell_fit("past")
 tile_cell_below_the_offered_rows.__doc__ = """``menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-
@@ -10393,7 +10387,6 @@ VALUE_CLASSES = {
     "menus-and-case-lists/custom-tile-cells-covering-the-same-square": overlapping_tile_cells,
     "menus-and-case-lists/custom-tile-cell-outside-the-grid": tile_cell_outside_the_grid,
     "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds": tab_child_type_no_form_adds,
-    "menus-and-case-lists/custom-tile-cell-below-the-twelfth-row": tile_cell_below_the_twelfth_row,
     "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers": tile_cell_below_the_offered_rows,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,
     "menus-and-case-lists/detail-case-tile-template-person-simple": person_simple_on_list,
