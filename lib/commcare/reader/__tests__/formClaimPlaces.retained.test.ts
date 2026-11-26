@@ -427,6 +427,9 @@ describe("a form's Save to Case region", () => {
 				`mug:DataBindOnly ${create}`,
 				`xform:model/instance//* ${create}`,
 			]);
+			expect(at(all, "form:0.0", `${block}/case[1]/namespace()`)).toEqual([
+				`xform:model/instance//*@xmlns ${create}`,
+			]);
 			// A block's case's own attributes, which HQ's question reader reads as Hidden Values.
 			expect(
 				keysAt(
@@ -461,7 +464,12 @@ describe("a form's Save to Case region", () => {
 				keysAt(all, "form:1.0", `${DATA}/nova_selected_cases[1]/item[1]`),
 			).toEqual(["mug:Repeat", "xform:model/instance//*"]);
 			expect(keysAt(all, "form:1.0", "/h:html/h:body[1]/group[1]")).toEqual([
+				"jr-control:group",
 				"xform:group",
+			]);
+			expect(keysAt(all, "form:1.0", `${MODEL}/setvalue[3]/@event`)).toEqual([
+				"jr-event:jr-insert",
+				"xform:setvalue@event",
 			]);
 			// A row's value the slot reads inside the emitter's trim: the trim's uses beside it.
 			expect(grammarAt(all, "form:0.0", `${MODEL}/bind[7]/@calculate`)).toEqual(
