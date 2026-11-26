@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import parse_qsl
 
 import pytest
 
@@ -43,6 +44,8 @@ def _lookup_case_list(state, editor_driver, *, name=LOOKUP["lookup_name"]):
         module.unique_id,
         data=[
             ("type", json.dumps("case")),
+            ("multi_select", json.dumps(False)),
+            ("auto_select", json.dumps(False)),
             ("short", json.dumps([column.to_json() for column in module.case_details.short.columns])),
             ("case_list_lookup", json.dumps({**LOOKUP, "lookup_name": name})),
         ],
@@ -64,11 +67,19 @@ def test_the_current_case_list_editor_offers_lookup_under_either_flag(hq, editor
         assert offered == {"lookup": flag is not None, "always": True}
         saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module_id)
         assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        fields = dict(parse_qsl((saved.save.body or b"").decode("utf-8"), keep_blank_values=True))
+        payload = fields.get("case_list_lookup")
+        if flag is None:
+            assert payload is None
+            posted = None
+        else:
+            posted = json.loads(payload)
+            assert {key: posted[key] for key in LOOKUP} == LOOKUP
         detail = operations.held_app(state, app_id).modules[0].case_details.short
         held = detail.to_json()
         assert all(held[key] == value for key, value in LOOKUP.items() if key != "lookup_field_header")
         assert held["lookup_field_header"]["en"] == "Match"
-        write_evidence(f"case-list-lookup-editor-{flag}", offered)
+        write_evidence(f"case-list-lookup-editor-{flag}", {"offered": offered, "posted": posted})
 
 
 def test_the_current_editor_requires_a_lookup_button_name(hq, editor_driver):
@@ -89,7 +100,11 @@ def test_the_current_editor_requires_a_lookup_button_name(hq, editor_driver):
                 {"until": "pages/ready", "arg": {"bar": page.bar}},
                 {"until": "pages/armed", "arg": {"action": action, "selector": selector, "bar": page.bar}},
                 {"click": f"{page.bar} > .btn:not(.disabled)"},
-                {"waitFor": 'input[data-bind="value: lookup_name"] + .help-block:visible'},
+                {
+                    "waitFor": "() => { const help = document.querySelector("
+                    "'input[data-bind=\"value: lookup_name\"] + .help-block');"
+                    " return help && help.getClientRects().length > 0; }"
+                },
                 {"settle": True},
             ],
             answer=answers,
