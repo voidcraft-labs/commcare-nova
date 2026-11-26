@@ -17,6 +17,7 @@ PLACE = {
 
 
 def _geocoder_fields(app):
+    app["cloudcare_enabled"] = True
     fields = app["modules"][0]["search_config"]["properties"]
     village = next(field for field in fields if field["name"] == "village")
     district = next(field for field in fields if field["name"] == "district")
