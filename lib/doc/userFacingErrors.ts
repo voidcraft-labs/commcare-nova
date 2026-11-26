@@ -1505,6 +1505,8 @@ const USER_MESSAGE_BY_CODE: Record<
 					: `${q(registrationFormName(e))} is offered when a search finds nothing, so it needs to register a new case. You can make it a registration form, or stop offering it there.`,
 	CASE_LIST_REGISTRATION_HAS_NAVIGATION: (e) =>
 		`${q(registrationFormName(e))} is offered when a search finds nothing. It returns to Results or First menu, and can't have after-submit links, a display condition, or be taken off the menu. You can clear those settings, or stop offering it there.`,
+	CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT: (e) =>
+		`${q(registrationFormName(e))} can save without creating the case ${q(modName(e))} needs to reopen its search results. You can have the form always create that case or choose First menu after submit.`,
 	CASE_LIST_REGISTRATION_MULTIPLE_RETURN: (e) =>
 		det(e, "kind", "") === "always"
 			? `${q(registrationFormName(e))} registers one case, but ${q(modName(e))} selects several cases, and CommCare can't carry that one new case into a selection of several. You can set After registering to Back to this list, or let ${q(modName(e))} select one case.`

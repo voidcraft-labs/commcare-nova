@@ -128,6 +128,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// The case list registration app rule reads a form in another module for
 	// the `always` arm, and owns each of these codes whole, both arms alike.
 	"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+	"CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT",
 	"CASE_LIST_REGISTRATION_MULTIPLE_RETURN",
 	"CASE_LIST_REGISTRATION_FORM_NOT_FOUND",
 	"CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST",

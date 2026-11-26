@@ -8,7 +8,7 @@ import {
 	NEW_APP_SETTINGS,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, formField, input, term } from "@/lib/domain/expression/builders";
+import { input, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../validator/runner";
 export function admitNoMatchesDoc(doc: BlueprintDoc) {
@@ -21,8 +21,8 @@ export const FOLLOWUP_FORM = testUuid("00000000-0000-4000-8000-0000000b0011");
 export const REGISTER_FORM = testUuid("00000000-0000-4000-8000-0000000b0012");
 export const NAME_INPUT = testUuid("00000000-0000-4000-8000-0000000b0001");
 export const NAME_FIELD = testUuid("00000000-0000-4000-8000-0000000b0020");
-const CREATE_RECORD_FIELD = testUuid("no-matches-create-record");
-const CREATE_RECORD_YES = testUuid("no-matches-create-record-yes");
+export const CREATE_RECORD_FIELD = testUuid("no-matches-create-record");
+export const CREATE_RECORD_YES = testUuid("no-matches-create-record-yes");
 export const HOUSEHOLD_MODULE = testUuid(
 	"00000000-0000-4000-8000-0000000b0030",
 );
@@ -39,7 +39,7 @@ export function noMatchesDoc(
 		readonly label?: string;
 		readonly bareCaseList?: boolean;
 		readonly secondList?: boolean;
-		readonly conditionalCreate?: boolean;
+		readonly includeCreateChoice?: boolean;
 	} = {},
 ): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
@@ -56,13 +56,6 @@ export function noMatchesDoc(
 		uuid: REGISTER_FORM,
 		name: "Register patient",
 		type: "registration" as const,
-		...(options.conditionalCreate && {
-			openCondition: eq(formField(CREATE_RECORD_FIELD), {
-				kind: "choice",
-				field: CREATE_RECORD_FIELD,
-				options: [CREATE_RECORD_YES],
-			}),
-		}),
 		fields: [
 			f({
 				uuid: NAME_FIELD,
@@ -72,7 +65,7 @@ export function noMatchesDoc(
 				caseWrite: { caseType: "patient", property: "case_name" },
 				...(!options.secondList && { default_value: term(input(NAME_INPUT)) }),
 			}),
-			...(options.conditionalCreate
+			...(options.includeCreateChoice
 				? [
 						f({
 							uuid: CREATE_RECORD_FIELD,
@@ -182,7 +175,10 @@ export function noMatchesWireFixture(
 	let doc = noMatchesDoc({
 		bareCaseList: scenario === "bare" || scenario === "parent-bare",
 		secondList: scenario === "second-list",
-		conditionalCreate: scenario === "new-case",
+		includeCreateChoice:
+			scenario === "new-case" ||
+			scenario === "basic" ||
+			scenario === "second-list",
 	});
 	if (scenario === "parent" || scenario === "parent-bare") {
 		const base = doc;

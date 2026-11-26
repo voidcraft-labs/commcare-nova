@@ -30,6 +30,7 @@ DOCUMENTS = (
     "navigation-base",
     "no-matches-basic",
     "no-matches-new-case",
+    "no-matches-second-list",
     "prompt-widgets",
     "search-hidden-link",
     "search-remote-defaults",

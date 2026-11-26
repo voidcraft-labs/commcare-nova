@@ -371,12 +371,24 @@ def test_empty_search_registration_returns_to_its_results_or_selects_its_created
             evidence("registered-case", {"case": case_id, "landing": landing, "caseFixture": fixture_reads})
 
 
+def _optional_creation(stored):
+    """The supported HQ Case Management shape that makes the basic open conditional."""
+    (registration,) = [
+        form for menu in stored["modules"] for form in menu["forms"]
+        if form["name"].get("en") == "Register patient"
+    ]
+    registration["actions"]["open_case"]["condition"] = {
+        "type": "if", "question": "/data/create_record", "answer": "yes",
+    }
+
+
+@pytest.mark.parametrize("scenario", ["basic", "new-case"])
 def test_empty_search_registration_without_a_created_case_saves_then_reports_the_missing_case(
-    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence, scenario
 ):
-    """A real submission saves before the fallthrough frame asks HQ for the case the form never created."""
-    with apps.published(formplayer_documents["no-matches-new-case"], core_runner) as published:
-        with apps.served(published, formplayer_runner) as served, served.run("empty-search-no-create"):
+    """The implicit return asks HQ for the missing ID under either case-list workflow."""
+    with apps.published(formplayer_documents[f"no-matches-{scenario}"], core_runner) as published:
+        with apps.served(published, formplayer_runner, change=_optional_creation) as served, served.run("empty-search-no-create"):
             web = apps.web(formplayer_runner, served)
             form, name = _open_registration_from_an_empty_search(web, prefilled=True)
             submitted = web.submit(
@@ -392,6 +404,30 @@ def test_empty_search_registration_without_a_created_case_saves_then_reports_the
             assert submitted["status"] == "error", (submitted, asked)
             assert not submitted.get("nextScreen"), submitted
             assert [request.status for request in served.hq.exchanges if request.url_name == "case_fixture"] == [404], asked
+
+
+def test_a_list_action_without_a_created_case_returns_to_an_ordinary_case_list(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    """The ordinary list's return does not query for the case the form never created."""
+    with apps.published(formplayer_documents["no-matches-second-list"], core_runner) as published:
+        with apps.served(published, formplayer_runner, change=_optional_creation) as served, served.run("ordinary-no-create"):
+            web = apps.web(formplayer_runner, served)
+            results = web.navigate(["1"])
+            assert screen_kind(results) == "entities" and len(results["actions"]) == 1, results
+            form = web.navigate([*results["selections"], "action 0"])
+            assert screen_kind(form) == "form" and form["title"] == "Register patient", form
+            (name,) = [node for node in form["tree"] if node.get("caption") == "Name"]
+            submitted = web.submit(
+                form["session_id"], {name["ix"]: "Consultation only", **_creation_choice(form, "No")}
+            )
+            asked = _asked(served)
+            evidence("ordinary-no-create", {"response": submitted, "asked": asked})
+            (receipt,) = served.hq.submissions
+            assert etree.fromstring(receipt.instance).findtext("{*}case_name") == "Consultation only"
+            assert submitted["status"] == "success", (submitted, asked)
+            assert screen_kind(submitted["nextScreen"]) == "entities", submitted
+            assert all(request.url_name != "case_fixture" for request in served.hq.exchanges), asked
 
 
 def _landing(screen):
