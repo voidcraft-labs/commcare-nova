@@ -468,6 +468,13 @@ function caseElement(
 			...(row.external_id === null
 				? []
 				: [{ name: "external_id", value: row.external_id }]),
+			// The case's own location column, which CommCare HQ's restore
+			// writes as a `location_id` element where it holds text
+			// (`V2CaseXMLGenerator.add_custom_properties`) and a device's own
+			// write keeps as a property of that name (`CaseXmlParser.updateCase`).
+			...(typeof row.location_id === "string" && row.location_id !== ""
+				? [{ name: "location_id", value: row.location_id }]
+				: []),
 			...properties,
 			{
 				...CASE_INDEX_TEMPLATE,

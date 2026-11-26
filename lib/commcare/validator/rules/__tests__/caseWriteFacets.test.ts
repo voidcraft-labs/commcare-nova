@@ -27,6 +27,7 @@ import {
 	proseText,
 } from "@/lib/domain";
 import { concat, literal, term } from "@/lib/domain/expression/builders";
+import { expandDoc } from "../../../expander";
 import type { ValidationError, ValidationErrorCode } from "../../errors";
 import { runValidation } from "../../runner";
 
@@ -280,25 +281,80 @@ describe("CASE_WRITE_ONLY_IF_CHANGED_INVALID", () => {
 		expect(finding?.details?.reason).toBe("placement");
 	});
 
-	it("refuses it on a case the form creates", () => {
-		const { doc } = fixture("registration", {
+	it("admits it on a case the form creates, whose empty value a blank answer matches", () => {
+		const registration = fixture("registration", {
 			operations: () => [own({ name: read("name"), writes: [changed()] })],
 		});
-		const [finding] = findings(doc, "CASE_WRITE_ONLY_IF_CHANGED_INVALID");
-		expect(finding?.details?.reason).toBe("new-case");
-		expect(finding?.message).toBe(
-			"age is saved to a case this form creates, so there's no earlier value to compare with. You can save it every time instead.",
-		);
+		const child = fixture("followup", {
+			operations: (type) => [
+				own(),
+				childCreate("kid", type, {
+					repeat: "kids",
+					writes: [
+						{ property: "age", value: read("kid_age"), onlyIfChanged: true },
+					],
+				}),
+			],
+		});
+		for (const { doc } of [registration, child])
+			expect(findings(doc, "CASE_WRITE_ONLY_IF_CHANGED_INVALID")).toEqual([]);
 	});
 
-	it("refuses it on any change but the own case", () => {
+	it("admits it on the worker's record", () => {
+		const { doc } = fixture("followup", {
+			operations: () => [
+				own(),
+				workerUpdate("me", { writes: [{ ...changed(), property: "region" }] }),
+			],
+		});
+		expect(findings(doc, "CASE_WRITE_ONLY_IF_CHANGED_INVALID")).toEqual([]);
+	});
+
+	it("is exported as HQ's `edit` on a registration's update and a child case's property", () => {
+		const registration = fixture("registration", {
+			operations: () => [own({ name: read("name"), writes: [changed()] })],
+		});
+		const child = fixture("followup", {
+			operations: (type) => [
+				own(),
+				childCreate("kid", type, {
+					repeat: "kids",
+					writes: [
+						{ property: "age", value: read("kid_age"), onlyIfChanged: true },
+					],
+				}),
+			],
+		});
+		type Actions = {
+			update_case: { update: Record<string, { update_mode: string }> };
+			subcases: { case_properties: Record<string, { update_mode: string }> }[];
+		};
+		const actionsOf = (doc: BlueprintDoc): Actions => {
+			const app = expandDoc(doc) as unknown as {
+				modules: { forms: { name: { en: string }; actions: Actions }[] }[];
+			};
+			const form = app.modules[0]?.forms.find(
+				(candidate) => candidate.name.en === "Under test",
+			);
+			if (form === undefined) throw new Error("The form under test exports.");
+			return form.actions;
+		};
+		expect(
+			actionsOf(registration.doc).update_case.update.age?.update_mode,
+		).toBe("edit");
+		expect(
+			actionsOf(child.doc).subcases[0]?.case_properties.age?.update_mode,
+		).toBe("edit");
+	});
+
+	it("refuses it on a change Save to Case saves", () => {
 		const { doc } = fixture("followup", {
 			operations: () => [own(), sessionUpdate([changed()])],
 		});
 		const [finding] = findings(doc, "CASE_WRITE_ONLY_IF_CHANGED_INVALID");
-		expect(finding?.details?.reason).toBe("target");
+		expect(finding?.details?.reason).toBe("placement");
 		expect(finding?.message).toBe(
-			"Only this form's own case can save just the answers that changed. You can save age every time instead.",
+			"“other” is saved through Save to Case, which can't save only changed answers. You can save age every time instead.",
 		);
 	});
 

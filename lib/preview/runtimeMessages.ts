@@ -295,6 +295,8 @@ const english = {
 		"{subject} worker information you don't have, so a phone stops here. If it reads your place, you can preview as a persona who has a place.",
 	dataRefusalCaseLocation:
 		"A saved case location has coordinates a phone can’t read. A project editor can correct the location in the case data or choose another way to order the list.",
+	dataRefusalEntryRecord:
+		"We couldn’t find the record for “{selection}” on this worker’s device. You can check where the form gets that record or choose a worker who has it.",
 	dataRefusalOther:
 		"{subject} a value a phone doesn't have at this point, so a phone stops here.",
 	thisQuestion: "this question",
@@ -659,6 +661,8 @@ const spanish: Record<RuntimeMessage, string> = {
 		"{subject} información del trabajador que usted no tiene, así que un teléfono se detiene aquí. Si lee su lugar, puede ver la vista previa como una persona que tenga un lugar.",
 	dataRefusalCaseLocation:
 		"Una ubicación guardada tiene coordenadas que el teléfono no puede leer. Una persona con permiso para editar el proyecto puede corregir la ubicación en los datos del caso o elegir otro orden para la lista.",
+	dataRefusalEntryRecord:
+		"No encontramos el registro para «{selection}» en el dispositivo de este trabajador. Puede revisar de dónde obtiene ese registro el formulario o elegir a un trabajador que lo tenga.",
 	dataRefusalOther:
 		"{subject} un valor que un teléfono no tiene en este punto, así que un teléfono se detiene aquí.",
 	thisQuestion: "esta pregunta",
@@ -852,6 +856,11 @@ export function dataRefusalCopy(
 	const body = (key: RuntimeMessage, values: Record<string, string> = {}) =>
 		runtimeMessage(language, key, { subject: lead, ...values });
 	switch (subject.kind) {
+		case "entry-record":
+			return {
+				title,
+				body: body("dataRefusalEntryRecord", { selection: subject.selection }),
+			};
 		case "places":
 			return {
 				title,

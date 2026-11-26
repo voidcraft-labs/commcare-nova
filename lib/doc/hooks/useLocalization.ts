@@ -2,6 +2,7 @@
 
 import {
 	type Field,
+	formSubmitWording,
 	type LanguageTag,
 	type LocalizedTranslationUnit,
 	type LocalizedValue,
@@ -138,6 +139,16 @@ export function useFilledField(
 			filled: true,
 		});
 	}, sameField);
+}
+
+/** The Web Apps action after the worker locale falls back to its built default. */
+export function useFormSubmitWording(
+	uuid: Uuid | null | undefined,
+	language: LanguageTag,
+) {
+	return useBlueprintDoc((doc) =>
+		uuid == null ? undefined : formSubmitWording(doc, uuid, language),
+	);
 }
 
 /** Every independently worded output of this control. */

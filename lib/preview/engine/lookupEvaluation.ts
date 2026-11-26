@@ -38,6 +38,7 @@ import {
 	mapExpressionAst,
 } from "@/lib/domain/expression/mapAst";
 import type { Expression } from "@/lib/domain/expression/types";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import type { LookupRead } from "@/lib/domain/lookupRead";
 import type {
 	LookupFixtureRow,
@@ -209,10 +210,34 @@ export function formLogicLookupsCovered(
 	formUuid: Uuid,
 	data: PreviewLookupData | undefined,
 ): boolean {
-	return formExpressionSlotValues(doc, formUuid).every(
-		({ ref, expression }) =>
-			ref.slot === "lookup_options_source" ||
-			expressionLookupsCovered(expression, data),
+	const collector = identityCollector(data);
+	for (const { source } of entrySelectionSettings(doc.forms[formUuid]) ?? []) {
+		if (source.kind === "table") collector.check(source.table, source.column);
+	}
+	return (
+		collector.covered &&
+		[
+			...formExpressionSlotValues(doc, formUuid),
+			...(doc.forms[formUuid]?.shadowOf
+				? formExpressionSlotValues(
+						doc,
+						doc.forms[formUuid].shadowOf.form,
+					).filter(
+						({ ref, path }) =>
+							ref.entity === "field" ||
+							[
+								"openCondition",
+								"closeCondition",
+								"caseOperations",
+								"connect",
+							].includes(String(path[0])),
+					)
+				: []),
+		].every(
+			({ ref, expression }) =>
+				ref.slot === "lookup_options_source" ||
+				expressionLookupsCovered(expression, data),
+		)
 	);
 }
 

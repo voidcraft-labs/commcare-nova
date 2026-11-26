@@ -329,7 +329,7 @@ describe("the reader's print of a menu's search and list slots is the emitter's"
 			.flatMap(
 				(
 					candidate,
-				): readonly { xmlns: string; form_filter: HqXPath | null }[] =>
+				): readonly { xmlns: string | null; form_filter: HqXPath | null }[] =>
 					candidate.forms,
 			)
 			.find((candidate) => candidate.xmlns === derivedFormXmlns(formUuid));
@@ -475,8 +475,10 @@ describe("the interpolation of every slot of the corpora is the emitter's", () =
 							.flatMap(
 								(
 									candidate,
-								): readonly { xmlns: string; form_filter: HqXPath | null }[] =>
-									candidate.forms,
+								): readonly {
+									xmlns: string | null;
+									form_filter: HqXPath | null;
+								}[] => candidate.forms,
 							)
 							.find(
 								(candidate) =>

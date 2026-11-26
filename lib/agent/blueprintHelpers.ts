@@ -74,6 +74,7 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	slugifyId,
 } from "@/lib/domain";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -109,7 +110,7 @@ export function formSnapshot(
 	if (!form) return undefined;
 	return {
 		...form,
-		fields: buildFieldTree(doc, formUuid),
+		fields: buildFieldTree(doc, formContentUuid(doc, formUuid)),
 	};
 }
 
@@ -662,6 +663,7 @@ export function updateFormMutations(
 		closeCondition: Form["closeCondition"] | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
+		submitLabel: NonNullable<Form["submitLabel"]>;
 		captureLocation: true | null;
 		plainText: true | null;
 	}>,
@@ -687,6 +689,8 @@ export function updateFormMutations(
 	if (patch.purpose !== undefined) {
 		reducerPatch.purpose = patch.purpose === null ? null : patch.purpose;
 	}
+	if (patch.submitLabel !== undefined)
+		reducerPatch.submitLabel = patch.submitLabel;
 	if (patch.captureLocation !== undefined)
 		reducerPatch.captureLocation = patch.captureLocation;
 	if (patch.plainText !== undefined) reducerPatch.plainText = patch.plainText;

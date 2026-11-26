@@ -59,7 +59,7 @@ function detailColumns(...pairs: readonly DetailPair[]) {
 
 /** The slugs one form's own actions need. */
 function formActionAddOns(form: HqAnyForm): readonly NeededAddOn[] {
-	if (form.doc_type === "AdvancedForm") {
+	if (form.doc_type !== "Form") {
 		return ["conditional_form_actions", "subcases"];
 	}
 	const { actions } = form;

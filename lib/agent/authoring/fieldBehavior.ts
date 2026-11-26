@@ -60,7 +60,13 @@ export function fieldCaseWrites(
 	doc: BlueprintDoc,
 	field: Field,
 ): FieldCaseWriteRead[] {
-	return fieldCaseWriteViews(doc, field.uuid).map((view) => ({
+	return caseWriteReads(fieldCaseWriteViews(doc, field.uuid));
+}
+
+export function caseWriteReads(
+	views: ReturnType<typeof fieldCaseWriteViews>,
+): FieldCaseWriteRead[] {
+	return views.map((view) => ({
 		caseType: view.caseType,
 		property: view.property,
 		...(view.via !== undefined && { via: view.via }),

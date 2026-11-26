@@ -130,6 +130,7 @@ const SENTENCE_KINDS: ReadonlySet<string> = new Set([
 	"matches-pattern",
 	"match-all",
 	"match-none",
+	"call",
 ]);
 
 /** Focus-aware boundary for Expression slots inside a Expression. The

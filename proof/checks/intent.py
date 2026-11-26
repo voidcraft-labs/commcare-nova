@@ -189,7 +189,7 @@ fails here until Preview's constant (``lib/preview/platform.ts``) moves.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from lxml import etree
 
@@ -256,6 +256,9 @@ class FormIntent:
     # (``nova_close``), which names the module's case type in the form's save references (``_own_close_alone``).
     # Empty on a control retained without it.
     own_close_alone: set = field(default_factory=set)
+    # A shared entry (``Form.shadowOf``): HQ holds no XForm of its own and merges the form it opens into it
+    # (``ShadowForm._merge_actions``), so it states that form's writes and no file of its own.
+    shared: bool = False
 
 
 @dataclass
@@ -371,7 +374,14 @@ def document_intent(document_json) -> Intent:
                     f"The wire layout places the form {form_uuid}, which the document does not hold."
                 )
             owner = modules.get(module_of.get(form_uuid)) or module
-            intents.append(_form_intent(doc, form_uuid, form, owner.get("caseType"), multiple))
+            parent_uuid = (form.get("shadowOf") or {}).get("form")
+            if parent_uuid is not None and forms.get(parent_uuid) is not None:
+                # A shared entry states what the form it opens states, from that form's own menu.
+                parent_owner = modules.get(module_of.get(parent_uuid)) or owner
+                opened = _form_intent(doc, parent_uuid, forms[parent_uuid], parent_owner.get("caseType"), multiple)
+                intents.append(replace(opened, uuid=form_uuid, shared=True))
+            else:
+                intents.append(_form_intent(doc, form_uuid, form, owner.get("caseType"), multiple))
         placed.append((case_type, intents))
     settings = doc.get("appSettings")
     sequence = document_json.get("compiledAtSeq")
@@ -403,6 +413,7 @@ def intent_json(intent: Intent) -> dict:
             "operationWrites": {case_type: sorted(props) for case_type, props in form.operation_writes.items()},
             "openedWrites": {case_type: sorted(props) for case_type, props in form.opened_writes.items()},
             "ownCloseAlone": sorted(form.own_close_alone),
+            **({"shared": True} if form.shared else {}),
         }
 
     return {
@@ -429,6 +440,7 @@ def intent_from_json(value) -> Intent:
             operation_writes={case_type: set(props) for case_type, props in held["operationWrites"].items()},
             opened_writes={case_type: set(props) for case_type, props in (held.get("openedWrites") or {}).items()},
             own_close_alone=set(held.get("ownCloseAlone") or ()),
+            shared=held.get("shared") is True,
         )
 
     return Intent(
@@ -1392,6 +1404,8 @@ def core_local(document, intent: Intent, shapes, prefix) -> list:
     ``HeldState.shapes`` holds them): the validations the document authors."""
     found = []
     for position, form in _forms(intent):
+        if form.shared:
+            continue  # a shared entry's archive holds no form of its own
         name = form_file(*position.split("."))
         artifact = f"core:{prefix}/form:{position}"
         if name not in shapes:

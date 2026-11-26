@@ -517,6 +517,7 @@ export interface SubmissionAttachmentReference {
  */
 interface SubmissionProtocol {
 	readonly entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
+	readonly formOpening?: import("./formOpeningSnapshot").FormOpeningBinding;
 	readonly locationFix?: DeviceLocation;
 	readonly formUuid: string;
 	readonly entryKey: string;
