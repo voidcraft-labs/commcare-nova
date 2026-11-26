@@ -28,6 +28,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import {
+	ancestorPath,
 	and,
 	dateLiteral,
 	eq,
@@ -36,6 +37,7 @@ import {
 	literal,
 	lt,
 	prop,
+	relationStep,
 	sessionContext,
 	term,
 	today,
@@ -90,7 +92,7 @@ if (scenario === "map") {
 	);
 }
 // Clients belong to households, whose address a column can show.
-if (scenario === "related") {
+if (scenario === "related" || scenario === "search-direct-parent") {
 	caseTypes[0] = { ...caseTypes[0], parent_type: "household" } as CaseType;
 	caseTypes.push({
 		name: "household",
@@ -128,6 +130,17 @@ if (scenario === "choice-labels-and-values") {
 if (scenario.startsWith("search"))
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "name", "Name", "text", "case_name"),
+	];
+if (scenario === "search-direct-parent")
+	config.searchInputs = [
+		simpleSearchInputDef(
+			searchId,
+			"parent_address",
+			"Parent address",
+			"text",
+			"address",
+			{ matching: "project-space", via: ancestorPath(relationStep("parent")) },
+		),
 	];
 if (scenario === "search-date")
 	config.searchInputs = [

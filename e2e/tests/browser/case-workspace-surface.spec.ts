@@ -369,6 +369,55 @@ test("native Search chooser filters, recovers focus, and creates the selected ty
 	await expect(trigger).toHaveAttribute("aria-expanded", "false");
 	await expect(trigger).toBeFocused();
 });
+test("direct parent Search keeps its match when a field is renamed or relabeled", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-direct-parent`);
+	const original = (await savedModule(page)).caseListConfig.searchInputs[0];
+	await page.locator(`[data-case-search-field="${original.uuid}"]`).click();
+
+	const matching = page.getByRole("switch", {
+		name: /^Use project space matching/,
+	});
+	await expect(matching).toBeChecked();
+	const label = page.getByRole("textbox", { name: "Search field 1 label" });
+	await label.fill("Household address");
+	await label.press("Tab");
+	await expect
+		.poll(async () => (await savedModule(page)).caseListConfig.searchInputs[0])
+		.toMatchObject({ ...original, label: "Household address" });
+
+	await page.getByRole("button", { name: "More settings" }).click();
+	const name = page.getByRole("textbox", {
+		name: "Search field 1 name",
+		exact: true,
+	});
+	await name.fill("home_address");
+	await name.press("Tab");
+	await expect
+		.poll(async () => (await savedModule(page)).caseListConfig.searchInputs[0])
+		.toMatchObject({
+			...original,
+			label: "Household address",
+			name: "home_address",
+		});
+	await expect(matching).toBeChecked();
+
+	await page
+		.getByRole("combobox", { name: "Search field 1 information" })
+		.click();
+	await page.getByRole("option", { name: /^Region/ }).click();
+	const changed = (await savedModule(page)).caseListConfig.searchInputs[0];
+	expect(changed).toMatchObject({
+		uuid: original.uuid,
+		property: "region",
+		name: "home_address",
+	});
+	expect(changed).not.toHaveProperty("matching");
+	expect(changed).not.toHaveProperty("via");
+	await expect(matching).toHaveCount(0);
+});
+
 test("native Search keyboard reordering and removal preserve field identity and move focus", async ({
 	page,
 }) => {
