@@ -1,3 +1,4 @@
+import type { Platform } from "@/lib/domain/platforms";
 import type { AndroidAppReturn } from "@/lib/preview/engine/androidAppReturn";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import {
@@ -22,6 +23,7 @@ export async function applyAndroidAppResult(
 	path: string,
 	signature: string,
 	result: AndroidAppReturn,
+	platform: Platform,
 	signal: AbortSignal,
 ): Promise<boolean> {
 	const writes = controller.androidAppResult(entryKey, path, signature, result);
@@ -75,7 +77,7 @@ export async function applyAndroidAppResult(
 								fieldUuid: write.field,
 								instancePath: write.path,
 								file: write.file,
-								platform: "android",
+								platform,
 								signal: guard,
 							})
 						: undefined;

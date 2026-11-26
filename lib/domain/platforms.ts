@@ -326,6 +326,7 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"connect-app",
 	"case-list-search-text",
 	"window-width",
+	"android-app-question",
 ] as const satisfies readonly PlatformFeatureId[];
 export type RefusablePlatformFeatureId =
 	(typeof REFUSABLE_PLATFORM_FEATURE_IDS)[number];
@@ -699,7 +700,7 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: {
 			reading: "unavailable",
-			note: "Web Apps shows a placeholder and cannot open the Android app",
+			note: "shows a placeholder and cannot open the Android app",
 		},
 		android: {
 			reading: "runs",

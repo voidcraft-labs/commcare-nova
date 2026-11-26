@@ -2060,6 +2060,10 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	"activity.name": "display-text",
 	"activity.description": "display-text",
 	"activity.estimatedHours": "config",
+	"androidApp.kind": "discriminator",
+	"androidApp.action": "config",
+	"androidApp.send[].name": "config",
+	"androidApp.receive[].name": "config",
 	repeat_mode: "discriminator",
 	// A query repeat's held placement: a closed enum, naming nothing.
 	placement: "config",

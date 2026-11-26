@@ -14,7 +14,11 @@ import {
 	SIMPRINTS_TEMPLATE_NAMES,
 } from "@/lib/preview/engine/androidAppReturn";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
-import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	useCanEdit,
+	usePreviewPlatform,
+} from "@/lib/session/hooks";
 import { applyAndroidAppResult } from "./attachment/androidAppResult";
 
 type Protocol =
@@ -39,6 +43,7 @@ export function AndroidAppField({
 }) {
 	const inputId = useId();
 	const controller = useEngineController();
+	const platform = usePreviewPlatform();
 	const editing = useCanEdit();
 	const access = useAccessPhase();
 	const maySetCapture = editing && access === "authorized";
@@ -155,6 +160,7 @@ export function AndroidAppField({
 				path,
 				launch.signature,
 				result,
+				platform,
 				op.signal,
 			);
 			if (op.signal.aborted) return;

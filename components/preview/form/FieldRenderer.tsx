@@ -3,10 +3,7 @@ import { type Field, isCaptureField } from "@/lib/domain";
 import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
-import {
-	usePreviewPlatform,
-	usePreviewPlatformRules,
-} from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { assertNever } from "@/lib/utils/assertNever";
 import { AddressEntryField } from "./fields/AddressEntryField";
 import { AndroidAppField } from "./fields/AndroidAppField";
@@ -89,8 +86,7 @@ export function FieldRenderer({
 	onDisplayMessage,
 }: FieldRendererProps) {
 	const rules = usePreviewPlatformRules();
-	const platform = usePreviewPlatform();
-	if ("androidApp" in field && field.androidApp && platform === "android") {
+	if (rules.androidAppAnswers && "androidApp" in field && field.androidApp) {
 		if (path && appId && entryKey)
 			return (
 				<AndroidAppField

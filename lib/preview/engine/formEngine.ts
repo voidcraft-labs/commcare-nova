@@ -1826,8 +1826,7 @@ export class FormEngine {
 		const field = this.findField(path);
 		const setting =
 			field && "androidApp" in field ? field.androidApp : undefined;
-		if (!field || !setting || this.device.platform !== "android")
-			return undefined;
+		if (!this.rules.androidAppAnswers || !field || !setting) return undefined;
 		const owner =
 			setting.kind === "open-app"
 				? field
