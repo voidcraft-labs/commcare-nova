@@ -376,7 +376,9 @@
 		"hq-menus/tools-with-a-comment",
 		"hq-menus/training-menu",
 		"hq-menus/translation-overrides-a-menu-badge",
-		"hq-menus/undeclared-menu-key"
+		"hq-menus/undeclared-menu-key",
+		"hq-menus/visit-picture-carrying-an-endpoint-on-the-detail",
+		"hq-menus/visit-picture-on-the-detail"
 	],
 	"hq-names": [
 		"hq-names/inline-search-on-a-list-first-menu",
