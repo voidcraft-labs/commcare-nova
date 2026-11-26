@@ -5314,7 +5314,7 @@ def search_group_display_key_shared(use, manifest):
             for member in rows[index + 1:]:
                 if not isinstance(member, dict) or member.get("is_group") is True:
                     break
-                if member.get("group_key") == key and member.get("hidden") is not True:
+                if member.get("group_key") == key:
                     return True
             return False
     return False

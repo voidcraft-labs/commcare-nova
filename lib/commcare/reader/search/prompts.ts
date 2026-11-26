@@ -627,10 +627,7 @@ function readSearchGroups(
 		// HQ writes headings and prompt labels to the same locale table by
 		// their exact saved names. A populated heading can share a value with
 		// a field in any group, even without a stored translation override.
-		if (
-			fieldNames.has(key) &&
-			members.some((member) => member.peek("hidden") !== true)
-		) {
+		if (fieldNames.has(key) && members.length > 0) {
 			const detail = { name: key };
 			row.refuseWhole(P.groupDisplayKey, detail);
 			const finding = manifestFindingOf(P.groupDisplayKey, place, detail);

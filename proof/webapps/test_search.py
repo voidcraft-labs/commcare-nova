@@ -933,8 +933,9 @@ def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
         assert run.page_errors == []
 
 
+@pytest.mark.parametrize("hidden_member", [False, True], ids=["shown-member", "hidden-only-group"])
 def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
-    hq, formplayer_runner, editor_driver, webapps_documents, evidence,
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, hidden_member,
 ):
     from lxml import etree
 
@@ -951,7 +952,7 @@ def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
         app = operations.held_app(state, app_id)
         properties = [prop.to_json() for prop in app.get_module(0).search_config.properties]
         properties[0].update({"name": group_name, "group_key": group_name})
-        properties[1]["group_key"] = group_name
+        properties[1].update({"group_key": group_name, "hidden": hidden_member})
         properties.append({
             "doc_type": "CaseSearchProperty",
             "name": group_name, "label": {"en": prop_label},
@@ -980,7 +981,9 @@ def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
             ])
     read = run.value(len(opening))
     labels, prompts = read["headings"], read["prompts"]
-    evidence("shared-search-group-locale", {"headings": labels, "prompts": prompts, "locale": key})
+    evidence("shared-search-group-locale", {
+        "headings": labels, "prompts": prompts, "locale": key, "hiddenMember": hidden_member,
+    })
     assert not run.page_errors and not run.dialogs
     assert labels == [prop_label, "Case details"]
-    assert prompts == ["Name", "Record name", prop_label]
+    assert prompts == ([] if hidden_member else ["Name"]) + ["Record name", prop_label]
