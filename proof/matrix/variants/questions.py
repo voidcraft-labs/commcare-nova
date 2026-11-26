@@ -1967,6 +1967,11 @@ def save_to_case_link_name_outside_grammar(authoring, app_id):
     _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
 
 
+def save_to_case_index_close_adds_action(authoring, app_id):
+    """This block creates a case without a close action, before Vellum saves it."""
+    _save_to_case_link(authoring, app_id, "save-to-case-index-close-adds-action", "close")
+
+
 def _save_to_case_link(authoring, app_id, what, name, value="'abc'"):
     """The create with a link ``name`` (a child of a ``household``) to the case whose id is ``value``."""
     _save_to_case(

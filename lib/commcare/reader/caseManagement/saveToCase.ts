@@ -164,6 +164,11 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/savetocase-link-name-outside-nova-s-identifier-grammar`,
 		MUG,
 	),
+	linkActionOnSave: refuse(
+		`${Q}/savetocase-link-name-changes-actions-on-save`,
+		MUG,
+	),
+	linkBindLost: refuse(`${Q}/savetocase-link-bind-lost-on-save`, MUG),
 	caseTypeXPath: refuse(`${Q}/savetocase-case-type-given-as-an-xpath`, MUG),
 	authoredCreateId: refuse(
 		`${Q}/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside`,
@@ -1915,15 +1920,19 @@ function readBlock(
 	if (index !== undefined)
 		for (const link of children(index)) {
 			const identifier = link.name;
-			// A name Nova's link identifier cannot spell, or one CommCare HQ's form
-			// builder reads as the block's own action
-			// (`questionId.ts::caseOperationLinkNameProblem`), as the gate refuses it.
-			// A name it cannot open a form with was refused above.
+			const nameProblem = caseOperationLinkNameProblem(identifier);
+			if (nameProblem === "reads_as_case_action" && !parts.has(identifier))
+				return fail(SAVE_TO_CASE_CLAIMS.linkActionOnSave, { name: identifier });
 			if (
 				!isCaseOperationLinkIdentifier(identifier) ||
-				caseOperationLinkNameProblem(identifier) !== undefined
+				nameProblem !== undefined
 			)
-				return fail(SAVE_TO_CASE_CLAIMS.linkName, { name: identifier });
+				return fail(
+					identifier.includes(".")
+						? SAVE_TO_CASE_CLAIMS.linkBindLost
+						: SAVE_TO_CASE_CLAIMS.linkName,
+					{ name: identifier },
+				);
 			// A name longer than CommCare HQ's index column holds
 			// (`CommCareCaseIndex.identifier`, 255 characters), which the gate refuses
 			// (`CASE_OPERATION_LINK_INVALID`, reason `too-long`).

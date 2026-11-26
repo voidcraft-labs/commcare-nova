@@ -35015,8 +35015,8 @@
 	{
 		"id": "hq-questions/save-to-case-link-name-outside-grammar",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
-		"standing": "not-yet",
+		"entry": "questions/savetocase-link-bind-lost-on-save",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -35028,6 +35028,24 @@
 		"change": {
 			"op": "named",
 			"name": "save_to_case_link_name_outside_grammar"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-index-close-adds-action",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-changes-actions-on-save",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_index_close_adds_action"
 		}
 	},
 	{
