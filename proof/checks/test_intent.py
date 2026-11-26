@@ -87,6 +87,7 @@ from proof.observe.record import Blobs, DocumentRecords, canonical
 def test_hq_and_core_hold_what_the_document_states(document, hq, core_runner, editor_driver):
     records = observations.records_for(document, core_runner, editor_driver=editor_driver)
     found = intent.intent_differences(document, records, load_manifest().items)
+    for row in found: print("CASEVIEW-PROBE", repr(row))
     cases.hold("intent", document, found, cases.load_register(), configurations=sorted(document.exports))
 
 
