@@ -144,7 +144,7 @@ def upload_commcare_translation(state, app_id, key, value, *, language="en"):
     from django.urls import resolve, reverse
     from openpyxl import load_workbook
 
-    from proof.hq import requests
+    from proof.hq import operations, requests
 
     def downloadable():
         path = reverse("download_bulk_ui_translations", args=[state.domain, app_id])
@@ -157,11 +157,15 @@ def upload_commcare_translation(state, app_id, key, value, *, language="en"):
 
     download = downloadable()
     sheet = download["translations"]
-    languages = [cell.value for cell in sheet[1]]
-    column = languages.index(language) + 1
-    row = next((cell.row for cell in sheet["A"] if cell.value == key), sheet.max_row + 1)
-    sheet.cell(row, 1, key)
-    sheet.cell(row, column, value)
+    languages = [cell.value for cell in sheet[1][1:]]
+    current = operations.held_app(state, app_id).translations
+    expected = {code: dict(values) for code, values in current.items() if values}
+    expected.setdefault(language, {})[key] = value
+    # Keep the workbook and version metadata HQ downloaded. Upload only the
+    # edited and explicitly saved rows so stock defaults do not become edits.
+    sheet.delete_rows(2, sheet.max_row - 1)
+    for prop in sorted({prop for values in expected.values() for prop in values}):
+        sheet.append([prop, *(expected.get(code, {}).get(prop) for code in languages)])
     output = io.BytesIO()
     download.save(output)
     path = reverse("upload_bulk_ui_translations", args=[state.domain, app_id])
@@ -173,8 +177,11 @@ def upload_commcare_translation(state, app_id, key, value, *, language="en"):
     response = view.func(request, *view.args, **view.kwargs)
     assert response.status_code == 302, response.status_code
     messages = requests.messages(request)
+    actual = operations.held_app(state, app_id).translations
+    assert {code: dict(values) for code, values in actual.items() if values} == expected, messages
     after = downloadable()["translations"]
-    [recorded] = [row[column - 1].value for row in after.iter_rows() if row[0].value == key]
+    column = languages.index(language) + 1
+    [recorded] = [row[column].value for row in after.iter_rows() if row[0].value == key]
     assert recorded == value, messages
     return messages
 
