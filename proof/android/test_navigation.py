@@ -248,7 +248,7 @@ def test_reaching_shared_forms_by_android_intent_keeps_each_routes_command_and_b
         steps = _steps(navs[f"path:{'/'.join(path)}"])
         opened = next(step for step in steps if step["screen"] == FORM_ENTRY)
         assert opened["session"]["command"] == path[-1], opened
-        assert opened["form"]["loaded"] and opened["form"]["alert"] is None, opened
+        assert opened["form"]["loaded"] and opened["form"].get("alert") is None, opened
         assert opened["form"]["FormEntryActivity.getHeaderString"] == f"Field visits > {menu} > Visit notes", opened
 
 
