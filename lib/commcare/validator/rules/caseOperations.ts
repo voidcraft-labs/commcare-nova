@@ -31,7 +31,6 @@ import {
 	sameCaseOperationTargetIdentity,
 } from "@/lib/doc/caseOperationOrder";
 import {
-	ADVANCED_OPEN_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	ADVANCED_OPEN_LINK_IDENTIFIER_REGEX,
 	type BlueprintDoc,
 	CASE_FACET_OF_ONLY_IF_CHANGED,
@@ -908,20 +907,24 @@ function validateLinks(
 	if (links.length === 0) return;
 	const linkIds = new Set<string>();
 	const allLinkIds = new Set(links.map((link) => link.identifier));
-	const planned = planPlacements(ctx.doc, ctx.formUuid);
-	const advancedOpen =
-		planned.advanced?.opens.some(
-			(open) => open.operationUuid === operation.uuid,
-		) === true;
+	let plan: ReturnType<typeof planPlacements> | undefined;
+	const placementsOfForm = () =>
+		(plan ??= planPlacements(ctx.doc, ctx.formUuid));
+	let advancedOpen: boolean | undefined;
 	for (const link of links) {
-		const validFormat = advancedOpen
-			? ADVANCED_OPEN_LINK_IDENTIFIER_REGEX.test(link.identifier)
-			: isCaseOperationLinkIdentifier(link.identifier);
-		const formatMessage = advancedOpen
-			? ADVANCED_OPEN_LINK_IDENTIFIER_FORMAT_MESSAGE
-			: ADVANCED_OPEN_LINK_IDENTIFIER_REGEX.test(link.identifier)
-				? "A connection name with a period requires an Advanced open action. Keep the change in that action or choose a name without a period."
-				: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE;
+		const standardName = isCaseOperationLinkIdentifier(link.identifier);
+		const advancedName =
+			!standardName &&
+			ADVANCED_OPEN_LINK_IDENTIFIER_REGEX.test(link.identifier);
+		if (advancedName)
+			advancedOpen ??=
+				placementsOfForm().advanced?.opens.some(
+					(open) => open.operationUuid === operation.uuid,
+				) === true;
+		const validFormat = standardName || (advancedName && advancedOpen === true);
+		const formatMessage = advancedName
+			? "A connection name with a period requires an Advanced open action. Keep the change in that action or choose a name without a period."
+			: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE;
 		const invalidLinkFormat = !validFormat;
 		const linkTooLong =
 			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH;
@@ -951,7 +954,7 @@ function validateLinks(
 		const linkNameProblem = invalidLinkFormat
 			? undefined
 			: caseOperationLinkNameProblem(link.identifier, (action) => {
-					const { placements } = planned;
+					const { placements } = placementsOfForm();
 					if (placements.get(operation.uuid)?.placement.kind !== "save-to-case")
 						return false;
 					return saveToCaseActions(
