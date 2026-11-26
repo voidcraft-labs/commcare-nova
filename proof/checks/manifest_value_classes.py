@@ -7829,12 +7829,18 @@ def invalid_question_id(use, manifest):
     ``parsererror``, which HQ's form builder cannot open a form holding (``NEVER_OPENED``), as Nova's reader reads
     each question's data node (``lib/commcare/reader/xform/join.ts``'s question id rule over
     ``questionId.ts::questionIdProblem``)."""
-    form, element = _question_node(use)
+    form, element = _data_node(use)
     if form is None:
         return None
     if element is None:
         return False
     name = _node_name(element)
+    if name in NEVER_OPENED and any(
+        holder.get(f"{{{VELLUM}}}role") == "SaveToCase" for holder in element.iterancestors()
+    ):
+        return True
+    if element not in form.vellum_nodes:
+        return False
     return VELLUM_ELEMENT_NAME.fullmatch(name) is None or name.lower() == "meta" or name in NEVER_OPENED
 
 

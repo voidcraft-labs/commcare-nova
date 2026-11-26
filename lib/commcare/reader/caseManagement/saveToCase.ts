@@ -1530,7 +1530,11 @@ function readBlock(
 		(element) => stopsFormBuilder(localName(element)),
 	);
 	if (unopenable !== undefined)
-		return fail(X.questionIdGrammar, { name: localName(unopenable) });
+		return fail(
+			X.questionIdGrammar,
+			{ name: localName(unopenable) },
+			unopenable,
+		);
 	const caseElement = children(block.element).find(
 		(child) => localName(child) === "case",
 	);
@@ -3360,7 +3364,9 @@ function claimAccepted(
 				for (const one of iterationSetvalues(xform, node))
 					reachElement(xform, one.element, claim);
 			}
-			reachNode(xform, { element: node.element }, claim);
+			if (claim === X.questionIdGrammar && failedIn.at !== undefined)
+				xform.cursor.partOf({ element: node.element }, claim);
+			else reachNode(xform, { element: node.element }, claim);
 			for (const attribute of Object.keys(node.element.attribs))
 				if (!attribute.startsWith("xmlns"))
 					reachNode(xform, { element: node.element, attribute }, claim);

@@ -553,6 +553,7 @@
 		"hq-questions/save-to-case-leaf-constraint",
 		"hq-questions/save-to-case-leaf-type",
 		"hq-questions/save-to-case-link-name-outside-grammar",
+		"hq-questions/save-to-case-link-stops-form-designer",
 		"hq-questions/save-to-case-live-id",
 		"hq-questions/save-to-case-open-condition",
 		"hq-questions/save-to-case-owner-condition",
