@@ -3488,6 +3488,7 @@ export const caseListDeviceLookupSchema = z
 	.strictObject({
 		action: deviceLookupName,
 		label: deviceLookupName,
+		icon: mediaAssetIdSchema.optional(),
 		automatic: z.literal(true).optional(),
 		extras: z
 			.array(

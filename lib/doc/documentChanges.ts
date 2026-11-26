@@ -386,6 +386,14 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				...language,
 				"audioLabel",
 			];
+		case "case_list_lookup_icon":
+			return [
+				"modules",
+				location.moduleUuid,
+				"caseListConfig",
+				"deviceLookup",
+				"icon",
+			];
 		case "case_list_registration_icon":
 			return [
 				"modules",

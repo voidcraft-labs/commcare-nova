@@ -151,6 +151,12 @@ The manifest threads through the emitter as `opts.assets`; the wire media artifa
 
 itext `<value form="image|audio|video">` (image→audio→video order, after the text + markdown values) and the logo profile property emit the same way. A field's media slots are `label` (every visible field but a group or repeat) and `help` (input fields): no CommCare runtime draws media on a hint, a validation message, or a group's or repeat's label (Android, Formplayer and the Web Apps client, each held by the lane: `proof/android/predicates.py`, `proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`), so the model has no slot for them. Nova sends no `multimedia_map` in any mode: HQ's media upload matches each file to a path the app's content references and writes the map itself. **An app with NO media emits no media artifacts at all** — empty manifest means the media-on code paths never run: no `media_suite.xml`, no media itext values. The validator returns zero findings for a media-free doc, so this is structural, not a special case. An image map with no entries names no file, so it is its image column with a manifest and without one (`lib/domain/modules.ts::imageMapShowsImages`), and a media-free app's JSON is the same bytes either way.
 
+The Android case-list lookup’s optional icon is a single Project image.
+The asset walk indexes it for attachment validation, deletion and Project
+moves. HQ JSON and local archives carry the path on media-ON exports.
+Editing the lookup replaces its complete configuration, so clearing the icon
+removes its key when the replacement is serialized.
+
 ## Clearing a media slot uses a dedicated mutation kind
 
 Media slots clear through their own `null`-carrying mutation kinds (`setFieldMedia` / `setModuleMedia` / `setFormMedia` / `setAppLogo`), never an `{ key: undefined }` patch — `JSON.stringify` drops `undefined` on the SSE wire, so a generic patch-clear would no-op and the stale ref would auto-save back. The reducer maps the on-wire `null` to `undefined` internally. Full rationale in `lib/doc/CLAUDE.md`.

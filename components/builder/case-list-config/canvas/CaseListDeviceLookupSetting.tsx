@@ -2,12 +2,14 @@
 
 import { useId, useState } from "react";
 import { v4 } from "uuid";
+import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import {
 	type CaseListDeviceLookup,
 	type CommitOutcome,
 	caseListDeviceLookupSchema,
+	type Uuid,
 } from "@/lib/domain";
 
 function row(name = "", value = "") {
@@ -18,6 +20,7 @@ function edit(value?: CaseListDeviceLookup) {
 	return {
 		action: value?.action ?? "",
 		label: value?.label ?? "",
+		icon: value?.icon,
 		automatic: value?.automatic,
 		extras: value?.extras.map(({ name, value }) => row(name, value)) ?? [row()],
 		responses: value?.responses.map((name) => row(name)) ?? [row()],
@@ -25,6 +28,7 @@ function edit(value?: CaseListDeviceLookup) {
 }
 
 interface Props {
+	readonly moduleUuid: Uuid;
 	readonly disabled: boolean;
 	readonly value: CaseListDeviceLookup | undefined;
 	readonly canEdit: boolean;
@@ -32,6 +36,7 @@ interface Props {
 }
 
 export function CaseListDeviceLookupSetting({
+	moduleUuid,
 	disabled,
 	value,
 	canEdit,
@@ -115,6 +120,18 @@ export function CaseListDeviceLookupSetting({
 						value={draft.label}
 						onChange={(label) => setDraft({ ...draft, label })}
 					/>
+					<div className="space-y-1">
+						<p className="text-sm text-nova-text">Button icon</p>
+						<SingleAssetSlot
+							kind="image"
+							value={draft.icon}
+							onChange={(icon) =>
+								setDraft((latest) => latest && { ...latest, icon })
+							}
+							slotKey={`case-list-lookup:${moduleUuid}`}
+							ariaLabel="Case lookup button icon"
+						/>
+					</div>
 					<label className="flex gap-2 text-sm text-nova-text">
 						<input
 							type="checkbox"

@@ -8580,6 +8580,27 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/fixed-text-callout-icon",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-image-jr",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_icon"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/label",
+				"value": "Scan a card"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/fixed-text-callout-name",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-name",

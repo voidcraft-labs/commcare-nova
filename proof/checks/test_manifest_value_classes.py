@@ -7908,10 +7908,6 @@ def _case_list_lookup_shapes():
             use(refused, "lookup_extras", lookup_extras=dynamic),
             use(accepted, "lookup_extras"),
         ),
-        "menus-and-case-lists/lookup-image-jr": (
-            use(refused, "lookup_image", lookup_image="jr://file/icon.png"),
-            use(accepted, "lookup_image", lookup_image="jr://file/icon.png", lookup_enabled=False),
-        ),
         "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
             use(refused, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=True),
             use(accepted, "lookup_field_template", lookup_field_template="@case_id", lookup_display_results=False),

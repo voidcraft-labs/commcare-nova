@@ -2,6 +2,8 @@ package nova.proof.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -309,6 +311,14 @@ final class Lists {
             JSONObject command = commands.getJSONObject(i);
             JSONObject sample = new JSONObject().put("before", firstCells(adapter, listView));
             observations.put(sample);
+            if (command.optBoolean("inspectIcon")) {
+                if (!(launch.getIcon() instanceof BitmapDrawable)) {
+                    throw new IllegalStateException("The case list lookup toolbar has no loaded bitmap.");
+                }
+                Bitmap image = ((BitmapDrawable)launch.getIcon()).getBitmap();
+                sample.put("iconCenterARGB", String.format("%08x", image.getPixel(image.getWidth() / 2,
+                        image.getHeight() / 2)));
+            }
             ShadowToast.reset();
             boolean missing = command.optBoolean("missingHandler");
             boolean automatic = command.optBoolean("automatic");

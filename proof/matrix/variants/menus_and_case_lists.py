@@ -340,6 +340,14 @@ def fixed_text_callout(authoring, app_id):
     )
 
 
+def fixed_text_callout_with_icon(authoring, app_id):
+    """Patients' lookup button uses a picture the HQ picker uploaded."""
+    fixed_text_callout(authoring, app_id)
+    path = "jr://file/commcare/image/case-lookup.png"
+    _pages.upload_picture(authoring, app_id, path)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_image", path)
+
+
 def automatic_fixed_text_callout(authoring, app_id):
     """The same companion configuration with automatic lookup enabled."""
     fixed_text_callout(authoring, app_id)
