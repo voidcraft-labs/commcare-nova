@@ -3427,11 +3427,24 @@ describe("the form's own case", () => {
 					: entry,
 			),
 		});
-		await submit(store, {
+		const request = {
 			appId: APP_ID,
 			ordinary: followupOrdinary(),
 			operations: withVia(ownProgram("followup", [viaParent("from child")])),
-		});
+		};
+		const claim = { ...request, submissionReceipt: receiptFor(request) };
+		const saved = await store.applySubmission(claim);
+		expect(saved.caseDatabasePatch?.rows).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					case_id: HOUSEHOLD_ID,
+					properties: expect.objectContaining({ notes: "from child" }),
+				}),
+			]),
+		);
+		expect((await store.applySubmission(claim)).caseDatabasePatch).toEqual(
+			saved.caseDatabasePatch,
+		);
 		expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject({
 			notes: "from child",
 		});

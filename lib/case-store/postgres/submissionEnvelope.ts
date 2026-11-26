@@ -1157,7 +1157,10 @@ export async function executeSubmissionEnvelope(
 	host: SubmissionEnvelopeHost,
 	args: ApplySubmissionArgs,
 ): Promise<
-	SubmissionEnvelopeResult & { readonly deviceExternalIds: DeviceExternalIds }
+	SubmissionEnvelopeResult & {
+		readonly deviceExternalIds: DeviceExternalIds;
+		readonly reachedWriteCaseIds: readonly string[];
+	}
 > {
 	const deviceExternalIds: DeviceExternalIds = new Map();
 	const steps =
@@ -1209,6 +1212,7 @@ export async function executeSubmissionEnvelope(
 		opening?.submittedCaseIds,
 	);
 	const operationRecords: OperationEffectRecord[] = [];
+	const reachedWriteCaseIds = new Set<string>();
 	let registeredCaseId: string | undefined;
 
 	if (args.operations !== undefined && steps.length > 0) {
@@ -1223,6 +1227,8 @@ export async function executeSubmissionEnvelope(
 		);
 		registeredCaseId = program.registeredCaseId;
 		for (const entry of program.resolved) {
+			for (const write of entry.viaWrites)
+				reachedWriteCaseIds.add(write.caseId);
 			operationRecords.push({
 				operationUuid: entry.instance.envelope.operation.uuid,
 				iteration: entry.instance.iteration,
@@ -1252,6 +1258,7 @@ export async function executeSubmissionEnvelope(
 					: [registeredCaseId],
 		createdChildren: [],
 		operations: operationRecords,
+		reachedWriteCaseIds: [...reachedWriteCaseIds],
 		deviceExternalIds,
 	};
 }
