@@ -370,7 +370,7 @@ it.each(["default filter", "dedicated setting"] as const)(
 						},
 					})
 				: patients(columns, { search: { requestOrder: [term] } });
-			doc.caseTypes = effectiveCaseTypes(doc).map((type) =>
+			const caseTypes = (doc.caseTypes ?? []).map((type) =>
 				type.name === "patient"
 					? {
 							...type,
@@ -390,7 +390,7 @@ it.each(["default filter", "dedicated setting"] as const)(
 						}
 					: type,
 			);
-			return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+			return runValidation({ ...doc, caseTypes }, LOOKUP_CONTEXT_UNAVAILABLE);
 		};
 		expect(authoredFindings("location_id")).toEqual([
 			expect.objectContaining({
