@@ -3449,6 +3449,7 @@ export function CaseListScreen({
 				columns={detailColumns}
 				row={displayedOpenCase}
 				displayContext={detailDisplayContext}
+				search={claimsAtResult}
 			/>
 			{/* The running app's confirm step ends in Continue: on to the
 			 *  case-loading form (or the form menu, when the module has more

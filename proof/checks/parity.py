@@ -208,6 +208,43 @@ def _generated_case_title(use, held):
             yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/cchq.case")
 
 
+def _generated_detail_tab_title(use, held):
+    """A case detail's visible tabs receive one native locale key apiece. Decide plain
+    overrides on an actual tab. Unbuilt positions and separate Search variants need
+    other source evidence before this check can judge them."""
+    if use.key != "schema:Application.translations" or use.at is None:
+        return
+    translations = use.at.value
+    langs = use.at.owner.get("langs")
+    menus = use.at.owner.get("modules")
+    if not isinstance(translations, dict) or not isinstance(langs, list) or not isinstance(menus, list):
+        return
+    entry = next((entry for entry in held.entries[use.key]
+                  if entry.id == "application-and-settings/translations-generated-wording"), None)
+    if entry is None:
+        return
+    for code in langs:
+        if not isinstance(code, str) or not isinstance(translations.get(code), dict):
+            continue
+        for key, title in translations[code].items():
+            match = re.fullmatch(r"m(0|[1-9][0-9]*)\.case_long\.tab\.([1-9][0-9]*)\.title", key)
+            if match is None or not isinstance(title, str) or not title.isascii() or not title.isprintable():
+                continue
+            if title.strip() != title or "\\" in title:
+                continue
+            menu_index, tab_index = map(int, match.groups())
+            if menu_index >= len(menus) or not isinstance(menus[menu_index], dict):
+                continue
+            pair = menus[menu_index].get("case_details")
+            detail = pair.get("long") if isinstance(pair, dict) else None
+            tabs = detail.get("tabs") if isinstance(detail, dict) else None
+            if not isinstance(tabs, list) or tab_index > len(tabs) or not isinstance(tabs[tab_index - 1], dict):
+                continue
+            headers = tabs[tab_index - 1].get("header")
+            if isinstance(headers, dict) and isinstance(headers.get(code), str) and headers[code] != title:
+                yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
+
+
 def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     """Each use of ``found`` (``manifest_usage.Uses``) the lane decides, with its standing, and the count of the
     others by key."""
@@ -216,6 +253,7 @@ def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     for use in found.uses:
         standing, entries = manifest_usage.standing(held, use)
         decided.extend(_generated_case_title(use, held))
+        decided.extend(_generated_detail_tab_title(use, held))
         if decides(held, use, standing):
             decided.append(Decided(use, standing, tuple(entries)))
             if standing == manifest_usage.HELD:

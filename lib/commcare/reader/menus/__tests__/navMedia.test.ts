@@ -764,6 +764,46 @@ describe("an override of a generated media key in `translations`", () => {
 		]);
 	});
 
+	it.each([
+		"jr://file/commcare/image/unmapped.png",
+		"not-an-installation-file",
+	])(
+		"refuses an unpackaged generated literal even without a resolved asset (%s)",
+		async (path) => {
+			const outcome = await readWithMedia(app(), (json) => {
+				json.modules[0].media_image = { en: MENU_ICON };
+				overriding(json, { "modules.m0.icon": path });
+			});
+			expect(findings(outcome)).toEqual([
+				"application-and-settings/translations-generated-navigation-file-not-packaged",
+			]);
+			expect(outcome.claims.handOffs.map((ref) => ref.subject)).not.toContain(
+				path,
+			);
+			expect(translationEntries(outcome)).not.toContain(
+				"translations-generated-navigation-file",
+			);
+		},
+	);
+
+	it("hands an ordinary referenced path with a missing asset to the media plan", async () => {
+		const path = "jr://file/commcare/image/unmapped.png";
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0];
+			menu.media_image = { en: MENU_ICON };
+			(menu.forms[0] as Record<string, unknown>).media_image = { en: path };
+			overriding(json, { "modules.m0.icon": path });
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The menu did not read.");
+		expect(outcome.draft.facts.pendingMedia).toContainEqual(
+			expect.objectContaining({
+				path,
+				pointer: "/translations/en/modules.m0.icon",
+			}),
+		);
+	});
+
 	it("refuses to keep a resolved override whose ordinary carrier was lost", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
 			const menu = json.modules[0];

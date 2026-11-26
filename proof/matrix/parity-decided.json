@@ -175,6 +175,7 @@
 		"hq-case-lists/translatable-text-over-a-parent-property-beside-search",
 		"hq-case-lists/translatable-text-over-a-property",
 		"hq-case-lists/translatable-text-over-an-expression",
+		"hq-case-lists/translation-overrides-a-detail-tab-title",
 		"hq-case-lists/two-address-columns",
 		"hq-case-lists/undeclared-column-key",
 		"hq-case-lists/undeclared-detail-key",
