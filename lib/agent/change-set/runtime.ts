@@ -22,10 +22,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
-import {
-	emptyGenesisBase,
-	loadCanonicalBlueprintAtSequence,
-} from "./baseLoader";
+import { emptyGenesisBase, loadPrivateEditBase } from "./baseLoader";
 import { canonicalJsonDigest } from "./digest";
 import { ChangeSetIntegrityError } from "./errors";
 import { loadChangeSetSteps } from "./store";
@@ -95,7 +92,7 @@ export async function rehydrateChangeSet(
 				`Change set ${changeSet.id} is app-edit but carries no app/base sequence.`,
 			);
 		}
-		const base = await loadCanonicalBlueprintAtSequence(db, {
+		const base = await loadPrivateEditBase(db, changeSet.id, {
 			appId: changeSet.appId,
 			seq: changeSet.baseSeq,
 			expectedDigest: changeSet.baseSnapshotDigest,

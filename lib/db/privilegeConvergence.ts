@@ -317,6 +317,8 @@ const RUNTIME_INSERT_DELETE_TABLES = [
  * `SECURITY DEFINER` trigger, so serving code reads it and cannot reset it. */
 const RUNTIME_READ_ONLY_TABLES = [
 	"app_deployment_fold_references",
+	"authoring_workspace_folds",
+	"authoring_step_folds",
 	"conversation_source_cutover",
 	"app_change_fold_baselines",
 	"app_migration_notices",

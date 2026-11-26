@@ -2101,6 +2101,27 @@ export interface AppDatabase {
 	authoring_sessions: AuthoringSessionsTable;
 	authoring_session_requests: AuthoringSessionRequestsTable;
 	authoring_workspaces: AuthoringWorkspacesTable;
+	authoring_workspace_folds: {
+		change_set_id: string;
+		project_id: string;
+		app_id: string;
+		source_base_seq: BigIntColumn | null;
+		effective_base_seq: BigIntColumn | null;
+		source_base_digest: string;
+		effective_base_digest: string;
+		source_digest: string;
+		candidate_digest: string;
+		source_step_count: BigIntColumn;
+		base_snapshot: ColumnType<unknown, string | null, never>;
+	};
+	authoring_step_folds: {
+		change_set_id: string;
+		ordinal: BigIntColumn;
+		source_mutation_digest: string;
+		mutation_digest: string;
+		mutations: ColumnType<unknown, string, never>;
+		mutation_lengths: ColumnType<unknown, string, never>;
+	};
 	organization_authoring_receipts: {
 		app_id: string;
 		request_id: string;
