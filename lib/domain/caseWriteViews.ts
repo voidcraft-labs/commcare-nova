@@ -30,6 +30,7 @@ import {
 	caseWriteKeyOf,
 	type FormType,
 	operationCaseType,
+	sameCaseWriteKey,
 } from "./forms";
 import { entityTargetKey, indexedReferencingSlots } from "./referenceIndex";
 import type { Uuid } from "./uuid";
@@ -89,6 +90,35 @@ export function fieldCaseWriteViewKey(
 						: { property: view.property, via: view.via },
 			}
 		: { operationUuid: view.operationUuid, slot: view.slot };
+}
+
+/** Where one value of an operation saves: the operation, its slot, and for
+ *  a `writes[]` entry the cases its `via` walks. */
+export interface CaseWriteValueAt {
+	readonly operationUuid: Uuid;
+	readonly slot: FieldCaseWriteSlot;
+	readonly via?: CaseWriteVia;
+}
+
+/** Whether `view` is the view of the value `at` saves to `property`: one
+ *  operation can save one property name on its own case and on a case above
+ *  it, each its own view with its own destination type. */
+export function isViewAt(
+	view: FieldCaseWriteView,
+	at: CaseWriteValueAt,
+	property: string,
+): boolean {
+	return (
+		view.operationUuid === at.operationUuid &&
+		view.slot === at.slot &&
+		sameCaseWriteKey(
+			{
+				property: view.property,
+				...(view.via !== undefined && { via: view.via }),
+			},
+			{ property, ...(at.via !== undefined && { via: at.via }) },
+		)
+	);
 }
 
 /** The slots an operation's view-bearing values sit in, by registry id. */

@@ -18,12 +18,16 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
 	type CasePlacement,
+	type CaseWriteValueAt,
+	type CaseWriteVia,
 	caseScalarTextSiblings,
 	caseWriteValueField,
 	type DatumRef,
+	type FieldCaseWriteSlot,
 	type Form,
 	formCaseWriteViews,
 	isCaseScalarTextProperty,
+	isViewAt,
 	moduleUuidOfForm,
 	orderedCaseOperations,
 	type Uuid,
@@ -298,7 +302,7 @@ function buildPlan(
 	const questionPath = (
 		value: Expression,
 		property: string,
-		operationUuid?: Uuid,
+		at?: CaseWriteValueAt,
 	): string | null => {
 		const source = caseWriteValueField(value);
 		if (source === undefined)
@@ -322,9 +326,10 @@ function buildPlan(
 		// question saved to a day is read as it is (`writesMoment`).
 		const field = doc.fields[source.field];
 		const views = writeViews.get(source.field) ?? [];
-		const view = views.find(
-			(one) => one.operationUuid === operationUuid && one.property === property,
-		);
+		const view =
+			at === undefined
+				? undefined
+				: views.find((one) => isViewAt(one, at, property));
 		if (
 			field !== undefined &&
 			(view === undefined
@@ -356,8 +361,14 @@ function buildPlan(
 			value: Expression,
 			property: string,
 			mode: ConditionalCaseUpdate["update_mode"],
+			slot: FieldCaseWriteSlot,
+			via?: CaseWriteVia,
 		) => {
-			const path = questionPath(value, property, operation.uuid);
+			const path = questionPath(value, property, {
+				operationUuid: operation.uuid,
+				slot,
+				...(via !== undefined && { via }),
+			});
 			if (path !== null)
 				update[key] = { question_path: path, update_mode: mode };
 		};
@@ -372,6 +383,7 @@ function buildPlan(
 				operation.name,
 				"case_name",
 				mode(operation.nameOnlyIfChanged),
+				"name",
 			);
 		if (operation.rename !== undefined)
 			put(
@@ -379,6 +391,7 @@ function buildPlan(
 				operation.rename,
 				"case_name",
 				mode(operation.renameOnlyIfChanged),
+				"name",
 			);
 		if (options.owner && operation.owner !== undefined)
 			put(
@@ -386,6 +399,7 @@ function buildPlan(
 				operation.owner,
 				"owner_id",
 				mode(operation.ownerOnlyIfChanged),
+				"owner",
 			);
 		for (const write of operation.writes ?? []) {
 			// HQ maps `name` to the case's `case_name` element
@@ -404,6 +418,8 @@ function buildPlan(
 				write.value,
 				write.property,
 				write.onlyIfChanged ? "edit" : "always",
+				"write",
+				write.via,
 			);
 		}
 		return update;

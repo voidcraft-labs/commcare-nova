@@ -24,7 +24,19 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
+import {
+	placementFixture,
+	own as placementOwn,
+	read as placementRead,
+} from "@/lib/commcare/__tests__/placementFixture";
+import { expandDoc } from "@/lib/commcare/expander";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type {
+	BlueprintDoc,
+	CaseOperationWrite,
+	CasePropertyDataType,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "./heldReading";
@@ -199,4 +211,71 @@ describe("a date-and-time question saved straight to a case", () => {
 			outcome.kind === "account" ? outcome.findings.map((one) => one.code) : [],
 		).toContain(`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`);
 	});
+});
+
+/**
+ * One date-and-time question saved to one property name on the form's own
+ * case, a `datetime` property, and on the case above it, a `date` property:
+ * each write is exported to its own destination, the moment through the
+ * sibling and the day straight, whichever the operation writes first.
+ */
+describe("one date and time saved to a property of the same name on two cases", () => {
+	const toHousehold = [
+		{ identifier: "host", throughCaseType: "household" },
+	] as const;
+	const own = { property: "visited", value: placementRead("seen") } as const;
+	const above = { ...own, via: [...toHousehold] } as const;
+
+	function exported(writes: readonly CaseOperationWrite[]) {
+		const { doc } = placementFixture("followup", {
+			extraRoot: [{ kind: "datetime", id: "seen" }],
+			operations: () => [placementOwn({ writes: [...writes] })],
+		});
+		const typed = produce(doc, (draft) => {
+			for (const [type, data_type] of [
+				["patient", "datetime"],
+				["household", "date"],
+			] as const)
+				draft.caseTypes
+					?.find((one) => one.name === type)
+					?.properties.push({
+						name: "visited",
+						label: proseText("Visited"),
+						data_type,
+					});
+		});
+		expect(
+			runValidation(typed, LOOKUP_CONTEXT_UNAVAILABLE).map((one) => one.code),
+		).toEqual([]);
+		const app = expandDoc(typed) as unknown as {
+			modules: {
+				forms: {
+					name: Record<string, string>;
+					actions: {
+						update_case: { update: Record<string, { question_path: string }> };
+					};
+				}[];
+			}[];
+		};
+		const update = app.modules[0]?.forms.find(
+			(form) => form.name.en === "Under test",
+		)?.actions.update_case.update;
+		return Object.fromEntries(
+			Object.entries(update ?? {}).map(([key, value]) => [
+				key,
+				value.question_path,
+			]),
+		);
+	}
+
+	for (const [order, writes] of [
+		["own case first", [own, above]],
+		["case above first", [above, own]],
+	] as const)
+		it(`exports each to its own destination with the ${order}`, () => {
+			expect(exported(writes)).toEqual({
+				visited: "/data/nova_datetime_seen",
+				"host/visited": "/data/seen",
+			});
+		});
 });

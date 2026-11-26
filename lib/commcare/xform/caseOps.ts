@@ -535,7 +535,7 @@ function sharedOwnRows(
 			property: write.property,
 			value: write.value,
 			...(write.condition !== undefined && { condition: write.condition }),
-			...(savesDay(doc, formUuid, own, write.property, write.value) && {
+			...(savesDay(doc, formUuid, own, write) && {
 				day: true as const,
 			}),
 			slot: {
@@ -568,21 +568,28 @@ function sharedOwnRows(
 		.map(({ row }) => row);
 }
 
-/** Whether `operation`'s write of `property` saves a date-and-time
+/** Whether `operation`'s `write` saves a date-and-time
  *  question's answer to a `date` property (`writesMoment`): no sibling. */
 function savesDay(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	operation: CaseOperation,
-	property: string,
-	value: Expression,
+	write: CaseOperationWrite,
 ): boolean {
-	const source = caseWriteValueField(value);
+	const source = caseWriteValueField(write.value);
 	const field = source === undefined ? undefined : doc.fields[source.field];
 	if (source === undefined || field === undefined || source.link) return false;
 	const views = formCaseWriteViews(doc, formUuid).get(source.field) ?? [];
-	const view = views.find(
-		(one) => one.operationUuid === operation.uuid && one.property === property,
+	const view = views.find((one) =>
+		isViewAt(
+			one,
+			{
+				operationUuid: operation.uuid,
+				slot: "write",
+				...(write.via !== undefined && { via: write.via }),
+			},
+			write.property,
+		),
 	);
 	const caseTypes = effectiveCaseTypes(doc);
 	return (
