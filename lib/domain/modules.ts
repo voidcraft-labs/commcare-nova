@@ -2213,6 +2213,14 @@ export function isVisibleSearchInput(
 	return input.kind !== "hidden" && input.kind !== "address";
 }
 
+export type SearchAnswerInput = Exclude<SearchInputDef, { kind: "address" }>;
+
+export function isSearchAnswerInput(
+	input: SearchInputDef,
+): input is SearchAnswerInput {
+	return input.kind !== "address";
+}
+
 export function isSelectSearchInput(
 	input: SearchInputDef,
 ): input is SelectSearchInputDef {
@@ -2222,8 +2230,8 @@ export function isSelectSearchInput(
 /** The inputs a worker sees on the Search screen, in authored order. */
 export function visibleSearchInputs(
 	inputs: readonly SearchInputDef[],
-): VisibleSearchInputDef[] {
-	return inputs.filter(isVisibleSearchInput);
+): Exclude<SearchInputDef, { kind: "hidden" }>[] {
+	return inputs.filter((input) => input.kind !== "hidden");
 }
 
 /** The device expression that supplies a visible prompt’s starting value. */
@@ -2239,9 +2247,9 @@ export function searchInputDefault(
  * input binds whatever text its expression printed.
  */
 export function searchInputRuntimeValueType(
-	input: SearchInputDef,
+	input: SearchAnswerInput,
 ): CasePropertyDataType {
-	return input.kind === "hidden" || input.kind === "address"
+	return input.kind === "hidden"
 		? "text"
 		: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type];
 }

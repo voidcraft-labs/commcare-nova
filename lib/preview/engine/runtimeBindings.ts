@@ -19,6 +19,7 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
+	isSearchAnswerInput,
 	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
 	type SearchInputDef,
 	type SearchInputMode,
@@ -132,6 +133,11 @@ export function withSearchInputExpressionValues(
 	inputValues: SearchInputValues,
 ): SearchInputValues {
 	const expressionValues = new Map(inputValues);
+	for (const input of searchInputs) {
+		if (input.kind !== "address") continue;
+		expressionValues.delete(input.name);
+		expressionValues.delete(searchForBlankKey(input.name));
+	}
 	for (const input of searchInputs) {
 		if (input.kind === "hidden" || input.type !== "date-range") continue;
 		expressionValues.delete(input.name);
@@ -282,9 +288,7 @@ export function composeRuntimeFilter(
 		inputValues,
 	);
 	const knownInputUuids = new Set(
-		searchInputs
-			.filter((input) => input.kind !== "address")
-			.map((input) => input.uuid),
+		searchInputs.filter(isSearchAnswerInput).map((input) => input.uuid),
 	);
 	const clauses: Expression[] = [];
 	for (const input of searchInputs) {
@@ -573,7 +577,7 @@ function searchInputRuntimeBindings(
 	searchInputs: readonly SearchInputDef[],
 ): ReadonlyMap<Uuid, RuntimeInputBinding> {
 	return new Map(
-		searchInputs.map((input) => [
+		searchInputs.filter(isSearchAnswerInput).map((input) => [
 			input.uuid,
 			{
 				uuid: input.uuid,

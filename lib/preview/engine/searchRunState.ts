@@ -175,7 +175,7 @@ export function searchInputAnswerKeys(
 ): Set<string> {
 	const keys = new Set<string>();
 	for (const input of searchInputs) {
-		if (input.kind === "hidden") continue;
+		if (input.kind === "hidden" || input.kind === "address") continue;
 		if (input.type === "date-range") {
 			keys.add(`${input.name}:from`);
 			keys.add(`${input.name}:to`);
@@ -216,13 +216,17 @@ export function searchForBlankAnswerRefusal(
  *  field holding its value. */
 export function drawnSearchInputs(
 	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
 ): readonly SearchInputDef[] {
-	return rules.hiddenSearchField === "editable"
-		? searchInputs
-		: searchInputs.filter(
-				(input) => input.kind !== "hidden" && input.hidden !== true,
-			);
+	return searchInputs.filter((input) =>
+		input.kind === "address"
+			? rules.searchAddressPicker
+			: rules.hiddenSearchField === "editable" ||
+				(input.kind !== "hidden" && input.hidden !== true),
+	);
 }
 
 /** The answer keys of the fields a platform's Search screen does not draw
@@ -231,7 +235,10 @@ export function drawnSearchInputs(
  *  starting value the search sends as it stands. */
 export function undrawnSearchAnswerKeys(
 	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
 ): Set<string> {
 	const drawn = new Set(drawnSearchInputs(searchInputs, rules));
 	return searchInputAnswerKeys(
@@ -246,7 +253,10 @@ export function undrawnSearchAnswerKeys(
  *  it, and takes the answer. */
 export function undrawnSearchAnswerRefusal(
 	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
 	key: string,
 ): string | undefined {
 	if (!undrawnSearchAnswerKeys(searchInputs, rules).has(key)) return undefined;

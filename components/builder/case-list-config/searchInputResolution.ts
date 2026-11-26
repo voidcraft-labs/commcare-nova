@@ -36,11 +36,13 @@ import {
 	fuzzyDateMode,
 	fuzzyMode,
 	hiddenSearchFieldRefusal,
+	isSearchAnswerInput,
 	phoneticMode,
 	projectSpaceMatchingFits,
 	rangeMode,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
+	type SearchAnswerInput,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
@@ -526,7 +528,7 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 // columns use the case-list's configured search stage.
 
 export function deriveSearchInputDecl(
-	row: SearchInputDef,
+	row: SearchAnswerInput,
 ): EditorSearchInputDecl {
 	return {
 		uuid: row.uuid,
@@ -539,9 +541,7 @@ export function deriveSearchInputDecl(
 export function searchInputDecls(
 	rows: readonly SearchInputDef[],
 ): readonly EditorSearchInputDecl[] {
-	return rows
-		.filter((input) => input.kind !== "address")
-		.map(deriveSearchInputDecl);
+	return rows.filter(isSearchAnswerInput).map(deriveSearchInputDecl);
 }
 
 // ── Default-value expectedType + seed ─────────────────────────────

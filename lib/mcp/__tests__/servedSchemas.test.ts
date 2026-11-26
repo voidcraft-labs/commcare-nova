@@ -189,6 +189,41 @@ function takes(name: string, input: Json) {
 	return validate(input) || validate.errors;
 }
 
+it("serves a named address picker and an ordered Search receiver", () => {
+	const address = {
+		kind: "address",
+		type: "address",
+		name: "address",
+		label: "Address",
+	};
+	const city = {
+		kind: "simple",
+		type: "text",
+		name: "village",
+		label: "Village",
+		property: "village",
+		addressReceiver: {
+			kind: "address",
+			source: "address",
+			parts: ["us_state", "city"],
+		},
+	};
+	const withInputs = (receiver: typeof city) => ({
+		moduleUuid: "Patients",
+		searchInputs: [address, receiver],
+	});
+	expect(takes("add_search_inputs", withInputs(city))).toBe(true);
+	expect(
+		takes(
+			"add_search_inputs",
+			withInputs({
+				...city,
+				addressReceiver: { ...city.addressReceiver, parts: ["unknown-part"] },
+			}),
+		),
+	).not.toBe(true);
+});
+
 it("serves a question's keypad and text settings, a search with no title, where blanks sort and the calculated value in text", () => {
 	const module = {
 		work_id: "00000000-0000-4000-8000-000000000001",

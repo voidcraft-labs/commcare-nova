@@ -216,12 +216,27 @@ export function bindNamedIdentity(args: {
 				([uuid, search]) => ({ id: uuid, names: [search.name] }),
 			);
 			break;
-		case "search-input":
-			candidates = named<{ uuid: string; name: string }>(
-				scope.inputs ?? module?.caseListConfig?.searchInputs ?? [],
-				(item) => [item.name],
-			);
+		case "search-input": {
+			const existing = module?.caseListConfig?.searchInputs ?? [];
+			if (slot.path.at(-2) === "addressReceiver") {
+				candidates = named(
+					existing.filter((item) => item.kind === "address"),
+					(item) => [item.name],
+				);
+				candidates.push(
+					...declarations(
+						items(input.searchInputs).filter((item) => item.kind === "address"),
+						"searchInputUuid",
+						"name",
+					),
+				);
+			} else {
+				candidates = named([...(scope.inputs ?? []), ...existing], (item) => [
+					item.name,
+				]);
+			}
 			break;
+		}
 		case "form-opening-assignment":
 			candidates = formUuid
 				? named(doc.forms[formUuid]?.openingAssignments ?? [], (row) => [

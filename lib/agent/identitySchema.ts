@@ -154,6 +154,7 @@ export function classifyIdentity(
 	)
 		return "form";
 	if (pointer.endsWith("/source/under/relationship/question")) return "field";
+	if (pointer.endsWith("/addressReceiver/source")) return "search-input";
 	if (tool === "edit_form_entry") {
 		if (
 			(property === "uuid" || property === "after") &&

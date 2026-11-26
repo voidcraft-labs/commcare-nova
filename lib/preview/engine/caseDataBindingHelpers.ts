@@ -126,6 +126,7 @@ import {
 	type Form,
 	type FormType,
 	isCaptureFieldKind,
+	isSearchAnswerInput,
 	type Module,
 	orderedCaseOperations,
 	organizationLevelsOf,
@@ -404,11 +405,13 @@ function caseReadCore(
 		bindings: args.bindings,
 		lookupTableSchemas: args.lookupTableSchemas,
 		predicate,
-		knownInputs: args.caseListConfig?.searchInputs.map((input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			data_type: searchInputRuntimeValueType(input),
-		})),
+		knownInputs: args.caseListConfig?.searchInputs
+			.filter(isSearchAnswerInput)
+			.map((input) => ({
+				uuid: input.uuid,
+				name: input.name,
+				data_type: searchInputRuntimeValueType(input),
+			})),
 		restoreScope: args.restoreScope,
 		searchPopulation: args.searchPopulation,
 	};
@@ -992,7 +995,9 @@ function composeQueryPredicate(
 		hasAuthoredConstraint = true;
 	}
 	const knownInputUuids = new Set(
-		caseListConfig?.searchInputs.map((input) => input.uuid) ?? [],
+		caseListConfig?.searchInputs
+			.filter(isSearchAnswerInput)
+			.map((input) => input.uuid) ?? [],
 	);
 	const emptyExpressionInputValues =
 		caseListConfig === undefined

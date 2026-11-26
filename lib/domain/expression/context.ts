@@ -41,6 +41,7 @@ import {
 import { formRouteBeforeCase } from "../menuScreens";
 import {
 	effectiveCaseSearchConfig,
+	isSearchAnswerInput,
 	moduleFormsReadSearch,
 	projectSearchOf,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
@@ -393,7 +394,7 @@ export function untypedExpressionFacts(
 			Object.values(doc.modules).map((module) => [
 				module.uuid,
 				(module.caseListConfig?.searchInputs ?? [])
-					.filter((input) => input.kind !== "address")
+					.filter(isSearchAnswerInput)
 					.map((input) => ({
 						uuid: input.uuid,
 						name: input.name,
@@ -630,7 +631,7 @@ function buildFormFacts(
 	].flatMap((uuid) => {
 		const owner = doc.modules[uuid];
 		return (owner?.caseListConfig?.searchInputs ?? [])
-			.filter((input) => input.kind !== "address")
+			.filter(isSearchAnswerInput)
 			.map((input) => ({
 				uuid: input.uuid,
 				name: input.name,
@@ -804,7 +805,7 @@ export function slotContext(
 			: menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (module === undefined || moduleUuid === undefined) return undefined;
 	const searchInputs = (module.caseListConfig?.searchInputs ?? [])
-		.filter((input) => input.kind !== "address")
+		.filter(isSearchAnswerInput)
 		.map((input) => ({
 			uuid: input.uuid,
 			name: input.name,
