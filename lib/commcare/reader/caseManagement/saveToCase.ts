@@ -36,6 +36,7 @@ import {
 	prepareCaseScalarTextValue,
 	type Uuid,
 } from "@/lib/domain";
+import { planCaseRetype } from "@/lib/domain/caseRetype";
 import {
 	actingUser,
 	and,
@@ -268,6 +269,7 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches`,
 		MUG,
 	),
+	dateRetype: take(`${Q}/a-savetocase-retype-that-keeps-a-date-as-text`, MUG),
 	/** A `case_type` row that gives a case a type holding one of the earlier
 	 *  type's properties as another type (`index.ts::settleCaseChanges`). */
 	retypeConverts: refuse(
@@ -4674,6 +4676,30 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 			place: refused === undefined ? ownClose.place : form.place,
 			claim: refused ?? SAVE_TO_CASE_CLAIMS.outsideShape,
 		});
+	}
+	const xform = form.xform;
+	const settled = ctx.doc ?? doc;
+	if (xform !== null) {
+		for (const operation of settled.forms[form.uuid]?.caseOperations ?? []) {
+			if (operation.action !== "update" || operation.retype === undefined)
+				continue;
+			const block = reading.proposals.find(
+				(one) => one.uuid === operation.uuid,
+			)?.block;
+			if (block === undefined || failed.some((one) => one.block === block))
+				continue;
+			const plan = planCaseRetype(
+				settled,
+				operation.caseType,
+				operation.retype,
+			);
+			if (plan.wirePortable && plan.datesKeptAsText.length > 0)
+				xform.cursor.within(
+					{ element: block.element },
+					SAVE_TO_CASE_CLAIMS.dateRetype,
+					[MUG],
+				);
+		}
 	}
 	REFUSED_BLOCKS.set(
 		form,

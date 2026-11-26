@@ -709,7 +709,7 @@ function validateOperation(
 					ctx,
 					operation,
 					"CASE_OPERATION_RETYPE_UNSAFE",
-					`Retyping ${operation.caseType} to ${operation.retype} is not portable: ${consequences.join(" and ")}. CommCare's case wire changes only case_type, so Nova admits authored retypes only when every existing JSON property is retained with the exact same type.`,
+					`Retyping ${operation.caseType} to ${operation.retype} is not portable: ${consequences.join(" and ")}. CommCare's case wire changes only case_type, so Nova admits authored retypes only when each existing JSON value can be kept unchanged.`,
 				),
 			);
 		}

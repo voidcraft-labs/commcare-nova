@@ -84,6 +84,9 @@ public class CaseOperationRuntimeTest {
                 record.setProperty("nickname", "visit".equals(seed[1]) ? "Visit 1" : "Old nickname");
                 if ("visit".equals(seed[1])) record.setIndex(new CaseIndex("parent", "patient", "patient-1"));
                 record.setProperty("source_id", "Old source");
+                if ("retype".equals(scenario) && "patient-1".equals(seed[0])) {
+                    record.setProperty("seen_on", "2026-04-17");
+                }
                 if ("sequence".equals(scenario) && "patient-1".equals(seed[0])) {
                     // Ordinary followup preloads override defaults, including blank
                     // properties. Verify the loaded instant rather than claiming a
@@ -481,6 +484,9 @@ public class CaseOperationRuntimeTest {
         assertTrue(record.getPropertyString("changed_type_at").contains("T"));
         java.time.OffsetDateTime.parse(record.getPropertyString("changed_type_at"));
         assertTrue(record.isClosed());
+        if ("retype".equals(scenario)) {
+            assertEquals("2026-04-17", record.getPropertyString("seen_on"));
+        }
     }
     @Test public void sessionRetype() throws Exception { retype("retype"); }
     /** A guard is an update-only block after its operation's; where its test fails its case id is blank, and Core

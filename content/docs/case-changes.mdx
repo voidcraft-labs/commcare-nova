@@ -29,6 +29,11 @@ the owner** is available after you choose the new owner. If the condition is
 false, the case keeps its current owner, and the change's other values still
 save.
 
+An update can change a case’s type when the new type can keep its saved
+values. A date can become text and keeps the original date string, such as
+`2026-04-17`. Other changes that need to convert existing values still
+require compatible property types.
+
 ## Choose the records a form opens with
 
 Open the form’s settings, select **Edit case changes**, and expand **Cases this form uses**. A form can ask for more than one record. To transfer a member between households, add the household list twice and name the choices **Current household** and **Receiving household**. Each choice keeps its own identity when you rename it or change its position.
