@@ -1029,24 +1029,49 @@ export async function writeInstallationReview(
 	);
 }
 
+/** The released schema has no profile/search bindings. Read any installed
+ * tables during the rehearsal and writer so both hash the same target facts
+ * as their migrations add initially empty tables. */
+export async function readCutoverTargetIdentityRows(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	context: { readonly appId: string; readonly server: string },
+): Promise<TargetIdentity> {
+	const {
+		rows: [shape],
+	} = await sql<{
+		installationProfiles: boolean;
+		projectSearches: boolean;
+	}>`
+		SELECT to_regclass('public.app_deployment_installation_profiles') IS NOT NULL AS "installationProfiles",
+			to_regclass('public.app_deployment_search_bindings') IS NOT NULL AS "projectSearches"
+	`.execute(tx);
+	if (!shape)
+		throw new Error("The deployment identity table inventory is unavailable.");
+	return readTargetIdentityRows(tx, deploymentId, context, shape);
+}
+
 /** The record's rows of one deployment, through `db` or a caller's transaction. */
 export async function readTargetIdentityRows(
 	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
 	deploymentId: string,
 	context: { readonly appId: string; readonly server: string },
+	shape = { installationProfiles: true, projectSearches: true },
 ): Promise<TargetIdentity> {
 	const [profileRows, entityRows, keyedRows, pathRows, wordRows, searchRows] =
 		await Promise.all([
-			db
-				.selectFrom("app_deployment_installation_profiles")
-				.select([
-					"nova_profile_uuid",
-					"profile_key",
-					"practice_worker_id",
-					"practice_witness",
-				])
-				.where("deployment_id", "=", deploymentId)
-				.execute(),
+			shape.installationProfiles
+				? db
+						.selectFrom("app_deployment_installation_profiles")
+						.select([
+							"nova_profile_uuid",
+							"profile_key",
+							"practice_worker_id",
+							"practice_witness",
+						])
+						.where("deployment_id", "=", deploymentId)
+						.execute()
+				: Promise.resolve([]),
 			db
 				.selectFrom("app_deployment_identities")
 				.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
@@ -1067,11 +1092,13 @@ export async function readTargetIdentityRows(
 				.select(["nova_column_uuid", "screen", "field_word"])
 				.where("deployment_id", "=", deploymentId)
 				.execute(),
-			db
-				.selectFrom("app_deployment_search_bindings")
-				.select(["search_uuid", "endpoint_id"])
-				.where("deployment_id", "=", deploymentId)
-				.execute(),
+			shape.projectSearches
+				? db
+						.selectFrom("app_deployment_search_bindings")
+						.select(["search_uuid", "endpoint_id"])
+						.where("deployment_id", "=", deploymentId)
+						.execute()
+				: Promise.resolve([]),
 		]);
 	const entities = entityRows.map((row): DeploymentIdentityOverride => {
 		if (row.entity_kind !== "module" && row.entity_kind !== "form") {

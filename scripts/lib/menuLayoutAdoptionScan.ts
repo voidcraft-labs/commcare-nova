@@ -5,8 +5,8 @@ import { loadSchemaAdmittedAppForInspection } from "@/lib/db/apps";
 import type { AppDatabase } from "@/lib/db/pg";
 import { sourceFromBaseline } from "@/lib/deployment/hqChanges/baselineSource";
 import {
+	readCutoverTargetIdentityRows,
 	readFoldOperatorBaseline,
-	readTargetIdentityRows,
 } from "@/lib/deployment/store";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { MenuLayoutDecision } from "../migrations/step7-menu-layouts";
@@ -115,7 +115,7 @@ export async function scanMenuLayoutAdoptions(
 			outcomes.push({ ...identity, standing: "unreadable-document" });
 			continue;
 		}
-		const record = await readTargetIdentityRows(tx, deploymentId, {
+		const record = await readCutoverTargetIdentityRows(tx, deploymentId, {
 			appId,
 			server,
 		});

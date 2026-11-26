@@ -21,8 +21,8 @@ import {
 } from "@/lib/deployment/hqChanges/reference";
 import { publishedTakeRenames } from "@/lib/deployment/hqChanges/referenceFold";
 import {
+	readCutoverTargetIdentityRows,
 	readFoldOperatorBaseline,
-	readTargetIdentityRows,
 } from "@/lib/deployment/store";
 import {
 	hydratePersistedBlueprint,
@@ -215,7 +215,7 @@ async function visitDeploymentReferences(
 			throw new Error(
 				"A previously certified deployment no longer matches its baseline, mapping or fold.",
 			);
-		const identity = await readTargetIdentityRows(tx, row.id, {
+		const identity = await readCutoverTargetIdentityRows(tx, row.id, {
 			appId,
 			server,
 		});
