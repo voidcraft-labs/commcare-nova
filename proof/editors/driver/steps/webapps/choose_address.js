@@ -1,7 +1,7 @@
 // The worker chooses the address returned by the real geocoder widget.
 (choice) => {
 	const name = typeof choice === "string" ? choice : choice.name;
-	const scope = typeof choice === "string" ? "#webforms" : "#menu-region";
+	const scope = typeof choice === "string" ? "#webforms" : choice.scope;
 	const buttons = document.querySelectorAll(
 		`${scope} .mapboxgl-ctrl-geocoder ul.suggestions li a`,
 	);

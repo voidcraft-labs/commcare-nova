@@ -2,6 +2,8 @@
 
 from dataclasses import replace
 
+import pytest
+
 from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
@@ -40,6 +42,10 @@ RECEIVERS = {
             district: district.selectedOptions[0]?.textContent.trim() || "",
             address: JSON.parse(sessionStorage.geocoderValues || "{}").home || null,
             addressDisplayed: document.querySelector('#home_mapbox input')?.value || "",
+            suggestions: [...document.querySelectorAll('#home_mapbox ul.suggestions li')].map(li => li.textContent.trim()),
+            lookups: performance.getEntriesByType('resource')
+                .filter(entry => entry.name.includes('/geocoding/'))
+                .map(entry => new URL(entry.name).pathname),
             fields: [...document.querySelectorAll('.query-field')].map(field => ({
                 tag: field.tagName, id: field.id, receiver: field.dataset.receive || null,
             })),
@@ -66,12 +72,13 @@ CLEAR_ADDRESS = {
 }
 
 
+@pytest.mark.parametrize("viewport", [None, SMALL_SCREEN], ids=["desktop", "phone"])
 def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_address(
-    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, viewport
 ):
     document = webapps_documents["hq-search"]
     opening = [*steps.open_app("Client search"), *steps.choose("Clients"), *steps.choose("Followup Form"), steps.SCREEN]
-    select = [TYPE_ADDRESS, {"until": "webapps/choose_address", "arg": {"name": PLACE["place_name"]}, "within": 8000}, steps.SETTLE]
+    select = [TYPE_ADDRESS, {"until": "webapps/choose_address", "arg": {"name": PLACE["place_name"], "scope": "#home_mapbox"}, "within": 8000}, steps.SETTLE]
 
     def enable(config):
         return replace(
@@ -86,7 +93,7 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
                 {"geocoderFixture": {"query": "Visit Road", "feature": PLACE}},
                 *opening, *select, RECEIVERS, CLEAR_ADDRESS, steps.SETTLE, RECEIVERS,
                 *select, *steps.run_search(), steps.SCREEN,
-            ], viewport=SMALL_SCREEN)
+            ], viewport=viewport)
     first = 1 + len(opening) + len(select)
     filled = run.value(first)
     cleared = run.value(first + 3)
