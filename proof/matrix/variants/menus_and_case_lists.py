@@ -369,7 +369,7 @@ def fixed_text_callout_with_worker_name(authoring, app_id):
     ])
 
 
-def fixed_text_callout_with_count(authoring, app_id):
+def fixed_text_callout_with_count(authoring, app_id, *, indexed=True):
     """A follow-up reads the guarded count from its one case list in an Android-only app."""
     from lxml import etree
 
@@ -386,10 +386,16 @@ def fixed_text_callout_with_count(authoring, app_id):
         bind = etree.Element(f"{{{etree.QName(model).namespace}}}bind")
         bind.set("nodeset", "/data/lookup_count")
         result = "instance('commcaresession')/session/data/fingerprintquery"
-        bind.set("calculate", f"if(count({result}) = 1, number({result}[1]), '')")
+        read = f"{result}[1]" if indexed else result
+        bind.set("calculate", f"if(count({result}) = 1, number({read}), '')")
         model.append(bind)
 
     ops.set_form_source(authoring, app_id, 0, 1, edit, what="guarded companion lookup count")
+
+
+def fixed_text_callout_with_unindexed_count(authoring, app_id):
+    """The same numeric guard converts the whole nodeset only after finding one value."""
+    fixed_text_callout_with_count(authoring, app_id, indexed=False)
 
 
 def fixed_text_callout_with_confidence(authoring, app_id):

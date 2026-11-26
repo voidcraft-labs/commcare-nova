@@ -1376,7 +1376,7 @@ const absentNodeGuard: Fold = {
 const lookupCount: Fold = {
 	id: "lookup-count",
 	ruleSets: ["form"],
-	propose(node, context, api) {
+	propose(node, context, api, env) {
 		const supplier = context.caseListLookupCountSource;
 		const guard = call(node, "if", 3);
 		const equal = binary(guard?.args[0], "=");
@@ -1392,15 +1392,20 @@ const lookupCount: Fold = {
 		)
 			return undefined;
 		const first = core(item);
+		const wholeCount = same(item, read);
 		const steps = flat(read)?.steps;
 		if (
 			steps?.at(-1)?.name !== CASE_LIST_LOOKUP_COUNT_DATA_NAME ||
 			steps.some((step) => step.attribute) ||
-			first.kind !== "filter" ||
-			!same(first.base, read) ||
-			numberValue(first.where) !== 1
+			(!wholeCount &&
+				(first.kind !== "filter" ||
+					!same(first.base, read) ||
+					numberValue(first.where) !== 1))
 		)
 			return undefined;
+		// A bare `fingerprintquery` has no typed binding. Keep this candidate
+		// for the slot's print with the equivalent index spelling withheld.
+		if (wholeCount) env.ownReading();
 		return api.remember(
 			{ kind: "case-list-lookup-count", module: supplier },
 			node,

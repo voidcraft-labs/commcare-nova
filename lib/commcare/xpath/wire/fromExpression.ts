@@ -1081,10 +1081,16 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 					w.step("data"),
 					w.step(CASE_LIST_LOOKUP_COUNT_DATA_NAME, predicates),
 				]);
+			const result = rewriteWithheld(
+				ctx.rewrites,
+				"lookup-count-singleton-index",
+			)
+				? nodes()
+				: nodes([w.num(1)]);
 			// Neither an absent count nor an unexpected second supplier is a number.
 			return w.call("if", [
 				w.eq(w.call("count", [nodes()]), w.num(1)),
-				w.call("number", [nodes([w.num(1)])]),
+				w.call("number", [result]),
 				w.str(""),
 			]);
 		}
